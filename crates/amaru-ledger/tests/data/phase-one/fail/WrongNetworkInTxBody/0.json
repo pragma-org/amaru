@@ -1,5 +1,5 @@
 {
-  "title": "WrongNetworkInTxBody",
+  "title": "body network_id disagrees with fixture network",
   "description": "The transaction body's network_id field declares Mainnet (1) but the fixture network is Preprod (Testnet, 0); phase-one must reject.",
   "network": "preprod",
   "eraHistory": {

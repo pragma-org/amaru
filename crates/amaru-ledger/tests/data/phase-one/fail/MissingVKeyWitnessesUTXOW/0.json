@@ -1,5 +1,5 @@
 {
-  "title": "MissingVKeyWitnessesUTXOW",
+  "title": "vkey-locked input with empty witness set",
   "description": "The transaction's only input is locked to a vkey credential; inputs::execute registers that key as a required signer. The witness set is empty, so phase-one must reject for the missing vkey witness.",
   "network": "preprod",
   "eraHistory": {

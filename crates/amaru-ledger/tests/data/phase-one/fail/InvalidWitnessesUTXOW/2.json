@@ -1,5 +1,5 @@
 {
-  "title": "InvalidWitnessesUTXOW",
+  "title": "vkey witness with wrong-sized public key",
   "description": "Two vkey witnesses: the first matches the input's required key (valid vkey and signature, copied from simple-transfer); the second carries a 31-byte vkey. The required-keys check is satisfied by the first witness, so phase-one must reject on the malformed key length of the second witness.",
   "network": "preprod",
   "eraHistory": {

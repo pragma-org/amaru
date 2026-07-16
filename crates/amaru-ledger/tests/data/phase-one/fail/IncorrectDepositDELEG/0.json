@@ -1,5 +1,5 @@
 {
-  "title": "IncorrectDepositDELEG",
+  "title": "stake registration cert with incorrect deposit",
   "description": "A Conway `Reg` cert supplies a deposit that disagrees with protocolParameters.stakeCredentialDeposit.",
   "network": "preprod",
   "eraHistory": {

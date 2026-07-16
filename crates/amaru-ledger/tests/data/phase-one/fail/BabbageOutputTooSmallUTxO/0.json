@@ -1,5 +1,5 @@
 {
-  "title": "BabbageOutputTooSmallUTxO",
+  "title": "output below minimum lovelace",
   "description": "Same body and witness as pass/simple-transfer; only the protocol parameters change. minUtxoDepositCoefficient is overridden to a value large enough that the minimum-Lovelace requirement for the single output exceeds its 4_800_000-lovelace value. The input-vkey requirement is satisfied by the reused simple-transfer signature, so the only phase-one failure is the output's minimum-value check.",
   "network": "preprod",
   "eraHistory": {

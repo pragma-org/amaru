@@ -1,5 +1,5 @@
 {
-  "title": "BadInputsUTxO",
+  "title": "unknown reference input",
   "description": "The transaction's reference input does not exist in the initial UTxO; phase-one must reject (the reference-input lookup site, distinct from the spent-input site).",
   "network": "preprod",
   "eraHistory": {

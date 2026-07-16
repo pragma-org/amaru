@@ -1,5 +1,5 @@
 {
-  "title": "DelegateeDRepRegistered",
+  "title": "vote reg delegation to registered drep",
   "description": "A registration-and-vote-delegation certificate registers the credential and delegates to a registered DRep.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "DRepRegistration",
+  "title": "drep registration on unregistered key-hash credential",
   "description": "A DRep registration certificate registers a key-hash credential that is not yet registered.",
   "network": "preprod",
   "eraHistory": {

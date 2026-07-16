@@ -1,5 +1,5 @@
 {
-  "title": "ValueNotConservedUTxO",
+  "title": "drep deregistration refund unaccounted by outputs",
   "description": "A DRep deregistration refunds the seeded deposit that the outputs and fee do not cover, so consumed exceeds produced.",
   "network": "preprod",
   "eraHistory": {

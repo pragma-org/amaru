@@ -1,5 +1,5 @@
 {
-  "title": "InvalidWitnessesUTXOW",
+  "title": "bootstrap witness with signature too short",
   "description": "Same shape as InvalidWitnessesUTXOW/3 but the bootstrap signature is encoded with 63 bytes instead of 64. The public-key + chain-code + attributes still hash to the input's bootstrap root, so the required-keys check passes; phase-one must reject on the malformed signature length.",
   "network": "preprod",
   "eraHistory": {

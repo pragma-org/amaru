@@ -1,5 +1,5 @@
 {
-  "title": "MaxTxSizeUTxO",
+  "title": "transaction larger than maxTransactionSize",
   "description": "The transaction is byte-for-byte the simple-transfer body, but the fixture's protocolParameters.maxTransactionSize is set to 100, well below the actual tx size on disk, so phase-one must reject on size.",
   "network": "preprod",
   "eraHistory": {

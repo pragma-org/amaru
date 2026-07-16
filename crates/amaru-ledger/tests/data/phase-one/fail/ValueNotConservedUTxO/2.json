@@ -1,5 +1,5 @@
 {
-  "title": "ValueNotConservedUTxO",
+  "title": "stake deregistration refund unaccounted by outputs",
   "description": "A stake deregistration refunds the seeded account deposit that the outputs and fee do not cover, so consumed exceeds produced.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "stake-delegation",
+  "title": "registered credential delegates to pool",
   "description": "Registered credential delegates to a pool via StakeDelegation.",
   "network": "preprod",
   "eraHistory": {

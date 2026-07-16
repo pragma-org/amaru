@@ -1,5 +1,5 @@
 {
-  "title": "tx-size-just-above-limit",
+  "title": "transaction size just above maxTransactionSize",
   "description": "simple-transfer with maxTransactionSize set to exactly one byte less than the (computed) tx size.",
   "network": "preprod",
   "eraHistory": {

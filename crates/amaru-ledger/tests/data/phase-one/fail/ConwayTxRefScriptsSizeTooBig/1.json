@@ -1,5 +1,5 @@
 {
-  "title": "ConwayTxRefScriptsSizeTooBig",
+  "title": "summed reference scripts over per-tx limit",
   "description": "Two 30-byte reference scripts, each within the per-tx limit (50) but summing to 60 over it.",
   "network": "preprod",
   "eraHistory": {

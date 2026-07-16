@@ -1,5 +1,5 @@
 {
-  "title": "DRepRegistration",
+  "title": "drep registration on unregistered script-hash credential",
   "description": "A DRep registration certificate registers a script-hash credential that is not yet registered, witnessed by its native script.",
   "network": "preprod",
   "eraHistory": {

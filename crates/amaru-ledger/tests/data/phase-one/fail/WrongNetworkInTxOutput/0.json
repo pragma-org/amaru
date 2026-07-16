@@ -1,5 +1,5 @@
 {
-  "title": "WrongNetworkInTxOutput",
+  "title": "output address on wrong network",
   "description": "simple-transfer-shaped body with the single output's network byte flipped from 0x60 (testnet+vkey) to 0x61 (mainnet+vkey). The body's network_id is still 0 so the body-level network check passes; outputs::execute then rejects the output on its address-network mismatch. The consumed input is locked to the dev key and the witness set carries a valid signature, so the only phase-one failure is the output's network check.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "invalid-tx-collateral",
+  "title": "invalid transaction collects fee from collateral",
   "description": "An is_valid=false transaction collects its fee from the collateral input.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "tx-size-at-limit",
+  "title": "transaction size exactly at maxTransactionSize",
   "description": "simple-transfer with maxTransactionSize set to exactly the tx size.",
   "network": "preprod",
   "eraHistory": {

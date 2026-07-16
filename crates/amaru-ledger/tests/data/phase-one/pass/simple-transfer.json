@@ -1,5 +1,5 @@
 {
-  "title": "simple-transfer",
+  "title": "simple transfer",
   "description": "Single vkey-locked input, single vkey-locked output, sufficient fee. Passes every phase-one predicate.",
   "network": "preprod",
   "eraHistory": {

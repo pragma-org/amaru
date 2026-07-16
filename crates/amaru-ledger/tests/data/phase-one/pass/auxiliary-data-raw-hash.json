@@ -1,5 +1,5 @@
 {
-  "title": "auxiliary-data-raw-hash",
+  "title": "auxiliary data hashed from raw bytes (non-roundtripping encoding)",
   "description": "Based on a real transaction from preprod (a7a5b486773edf68c2874d2fd2737f20385be108d31fb25a0be5246d73b7660a) that used an unexpected encoding.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "stake-reg-deleg",
+  "title": "registration and delegation to registered pool",
   "description": "StakeRegDeleg registers a new credential and delegates to a registered pool.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "DelegateeDRepRegistered",
+  "title": "stake vote delegation to registered drep",
   "description": "A stake-and-vote-delegation certificate delegates to a registered pool and a registered DRep.",
   "network": "preprod",
   "eraHistory": {

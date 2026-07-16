@@ -1,5 +1,5 @@
 {
-  "title": "stake-deregistration",
+  "title": "deregister a credential with zero reward balance",
   "description": "Deregister a stake credential with a zero reward balance.",
   "network": "preprod",
   "eraHistory": {

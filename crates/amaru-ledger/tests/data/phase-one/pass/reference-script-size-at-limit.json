@@ -1,5 +1,5 @@
 {
-  "title": "reference-script-size-at-limit",
+  "title": "reference scripts size exactly at per-tx limit",
   "description": "Reference scripts size (50 bytes) exactly equals the per-tx limit.",
   "network": "preprod",
   "eraHistory": {

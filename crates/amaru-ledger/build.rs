@@ -22,7 +22,8 @@ use std::{
 use anyhow::{Context, Result};
 
 fn main() -> Result<()> {
-    get_conformance_test_vectors()
+    get_conformance_test_vectors()?;
+    get_phase_test_cases("phase-one")
 }
 
 type FailuresTable = BTreeMap<String, String>;
@@ -72,6 +73,55 @@ fn get_conformance_test_vectors() -> Result<()> {
         &mut output,
         r#"pub fn rules_conformance_test_case(snapshot: &str, result: Result<(), &str>) -> Result<(), Box<dyn std::error::Error>> {{
     import_and_evaluate_vector(Path::new(TEST_DATA_DIR), snapshot, result)
+}}"#
+    )?;
+
+    Ok(())
+}
+
+fn get_phase_test_cases(phase: &str) -> Result<()> {
+    println!("cargo:rerun-if-changed=tests/data/{phase}");
+
+    let out_dir = env::var("OUT_DIR").context("OUT_DIR not set")?;
+    let out_file_name = format!("{}_test_cases.rs", phase.replace('-', "_"));
+    let out_file = Path::new(&out_dir).join(&out_file_name);
+
+    let fixtures_dir = env::current_dir()?.join("tests").join("data").join(phase);
+    let mut files = Vec::new();
+    visit_dirs(&fixtures_dir.join("pass"), &mut files);
+    visit_dirs(&fixtures_dir.join("fail"), &mut files);
+    files.sort();
+
+    let mut output = fs::File::create(out_file).with_context(|| format!("could not write {out_file_name}"))?;
+
+    let mut names = BTreeMap::new();
+    for path in files {
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+
+        let Some(case) = path
+            .strip_prefix(&fixtures_dir)
+            .ok()
+            .map(|relative_path| relative_path.with_extension(""))
+            .and_then(|relative_path| relative_path.to_str().map(|s| s.replace("\\", "/")))
+        else {
+            continue;
+        };
+
+        let fixture: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)
+            .with_context(|| format!("invalid json fixture: {}", path.display()))?;
+        let name = fixture.get("title").and_then(|title| title.as_str()).unwrap_or(&case).to_string();
+        if let Some(other) = names.insert(name.clone(), case.clone()) {
+            anyhow::bail!("fixtures {other} and {case} have the same title: {name}");
+        }
+
+        writeln!(&mut output, "#[test_case::test_case(\"{}\"; \"{}\")]", case.escape_default(), name.escape_default())?;
+    }
+    writeln!(
+        &mut output,
+        r#"fn conformance(fixture_path: &str) {{
+    run_conformance(fixture_path)
 }}"#
     )?;
 

@@ -1,5 +1,5 @@
 {
-  "title": "min-fee-at-minimum",
+  "title": "declared fee exactly at the minimum",
   "description": "Declared fee exactly equals the computed minimum.",
   "network": "preprod",
   "eraHistory": {

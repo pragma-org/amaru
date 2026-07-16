@@ -1,5 +1,5 @@
 {
-  "title": "FeeTooSmallUTxO",
+  "title": "declared fee one below the minimum",
   "description": "Declared fee is one lovelace below the computed minimum.",
   "network": "preprod",
   "eraHistory": {

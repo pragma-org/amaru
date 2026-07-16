@@ -1,5 +1,5 @@
 {
-  "title": "InvalidWitnessesUTXOW",
+  "title": "vkey witness signature too short",
   "description": "Copy of simple-transfer with the vkey witness signature encoded as 63 bytes instead of 64. The vkey is unchanged, so the required-keys check passes; phase-one must reject on the malformed signature length.",
   "network": "preprod",
   "eraHistory": {

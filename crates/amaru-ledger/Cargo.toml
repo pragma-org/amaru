@@ -60,6 +60,7 @@ amaru-tracing-json.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true
+serde_json = { workspace = true, features = ["std"] }
 toml.workspace = true
 
 [target.'cfg(not(std))'.dependencies]

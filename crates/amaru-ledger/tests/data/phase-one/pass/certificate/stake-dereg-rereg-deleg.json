@@ -1,5 +1,5 @@
 {
-  "title": "stake-dereg-rereg-deleg",
+  "title": "deregister re-register then delegate succeeds",
   "description": "Deregister, re-register, then delegate in the same transaction.",
   "network": "preprod",
   "eraHistory": {

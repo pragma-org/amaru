@@ -1,5 +1,5 @@
 {
-  "title": "withdrawal",
+  "title": "withdrawal with matching credential",
   "description": "The transaction has one withdrawal whose reward account encodes a testnet stake-key credential equal to the input's payment key hash. The vkey witness already in the witness set satisfies both required signers (input + withdrawal), so phase-one must accept. Exercises withdrawals' post-parse loop (require_vkey_witness + withdraw_from).",
   "network": "preprod",
   "eraHistory": {

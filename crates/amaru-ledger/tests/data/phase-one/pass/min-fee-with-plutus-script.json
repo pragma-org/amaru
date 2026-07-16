@@ -1,5 +1,5 @@
 {
-  "title": "min-fee-with-plutus-script",
+  "title": "plutus spend, fee at minimum including ex-units cost",
   "description": "A Plutus V3 script spend; the minimum includes the redeemer's execution-unit cost, and the declared fee equals it.",
   "network": "preprod",
   "eraHistory": {

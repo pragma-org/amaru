@@ -1,5 +1,5 @@
 {
-  "title": "StakeCredentialInvalidPoolDelegation",
+  "title": "delegation after conway unreg in same tx",
   "description": "Delegation after Conway-era UnReg in the same transaction.",
   "network": "preprod",
   "eraHistory": {

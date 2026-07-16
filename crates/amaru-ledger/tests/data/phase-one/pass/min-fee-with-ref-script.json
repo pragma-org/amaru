@@ -1,5 +1,5 @@
 {
-  "title": "min-fee-with-ref-script",
+  "title": "fee at minimum including tiered ref-script cost",
   "description": "The minimum includes the tiered reference-script cost; declared fee equals that minimum.",
   "network": "preprod",
   "eraHistory": {

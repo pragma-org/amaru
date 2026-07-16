@@ -1,5 +1,5 @@
 {
-  "title": "OutsideForecast",
+  "title": "upper validity bound past forecast horizon with redeemer",
   "description": "The witness set carries a (empty) redeemer set, which forces the forecast-horizon check on the validity interval. The upper bound is slot 500000, past the era history's foreseeable slot 432000 from tip 0; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {

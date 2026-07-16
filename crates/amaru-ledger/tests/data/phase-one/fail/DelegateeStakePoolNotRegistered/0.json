@@ -1,5 +1,5 @@
 {
-  "title": "DelegateeStakePoolNotRegistered",
+  "title": "stake delegation to unregistered pool",
   "description": "StakeDelegation to a pool not in the pools set.",
   "network": "preprod",
   "eraHistory": {

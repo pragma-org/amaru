@@ -1,5 +1,5 @@
 {
-  "title": "StakeCredentialInvalidPoolDelegation",
+  "title": "delegation after deregistration in same tx",
   "description": "Delegation after deregistration in the same transaction.",
   "network": "preprod",
   "eraHistory": {

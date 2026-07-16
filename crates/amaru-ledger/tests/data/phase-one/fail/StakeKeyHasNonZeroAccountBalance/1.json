@@ -1,5 +1,5 @@
 {
-  "title": "StakeKeyHasNonZeroAccountBalance",
+  "title": "conway unregister a credential with non-zero reward balance",
   "description": "Conway unregister (UnReg) of a stake credential that still has a non-zero reward balance.",
   "network": "preprod",
   "eraHistory": {

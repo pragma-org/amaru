@@ -1,5 +1,5 @@
 {
-  "title": "validity-interval-both-bounds",
+  "title": "slot strictly inside both bounds",
   "description": "validity_interval = [50, 200) (exclusive upper) and point.slot = 100; the slot lies strictly inside the interval, so phase-one must accept.",
   "network": "preprod",
   "eraHistory": {

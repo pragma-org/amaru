@@ -1,5 +1,5 @@
 {
-  "title": "OutsideValidityIntervalUTxO",
+  "title": "slot equals invalid_after exclusive upper bound",
   "description": "validity_interval = [50, 100) (exclusive upper) and point.slot = 100; the slot equals the upper bound, which is exclusive, so phase-one must reject.",
   "network": "preprod",
   "eraHistory": {

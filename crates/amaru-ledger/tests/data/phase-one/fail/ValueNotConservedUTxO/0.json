@@ -1,5 +1,5 @@
 {
-  "title": "ValueNotConservedUTxO",
+  "title": "input lovelace exceeds outputs plus fee",
   "description": "Input holds more lovelace than the outputs and fee account for, so consumed does not equal produced.",
   "network": "preprod",
   "eraHistory": {

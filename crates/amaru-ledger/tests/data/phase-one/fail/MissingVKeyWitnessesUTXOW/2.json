@@ -1,5 +1,5 @@
 {
-  "title": "MissingVKeyWitnessesUTXOW",
+  "title": "byron input with empty witness set",
   "description": "Body spends a Byron (bootstrap) input. The required bootstrap root is added to required-keys via require_bootstrap_witness, but the witness set is empty. Exercises the bootstrap-root contribution to required-keys, distinct from the input-vkey path in fixture 0.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "DRepAlreadyRegistered",
+  "title": "drep registration on already registered script-hash credential",
   "description": "A DRep registration certificate targets a script-hash credential that is already registered as a DRep.",
   "network": "preprod",
   "eraHistory": {

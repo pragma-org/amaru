@@ -1,5 +1,5 @@
 {
-  "title": "BadInputsUTxO",
+  "title": "unknown spent input",
   "description": "The transaction's only spent input does not exist in the initial UTxO; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {

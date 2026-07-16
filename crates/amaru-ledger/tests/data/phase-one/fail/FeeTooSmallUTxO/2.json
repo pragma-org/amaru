@@ -1,5 +1,5 @@
 {
-  "title": "FeeTooSmallUTxO",
+  "title": "plutus spend, fee short of the ex-units cost",
   "description": "A Plutus V3 script spend; the declared fee is one lovelace below the minimum, which includes the redeemer's execution-unit cost.",
   "network": "preprod",
   "eraHistory": {

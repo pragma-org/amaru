@@ -1,5 +1,5 @@
 {
-  "title": "stake-vote-reg-deleg",
+  "title": "registration with stake and vote delegation to registered pool",
   "description": "StakeVoteRegDeleg registers a new credential, delegates to a registered pool, and vote-delegates to Abstain.",
   "network": "preprod",
   "eraHistory": {

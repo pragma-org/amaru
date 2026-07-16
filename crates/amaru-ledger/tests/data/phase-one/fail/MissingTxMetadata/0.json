@@ -1,5 +1,5 @@
 {
-  "title": "MissingTxMetadata",
+  "title": "body hash without auxiliary data",
   "description": "The transaction body declares an auxiliary_data_hash but no auxiliary data is attached; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {

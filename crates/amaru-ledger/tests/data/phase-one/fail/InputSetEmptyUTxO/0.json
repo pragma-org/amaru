@@ -1,5 +1,5 @@
 {
-  "title": "InputSetEmptyUTxO",
+  "title": "empty input set",
   "description": "The transaction body has an empty input set; phase-one must reject. The signature on this body is structurally valid but the surplus vkey witness is irrelevant once the rule rejects on the empty set.",
   "network": "preprod",
   "eraHistory": {

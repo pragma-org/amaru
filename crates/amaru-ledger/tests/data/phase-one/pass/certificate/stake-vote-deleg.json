@@ -1,5 +1,5 @@
 {
-  "title": "stake-vote-deleg",
+  "title": "stake and vote delegation to registered pool",
   "description": "StakeVoteDeleg with Abstain to a registered pool.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "BabbageNonDisjointRefInputs",
+  "title": "input appears as both spent and reference",
   "description": "The same input appears in both the spent inputs and the reference inputs; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "OutsideValidityIntervalUTxO",
+  "title": "slot equals end with no lower bound",
   "description": "validity_interval = [None, 100) and point.slot = 100; same exclusive-upper-bound boundary as case 1 but with no lower bound, so phase-one must reject.",
   "network": "preprod",
   "eraHistory": {

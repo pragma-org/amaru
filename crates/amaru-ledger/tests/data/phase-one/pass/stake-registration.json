@@ -1,5 +1,5 @@
 {
-  "title": "stake-registration",
+  "title": "stake credential registration cert",
   "description": "The transaction body carries one Conway `Reg(credential, deposit)` cert. The stake credential is the same key-hash as the input's payment key, so the existing vkey witness satisfies both required signers. The deposit (2_000_000) matches protocolParameters.stakeCredentialDeposit. The input UTxO covers output, fee, and deposit.",
   "network": "preprod",
   "eraHistory": {

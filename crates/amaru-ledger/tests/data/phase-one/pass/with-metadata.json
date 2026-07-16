@@ -1,5 +1,5 @@
 {
-  "title": "with-metadata",
+  "title": "with matching auxiliary data",
   "description": "simple-transfer extended with auxiliary data and a matching auxiliary_data_hash; passes every phase-one predicate.",
   "network": "preprod",
   "eraHistory": {

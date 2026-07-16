@@ -1,5 +1,5 @@
 {
-  "title": "FeeTooSmallUTxO",
+  "title": "fee short of the tiered ref-script cost",
   "description": "Declared fee covers the linear cost but is one lovelace short of the tiered reference-script cost folded into the minimum.",
   "network": "preprod",
   "eraHistory": {

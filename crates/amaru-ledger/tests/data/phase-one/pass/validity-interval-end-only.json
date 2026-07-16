@@ -1,5 +1,5 @@
 {
-  "title": "validity-interval-end-only",
+  "title": "slot below end with no lower bound",
   "description": "validity_interval = [None, 200) (no lower bound) and point.slot = 100; the slot is below the upper bound, so phase-one must accept.",
   "network": "preprod",
   "eraHistory": {

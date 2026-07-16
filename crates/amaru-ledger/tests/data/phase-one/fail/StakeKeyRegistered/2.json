@@ -1,5 +1,5 @@
 {
-  "title": "StakeKeyRegistered",
+  "title": "vote reg delegation on already registered credential",
   "description": "VoteRegDeleg cert on a credential that is already registered.",
   "network": "preprod",
   "eraHistory": {

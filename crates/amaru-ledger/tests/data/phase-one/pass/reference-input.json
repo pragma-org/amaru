@@ -1,5 +1,5 @@
 {
-  "title": "reference-input",
+  "title": "tx with resolvable reference input",
   "description": "The transaction has one resolvable reference input alongside its spent input. Both inputs exist in the initial UTxO; the reference input does not appear in the spent set. Exercises the resolvable-reference-input branch in inputs::execute.",
   "network": "preprod",
   "eraHistory": {

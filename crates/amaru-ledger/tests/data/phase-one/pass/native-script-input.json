@@ -1,5 +1,5 @@
 {
-  "title": "native-script-input",
+  "title": "native script-locked input",
   "description": "The transaction spends from a Shelley address whose payment credential is the hash of an always-true native script (`ScriptAll []`). The witness set carries the matching native script. Exercises the is_script() arm of inputs::execute and the Native branch of scripts::execute.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "reference-script-input",
+  "title": "reference input carrying a script, within per-tx limit",
   "description": "A reference input carries a 50-byte script, within the per-tx limit.",
   "network": "preprod",
   "eraHistory": {

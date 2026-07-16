@@ -1,5 +1,5 @@
 {
-  "title": "DelegateeDRepNotRegistered",
+  "title": "vote delegation to unregistered drep",
   "description": "A vote-delegation certificate delegates to a DRep that is not registered.",
   "network": "preprod",
   "eraHistory": {

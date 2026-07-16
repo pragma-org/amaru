@@ -1,5 +1,5 @@
 {
-  "title": "DelegateeStakePoolNotRegistered",
+  "title": "stake vote reg delegation to unregistered pool",
   "description": "StakeVoteRegDeleg to a pool not in the pools set; Reg succeeds, then pool delegation fails before vote delegation.",
   "network": "preprod",
   "eraHistory": {

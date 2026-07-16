@@ -1,5 +1,5 @@
 {
-  "title": "BadInputsUTxO",
+  "title": "unknown collateral input on an invalid transaction",
   "description": "An is_valid=false transaction whose collateral input does not exist in the UTxO.",
   "network": "preprod",
   "eraHistory": {
