@@ -132,7 +132,11 @@ fn assert_json_snapshot<T: serde::Serialize>(
         panic!(
             "{}{}",
             formatter.format_compact(&diffs[0..n]),
-            if diffs.len() > n { format!("...plus {} more difference(s)", diffs.len() - n) } else { String::new() }
+            if diffs.len() > n {
+                format!("...plus {} more difference(s); set 'AMARU_MAX_DIFFS' to see more.", diffs.len() - n)
+            } else {
+                String::new()
+            }
         );
     }
 
