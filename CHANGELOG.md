@@ -35,7 +35,10 @@ Other guiding principles:
   ```
 -->
 
-## v10.11.20260716 _[unreleased; planned for 2026-07-16]_
+
+## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
+
+## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
 ### Added
 
