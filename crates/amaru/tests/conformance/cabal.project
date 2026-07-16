@@ -44,6 +44,9 @@ packages:
 tests: False
 test-show-details: direct
 
+package conformance
+  tests: True
+
 package cryptonite
   flags: -support_rdrand
 

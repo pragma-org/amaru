@@ -60,6 +60,13 @@ import Command.ValidatePhaseOne.Error
     )
 import Command.ValidatePhaseOne.Parse
     ( Options (..)
+    , Target (..)
+    )
+import Data.Aeson
+    ( Value
+    , encode
+    , object
+    , (.=)
     )
 import Data.Fixture.Common
     ( showText
@@ -101,15 +108,69 @@ import Data.Time.Clock.POSIX
 import Lens.Micro
     ( (^.)
     )
+import System.Directory
+    ( doesDirectoryExist
+    , listDirectory
+    )
+import System.FilePath
+    ( takeExtension
+    , (</>)
+    )
 
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as Text
 
 run :: Options -> ExceptT Error IO ()
-run Options{testCasePath} = do
+run Options{target} =
+    case target of
+        SingleTestCase testCasePath ->
+            runSingleTestCase testCasePath
+        TestCaseDirectory directory ->
+            runTestCaseDirectory directory
+
+runSingleTestCase :: FilePath -> ExceptT Error IO ()
+runSingleTestCase testCasePath = do
+    (label, validationLabel) <- validateTestCaseAt testCasePath
+    liftIO (putTextLn (label <> ": " <> validationLabel))
+
+runTestCaseDirectory :: FilePath -> ExceptT Error IO ()
+runTestCaseDirectory directory = do
+    testCasePaths <- sort <$> liftIO (findTestCases directory)
+    results <- forM testCasePaths $ \testCasePath -> liftIO $ do
+        result <- runExceptT (validateTestCaseAt testCasePath)
+        putLBSLn (encode (testCaseResult testCasePath result))
+        pure result
+    when (any isLeft results) (liftIO exitFailure)
+
+validateTestCaseAt :: FilePath -> ExceptT Error IO (Text, Text)
+validateTestCaseAt testCasePath = do
     testCase <- loadTestCase testCasePath
     validationLabel <- hoistEither (first (NamedError (testCaseLabel testCase)) (validateTestCase testCase))
-    liftIO (putTextLn (testCaseLabel testCase <> ": " <> validationLabel))
+    pure (testCaseLabel testCase, validationLabel)
+
+testCaseResult :: FilePath -> Either Error (Text, Text) -> Value
+testCaseResult testCasePath = \case
+    Right (label, validationLabel) ->
+        object
+            [ "path" .= testCasePath
+            , "label" .= label
+            , "result" .= validationLabel
+            ]
+    Left validationError ->
+        object
+            [ "path" .= testCasePath
+            , "error" .= validationError
+            ]
+
+findTestCases :: FilePath -> IO [FilePath]
+findTestCases directory = do
+    entries <- listDirectory directory
+    fmap concat $ forM entries $ \entry -> do
+        let path = directory </> entry
+        isDirectory <- doesDirectoryExist path
+        if isDirectory
+            then findTestCases path
+            else pure [path | takeExtension path == ".json"]
 
 validateTestCase :: TestCase -> Either Error Text
 validateTestCase TestCase{network, eraHistory, protocolParameters, initialState, point, transaction, expected} = do

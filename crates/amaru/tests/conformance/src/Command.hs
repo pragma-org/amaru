@@ -17,7 +17,7 @@ import Options.Applicative
     , progDesc
     )
 
-data Command
+newtype Command
     = ValidatePhaseOne ValidatePhaseOne.Options
 
 runCommandLine :: IO ()
