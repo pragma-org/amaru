@@ -111,7 +111,7 @@ zeroize = "1.8.2"
 
 # Internal dependencies
 amaru = { path = "crates/amaru" }
-amaru-deps = { path = "crates/amaru-deps", version = "10.10.0" }
+amaru-deps = { path = "crates/amaru-deps", version = "0.0.0" }
 amaru-consensus = { path = "crates/amaru-consensus", version = "0.1.2" }
 amaru-fixture-builder = { path = "crates/amaru-fixture-builder", version = "0.1.2" }
 amaru-iter-borrow = { path = "crates/amaru-iter-borrow", version = "0.1.2" }

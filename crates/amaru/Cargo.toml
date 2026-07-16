@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru"
-version = "10.10.0"
+version = "10.11.0"
 edition.workspace = true
 description.workspace = true
 license.workspace = true
