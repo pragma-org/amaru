@@ -36,14 +36,16 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// the `Manager` (via `ManagerMessage`) which peers to `AddPeer` or `RemovePeer`/`Disconnect`,
 /// while reacting to connection lifecycle events and adversarial signals.
 ///
-/// It maintains two primary peer pools:
+/// It maintains three primary peer pools:
 /// - `static_peers` (immutable, configured at construction; preferred for outbound).
+/// - `snapshot_candidates` (immutable, from a ledger peer snapshot file at construction).
 /// - `ledger_candidates` (dynamic BTreeSet, updated via the child ledger-check protocol).
 ///
 /// Outbound regulation uses a random refill (via `GenerateRandomSeed` external effect)
-/// preferring static peers then ledger candidates, while skipping any peer currently
-/// tracked in `outbound_peers` or `cooldown_timers`. Inbound connections are accepted
-/// up to `target_downstream_peers` (excess are immediately rejected with a `Disconnect`).
+/// preferring static peers, then snapshot candidates, then ledger candidates, while
+/// skipping any peer currently tracked in `outbound_peers` or `cooldown_timers`.
+/// Inbound connections are accepted up to `target_downstream_peers` (excess are
+/// immediately rejected with a `Disconnect`).
 ///
 /// The stage creates (on `Initialize`, with no supervision) a child stage
 /// `"peer-selection/ledger-check"` running `get_ledger_candidates` (backed by `LedgerCheck`
@@ -54,7 +56,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///
 /// - `target_upstream_peers`, `target_downstream_peers`: configuration targets.
 /// - `manager`: `StageRef<ManagerMessage>` for all outbound commands.
-/// - `static_peers`, `ledger_candidates`: candidate pools (`BTreeSet<Peer>`).
+/// - `static_peers`, `snapshot_candidates`, `ledger_candidates`: candidate pools (`BTreeSet<Peer>`).
 /// - `peer_removal_cooldown`: duration for non-static bans.
 /// - `cooldown_timers`: `BTreeMap<Peer, ScheduleId>` for active bans (self-scheduled
 ///   `CooldownEnded` messages).
@@ -70,9 +72,10 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// - **Initialize**: Required at startup. Logs
 ///   `"peer_selection.connect_initial"`. For every `static_peers` entry: sends
 ///   `ManagerMessage::AddPeer` and records it as `PeerState::Connecting` in
-///   `outbound_peers`. Unconditionally wires a new child stage
-///   `"peer-selection/ledger-check"` (via `eff.stage` + `eff.wire_up` with
-///   `LedgerCheck::new(eff.me())`, no supervision) and sends `()` to kick it off;
+///   `outbound_peers`. Then calls `regulate_peers` so snapshot (and later ledger)
+///   candidates can fill any remaining outbound deficit. Unconditionally wires a
+///   new child stage `"peer-selection/ledger-check"` (via `eff.stage` + `eff.wire_up`
+///   with `LedgerCheck::new(eff.me())`, no supervision) and sends `()` to kick it off;
 ///   "failure in ledger-check shall tear down the node".
 ///
 /// - **Adversarial**: Debug-logs. Delegates to
@@ -149,7 +152,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// `ConnectFailed`, `LedgerCheckCandidates`, and outbound removal inside `ban_peer`)
 /// early-returns if `outbound_peers.len() >= target_upstream_peers`. Otherwise it
 /// obtains a seed via `eff.external(GenerateRandomSeed)`, builds an `StdRng`, and
-/// does two passes (statics first, then ledger_candidates):
+/// does three passes (statics, then snapshot_candidates, then ledger_candidates):
 /// - Filters candidates to those absent from `outbound_peers` and `cooldown_timers`.
 /// - `choose_multiple` up to the deficit.
 /// - For each: logs `"peer_selection.add_peer"`, sends `ManagerMessage::AddPeer`,
@@ -176,7 +179,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///   removed in `CooldownEnded`/`AddPeer` (with cancel), and filtered in
 ///   `regulate_peers`. Inbound/outbound maps are updated only on exact id matches
 ///   in disconnect paths. `outbound_peers` length is the primary signal for
-///   regulation. `static_peers` is never mutated after `new`.
+///   regulation. `static_peers` and `snapshot_candidates` are never mutated after `new`.
 /// - `Connection` and `PeerState` are simple value types for tracking duplex
 ///   capability and lifecycle.
 ///
@@ -191,6 +194,7 @@ pub struct PeerSelection {
     target_downstream_peers: usize,
     manager: StageRef<ManagerMessage>,
     static_peers: BTreeSet<Peer>,
+    snapshot_candidates: BTreeSet<Peer>,
     ledger_candidates: BTreeSet<Peer>,
     peer_removal_cooldown: Duration,
     cooldown_timers: BTreeMap<Peer, ScheduleId>,
@@ -255,6 +259,7 @@ impl PeerSelection {
     pub fn new(
         manager: StageRef<ManagerMessage>,
         static_peers: BTreeSet<Peer>,
+        snapshot_candidates: BTreeSet<Peer>,
         target_upstream_peers: usize,
         target_downstream_peers: usize,
         peer_removal_cooldown_secs: u64,
@@ -265,6 +270,7 @@ impl PeerSelection {
             ledger_candidates: BTreeSet::new(),
             manager,
             static_peers,
+            snapshot_candidates,
             peer_removal_cooldown: Duration::from_secs(peer_removal_cooldown_secs),
             cooldown_timers: BTreeMap::new(),
             inbound_peers: BTreeMap::new(),
@@ -307,9 +313,9 @@ impl PeerSelection {
 
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
         let target_upstream_peers = self.target_upstream_peers;
-        let outbound_peers = self.outbound_peers.len();
+        let outbound = self.outbound_peers.len();
 
-        if outbound_peers >= target_upstream_peers {
+        if outbound >= target_upstream_peers {
             return;
         }
 
@@ -317,14 +323,14 @@ impl PeerSelection {
         let seed: [u8; 32] = eff.external(GenerateRandomSeed).await;
         let mut rng = StdRng::from_seed(seed);
 
-        // first refill from static_peers
-        if outbound_peers < target_upstream_peers {
+        // Prefer static peers, then snapshot candidates, then live ledger candidates.
+        if outbound < target_upstream_peers {
             let candidates = self
                 .static_peers
                 .iter()
                 .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
                 .cloned()
-                .choose_multiple(&mut rng, target_upstream_peers - outbound_peers);
+                .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
                 tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
                 eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
@@ -332,15 +338,29 @@ impl PeerSelection {
             }
         }
 
-        // refill from ledger candidates
-        let outbound_peers = self.outbound_peers.len();
-        if outbound_peers < target_upstream_peers {
+        let outbound = self.outbound_peers.len();
+        if outbound < target_upstream_peers {
+            let candidates = self
+                .snapshot_candidates
+                .iter()
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
+                .cloned()
+                .choose_multiple(&mut rng, target_upstream_peers - outbound);
+            for peer in candidates {
+                tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
+                eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
+                self.outbound_peers.insert(peer, PeerState::Connecting);
+            }
+        }
+
+        let outbound = self.outbound_peers.len();
+        if outbound < target_upstream_peers {
             let candidates = self
                 .ledger_candidates
                 .iter()
                 .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
                 .cloned()
-                .choose_multiple(&mut rng, target_upstream_peers - outbound_peers);
+                .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
                 tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
                 eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
@@ -353,11 +373,17 @@ impl PeerSelection {
 pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects<PeerSelectionMsg>) -> PeerSelection {
     match msg {
         PeerSelectionMsg::Initialize => {
-            tracing::info!(peers = state.static_peers.len(), "peer_selection.connect_initial");
+            tracing::info!(
+                static_peers = state.static_peers.len(),
+                snapshot_peers = state.snapshot_candidates.len(),
+                "peer_selection.connect_initial"
+            );
             for p in &state.static_peers {
                 eff.send(&state.manager, ManagerMessage::AddPeer(p.clone())).await;
                 state.outbound_peers.insert(p.clone(), PeerState::Connecting);
             }
+            // Fill any remaining outbound slots from snapshot (then ledger when available).
+            state.regulate_peers(&eff).await;
             // NOTE: no supervision, failure in ledger-check shall tear down the node.
             let ledger_check = eff
                 .wire_up(

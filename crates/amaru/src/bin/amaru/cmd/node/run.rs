@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeSet,
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
@@ -22,6 +23,7 @@ use amaru::{
     DEFAULT_DOWNSTREAM_PEERS, DEFAULT_LISTEN_ADDRESS, DEFAULT_UPSTREAM_PEERS, default_chain_dir, default_ledger_dir,
     default_peer_for_network,
     metrics::track_system_metrics,
+    peer_snapshot::load_peer_snapshot,
     stages::{
         build_node::build_and_run_node,
         config::{Config, MaxExtraLedgerSnapshots, StoreType},
@@ -123,6 +125,19 @@ pub struct Args {
         display_order = 0,
     )]
     peer_address: Vec<String>,
+
+    /// Path to a Cardano ledger peer snapshot JSON file (`bigLedgerPools`).
+    ///
+    /// Supplies stake-weighted big-ledger relays for peer selection at cold start,
+    /// complementary to `--peer-address`. Compatible with cardano-node's
+    /// `mainnet-peer-snapshot.json` (and similar per-network files).
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::PEER_SNAPSHOT,
+        display_order = 0,
+    )]
+    peer_snapshot: Option<PathBuf>,
 
     /// The number of upstream peers to connect to.
     #[arg(
@@ -355,6 +370,32 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         args.peer_address
     };
 
+    let network_magic = args.network.to_network_magic();
+    let peer_snapshot_peers = match args.peer_snapshot.as_deref() {
+        None => BTreeSet::new(),
+        Some(path) => {
+            let snapshot = load_peer_snapshot(path, network_magic)?;
+            if snapshot.peers.is_empty() {
+                warn!(
+                    path = %path.display(),
+                    point = %snapshot.point,
+                    pools = snapshot.pool_count,
+                    "peer snapshot loaded but contains no relays"
+                );
+            } else {
+                info!(
+                    path = %path.display(),
+                    point = %snapshot.point,
+                    node_to_client_version = snapshot.node_to_client_version,
+                    pools = snapshot.pool_count,
+                    relays = snapshot.peers.len(),
+                    "loaded peer snapshot"
+                );
+            }
+            snapshot.peers
+        }
+    };
+
     let (trace_buffer_min_entries, trace_buffer_max_size) = match args.trace_buffer.as_deref() {
         None => (0usize, 0usize),
         Some(s) => parse_trace_buffer_limits(s)?,
@@ -382,6 +423,8 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
             Box::new(tracing::field::Empty)
         },
         peer_address = %peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+        peer_snapshot = %args.peer_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()),
+        peer_snapshot_relays = peer_snapshot_peers.len(),
         pid_file = %args.pid_file.unwrap_or_default().to_string_lossy(),
         submit_api_address = %args.submit_api_address.as_deref().unwrap_or("disabled"),
         trace_buffer_min_entries,
@@ -400,10 +443,11 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: peer_address,
+        peer_snapshot_peers,
         target_upstream_peers: args.upstream_peers,
         target_downstream_peers: args.downstream_peers,
         network: args.network,
-        network_magic: args.network.to_network_magic(),
+        network_magic,
         era_history,
         global_parameters,
         listen_address: args.listen_address,

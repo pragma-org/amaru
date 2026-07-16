@@ -66,6 +66,7 @@ pub fn build_stage_graph(
         PeerSelection::new(
             manager.sender(),
             static_peers,
+            config.peer_snapshot_peers.clone(),
             config.target_upstream_peers,
             config.target_downstream_peers,
             config.peer_removal_cooldown_secs,

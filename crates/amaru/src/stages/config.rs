@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::BTreeSet, fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use amaru_kernel::{
-    EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
+    EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Peer,
 };
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::ChainStore;
@@ -30,6 +30,8 @@ pub struct Config {
     pub ledger_store: RocksDbConfig,
     pub chain_store: StoreType<Arc<dyn ChainStore>>,
     pub upstream_peers: Vec<String>,
+    /// Big-ledger relays from a Cardano peer snapshot file (`--peer-snapshot`).
+    pub peer_snapshot_peers: BTreeSet<Peer>,
     pub target_upstream_peers: usize,
     pub target_downstream_peers: usize,
     pub network: NetworkName,
@@ -93,6 +95,7 @@ impl Default for Config {
             ledger_store: RocksDbConfig::new(PathBuf::from("./ledger.db")),
             chain_store: StoreType::RocksDb(RocksDbConfig::new(PathBuf::from("./chain.db"))),
             upstream_peers: vec![],
+            peer_snapshot_peers: BTreeSet::new(),
             target_upstream_peers: DEFAULT_UPSTREAM_PEERS,
             target_downstream_peers: DEFAULT_DOWNSTREAM_PEERS,
             network: NetworkName::Preprod,
