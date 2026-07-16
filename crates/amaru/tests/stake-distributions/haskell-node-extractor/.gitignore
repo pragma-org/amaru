@@ -1,4 +1,6 @@
 dist-newstyle
+/.build/bin/haskell-node-extractor
+/.build/deps
 /data
 .venv
 .uv-cache

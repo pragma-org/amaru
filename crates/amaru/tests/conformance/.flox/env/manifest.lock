@@ -17,9 +17,8 @@
       "cabal-install": {
         "pkg-path": "cabal-install"
       },
-      "ghc": {
-        "pkg-path": "haskell.compiler.ghc96",
-        "outputs": "all"
+      "ghc984": {
+        "pkg-path": "haskell.compiler.ghc984"
       },
       "gmp": {
         "pkg-path": "gmp",
@@ -28,6 +27,12 @@
       "gnumake": {
         "pkg-path": "gnumake",
         "outputs": "all"
+      },
+      "hls": {
+        "flake": "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea#haskell.packages.ghc96.haskell-language-server"
+      },
+      "jq": {
+        "pkg-path": "jq"
       },
       "libffi": {
         "pkg-path": "libffi",
@@ -71,10 +76,10 @@
       }
     },
     "hook": {
-      "on-activate": "  echo \"haskell-node-extractor env active.\"\n  echo \"First build:  make prerequisites && make build\"\n  echo \"Run binary:   haskell-node-extractor --help\"\n  "
+      "on-activate": "  echo \"conformance env active.\"\n  echo \"First build:  make prerequisites && make build\"\n  echo \"Run binary:   conformance --help\"\n\n  # Drop non-existent directories from LIBRARY_PATH: outer flox environments\n  # without library packages contribute dead <env>/lib entries, which clang\n  # forwards as -L flags and the macOS linker warns about.\n  if [ -n \"${LIBRARY_PATH:-}\" ]; then\n    LIBRARY_PATH=\"$(echo \"$LIBRARY_PATH\" | tr ':' '\\n' | while IFS= read -r dir; do [ -d \"$dir\" ] && printf '%s\\n' \"$dir\"; done | paste -sd: -)\"\n    export LIBRARY_PATH\n  fi\n  "
     },
     "profile": {
-      "common": "  alias haskell-node-extractor='./.build/bin/haskell-node-extractor'\n  "
+      "common": "  alias conformance='./.build/bin/conformance'\n  "
     },
     "options": {
       "systems": [
@@ -571,124 +576,124 @@
       "priority": 5
     },
     {
-      "attr_path": "haskell.compiler.ghc96",
+      "attr_path": "haskell.compiler.ghc984",
       "broken": false,
-      "derivation": "/nix/store/zhisb4yskp47marwwgx6mk6z60mjkfpz-ghc-9.6.7.drv",
+      "derivation": "/nix/store/2b45v8gxspzvlg0b1rhslfv04khrrxsl-ghc-9.8.4.drv",
       "description": "Glasgow Haskell Compiler",
-      "install_id": "ghc",
+      "install_id": "ghc984",
       "license": "BSD-3-Clause",
       "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "ghc-9.6.7",
-      "pname": "ghc96",
+      "name": "ghc-9.8.4",
+      "pname": "ghc984",
       "rev": "d407951447dcd00442e97087bf374aad70c04cea",
       "rev_count": 1027867,
       "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T03:12:56.522001Z",
+      "scrape_date": "2026-07-06T03:12:56.523076Z",
       "stabilities": [
         "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "9.6.7",
+      "version": "9.8.4",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "doc": "/nix/store/inildz0ipnw0j33391faahjgdsms8169-ghc-9.6.7-doc",
-        "out": "/nix/store/v8vnwqs8f76mgp7zj3hax87yvyc2fx4n-ghc-9.6.7"
+        "doc": "/nix/store/wqbg6hm7xqfkkzyvjb3m84k4c76yayjj-ghc-9.8.4-doc",
+        "out": "/nix/store/40cizai2p0rvh15kvcmp4y8lyfi1c4qi-ghc-9.8.4"
       },
       "system": "aarch64-darwin",
       "group": "toplevel",
       "priority": 5
     },
     {
-      "attr_path": "haskell.compiler.ghc96",
+      "attr_path": "haskell.compiler.ghc984",
       "broken": false,
-      "derivation": "/nix/store/3d8pnjrsnm6rp76zh33sjgd8bq0pj5l6-ghc-9.6.7.drv",
+      "derivation": "/nix/store/i1hyskl9vpdq5rkh2m4vqw87m180brr7-ghc-9.8.4.drv",
       "description": "Glasgow Haskell Compiler",
-      "install_id": "ghc",
+      "install_id": "ghc984",
       "license": "BSD-3-Clause",
       "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "ghc-9.6.7",
-      "pname": "ghc96",
+      "name": "ghc-9.8.4",
+      "pname": "ghc984",
       "rev": "d407951447dcd00442e97087bf374aad70c04cea",
       "rev_count": 1027867,
       "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T03:41:24.383240Z",
+      "scrape_date": "2026-07-06T03:41:24.384703Z",
       "stabilities": [
         "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "9.6.7",
+      "version": "9.8.4",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "doc": "/nix/store/gq3r38s6wkxr36g7xrxw6ym1kzbxzs8z-ghc-9.6.7-doc",
-        "out": "/nix/store/b1yz8z3r9rfzb98iivs8nrfrffpw1s1q-ghc-9.6.7"
+        "doc": "/nix/store/4hmq0wnlv4pz1mcip16z1j99bbhkn0xl-ghc-9.8.4-doc",
+        "out": "/nix/store/pdmalixqjyyg2jhnbijdcp7pib704rvy-ghc-9.8.4"
       },
       "system": "aarch64-linux",
       "group": "toplevel",
       "priority": 5
     },
     {
-      "attr_path": "haskell.compiler.ghc96",
+      "attr_path": "haskell.compiler.ghc984",
       "broken": false,
-      "derivation": "/nix/store/vm2kr2qggcnpybjy8lyw384d9l8c9za1-ghc-9.6.7.drv",
+      "derivation": "/nix/store/8nhmq2i6m096gv6zaxr9ynmsy6azx8aq-ghc-9.8.4.drv",
       "description": "Glasgow Haskell Compiler",
-      "install_id": "ghc",
+      "install_id": "ghc984",
       "license": "BSD-3-Clause",
       "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "ghc-9.6.7",
-      "pname": "ghc96",
+      "name": "ghc-9.8.4",
+      "pname": "ghc984",
       "rev": "d407951447dcd00442e97087bf374aad70c04cea",
       "rev_count": 1027867,
       "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T04:09:02.176343Z",
+      "scrape_date": "2026-07-06T04:09:02.177467Z",
       "stabilities": [
         "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "9.6.7",
+      "version": "9.8.4",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "doc": "/nix/store/c9psxyd0ac0ny91c2bh3cwrpls4gc9qz-ghc-9.6.7-doc",
-        "out": "/nix/store/pyb23k83xkvx356wbp392pbqyd7lmwdb-ghc-9.6.7"
+        "doc": "/nix/store/bxgb28rg1ggm1cndr92sb19axgnidh9s-ghc-9.8.4-doc",
+        "out": "/nix/store/rsyw0zcp7k9216x68gx5ngjnagcx2cj8-ghc-9.8.4"
       },
       "system": "x86_64-darwin",
       "group": "toplevel",
       "priority": 5
     },
     {
-      "attr_path": "haskell.compiler.ghc96",
+      "attr_path": "haskell.compiler.ghc984",
       "broken": false,
-      "derivation": "/nix/store/h6q0i1l1hd7gr0dp9qh9xz60pc6q9zps-ghc-9.6.7.drv",
+      "derivation": "/nix/store/pcjcrwb4fbn5vm7l2zxcbyji1ywnhbzi-ghc-9.8.4.drv",
       "description": "Glasgow Haskell Compiler",
-      "install_id": "ghc",
+      "install_id": "ghc984",
       "license": "BSD-3-Clause",
       "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "ghc-9.6.7",
-      "pname": "ghc96",
+      "name": "ghc-9.8.4",
+      "pname": "ghc984",
       "rev": "d407951447dcd00442e97087bf374aad70c04cea",
       "rev_count": 1027867,
       "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T04:40:27.232098Z",
+      "scrape_date": "2026-07-06T04:40:27.233604Z",
       "stabilities": [
         "staging",
         "unstable"
       ],
       "unfree": false,
-      "version": "9.6.7",
+      "version": "9.8.4",
       "outputs_to_install": [
         "out"
       ],
       "outputs": {
-        "doc": "/nix/store/5nwq545q7nqg3wms1v1hf8d7882ir4hw-ghc-9.6.7-doc",
-        "out": "/nix/store/y924p3swmiz1qjb16pc6k1l64p792bii-ghc-9.6.7"
+        "doc": "/nix/store/qqw4czzyyisnmhbdjmphvg1d9476f25l-ghc-9.8.4-doc",
+        "out": "/nix/store/9iy6vk1msxbmc09szdzhvf07ipk01ghj-ghc-9.8.4"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -960,6 +965,151 @@
         "info": "/nix/store/6mifiq9cp2bsg9ghkhifrvlmip7z3147-gnumake-4.4.1-info",
         "man": "/nix/store/arjpl2nnq7khwfhy16qphyxxg924apy1-gnumake-4.4.1-man",
         "out": "/nix/store/k9ybsvscqk4lhz5ndc1ap9800im1cry1-gnumake-4.4.1"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/mpxw23n62v0rkp5n468pk46srixprs54-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:13:12.483661Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/n9ri7m7j3l3ggx7ag8xm87cavjvcxycz-jq-1.8.1-bin",
+        "dev": "/nix/store/pfp4psnwxs2ygda5sq6sr95x2snn6yjl-jq-1.8.1-dev",
+        "doc": "/nix/store/6va29c6s0v4kqi0zvc5jhn7s31c9i4hd-jq-1.8.1-doc",
+        "man": "/nix/store/0l8f1i70kd15qadl45b4fvqlg2j7s5hn-jq-1.8.1-man",
+        "out": "/nix/store/phmsnvxjh6rmf7id4wahi3vllbj8fn4s-jq-1.8.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/zxip019ljwma1b99d59gyd4y5d8qlnba-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:41:44.221148Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/hmwz4mnhiwyy1zyrypbdk6xqrxrpv4jp-jq-1.8.1-bin",
+        "dev": "/nix/store/gkincbg9wkmasrxw36mmyvp08jyhcxxg-jq-1.8.1-dev",
+        "doc": "/nix/store/vh84k872pnn2xavlx9j551056k1h579f-jq-1.8.1-doc",
+        "man": "/nix/store/iy9j5qqv7bkf0fnwh6pddfbk5q93i3nh-jq-1.8.1-man",
+        "out": "/nix/store/cs80rizzqf70hsya9n2h60zj9rf23sr5-jq-1.8.1"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/0shj1l58q4p6g3kf20748vq91b6rvr0r-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:09:22.080679Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/glj1kzrb6jm7x4r5z400mcmja8ws657q-jq-1.8.1-bin",
+        "dev": "/nix/store/akbah2c4a6xcgpx2l7xqqgfbxgi8anfj-jq-1.8.1-dev",
+        "doc": "/nix/store/jb2xgi4gjvzwifzfmf4kzkimbgrhsaav-jq-1.8.1-doc",
+        "man": "/nix/store/vpk901871j7kfmmb20i1vfxh5d8mhim2-jq-1.8.1-man",
+        "out": "/nix/store/l4i89frkjf4dly7gxwbksrcimcgr2x8f-jq-1.8.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/n9cdsl2rnrzwh2c3kw6ib023vp9qfm9f-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:40:47.719913Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/q0pj1dw2nr57y6b4pqljklf0hy20alfj-jq-1.8.1-bin",
+        "dev": "/nix/store/3vavalljj18drsycygl361zqz4rryygd-jq-1.8.1-dev",
+        "doc": "/nix/store/nzhykmz9qn2vrb9ki6ddrpipic7rfpfb-jq-1.8.1-doc",
+        "man": "/nix/store/d21dmfzxkgpa7jkn5ggr0balzfg0j269-jq-1.8.1-man",
+        "out": "/nix/store/bzm6nb8fx5p005bygrarn48i6qy1ir3a-jq-1.8.1"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -2301,6 +2451,122 @@
       },
       "system": "x86_64-linux",
       "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "install_id": "hls",
+      "locked-url": "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea?narHash=sha256-8i/87eeoqiGE4yOTjwSA3Eh/ziJRQEmd/unYU%2BK27sk%3D",
+      "flake-description": "A collection of packages for the Nix package manager",
+      "locked-flake-attr-path": "legacyPackages.x86_64-linux.haskell.packages.ghc96.haskell-language-server",
+      "derivation": "/nix/store/82gbd22awzm566nzh9zsaslqr6kqqg71-haskell-language-server-2.13.0.0.drv",
+      "outputs": {
+        "out": "/nix/store/4iddn3n4piis8hvfqs4i1jvjhf4x0z7a-haskell-language-server-2.13.0.0"
+      },
+      "output-names": [
+        "out"
+      ],
+      "outputs-to-install": [
+        "out"
+      ],
+      "requested-outputs-to-install": [],
+      "package-system": "x86_64-linux",
+      "system": "x86_64-linux",
+      "name": "haskell-language-server-2.13.0.0",
+      "pname": "haskell-language-server",
+      "version": "2.13.0.0",
+      "description": "LSP server for GHC",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "broken": false,
+      "unfree": false,
+      "priority": 5
+    },
+    {
+      "install_id": "hls",
+      "locked-url": "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea?narHash=sha256-8i/87eeoqiGE4yOTjwSA3Eh/ziJRQEmd/unYU%2BK27sk%3D",
+      "flake-description": "A collection of packages for the Nix package manager",
+      "locked-flake-attr-path": "legacyPackages.aarch64-linux.haskell.packages.ghc96.haskell-language-server",
+      "derivation": "/nix/store/01fqf5pmc3gpy8b280wgwd4yx57m0jvp-haskell-language-server-2.13.0.0.drv",
+      "outputs": {
+        "out": "/nix/store/3pm5iiqg76f9929bzvmzqmh9w7jnjcax-haskell-language-server-2.13.0.0"
+      },
+      "output-names": [
+        "out"
+      ],
+      "outputs-to-install": [
+        "out"
+      ],
+      "requested-outputs-to-install": [],
+      "package-system": "aarch64-linux",
+      "system": "aarch64-linux",
+      "name": "haskell-language-server-2.13.0.0",
+      "pname": "haskell-language-server",
+      "version": "2.13.0.0",
+      "description": "LSP server for GHC",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "broken": false,
+      "unfree": false,
+      "priority": 5
+    },
+    {
+      "install_id": "hls",
+      "locked-url": "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea?narHash=sha256-8i/87eeoqiGE4yOTjwSA3Eh/ziJRQEmd/unYU%2BK27sk%3D",
+      "flake-description": "A collection of packages for the Nix package manager",
+      "locked-flake-attr-path": "legacyPackages.aarch64-darwin.haskell.packages.ghc96.haskell-language-server",
+      "derivation": "/nix/store/vl9dcxf8bq8gia24q098dwvqzzbi7jgc-haskell-language-server-2.13.0.0.drv",
+      "outputs": {
+        "out": "/nix/store/p5qnqljvakc51siipg8x6s9xpa3kdpsx-haskell-language-server-2.13.0.0"
+      },
+      "output-names": [
+        "out"
+      ],
+      "outputs-to-install": [
+        "out"
+      ],
+      "requested-outputs-to-install": [],
+      "package-system": "aarch64-darwin",
+      "system": "aarch64-darwin",
+      "name": "haskell-language-server-2.13.0.0",
+      "pname": "haskell-language-server",
+      "version": "2.13.0.0",
+      "description": "LSP server for GHC",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "broken": false,
+      "unfree": false,
+      "priority": 5
+    },
+    {
+      "install_id": "hls",
+      "locked-url": "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea?narHash=sha256-8i/87eeoqiGE4yOTjwSA3Eh/ziJRQEmd/unYU%2BK27sk%3D",
+      "flake-description": "A collection of packages for the Nix package manager",
+      "locked-flake-attr-path": "legacyPackages.x86_64-darwin.haskell.packages.ghc96.haskell-language-server",
+      "derivation": "/nix/store/zndxly1hl0v03b8fdpz9mf7imzpqpnxv-haskell-language-server-2.13.0.0.drv",
+      "outputs": {
+        "out": "/nix/store/b99sxzij3yr3w28v8pynrq47izszkwgd-haskell-language-server-2.13.0.0"
+      },
+      "output-names": [
+        "out"
+      ],
+      "outputs-to-install": [
+        "out"
+      ],
+      "requested-outputs-to-install": [],
+      "package-system": "x86_64-darwin",
+      "system": "x86_64-darwin",
+      "name": "haskell-language-server-2.13.0.0",
+      "pname": "haskell-language-server",
+      "version": "2.13.0.0",
+      "description": "LSP server for GHC",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "broken": false,
+      "unfree": false,
       "priority": 5
     }
   ]

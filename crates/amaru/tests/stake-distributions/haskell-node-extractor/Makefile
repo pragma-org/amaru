@@ -9,6 +9,7 @@ PKGCONFIGDIR ?= $(LIBDIR)/pkgconfig
 CABAL ?= cabal
 INSTALL ?= install
 DEPS_DIR ?= .build/deps
+BINDIR ?= .build/bin
 SNAPSHOT ?=
 NETWORK ?= preprod
 
@@ -18,8 +19,9 @@ SECP256K1_REV := ac83be33d0956faf6b7f61a60ab524ef7d6a473a
 BLST_DIR := $(DEPS_DIR)/blst
 BLST_VERSION := v0.3.14
 BLST_PC := $(BLST_DIR)/libblst.pc
+EXTRACTOR_BIN := $(BINDIR)/haskell-node-extractor
 
-.PHONY: all build run help blst secp256k1 pre test
+.PHONY: all build run help blst secp256k1 prerequisites test
 
 all: help
 
@@ -28,7 +30,7 @@ help:
 	@grep -E '^[a-z]+[^:]+:.*## &cmd '  Makefile | sort | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#' | sed 's/^ \&cmd//')\n"; done
 	@echo ""
 
-pre: ## &cmd check required tools, libraries, and local build configuration
+prerequisites: ## &cmd check required tools, libraries, and local build configuration
 	@printf '%s\n' 'Checking build prerequisites'
 	@set -eu; \
 	os_name="$$(uname -s)"; \
@@ -107,7 +109,8 @@ pre: ## &cmd check required tools, libraries, and local build configuration
 build: ## &cmd compile the main binary
 	$(CABAL) update
 	$(CABAL) build exe:haskell-node-extractor
-	cp "$$($(CABAL) list-bin exe:haskell-node-extractor)" haskell-node-extractor
+	mkdir -p "$(BINDIR)"
+	cp "$$($(CABAL) list-bin exe:haskell-node-extractor)" "$(EXTRACTOR_BIN)"
 
 test: ## &cmd run extractor against a snapshot and validate output
 	@if [ -z "$(SNAPSHOT)" ]; then \
@@ -119,7 +122,7 @@ test: ## &cmd run extractor against a snapshot and validate output
 		*) printf '\033[1;31m%s\033[00m\n' '  ✗ SNAPSHOT must be an absolute path (got: $(SNAPSHOT))'; exit 1 ;; \
 	esac; \
 	tmpdir=$$(mktemp -d); \
-	./haskell-node-extractor extract --$(NETWORK) --snapshot "$(SNAPSHOT)" --output "$$tmpdir" \
+	"$(EXTRACTOR_BIN)" extract --$(NETWORK) --snapshot "$(SNAPSHOT)" --output "$$tmpdir" \
 		|| { rm -rf "$$tmpdir"; exit 1; }; \
 	ok=1; \
 	for name in pots nonces dreps rewardsProvenance pools; do \

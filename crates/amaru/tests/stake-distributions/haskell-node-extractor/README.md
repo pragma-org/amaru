@@ -7,7 +7,7 @@ This tool reads Conway ledger snapshots from disk and extracts JSON fixtures for
 To check for any missing prerequisites, just run:
 
 ```console
-make pre
+make prerequisites
 ```
 
 Install any missing system or vendor dependency.
@@ -98,3 +98,36 @@ To see the available make targets, just run:
 ```console
 make help
 ```
+
+## Flox environment
+
+Some of the tools in this directory are managed with [Flox](https://flox.dev). 
+Once you have Flox installed, you can materialize the local environment with:
+
+```console
+flox activate
+```
+
+This will make a number of executables available in your shell:
+```
+❯ flox list
+autoconf: autoconf (2.73)
+automake: automake (1.18.1)
+blst: blst (0.3.16)
+cabal-install: cabal-install (3.16.1.0)
+ghc: haskell.compiler.ghc96 (9.6.7)
+gmp: gmp (6.3.0)
+gnumake: gnumake (4.4.1)
+libffi: libffi (40)
+libsodium: libsodium (2026-04-09)
+libtool: libtool (2.5.4)
+llvm: llvm (21.1.8)
+lmdb: lmdb (0.9.35)
+openssl: openssl (3.6.2)
+pcre: pcre (8.45)
+pkg-config: pkg-config (0.29.2)
+secp256k1: secp256k1 (0.7.1)
+zlib: zlib (1.3.2)
+```
+
+You will also be able to run the `haskell-node-extractor` binary directly from the shell, without needing to prefix it with `cabal run`.
