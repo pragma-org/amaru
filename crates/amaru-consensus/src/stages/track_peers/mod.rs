@@ -217,6 +217,7 @@ pub struct NewTip {
 
 impl NewTip {
     pub fn new(tip: Tip, parent: Point) -> Self {
+        // FIXME: shouldn’t the trace context come from upstream?
         NewTip { tip, parent, trace_context: Default::default() }
     }
 }
