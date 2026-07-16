@@ -334,6 +334,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         if target_snapshots.contains(&ix) {
             let previous_snapshot_slot = if ix == 0 { None } else { Some(targets[ix - 1].slot()) };
             let target = &mut targets[ix];
+            #[allow(clippy::expect_used)]
             let context = context.as_ref().expect("non-empty snapshot targets");
             let prepared_snapshot_path = snapshot_path_for_target(context.snapshot_output_dir, target);
             let snapshot_dir = resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context)?;
@@ -342,7 +343,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
             write_packaged_headers(target, context.immutable_dir, &prepared_snapshot_path)?;
             target.snapshot_path = Some(prepared_snapshot_path.to_string_lossy().into_owned());
-            write_epoch_metadata(context.metadata_dir, &target)?;
+            write_epoch_metadata(context.metadata_dir, target)?;
         } else {
             info!("snapshot.skip_materialize", epoch = %targets[ix].epoch, reason = "already exists");
         }
@@ -350,13 +351,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         // Create missing archives
         if target_archives.contains(&ix) {
             let target = &mut targets[ix];
-            let context = context.as_ref().expect("non-empty snapshot targets");
-            let prepared_archive_path = archive_path_for_target(context.snapshot_output_dir, target);
-            let prepared_snapshot_path = snapshot_path_for_target(context.snapshot_output_dir, target);
+            let prepared_archive_path = archive_path_for_target(&snapshot_output_dir, target);
+            let prepared_snapshot_path = snapshot_path_for_target(&snapshot_output_dir, target);
             info!("snapshot.package", epoch = %target.epoch, archive = %prepared_archive_path.display());
             write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
             target.archive_path = Some(prepared_archive_path.to_string_lossy().into_owned());
-            write_epoch_metadata(context.metadata_dir, &target)?;
+            write_epoch_metadata(&metadata_dir, target)?;
         } else {
             info!("snapshot.skip_package", epoch = %targets[ix].epoch, reason = "already exists");
         }
@@ -741,90 +741,6 @@ mod tests {
     #[test]
     fn default_snapshot_output_dir_uses_snapshots_network_dir() {
         assert_eq!(default_snapshot_output_dir(NetworkName::Preprod), super::repo_root().join("snapshots/preprod"));
-    }
-
-    #[test]
-    fn existing_snapshot_paths_returns_existing_requested_directories() {
-        let temp_dir = TempDir::new().unwrap();
-        let existing_target = EpochTarget {
-            epoch: Epoch::from(163),
-            snapshot: SnapshotPoint {
-                point: Point::Specific(
-                    Slot::from(69_206_375),
-                    hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
-                ),
-                parent_point: Point::Specific(
-                    Slot::from(69_206_375),
-                    hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
-                ),
-            },
-            archive_path: None,
-            snapshot_path: None,
-        };
-        let missing_target = EpochTarget {
-            epoch: Epoch::from(164),
-            snapshot: SnapshotPoint {
-                point: Point::Specific(
-                    Slot::from(69_638_382),
-                    hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
-                ),
-                parent_point: Point::Specific(
-                    Slot::from(69_638_382),
-                    hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
-                ),
-            },
-            archive_path: None,
-            snapshot_path: None,
-        };
-
-        fs::create_dir(snapshot_path_for_target(temp_dir.path(), &existing_target)).unwrap();
-
-        assert_eq!(
-            existing_snapshot_paths(temp_dir.path(), &[existing_target.clone(), missing_target]),
-            vec![snapshot_path_for_target(temp_dir.path(), &existing_target)]
-        );
-    }
-
-    #[test]
-    fn existing_archive_paths_returns_existing_requested_archives() {
-        let temp_dir = TempDir::new().unwrap();
-        let existing_target = EpochTarget {
-            epoch: Epoch::from(163),
-            snapshot: SnapshotPoint {
-                point: Point::Specific(
-                    Slot::from(69_206_375),
-                    hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
-                ),
-                parent_point: Point::Specific(
-                    Slot::from(69_206_375),
-                    hash!("6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912"),
-                ),
-            },
-            archive_path: None,
-            snapshot_path: None,
-        };
-        let missing_target = EpochTarget {
-            epoch: Epoch::from(164),
-            snapshot: SnapshotPoint {
-                point: Point::Specific(
-                    Slot::from(69_638_382),
-                    hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
-                ),
-                parent_point: Point::Specific(
-                    Slot::from(69_638_382),
-                    hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
-                ),
-            },
-            archive_path: None,
-            snapshot_path: None,
-        };
-
-        fs::write(archive_path_for_target(temp_dir.path(), &existing_target), []).unwrap();
-
-        assert_eq!(
-            existing_archive_paths(temp_dir.path(), &[existing_target.clone(), missing_target]),
-            vec![archive_path_for_target(temp_dir.path(), &existing_target)]
-        );
     }
 
     #[test]

@@ -34,8 +34,8 @@ use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     store::{self, Store, TransactionalContext},
 };
+use amaru_observability::info;
 use amaru_progress_bar::ProgressBar;
-use tracing::{info, warn};
 
 use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_nonces};
 use crate::bootstrap::InitialNonces;
@@ -65,7 +65,7 @@ where
     let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
     let new_epoch_state_offset = parsed_snapshot.ledger_data_begin;
 
-    info!(point = %point, new_epoch_state_offset, "importing state snapshot with external utxo source");
+    info!(target: "amaru::bootstrap", name: "snapshot.import", %point, new_epoch_state_offset);
 
     state_file.seek(SeekFrom::Start(new_epoch_state_offset as u64))?;
 
@@ -120,10 +120,6 @@ where
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
 {
     let protocol_parameters = db.protocol_parameters()?;
-
-    if db.iter_utxos()?.next().is_some() {
-        warn!("given storage is not empty: it contains UTxO; overwriting");
-    }
 
     let size: Option<usize> = decoder.with_decoder(|d| {
         d.array()?;
@@ -206,7 +202,7 @@ where
     }
 
     progress.clear();
-    info!(size = actual_size, "utxo");
+    info!(target: "amaru::bootstrap", name: "import.utxo", size = actual_size);
 
     Ok(())
 }

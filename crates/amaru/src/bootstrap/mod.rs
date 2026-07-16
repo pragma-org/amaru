@@ -24,7 +24,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor,
+    from_cbor, utils::path::relative_path,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -48,12 +48,23 @@ use tokio::{
     time::timeout,
 };
 use tokio_util::io::StreamReader;
-use tracing::{error, info};
 
 use crate::{
     cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
     default_data_dir, default_snapshots_dir, get_bootstrap_file,
 };
+
+macro_rules! info {
+    ($name:literal $(, $($rest:tt)+)?) => {
+        amaru_observability::info!(target: "amaru::bootstrap", name: $name $(, $($rest)+)?);
+    };
+}
+
+macro_rules! error {
+    ($name:literal $(, $($rest:tt)+)?) => {
+        amaru_observability::error!(target: "amaru::bootstrap", name: $name $(, $($rest)+)?);
+    };
+}
 
 /// Configuration for a single ledger state's snapshot to be imported.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -165,7 +176,7 @@ fn bootstrap_snapshots(network: NetworkName) -> Result<(PathBuf, Vec<Snapshot>),
 
     let local_snapshots = load_local_epoch_snapshots(network);
     if !local_snapshots.is_empty() {
-        info!(count = local_snapshots.len(), "detected locally-created snapshots from create-snapshots");
+        info!("local_snapshots.detect", count = local_snapshots.len());
         for local_snapshot in local_snapshots {
             if !snapshots.iter().any(|s| s.epoch == local_snapshot.epoch) {
                 snapshots.push(local_snapshot);
@@ -304,13 +315,13 @@ async fn fetch_headers_from_point(
     headers_per_point: usize,
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.map_err(|err| {
-        error!(peer = %peer_address, reason = %err, "failed to connect to peer");
+        error!("peer.failed_to_connect", peer = %peer_address, reason = %err);
         err
     })?;
     let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
     let intersection = client.find_intersection().await?;
 
-    info!(requested_point = %point, intersection = %intersection, headers_per_point, "fetching bootstrap headers from peer");
+    info!("headers.fetch", requested_point = %point, intersection = %intersection, headers_per_point);
 
     let mut headers = Vec::with_capacity(headers_per_point);
     while headers.len() < headers_per_point {
@@ -335,18 +346,16 @@ async fn fetch_headers_from_point(
                 }
             }
             NextResponse::RollBackward(point, tip) => {
-                info!(?point, ?tip, "roll backward while fetching bootstrap headers");
+                error!("fetch.rollback", ?point, ?tip);
             }
             NextResponse::Await => continue,
         }
     }
 
-    info!(requested_point = %point, total = headers.len(), "fetched bootstrap headers from peer");
-
     Ok(headers)
 }
 
-async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Result<(), BootstrapError> {
+async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(snapshots_dir)
         .await
         .map_err(|err| BootstrapError::CreateSnapshotsDir(snapshots_dir.to_path_buf(), err))?;
@@ -357,21 +366,21 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
         let snapshot_dir = snapshot_directory_path(snapshots_dir, snapshot);
         let snapshot_file = snapshot_file_path(snapshots_dir, snapshot);
         if let Some(snapshot_path) = resolve_snapshot_path(snapshots_dir, snapshot) {
-            info!(snapshot = %snapshot_path.display(), "snapshot already exists, skipping download");
+            info!("snapshot.skip_download", snapshot = %relative_path(&snapshot_path)?.display());
             continue;
         }
 
         if snapshot_dir.exists() {
-            info!(snapshot = %snapshot_dir.display(), "snapshot directory exists but is not a valid tvar snapshot, removing it");
-            fs::remove_dir_all(&snapshot_dir).await?;
+            error!("snapshot.invalid", snapshot = %relative_path(&snapshot_dir)?.display());
+            return Err(anyhow!("snapshot directory exists but is not a valid tvar snapshot; try removing it"))?;
         }
 
         if snapshot_file.exists() && !is_cbor_snapshot_file(&snapshot_file) {
-            info!(snapshot = %snapshot_file.display(), "snapshot file exists but is not a valid cbor snapshot, removing it");
-            fs::remove_file(&snapshot_file).await?;
+            error!("snapshot.invalid", snapshot = %relative_path(&snapshot_file)?.display());
+            return Err(anyhow!("snapshot file exists but is not a valid cbor snapshot; try removing it"))?;
         }
 
-        info!(epoch = %snapshot.epoch, point = %snapshot.point, "downloading snapshot");
+        info!("snapshot.download", epoch = %snapshot.epoch, point = %snapshot.point);
 
         if snapshot.url.ends_with(".cbor.gz") {
             let (tmp_path, mut file) = create_partial_file(&snapshot_file).await?;
@@ -379,7 +388,6 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
             file.sync_all().await?;
             drop(file);
             fs::rename(&tmp_path, &snapshot_file).await?;
-            info!(snapshot = %snapshot_file.display(), "downloaded snapshot");
             continue;
         }
 
@@ -393,17 +401,15 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
         file.sync_all().await?;
         drop(file);
 
-        info!(snapshot = %snapshot_dir.display(), "extracting archive");
+        info!("snapshot.extract", snapshot = %relative_path(&snapshot_dir)?.display());
 
         if let Err(err) = extract_snapshot_archive(&archive_path, &extract_path, &snapshot_dir) {
             let _ = fs::remove_file(&archive_path).await;
             let _ = fs::remove_dir_all(&extract_path).await;
-            return Err(err);
+            return Err(Box::new(err));
         }
 
         fs::remove_file(&archive_path).await?;
-
-        info!(snapshot = %snapshot_dir.display(), "downloaded snapshot");
     }
 
     Ok(())
@@ -610,7 +616,7 @@ fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dy
 pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNonces) -> Result<(), Box<dyn Error>> {
     let header_hash = Hash::from(&initial_nonces.at);
 
-    info!(point.id = %header_hash, point.slot = %initial_nonces.at.slot_or_default(), "importing nonces");
+    info!("nonces.import", point = %initial_nonces.at);
 
     let nonces = Nonces {
         epoch,
@@ -629,9 +635,7 @@ pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
         let hash = block_header.hash();
-
-        info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting header");
-
+        info!("header.import", header = %hash);
         db.store_header(&block_header)?;
     }
 
@@ -676,11 +680,10 @@ pub async fn import_snapshots(
     snapshots: &[PathBuf],
     ledger_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!(count = snapshots.len(), "Importing snapshots");
+    info!("snapshots.import", count = snapshots.len());
     for snapshot in snapshots {
         import_snapshot(network, global_parameters, snapshot, ledger_dir).await?;
     }
-    info!("Imported snapshots");
     Ok(())
 }
 
@@ -708,7 +711,6 @@ async fn import_snapshot(
     ledger_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None).await?;
-
     Ok(())
 }
 
@@ -738,7 +740,7 @@ async fn import_cbor_snapshot_file(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
-    info!(snapshot=%snapshot.display(), "Importing CBOR snapshot");
+    info!("snapshot.import", file = %relative_path(snapshot)?.display());
 
     let point =
         Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap()).map_err(ImportError::MalformedDate)?;
@@ -779,7 +781,6 @@ async fn import_cbor_snapshot_file(
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    info!(epoch=%epoch, snapshot=%snapshot.display(), "Imported CBOR snapshot");
     Ok(ImportedSnapshot { epoch, initial_nonces })
 }
 
@@ -792,7 +793,7 @@ async fn import_node_snapshot_dir(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
-    info!(snapshot=%snapshot_dir.display(), "Importing node snapshot directory");
+    info!("snapshot.import", dir = %relative_path(snapshot_dir)?.display());
 
     std::fs::create_dir_all(ledger_dir)?;
 
@@ -828,7 +829,6 @@ async fn import_node_snapshot_dir(
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    info!(epoch=%epoch, snapshot=%snapshot_dir.display(), "Imported node snapshot directory");
     Ok(ImportedSnapshot { epoch, initial_nonces })
 }
 
