@@ -15,8 +15,6 @@
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{ComparableProposalId, Epoch, Proposal, ProposalPointer, cbor};
 
-pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
-
 /// Iterator used to browse rows from the proposals column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 

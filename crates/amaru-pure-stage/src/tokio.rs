@@ -27,7 +27,6 @@ use std::{
     time::Duration,
 };
 
-use amaru_observability::trace_span;
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
@@ -39,6 +38,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use tracing::trace_span;
 
 use crate::{
     BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,
@@ -414,7 +414,7 @@ fn interpreter(
         tb().push_resume(name, &StageResponse::Unit);
         loop {
             let poll = {
-                let _span = trace_span!(amaru_observability::amaru::stage::tokio::POLL, stage = %name).entered();
+                let _span = trace_span!("amaru::stages::interpreter::tokio::POLL", stage = %name).entered();
                 stage.as_mut().poll(&mut Context::from_waker(Waker::noop()))
             };
             if let Poll::Ready(state) = poll {

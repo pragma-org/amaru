@@ -13,33 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{Peer, Point};
-use amaru_observability::trace_span;
+use amaru_network::point::{from_network_point, to_network_point};
+use amaru_observability::debug_span;
 use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
-use pallas_traverse::MultiEraHeader;
 use tracing::Instrument;
-
-use crate::point::{from_network_point, to_network_point};
-
-pub type RawHeader = Vec<u8>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum ChainSyncClientError {
-    #[error("Failed to decode header: {0}")]
-    HeaderDecodeError(String),
-    #[error("Network error: {0}")]
-    NetworkError(ClientError),
-    #[error("No intersection found for points: {points:?}")]
-    NoIntersectionFound { points: Vec<Point> },
-}
-
-pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSyncClientError> {
-    let out = match header.byron_prefix {
-        Some((subtag, _)) => MultiEraHeader::decode(header.variant, Some(subtag), &header.cbor),
-        None => MultiEraHeader::decode(header.variant, None, &header.cbor),
-    };
-
-    out.map_err(|e| ChainSyncClientError::HeaderDecodeError(e.to_string()))
-}
 
 /// Handles chain synchronization network operations
 pub struct ChainSyncClient {
@@ -65,16 +42,12 @@ impl ChainSyncClient {
                 point.ok_or(ChainSyncClientError::NoIntersectionFound { points: self.intersection.clone() })?;
             Ok(from_network_point(&intersection))
         }
-        .instrument(trace_span!(
-            amaru_observability::amaru::network::chainsync_client::FIND_INTERSECTION,
+        .instrument(debug_span!(
+            amaru::consensus::chain::FIND_INTERSECTION,
             peer = &self.peer.name,
             intersection_slot = u64::from(self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default())
         ))
         .await
-    }
-
-    pub fn intersection(&self) -> &[Point] {
-        &self.intersection
     }
 
     pub async fn request_next(&mut self) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
@@ -102,4 +75,12 @@ impl ChainSyncClient {
     pub fn has_agency(&self) -> bool {
         self.chain_sync.has_agency()
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ChainSyncClientError {
+    #[error("Network error: {0}")]
+    NetworkError(ClientError),
+    #[error("No intersection found for points: {points:?}")]
+    NoIntersectionFound { points: Vec<Point> },
 }

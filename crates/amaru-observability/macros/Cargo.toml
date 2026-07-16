@@ -17,17 +17,19 @@ categories.workspace = true
 proc-macro = true
 
 [dependencies]
+inventory.workspace = true
+opentelemetry.workspace = true
 proc-macro2.workspace = true
 quote.workspace = true
 syn.workspace = true
-inventory.workspace = true
+tracing.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
-tracing.workspace = true
+tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 trybuild.workspace = true

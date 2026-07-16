@@ -128,7 +128,7 @@ impl BlockSource {
         match self.by_point.get_mut(&point) {
             Some(Invalid(_height)) => {
                 tracing::info!(%peer, %point, "received known invalid block from new peer");
-                eff.send(&self.invalid_peer_sink, PeerSelectionMsg::Adversarial(peer)).await;
+                eff.send(&self.invalid_peer_sink, PeerSelectionMsg::adversarial(peer)).await;
             }
             Some(Pending(_height, peers)) => {
                 peers.insert(peer);
@@ -152,7 +152,7 @@ impl BlockSource {
                 *validity = BlockValidity::Valid(*height);
             } else {
                 for p in std::mem::take(peers) {
-                    eff.send(&self.invalid_peer_sink, PeerSelectionMsg::Adversarial(p.clone())).await;
+                    eff.send(&self.invalid_peer_sink, PeerSelectionMsg::adversarial(p.clone())).await;
                 }
                 *validity = BlockValidity::Invalid(*height);
             }

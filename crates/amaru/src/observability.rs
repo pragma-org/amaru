@@ -22,11 +22,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use amaru_observability::{info, warn};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
-use tracing::{Metadata, Subscriber, info, level_filters::LevelFilter, span, subscriber::Interest, warn};
+use tracing::{Metadata, Subscriber, level_filters::LevelFilter, span, subscriber::Interest};
 use tracing_subscriber::{
     EnvFilter, Registry,
     filter::Filtered,
@@ -296,8 +297,6 @@ pub fn setup_open_telemetry(
     // OTEL_RESOURCE_ATTRIBUTES. This is used only to guard our *fallback* values;
     // the dedicated OTEL_SERVICE_NAME / OTEL_SERVICE_INSTANCE_ID env vars always
     // take priority and are never suppressed by OTEL_RESOURCE_ATTRIBUTES.
-    let default_resource = Resource::builder().build();
-    let resource_has = |key| default_resource.get(&opentelemetry::Key::from_static_str(key)).is_some();
     let explicit_service_name = var("OTEL_SERVICE_NAME").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
     let service_name = explicit_service_name.clone().unwrap_or_else(|| DEFAULT_OTLP_SERVICE_NAME.to_string());
 
@@ -311,12 +310,8 @@ pub fn setup_open_telemetry(
     });
 
     let mut attributes = Vec::new();
-    if explicit_service_name.is_some() || !resource_has(SERVICE_NAME) {
-        attributes.push(KeyValue::new(SERVICE_NAME, service_name.clone()));
-    }
-    if let Some(instance_id) = service_instance_id
-        && (explicit_service_instance_id.is_some() || !resource_has(SERVICE_INSTANCE_ID))
-    {
+    attributes.push(KeyValue::new(SERVICE_NAME, service_name.clone()));
+    if let Some(instance_id) = service_instance_id {
         attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, instance_id));
     }
     let resource = Resource::builder().with_attributes(attributes).build();
@@ -485,7 +480,9 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
         Ok(filter) => {
             let var = var.to_string();
             let value = std::env::var(&var).unwrap_or_default();
-            let notice = Box::new(move || info!(var, value, "using ENV variable")) as Box<dyn FnOnce()>;
+            let notice = Box::new(
+                move || info!(target: "amaru::setup", name: "trace.filter", var, value, provided_by_user = true),
+            ) as Box<dyn FnOnce()>;
             (filter, Some(notice))
         }
         Err(e) => {
@@ -493,11 +490,12 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
             let fallback = default.to_string();
             let var = var.to_string();
             let warning = match e.source().and_then(|e| e.downcast_ref::<VarError>()) {
-                Some(VarError::NotPresent) => {
-                    Box::new(move || info!(var, fallback, "using default as ENV variable is not set"))
-                        as Box<dyn FnOnce()>
-                }
-                _ => Box::new(move || warn!(var, fallback, reason = %e, "invalid ENV variable")) as Box<dyn FnOnce()>,
+                Some(VarError::NotPresent) => Box::new(
+                    move || info!(target: "amaru::setup", name: "trace.filter", var, value = fallback, provided_by_user = false),
+                ) as Box<dyn FnOnce()>,
+                _ => Box::new(
+                    move || warn!(target: "amaru::setup", name: "trace.filter", var, value = fallback, provided_by_user = true, provided_invalid = true, error = %e),
+                ) as Box<dyn FnOnce()>,
             };
 
             #[expect(clippy::expect_used)]
@@ -530,6 +528,14 @@ pub fn setup_observability(
     if let Some(notify) = warning_otlp.or(warning_json) {
         notify();
     }
+
+    info!(
+        target: "amaru::setup",
+        name: "observability.init",
+        with_open_telemetry,
+        with_json_traces,
+        with_colors = color,
+    );
 
     (metrics, teardown)
 }

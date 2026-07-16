@@ -26,7 +26,7 @@ use amaru_kernel::{
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
-use amaru_observability::trace_span;
+use tracing::instrument;
 
 use crate::{
     context::{
@@ -144,10 +144,8 @@ impl From<AssertValidationContext> for () {
 }
 
 impl PotsSlice for AssertValidationContext {
-    fn add_fees(&mut self, fee: Lovelace) {
-        let _span = trace_span!(amaru_observability::amaru::ledger::context::ADD_FEES, fee = fee);
-        let _guard = _span.enter();
-    }
+    #[instrument(skip_all, fields(fee = fee))]
+    fn add_fees(&mut self, fee: Lovelace) {}
 
     fn add_donation(&mut self, _donation: Lovelace) {
         unimplemented!()
@@ -217,16 +215,14 @@ impl AccountsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn withdraw_from(&mut self, credential: StakeCredential) {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::WITHDRAW_FROM,
-            credential_type = StakeCredentialKind::from(&credential),
-            credential_hash = credential.as_hash()
-        );
-        let _guard = _span.enter();
-
-        // We don't actually do any VolatileState updates here
-    }
+    #[instrument(
+        skip_all,
+        fields(
+            credential_type = %StakeCredentialKind::from(&credential),
+            credential_hash = %credential.as_hash(),
+        ),
+    )]
+    fn withdraw_from(&mut self, credential: StakeCredential) {}
 }
 
 impl DRepsSlice for AssertValidationContext {
@@ -285,34 +281,25 @@ impl ProposalsSlice for AssertValidationContext {
 
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 
-    fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::VOTE,
-            voter_type = VoterKind::from(&_voter),
-            credential_type = StakeCredentialKind::from(&_voter),
-            credential_hash = _voter.as_hash()
-        );
-        let _guard = _span.enter();
-    }
+    #[instrument(
+        skip_all,
+        fields(
+            voter_type = %VoterKind::from(&voter),
+            credential_type = %StakeCredentialKind::from(&voter),
+            credential_hash = %voter.as_hash(),
+        ),
+    )]
+    fn vote(&mut self, _proposal: ProposalId, voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {}
 }
 
 impl WitnessSlice for AssertValidationContext {
+    #[instrument(skip_all, fields(hash = %vkey_hash))]
     fn require_vkey_witness(&mut self, vkey_hash: Hash<28>) {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::REQUIRE_VKEY_WITNESS,
-            hash = format!("{}", vkey_hash)
-        );
-        let _guard = _span.enter();
         self.required_signers.insert(vkey_hash);
     }
 
-    // TODO: add purpose to fields
+    #[instrument(skip_all, fields(hash = %script.hash))]
     fn require_script_witness(&mut self, script: RequiredScript) {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::REQUIRE_SCRIPT_WITNESS,
-            hash = format!("{}", script.hash)
-        );
-        let _guard = _span.enter();
         self.required_scripts.insert(script);
     }
 
@@ -324,12 +311,8 @@ impl WitnessSlice for AssertValidationContext {
         self.known_datums.insert(datum_hash, location);
     }
 
+    #[instrument(skip_all, fields(bootstrap_witness_hash = %root))]
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
-        let _span = trace_span!(
-            amaru_observability::amaru::ledger::context::REQUIRE_BOOTSTRAP_WITNESS,
-            bootstrap_witness_hash = format!("{}", root)
-        );
-        let _guard = _span.enter();
         self.required_bootstrap_roots.insert(root);
     }
 

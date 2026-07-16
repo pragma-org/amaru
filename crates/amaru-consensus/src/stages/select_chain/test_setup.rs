@@ -83,7 +83,7 @@ impl HeaderTree {
 pub struct TestPrep {
     pub state: SelectChain,
     pub rt: Runtime,
-    pub downstream: StageRef<(Tip, Point)>,
+    pub downstream: StageRef<NewBestTip>,
     pub headers: HeaderTree,
     pub store: Arc<dyn ChainStore>,
 }
@@ -118,6 +118,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<NewBestTip>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),

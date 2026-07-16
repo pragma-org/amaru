@@ -23,9 +23,10 @@ use amaru_kernel::{
 };
 use amaru_observability::debug_span;
 use num::BigUint;
-use tracing::{Span, debug};
+use tracing::Span;
 
 use crate::{
+    debug,
     epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, Rewards},
     governance::ratification::CommitteeUpdate,
     store::{StoreError, TransactionalContext, columns::pools::Row as Pool},
@@ -40,7 +41,7 @@ pub fn pay_rewards<'store>(
     db: &impl TransactionalContext<'store>,
     mut effective_rewards: Rewards<Effective>,
 ) -> Result<(), StoreError> {
-    debug_span!(amaru_observability::amaru::ledger::epoch_transition::PAY_REWARDS).in_scope(|| {
+    debug_span!(stores::ledger::overlay::PAY_REWARDS).in_scope(|| {
         // Pay rewards out to every account
         db.with_accounts(|iterator| {
             let mut rewards_paid: u64 = 0;
@@ -96,7 +97,7 @@ pub fn reset_recently_pruned_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     pruned_proposals: BTreeMap<&ComparableProposalId, RatificationStatus>,
 ) -> Result<(), StoreError> {
-    debug_span!(amaru_observability::amaru::ledger::epoch_transition::RECORD_PRUNED_PROPOSALS).in_scope(|| {
+    debug_span!(stores::ledger::overlay::RECORD_PRUNED_PROPOSALS).in_scope(|| {
         db.set_recently_pruned_proposals(pruned_proposals)?;
         Ok(())
     })
@@ -107,7 +108,7 @@ pub fn reset_recently_pruned_proposals<'store>(
 // -------------------------------------------------------------------------------------------------
 
 pub fn reset_fees_and_donations<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
-    debug_span!(amaru_observability::amaru::ledger::epoch_transition::RESET_FEES).in_scope(|| {
+    debug_span!(stores::ledger::overlay::RESET_FEES).in_scope(|| {
         db.with_pots(|mut row| {
             let row = row.borrow_mut();
             row.fees = 0;
@@ -118,7 +119,7 @@ pub fn reset_fees_and_donations<'store>(db: &impl TransactionalContext<'store>) 
 }
 
 pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
-    debug_span!(amaru_observability::amaru::ledger::epoch_transition::RESET_BLOCKS_COUNT).in_scope(|| {
+    debug_span!(stores::ledger::overlay::RESET_BLOCKS_COUNT,).in_scope(|| {
         // TODO: Dropping entire RocksDB columns
         //
         // If necessary, come up with a more efficient way of dropping a "table".
@@ -137,12 +138,12 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
     db: &impl TransactionalContext<'store>,
     payouts: impl IntoIterator<Item = (&'iter StakeCredential, Lovelace)>,
 ) -> Result<(), StoreError> {
-    debug_span!(amaru_observability::amaru::ledger::epoch_transition::PAY_OR_REFUND_ACCOUNTS).in_scope(|| {
+    debug_span!(stores::ledger::overlay::PAY_OR_REFUND_ACCOUNTS,).in_scope(|| {
         let (leftovers, paid) = payouts.into_iter().try_fold::<_, _, Result<_, StoreError>>(
             (0_u64, 0_u64),
             |(leftovers, paid), (account, deposit)| {
                 debug!(
-                    name: "pay_or_refund",
+                    "account.pay_or_refund",
                     type = %StakeCredentialKind::from(account),
                     account = %account.as_hash(),
                     %deposit,
@@ -171,7 +172,7 @@ pub fn update_or_retire_pools<'store, 'iter>(
     mut retirements: BTreeSet<PoolId>,
 ) -> Result<(), StoreError> {
     debug_span!(
-        amaru_observability::amaru::ledger::epoch_transition::UPDATE_OR_RETIRE_POOLS,
+        stores::ledger::overlay::UPDATE_OR_RETIRE_POOLS,
         pools_updated = updates.len() as u64,
         pools_retired = retirements.len() as u64,
     )
@@ -216,7 +217,7 @@ pub fn apply_governance_updates<'store, 'iter>(
     db: &impl TransactionalContext<'store>,
     mut updates: GovernanceUpdates,
 ) -> Result<(ProtocolParameters, GovernanceActivity), StoreError> {
-    debug_span!(amaru_observability::amaru::ledger::epoch_transition::APPLY_GOVERNANCE_UPDATES).in_scope(|| {
+    debug_span!(stores::ledger::overlay::APPLY_GOVERNANCE_UPDATES,).in_scope(|| {
         db.set_proposals_roots(&updates.roots)?;
 
         if let Some(new_constitution) = updates.new_constitution.take() {
@@ -235,7 +236,7 @@ pub fn apply_governance_updates<'store, 'iter>(
         if updates.is_dormant_epoch {
             governance_activity.consecutive_dormant_epochs += 1;
             debug!(
-                name: "governance_activity",
+                "governance_activity.update",
                 consecutive_dormant_epochs = governance_activity.consecutive_dormant_epochs
             );
             db.set_governance_activity(governance_activity)?;
@@ -253,7 +254,7 @@ pub fn update_constitutional_committee<'store, 'iter>(
     committee_update: CommitteeUpdate,
 ) -> Result<(), StoreError> {
     debug_span!(
-        amaru_observability::amaru::ledger::epoch_transition::UPDATE_CONSTITUTIONAL_COMMITTEE,
+        stores::ledger::overlay::UPDATE_CONSTITUTIONAL_COMMITTEE,
         no_confidence = matches!(committee_update, CommitteeUpdate::NoConfidence)
     )
     .in_scope(|| {

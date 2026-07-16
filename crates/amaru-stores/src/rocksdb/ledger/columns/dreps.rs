@@ -18,13 +18,12 @@ use amaru_kernel::{CertificatePointer, DRepRegistration, Epoch, StakeCredential}
 use amaru_ledger::store::{
     StoreError,
     columns::{
-        dreps::{EVENT_TARGET, Key, Row, Value},
+        dreps::{Key, Row, Value},
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::{error, trace_span, warn};
 use rocksdb::{DBPinnableSlice, Transaction};
-use tracing::{error, warn};
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
@@ -36,17 +35,11 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_GET,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "get".to_string(),
-        db_collection_name = "drep".to_string()
-    );
-    let _guard = _span.enter();
-
-    let key = as_key(&PREFIX, credential);
-    let bytes = db_get(&key);
-    bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
+    trace_span!(stores::ledger::dreps::GET).in_scope(|| {
+        let key = as_key(&PREFIX, credential);
+        let bytes = db_get(&key);
+        bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
+    })
 }
 
 /// Register a new DRep.
@@ -55,59 +48,54 @@ pub fn add<DB>(
     valid_until_on_update: Epoch,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_ADD,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "drep".to_string()
-    );
-    let _guard = _span.enter();
+    trace_span!(stores::ledger::dreps::ADD).in_scope(|| {
+        for (credential, (anchor, registration)) in rows {
+            let key = as_key(&PREFIX, &credential);
 
-    for (credential, (anchor, registration)) in rows {
-        let key = as_key(&PREFIX, &credential);
+            // Registration already exists. Which represents one of two cases:
+            //
+            // 1. The DRep is simply updating (register is None).
+            // 2. The DRep is re-registering after a previous deregistration.
+            let row = if let Some(mut row) =
+                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+            {
+                // Re-registration
+                if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
+                    row.deposit = deposit;
+                    row.registered_at = registered_at;
+                    row.valid_until = valid_until;
+                } else {
+                    row.valid_until = valid_until_on_update;
+                }
 
-        // Registration already exists. Which represents one of two cases:
-        //
-        // 1. The DRep is simply updating (register is None).
-        // 2. The DRep is re-registering after a previous deregistration.
-        let row = if let Some(mut row) =
-            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-        {
-            // Re-registration
-            if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
-                row.deposit = deposit;
-                row.registered_at = registered_at;
-                row.valid_until = valid_until;
+                Some(row)
+            } else if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
+                // Brand new registration.
+                Some(Row { deposit, registered_at, valid_until, anchor: None })
             } else {
-                row.valid_until = valid_until_on_update;
-            }
+                // Technically impossible, sign of a logic error.
+                None
+            };
 
-            Some(row)
-        } else if let Some(DRepRegistration { deposit, registered_at, valid_until, .. }) = registration {
-            // Brand new registration.
-            Some(Row { deposit, registered_at, valid_until, anchor: None })
-        } else {
-            // Technically impossible, sign of a logic error.
-            None
-        };
+            match row {
+                Some(mut row) => {
+                    anchor.set_or_reset(&mut row.anchor);
 
-        match row {
-            Some(mut row) => {
-                anchor.set_or_reset(&mut row.anchor);
-
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            }
-            None => {
-                error!(
-                    target: EVENT_TARGET,
-                    ?credential,
-                    "add.register_no_deposit",
-                )
+                    db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+                }
+                None => {
+                    error!(
+                        target: "amaru::stores",
+                        name: "dreps.add",
+                        ?credential,
+                        reason = "registration without a deposit"
+                    )
+                }
             }
         }
-    }
 
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Re-calculate drep expiry based the current epoch. This happens each time a drep vote on an
@@ -117,32 +105,27 @@ pub fn set_valid_until<DB>(
     credentials: BTreeSet<StakeCredential>,
     valid_until: Epoch,
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_SET_VALID_UNTIL,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "drep".to_string()
-    );
-    let _guard = _span.enter();
+    trace_span!(stores::ledger::dreps::SET_VALID_UNTIL).in_scope(|| {
+        for credential in credentials {
+            let key = as_key(&PREFIX, &credential);
 
-    for credential in credentials {
-        let key = as_key(&PREFIX, &credential);
+            if let Some(mut row) =
+                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+            {
+                row.valid_until = valid_until;
+                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+            } else {
+                warn!(
+                    target: "amaru::stores",
+                    name: "dreps.set_valid_until",
+                    ?credential,
+                    reason = "unknown drep",
+                )
+            };
+        }
 
-        if let Some(mut row) =
-            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-        {
-            row.valid_until = valid_until;
-            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            warn!(
-                target: EVENT_TARGET,
-                ?credential,
-                "set_valid_until.unknown_drep",
-            )
-        };
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Clear a DRep registration.
@@ -150,27 +133,22 @@ pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, CertificatePointer)>,
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::DREPS_REMOVE,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "drep".to_string()
-    );
-    let _guard = _span.enter();
+    trace_span!(stores::ledger::dreps::REMOVE).in_scope(|| {
+        for (drep, _) in rows {
+            let key = as_key(&PREFIX, &drep);
 
-    for (drep, _) in rows {
-        let key = as_key(&PREFIX, &drep);
-
-        if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
-            db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            error!(
-                target: EVENT_TARGET,
-                ?drep,
-                "remove.unknown_drep",
-            )
+            if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
+                db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
+            } else {
+                error!(
+                    target: "amaru::stores",
+                    name: "dreps.remove",
+                    ?drep,
+                    reason = "unknown drep",
+                )
+            }
         }
-    }
 
-    Ok(())
+        Ok(())
+    })
 }

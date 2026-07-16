@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Peer, Point, Tip};
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::SampleAncestorPointsResult;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -162,8 +162,8 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
             .await;
             Ok((action, self))
         }
-        .instrument(trace_span!(
-            amaru_observability::amaru::protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE,
+        .instrument(debug_span!(
+            protocols::chainsync::initiator::CHAINSYNC_INITIATOR_STAGE,
             message_type = message_type
         ))
         .await
@@ -229,8 +229,8 @@ impl ProtocolState<Initiator> for InitiatorState {
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::chainsync::initiator::CHAINSYNC_INITIATOR_PROTOCOL,
+        let _span = debug_span!(
+            protocols::chainsync::initiator::CHAINSYNC_INITIATOR_PROTOCOL,
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();

@@ -18,19 +18,19 @@ use std::{
 };
 
 use amaru_kernel::{Bytes, Nullable, Relay};
-use tracing::field;
+use amaru_observability::info_span;
 
 use crate::store::{ReadStore, StoreError};
 
 pub fn collect_from_read_store(db: &impl ReadStore) -> Result<BTreeSet<SocketAddr>, StoreError> {
-    let span = tracing::info_span!("collect relay addresses from ledger", addresses = field::Empty).entered();
+    let span = info_span!(ledger::relays::COLLECT).entered();
     let mut set = BTreeSet::new();
     for (_, row) in db.iter_pools()? {
         for relay in &row.current_params.relays {
             relay_to_socket_addrs(relay, &mut set);
         }
     }
-    span.record("addresses", set.len());
+    span.record("count", set.len());
     Ok(set)
 }
 

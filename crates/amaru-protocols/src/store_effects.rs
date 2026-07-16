@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
+use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
     Nonces, SampleAncestorPointsResult, StoreError,
@@ -27,11 +28,17 @@ use amaru_pure_stage::{
 #[derive(Clone, Debug)]
 pub struct Store {
     effects: Effects<Void>,
+    trace_context: TraceContext,
 }
 
 impl Store {
-    pub fn new<T: SendData>(effects: Effects<T>) -> Store {
-        Store { effects: effects.erase() }
+    pub fn new<T: SendData>(effects: Effects<T>) -> Self {
+        Store { effects: effects.erase(), trace_context: Default::default() }
+    }
+
+    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+        self.trace_context = trace_context.clone();
+        self
     }
 
     pub fn load_header(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<BlockHeader>> {
@@ -126,7 +133,7 @@ impl Store {
     }
 
     pub fn load_tip(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Tip>> {
-        self.effects.external(LoadTipEffect::new(*hash))
+        self.effects.external(LoadTipEffect::new(*hash).with_trace_context(&self.trace_context))
     }
 
     pub fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> BoxFuture<'static, (Vec<HeaderHash>, bool)> {
@@ -473,11 +480,17 @@ impl ExternalEffectAPI for LoadHeaderEffect {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LoadTipEffect {
     hash: HeaderHash,
+    trace_context: TraceContext,
 }
 
 impl LoadTipEffect {
     pub fn new(hash: HeaderHash) -> Self {
-        Self { hash }
+        Self { hash, trace_context: Default::default() }
+    }
+
+    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+        self.trace_context = trace_context.clone();
+        self
     }
 }
 
@@ -485,6 +498,7 @@ impl ExternalEffect for LoadTipEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
+            let _guard = self.trace_context.attach();
             let store = resources.get::<ResourceHeaderStore>().expect("LoadTipEffect requires a chain store").clone();
             store.load_tip(&self.hash)
         })

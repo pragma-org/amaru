@@ -18,9 +18,10 @@ use amaru_kernel::{
     ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
 };
 use amaru_observability::info_span;
-use tracing::{Span, debug};
+use tracing::Span;
 
 use crate::{
+    debug,
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
@@ -100,8 +101,7 @@ impl StateOverlay {
     /// Rollback an existing overlay, throwing away the epoch transition calculations.
     pub fn rollback(&mut self) {
         let to = self.epoch - 1;
-        debug!(name: "overlay.rollback", from = %self.epoch, %to, "overlay.rollback");
-
+        debug!("epoch_transition.rollback", from = %self.epoch, %to);
         self.epoch = to;
         self.rewards = match mem::take(&mut self.rewards) {
             st @ RewardsState::NotReady | st @ RewardsState::Computed(..) => st,
@@ -119,8 +119,7 @@ impl StateOverlay {
         governance_updates: GovernanceUpdates,
     ) {
         let to = self.epoch + 1;
-        debug!(name: "overlay.transition", from = %self.epoch, %to, "overlay.transition");
-
+        debug!("epoch_transition.record", from = %self.epoch, %to);
         self.epoch = to;
         self.rewards = effective_rewards.map(RewardsState::Effective).unwrap_or(RewardsState::NotReady);
         self.pools_updates = Some(pools_updates);
@@ -133,11 +132,7 @@ impl StateOverlay {
     /// transition was applied, so the caller can refresh its cached copy. Returns `None` when there
     /// was no governance update to apply, in which case the cached values are left untouched.
     pub fn apply(&mut self, db: &impl Store) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
-        let updated = info_span!(
-            amaru_observability::amaru::ledger::epoch_transition::APPLYING_OVERLAY,
-            epoch = u64::from(self.epoch)
-        )
-        .in_scope(|| {
+        let updated = info_span!(ledger::epoch_transition::APPLY, epoch = u64::from(self.epoch)).in_scope(|| {
             use EpochTransitionProgress::*;
 
             // ---------------------------------------------------------------------------- End of epoch
@@ -189,13 +184,13 @@ impl StateOverlay {
                         update_or_retire_pools(batch, pools_updates.take_updated(), pools_updates.take_retired())?;
                         pay_or_refund_accounts(batch, pools_updates.refunds())?;
                     } else {
-                        debug!(name: "overlay.no_pools_updates", "overlay.no_pools_updates");
+                        debug!("overlay.no_pools_updates");
                     }
 
                     if let Some(governance_updates) = mem::take(&mut self.governance_updates) {
                         Some(apply_governance_updates(batch, governance_updates)?)
                     } else {
-                        debug!(name: "overlay.no_governance_updates", "overlay.no_governance_updates");
+                        debug!("overlay.no_governance_updates");
                         None
                     }
                 } else {

@@ -63,7 +63,7 @@ data/**/blocks/**
 **/amaru-uplc/benches/turbo/samples
 
 # Relay demos data
-scripts/relay*/run/**
+scripts/demos/*/run/**
 
 /.opencode/
 data/*/epoch-snapshots/
