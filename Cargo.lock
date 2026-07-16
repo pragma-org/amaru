@@ -62,7 +62,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "amaru"
-version = "10.10.0"
+version = "10.11.0"
 dependencies = [
  "amaru-consensus",
  "amaru-deps",
@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "amaru-deps"
-version = "10.10.0"
+version = "0.0.0"
 dependencies = [
  "bitflags 2.10.0",
  "blst",

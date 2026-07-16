@@ -35,7 +35,7 @@ Other guiding principles:
   ```
 -->
 
-## v10.10.20260716 _[unreleased; planned for 2026-07-16]_
+## v10.11.20260716 _[unreleased; planned for 2026-07-16]_
 
 ### Added
 
@@ -57,6 +57,7 @@ Other guiding principles:
 - **amaru-ledger**: reduce rationale number before serializing them to JSON in epoch summary. ([#1024][])
 - **amaru-ledger**: store the stake pool deposit for refunds instead of defaulting protocol parameters. ([#1031][])
 - **amaru-ledger**: do not overwrite already counted pool deposit refunds with newer refund from same credential. ([#1026][])
+- **amaru-ledger**: do not enforce max protocol version in block header; fix node stalling after hard fork on Preview. ([#1043][])
 - **amaru**: normalize snapshot metadata (all having a parent point now) and ensure better discoverability of local snapshots. ([#1039][])
 
 ## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
@@ -171,3 +172,4 @@ Other guiding principles:
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
+[#1043]: https://github.com/pragma-org/amaru/pull/1043
