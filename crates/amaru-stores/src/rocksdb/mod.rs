@@ -761,7 +761,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 let voting_dreps = votes::add(&self.db, add.votes)?;
 
                 // Reset validity period of voting dreps.
-                if !voting_dreps.is_empty() {
+                if !voting_dreps.is_empty() && !self.host.incremental_save {
                     dreps::set_valid_until(&self.db, voting_dreps, drep_validity)?;
                 }
 
@@ -774,7 +774,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
                 // When a proposal is seen during a dormant period, we flush the current dormant
                 // epochs counter on each drep.
-                if governance_activity.consecutive_dormant_epochs > 0 && proposals_count > 0 {
+                if governance_activity.consecutive_dormant_epochs > 0
+                    && proposals_count > 0
+                    && !self.host.incremental_save
+                {
                     self.with_dreps(|iterator| {
                         for (_, mut entry) in iterator {
                             if let Some(row) = entry.borrow_mut() {
