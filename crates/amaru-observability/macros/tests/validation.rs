@@ -34,14 +34,12 @@ define_local_schemas! {
             }
         }
     }
-
     ledger {
         state {
             /// Apply block for testing
             public APPLY_BLOCK {
                 required point_slot: u64
             }
-
             /// Create validation context for testing
             CREATE_VALIDATION_CONTEXT {
                 required block_body_hash: String
@@ -49,25 +47,21 @@ define_local_schemas! {
                 required block_body_size: u64
                 optional total_inputs: u64
             }
-
             /// Epoch transition for testing
             EPOCH_TRANSITION {
                 required from: u64
                 required into: u64
             }
-
             /// Resolve inputs for testing
             RESOLVE_INPUTS {
                 optional resolved_from_context: u64
                 optional resolved_from_volatile: u64
                 optional resolved_from_db: u64
             }
-
             /// Roll forward for testing
             ROLL_FORWARD {}
         }
     }
-
     network {
         chainsync_client {
             /// Find intersection for testing
@@ -84,7 +78,7 @@ mod required_fields {
 
     fn all_required(block_body_hash: String, block_number: u64, block_body_size: u64) {
         let _span = trace_span!(
-            ledger::state::CREATE_VALIDATION_CONTEXT,
+            crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
             block_number = block_number,
             block_body_size = block_body_size
@@ -94,7 +88,7 @@ mod required_fields {
 
     fn required_different_order(block_body_size: u64, block_body_hash: String, block_number: u64) {
         let _span = trace_span!(
-            ledger::state::CREATE_VALIDATION_CONTEXT,
+            crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
             block_number = block_number,
             block_body_size = block_body_size
@@ -104,7 +98,7 @@ mod required_fields {
 
     fn required_plus_optional(block_body_hash: String, block_number: u64, block_body_size: u64, total_inputs: u64) {
         let _span = trace_span!(
-            ledger::state::CREATE_VALIDATION_CONTEXT,
+            crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
             block_number = block_number,
             block_body_size = block_body_size,
@@ -114,7 +108,7 @@ mod required_fields {
     }
 
     fn simple_required(from: u64, into: u64) {
-        let _span = trace_span!(ledger::state::EPOCH_TRANSITION, from = from, into = into);
+        let _span = trace_span!(crate::ledger::state::EPOCH_TRANSITION, from = from, into = into);
         let _guard = _span.enter();
     }
 
@@ -127,22 +121,48 @@ mod required_fields {
     }
 }
 
+mod parent_context {
+    use super::*;
+
+    struct TestTraceContext(opentelemetry::Context);
+
+    impl TestTraceContext {
+        fn context(&self) -> opentelemetry::Context {
+            self.0.clone()
+        }
+    }
+
+    /// Any struct with a `context` method returning an opentelemetry Context can be passed to create
+    /// the parent context of a span.
+    #[test]
+    fn trace_span_accepts_parent_context() {
+        let context = TestTraceContext(opentelemetry::Context::new());
+        let _span = trace_span!(parent_context: &context, crate::ledger::state::APPLY_BLOCK, point_slot = 1);
+    }
+
+    #[test]
+    fn trace_span_accepts_root_parent() {
+        let _span = trace_span!(root, crate::ledger::state::APPLY_BLOCK, point_slot = 1);
+        let _span = trace_span!(DEBUG, root, crate::ledger::state::APPLY_BLOCK, point_slot = 1);
+    }
+}
+
 mod optional_fields {
     use super::*;
 
     fn no_optional() {
-        let _span = trace_span!(ledger::state::RESOLVE_INPUTS);
+        let _span = trace_span!(crate::ledger::state::RESOLVE_INPUTS,);
         let _guard = _span.enter();
     }
 
     fn one_optional(resolved_from_context: u64) {
-        let _span = trace_span!(ledger::state::RESOLVE_INPUTS, resolved_from_context = resolved_from_context);
+        let _span = trace_span!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context = resolved_from_context);
         let _guard = _span.enter();
     }
 
     fn two_optional(resolved_from_context: u64, resolved_from_volatile: u64) {
         let _span = trace_span!(
-            ledger::state::RESOLVE_INPUTS,
+            crate::ledger::state::RESOLVE_INPUTS,
             resolved_from_context = resolved_from_context,
             resolved_from_volatile = resolved_from_volatile
         );
@@ -150,7 +170,7 @@ mod optional_fields {
     }
 
     fn optional_only_schema() {
-        let _span = trace_span!(ledger::state::ROLL_FORWARD);
+        let _span = trace_span!(crate::ledger::state::ROLL_FORWARD,);
         let _guard = _span.enter();
     }
 
@@ -175,18 +195,18 @@ mod custom_expressions {
     }
 
     fn inline_expression(_hash: String) {
-        let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = compute_hash("test"));
+        let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash = compute_hash("test"));
         let _guard = _span.enter();
     }
 
     fn normal_parameter(hash: String) {
-        let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+        let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash = &hash);
         let _guard = _span.enter();
     }
 
     fn multiple_expressions(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {
         let _span = trace_span!(
-            ledger::state::CREATE_VALIDATION_CONTEXT,
+            crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = compute_hash("block"),
             block_number = get_slot(),
             block_body_size = 512_u64 * 2
@@ -196,7 +216,7 @@ mod custom_expressions {
 
     fn complex_expressions(_block_body_hash: String, _block_number: u64, _block_body_size: u64) {
         let _span = trace_span!(
-            ledger::state::CREATE_VALIDATION_CONTEXT,
+            crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = format!("prefix_{}", "computed"),
             block_number = 42_u64 + 100,
             block_body_size = 1024
@@ -228,7 +248,7 @@ mod extra_params {
         config: Option<u32>,     // Extra param - not referenced by trace_span
     ) {
         let _span = trace_span!(
-            ledger::state::CREATE_VALIDATION_CONTEXT,
+            crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
             block_number = block_number,
             block_body_size = block_body_size
@@ -245,7 +265,7 @@ mod extra_params {
         extra_slice: &[u8],      // Extra param - not referenced
     ) {
         let _span = trace_span!(
-            ledger::state::CREATE_VALIDATION_CONTEXT,
+            crate::ledger::state::CREATE_VALIDATION_CONTEXT,
             block_body_hash = &block_body_hash,
             block_number = block_number,
             block_body_size = block_body_size
@@ -265,24 +285,24 @@ mod trace_record_tests {
     use super::*;
 
     fn augment_with_optional(_resolved_from_context: u64) {
-        trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = _resolved_from_context);
+        trace_record!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context = _resolved_from_context);
     }
 
     fn augment_with_multiple(_resolved_from_context: u64, _resolved_from_volatile: u64) {
         trace_record!(
-            ledger::state::RESOLVE_INPUTS,
+            crate::ledger::state::RESOLVE_INPUTS,
             resolved_from_context = _resolved_from_context,
             resolved_from_volatile = _resolved_from_volatile
         );
     }
 
     fn augment_with_extra(_resolved_from_context: u64, extra: &str) {
-        trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = _resolved_from_context);
+        trace_record!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context = _resolved_from_context);
         let _ = extra;
     }
 
     fn augment_with_expression() {
-        trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = 100_u64);
+        trace_record!(crate::ledger::state::RESOLVE_INPUTS, resolved_from_context = 100_u64);
     }
 
     #[test]
@@ -299,7 +319,7 @@ mod namespace_paths {
 
     fn network_namespace(peer: String, intersection_slot: u64) {
         let _span = trace_span!(
-            network::chainsync_client::FIND_INTERSECTION,
+            crate::network::chainsync_client::FIND_INTERSECTION,
             peer = &peer,
             intersection_slot = intersection_slot
         );
@@ -307,12 +327,12 @@ mod namespace_paths {
     }
 
     fn consensus_namespace(hash: String) {
-        let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+        let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash = &hash);
         let _guard = _span.enter();
     }
 
     fn ledger_namespace(point_slot: u64) {
-        let _span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+        let _span = trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot);
         let _guard = _span.enter();
     }
 
@@ -333,13 +353,15 @@ mod async_functions {
     use super::*;
 
     async fn traced_async(point_slot: u64) -> u64 {
-        async move { point_slot }.instrument(trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot)).await
+        async move { point_slot }
+            .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot))
+            .await
     }
 
     fn traced_boxed_async_like(point_slot: u64) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         Box::pin(
             async move { tracing::Span::current().metadata().is_some() }
-                .instrument(trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot)),
+                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot)),
         )
     }
 
@@ -354,7 +376,7 @@ mod async_functions {
     impl AsyncValidator for Validator {
         async fn validate(&self, point_slot: u64) -> bool {
             async move { tracing::Span::current().metadata().is_some() }
-                .instrument(trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot))
+                .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot))
                 .await
         }
     }
@@ -363,7 +385,7 @@ mod async_functions {
 
     fn traced_async_with_trace_span(point_slot: u64) -> impl Future<Output = bool> + Send {
         async move { tracing::Span::current().metadata().is_some() }
-            .instrument(trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot))
+            .instrument(trace_span!(crate::ledger::state::APPLY_BLOCK, point_slot = point_slot))
     }
 
     #[test]

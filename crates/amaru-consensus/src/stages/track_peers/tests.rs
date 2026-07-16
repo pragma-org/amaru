@@ -14,10 +14,7 @@
 
 use std::{self, slice, time::Duration};
 
-use amaru_kernel::{
-    BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Peer, Point, Tip,
-    num::CheckedSub,
-};
+use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, Tip, num::CheckedSub};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{
@@ -37,7 +34,7 @@ use crate::{
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
-                build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_clock_suspend,
+                build_store, make_block_header, new_tip, setup, setup_base, setup_with_ledger_tip, te_clock_suspend,
                 te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
                 test_prep_with_max_peer_lead, tm_volatile_tip,
             },
@@ -236,7 +233,7 @@ fn test_roll_forward_unknown_peer_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &state).into(),
         ],
     );
@@ -314,7 +311,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_validate_header("tp-1", header.clone()).into(),
             te_has_header("tp-1", header.hash()).into(),
             te_store_header("tp-1", header.clone()).into(),
-            te_send("tp-1", "downstream", (header.tip(), parent.point())).into(),
+            te_send("tp-1", "downstream", new_tip(header.tip(), parent.point())).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -347,7 +344,7 @@ fn test_roll_forward_invalid_variant_removes_peer() {
         &[
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -380,7 +377,7 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
         &[
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -414,7 +411,7 @@ fn test_roll_forward_invalid_parent_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -447,7 +444,7 @@ fn test_roll_forward_invalid_height_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -480,7 +477,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -528,21 +525,21 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_validate_header("tp-1", header.clone()).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
 }
 
 /// Header slot more than 2 slots ahead of sim clock → adversarial.
-/// With EraHistory::default() and start_in_era offset, elapsed is ~0 so curr_slot is 0.
+/// Slot math must use the same [`EraHistory`] as `TrackPeers` (`EraHistory::default()` in tests).
 #[test]
 fn test_roll_forward_header_slot_too_far_future_adversarial() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
     let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
-    let curr_slot = PREPROD_ERA_HISTORY.relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
     let header = make_block_header(2, curr_slot + 10, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -569,7 +566,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -613,7 +610,7 @@ fn test_roll_forward_header_slot_near_future_defers() {
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.is_empty(), "processed after recheck"),
         ],
     );
-    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer))]);
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
 }
 
 /// Tests that a header whose required stake distribution is more than 1 epoch ahead
@@ -661,7 +658,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_validate_header("tp-1", header.clone()).into(),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -730,7 +727,7 @@ fn test_roll_backward_unknown_peer_removes_peer() {
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
             te_load_tip("tp-1", current.hash()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &state),
         ],
     );
@@ -763,7 +760,7 @@ fn test_roll_backward_unknown_point_removes_peer() {
             te_input("tp-1", &msg),
             te_send("tp-1", &prep.handler, RequestNext),
             te_load_tip("tp-1", current.hash()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
@@ -923,7 +920,7 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "follow-up queued while deferred"),
         ],
     );
-    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer))]);
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
 }
 
 /// Pipelined stake dist not available: multiple headers arrive (from pipelining), both defer,
@@ -1003,11 +1000,11 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             te_validate_header("tp-1", h1.clone()).into(),
             te_has_header("tp-1", h1.hash()).into(),
             te_store_header("tp-1", h1.clone()).into(),
-            te_send("tp-1", "downstream", (h1.tip(), parent.point())).into(),
+            te_send("tp-1", "downstream", new_tip(h1.tip(), parent.point())).into(),
             te_validate_header("tp-1", h2.clone()).into(),
             te_has_header("tp-1", h2.hash()).into(),
             te_store_header("tp-1", h2.clone()).into(),
-            te_send("tp-1", "downstream", (h2.tip(), h1.point())).into(),
+            te_send("tp-1", "downstream", new_tip(h2.tip(), h1.point())).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             tm_state::<TrackPeers>(
                 "tp-1",

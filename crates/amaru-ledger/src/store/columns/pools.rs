@@ -13,27 +13,26 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{CertificatePointer, Epoch, PoolId, PoolParams, cbor};
-
-pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
+use amaru_kernel::{CertificatePointer, Epoch, Lovelace, PoolId, PoolParams, cbor};
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (PoolParams, CertificatePointer, Epoch);
+pub type Value = (PoolParams, CertificatePointer, Lovelace, Epoch);
 
 pub type Key = PoolId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub registered_at: CertificatePointer,
+    pub deposit: Lovelace,
     pub current_params: PoolParams,
     pub future_params: Vec<(Option<PoolParams>, Epoch)>,
 }
 
 impl Row {
-    pub fn new(registered_at: CertificatePointer, current_params: PoolParams) -> Self {
-        Self { registered_at, current_params, future_params: Vec::new() }
+    pub fn new(registered_at: CertificatePointer, deposit: Lovelace, current_params: PoolParams) -> Self {
+        Self { registered_at, deposit, current_params, future_params: Vec::new() }
     }
 
     /// Returns the pool id
@@ -57,8 +56,9 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
+        e.array(4)?;
         e.encode_with(self.registered_at, ctx)?;
+        e.encode_with(self.deposit, ctx)?;
         e.encode_with(&self.current_params, ctx)?;
         // NOTE: We explicitly enforce the use of *indefinite* arrays here because it allows us
         // to extend the serialized data easily without having to deserialise it.
@@ -75,6 +75,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let registered_at = d.decode_with(ctx)?;
+        let deposit = d.decode_with(ctx)?;
 
         let current_params = d.decode_with(ctx)?;
 
@@ -85,13 +86,13 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
             future_params.push(item?);
         }
 
-        Ok(Row { registered_at, current_params, future_params })
+        Ok(Row { registered_at, deposit, current_params, future_params })
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{any_certificate_pointer, any_pool_params, prop_cbor_roundtrip};
+    use amaru_kernel::{any_certificate_pointer, any_lovelace, any_pool_params, prop_cbor_roundtrip};
     use proptest::{collection, prelude::*};
 
     use super::*;
@@ -105,8 +106,13 @@ pub mod tests {
         let any_future_params = collection::vec(0..3u64, 0..3)
             .prop_flat_map(|epochs| epochs.into_iter().map(|u| any_future_params(Epoch::from(u))).collect::<Vec<_>>());
 
-        (any_future_params, any_pool_params(), any_certificate_pointer(u64::MAX)).prop_map(
-            |(future_params, current_params, registered_at)| Row { current_params, future_params, registered_at },
+        (any_future_params, any_pool_params(), any_certificate_pointer(u64::MAX), any_lovelace()).prop_map(
+            |(future_params, current_params, registered_at, deposit)| Row {
+                current_params,
+                future_params,
+                registered_at,
+                deposit,
+            },
         )
     }
 

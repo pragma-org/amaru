@@ -147,7 +147,9 @@ impl VolatileSequence for VolatileSeries {
 
     fn pop_front(&mut self) -> Option<Self::Item> {
         let popped = self.sequence.pop_front()?;
-        if self.forced_recompute_in == 0 {
+        if self.sequence.is_empty() {
+            self.aggregate = VolatileFragment::default();
+        } else if self.forced_recompute_in == 0 {
             self.recompute_aggregate()
         } else {
             self.aggregate.incremental_cleanup(&popped.fragment);
@@ -186,7 +188,7 @@ impl VolatileSeries {
     fn recompute_aggregate(&mut self) {
         self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
 
-        debug_span!(amaru_observability::amaru::ledger::state::AGGREGATE).in_scope(|| {
+        debug_span!(ledger::volatile::AGGREGATE).in_scope(|| {
             let mut aggregate = VolatileFragment::default();
 
             for anchored in &self.sequence {

@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use amaru_kernel::{IsHeader, NonEmptyVec, Point, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -204,8 +204,8 @@ impl StageState<State, Responder> for BlockFetchResponder {
                 ResponderResult::Done => Ok((None, self)),
             }
         }
-        .instrument(trace_span!(
-            amaru_observability::amaru::protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE,
+        .instrument(debug_span!(
+            protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_STAGE,
             message_type = message_type
         ))
         .await
@@ -227,8 +227,8 @@ impl ProtocolState<Responder> for State {
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_PROTOCOL,
+        let _span = debug_span!(
+            protocols::blockfetch::responder::BLOCKFETCH_RESPONDER_PROTOCOL,
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();

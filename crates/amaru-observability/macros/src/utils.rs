@@ -77,8 +77,10 @@ pub fn parse_schema_path(path: &str) -> (&str, &str) {
 
 /// Parse a full schema path and extract the macro module path.
 ///
-/// The macro module is everything up to and including the `amaru` segment.
-/// This allows resolution of validation macros from any crate.
+/// Local schemas are identified by a leading `self::` or `crate::` segment.
+/// Exported schemas are everything up to and including the `amaru` segment;
+/// when no `amaru` segment is present, the path is assumed to be an exported
+/// schema whose `amaru` prefix was elided.
 ///
 /// # Examples
 /// ```ignore
@@ -90,64 +92,82 @@ pub fn parse_schema_path(path: &str) -> (&str, &str) {
 /// parse_macro_module("amaru::ledger::state::SCHEMA")
 ///   -> "amaru"
 ///
-/// // Local test schemas
-/// parse_macro_module("crate::my_schemas::amaru::test::sub::MY_SCHEMA")
-///   -> "crate::my_schemas::amaru"
+/// // No prefix — auto-prepended `amaru`
+/// parse_macro_module("ledger::state::SCHEMA")
+///   -> "amaru"
+///
+/// // Local test schemas (require self:: or crate:: prefix)
+/// parse_macro_module("self::test::sub::MY_SCHEMA")
+///   -> "self"
+/// parse_macro_module("crate::test::sub::MY_SCHEMA")
+///   -> "crate"
 /// ```
 pub fn parse_macro_module(full_path: &str) -> &str {
-    // Find the position of "amaru::" in the path
-    if let Some(pos) = full_path.find("amaru::") {
+    if full_path.starts_with("self::") || full_path == "self" {
+        "self"
+    } else if full_path.starts_with("crate::") || full_path == "crate" {
+        "crate"
+    } else if let Some(pos) = full_path.find("amaru::") {
         // Return everything up to and including "amaru"
         &full_path[..pos + 5] // "amaru" is 5 chars
-    } else if full_path.starts_with("amaru") {
+    } else if full_path == "amaru" || full_path.starts_with("amaru::") {
         "amaru"
     } else {
-        // Fallback: no amaru found, use the parent of the schema
-        let (_, module_path) = parse_schema_path(full_path);
-        // Find the first segment
-        module_path.split("::").next().unwrap_or("amaru")
+        // No prefix: auto-prepend `amaru`. Macro helpers still live under
+        // amaru_observability, so callers treat this the same as an
+        // amaru-prefixed path.
+        "amaru"
     }
 }
 
 /// Parse a full schema path and extract (schema_name, target_path, macro_module).
 ///
-/// The target_path is category::subcategory (for the tracing target).
-/// The macro_module is the path to where validation macros are defined.
+/// The target_path is the categories joined by `::` (e.g. `amaru::ledger::state`).
+/// For exported schemas it always begins with `amaru`. The macro_module describes
+/// where validation macros are defined; for local schemas it is `self`/`crate`.
 ///
 /// # Examples
 /// ```ignore
 /// parse_full_schema_path("amaru::ledger::state::SCHEMA")
-///   -> ("SCHEMA", "ledger::state", "amaru")
+///   -> ("SCHEMA", "amaru::ledger::state", "amaru")
+///
+/// parse_full_schema_path("ledger::state::SCHEMA")        // amaru elided
+///   -> ("SCHEMA", "amaru::ledger::state", "amaru")
+///
+/// parse_full_schema_path("SCHEMA")                       // amaru elided, no categories
+///   -> ("SCHEMA", "amaru", "amaru")
 ///
 /// parse_full_schema_path("my_crate::schemas::amaru::test::sub::MY_SCHEMA")
-///   -> ("MY_SCHEMA", "test::sub", "my_crate::schemas::amaru")
+///   -> ("MY_SCHEMA", "amaru::test::sub", "my_crate::schemas::amaru")
 ///
-/// parse_full_schema_path("test::sub::SCHEMA")  // local schema
-///   -> ("SCHEMA", "test::sub", "test")
+/// parse_full_schema_path("self::test::sub::SCHEMA")      // local schema
+///   -> ("SCHEMA", "test::sub", "self")
+/// parse_full_schema_path("crate::test::sub::SCHEMA")     // local schema
+///   -> ("SCHEMA", "test::sub", "crate")
 /// ```
 pub fn parse_full_schema_path(full_path: &str) -> (&str, String, &str) {
     let macro_module = parse_macro_module(full_path);
 
-    // Check if this is an "amaru" path (exported from amaru_observability)
-    let is_amaru_path = full_path.contains("amaru::");
+    // Local schemas: strip the self::/crate:: marker, then use the remainder
+    // as both the categories source and the public-const path root.
+    if matches!(macro_module, "self" | "crate") {
+        let stripped =
+            full_path.strip_prefix("self::").or_else(|| full_path.strip_prefix("crate::")).unwrap_or(full_path);
+        let (schema_name, target_path) = parse_schema_path(stripped);
+        return (schema_name, target_path.to_string(), macro_module);
+    }
 
-    if is_amaru_path {
-        // For amaru paths, find the "amaru::" portion and keep everything after it
-        // (but including "amaru" itself) for the categories path
-        let amaru_pos = full_path.find("amaru::").expect("amaru:: must exist");
+    if let Some(amaru_pos) = full_path.find("amaru::") {
+        // Keep "amaru::..." for the categories path.
         let after_crate_prefix = &full_path[amaru_pos..];
-
-        // Parse to get schema_name and target
-        // The target should include "amaru" for module validator lookup
         let (schema_name, target_path) = parse_schema_path(after_crate_prefix);
-
         (schema_name, target_path.to_string(), macro_module)
     } else {
-        // For local schemas, use the full parent path as target
-        // test::sub::SCHEMA -> ("SCHEMA", "test::sub", "test")
+        // No prefix at all: auto-prepend `amaru` to the categories so the
+        // generated identifiers match the amaru-prefixed form.
         let (schema_name, target_path) = parse_schema_path(full_path);
-
-        (schema_name, target_path.to_string(), macro_module)
+        let prefixed = if target_path.is_empty() { "amaru".to_string() } else { format!("amaru::{target_path}") };
+        (schema_name, prefixed, macro_module)
     }
 }
 
@@ -177,6 +197,14 @@ pub fn make_macro_namespace(categories: &[String]) -> String {
 pub fn make_require_macro_name(categories: &[String], schema_name: &str) -> String {
     let namespace = make_macro_namespace(categories);
     format!("__{namespace}{schema_name}_REQUIRE")
+}
+
+/// Generate a required field checker helper macro name for a schema field.
+///
+/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_CHECK_{FIELD_NAME}`
+pub fn make_required_field_check_macro_name(categories: &[String], schema_name: &str, field_name: &str) -> String {
+    let namespace = make_macro_namespace(categories);
+    format!("__{namespace}{schema_name}_CHECK_{}", field_name.to_uppercase())
 }
 
 /// Generate a module validator macro name.
@@ -278,6 +306,59 @@ mod tests {
         assert!(!is_uppercase_identifier("schema"));
         assert!(!is_uppercase_identifier("_schema"));
         assert!(!is_uppercase_identifier(""));
+    }
+
+    #[test]
+    fn test_parse_macro_module() {
+        assert_eq!(parse_macro_module("amaru::ledger::state::SCHEMA"), "amaru");
+        assert_eq!(
+            parse_macro_module("amaru_observability::amaru::ledger::state::SCHEMA"),
+            "amaru_observability::amaru"
+        );
+        assert_eq!(parse_macro_module("ledger::state::SCHEMA"), "amaru");
+        assert_eq!(parse_macro_module("SCHEMA"), "amaru");
+        assert_eq!(parse_macro_module("self::test::sub::SCHEMA"), "self");
+        assert_eq!(parse_macro_module("crate::test::sub::SCHEMA"), "crate");
+    }
+
+    #[test]
+    fn test_parse_full_schema_path_amaru_prefixed() {
+        let (name, target, module) = parse_full_schema_path("amaru::ledger::state::SCHEMA");
+        assert_eq!(name, "SCHEMA");
+        assert_eq!(target, "amaru::ledger::state");
+        assert_eq!(module, "amaru");
+    }
+
+    #[test]
+    fn test_parse_full_schema_path_no_prefix() {
+        let (name, target, module) = parse_full_schema_path("ledger::state::SCHEMA");
+        assert_eq!(name, "SCHEMA");
+        assert_eq!(target, "amaru::ledger::state");
+        assert_eq!(module, "amaru");
+    }
+
+    #[test]
+    fn test_parse_full_schema_path_bare_schema() {
+        let (name, target, module) = parse_full_schema_path("SCHEMA");
+        assert_eq!(name, "SCHEMA");
+        assert_eq!(target, "amaru");
+        assert_eq!(module, "amaru");
+    }
+
+    #[test]
+    fn test_parse_full_schema_path_local_self() {
+        let (name, target, module) = parse_full_schema_path("self::test::sub::SCHEMA");
+        assert_eq!(name, "SCHEMA");
+        assert_eq!(target, "test::sub");
+        assert_eq!(module, "self");
+    }
+
+    #[test]
+    fn test_parse_full_schema_path_local_crate() {
+        let (name, target, module) = parse_full_schema_path("crate::test::sub::SCHEMA");
+        assert_eq!(name, "SCHEMA");
+        assert_eq!(target, "test::sub");
+        assert_eq!(module, "crate");
     }
 
     #[test]

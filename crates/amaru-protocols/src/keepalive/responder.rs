@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -71,10 +71,7 @@ impl StageState<State, Responder> for KeepAliveResponder {
         let cookie = input.cookie.as_u16();
 
         async move { Ok((Some(ResponderAction::SendResponse(input.cookie)), self)) }
-            .instrument(trace_span!(
-                amaru_observability::amaru::protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE,
-                cookie = cookie
-            ))
+            .instrument(debug_span!(protocols::keepalive::responder::KEEPALIVE_RESPONDER_STAGE, cookie = cookie))
             .await
     }
 
@@ -94,8 +91,8 @@ impl ProtocolState<Responder> for State {
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::keepalive::responder::KEEPALIVE_RESPONDER_PROTOCOL,
+        let _span = debug_span!(
+            protocols::keepalive::responder::KEEPALIVE_RESPONDER_PROTOCOL,
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();

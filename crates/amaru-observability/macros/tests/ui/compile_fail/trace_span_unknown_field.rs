@@ -26,5 +26,5 @@ define_local_schemas! {
 }
 
 fn main() {
-    let _span = trace_span!(test::sub::SCHEMA, first = 42_u64, typo = 1_u64);
+    let _span = trace_span!(crate::test::sub::SCHEMA, first = 42_u64, typo = 1_u64);
 }

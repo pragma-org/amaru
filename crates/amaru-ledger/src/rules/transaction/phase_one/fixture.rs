@@ -12,22 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    EraHistoryProxy, MemoizedTransactionOutput, NetworkName, ProtocolParameters, TransactionInput, TransactionPointer,
-    json,
+    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Lovelace, MemoizedTransactionOutput,
+    NetworkName, PoolId, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
+    context::{AccountState, DelegateError},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
         transaction::phase_one::{
-            InvalidFees, InvalidInputs, InvalidTransactionMetadata, InvalidVKeyWitness, InvalidValidityInterval,
-            InvalidWithdrawals, PhaseOneError,
+            InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
+            InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
         },
     },
@@ -49,9 +50,101 @@ pub(super) struct Fixture {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct InitialState {
-    #[serde(deserialize_with = "deserialize_utxo")]
+    #[serde(deserialize_with = "deserialize_utxo", default)]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    #[serde(default)]
+    pub(super) pools: BTreeSet<PoolId>,
+    #[serde(deserialize_with = "deserialize_accounts", default)]
+    pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
+    #[serde(deserialize_with = "deserialize_dreps", default)]
+    pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
     pub(super) governance_activity: GovernanceActivity,
+}
+
+fn deserialize_cbor_hex<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: for<'b> cbor::Decode<'b, ()>,
+{
+    let hex = String::deserialize(deserializer)?;
+    let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
+    cbor::decode(&bytes).map_err(serde::de::Error::custom)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PoolDelegationProxy {
+    id: PoolId,
+    delegated_at: CertificatePointer,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VoteDelegationProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    id: DRep,
+    delegated_at: CertificatePointer,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    credential: StakeCredential,
+    deposit: Lovelace,
+    #[serde(default)]
+    rewards: Lovelace,
+    #[serde(default)]
+    pool: Option<PoolDelegationProxy>,
+    #[serde(default)]
+    drep: Option<VoteDelegationProxy>,
+}
+
+fn deserialize_accounts<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, AccountState>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<AccountProxy>::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let state = AccountState {
+                deposit: entry.deposit,
+                pool: entry.pool.map(|pool| (pool.id, pool.delegated_at)),
+                drep: entry.drep.map(|drep| (drep.id, drep.delegated_at)),
+                rewards: entry.rewards,
+            };
+            (entry.credential, state)
+        })
+        .collect())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DRepProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    credential: StakeCredential,
+    deposit: Lovelace,
+    registered_at: CertificatePointer,
+    valid_until: Epoch,
+}
+
+fn deserialize_dreps<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, DRepRegistration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<DRepProxy>::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let registration = DRepRegistration {
+                deposit: entry.deposit,
+                registered_at: entry.registered_at,
+                valid_until: entry.valid_until,
+            };
+            (entry.credential, registration)
+        })
+        .collect())
 }
 
 pub(super) enum Expected {
@@ -82,6 +175,7 @@ pub(super) enum Predicate {
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
     FeeTooSmallUTxO,
+    IncorrectDepositDELEG,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
@@ -92,6 +186,14 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    DelegateeDRepNotRegistered,
+    DelegateeStakePoolNotRegistered,
+    DRepAlreadyRegistered,
+    StakeCredentialInvalidPoolDelegation,
+    StakeCredentialInvalidVoteDelegation,
+    StakeKeyHasNonZeroAccountBalance,
+    StakeKeyRegistered,
+    ValueNotConservedUTxO,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
     WrongNetworkWithdrawal,
@@ -121,20 +223,44 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
             PhaseOneError::Inputs(InvalidInputs::RefScriptSizeTooBig { .. }) => Predicate::ConwayTxRefScriptsSizeTooBig,
             PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
-            PhaseOneError::Fees(InvalidFees::UnknownCollateralInput { .. }) => Predicate::BadInputsUTxO,
-            PhaseOneError::Fees(InvalidFees::CollateralReturnOverflow { .. }) => Predicate::InsufficientCollateral,
             PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
                 Predicate::OutsideValidityIntervalUTxO
             }
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideForecast(_)) => Predicate::OutsideForecast,
+            PhaseOneError::Certificates(InvalidCertificates::IncorrectStakeDeposit { .. }) => {
+                Predicate::IncorrectDepositDELEG
+            }
             PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
                 [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,
                 [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
+            PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
+                DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
+                DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,
+            },
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(ref e)) => match e {
+                DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidVoteDelegation,
+                DelegateError::UnknownTarget(_) => Predicate::DelegateeDRepNotRegistered,
+            },
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
+                Predicate::StakeKeyRegistered
+            }
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialHasRewards { .. }) => {
+                Predicate::StakeKeyHasNonZeroAccountBalance
+            }
+            PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
+                Predicate::DRepAlreadyRegistered
+            }
+            PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
+            PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {
+                Predicate::InsufficientCollateral
+            }
+            PhaseOneError::Collateral(InvalidCollateral::ValueNotConserved(..)) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)

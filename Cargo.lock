@@ -158,7 +158,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
@@ -245,6 +244,8 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
  "uuid",
  "wasm-bindgen",
  "web-sys",
@@ -396,11 +397,9 @@ dependencies = [
  "bytes",
  "hex",
  "pallas-network",
- "pallas-traverse",
  "parking_lot",
  "proptest",
  "socket2 0.6.1",
- "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -413,6 +412,11 @@ dependencies = [
  "amaru-deps",
  "amaru-observability-macros",
  "inventory",
+ "opentelemetry",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -422,11 +426,13 @@ dependencies = [
  "amaru-deps",
  "async-trait",
  "inventory",
+ "opentelemetry",
  "proc-macro2",
  "quote",
  "syn",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
  "trybuild",
 ]
@@ -521,7 +527,6 @@ dependencies = [
  "hex",
  "minicbor",
  "pallas-primitives",
- "pallas-traverse",
  "proptest",
  "serde",
  "socket2 0.6.1",
@@ -535,7 +540,6 @@ name = "amaru-pure-stage"
 version = "0.1.2"
 dependencies = [
  "amaru-deps",
- "amaru-observability",
  "anyhow",
  "cbor4ii",
  "either",

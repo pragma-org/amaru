@@ -24,6 +24,7 @@ use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
+    error,
     governance::ratification::ProposalsRoots,
     state::{
         AnchoredVolatileFragment, StateError,
@@ -33,6 +34,7 @@ use crate::{
         },
     },
     store::{HistoricalStores, Store},
+    warn,
 };
 
 pub struct VolatileDB {
@@ -222,11 +224,11 @@ impl VolatileSequence for VolatileDB {
         if let Some(last) = self.view_back()
             && last.slot() < target_slot
         {
-            tracing::warn!(
-                name: "rollback_to.beyond",
+            warn!(
+                "volatile.rollback_to",
                 %target_slot,
                 last_slot = ?last.slot(),
-                "Attempting to rollback to a point beyond the last known volatile fragment"
+                warning = "attempting to rollback to a point beyond the last known volatile fragment"
             );
             return Ok(());
         }
@@ -236,11 +238,11 @@ impl VolatileSequence for VolatileDB {
         if let Some(first) = self.view_front()
             && target_slot < first.slot()
         {
-            tracing::error!(
-                name: "rollback_to.before",
+            error!(
+                "volatile.rollback_to",
                 %target_slot,
                 first_slot = ?first.slot(),
-                "Attempting to rollback to a point before the first known of the volatile fragment"
+                error = "attempting to rollback to a point before the first known of the volatile fragment"
             );
             return Err(point);
         }

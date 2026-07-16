@@ -32,10 +32,9 @@ use amaru_pure_stage::{
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
-use opentelemetry::Context;
 use tokio::runtime::{Builder, Handle, Runtime};
 
-use super::{TrackPeers, TrackPeersMsg, stage};
+use super::{NewTip, TrackPeers, TrackPeersMsg, stage};
 use crate::{
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
@@ -104,7 +103,7 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
 }
 
 pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header))))
 }
 
 pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
@@ -127,6 +126,10 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
     tm_external_effect::<VolatileTipEffect>(at_stage)
 }
 
+pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
+    NewTip { tip, parent, trace_context: Default::default() }
+}
+
 fn register_guards() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_data_deserializer::<TrackPeers>().boxed(),
@@ -137,6 +140,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<chainsync::InitiatorMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<chainsync::HeaderContent>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<NewTip>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),

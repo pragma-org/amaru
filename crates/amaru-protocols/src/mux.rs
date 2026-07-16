@@ -22,7 +22,7 @@ use std::{
 };
 
 use amaru_kernel::NonEmptyBytes;
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef, TryInStage, Void};
 use anyhow::Context;
@@ -391,12 +391,12 @@ impl Muxer {
             self.do_register(proto_id, frame, max_buffer, handler);
             Ok(())
         }
-        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::REGISTER))
+        .instrument(debug_span!(protocols::mux::protocol::REGISTER,))
         .await
     }
 
     pub fn buffer(&mut self, proto_id: ProtocolId<Erased>, limit: usize) -> anyhow::Result<()> {
-        let _span = trace_span!(amaru_observability::amaru::protocols::mux::BUFFER);
+        let _span = debug_span!(protocols::mux::protocol::BUFFER,);
         let _guard = _span.enter();
 
         let pp = self.do_register(proto_id, Frame::Buffer, limit, StageRef::blackhole());
@@ -434,8 +434,8 @@ impl Muxer {
     }
 
     pub fn outgoing(&mut self, proto_id: ProtocolId<Erased>, bytes: Bytes, sent: StageRef<Sent>) {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::mux::OUTGOING,
+        let _span = debug_span!(
+            protocols::mux::protocol::OUTGOING,
             proto_id = format!("{}", proto_id),
             bytes = bytes.len() as u64
         );
@@ -465,7 +465,7 @@ impl Muxer {
             }
             None
         }
-        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::NEXT_SEGMENT))
+        .instrument(debug_span!(protocols::mux::protocol::NEXT_SEGMENT,))
         .await
     }
 
@@ -484,7 +484,7 @@ impl Muxer {
                 anyhow::bail!("received data for unknown protocol {}", proto_id)
             }
         }
-        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::RECEIVED, bytes = byte_len))
+        .instrument(debug_span!(protocols::mux::protocol::RECEIVED, bytes = byte_len))
         .await
     }
 
@@ -499,7 +499,7 @@ impl Muxer {
                 .await?;
             Ok(())
         }
-        .instrument(trace_span!(amaru_observability::amaru::protocols::mux::WANT_NEXT))
+        .instrument(debug_span!(protocols::mux::protocol::WANT_NEXT,))
         .await
     }
 }

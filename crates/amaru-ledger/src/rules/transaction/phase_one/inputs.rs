@@ -18,7 +18,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{UtxoSlice, WitnessSlice};
+use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
@@ -48,7 +48,7 @@ pub fn execute<C>(
     protocol_parameters: &ProtocolParameters,
 ) -> Result<u64, InvalidInputs>
 where
-    C: UtxoSlice + WitnessSlice,
+    C: UtxoSlice + WitnessSlice + BalanceSlice,
 {
     if inputs.is_empty() {
         return Err(InvalidInputs::EmptyInputSet);
@@ -111,6 +111,10 @@ where
         // always take a datum hash, and lookup its value when needed.
         let datum = output.datum.clone();
 
+        // Clone the value off the borrowed output so the immutable borrow of `context` can be
+        // released before we make any mutable calls below.
+        let consumed_value = output.value.as_ref().clone();
+
         match &output.address {
             Address::Byron(byron_address) => {
                 let payload = byron_address.decode().map_err(|e| {
@@ -146,6 +150,8 @@ where
             ref_scripts_size += script_size;
             context.acknowledge_script(script_hash, input.clone());
         }
+
+        context.consume_value(&consumed_value);
     }
 
     if ref_scripts_size > allowed {

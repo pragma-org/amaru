@@ -15,13 +15,13 @@
 use amaru_kernel::{
     AddrAttrProperty, Address, AddressPayload, AsIndex, HasNetwork, HasScriptHash, Hash, Lovelace, MemoizedDatum,
     MemoizedScript, MemoizedTransactionOutput, Network, PlutusVersion, ProtocolParameters, ProtocolVersion,
-    TransactionInput, cbor, from_cbor, size::SCRIPT, utils::string::display_collection,
+    TransactionInput, Value, cbor, from_cbor, size::SCRIPT, utils::string::display_collection,
 };
 use amaru_uplc::arena::Arena;
 use thiserror::Error;
 
 use crate::{
-    context::{UtxoSlice, WitnessSlice},
+    context::{BalanceSlice, UtxoSlice, WitnessSlice},
     rules::{WithPosition, transaction::phase_one::scripts::validate_plutus_script},
 };
 
@@ -67,10 +67,10 @@ pub fn execute<C>(
     network: Network,
     outputs: Vec<MemoizedTransactionOutput>,
     supplemental_datum_policy: SupplementalDatumPolicy,
-    construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
+    construct_utxo: impl Fn(&mut C, u64, &Value) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
-    C: WitnessSlice + UtxoSlice,
+    C: WitnessSlice + UtxoSlice + BalanceSlice,
 {
     let mut invalid_outputs = Vec::new();
     // TODO: we should not be allocating a new arena here, instead using a shared pool, such as the one we use for phase 2 validation.
@@ -97,7 +97,7 @@ where
                 .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
         }
 
-        if let Some(input) = construct_utxo(position as u64) {
+        if let Some(input) = construct_utxo(context, position as u64, output.value.as_ref()) {
             context.produce(input, output);
         }
     }
@@ -267,7 +267,7 @@ mod tests {
             Network::Testnet,
             tx.outputs,
             SupplementalDatumPolicy::Allow,
-            |_| None,
+            |_, _, _| None,
         );
         (result, context.allowed_supplemental_datums())
     }
@@ -287,7 +287,7 @@ mod tests {
             Network::Testnet,
             outputs,
             SupplementalDatumPolicy::Disallow,
-            |_| None,
+            |_, _, _| None,
         );
         (result, context.allowed_supplemental_datums())
     }

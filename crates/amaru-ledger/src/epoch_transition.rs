@@ -37,7 +37,7 @@ pub fn end_epoch<'volatile, 'store, DB: ReadStore>(
     view: &mut VolatileView<'volatile, 'store, DB>,
     computed_rewards: Rewards<Computed>,
 ) -> Result<Rewards<Effective>, StoreError> {
-    info_span!(amaru_observability::amaru::ledger::epoch_transition::END_EPOCH)
+    info_span!(ledger::epoch_transition::END_EPOCH)
         .in_scope(|| Ok(Rewards::<Effective>::new(computed_rewards, view.iter_accounts()?)))
 }
 
@@ -48,7 +48,7 @@ pub fn begin_epoch<'distr, 'volatile, 'store, DB: ReadStore>(
     protocol_parameters: &ProtocolParameters,
     ratification_context: RatificationContext<'distr>,
 ) -> Result<(PoolsEpochTransitionUpdates, GovernanceUpdates), StateError> {
-    info_span!(amaru_observability::amaru::ledger::epoch_transition::BEGIN_EPOCH).in_scope(|| {
+    info_span!(ledger::epoch_transition::BEGIN_EPOCH).in_scope(|| {
         // Compute the updates to perform on pools at the epoch boundary. This uses information
         // from both the immutable store and the volatile database, since we compute the updates
         // before they are "stable" and safe to store.

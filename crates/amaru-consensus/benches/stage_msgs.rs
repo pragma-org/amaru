@@ -49,7 +49,7 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("BlockSourceMsg::Validation", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = SelectChainMsg::TipFromUpstream(tip, point);
+    let msg = SelectChainMsg::tip_from_upstream(tip, point);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::TipFromUpstream", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
@@ -57,15 +57,15 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::BlockValidationResult", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = SelectChainMsg::FetchNextFrom(point);
+    let msg = SelectChainMsg::fetch_next_from(point);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::FetchNextFrom", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = FetchBlocksMsg::NewTip(tip, point);
+    let msg = FetchBlocksMsg::new_tip(tip, point);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::NewTip", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = FetchBlocksMsg::RecoverStoredBlocks(point.hash());
+    let msg = FetchBlocksMsg::recover_stored_blocks(point.hash());
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::RecoverStoredBlocks", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 

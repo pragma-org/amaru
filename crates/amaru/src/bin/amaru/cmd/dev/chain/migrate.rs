@@ -16,14 +16,14 @@ use std::{error::Error, path::PathBuf};
 
 use amaru::default_chain_dir;
 use amaru_kernel::NetworkName;
-use amaru_observability::{MIGRATING_DATABASE, OPENING_CHAIN_DB};
+use amaru_observability::info_span;
 use amaru_ouroboros::StoreError;
 use amaru_stores::rocksdb::{
     RocksDbConfig,
     consensus::{RocksDBStore, check_db_version, migrate_db, util::open_db},
 };
 use clap::Parser;
-use tracing::{error, info, info_span};
+use tracing::{error, info};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -47,8 +47,6 @@ pub struct Args {
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    let config = RocksDbConfig::new(chain_dir.clone());
-
     info!(
         _command = "dev chain migrate",
         chain_dir = %chain_dir.to_string_lossy(),
@@ -56,7 +54,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    Ok(info_span!(OPENING_CHAIN_DB, path = %config.dir.display()).in_scope(|| {
+    let config = RocksDbConfig::new(chain_dir.clone());
+    let config_dir = config.dir.display().to_string();
+
+    Ok(info_span!(consensus::chain_db::OPEN, path = config_dir).in_scope(|| {
         let (basedir, db) = open_db(&config)?;
         let store = RocksDBStore { db, basedir };
         match check_db_version(&store) {
@@ -65,7 +66,8 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 Ok(())
             }
             Err(StoreError::IncompatibleChainStoreVersions { stored, current }) => {
-                info_span!(MIGRATING_DATABASE, from = stored, to = current).in_scope(|| migrate_db(&store))?;
+                info_span!(consensus::chain_db::MIGRATE, from = stored, to = current)
+                    .in_scope(|| migrate_db(&store))?;
                 Ok(())
             }
             Err(e) => {

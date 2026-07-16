@@ -116,7 +116,7 @@ make AMARU_NETWORK=preprod bootstrap
 2. _(Optional)_ Setup observability backends:
 
 ```console
-docker-compose -f monitoring/jaeger/docker-compose.yml up
+docker compose -f monitoring/profiles/jaeger/docker-compose.yml up
 ```
 
 3. Run Amaru:

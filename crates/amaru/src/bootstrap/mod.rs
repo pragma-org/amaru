@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod chain_sync_client;
+
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -28,12 +30,12 @@ use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
-use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_ouroboros::{ChainStore, Nonces, WriteChainStore};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
+use chain_sync_client::ChainSyncClient;
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};

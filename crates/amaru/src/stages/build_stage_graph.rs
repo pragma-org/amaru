@@ -17,7 +17,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
     block_source::{self, BlockSource},
-    fetch_blocks::{self, FetchBlocks, FetchBlocksMsg},
+    fetch_blocks::{self, DownloadedBlock, FetchBlocks, FetchBlocksMsg},
     mempool::{self, MempoolStageState},
     peer_selection::{self, PeerSelection, PeerSelectionMsg},
     select_chain::{self, SelectChain, SelectChainMsg},
@@ -25,6 +25,7 @@ use amaru_consensus::stages::{
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
 use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
+use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
@@ -54,6 +55,8 @@ pub fn build_stage_graph(
     max_epoch: Epoch,
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
+    let span = debug_span!(consensus::node::INITIALIZE);
+    let trace_context = (&span).into();
     let manager = stage_graph.stage("manager", manager::stage);
     let peer_selection = stage_graph.stage("peer_selection", peer_selection::stage);
     let peer_selection_ref = peer_selection.sender();
@@ -123,10 +126,10 @@ pub fn build_stage_graph(
             ledger_tip.point(),
         ),
     );
-    let validate_block_input =
-        stage_graph.contramap(validate_block, "validate_block_input", |(tip, parent, max_block_height)| {
-            ValidateBlockMsg::new(tip, parent, max_block_height)
-        });
+    let validate_block_input = stage_graph.contramap(validate_block, "validate_block_input", |msg| {
+        let DownloadedBlock { tip, parent, max_block_height, trace_context } = msg;
+        ValidateBlockMsg::new(tip, parent, max_block_height).with_trace_context(&trace_context)
+    });
 
     let fetch_blocks = stage_graph.wire_up(
         fetch_blocks,
@@ -141,19 +144,23 @@ pub fn build_stage_graph(
     // Include main's useful RecoverStoredBlocks preload
     #[expect(clippy::expect_used)]
     stage_graph
-        .preload(&fetch_blocks, [FetchBlocksMsg::RecoverStoredBlocks(best_hash)])
+        .preload(&fetch_blocks, [FetchBlocksMsg::RecoverStoredBlocks(best_hash, trace_context)])
         .expect("fetch blocks recovery message must be preloaded");
 
-    let fetch_blocks_input =
-        stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |(tip, parent)| FetchBlocksMsg::NewTip(tip, parent));
+    let fetch_blocks_input = stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |msg| {
+        let select_chain::NewBestTip { tip, parent, trace_context } = msg;
+        FetchBlocksMsg::NewTip { tip, parent, trace_context }
+    });
 
     let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));
     #[expect(clippy::expect_used)]
     stage_graph
         .preload(&select_chain, [SelectChainMsg::Initialize(best_hash)])
         .expect("initialization message must be preloaded");
-    let select_chain_input = stage_graph
-        .contramap(select_chain, "select_chain_input", |(tip, parent)| SelectChainMsg::TipFromUpstream(tip, parent));
+    let select_chain_input = stage_graph.contramap(select_chain, "select_chain_input", |msg| {
+        let track_peers::NewTip { tip, parent, trace_context } = msg;
+        SelectChainMsg::TipFromUpstream { tip, parent, trace_context }
+    });
 
     let track_peers_wired = stage_graph.wire_up(
         track_peers,

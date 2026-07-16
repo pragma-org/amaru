@@ -1,1 +1,2 @@
-[{"name":"add_fees", "fee": "5000000", "level": "TRACE", "type": "span" }]
+[{"name":"add_fees","fee":5000000,"level":"INFO","type":"span"}
+]

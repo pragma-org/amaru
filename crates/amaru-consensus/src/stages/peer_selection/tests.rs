@@ -141,12 +141,12 @@ fn test_add_peer_during_cooldown_cancels_timer() {
         s
     };
     let (running, _guards, mut logs) =
-        setup_preload(&prep, [PeerSelectionMsg::Adversarial(p.clone()), PeerSelectionMsg::AddPeer(p.clone())]);
+        setup_preload(&prep, [PeerSelectionMsg::adversarial(p.clone()), PeerSelectionMsg::AddPeer(p.clone())]);
     assert_trace(
         &running,
         &[
             te_state("ps-1", &state),
-            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
             te_state("ps-1", &after_remove),
             te_input("ps-1", &PeerSelectionMsg::AddPeer(p.clone())),
@@ -175,12 +175,12 @@ fn test_adversarial_outbound_connected() {
         s.cooldown_timers.insert(p.clone(), sid);
         s
     };
-    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::Adversarial(p.clone()));
+    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::adversarial(p.clone()));
     assert_trace(
         &running,
         &[
             te_state("ps-1", &state),
-            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
             te_state("ps-1", &after),
             te_clock(cooldown_instant()),
@@ -223,12 +223,12 @@ fn test_cooldown_ended_triggers_regulate() {
         s
     };
     let (running, _guards, mut logs) =
-        setup_preload(&prep, [PeerSelectionMsg::Adversarial(p.clone()), PeerSelectionMsg::CooldownEnded(p.clone())]);
+        setup_preload(&prep, [PeerSelectionMsg::adversarial(p.clone()), PeerSelectionMsg::CooldownEnded(p.clone())]);
     assert_trace(
         &running,
         &[
             te_state("ps-1", &state),
-            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
             te_state("ps-1", &after_remove),
             te_input("ps-1", &PeerSelectionMsg::CooldownEnded(p.clone())),
@@ -365,15 +365,15 @@ fn test_adversarial_twice_cancels_and_reschedules() {
         s
     };
     let (running, _guards, mut logs) =
-        setup_preload(&prep, [PeerSelectionMsg::Adversarial(p.clone()), PeerSelectionMsg::Adversarial(p.clone())]);
+        setup_preload(&prep, [PeerSelectionMsg::adversarial(p.clone()), PeerSelectionMsg::adversarial(p.clone())]);
     assert_trace(
         &running,
         &[
             te_state("ps-1", &state),
-            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid0),
             te_state("ps-1", &after_first),
-            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
             te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid1),
             te_cancel_schedule("ps-1", sid0),
             te_state("ps-1", &after_second),
@@ -404,13 +404,13 @@ fn test_adversarial_inbound_only() {
     let p = TestPrep::peer("9.9.9.9:9");
     prep.state.inbound_peers.insert(p.clone(), conn());
 
-    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::Adversarial(p.clone()));
+    let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::adversarial(p.clone()));
 
     // te_input + RemovePeer to Manager + final state (inbound peer count)
     assert_trace_contains(
         &running,
         &[
-            te_input("ps-1", &PeerSelectionMsg::Adversarial(p.clone())).into(),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())).into(),
             te_send("ps-1", "manager", ManagerMessage::RemovePeer(p.clone())).into(),
             tm_state(
                 "ps-1",
