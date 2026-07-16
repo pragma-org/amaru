@@ -66,7 +66,7 @@ macro_rules! warn {
 #[macro_export]
 macro_rules! error {
     ($name:literal $(, $($rest:tt)+)?) => {
-        amaru_observability::debug!(error: "amaru::ledger", name: $name $(, $($rest)+)?);
+        amaru_observability::error!(target: "amaru::ledger", name: $name $(, $($rest)+)?);
     };
 }
 
