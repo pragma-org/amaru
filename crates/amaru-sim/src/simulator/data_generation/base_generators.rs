@@ -140,23 +140,23 @@ mod tests {
     fn test_generate_arrival_times() {
         let seed = 1;
         let mut rng = StdRng::seed_from_u64(seed);
-        let result = generate_arrival_times(Instant::at_offset(Duration::new(0, 0)), 200.0)(10, &mut rng);
+        let result = generate_arrival_times(Instant::at_offset(Duration::new(0, 0), Duration::ZERO), 200.0)(10, &mut rng);
 
         // We want arrival times that are roughly 1000ms apart, with some positive jitter
         // and occasional small negative jitter (for example 4956)
         assert_eq!(
             result,
             vec![
-                Instant::at_offset(Duration::from_millis(227)),
-                Instant::at_offset(Duration::from_millis(1077)),
-                Instant::at_offset(Duration::from_millis(2048)),
-                Instant::at_offset(Duration::from_millis(3076)),
-                Instant::at_offset(Duration::from_millis(4086)),
-                Instant::at_offset(Duration::from_millis(4956)),
-                Instant::at_offset(Duration::from_millis(6075)),
-                Instant::at_offset(Duration::from_millis(7041)),
-                Instant::at_offset(Duration::from_millis(8070)),
-                Instant::at_offset(Duration::from_millis(9051)),
+                Instant::at_offset(Duration::from_millis(227), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(1077), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(2048), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(3076), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(4086), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(4956), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(6075), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(7041), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(8070), Duration::ZERO),
+                Instant::at_offset(Duration::from_millis(9051), Duration::ZERO),
             ]
         )
     }

@@ -15,7 +15,8 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, HeaderHash, NetworkName, PREPROD_ERA_HISTORY, Tip, make_header,
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
+    num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
@@ -34,7 +35,7 @@ use amaru_pure_stage::{
 use opentelemetry::Context;
 use tokio::runtime::{Builder, Handle, Runtime};
 
-use super::*;
+use super::{TrackPeers, TrackPeersMsg, stage};
 use crate::{
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
@@ -42,7 +43,7 @@ use crate::{
     },
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{Logs, TraceMatch, run_simulation, start_in_era, tm_external_effect},
+        test_utils::{Logs, StartTimes, TraceMatch, run_simulation, start_in_era, tm_external_effect},
     },
 };
 
@@ -62,7 +63,7 @@ pub struct TestPrep {
     pub conn_id: ConnectionId,
     /// Three linked headers: [h1, h2, h3] with h1 parent None, h2 parent h1, h3 parent h2.
     pub headers: [BlockHeader; 3],
-    pub start_at_slot: u64,
+    pub start_times: StartTimes,
 }
 
 impl TestPrep {
@@ -76,13 +77,17 @@ pub fn test_prep() -> TestPrep {
     test_prep_with_max_peer_lead(10_000_000)
 }
 
-/// Creates a `TestPrep` with a configurable slot forecast limit (for testing defer logic).
+/// Creates a `TestPrep` with a configurable peer lead limit (for testing defer logic).
 pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
+    let start_times = start_in_era();
+    // EraHistory::default() matches synthetic headers at slots 1,2,3 used throughout these tests.
+    // Clock-skew tests map simulation time through this same history (see tests).
     let state = TrackPeers::new(
         EraHistory::default(),
         StageRef::named_for_tests("peer_selection"),
         StageRef::named_for_tests("downstream"),
         max_peer_lead,
+        start_times.epoch.checked_sub(Epoch::TWO).unwrap(),
     );
     let rt = Builder::new_current_thread().build().unwrap();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
@@ -91,8 +96,7 @@ pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
     let h2 = make_block_header(2, 2, Some(h1.hash()));
     let h3 = make_block_header(3, 3, Some(h2.hash()));
 
-    let start_at_slot = PREPROD_ERA_HISTORY.relative_time_to_slot(start_in_era()).unwrap().as_u64();
-    TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3], start_at_slot }
+    TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3], start_times }
 }
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -117,10 +121,6 @@ pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
 
 pub fn te_clock_suspend(at_stage: &str) -> TraceEntry {
     TraceEntry::suspend(Effect::Clock { at_stage: Name::from(at_stage) })
-}
-
-pub fn tm_store_header(at_stage: &str) -> TraceMatch<'_> {
-    tm_external_effect::<StoreHeaderEffect>(at_stage)
 }
 
 pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {

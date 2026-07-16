@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
-
-use amaru_kernel::{BlockHeight, PREPROD_ERA_HISTORY, Tip};
+use amaru_kernel::{BlockHeight, Tip};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
@@ -27,7 +25,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use super::{BlockSource, BlockSourceMsg, stage};
 use crate::stages::{
     peer_selection::PeerSelectionMsg,
-    test_utils::{BufferWriter, Logs},
+    test_utils::{BufferWriter, Logs, start_in_era},
 };
 
 pub struct TestPrep {
@@ -66,11 +64,9 @@ pub fn setup(prep: &TestPrep, msgs: &[BlockSourceMsg]) -> (SimulationRunning, De
 
     let guards = register_guards();
 
-    // need to place the simulation within the current era
-    let start_in_era = PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1);
     let mut network = SimulationBuilder::default()
         .with_trace_buffer(TraceBuffer::new_shared(200, 1000000))
-        .with_global_epoch_offset(start_in_era);
+        .with_global_epoch_offset(start_in_era().relative_time);
     let bs = network.stage("bs", stage);
     let bs = network.wire_up(bs, prep.state.clone());
     network.preload(&bs, msgs.iter().cloned()).expect("preload");

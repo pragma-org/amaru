@@ -279,7 +279,7 @@ pub fn tm_clock(instant: Duration) -> TraceMatch<'static> {
             let TraceEntry::Clock(i) = entry else {
                 return false;
             };
-            i.saturating_since(*EPOCH) == instant
+            i.inner.saturating_duration_since(*EPOCH) == instant
         }),
         description,
     )

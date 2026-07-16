@@ -36,11 +36,11 @@ impl MockLedgerState {
     /// Build a PoolSummaries that will return the mocked data for the specified pool at epoch 0.
     /// Tests that validate headers should ensure the era_history used with get_pool maps the
     /// header's slot such that (slot_epoch - 2) == 0, or populate additional epochs.
-    pub fn to_pool_summaries(&self, pool: PoolId) -> PoolSummaries {
+    pub fn to_pool_summaries(&self, pool: PoolId, epoch: Epoch) -> PoolSummaries {
         let mut pools = BTreeMap::new();
         pools.insert(pool, PoolSummary { vrf: self.vrf_vkey_hash, stake: self.stake, active_stake: self.active_stake });
         let mut by_epoch = BTreeMap::new();
-        by_epoch.insert(Epoch::from(0u64), pools);
+        by_epoch.insert(epoch, pools);
         PoolSummaries { by_epoch }
     }
 }

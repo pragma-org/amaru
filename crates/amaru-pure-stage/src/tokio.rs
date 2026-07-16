@@ -155,35 +155,10 @@ impl TokioBuilder {
         self
     }
 
-    pub fn with_epoch_clock(mut self) -> Self {
-        self.inner.clock = Arc::new(EpochClock::new(self.inner.global_epoch_offset));
-        self
-    }
-
     pub fn with_global_epoch_offset(mut self, offset: Duration) -> Self {
         self.inner.global_epoch_offset = offset;
         self
     }
-}
-
-struct EpochClock {
-    global_epoch_offset: Duration,
-}
-
-impl EpochClock {
-    fn new(global_epoch_offset: Duration) -> Self {
-        Self { global_epoch_offset }
-    }
-}
-
-impl Clock for EpochClock {
-    fn now(&self, _offset: Duration) -> Instant {
-        // For epoch-relative clock, we use the configured global offset.
-        // (The original logic made "0" at first measurement; here we rely on global params.)
-        Instant::from_tokio(tokio::time::Instant::now(), self.global_epoch_offset)
-    }
-
-    fn advance_to(&self, _instant: Instant) {}
 }
 
 type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);

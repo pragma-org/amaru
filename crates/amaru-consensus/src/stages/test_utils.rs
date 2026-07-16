@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![expect(clippy::panic, clippy::expect_used)]
+
 use std::{any::type_name, collections::BTreeSet, fmt, io, sync::Arc, time::Duration};
 
-use amaru_kernel::PREPROD_ERA_HISTORY;
+use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, Slot};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, Resources, SendData, StageGraph, TerminationReason,
     simulation::{SimulationBuilder, SimulationRunning},
@@ -234,10 +236,11 @@ where
         .set_default();
     logs.set_guard(sub);
 
+    let since_network_start = start_in_era().relative_time;
     let mut network = SimulationBuilder::default()
         .with_trace_buffer(TraceBuffer::new_shared(100, 1000000))
-        .with_global_epoch_offset(start_in_era())
-        .with_initial_clock(Instant::at_offset(Duration::from_secs(10)));
+        .with_global_epoch_offset(since_network_start)
+        .with_initial_clock(Instant::at_offset(Duration::from_secs(10), since_network_start));
 
     setup_resources(network.resources());
 
@@ -251,9 +254,21 @@ where
     (running, guards, logs.logs())
 }
 
-pub fn start_in_era() -> Duration {
+#[derive(Debug, Clone, Copy)]
+pub struct StartTimes {
+    pub relative_time: Duration,
+    pub slot: Slot,
+    pub epoch: Epoch,
+}
+
+#[expect(clippy::unwrap_used)]
+pub fn start_in_era() -> StartTimes {
+    let summary = PREPROD_ERA_HISTORY.current_era_summary();
     // need to place the simulation within the current era
-    PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1)
+    let relative_time = summary.start.time + Duration::from_hours(1);
+    let slot = PREPROD_ERA_HISTORY.relative_time_to_slot(relative_time).unwrap();
+    let epoch = PREPROD_ERA_HISTORY.slot_to_epoch(slot, slot).unwrap();
+    StartTimes { relative_time, slot, epoch }
 }
 
 // Re-export TraceMatch (the type) so stage test_setup modules can use it without reaching into amaru_pure_stage.

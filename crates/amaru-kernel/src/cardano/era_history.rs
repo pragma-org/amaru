@@ -479,18 +479,7 @@ impl EraHistory {
     /// to the next era.
     pub fn posix_time_to_slot(&self, time: SystemTime, system_start: SystemTime) -> Result<Slot, EraHistoryError> {
         let relative_time = time.duration_since(system_start).map_err(|_| EraHistoryError::InvalidEraHistory)?;
-
-        for era in &self.eras {
-            if era.start.time > relative_time {
-                return Err(EraHistoryError::InvalidEraHistory);
-            }
-
-            if era.end.as_ref().is_none_or(|end| relative_time < end.time) {
-                return relative_time_to_slot(relative_time, era);
-            }
-        }
-
-        Err(EraHistoryError::InvalidEraHistory)
+        self.relative_time_to_slot(relative_time)
     }
 
     /// Convert a duration since system_start into a slot containing that time.

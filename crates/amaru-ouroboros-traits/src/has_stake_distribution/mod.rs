@@ -14,8 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hash, Lovelace, PoolId, Slot, size::VRF_KEY};
-use num::CheckedSub;
+use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hash, Lovelace, PoolId, Slot, num::CheckedSub, size::VRF_KEY};
 use thiserror::Error;
 
 pub mod mock_ledger_state;
@@ -57,6 +56,10 @@ pub struct PoolSummaries {
 }
 
 impl PoolSummaries {
+    pub fn max_epoch(&self) -> Epoch {
+        self.by_epoch.last_key_value().map(|(e, _)| *e).unwrap_or(*Epoch::ZERO)
+    }
+
     /// Obtain information about a pool such as its VRF key hash and its stake.
     /// The epoch is derived from the slot using the same rule as before (slot_epoch - 2).
     pub fn get_pool(
@@ -71,8 +74,7 @@ impl PoolSummaries {
             .checked_sub(Epoch::TWO);
 
         let pools = target_epoch
-            .as_ref()
-            .and_then(|e| self.by_epoch.get(e))
+            .and_then(|e| self.by_epoch.get(&e))
             .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, target_epoch))?;
 
         Ok(pools.get(pool).copied())

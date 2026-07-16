@@ -154,7 +154,7 @@ impl SimulationBuilder {
     }
 
     pub fn with_initial_clock(mut self, t: Instant) -> Self {
-        let nanos = t.saturating_since(*EPOCH).as_nanos() as u64;
+        let nanos = t.inner.saturating_duration_since(*EPOCH).as_nanos() as u64;
         self.clock = Arc::new(AtomicU64::new(nanos));
         self
     }

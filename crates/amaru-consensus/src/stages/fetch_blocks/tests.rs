@@ -29,7 +29,7 @@ use crate::stages::{
         TestPrep, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_has_block, te_load_header,
         te_load_tip, te_schedule, te_store_block, te_unvalidated_ancestor_hashes, test_peer, test_prep,
     },
-    test_utils::{assert_trace, te_input, te_send, te_state, te_terminate, te_terminated, tm_state},
+    test_utils::{assert_trace, start_in_era, te_input, te_send, te_state, te_terminate, te_terminated, tm_state},
 };
 
 #[test]
@@ -137,7 +137,8 @@ fn test_new_tip_blocks_to_fetch() {
     let msg = FetchBlocksMsg::NewTip(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    let timeout_at = Instant::at_offset(Duration::from_secs(5));
+    // run_simulation: initial clock +10s, global_epoch_offset from start_in_era; timeout is +5s.
+    let timeout_at = Instant::at_offset(Duration::from_secs(10 + 5), start_in_era().relative_time);
     let schedule_id = ScheduleIds::default().next_at(timeout_at);
     let mut state_with_timeout = prep.state_with_request(
         MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),

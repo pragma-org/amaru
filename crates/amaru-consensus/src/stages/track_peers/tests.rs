@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    slice,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
+use std::{self, slice, time::Duration};
 
-use amaru_kernel::{BlockHeight, Epoch, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{
+    BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Peer, Point, Tip,
+    num::CheckedSub,
+};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{
@@ -29,7 +25,7 @@ use amaru_protocols::chainsync::{
 };
 use amaru_pure_stage::{
     assert_trace_contains, assert_trace_does_not_contain, assert_trace_match, simulation::running::OverrideResult,
-    tm_send, trace_match::tm_clock,
+    tm_send,
 };
 use tracing::Level;
 
@@ -43,7 +39,7 @@ use crate::{
             test_setup::{
                 build_store, make_block_header, setup, setup_base, setup_with_ledger_tip, te_clock_suspend,
                 te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
-                test_prep_with_max_peer_lead, tm_store_header, tm_volatile_tip,
+                test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
     },
@@ -233,11 +229,13 @@ fn test_roll_forward_unknown_peer_removes_peer() {
     });
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_contains(
+    assert_trace_match(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
             te_state("tp-1", &state).into(),
         ],
@@ -267,16 +265,16 @@ fn test_roll_forward_known_peer_header_already_stored() {
 
     let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(slice::from_ref(header)));
-    assert_trace(
+    assert_trace_match(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_clock_suspend("tp-1"),
-            te_validate_header("tp-1", header.clone()),
-            te_has_header("tp-1", header.hash()),
-            te_state("tp-1", &expected),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_validate_header("tp-1", header.clone()).into(),
+            te_has_header("tp-1", header.hash()).into(),
+            te_state("tp-1", &expected).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["roll forward", "already stored"]).assert_no_remaining_at([
@@ -306,18 +304,18 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
     expected.insert_peer(peer.clone(), header.tip(), header.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace(
+    assert_trace_match(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_clock_suspend("tp-1"),
-            te_validate_header("tp-1", header.clone()),
-            te_has_header("tp-1", header.hash()),
-            te_store_header("tp-1", header.clone()),
-            te_send("tp-1", "downstream", (header.tip(), parent.point())),
-            te_state("tp-1", &expected),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_validate_header("tp-1", header.clone()).into(),
+            te_has_header("tp-1", header.hash()).into(),
+            te_store_header("tp-1", header.clone()).into(),
+            te_send("tp-1", "downstream", (header.tip(), parent.point())).into(),
+            te_state("tp-1", &expected).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
@@ -409,11 +407,12 @@ fn test_roll_forward_invalid_parent_removes_peer() {
     state.insert_peer(peer.clone(), parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_contains(
+    assert_trace_match(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
@@ -441,11 +440,12 @@ fn test_roll_forward_invalid_height_removes_peer() {
     state.insert_peer(peer.clone(), parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_contains(
+    assert_trace_match(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
@@ -473,11 +473,12 @@ fn test_roll_forward_invalid_point_removes_peer() {
     state.insert_peer(peer.clone(), parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace_contains(
+    assert_trace_match(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
@@ -519,28 +520,30 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
         Level::WARN,
         Level::ERROR,
     ]);
-    assert_trace(
+    assert_trace_match(
         &running,
         &[
-            te_state("tp-1", &state),
-            te_input("tp-1", &msg),
-            te_send("tp-1", &prep.handler, RequestNext),
-            te_clock_suspend("tp-1"),
-            te_validate_header("tp-1", header.clone()),
-            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)),
-            te_state("tp-1", &expected),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_validate_header("tp-1", header.clone()).into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
+            te_state("tp-1", &expected).into(),
         ],
     );
 }
 
-/// New test for header slot too far in future ( >2s according to clock ).
+/// Header slot more than 2 slots ahead of sim clock → adversarial.
+/// With EraHistory::default() and start_in_era offset, elapsed is ~0 so curr_slot is 0.
 #[test]
 fn test_roll_forward_header_slot_too_far_future_adversarial() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
-    let header_slot = prep.start_at_slot + 10;
-    let header = make_block_header(2, header_slot, Some(parent.hash()));
+    let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
+    let curr_slot = PREPROD_ERA_HISTORY.relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    let header = make_block_header(2, curr_slot + 10, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
         conn_id: prep.conn_id,
@@ -550,10 +553,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    // make mono pass: current slot < header slot
-    let curr_point = Point::Specific(1u64.into(), parent.hash());
-    let curr_tip = Tip::new(curr_point, BlockHeight::from(1));
-    state.insert_peer(peer.clone(), curr_tip, header.tip());
+    state.insert_peer(peer.clone(), parent.tip(), header.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
@@ -562,28 +562,29 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
         Level::WARN,
         Level::ERROR,
     ]);
-    assert_trace_contains(
+    assert_trace_match(
         &running,
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
 }
 
-/// New test for header slot near future (<=2s) -> defers validation.
+/// Header slot 1–2 ahead of sim clock → clock-skew defer (not adversarial).
 #[test]
 fn test_roll_forward_header_slot_near_future_defers() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
-    // +1 s future from the effective ~1610 -> near, defer
-    let header_slot = prep.start_at_slot + 2;
-    let header = make_block_header(2, header_slot, Some(parent.hash()));
+    let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
+    let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    // one slot ahead of sim clock → near-future defer
+    let header = make_block_header(2, curr_slot + 1, Some(parent.hash()));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
         conn_id: prep.conn_id,
@@ -592,22 +593,24 @@ fn test_roll_forward_header_slot_near_future_defers() {
     });
 
     let mut state = prep.state.clone();
-    let curr_point = Point::Specific(1u64.into(), parent.hash());
-    let curr_tip = Tip::new(curr_point, BlockHeight::from(1));
-    state.insert_peer(peer.clone(), curr_tip, header.tip());
+    state.insert_peer(peer.clone(), parent.tip(), header.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
-    // no error log for near, defers instead of adversarial
-    logs.assert_no_remaining_at([Level::ERROR]);
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    // Clock-skew defers, then sim advances and RecheckLedgerHeight processes the header.
     assert_trace_contains(
         &running,
         &[
-            te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_clock_suspend("tp-1").into(),
-            // no adv send; defer happened (schedule + clockskew in deferred)
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "clock skew deferred"),
+            te_input("tp-1", &TrackPeersMsg::RecheckLedgerHeight).into(),
+            te_validate_header("tp-1", header.clone()).into(),
+            te_store_header("tp-1", header.clone()).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.is_empty(), "processed after recheck"),
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer))]);
@@ -632,7 +635,8 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
     let mut state = prep.state.clone();
     state.insert_peer(peer.clone(), parent.tip(), header.tip());
 
-    let far_epoch = Epoch::new(100);
+    // More than one epoch beyond known max_epoch (start-2) → adversarial, not defer.
+    let far_epoch = prep.start_times.epoch;
     let slot = header.slot();
     // Override to simulate far-ahead stake dist not available (distance >1 -> reject)
     let (running, _guards, mut logs) =
@@ -654,10 +658,9 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
         &[
             te_state("tp-1", &state).into(),
             te_input("tp-1", &msg).into(),
-            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
             te_validate_header("tp-1", header.clone()).into(),
-            tm_volatile_tip("tp-1"),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
@@ -774,7 +777,7 @@ fn test_roll_backward_unknown_point_removes_peer() {
 /// for a deferred RequestNext (instead of immediately pipelining RequestNext to the handler).
 #[test]
 fn test_roll_forward_defers_request_next() {
-    // Use security_param = 0 so any header taller than the known ledger height triggers defer.
+    // Use max_peer_lead = 0 so any header taller than the known ledger height triggers defer.
     let prep = test_prep_with_max_peer_lead(0);
     let peer = Peer::new("peer1");
     let header = prep.headers[0].clone();
@@ -802,12 +805,14 @@ fn test_roll_forward_defers_request_next() {
         Level::INFO,
     ]);
 
-    assert_trace_contains(
+    assert_trace_match(
         &running,
         &[
-            tm_store_header("tp-1"),
-            tm_state::<TrackPeers>("tp-1", |state| state.deferred.len() == 1, ""),
-            tm_clock(Duration::from_secs(1654041610) + Duration::from_millis(200)),
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            tm_volatile_tip("tp-1"),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "ledger height deferred"),
         ],
     );
 
@@ -839,9 +844,9 @@ fn test_pipelined_headers_after_height_defer() {
     let mut state = prep.state.clone();
     state.insert_peer(peer.clone(), parent.tip(), h2.tip());
 
-    // Use setup_base (now accepts multiple) with forced ledger tip at origin so height defers apply.
+    // Forced ledger tip = origin so height defers apply; second header is FollowUp while peer deferred.
     let store = build_store(&[]);
-    let (running, _guards, _logs) =
+    let (running, _guards, mut logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], store, |running| {
             running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
                 let tip = Tip::origin();
@@ -851,24 +856,27 @@ fn test_pipelined_headers_after_height_defer() {
                 let tip = Tip::origin();
                 move |_| OverrideResult::handled(tip)
             });
-            // Default validate succeeds (height defer happens before full validate in this path)
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
         });
 
-    // Locked down trace for pipelined height defer (both headers processed, RN defers queued for sequence).
-    assert_trace_contains(
+    logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+    assert_trace_match(
         &running,
         &[
+            te_state("tp-1", &state).into(),
             te_input("tp-1", &msg1).into(),
-            te_validate_header("tp-1", h1.clone()).into(),
-            te_store_header("tp-1", h1.clone()).into(),
-            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "one RN defer queued"),
+            te_clock_suspend("tp-1").into(),
+            tm_volatile_tip("tp-1"),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first ledger-height deferred"),
             te_input("tp-1", &msg2).into(),
-            te_validate_header("tp-1", h2.clone()).into(),
-            te_store_header("tp-1", h2.clone()).into(),
-            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "two RN defers queued for pipelined"),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "follow-up queued while deferred"),
         ],
     );
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);
 }
 
 #[test]
@@ -876,9 +884,11 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
-    // +1s future -> near future defer for first
-    let h1 = make_block_header(2, prep.start_at_slot + 1, Some(parent.hash()));
-    let h2 = make_block_header(3, prep.start_at_slot + 2, Some(h1.hash()));
+    let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
+    let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    // first is near-future; second is FollowUp while peer deferred
+    let h1 = make_block_header(2, curr_slot + 1, Some(parent.hash()));
+    let h2 = make_block_header(3, curr_slot + 2, Some(h1.hash()));
 
     let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -894,26 +904,26 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
     });
 
     let mut state = prep.state.clone();
-    let curr_point = Point::Specific(1u64.into(), parent.hash());
-    let curr_tip = Tip::new(curr_point, BlockHeight::from(1));
-    state.insert_peer(peer.clone(), curr_tip, h2.tip());
+    state.insert_peer(peer.clone(), parent.tip(), h2.tip());
 
-    let (running, _guards, _logs) =
+    let (running, _guards, mut logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], build_store(&[]), |running| {
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
         });
 
-    // no adversarial expected in defer case
-    assert_trace_does_not_contain(
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    // First header clock-skew defers; second is FollowUp; recheck may drain both before run ends.
+    assert_trace_contains(
         &running,
-        &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer.clone()))],
+        &[
+            te_input("tp-1", &msg1).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first clock-skew deferred"),
+            te_input("tp-1", &msg2).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "follow-up queued while deferred"),
+        ],
     );
-    // Locked down: no adversarial for pipelined near-future slot defer case.
-    // (trace contents for this slot calc are minimal in harness; core no-adv verified)
-    assert_trace_does_not_contain(
-        &running,
-        &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer.clone()))],
-    );
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::Adversarial(peer))]);
 }
 
 /// Pipelined stake dist not available: multiple headers arrive (from pipelining), both defer,
@@ -938,27 +948,28 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.tip()),
     });
-    let wake = TrackPeersMsg::StakeDistUpdated;
+    // Advance max_epoch far enough that the previously missing target epoch is covered.
+    let wake = TrackPeersMsg::StakeDistUpdated(prep.start_times.epoch);
 
     let mut state = prep.state.clone();
     state.insert_peer(peer.clone(), parent.tip(), h2.tip());
 
     let slot1 = h1.slot();
-    let _slot2 = h2.slot();
-    // target epoch chosen so dist <= curr +1 to trigger defer not reject
-    let target_epoch = Epoch::new(0);
+    // One epoch ahead of known max_epoch (start-2) → defer, not reject.
+    let target_epoch = prep.start_times.epoch.checked_sub(Epoch::ONE).unwrap();
 
-    let call_count = Arc::new(AtomicUsize::new(0));
-    let (running, _guards, _logs) = setup_base(
+    let (running, _guards, mut logs) = setup_base(
         &prep.rt_handle(),
         state.clone(),
         [msg1.clone(), msg2.clone(), wake.clone()],
-        build_store(&[]),
+        // Parent header present so recheck nonce evolution can succeed if real validation runs.
+        build_store(slice::from_ref(parent)),
         |running| {
-            let cc = call_count.clone();
+            // First validate fails (missing stake); later calls succeed.
+            let mut n = 0u8;
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
-                let c = cc.fetch_add(1, Ordering::SeqCst);
-                if c < 2 {
+                n += 1;
+                if n == 1 {
                     OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
                         GetPoolError::StakeDistributionNotAvailable(slot1, Some(target_epoch)),
                     ))))
@@ -969,25 +980,35 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
         },
     );
 
-    // Locked down: pipelined stake defers (RN sent early for both), both queued, then on wake re-validated and stored in sequence, deferred cleared.
-    assert_trace_contains(
+    logs.assert_and_remove(Level::DEBUG, &["roll forward"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+    // h1 stake-deferred after RN; h2 is FollowUp (peer already deferred); wake reprocesses both in order.
+    assert_trace_match(
         &running,
         &[
+            te_state("tp-1", &state).into(),
             te_input("tp-1", &msg1).into(),
+            te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_validate_header("tp-1", h1.clone()).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first stake deferred"),
             te_input("tp-1", &msg2).into(),
-            te_send("tp-1", &prep.handler, RequestNext).into(),
-            te_validate_header("tp-1", h2.clone()).into(),
-            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "second pipelined stake deferred"),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "follow-up queued"),
             te_input("tp-1", &wake).into(),
+            tm_volatile_tip("tp-1"),
+            te_clock_suspend("tp-1").into(),
             te_validate_header("tp-1", h1.clone()).into(),
             te_has_header("tp-1", h1.hash()).into(),
             te_store_header("tp-1", h1.clone()).into(),
+            te_send("tp-1", "downstream", (h1.tip(), parent.point())).into(),
             te_validate_header("tp-1", h2.clone()).into(),
             te_has_header("tp-1", h2.hash()).into(),
             te_store_header("tp-1", h2.clone()).into(),
+            te_send("tp-1", "downstream", (h2.tip(), h1.point())).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
             tm_state::<TrackPeers>(
                 "tp-1",
                 |s| {

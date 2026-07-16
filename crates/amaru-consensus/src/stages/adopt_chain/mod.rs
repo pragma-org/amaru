@@ -106,7 +106,7 @@ impl AdoptChain {
             consensus_security_param,
             current_best_tip,
             max_block_height: BlockHeight::from(0),
-            last_printed: Instant::at_offset(Duration::from_secs(0)),
+            last_printed: Instant::at_offset(Duration::ZERO, Duration::ZERO),
             suppressed: 0,
         }
     }

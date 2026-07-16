@@ -229,6 +229,7 @@ pub use data_structures::{
     set::Set,
     strict_maybe::StrictMaybe,
 };
+pub use num;
 pub use serde_json as json;
 
 pub mod macros;

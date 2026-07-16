@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use amaru_consensus::{
     effects::{
@@ -20,10 +20,10 @@ use amaru_consensus::{
         ResourcePoolSummaries, ResourceTxValidation,
     },
     headers_tree::data_generation::Action,
+    stages::test_utils::start_in_era,
 };
 use amaru_kernel::{
-    BlockHeight, ConsensusParameters, GlobalParameters, IsHeader, NetworkName, NonEmptyVec, PREPROD_ERA_HISTORY, Tip,
-    Transaction,
+    BlockHeight, ConsensusParameters, GlobalParameters, IsHeader, NetworkName, NonEmptyVec, Tip, Transaction,
 };
 use amaru_ouroboros::{
     ConnectionsResource, DiagnosticChainStore, MockCanValidateBlocks, MockCanValidateTxs, PoolSummaries,
@@ -55,9 +55,6 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
     let connections: ConnectionsResource = Arc::new(InMemoryConnectionProvider::default());
     let mut nodes = vec![];
 
-    // need to place the simulation within the current era
-    let start_in_era = PREPROD_ERA_HISTORY.current_era_summary().start.time + Duration::from_hours(1);
-
     for config in configs {
         let _span = config.enter_span();
 
@@ -65,7 +62,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
             .with_seed(config.seed)
             .with_mailbox_size(10000)
             .with_trace_buffer(config.trace_buffer.clone())
-            .with_global_epoch_offset(start_in_era);
+            .with_global_epoch_offset(start_in_era().relative_time);
 
         let config = config.with_connections(connections.clone());
         let test_node_stages = create_node(&config, &mut stage_graph)?;

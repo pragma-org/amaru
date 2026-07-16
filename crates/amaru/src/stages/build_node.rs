@@ -126,19 +126,30 @@ pub fn build_node(
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
     let best_hash = find_best_candidate(chain_store.as_ref())?;
 
+    let pool_summaries = ledger.get_pool_summaries()?;
+    let initial_max_epoch = pool_summaries.max_epoch();
+
     // Build the stage graph first to obtain a Sender<TrackPeersMsg> via stage_graph.input().
     // This sender is required to notify track_peers from outside pure-stage (e.g. ledger's
     // on_stake_dist_updated hook).
-    let node_stages = build_stage_graph(config, era_history, global_parameters, ledger_tip, best_hash, stage_builder);
+    let node_stages = build_stage_graph(
+        config,
+        era_history,
+        global_parameters,
+        ledger_tip,
+        best_hash,
+        initial_max_epoch,
+        stage_builder,
+    );
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
 
-    let pool_summaries = ledger.get_pool_summaries()?;
     let resources = stage_builder.resources().clone();
     ledger.set_on_stake_dist_updated(Arc::new(move |summ| {
-        resources.put::<ResourcePoolSummaries>(Arc::new(summ.clone()));
+        let max_epoch = summ.max_epoch();
+        resources.put::<ResourcePoolSummaries>(Arc::new(summ));
         let track_peers_sender = track_peers_sender.clone();
         let send = async move {
-            if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated).await.is_err() {
+            if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
                 tracing::warn!("failed to send TrackPeersMsg::StakeDistUpdated");
             }
         };

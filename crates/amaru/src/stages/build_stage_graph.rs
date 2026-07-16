@@ -24,7 +24,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
+use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
@@ -51,6 +51,7 @@ pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
     ledger_tip: Tip,
     best_hash: HeaderHash,
+    max_epoch: Epoch,
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
     let manager = stage_graph.stage("manager", manager::stage);
@@ -156,7 +157,7 @@ pub fn build_stage_graph(
 
     let track_peers_wired = stage_graph.wire_up(
         track_peers,
-        TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, max_forecast),
+        TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, max_forecast, max_epoch),
     );
     let track_peers_stake_dist_sender = stage_graph.input(&track_peers_wired);
     let track_peers_input = stage_graph.contramap(track_peers_wired, "track_peers_input", TrackPeersMsg::FromUpstream);
