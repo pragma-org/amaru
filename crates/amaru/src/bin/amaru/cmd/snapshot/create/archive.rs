@@ -18,29 +18,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::Epoch;
+use amaru_kernel::{Epoch, utils::path::relative_path};
+use amaru_observability::info;
 use flate2::{Compression, GzBuilder};
 use tar::{Builder, Header};
 
 use super::EpochTarget;
 
 pub(super) fn snapshot_path_for_target(snapshot_root: &Path, target: &EpochTarget) -> PathBuf {
-    snapshot_root.join(format!("{}.{}", target.slot, target.hash))
+    snapshot_root.join(target.snapshot.point.to_string())
 }
 
 pub(super) fn archive_path_for_target(snapshot_root: &Path, target: &EpochTarget) -> PathBuf {
-    snapshot_root.join(format!("{}.{}.tar.gz", target.slot, target.hash))
+    snapshot_root.join(format!("{}.tar.gz", target.snapshot.point))
 }
 
-pub(super) fn existing_snapshot_paths(snapshot_root: &Path, targets: &[EpochTarget]) -> Vec<PathBuf> {
-    targets.iter().map(|target| snapshot_path_for_target(snapshot_root, target)).filter(|path| path.exists()).collect()
-}
-
-pub(super) fn existing_archive_paths(snapshot_root: &Path, targets: &[EpochTarget]) -> Vec<PathBuf> {
-    targets.iter().map(|target| archive_path_for_target(snapshot_root, target)).filter(|path| path.is_file()).collect()
-}
-
-fn metadata_path_for_epoch(metadata_dir: &Path, epoch: Epoch) -> PathBuf {
+pub(super) fn metadata_path_for_epoch(metadata_dir: &Path, epoch: Epoch) -> PathBuf {
     metadata_dir.join(format!("{epoch}.json"))
 }
 
@@ -49,6 +42,7 @@ pub(super) fn write_epoch_metadata(
     target: &EpochTarget,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = metadata_path_for_epoch(metadata_dir, target.epoch);
+    info!(target: "amaru::cli", name: "epoch_metadata.write", epoch = %target.epoch, path = %relative_path(&path)?.display());
     fs::write(path, serde_json::to_vec_pretty(target)?)?;
     Ok(())
 }
