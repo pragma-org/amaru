@@ -19,6 +19,7 @@ use serde::Deserialize;
 use tracing::info;
 
 use super::EpochTarget;
+use crate::cmd::snapshot::create::SnapshotPoint;
 
 #[derive(Debug, Deserialize)]
 struct KoiosBlock {
@@ -107,9 +108,10 @@ pub(super) async fn fetch_last_block_for_epoch(
 
     Ok(EpochTarget {
         epoch,
-        slot: Slot::from(block.abs_slot),
-        hash: Hash::from_str(&block.hash)?,
-        parent_point: Some(parent_point),
+        snapshot: SnapshotPoint {
+            point: Point::Specific(Slot::from(block.abs_slot), Hash::from_str(&block.hash)?),
+            parent_point,
+        },
         archive_path: None,
         snapshot_path: None,
     })

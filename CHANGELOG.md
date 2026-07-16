@@ -46,12 +46,17 @@ Other guiding principles:
 - **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
 - **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
 
+### Removed
+
+- **amaru**: no more `--force` flag on `snapshot create`. ([#1039][])
+
 ### Fixed
 
 - **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
 - **amaru-ledger**: reduce rationale number before serializing them to JSON in epoch summary. ([#1024][])
 - **amaru-ledger**: store the stake pool deposit for refunds instead of defaulting protocol parameters. ([#1031][])
 - **amaru-ledger**: do not overwrite already counted pool deposit refunds with newer refund from same credential. ([#1026][])
+- **amaru**: normalize snapshot metadata (all having a parent point now) and ensure better discoverability of local snapshots. ([#1039][])
 
 ## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
@@ -163,3 +168,4 @@ Other guiding principles:
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
+[#1039]: https://github.com/pragma-org/amaru/pull/1039

@@ -19,7 +19,7 @@ use std::{
 
 use crate::{Hash, HeaderHash, ORIGIN_HASH, Slot, cbor, size::HEADER};
 
-#[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum Point {
     #[default]
     Origin,
@@ -77,6 +77,10 @@ impl TryFrom<&str> for Point {
     type Error = String;
 
     fn try_from(raw_str: &str) -> Result<Self, Self::Error> {
+        if raw_str == "origin" {
+            return Ok(Point::Origin);
+        }
+
         let mut split = raw_str.split('.');
 
         let slot = split
@@ -132,6 +136,24 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
             }
             _ => Err(cbor::decode::Error::message("can't decode Point from array of size")),
         }
+    }
+}
+
+impl serde::Serialize for Point {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Point {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::from_str(<&str>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 
@@ -213,6 +235,15 @@ mod tests {
         fn test_parse_point() {
             let error = Point::try_from("42.0123456789abcdef").unwrap_err();
             assert_eq!(error, "failed to parse block header hash: Invalid string length");
+        }
+
+        #[test]
+        fn json() {
+            let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
+            let point = Point::try_from(point_str).expect("failed to parse from string");
+            let point_json = serde_json::to_string(&point).expect("failed to serialize");
+            assert_eq!(format!("\"{point_str}\""), point_json);
+            assert_eq!(point, serde_json::from_str(&point_json).expect("failed to deserialize"));
         }
 
         #[test]

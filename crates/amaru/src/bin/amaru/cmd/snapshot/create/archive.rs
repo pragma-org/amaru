@@ -21,15 +21,16 @@ use std::{
 use amaru_kernel::Epoch;
 use flate2::{Compression, GzBuilder};
 use tar::{Builder, Header};
+use tracing::info;
 
 use super::EpochTarget;
 
 pub(super) fn snapshot_path_for_target(snapshot_root: &Path, target: &EpochTarget) -> PathBuf {
-    snapshot_root.join(format!("{}.{}", target.slot, target.hash))
+    snapshot_root.join(target.snapshot.point.to_string())
 }
 
 pub(super) fn archive_path_for_target(snapshot_root: &Path, target: &EpochTarget) -> PathBuf {
-    snapshot_root.join(format!("{}.{}.tar.gz", target.slot, target.hash))
+    snapshot_root.join(format!("{}.tar.gz", target.snapshot.point))
 }
 
 pub(super) fn existing_snapshot_paths(snapshot_root: &Path, targets: &[EpochTarget]) -> Vec<PathBuf> {
@@ -49,6 +50,7 @@ pub(super) fn write_epoch_metadata(
     target: &EpochTarget,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = metadata_path_for_epoch(metadata_dir, target.epoch);
+    info!(epoch = %target.epoch, path = %path.display(), "epoch_metadata.write");
     fs::write(path, serde_json::to_vec_pretty(target)?)?;
     Ok(())
 }
