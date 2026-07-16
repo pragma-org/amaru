@@ -63,14 +63,14 @@ use crate::{
 /// # Roll-forward path
 ///
 /// 1. Decode the header (Conway only; failure → adversarial).
-/// 2. If this peer already has deferred work, queue the header as [`DeferReason::FollowUp`]
+/// 2. If this peer already has deferred work, queue the header as `DeferReason::FollowUp`
 ///    (pipelined trailers) and return without validating yet.
 /// 3. Compare `header.block_height() - max_peer_lead` to a cached applied ledger height
 ///    ([`VolatileTipEffect`], refreshed at most every 500 ms). If the header is too far ahead,
-///    queue [`DeferReason::LedgerHeight`] **without** sending `RequestNext` and return.
-/// 4. Otherwise send `RequestNext` early (pipelining), then [`TrackPeers::try_roll_forward`].
+///    queue `DeferReason::LedgerHeight` **without** sending `RequestNext` and return.
+/// 4. Otherwise send `RequestNext` early (pipelining), then `TrackPeers::try_roll_forward`.
 ///
-/// [`TrackPeers::try_roll_forward`] runs protocol checks (parent, consecutive height, monotonic
+/// `TrackPeers::try_roll_forward` runs protocol checks (parent, consecutive height, monotonic
 /// slot, clock skew) and Praos validation via ledger `validate_header`. On success it advances
 /// the peer tip, stores the header if new, and notifies `downstream` with [`NewTip`]. If
 /// `RequestNext` was not already sent (e.g. after a height defer is released), it is sent after
@@ -95,10 +95,10 @@ use crate::{
 ///
 /// # Recheck
 ///
-/// [`TrackPeers::recheck_deferred`] walks `deferred` in order. A peer stays blocked while any
+/// `TrackPeers::recheck_deferred` walks `deferred` in order. A peer stays blocked while any
 /// earlier deferred item for that peer is still blocked (so FollowUps wait on prior
 /// LedgerHeight / stake / clock items). When an item is ready, it is re-run through
-/// [`TrackPeers::try_roll_forward`].
+/// `TrackPeers::try_roll_forward`.
 ///
 /// # Effects and sends
 ///

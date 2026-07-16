@@ -140,7 +140,8 @@ mod tests {
     fn test_generate_arrival_times() {
         let seed = 1;
         let mut rng = StdRng::seed_from_u64(seed);
-        let result = generate_arrival_times(Instant::at_offset(Duration::new(0, 0), Duration::ZERO), 200.0)(10, &mut rng);
+        let result =
+            generate_arrival_times(Instant::at_offset(Duration::new(0, 0), Duration::ZERO), 200.0)(10, &mut rng);
 
         // We want arrival times that are roughly 1000ms apart, with some positive jitter
         // and occasional small negative jitter (for example 4956)
