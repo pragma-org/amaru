@@ -145,12 +145,28 @@ where
 
     metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
 
+    let ref_scripts_size = inputs::execute(
+        context,
+        transaction_body.inputs.deref(),
+        transaction_body.reference_inputs.as_deref(),
+        protocol_parameters,
+    )?;
+
+    let fees = fees::execute(
+        context,
+        transaction_body.fee,
+        tx_size,
+        transaction_witness_set,
+        ref_scripts_size,
+        protocol_parameters,
+    )?;
+
     // TODO: The 'collateral' rule group shouldn't exist
     //
     // This is a mix of witness and fees; and instead of duplicating the collateral traversing
     // logic in both, we should augment fees and witness handling to also account for
     // collaterals.
-    collateral::execute(
+    let collateral = collateral::execute(
         context,
         transaction_body.collateral.as_deref(),
         transaction_body.collateral_return.as_ref(),
@@ -160,21 +176,7 @@ where
         transaction_witness_set.redeemer.is_some(),
     )?;
 
-    let ref_scripts_size = inputs::execute(
-        context,
-        transaction_body.inputs.deref(),
-        transaction_body.reference_inputs.as_deref(),
-        protocol_parameters,
-    )?;
-
-    fees::execute(
-        context,
-        transaction_body.fee,
-        tx_size,
-        transaction_witness_set,
-        ref_scripts_size,
-        protocol_parameters,
-    )?;
+    context.add_fees(if is_valid { fees } else { collateral });
 
     mint::execute(context, transaction_body.mint.as_ref());
 

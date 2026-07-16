@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
 
+### Fixed
+
+- **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
+
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
 ### Added
@@ -176,3 +180,4 @@ Other guiding principles:
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
+[#1048]: https://github.com/pragma-org/amaru/pull/1048

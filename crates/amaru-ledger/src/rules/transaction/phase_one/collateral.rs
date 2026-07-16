@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrType, Address, AddressError, HasOwnership, Hash, MemoizedTransactionOutput, ProtocolParameters,
+    AddrType, Address, AddressError, HasOwnership, Hash, Lovelace, MemoizedTransactionOutput, ProtocolParameters,
     StakeCredential, TransactionInput, cardano::value::Balance, cbor, is_locked_by_script, transaction_input_to_string,
 };
 use thiserror::Error;
@@ -33,12 +33,10 @@ pub enum InvalidCollateral {
     TooManyInputs { provided: usize, allowed: usize },
     #[error("a collateral input is locked at a script address: {}", transaction_input_to_string(.0))]
     LockedAtScriptAddress(TransactionInput),
-    #[error("total collateral value is insufficient: provided: {provided} required: {required}")]
-    InsufficientBalance { provided: i64, required: u64 },
-    #[error(
-        "total collateral field (expected) does not equal actual collateral (provided): provided: {provided} expected: {expected} "
-    )]
-    IncorrectTotalCollateral { provided: i64, expected: u64 },
+    #[error("effective collateral value (={effective}) is insufficient; at least {required} is required")]
+    InsufficientBalance { effective: Lovelace, required: Lovelace },
+    #[error("declared collateral (={declared}) does not equal effective collateral (={effective})")]
+    DeclaredCollateralMismatch { effective: Lovelace, declared: Lovelace },
     #[error("No collateral was provided, but collateral is required")]
     NoCollateral,
     #[error("collateral has non-zero delta: {0}")]
@@ -55,11 +53,11 @@ pub fn execute<C>(
     context: &mut C,
     collaterals: Option<&[TransactionInput]>,
     collateral_return: Option<&MemoizedTransactionOutput>,
-    tx_collateral: Option<u64>,
+    declared_collateral: Option<u64>,
     fee: u64,
     protocol_parameters: &ProtocolParameters,
     has_redeemers: bool,
-) -> Result<(), InvalidCollateral>
+) -> Result<Lovelace, InvalidCollateral>
 where
     C: UtxoSlice + WitnessSlice + BalanceSlice,
 {
@@ -71,7 +69,7 @@ where
         return Err(InvalidCollateral::TooManyInputs { provided, allowed });
     }
 
-    let mut balance = Balance::empty();
+    let mut effective_collateral = Balance::empty();
 
     for collateral in collaterals.iter() {
         let collateral_input =
@@ -114,7 +112,7 @@ where
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         };
 
-        balance += collateral_input.value.as_ref();
+        effective_collateral += collateral_input.value.as_ref();
 
         match witness {
             Some(CollateralWitness::VKey(hash)) => context.require_vkey_witness(hash),
@@ -124,7 +122,7 @@ where
     }
 
     if let Some(collateral_return) = collateral_return {
-        balance -= collateral_return.value.as_ref();
+        effective_collateral -= collateral_return.value.as_ref();
     }
 
     if has_redeemers {
@@ -135,29 +133,27 @@ where
         // In order for a collateral balance to be valid it must:
         //    - have no multiassets and
         //    - have a nonnegative coin value
-        if balance.coin() < 0 || balance.has_assets() {
-            return Err(InvalidCollateral::ValueNotConserved(balance));
+        if effective_collateral.coin() < 0 || effective_collateral.has_assets() {
+            return Err(InvalidCollateral::ValueNotConserved(effective_collateral));
         }
 
-        let required = fee * protocol_parameters.collateral_percentage as u64;
-        if balance.coin() as i128 * 100 < required as i128 {
-            return Err(InvalidCollateral::InsufficientBalance {
-                provided: balance.coin(),
-                required: required.div_ceil(100),
-            });
+        let required = fee * protocol_parameters.collateral_percentage as Lovelace;
+        let effective = effective_collateral.coin() as Lovelace;
+
+        if effective as i128 * 100 < required as i128 {
+            return Err(InvalidCollateral::InsufficientBalance { effective, required: required.div_ceil(100) });
         }
 
-        if let Some(expected_balance) = tx_collateral
-            && expected_balance != balance.coin() as u64
+        if let Some(declared) = declared_collateral
+            && declared != effective
         {
-            return Err(InvalidCollateral::IncorrectTotalCollateral {
-                provided: balance.coin(),
-                expected: expected_balance,
-            });
+            return Err(InvalidCollateral::DeclaredCollateralMismatch { effective, declared });
         }
+
+        return Ok(effective);
     }
 
-    Ok(())
+    Ok(0)
 }
 
 #[cfg(test)]
@@ -228,7 +224,7 @@ mod tests {
     )]
     #[test_case(
         fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "incorrect-total-collateral") =>
-        matches Err(InvalidCollateral::IncorrectTotalCollateral { .. });
+        matches Err(InvalidCollateral::DeclaredCollateralMismatch { .. });
         "incorrect total balance"
     )]
     #[test_case(
@@ -257,6 +253,7 @@ mod tests {
             tx.fee,
             &pp,
             true,
-        )
+        )?;
+        Ok(())
     }
 }
