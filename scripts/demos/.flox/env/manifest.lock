@@ -1,0 +1,778 @@
+{
+  "lockfile-version": 1,
+  "manifest": {
+    "schema-version": "1.12.0",
+    "install": {
+      "curl": {
+        "pkg-path": "curl"
+      },
+      "jq": {
+        "pkg-path": "jq"
+      },
+      "process-compose": {
+        "pkg-path": "process-compose"
+      },
+      "rsync": {
+        "pkg-path": "rsync"
+      },
+      "rustup": {
+        "pkg-path": "rustup"
+      },
+      "xxd": {
+        "pkg-path": "unixtools.xxd"
+      }
+    },
+    "hook": {
+      "on-activate": "  # cardano-cli is not packaged in the Flox catalog. The demo `setup` step downloads\n  # a cardano-node release (which bundles cardano-cli) into $LOGDIR, so point\n  # CARDANO_CLI at that copy when no cardano-cli is already on PATH.\n  if [[ -z \"${CARDANO_CLI:-}\" ]] && ! command -v cardano-cli >/dev/null 2>&1; then\n    for candidate in /tmp/amaru-*/cardano-node-*/bin/cardano-cli; do\n      if [[ -x \"$candidate\" ]]; then\n        export CARDANO_CLI=\"$candidate\"\n        break\n      fi\n    done\n  fi\n\n  # The telemetry stack (Grafana/Tempo/Prometheus) needs a Docker daemon, which\n  # Flox cannot provide. Run the demos with START_TELEMETRY=false when Docker is\n  # not available on the host.\n  if ! command -v docker >/dev/null 2>&1; then\n    echo \"note: docker not found; run the demos with START_TELEMETRY=false\" >&2\n  fi\n"
+    },
+    "options": {
+      "systems": [
+        "aarch64-darwin",
+        "x86_64-darwin",
+        "aarch64-linux",
+        "x86_64-linux"
+      ]
+    }
+  },
+  "packages": [
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/mg9lzmw7q6z65kr8kqsmpif5kpqskgjl-curl-8.20.0.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "curl-8.20.0",
+      "pname": "curl",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:12:55.345357Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.20.0",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/0rrs2ydp7qynml2n29d7v90ra01hxhax-curl-8.20.0-bin",
+        "dev": "/nix/store/d5l4axk9j0bf2q2glxkz9qvqaqhblcay-curl-8.20.0-dev",
+        "devdoc": "/nix/store/3ssva04yd4z174k9f383vj0bisqzx0cz-curl-8.20.0-devdoc",
+        "man": "/nix/store/b915fx868q01rikwnvi99ljj9v3n5gix-curl-8.20.0-man",
+        "out": "/nix/store/w0hwcvhjihq11g77w0h5drqklxxj4ih2-curl-8.20.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/8gcf1s8bi6kiywg1hl6i3v4nx3c7wrqp-curl-8.20.0.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "curl-8.20.0",
+      "pname": "curl",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:41:22.022206Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.20.0",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "man",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/8gdgwydsf6gia9j178nymxwm2bl0z3m3-curl-8.20.0-bin",
+        "debug": "/nix/store/rlffdmmrgy46gwvx8ap35gdiyd772vxj-curl-8.20.0-debug",
+        "dev": "/nix/store/01pp0l8ijps75bfk8x75iz2yg4n9klqh-curl-8.20.0-dev",
+        "devdoc": "/nix/store/yzn91bf7vwv8l5migzld5vphr87kfiwn-curl-8.20.0-devdoc",
+        "man": "/nix/store/fivfywp5nlas8zqmiqdar15s20v1llv7-curl-8.20.0-man",
+        "out": "/nix/store/v9dm55hnfslwma8x0vkrb12rc7xgw4br-curl-8.20.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/yimp796x73y7ya2g3xrzhrklpzi4bhmr-curl-8.20.0.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "curl-8.20.0",
+      "pname": "curl",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:09:00.699956Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.20.0",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/ay2d39b1rxpycpw6501kvx9bkj2flg3q-curl-8.20.0-bin",
+        "dev": "/nix/store/nq8f3x5kblji4ndh6l8fbzrxfkn3smdf-curl-8.20.0-dev",
+        "devdoc": "/nix/store/p8xshzip25m4g57jjpgddwssjavjb4h4-curl-8.20.0-devdoc",
+        "man": "/nix/store/brqfirf14dch7cp25snkfa82l1ckdmcs-curl-8.20.0-man",
+        "out": "/nix/store/b7rkky5rsnc5d6yjppxs67qvjrj27a06-curl-8.20.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "curl",
+      "broken": false,
+      "derivation": "/nix/store/zqkrwwbym85n95fd4xl1x2x2sg3iyihc-curl-8.20.0.drv",
+      "description": "Command line tool for transferring files with URL syntax",
+      "install_id": "curl",
+      "license": "curl",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "curl-8.20.0",
+      "pname": "curl",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:40:24.689079Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "8.20.0",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "man",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/w36yf3psz1zhgabw03hlag8bw0rdfsav-curl-8.20.0-bin",
+        "debug": "/nix/store/6bd4xhi8pgwng74338wc82bqw5ncs7xs-curl-8.20.0-debug",
+        "dev": "/nix/store/mgf0n27lnygx9f2n4riyw34g2lqm9rhy-curl-8.20.0-dev",
+        "devdoc": "/nix/store/5dxy29mjl0wjakfignhm1q2h04qnl5j1-curl-8.20.0-devdoc",
+        "man": "/nix/store/df7hisry2sni9b7dx84df75m3mr15idz-curl-8.20.0-man",
+        "out": "/nix/store/5ji5924yd02lmva6bmp7k65gfs2696z7-curl-8.20.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/mpxw23n62v0rkp5n468pk46srixprs54-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:13:12.483661Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/n9ri7m7j3l3ggx7ag8xm87cavjvcxycz-jq-1.8.1-bin",
+        "dev": "/nix/store/pfp4psnwxs2ygda5sq6sr95x2snn6yjl-jq-1.8.1-dev",
+        "doc": "/nix/store/6va29c6s0v4kqi0zvc5jhn7s31c9i4hd-jq-1.8.1-doc",
+        "man": "/nix/store/0l8f1i70kd15qadl45b4fvqlg2j7s5hn-jq-1.8.1-man",
+        "out": "/nix/store/phmsnvxjh6rmf7id4wahi3vllbj8fn4s-jq-1.8.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/zxip019ljwma1b99d59gyd4y5d8qlnba-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:41:44.221148Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/hmwz4mnhiwyy1zyrypbdk6xqrxrpv4jp-jq-1.8.1-bin",
+        "dev": "/nix/store/gkincbg9wkmasrxw36mmyvp08jyhcxxg-jq-1.8.1-dev",
+        "doc": "/nix/store/vh84k872pnn2xavlx9j551056k1h579f-jq-1.8.1-doc",
+        "man": "/nix/store/iy9j5qqv7bkf0fnwh6pddfbk5q93i3nh-jq-1.8.1-man",
+        "out": "/nix/store/cs80rizzqf70hsya9n2h60zj9rf23sr5-jq-1.8.1"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/0shj1l58q4p6g3kf20748vq91b6rvr0r-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:09:22.080679Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/glj1kzrb6jm7x4r5z400mcmja8ws657q-jq-1.8.1-bin",
+        "dev": "/nix/store/akbah2c4a6xcgpx2l7xqqgfbxgi8anfj-jq-1.8.1-dev",
+        "doc": "/nix/store/jb2xgi4gjvzwifzfmf4kzkimbgrhsaav-jq-1.8.1-doc",
+        "man": "/nix/store/vpk901871j7kfmmb20i1vfxh5d8mhim2-jq-1.8.1-man",
+        "out": "/nix/store/l4i89frkjf4dly7gxwbksrcimcgr2x8f-jq-1.8.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "jq",
+      "broken": false,
+      "derivation": "/nix/store/n9cdsl2rnrzwh2c3kw6ib023vp9qfm9f-jq-1.8.1.drv",
+      "description": "Lightweight and flexible command-line JSON processor",
+      "install_id": "jq",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "jq-1.8.1",
+      "pname": "jq",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:40:47.719913Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.8.1",
+      "outputs_to_install": [
+        "bin",
+        "bin",
+        "bin",
+        "man"
+      ],
+      "outputs": {
+        "bin": "/nix/store/q0pj1dw2nr57y6b4pqljklf0hy20alfj-jq-1.8.1-bin",
+        "dev": "/nix/store/3vavalljj18drsycygl361zqz4rryygd-jq-1.8.1-dev",
+        "doc": "/nix/store/nzhykmz9qn2vrb9ki6ddrpipic7rfpfb-jq-1.8.1-doc",
+        "man": "/nix/store/d21dmfzxkgpa7jkn5ggr0balzfg0j269-jq-1.8.1-man",
+        "out": "/nix/store/bzm6nb8fx5p005bygrarn48i6qy1ir3a-jq-1.8.1"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "process-compose",
+      "broken": false,
+      "derivation": "/nix/store/4inhhwj216nfy75irkgm43d9dpd80vm8-process-compose-1.116.0.drv",
+      "description": "Simple and flexible scheduler and orchestrator to manage non-containerized applications",
+      "install_id": "process-compose",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "process-compose-1.116.0",
+      "pname": "process-compose",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:13:36.435630Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.116.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/xwh2w75ig3bf25sw41vwnf5b1cc9hp7p-process-compose-1.116.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "process-compose",
+      "broken": false,
+      "derivation": "/nix/store/k781si303nfznhs3h1dfib9ijnlihczj-process-compose-1.116.0.drv",
+      "description": "Simple and flexible scheduler and orchestrator to manage non-containerized applications",
+      "install_id": "process-compose",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "process-compose-1.116.0",
+      "pname": "process-compose",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:42:21.881197Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.116.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/2adglgmmv1klc7msv2nyx3j62xkikz9a-process-compose-1.116.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "process-compose",
+      "broken": false,
+      "derivation": "/nix/store/r276iaqcj261p6lbj2mswym9aqn5mbxm-process-compose-1.116.0.drv",
+      "description": "Simple and flexible scheduler and orchestrator to manage non-containerized applications",
+      "install_id": "process-compose",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "process-compose-1.116.0",
+      "pname": "process-compose",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:09:52.105242Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.116.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/zlsj3gcnnm1f49gdwri5c4l3qsyxzx3y-process-compose-1.116.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "process-compose",
+      "broken": false,
+      "derivation": "/nix/store/9janrk4c1i8g2a0cil9c4cyixx6wfcbp-process-compose-1.116.0.drv",
+      "description": "Simple and flexible scheduler and orchestrator to manage non-containerized applications",
+      "install_id": "process-compose",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "process-compose-1.116.0",
+      "pname": "process-compose",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:41:28.377357Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.116.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/7w3p9gy8jqjzj0bzj5clc0csdwrp9qnn-process-compose-1.116.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rsync",
+      "broken": false,
+      "derivation": "/nix/store/v0m9ywk9280vv1px9b7xvfnks8fy1fk2-rsync-3.4.4.drv",
+      "description": "Fast incremental file transfer utility",
+      "install_id": "rsync",
+      "license": "GPL-3.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rsync-3.4.4",
+      "pname": "rsync",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:14:28.911459Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.4.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/myh3rp9wnllrmz3h9zy4dyrzhdgd73pa-rsync-3.4.4"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rsync",
+      "broken": false,
+      "derivation": "/nix/store/68bsk0p4rlbh2gggiw5n557ibv4ymyhr-rsync-3.4.4.drv",
+      "description": "Fast incremental file transfer utility",
+      "install_id": "rsync",
+      "license": "GPL-3.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rsync-3.4.4",
+      "pname": "rsync",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:43:25.518795Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.4.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/i0k0852qhpg6rbvdma8ly66j2v728d83-rsync-3.4.4"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rsync",
+      "broken": false,
+      "derivation": "/nix/store/3szximl33hz06s3mdhkyr4pimcajbqi0-rsync-3.4.4.drv",
+      "description": "Fast incremental file transfer utility",
+      "install_id": "rsync",
+      "license": "GPL-3.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rsync-3.4.4",
+      "pname": "rsync",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:10:57.284802Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.4.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/2mnbng5y4mbxjn0kb6cdf0r824hzafj1-rsync-3.4.4"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rsync",
+      "broken": false,
+      "derivation": "/nix/store/290l59qinlig40i2h9mr9r7xgkc765rd-rsync-3.4.4.drv",
+      "description": "Fast incremental file transfer utility",
+      "install_id": "rsync",
+      "license": "GPL-3.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rsync-3.4.4",
+      "pname": "rsync",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:42:37.118704Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.4.4",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/5m564isgjr0irpa6l4g4jf96k5rypxl0-rsync-3.4.4"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rustup",
+      "broken": false,
+      "derivation": "/nix/store/s3r3w0xyjhzx5br829m733l8br01jd5l-rustup-1.29.0.drv",
+      "description": "Rust toolchain installer",
+      "install_id": "rustup",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rustup-1.29.0",
+      "pname": "rustup",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:14:34.180998Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.29.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/v3r8r9l3qmxm9sb4gsnnrhz4xcz82fl2-rustup-1.29.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rustup",
+      "broken": false,
+      "derivation": "/nix/store/fgsslkac3206lc92lkf2mjg6wrx1yrif-rustup-1.29.0.drv",
+      "description": "Rust toolchain installer",
+      "install_id": "rustup",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rustup-1.29.0",
+      "pname": "rustup",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:43:31.360172Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.29.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/1ghz0g8a4p12amgzdsn0g7s47vzawxph-rustup-1.29.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rustup",
+      "broken": false,
+      "derivation": "/nix/store/4i8mjzybr1n5gy8a4bhjg0md4wy0r3yp-rustup-1.29.0.drv",
+      "description": "Rust toolchain installer",
+      "install_id": "rustup",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rustup-1.29.0",
+      "pname": "rustup",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:11:03.694868Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.29.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/lvm2155pfw1b3a9g8cij5g7vx2dk4v9f-rustup-1.29.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "rustup",
+      "broken": false,
+      "derivation": "/nix/store/r84mgndg8lal1ww9b5zsxh2m99bl0xah-rustup-1.29.0.drv",
+      "description": "Rust toolchain installer",
+      "install_id": "rustup",
+      "license": "[ Apache-2.0, MIT ]",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "rustup-1.29.0",
+      "pname": "rustup",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:42:43.587225Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.29.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/cxx967kpb69s62f8xh97qq1r2lhj6i3s-rustup-1.29.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "unixtools.xxd",
+      "broken": false,
+      "derivation": "/nix/store/qw065ngir68p7g37fdq58lgxvv9p53qr-xxd-tinyxxd-1.3.15.drv",
+      "install_id": "xxd",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "xxd-tinyxxd-1.3.15",
+      "pname": "xxd",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:15:38.676437Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.15",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/cfndmdx71shh460mi4fwkr1cpi61cc28-xxd-tinyxxd-1.3.15"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "unixtools.xxd",
+      "broken": false,
+      "derivation": "/nix/store/914z5dpfmvvvwc9m2incx961cgdsk44g-xxd-tinyxxd-1.3.15.drv",
+      "install_id": "xxd",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "xxd-tinyxxd-1.3.15",
+      "pname": "xxd",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:44:48.291399Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.15",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/gw9jvq9zb0y0pg490a7d15iax1ssz3j6-xxd-tinyxxd-1.3.15"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "unixtools.xxd",
+      "broken": false,
+      "derivation": "/nix/store/yxk23ayc1w3vww326jk5mq527aad699a-xxd-tinyxxd-1.3.15.drv",
+      "install_id": "xxd",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "xxd-tinyxxd-1.3.15",
+      "pname": "xxd",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:12:22.744918Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.15",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/vzxn9mah5ng7z120gh4slbjnrr0y5agl-xxd-tinyxxd-1.3.15"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "unixtools.xxd",
+      "broken": false,
+      "derivation": "/nix/store/2lq8m9bc4r4lbnr8h8bpgpa18rlih4bn-xxd-tinyxxd-1.3.15.drv",
+      "install_id": "xxd",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "xxd-tinyxxd-1.3.15",
+      "pname": "xxd",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:44:09.743182Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "1.3.15",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/r9i3w4dxggsxb1fmib89xakrp0gx14zv-xxd-tinyxxd-1.3.15"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    }
+  ]
+}

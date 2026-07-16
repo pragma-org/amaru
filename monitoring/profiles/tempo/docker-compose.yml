@@ -2,7 +2,9 @@ services:
   otlp-collector:
     volumes:
       - "./otlp-collector.yml:/etc/otlp-collector.yml"
+      - "./profiles/prometheus/otlp-collector.yml:/etc/otlp-collector-prometheus.yml"
       - "./profiles/tempo/otlp-collector.yml:/etc/otlp-collector-tempo.yml"
     command:
-      - "--config"
-      - "file:/etc/otlp-collector.yml,file:/etc/otlp-collector-tempo.yml"
+      - "--config=/etc/otlp-collector.yml"
+      - "--config=/etc/otlp-collector-prometheus.yml"
+      - "--config=/etc/otlp-collector-tempo.yml"

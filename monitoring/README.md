@@ -202,6 +202,13 @@ docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --prof
 docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml -f profiles/tempo/docker-compose.yml --profile prometheus --profile grafana --profile tempo up
 ```
 
+> [!WARNING]
+> When several `-f` files define the `otlp-collector` service, Docker Compose merges their `volumes`
+> but **replaces** `command` with the one from the last file. Each `--config` flag must therefore be
+> listed in the command of the last profile file: `profiles/tempo/docker-compose.yml` mounts and loads
+> the prometheus collector configuration in addition to its own, so the full Prometheus + Grafana +
+> Tempo stack keeps its metrics pipeline when the tempo file is listed last.
+
 ### Forwarding traces and logs to another OTLP backend
 
 By default, traces and logs are only printed to the collector's console output. To bridge them to an external OTLP-compatible backend (e.g. Jaeger, Grafana Tempo, a remote collector), use the `docker-compose.forward.yml` override:
