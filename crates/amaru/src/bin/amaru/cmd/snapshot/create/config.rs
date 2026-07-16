@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::NetworkName;
+use amaru_observability::info;
 use serde::Deserialize;
-use tracing::info;
 
 use super::repo_root;
 const OFFICIAL_CARDANO_NODE_CONFIG_BASE_URL: &str = "https://book.world.dev.cardano.org/environments";
@@ -79,11 +79,11 @@ pub(super) async fn resolve_config_dir(
     if let Some(config_dir) = bundled_config_dir(network) {
         match validate_config_dir(&config_dir) {
             Ok(()) => {
-                info!(config_dir = %config_dir.display(), network = %network, "using bundled cardano-node config");
+                info!(target: "amaru::cli", name: "cardano_node_config.use", config_dir = %config_dir.display(), network = %network);
                 return Ok(config_dir);
             }
             Err(_) => {
-                info!(config_dir = %config_dir.display(), network = %network, "bundled cardano-node config is outdated; refreshing from official source");
+                info!(target: "amaru::cli", name: "cardano_node_config.download", config_dir = %config_dir.display(), network = %network);
                 return download_official_config_bundle(client, network, &config_dir).await;
             }
         }
@@ -126,7 +126,6 @@ async fn download_official_config_bundle(
     config_dir: &Path,
 ) -> Result<PathBuf, Box<dyn Error>> {
     if validate_config_dir(config_dir).is_ok() {
-        info!(config_dir = %config_dir.display(), network = %network, "reusing cached cardano-node config");
         return Ok(config_dir.to_path_buf());
     }
 
@@ -144,7 +143,6 @@ async fn download_official_config_bundle(
     }
 
     validate_config_dir(config_dir)?;
-    info!(config_dir = %config_dir.display(), network = %network, "downloaded official cardano-node config bundle");
 
     Ok(config_dir.to_path_buf())
 }

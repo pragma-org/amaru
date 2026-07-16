@@ -14,6 +14,7 @@
 
 pub mod array;
 pub mod cbor;
+pub mod path;
 pub mod serde;
 pub mod string;
 #[cfg(any(test, feature = "test-utils"))]
