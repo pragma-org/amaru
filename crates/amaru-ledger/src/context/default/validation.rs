@@ -147,7 +147,7 @@ impl PoolsSlice for DefaultValidationContext {
         let _span = trace_span!(
             ledger::transaction::CERTIFICATE_POOL_RETIREMENT,
             pool_id = %pool,
-            epoch = u64::from(epoch)
+            epoch = epoch
         );
         let _guard = _span.enter();
         self.state.pools.unregister(pool, epoch)

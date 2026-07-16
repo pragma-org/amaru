@@ -28,6 +28,7 @@ use amaru_kernel::{
     cbor::{self, lazy::LazyDecoder},
     new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
+use amaru_observability::{info, warn};
 use amaru_progress_bar::ProgressBar;
 
 use crate::{
@@ -46,18 +47,6 @@ static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> = LazyLock::new
     transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
     certificate_index: 0,
 });
-
-macro_rules! info {
-    ($name:literal $(, $($rest:tt)+)?) => {
-        amaru_observability::info!(target: "amaru::bootstrap", name: $name $(, $($rest)+)?);
-    };
-}
-
-macro_rules! warn {
-    ($name: literal $(, $($rest:tt)+)?) => {
-        amaru_observability::warn!(target: "amaru::bootstrap", name: $name $(, $($rest)+)?);
-    };
-}
 
 #[derive(Debug, thiserror::Error)]
 enum InitialSnapshotFormatError {
@@ -173,7 +162,7 @@ pub fn import_initial_snapshot(
         // Dormant Epoch
         let dormant_epoch: Epoch = d.decode()?;
         let governance_activity = GovernanceActivity { consecutive_dormant_epochs: u64::from(dormant_epoch) as u32 };
-        info!("governance_activity.import", dormant_epochs = governance_activity.consecutive_dormant_epochs);
+        info!(bootstrap::governance_activity::IMPORT, dormant_epochs = governance_activity.consecutive_dormant_epochs);
         Ok(governance_activity)
     })?;
 
@@ -404,7 +393,7 @@ fn import_block_issuers(
             fake_slot += 1;
         }
     }
-    info!("block_issuers.import", count = fake_slot);
+    info!(bootstrap::block_issuers::IMPORT, count = fake_slot);
     transaction.commit().map_err(Into::into)
 }
 
@@ -442,7 +431,7 @@ fn import_dreps(
         }
     })?;
 
-    info!("dreps.import", size = dreps.len());
+    info!(bootstrap::dreps::IMPORT, size = dreps.len());
 
     transaction.save(
         era_history,
@@ -484,12 +473,12 @@ fn import_proposals(
     proposals: &[ProposalState],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if db.iter_proposals()?.next().is_some() {
-        warn!("proposals.is_not_empty");
+        warn!(bootstrap::proposals::IS_NOT_EMPTY);
     }
 
     let transaction = db.create_transaction();
 
-    info!("proposals.import", size = proposals.len());
+    info!(bootstrap::proposals::IMPORT, size = proposals.len());
 
     transaction.save(
         era_history,
@@ -556,7 +545,7 @@ fn import_stake_pools(
         state.unregister(pool, epoch);
     }
 
-    info!("stake_pools.import", registered = state.registered.len(), retiring = state.unregistered.len());
+    info!(bootstrap::stake_pools::IMPORT, registered = state.registered.len(), retiring = state.unregistered.len());
 
     let transaction = db.create_transaction();
     transaction.with_pools(|iterator| {
@@ -610,7 +599,7 @@ fn import_pots(db: &impl Store, pots: Pots) -> Result<(), Box<dyn std::error::Er
     })?;
     transaction.commit()?;
     let Pots { treasury, reserves, fees, donations } = pots;
-    info!("pots.import", treasury, reserves, fees, donations);
+    info!(bootstrap::pots::IMPORT, treasury, reserves, fees, donations);
     Ok(())
 }
 
@@ -624,7 +613,7 @@ fn import_accounts(
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if db.iter_accounts()?.next().is_some() {
-        warn!("accounts.is_not_empty");
+        warn!(bootstrap::accounts::IS_NOT_EMPTY);
     }
 
     let transaction = db.create_transaction();
@@ -669,7 +658,7 @@ fn import_accounts(
         })
         .collect::<Vec<_>>();
 
-    info!("accounts.import", size = credentials.len());
+    info!(bootstrap::accounts::IMPORT, size = credentials.len());
 
     let progress = with_progress(credentials.len(), "Accounts [{pos:>7}/{len:7}] {bar:40.green} ({eta} remaining)");
 
@@ -727,7 +716,7 @@ fn import_proposals_roots(
     let roots_protocol_parameters = roots.protocol_parameters.as_ref().map(|s| s.to_string());
 
     info!(
-        "proposal_roots.import",
+        bootstrap::proposal_roots::IMPORT,
         constitution = roots_constitution.as_deref().unwrap_or("none"),
         constitutional_committee = roots_constitutional_committee.as_deref().unwrap_or("none"),
         hard_fork = roots_hard_fork.as_deref().unwrap_or("none"),
@@ -744,7 +733,7 @@ fn import_constitution(db: &impl Store, constitution: Constitution) -> Result<()
     let transaction = db.create_transaction();
 
     info!(
-        "constitution.import",
+        bootstrap::constitution::IMPORT,
         anchor = constitution.anchor.url,
         guardrails = Option::from(constitution.guardrail_script.clone())
             .map(|s: Hash<28>| s.to_string().chars().take(8).collect())
@@ -778,12 +767,12 @@ fn import_constitutional_committee(
 
     let cc = match cc {
         StrictMaybe::Nothing => {
-            info!("constitutional_committee.import", state = "no_confidence");
+            info!(bootstrap::constitutional_committee::IMPORT, state = "no_confidence");
             amaru_kernel::ConstitutionalCommitteeStatus::NoConfidence
         }
         StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
             info!(
-                "constitutional_committee.import",
+                bootstrap::constitutional_committee::IMPORT,
                 state = "trusted",
                 threshold = format!("{}/{}", threshold.numerator, threshold.denominator),
                 members = members.len(),
@@ -878,7 +867,7 @@ fn import_votes(
         })
         .collect::<Vec<_>>();
 
-    info!("votes.import", size = votes.len());
+    info!(bootstrap::votes::IMPORT, size = votes.len());
 
     let transaction = db.create_transaction();
 

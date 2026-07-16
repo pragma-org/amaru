@@ -24,6 +24,7 @@ use amaru_kernel::{
     ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus,
     display_protocol_parameters_update, expect_stake_credential, utils::string::display_collection,
 };
+use amaru_observability::{debug, info};
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 use super::{
@@ -31,7 +32,7 @@ use super::{
     proposals_roots::ProposalsRootsRc,
     proposals_tree::{ProposalsTree, Sibling},
 };
-use crate::{debug, info, summary::into_safe_ratio};
+use crate::summary::into_safe_ratio;
 
 #[derive(Debug, Clone)]
 pub struct ProposalsForest {
@@ -291,7 +292,7 @@ impl ProposalsForest {
 
         if self.is_interrupted {
             info!(
-                "ratification.skip",
+                ledger::ratification::SKIP,
                 reason = "high-impact proposal was enacted; skipping ratification of other proposals for this epoch",
             );
         }
@@ -428,7 +429,7 @@ impl ProposalsForestCompass {
         // skip it.
         if proposed_in > &forest.current_epoch {
             debug!(
-                "proposal.skip",
+                ledger::proposal::SKIP,
                 id = %id,
                 %proposed_in,
                 ratifying_epoch = %forest.current_epoch,
@@ -447,7 +448,7 @@ impl ProposalsForestCompass {
             let total_withdrawn = withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n));
             if total_withdrawn > forest.treasury() {
                 debug!(
-                    "proposal.skip",
+                    ledger::proposal::SKIP,
                     id = %id,
                     withdrawal = total_withdrawn,
                     treasury = forest.treasury(),
@@ -469,7 +470,7 @@ impl ProposalsForestCompass {
                 let invalid_members =
                     added.iter().filter(|(_, v)| is_now_invalid(v)).map(|(k, _)| k.as_hash()).collect::<Vec<_>>();
                 debug!(
-                    "proposal.skip",
+                    ledger::proposal::SKIP,
                     id = %id,
                     invalid_members = display_collection(invalid_members),
                     reason = "proposed committee has invalid members; their term length (now) beyond limit"
@@ -492,7 +493,7 @@ impl ProposalsForestCompass {
         if forest.matching_root(proposal) {
             Some((id, (proposal, pointer)))
         } else {
-            debug!("proposal.skip", id = %id, reason = "non-matching root; proposal will be pruned later");
+            debug!(ledger::proposal::SKIP, id = %id, reason = "non-matching root; proposal will be pruned later");
             None
         }
     }

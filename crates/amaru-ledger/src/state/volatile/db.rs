@@ -19,12 +19,12 @@ use amaru_kernel::{
     PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProtocolParameters, StakeCredential, TermLimit,
     TransactionInput,
 };
+use amaru_observability::{error, warn};
 
 use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    error,
     governance::ratification::ProposalsRoots,
     state::{
         AnchoredVolatileFragment, StateError,
@@ -34,7 +34,6 @@ use crate::{
         },
     },
     store::{HistoricalStores, Store},
-    warn,
 };
 
 pub struct VolatileDB {
@@ -225,7 +224,7 @@ impl VolatileSequence for VolatileDB {
             && last.slot() < target_slot
         {
             warn!(
-                "volatile.rollback_to",
+                ledger::volatile::ROLLBACK_TO,
                 %target_slot,
                 last_slot = ?last.slot(),
                 warning = "attempting to rollback to a point beyond the last known volatile fragment"
@@ -239,7 +238,7 @@ impl VolatileSequence for VolatileDB {
             && target_slot < first.slot()
         {
             error!(
-                "volatile.rollback_to",
+                ledger::volatile::ROLLBACK_TO,
                 %target_slot,
                 first_slot = ?first.slot(),
                 error = "attempting to rollback to a point before the first known of the volatile fragment"
