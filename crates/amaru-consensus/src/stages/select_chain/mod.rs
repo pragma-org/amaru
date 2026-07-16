@@ -100,10 +100,8 @@ pub struct SelectChain {
     may_fetch_blocks: bool,
     /// Map of spans kept for tracking the performance of the processing of headers from
     /// their arrival to the validation of their corresponding block
-    #[serde(skip, default)]
     perf_header_forward_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
     /// Map of trace contexts kept for tracking the time it takes from getting a header to getting its corresponding block
-    #[serde(skip, default)]
     perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
     /// Span entered when a fork is detected and closed when we have fully switched to that fork
     /// The header hash is the hash of the expected new best tip.
@@ -131,15 +129,19 @@ pub enum SelectChainMsg {
     TipFromUpstream {
         tip: Tip,
         parent: Point,
-        #[serde(skip, default)]
         trace_context: TraceContext,
-        #[serde(skip, default)]
         perf_context: TraceContext,
     },
     BlockValidationResult(Tip, bool),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
-    FetchNextFrom(Point, TraceContext),
+    // It returns the block-fetch-wait trace contexts that the fetch_blocks stage
+    // did not consume, so that this stage remains their single owner.
+    FetchNextFrom {
+        point: Point,
+        trace_context: TraceContext,
+        perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
+    },
 }
 
 impl SelectChainMsg {
@@ -153,7 +155,11 @@ impl SelectChainMsg {
     }
 
     pub fn fetch_next_from(point: Point) -> Self {
-        SelectChainMsg::FetchNextFrom(point, Default::default())
+        SelectChainMsg::FetchNextFrom {
+            point,
+            trace_context: Default::default(),
+            perf_header_block_fetch_wait_trace_contexts: Default::default(),
+        }
     }
 }
 
@@ -191,10 +197,13 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             let trace_context = (&span).into();
             state.handle_block_validation_result(point, valid, eff, trace_context).instrument(span).await;
         }
-        SelectChainMsg::FetchNextFrom(point, trace_context) => {
+        SelectChainMsg::FetchNextFrom { point, trace_context, perf_header_block_fetch_wait_trace_contexts } => {
             let span = debug_span!(parent_context: trace_context, consensus::chain::FETCH_NEXT, point = point, header_hash = point.hash(),);
             let trace_context = (&span).into();
-            state.handle_fetch_next_from(point, eff, trace_context).instrument(span).await;
+            state
+                .handle_fetch_next_from(point, eff, trace_context, perf_header_block_fetch_wait_trace_contexts)
+                .instrument(span)
+                .await;
         }
     }
     state
@@ -256,7 +265,6 @@ impl SelectChain {
             } else {
                 tracing::info!(%parent, %tip, "upstream tip depends on invalid block");
                 self.end_perf_header_trace_context(&tip.hash(), PerfHeaderForwardOutcome::AbandonedBlock);
-                self.end_perf_fork_switch_span(&tip.hash(), PerfForkSwitchOutcome::AbandonedBlock);
             }
         }
 
@@ -269,17 +277,13 @@ impl SelectChain {
                 self.start_perf_fork_switch_span(tip);
             }
 
-            let new_best_unvalidated_blocks = self.tips.get(&tip.hash()).cloned().unwrap_or_default();
-            if let Some(best_tip_unvalidated_blocks) = self.tips.get(&best_tip.hash()).cloned() {
-                // Close the perf spans for unvalidated blocks that are not part of the new best branch
-                for hash in best_tip_unvalidated_blocks.iter().filter(|h| !new_best_unvalidated_blocks.contains(h)) {
-                    self.end_perf_header_trace_context(hash, PerfHeaderForwardOutcome::AbandonedBlock);
-                }
-            }
+            // The displaced best branch stays in `self.tips` and may be selected again
+            // (fork overtake, or fallback after invalidation), so its perf contexts stay open.
             if self.may_fetch_blocks {
                 self.may_fetch_blocks = false;
+                let branch = self.tips.get(&tip.hash()).cloned().unwrap_or_default();
                 let perf_header_block_fetch_wait_trace_contexts =
-                    std::mem::take(&mut self.perf_header_block_fetch_wait_trace_contexts);
+                    self.take_perf_header_block_fetch_wait_trace_contexts(&branch);
                 eff.send(
                     &self.downstream,
                     NewBestTip {
@@ -292,8 +296,6 @@ impl SelectChain {
                 .await;
             }
             self.best_tip = Some(header);
-        } else {
-            self.end_perf_header_trace_context(&tip.hash(), PerfHeaderForwardOutcome::LosingHeader);
         }
     }
 
@@ -324,7 +326,7 @@ impl SelectChain {
                     v.drain(0..=idx);
                 }
             });
-            self.end_perf_header_forward_trace_context(&h, PerfHeaderForwardOutcome::ValidBlock);
+            self.end_perf_header_trace_context(&h, PerfHeaderForwardOutcome::ValidBlock);
             self.end_perf_fork_switch_span(&h, PerfForkSwitchOutcome::ValidBlock);
             return;
         }
@@ -353,22 +355,22 @@ impl SelectChain {
                         })
                         .await;
                     let parent = load_parent_point(&eff, &store, &new_best_tip).await;
+                    let (to_validate, _) = store.unvalidated_ancestor_hashes(new_best_tip.hash()).await;
                     if self.may_fetch_blocks {
                         self.may_fetch_blocks = false;
+                        let perf_header_block_fetch_wait_trace_contexts =
+                            self.take_perf_header_block_fetch_wait_trace_contexts(&to_validate);
                         eff.send(
                             &self.downstream,
                             NewBestTip {
                                 tip: new_best_tip.tip(),
                                 parent,
                                 trace_context,
-                                perf_header_block_fetch_wait_trace_contexts: std::mem::take(
-                                    &mut self.perf_header_block_fetch_wait_trace_contexts,
-                                ),
+                                perf_header_block_fetch_wait_trace_contexts,
                             },
                         )
                         .await;
                     }
-                    let (to_validate, _) = store.unvalidated_ancestor_hashes(new_best_tip.hash()).await;
                     self.tips.insert(new_best_tip.hash(), to_validate);
                     switched_to = Some(new_best_tip.tip());
                     self.best_tip = Some(new_best_tip);
@@ -390,14 +392,12 @@ impl SelectChain {
         // we dropped because a better chain is available
         for hash in &pruned {
             let is_invalid = hash == &tip.hash();
-            self.end_perf_header_forward_trace_context(
-                hash,
-                if is_invalid {
-                    PerfHeaderForwardOutcome::InvalidBlock
-                } else {
-                    PerfHeaderForwardOutcome::AbandonedBlock
-                },
-            );
+            let outcome = if is_invalid {
+                PerfHeaderForwardOutcome::InvalidBlock
+            } else {
+                PerfHeaderForwardOutcome::AbandonedBlock
+            };
+            self.end_perf_header_trace_context(hash, outcome);
             self.end_perf_fork_switch_span(
                 hash,
                 if is_invalid { PerfForkSwitchOutcome::InvalidBlock } else { PerfForkSwitchOutcome::AbandonedBlock },
@@ -415,13 +415,15 @@ impl SelectChain {
         point: Point,
         eff: Effects<SelectChainMsg>,
         trace_context: TraceContext,
+        perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
     ) {
         assert!(!self.may_fetch_blocks, "received FetchNextFrom while not having responded to previous one");
+        self.restore_perf_header_block_fetch_wait_trace_contexts(perf_header_block_fetch_wait_trace_contexts);
         // During startup with non-empty chain store, best_tip will be different from origin and
         // the incoming `point` will be origin, leading to sending the best tip to the downstream stage.
-        let best_tip = self.best_tip.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
-        tracing::debug!(%point, %best_tip, "handle_fetch_next_from");
-        if let Some(best_tip) = &self.best_tip
+        let best_tip_point = self.best_tip.as_ref().map(|h| h.point()).unwrap_or(Point::Origin);
+        tracing::debug!(%point, best_tip = %best_tip_point, "handle_fetch_next_from");
+        if let Some(best_tip) = self.best_tip.clone()
             && best_tip.point() != point
         {
             let store = Store::new(eff.clone()).with_trace_context(&trace_context);
@@ -443,8 +445,9 @@ impl SelectChain {
                 Point::Origin
             };
             tracing::debug!(tip = %best_tip.point(), %parent, "resuming block fetching");
+            let branch = self.tips.get(&best_tip.hash()).cloned().unwrap_or_default();
             let perf_header_block_fetch_wait_trace_contexts =
-                std::mem::take(&mut self.perf_header_block_fetch_wait_trace_contexts);
+                self.take_perf_header_block_fetch_wait_trace_contexts(&branch);
             eff.send(
                 &self.downstream,
                 NewBestTip { tip: best_tip.tip(), parent, trace_context, perf_header_block_fetch_wait_trace_contexts },
@@ -467,6 +470,35 @@ impl SelectChain {
         if let Some(mut perf_context) = self.perf_header_forward_trace_contexts.remove(hash) {
             perf_context.record("outcome", &outcome);
             perf_context.close();
+        }
+    }
+
+    /// Extract the block-fetch-wait trace contexts for exactly the headers on the given
+    /// branch (oldest first). Contexts for headers on other branches stay in the map
+    /// until their branch is validated or pruned.
+    fn take_perf_header_block_fetch_wait_trace_contexts(
+        &mut self,
+        branch: &[HeaderHash],
+    ) -> BTreeMap<HeaderHash, TraceContext> {
+        branch
+            .iter()
+            .filter_map(|hash| {
+                self.perf_header_block_fetch_wait_trace_contexts.remove(hash).map(|context| (*hash, context))
+            })
+            .collect()
+    }
+
+    /// Reintegrate the block-fetch-wait trace contexts that the fetch_blocks stage did not consume.
+    /// If a returned context whose header is no longer tracked on any branch was pruned while being processed by
+    /// the fetch_block stage, close it now as abandoned.
+    fn restore_perf_header_block_fetch_wait_trace_contexts(&mut self, returned: BTreeMap<HeaderHash, TraceContext>) {
+        for (hash, mut context) in returned {
+            if self.tips.values().any(|branch| branch.contains(&hash)) {
+                self.perf_header_block_fetch_wait_trace_contexts.insert(hash, context);
+            } else {
+                context.record("outcome", &PerfHeaderForwardOutcome::AbandonedBlock);
+                context.close();
+            }
         }
     }
 
@@ -506,7 +538,6 @@ pub struct NewBestTip {
     pub tip: Tip,
     pub parent: Point,
     pub trace_context: TraceContext,
-    #[serde(skip, default)]
     pub perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
 }
 

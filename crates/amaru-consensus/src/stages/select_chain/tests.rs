@@ -38,7 +38,7 @@ fn new_best_tip(tip: Tip, parent: Point) -> NewBestTip {
         tip,
         parent,
         trace_context: Default::default(),
-        perf_header_block_fetch_wait_trace_contexts: Default::default(),
+        perf_header_block_fetch_wait_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
     }
 }
 
@@ -106,6 +106,7 @@ fn test_tip_extends_from_origin() {
         best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![tip.hash()])]),
         may_fetch_blocks: false,
+        perf_header_forward_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
         ..prep.state.clone()
     };
 
@@ -142,6 +143,7 @@ fn test_tip_extends_from_h1() {
             vec![prep.headers.h0.hash(), prep.headers.h1.hash(), prep.headers.h2.hash()],
         )]),
         may_fetch_blocks: false,
+        perf_header_forward_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
         ..prep.state.clone()
     };
 
@@ -176,6 +178,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
         best_tip: Some(prep.header(tip.hash())),
         tips: BTreeMap::from_iter([(tip.hash(), vec![prep.headers.h2.hash(), tip.hash()])]),
         may_fetch_blocks: false,
+        perf_header_forward_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
         ..prep.state.clone()
     };
 
@@ -219,6 +222,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
         ]),
         may_fetch_blocks: false,
+        perf_header_forward_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
         ..prep.state.clone()
     };
 
@@ -258,6 +262,8 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
             (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
             (tip.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
         ]),
+        perf_header_forward_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
+        perf_header_block_fetch_wait_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
         ..prep.state.clone()
     };
 
@@ -296,6 +302,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             (prep.headers.h2.hash(), vec![prep.headers.h1.hash(), prep.headers.h2.hash()]),
         ]),
         may_fetch_blocks: false,
+        perf_header_forward_trace_contexts: BTreeMap::from_iter([(tip.hash(), Default::default())]),
         ..prep.state.clone()
     };
 
@@ -406,8 +413,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
             te_load_tip("sc-1", prep.headers.h0.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.tip(), prep.headers.h0.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.tip(), prep.headers.h0.point())),
             te_state("sc-1", &expected),
         ],
     );
@@ -450,8 +457,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
             te_load_tip("sc-1", prep.headers.h2a.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.tip(), prep.headers.h2a.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.tip(), prep.headers.h2a.point())),
             te_state("sc-1", &expected),
         ],
     );

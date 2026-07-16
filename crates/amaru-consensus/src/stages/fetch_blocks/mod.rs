@@ -122,8 +122,8 @@ pub struct FetchBlocks {
     /// this stage are children of that context
     trace_context: Option<TraceContext>,
     /// Trace contexts sent by the select_chain stage tracking the time between the reception of a header
-    /// and the emission of a request for its block.
-    #[serde(skip, default)]
+    /// and the emission of a request for its block. They are on loan from the select_chain stage.
+    /// Then are consumed when the corresponding block is requested, and returned with `FetchNextFrom` otherwise.
     perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
     /// Spans tracking the time necessary to fetch a block
     #[serde(skip, default)]
@@ -178,7 +178,7 @@ impl FetchBlocks {
         parent_context: TraceContext,
         perf_header_block_fetch_wait_trace_contexts: BTreeMap<HeaderHash, TraceContext>,
     ) {
-        self.perf_header_block_fetch_wait_trace_contexts = perf_header_block_fetch_wait_trace_contexts;
+        self.perf_header_block_fetch_wait_trace_contexts.extend(perf_header_block_fetch_wait_trace_contexts);
         self.block_height = tip.block_height().max(self.block_height);
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
@@ -212,7 +212,17 @@ impl FetchBlocks {
 
         let store = Store::new(eff.clone()).with_trace_context(&trace_context);
         if best_hash == ORIGIN_HASH {
-            eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(Point::Origin, trace_context)).await;
+            eff.send(
+                &self.upstream,
+                SelectChainMsg::FetchNextFrom {
+                    point: Point::Origin,
+                    trace_context,
+                    perf_header_block_fetch_wait_trace_contexts: std::mem::take(
+                        &mut self.perf_header_block_fetch_wait_trace_contexts,
+                    ),
+                },
+            )
+            .await;
             return;
         }
         let best_tip = store
@@ -283,7 +293,10 @@ impl FetchBlocks {
             Ok(MissingBlocksResult::BoundaryNotFound) => {
                 tracing::debug!("no boundary for missing blocks found given the new tip");
                 self.missing = None;
-                self.close_perf_spans();
+                self.clear_perf_block_fetch_spans();
+                // Nothing is fetchable for this tip: yield back to the select_chain stage,
+                // returning the loaned block-fetch-wait trace contexts with the message.
+                return self.fetch_next_from(eff, tip.point()).await;
             }
             Ok(MissingBlocksResult::Found(missing_blocks)) => {
                 self.missing = Some(missing_blocks);
@@ -300,7 +313,7 @@ impl FetchBlocks {
         match missing.from_to() {
             None => {
                 self.missing = None;
-                self.close_perf_spans();
+                self.clear_perf_block_fetch_spans();
                 tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
                 self.fetch_next_from(eff, tip.point()).await;
             }
@@ -385,9 +398,7 @@ impl FetchBlocks {
         // close the performance fetch span
         if let Some(span) = self.perf_block_fetch_spans.remove(&point.hash()) {
             drop(span);
-        } else {
-            tracing::warn!("received a block that was not requested: {}", point.hash());
-        }
+        };
 
         store
             .store_block(&point.hash(), &network_block.raw_block())
@@ -411,7 +422,7 @@ impl FetchBlocks {
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;
             }
-            self.close_perf_spans();
+            self.clear_perf_block_fetch_spans();
             self.fetch_next_from(eff, point).await;
         }
     }
@@ -441,8 +452,8 @@ impl FetchBlocks {
                 self.timeout = None;
                 self.missing = None;
                 self.no_peers_pause = false;
-                // close the perf spans before returning to the select chain stage
-                self.close_perf_spans();
+                // the failed batch's fetch spans die, but wait contexts are returned upstream for the retry
+                self.clear_perf_block_fetch_spans();
                 self.fetch_next_from(eff, from).await;
             }
         }
@@ -450,12 +461,21 @@ impl FetchBlocks {
 
     async fn fetch_next_from(&mut self, eff: Effects<FetchBlocksMsg>, from: Point) {
         let trace_context = self.trace_context.take().unwrap_or_default();
-        eff.send(&self.upstream, SelectChainMsg::FetchNextFrom(from, trace_context)).await;
+        eff.send(
+            &self.upstream,
+            SelectChainMsg::FetchNextFrom {
+                point: from,
+                trace_context,
+                perf_header_block_fetch_wait_trace_contexts: std::mem::take(
+                    &mut self.perf_header_block_fetch_wait_trace_contexts,
+                ),
+            },
+        )
+        .await;
     }
 
-    fn close_perf_spans(&mut self) {
+    fn clear_perf_block_fetch_spans(&mut self) {
         self.perf_block_fetch_spans.clear();
-        self.perf_header_block_fetch_wait_trace_contexts.clear();
     }
 }
 
