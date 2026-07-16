@@ -212,7 +212,13 @@ where
 
     with_block_context(body_hash::block_body_hash_valid(&block))?;
 
-    with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
+    // NOTE: No protocol major version in block header
+    //
+    // See: https://github.com/IntersectMBO/ouroboros-consensus/issues/2127
+    //
+    // ```
+    // with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
+    // ```
 
     with_block_context(ex_units::block_ex_units_valid(&block, protocol_params))?;
 
