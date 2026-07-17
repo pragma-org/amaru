@@ -43,14 +43,16 @@ jobs:
   test-bootstrap:
     name: Test Bootstrap (${{ inputs.network }})
     runs-on: [self-hosted, linux]
+    env:
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: rustup show
+      - uses: ./.github/actions/cache
 
       - name: Install db-analyser
         env:
@@ -80,7 +82,7 @@ jobs:
       - name: Run test-bootstrap
         env:
           AMARU_NETWORK: ${{ inputs.network }}
-          BUILD_PROFILE: release
+          BUILD_PROFILE: test
           INPUT_FORCE: ${{ inputs.force }}
           INPUT_START_EPOCH: ${{ inputs.start_epoch }}
           INPUT_END_EPOCH: ${{ inputs.end_epoch }}
