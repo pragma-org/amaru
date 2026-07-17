@@ -127,6 +127,12 @@ validate_config() {
   require_configured_tx
 }
 
+validate_startup_config() {
+  [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set (directory with config.json, topology.json, etc.)"
+  [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
+  require_configured_tx
+}
+
 initialize() {
   require_unscaled_process initialize
   require_runtime_processes_stopped initialize
@@ -233,13 +239,14 @@ telemetry-urls) telemetry_urls ;;
 run)
   case "${2:-}" in
   setup | 0-setup) setup ;;
+  telemetry-up | 8-telemetry-setup) telemetry_up ;;
   mithril-refresh | 1-mithril-refresh) run_mithril_refresh ;;
   initialize | 2-initialize) initialize ;;
   cardano-upstream | cardano-node | 3-cardano-node) run_cardano_upstream ;;
   amaru-middle | 4-amaru-middle) run_amaru_middle ;;
   amaru-downstream | 5-amaru-downstream) run_amaru_downstream ;;
   watch | 9-watch) run_watch ;;
-  telemetry-open | telemetry | 8-telemetry) open_telemetry ;;
+  telemetry-open | telemetry | 8-telemetry-open) open_telemetry ;;
   prepare-wallet | 6-prepare-wallet)
     run_prepare_wallet
     exit $?
@@ -252,7 +259,7 @@ run)
     run_submit_tx_batch "${3:-}"
     exit $?
     ;;
-  *) die "usage: $0 run {setup|mithril-refresh|initialize|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx|submit-tx-batch|prepare-wallet}" ;;
+  *) die "usage: $0 run {setup|telemetry-up|mithril-refresh|initialize|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx|submit-tx-batch|prepare-wallet}" ;;
   esac
   ;;
 ready)

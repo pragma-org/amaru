@@ -12,6 +12,7 @@ telemetry_compose() {
   have docker || die "docker not found; install Docker or set START_TELEMETRY=false"
   local -a compose_args=()
   local -a profile_args=()
+  local -a collector_configs=("--config=/etc/otlp-collector.yml")
   local profile profile_compose_file
   [[ -f "$TELEMETRY_DIR/docker-compose.yml" ]] || die "telemetry compose file not found: $TELEMETRY_DIR/docker-compose.yml"
   compose_args=(-f "$TELEMETRY_DIR/docker-compose.yml")
@@ -21,7 +22,19 @@ telemetry_compose() {
     if [[ -f "$profile_compose_file" ]]; then
       compose_args+=(-f "$profile_compose_file")
     fi
+    if [[ -f "$TELEMETRY_DIR/profiles/$profile/otlp-collector.yml" ]]; then
+      collector_configs+=("--config=/etc/otlp-collector-$profile.yml")
+    fi
   done
+  # Exported for override compose files (e.g. a demo layer) whose command must restate the
+  # collector configs contributed by the active profiles, since Docker Compose replaces the
+  # command list rather than appending to it.
+  export TELEMETRY_COLLECTOR_CONFIGS="${collector_configs[*]}"
+  if [[ -n "${TELEMETRY_COMPOSE_OVERRIDE_FILE:-}" ]]; then
+    [[ -f "$TELEMETRY_COMPOSE_OVERRIDE_FILE" ]] || die "telemetry compose override not found: $TELEMETRY_COMPOSE_OVERRIDE_FILE"
+    export TELEMETRY_COMPOSE_OVERRIDE_DIR="$(cd "$(dirname "$TELEMETRY_COMPOSE_OVERRIDE_FILE")" && pwd)"
+    compose_args+=(-f "$TELEMETRY_COMPOSE_OVERRIDE_FILE")
+  fi
   docker compose "${compose_args[@]}" "${profile_args[@]}" "$@"
 }
 

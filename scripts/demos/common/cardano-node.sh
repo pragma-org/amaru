@@ -74,6 +74,89 @@ cardano_node_topology_file() {
   echo "$CARDANO_NODE_CONFIG_DIR/topology.json"
 }
 
+official_cardano_node_config_base_url() {
+  case "$NETWORK" in
+    mainnet | preprod | preview) echo "https://book.world.dev.cardano.org/environments/$NETWORK" ;;
+    *) return 1 ;;
+  esac
+}
+
+download_official_cardano_node_config_file() {
+  local base_url="$1" file_name="$2" target_dir="$3" target
+  target="$target_dir/$file_name"
+  mkdir -p "$(dirname "$target")"
+  curl -fsSL "$base_url/$file_name" -o "$target"
+}
+
+cardano_node_config_referenced_files() {
+  jq -r '
+    [
+      .AlonzoGenesisFile,
+      .ByronGenesisFile,
+      .CheckpointsFile,
+      .ConwayGenesisFile,
+      .ShelleyGenesisFile
+    ]
+    | map(select(. != null and . != ""))
+    | unique
+    | .[]
+  ' "$1"
+}
+
+cardano_node_config_complete() {
+  local file_name files
+
+  [[ -f "$(cardano_node_config_file)" && -f "$(cardano_node_topology_file)" ]] || return 1
+  have jq || return 0
+
+  files="$(cardano_node_config_referenced_files "$(cardano_node_config_file)")" || return 1
+  while IFS= read -r file_name; do
+    [[ -n "$file_name" ]] || continue
+    [[ -f "$CARDANO_NODE_CONFIG_DIR/$file_name" ]] || return 1
+  done <<< "$files"
+}
+
+download_official_cardano_node_config() {
+  local base_url tmp_dir file_name files
+
+  if cardano_node_config_complete; then
+    echo "[setup] using existing cardano-node config in $CARDANO_NODE_CONFIG_DIR"
+    return
+  fi
+
+  base_url="$(official_cardano_node_config_base_url || true)"
+  [[ -n "$base_url" ]] ||
+    die "CARDANO_NODE_CONFIG_DIR does not exist: $CARDANO_NODE_CONFIG_DIR; automatic config download is only supported for mainnet, preprod, and preview"
+  have curl || die "curl not found; cannot download cardano-node config"
+  have jq || die "jq not found; cannot inspect cardano-node config"
+
+  tmp_dir="$CARDANO_NODE_CONFIG_DIR.download.$$"
+  rm -rf "$tmp_dir"
+  mkdir -p "$tmp_dir"
+
+  echo "[setup] downloading cardano-node config for $NETWORK"
+  download_official_cardano_node_config_file "$base_url" "config.json" "$tmp_dir"
+  download_official_cardano_node_config_file "$base_url" "topology.json" "$tmp_dir"
+
+  files="$(cardano_node_config_referenced_files "$tmp_dir/config.json")"
+
+  while IFS= read -r file_name; do
+    [[ -n "$file_name" ]] || continue
+    download_official_cardano_node_config_file "$base_url" "$file_name" "$tmp_dir"
+  done <<< "$files"
+
+  mkdir -p "$CARDANO_NODE_CONFIG_DIR"
+  find "$tmp_dir" -type f | while IFS= read -r file_name; do
+    local relative target
+    relative="${file_name#"$tmp_dir"/}"
+    target="$CARDANO_NODE_CONFIG_DIR/$relative"
+    mkdir -p "$(dirname "$target")"
+    mv "$file_name" "$target"
+  done
+  rm -rf "$tmp_dir"
+  echo "[setup] cardano-node config ready in $CARDANO_NODE_CONFIG_DIR"
+}
+
 cardano_node_socket_file() {
   echo "$CARDANO_NODE_SOCKET_FILE"
 }
@@ -298,8 +381,29 @@ repair_downloaded_cardano_node_home() {
   codesign --force --sign - "$CARDANO_NODE_HOME/bin/cardano-node" "$CARDANO_NODE_HOME/bin/db-analyser"
 }
 
+# Verifies that db-analyser honours --analyse-from by probing an empty database: a fixed
+# build fails to resolve the requested slot, while builds that predate the fix
+# (ouroboros-consensus#2061, anything up to cardano-node 11.0.1) silently ignore the option
+# and replay every epoch snapshot from genesis, which turns a Mithril refresh into
+# ~25 minutes per epoch.
+require_db_analyser_with_analyse_from() {
+  local db_analyser="$CARDANO_NODE_HOME/bin/db-analyser" probe_db output
+  [[ -x "$db_analyser" ]] || die "db-analyser not found at $db_analyser; run setup first"
+  probe_db="$(mktemp -d)"
+  output="$("$db_analyser" --config "$(cardano_node_config_file)" --db "$probe_db" --in-mem --analyse-from 999 --store-ledger 1000 2>&1 || true)"
+  rm -rf "$probe_db"
+  if ! grep -q "No block with given slot" <<<"$output"; then
+    die "db-analyser at $db_analyser silently ignores --analyse-from (see https://github.com/IntersectMBO/ouroboros-consensus/pull/2061, not fixed in cardano-node releases up to 11.0.1), so a Mithril refresh would replay every epoch snapshot from genesis (~25 minutes each).
+Replace it with a build that contains the fix, for example:
+  nix build \"github:IntersectMBO/ouroboros-consensus/aa96807e6891071c3553d19c07be2d39ab5c0a78#db-analyser\"
+  install -m 755 result/bin/db-analyser \"$db_analyser\"
+Probe output was: $output"
+  fi
+}
+
 setup() {
   require_unscaled_process setup
+  download_official_cardano_node_config
   if [[ "$CARDANO_NODE_HOME_WAS_SET" == true ]]; then
     echo "[setup] CARDANO_NODE_HOME is set: $CARDANO_NODE_HOME"
   elif [[ -x "$CARDANO_NODE_HOME/bin/cardano-node" && -x "$CARDANO_NODE_HOME/bin/db-analyser" ]]; then

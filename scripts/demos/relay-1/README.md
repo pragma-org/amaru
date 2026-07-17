@@ -46,10 +46,11 @@ export AMARU_NETWORK=preprod
 ./process-compose.sh status  # check process status
 ```
 
-Running `./process-compose.sh up` starts the Grafana/Tempo/Prometheus telemetry stack, opens the process-compose TUI,
-downloads local cardano-node tools when needed, refreshes the Amaru databases from Mithril if no complete local refresh
-exists, prepares the isolated run directories, and starts the relay processes. Use the wrapper instead of running
-`process-compose up` directly so telemetry and the configured process dependencies are used.
+Running `./process-compose.sh up` opens the process-compose TUI. The `8-telemetry-setup` process starts the
+Grafana/Tempo/Prometheus telemetry stack while the setup and initialization processes download local cardano-node tools
+when needed, refresh the Amaru databases from Mithril if no complete local refresh exists, prepare the isolated run
+directories, and start the relay processes. Use the wrapper instead of running `process-compose up` directly so telemetry
+and the configured process dependencies are used.
 
 👉 Set `START_TELEMETRY=false` to keep the demo in node-only mode.
 
@@ -136,11 +137,12 @@ directly instead of invoking `cargo run`.
 
 ### Setup and Initialize Processes
 
-The `0-setup` process is a one-shot tool bootstrap step. When `CARDANO_NODE_HOME` is unset, it downloads the configured
-cardano-node release into `/tmp/amaru-relay-1`, verifies the archive checksum when `shasum` is available, and exposes
-`bin/cardano-node` and `bin/db-analyser` from that temp directory. Because that directory lives under `/tmp`, the tools
-are re-downloaded after a reboot or periodic temp cleanup. When `CARDANO_NODE_HOME` is set, it validates that
-the configured directory already contains `bin/db-analyser` and that `CARDANO_NODE` points at an executable.
+The `8-telemetry-setup` process starts the telemetry stack when `START_TELEMETRY=true`. The `0-setup` process is a one-shot
+tool bootstrap step. When `CARDANO_NODE_HOME` is unset, it downloads the configured cardano-node release into
+`/tmp/amaru-relay-1`, verifies the archive checksum when `shasum` is available, and exposes `bin/cardano-node` and
+`bin/db-analyser` from that temp directory. Because that directory lives under `/tmp`, the tools are re-downloaded after
+a reboot or periodic temp cleanup. When `CARDANO_NODE_HOME` is set, it validates that the configured directory already
+contains `bin/db-analyser` and that `CARDANO_NODE` points at an executable.
 
 The `2-initialize` process is a one-shot preparation step that runs after `1-mithril-refresh` and before any
 long-running node process starts. It validates the cardano-node configuration directory, transaction generation
@@ -175,7 +177,8 @@ The configured processes are:
 - `5-amaru-downstream`
 - `6-prepare-wallet`
 - `7-submit-tx`
-- `8-telemetry` (disabled by default; start it manually from the TUI to open telemetry tabs with `cmd + R`)
+- `8-telemetry-setup`
+- `8-telemetry-open` (disabled by default; start it manually from the TUI to open telemetry tabs)
 - `9-watch`
 
 ## Telemetry
@@ -208,8 +211,7 @@ After the middle relay has synced a few blocks or accepted submitted transaction
 The trace tab populates when matching spans are emitted. The transaction trace and metrics view populate after
 `submit-tx` submits a transaction to the downstream node and the middle node pulls it into its mempool.
 
-The Process Compose TUI also lists a disabled `8-telemetry` process. It does not run during startup. Start or restart
-`8-telemetry` when you want to open the telemetry tabs during the live demo.
+Use `./process-compose.sh telemetry-open` or start `8-telemetry-open` when you want to open the telemetry tabs during the live demo.
 
 To stop the telemetry stack:
 

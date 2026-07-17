@@ -156,9 +156,9 @@ prepare_latest_bootstrap_config() {
   jq -s '
     map({
       epoch,
-      point: ((.slot | tostring) + "." + .hash),
-      url: ((.archive_path // "") | tostring),
-      parent_point: (.parent_point.Specific | ((.[0] | tostring) + "." + .[1]))
+      point,
+      parent_point,
+      url: ((.archive_path // "") | tostring)
     })
   ' \
     "$metadata_dir/$BOOTSTRAP_START_EPOCH.json" \
