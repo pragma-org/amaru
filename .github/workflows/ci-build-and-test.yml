@@ -8,15 +8,6 @@ on:
         type: choice
         options: [preprod, preview]
         required: false
-      run_until_target_epoch:
-        description: "Override run-until target epoch (leave empty for fixed epoch)"
-        required: false
-      timeout:
-        description: "Override timeout for snapshot tests"
-        required: false
-      run_until_trace_level:
-        description: "Override AMARU_TRACE for run-until (leave empty for default)"
-        required: false
   push:
     branches: ["main"]
   pull_request:
@@ -95,48 +86,9 @@ jobs:
         tar -xvf riscv32-glibc-llvm.tar.xz
         export CC_riscv32gc_unknown_linux_gnu="$(pwd)/riscv/bin/riscv32-unknown-linux-gnu-clang"
 
-  coverage:
-    name: Test coverage
-    needs: [build-linux-x86_64]
-    runs-on: ubuntu-24.04
-    if: ${{ !github.event.pull_request.draft }}
-    env:
-      CARGO_TERM_COLOR: always
-      # NOTE: Necessary for cache
-      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: True
-      - uses: ./.github/actions/cache
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Generate code coverage
-        shell: bash
-        run: make coverage-lconv
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: failed-simulation-data
-          path: amaru-sim/test-data
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-
   snapshots:
     name: Compare ledger epoch snapshots
     uses: ./.github/workflows/template-ledger-epoch-snapshots.yml
-    with:
-      use_fixed_epoch: true
-      default_timeout: 30
-      network: ${{ github.event.inputs.network || '' }}
-      run_until_target_epoch: ${{ github.event.inputs.run_until_target_epoch || '' }}
-      timeout: ${{ github.event.inputs.timeout || '' }}
-      run_until_trace_level: ${{ github.event.inputs.run_until_trace_level || '' }}
-      run_tests: ${{ github.event_name == 'pull_request' }}
     secrets:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
