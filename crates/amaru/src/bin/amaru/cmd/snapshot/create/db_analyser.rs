@@ -22,7 +22,7 @@ use std::{
 };
 
 use amaru_kernel::Slot;
-use tracing::{info, warn};
+use amaru_observability::{info, warn};
 
 const DB_ANALYSER_PROGRESS_REPORT_INTERVAL_SECS: f64 = 30.0;
 
@@ -33,7 +33,6 @@ pub(super) fn ensure_db_analyser_binary() -> Result<String, Box<dyn std::error::
 
     match status {
         Ok(_) => {
-            info!(binary, "using db-analyser binary from $PATH");
             Ok(binary.to_owned())
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -116,7 +115,7 @@ where
 
                 match action {
                     DbAnalyserLogAction::Report(message) => {
-                        info!(step = %step, message = %message, "external command progress");
+                        info!(target: "amaru::cli", name: "db_analyser.progress", step = %step, message = %message);
                         continue;
                     }
                     DbAnalyserLogAction::Suppress => continue,
@@ -125,9 +124,9 @@ where
             }
 
             if is_stderr {
-                warn!(step = %step, line = %line, "external command output");
+                warn!(target: "amaru::cli", name: "db_analyser.log", step = %step, line = %line);
             } else {
-                info!(step = %step, line = %line, "external command output");
+                info!(target: "amaru::cli", name: "db_analyser.log", step = %step, line = %line);
             }
         }
         Ok(())

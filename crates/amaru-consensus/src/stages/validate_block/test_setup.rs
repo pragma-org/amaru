@@ -319,8 +319,7 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
 }
 
 pub fn te_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceEntry {
-    let ctx = opentelemetry::Context::current();
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point, ctx))))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point))))
 }
 
 pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceEntry {
@@ -328,10 +327,7 @@ pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceEntry {
 }
 
 pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(RollbackBlockEffect::new(&Peer::new("unknown"), point, opentelemetry::Context::current())),
-    ))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(RollbackBlockEffect::new(&Peer::new("unknown"), point))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {

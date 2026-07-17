@@ -21,23 +21,13 @@ This section is structured by the kind of traces under consideration:
 Each of these areas contains parts that are intended for node operators as well as implementation details relevant for Amaru developers.
 It is important that the node admin can enable any desired trace to aid in debugging issues that may be observed in production.
 
-All traces are classified first by a TARGET and within that target by a NAME (which is not to be confused with the span’s message).
+All spans are classified first by a TARGET and within that target by a NAME.
 The target gives a rough categorization and allows selecting traces pertaining to one of the major Amaru components (precise granularity to be decided case by case).
 
-The name uniquely identifies the source location within a given target **(see discussion below)** and is composed from multiple components separated by dots.
+The name uniquely identifies the source location within a given target **(see discussion below)** and is composed from multiple components separated by dots. For example
 
-1. a category for describing the type of work being done:
-
-   - `setup` for starting up a component or subsystem
-   - `check` for validating inputs, peer behaviour, authorization, integrity, etc.
-   - `state` for computing or updating internal state
-   - `db` for structured storage operations
-   - `io` for all other file / storage / network operations
-   - `cli` for all operations related to the command-line interface or terminal user interface
-   - `perf` for dedicated performance measurements
-
-2. a function, logical unit, data item, or similar
-3. an operation (if applicable) described as a verb
+1. a function, logical unit, data item, or similar
+2. an operation (if applicable) described as a verb
 
 > **IMPORTANT NOTICE ON `tracing` LEVELS**
 >
@@ -45,21 +35,59 @@ The name uniquely identifies the source location within a given target **(see di
 > Log messages (including spans) from `INFO` upwards are printed to `stderr` by default and are part of the CLI / TUI design; these must not occur with high frequency and be relevant to a human observer.
 > `TRACE` level is only intended for debug builds when actually debugging a specific code module, it is not considered viable to switch on all `TRACE` logging, and it is not considered viable to switch on ANY `TRACE` logging during normal operation; `TRACE` level is removed from release binaries by compile-time options.
 >
-> **For these reasons all nominally emitted trace spans intended for production use MUST be emitted at `DEBUG` level!**
+> **For these reasons all nominally emitted trace spans intended for production use MUST be emitted at `DEBUG` or the `INFO` levels!**
 >
 > Since OpenTelemetry treats logs (i.e. tracing events a.k.a. log messages) as individually important, all debug logging that may occur at high rate MUST be emitted at `TRACE` level.
+
+### Impact on EDR 007 (Observability)
+
+[EDR-007 on observability][edr-observability] defines the general approach to observability and the use of
+OpenTelemetry. It prescribes the use of a schema to specify spans attributes and their types with namespacing to avoid
+collisions.
+
+In the current EDR the first two levels are used to define the target of a span and the next levels to define the name of the span.
+
+Here are two examples. During consensus, we receive an upstream message informing the node of a new block header and we
+need to evolve the nonce associated with the current header. In that case the fully qualified name of the span in the
+schema is:
+
+```rust
+amaru::consensus::header::evolve_nonce
+```
+
+In this example, the target is `amaru::consensus` and the name is `header.evolve_nonce`.
+Similarly for the ledger, we can find a schema entry like:
+
+```rust
+amaru::ledger::validation_context::create
+```
+
+In this case, the target is `amaru::ledger` and the name is `validation_context.create`.
+
+We also mandate that the span names are unique, even across targets, to avoid having two spans called
+`block.validate` both in `amaru::consensus` and in `amaru::ledger`.
+
+In addition to the target and name of a span, the schema can define a number of tags, that translate to boolean span
+attributes. This can be used to classify spans across target and span names. For example:
+
+    - `setup` for starting up a component or subsystem
+    - `check` for validating inputs, peer behaviour, authorization, integrity, etc.
+    - `cpu` for computing or updating internal state
+    - `db` for structured storage operations
+    - `io` for all other file / storage / network operations
+    - `cli` for all operations related to the command-line interface or terminal user interface
 
 ### Blockchain
 
 The unit of processing for the chain is one block, which is logically also the unit for tracing.
-We therefore generate a trace ID for each header received from upstream and associate the header hash with that trace ID as an OpenTelemetry property.
-The trace ID can already be generated by the per-connection multiplexer when seeing inbound chainsync messages: traces that pertain to messages other than `chainsync::Message::RollForward` will not be tagged with the header hash property.
+We therefore generate a trace ID for each header received from upstream and associate the header hash with that trace ID as a span attribute (`header_hash`).
+The trace ID can already be generated by the per-connection multiplexer when seeing inbound chainsync messages: traces that pertain to messages other than `chainsync`'s `RollForward` message will not be tagged with the header hash property.
 
-Each tracing span pertaining to header or block processing shall be associated with the trace ID for that header hash; this implies that this trace ID is transported through the consensus stages and via the external effects into stores and ledger.
+Each span pertaining to header or block processing shall be associated with the trace ID for that header hash; this implies that this trace ID is transported through the consensus stages and via the external effects into stores and ledger.
 
 #### Cardano Health Monitoring
 
-> **TARGET:** `amaru::CHAIN_DIFFUSION`
+> **TARGET:** `amaru::network`
 >
 > Even though the below spans are constructed in different consensus stages, this purpose justifies the overarching target selection.
 
@@ -70,64 +98,55 @@ One result of the Node Diversity Workshop in Porto (June 2–3, 2026) was a reaf
 3. first reception of the block from some upstream peer
 4. local adoption of the block
 
-We support this by opening a span with NAME `perf.e2e.forward` upon successful decoding of the header in `track_peers` and closing that span in `select_chain`, either upon seeing that the header is not on the best chain candidate or upon receiving the block validation result (which is slightly after adopting the block but typically before communicating the new tip to downstream peers);
-this records points 1 and 4.
+We support this by opening a span with NAME `perf.header.forward` upon successful decoding of the header in the `track_peers` stage and closing that span in the `select_chain` stage, either upon seeing that the header is not on the best chain candidate or upon receiving the block validation result (which is slightly after adopting the block but typically before communicating the new tip to downstream peers). This records points 1 and 4.
 
-Points 2 and 3 are recorded by opening a span with NAME `perf.rb.fetch` in `fetch_blocks` when requesting a range containing that block and closing that range when the block has been received.
+Points 2 and 3 are recorded by opening a span with NAME `perf.blocks.fetch` in `fetch_blocks` when requesting a range containing that block and closing that range when the block has been received.
 
 Switching to a different fork will then open a span with NAME `perf.fork.switch` for all blocks on the target fork.
 
 #### Consensus
 
-> **TARGET:** `amaru::consensus::*`
+> **TARGET:** `amaru::consensus`
 
-This category is only relevant when developing, improving, or debugging Amaru itself.
-Each consensus stage invocation opens and closes a span whose TARGET matches the stage name (in the code, not the `pure-stage` identifier) with the NAME `state.msg.process`.
-Further spans for tracking the execution time of individual processing steps are created where this is deemed helpful.
+The span names for this target don't have to follow the names of the stages in the consensus pipeline, but rather reflect the logical processing steps that are performed on a header or block.
 
-External `pure-stage` effect handling is extended such that the calling stage’s tracing span is set as the context when executing the effect logic.
-This will tie for example all store or ledger spans to their parent span from the consensus stage that triggered the effect.
+External `pure-stage` effect handling is extended such that the calling stage’s span is set as the context when executing the effect logic. This will tie for example all store or ledger spans to their parent span from the consensus span that triggered the effect.
 
-Messages sent to the `peer_selection` stage stemming from adversarial peer behaviour are associated with the related header’s trace ID.
+Messages sent to the `peer_selection` stage stemming from adversarial peer behaviour must be associated with the related header’s trace ID.
 
-The waiting time of a header in `select_chain` before being eligible for fetching blocks during catch-up (due to the back-pressure decoupling twixt `select_chain` and `fetch_blocks`) is made explicitly visible in the traces by opening and closing a span with NAME `perf.header_sync.wait` accordingly.
+The waiting time of a header in `select_chain` before being eligible for fetching blocks during catch-up (due to the back-pressure decoupling twixt `select_chain` and `fetch_blocks`) must be made explicitly visible in the traces by opening and closing a span with NAME `perf.header.block_fetch_wait` accordingly.
 
 #### Ledger
 
-> **TARGET:** `amaru::LEDGER`
+> **TARGET:** `amaru::ledger`
 
-All ledger operations (validating headers and blocks, performing reward calculations, etc.) are traced in this category.
-Those activities that are related to a specific block will automatically be associated with the right tracing context via the parent propagation added to `pure-stage` effect handlers.
+All ledger operations (validating headers and blocks, performing reward calculations, etc.) are traced in this category. Those activities that are related to a specific block will automatically be associated with the right tracing context via the parent propagation added to `pure-stage` effect handlers.
 Activities spawned from such invocations that are not related to that block or header (like asynchronous rewards calculations) are NOT associated with the calling trace context and instead create new trace IDs.
 
 ### Mempool
 
-> **TARGET:** `amaru::MEMPOOL`
+> **TARGET:** `amaru::mempool`
 
-Each received transaction gives rise to a trace ID associated with the transaction hash as a property.
-The spans recorded are:
+Each received transaction gives rise to a trace ID associated with the transaction hash as a property. The spans recorded are:
 
-- NAME `state.txn.submit`: is opened upon local reception of the transaction and closed when inserted in the mempool or rejected
-- NAME `state.txn.receive`: is opened upon N2N reception of the transaction and closed when inserted in the mempool or rejected
-- NAME `state.txn.forward`: is opened when an upstream peer is requesting transactions and this transaction’s ID is sent; it is closed when the transaction has been sent to the peer
+- NAME `state.transaction.submit`: is opened upon local reception of the transaction and closed when inserted in the mempool or rejected
+- NAME `state.transaction.receive`: is opened upon N2N reception of the transaction and closed when inserted in the mempool or rejected
+- NAME `state.transaction.forward`: is opened when an upstream peer is requesting transactions and this transaction’s ID is sent; it is closed when the transaction has been sent to the peer
 
-### Peer Management
+### Protocols
 
-> **TARGET:** `amaru::PEER`
+> **TARGET:** `amaru::protocols`
 
-This category covers all peer management operations like connecting, disconnecting, mini-protocol state changes, etc.
-It is important to note that OpenTelemetry traces are not meant to be long-running while peers are long-lived entities.
-We therefore do not associate a single trace ID with each peer but rather generate a new trace ID per peer management activity.
+This target groups spans that are related to the implementation of specific protocols, like `chainsync`, `txsubmission`, `keepalive` etc...
 
-The precise design of spans and their names will be done at a later time.
+### Network
 
-## Consequences
+> **TARGET:** `amaru::network`
 
-## Discussion Points
-
-- shall we make the span name globally unique, enforce that in the schema, and select the target automatically based on the name?
+This target is reserved for spans that are related to the network layer, regardless of the protocol being used. It is typically used for tracking the lifecycle of network connections.
 
 ## References
 
 [edr-observability]: ./007-observability.md
+
 [edr-metrics]: ./015-recording-cardano-metrics.md

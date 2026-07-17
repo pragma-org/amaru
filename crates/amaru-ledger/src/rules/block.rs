@@ -194,7 +194,7 @@ pub fn execute<C, S: From<C>>(
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
-    let _span = trace_span!(amaru_observability::amaru::ledger::state::VALIDATE_BLOCK);
+    let _span = trace_span!(ledger::block::VALIDATE,);
     let _guard = _span.enter();
 
     let slot = Slot::from(block.header.header_body.slot);
@@ -212,7 +212,13 @@ where
 
     with_block_context(body_hash::block_body_hash_valid(&block))?;
 
-    with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
+    // NOTE: No protocol major version in block header
+    //
+    // See: https://github.com/IntersectMBO/ouroboros-consensus/issues/2127
+    //
+    // ```
+    // with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
+    // ```
 
     with_block_context(ex_units::block_ex_units_valid(&block, protocol_params))?;
 

@@ -35,7 +35,10 @@ Other guiding principles:
   ```
 -->
 
-## v10.10.20260716 _[unreleased; planned for 2026-07-16]_
+
+## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
+
+## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
 ### Added
 
@@ -43,11 +46,22 @@ Other guiding principles:
 - **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 - **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
+- **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
+- **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
+- **amaru**: add a demo showcasing `amaru` as a relay node supporting both chainsync (to synchronize downstream nodes) and txsubmission (to diffuse transactions upstream). ([#1029][])
+
+### Removed
+
+- **amaru**: no more `--force` flag on `snapshot create`. ([#1039][])
 
 ### Fixed
 
 - **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
 - **amaru-ledger**: reduce rationale number before serializing them to JSON in epoch summary. ([#1024][])
+- **amaru-ledger**: store the stake pool deposit for refunds instead of defaulting protocol parameters. ([#1031][])
+- **amaru-ledger**: do not overwrite already counted pool deposit refunds with newer refund from same credential. ([#1026][])
+- **amaru-ledger**: do not enforce max protocol version in block header; fix node stalling after hard fork on Preview. ([#1043][])
+- **amaru**: normalize snapshot metadata (all having a parent point now) and ensure better discoverability of local snapshots. ([#1039][])
 
 ## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
@@ -134,6 +148,7 @@ Other guiding principles:
 [#886]: https://github.com/pragma-org/amaru/pull/886
 [#892]: https://github.com/pragma-org/amaru/issues/892
 [#896]: https://github.com/pragma-org/amaru/issues/896
+[#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#942]: https://github.com/pragma-org/amaru/pull/942
@@ -148,9 +163,16 @@ Other guiding principles:
 [#983]: https://github.com/pragma-org/amaru/pull/983
 [#985]: https://github.com/pragma-org/amaru/pull/985
 [#988]: https://github.com/pragma-org/amaru/pull/988
+[#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
+[#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
+[#1029]: https://github.com/pragma-org/amaru/pull/1029
+[#1031]: https://github.com/pragma-org/amaru/pull/1031
+[#1033]: https://github.com/pragma-org/amaru/pull/1033
+[#1039]: https://github.com/pragma-org/amaru/pull/1039
+[#1043]: https://github.com/pragma-org/amaru/pull/1043

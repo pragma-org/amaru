@@ -35,16 +35,6 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
         .collect()
 }
 
-pub fn to_traverse(header: &messages::HeaderContent) -> Result<MultiEraHeader<'_>, String> {
-    let out = match header.byron_prefix {
-        Some((subtag, _)) => MultiEraHeader::decode(header.variant.header_variant(), Some(subtag), &header.cbor),
-        None => MultiEraHeader::decode(header.variant.header_variant(), None, &header.cbor),
-    };
-
-    out.map_err(|e| e.to_string())
-}
-
-use pallas_traverse::MultiEraHeader;
 pub use register::{register_chainsync_initiator, register_chainsync_responder};
 
 mod register {

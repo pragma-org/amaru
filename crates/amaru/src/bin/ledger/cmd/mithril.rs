@@ -73,7 +73,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let tail_archive = latest_archive(&existing_archives);
 
     // Determine the chunk to start from
-    let resume_point = resume_point_for_archives(&existing_archives);
+    let mut resume_point = resume_point_for_archives(&existing_archives);
+    if resume_point == Point::Origin {
+        // Origin means fewer than two archives exist, so there is no complete archive to
+        // resume from. Resuming from Origin would download and package the whole chain
+        // since genesis, but the ledger already covers everything up to its tip (e.g.
+        // after a snapshot bootstrap), so only blocks after the tip are needed. When a
+        // single tail archive exists it starts right after the tip, and the packaging
+        // loop below retains or replaces it. This relies on the chunk containing the tip
+        // being available locally, which from_chunk_for_resume_point ensures by starting
+        // the download one chunk before the tip.
+        resume_point = tip;
+    }
 
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
     let from_chunk = from_chunk_for_resume_point(network, latest_chunk, resume_point)?;

@@ -75,14 +75,14 @@ define_local_schemas! {
 
 /// Example 1: Basic tracing with required fields
 pub fn evolve_nonce(_hash: String) -> Result<(), String> {
-    let _span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &_hash);
+    let _span = trace_span!(crate::consensus::validate_header::EVOLVE_NONCE, hash = &_hash);
     let _guard = _span.enter();
     Ok(())
 }
 
 /// Example 2: Tracing with multiple required fields
 pub fn epoch_transition(from: u64, into: u64) -> Result<(), String> {
-    let _span = trace_span!(ledger::state::EPOCH_TRANSITION, from = from, into = into);
+    let _span = trace_span!(crate::ledger::state::EPOCH_TRANSITION, from = from, into = into);
     let _guard = _span.enter();
     Ok(())
 }
@@ -95,7 +95,7 @@ pub fn create_validation_context(
     total_inputs: u64,
 ) -> Result<(), String> {
     let _span = trace_span!(
-        ledger::state::CREATE_VALIDATION_CONTEXT,
+        crate::ledger::state::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
         block_number = block_number,
         block_body_size = block_body_size,
@@ -108,7 +108,7 @@ pub fn create_validation_context(
 /// Example 4: Function that records fields to the current span
 pub fn add_resolve_stats(_resolved_from_context: u64, _resolved_from_volatile: u64) {
     trace_record!(
-        ledger::state::RESOLVE_INPUTS,
+        crate::ledger::state::RESOLVE_INPUTS,
         resolved_from_context = _resolved_from_context,
         resolved_from_volatile = _resolved_from_volatile
     );
@@ -116,15 +116,18 @@ pub fn add_resolve_stats(_resolved_from_context: u64, _resolved_from_volatile: u
 
 /// Example 5: Schema with only optional fields
 pub fn roll_forward() -> Result<(), String> {
-    let _span = trace_span!(ledger::state::ROLL_FORWARD);
+    let _span = trace_span!(crate::ledger::state::ROLL_FORWARD,);
     let _guard = _span.enter();
     Ok(())
 }
 
 /// Example 6: Network schema
 pub fn find_intersection(peer: String, intersection_slot: u64) -> Result<(), String> {
-    let _span =
-        trace_span!(network::chainsync_client::FIND_INTERSECTION, peer = &peer, intersection_slot = intersection_slot);
+    let _span = trace_span!(
+        crate::network::chainsync_client::FIND_INTERSECTION,
+        peer = &peer,
+        intersection_slot = intersection_slot
+    );
     let _guard = _span.enter();
     Ok(())
 }
@@ -149,7 +152,7 @@ pub fn process_block_with_computed_fields(
     _block_body_size: u64,
 ) -> Result<(), String> {
     let _span = trace_span!(
-        ledger::state::CREATE_VALIDATION_CONTEXT,
+        crate::ledger::state::CREATE_VALIDATION_CONTEXT,
         block_body_hash = "hash_current_block",
         block_number = get_current_block_number(),
         block_body_size = get_block_size()
@@ -166,7 +169,7 @@ pub fn process_block_with_all_custom_fields(
     _total_inputs: u64,
 ) -> Result<(), String> {
     let _span = trace_span!(
-        ledger::state::CREATE_VALIDATION_CONTEXT,
+        crate::ledger::state::CREATE_VALIDATION_CONTEXT,
         block_body_hash = "hash_block_abc",
         block_number = get_current_block_number(),
         block_body_size = get_block_size(),
@@ -178,7 +181,11 @@ pub fn process_block_with_all_custom_fields(
 
 /// Example 9: Record computed metrics to current span
 pub fn add_processing_metrics() {
-    trace_record!(ledger::state::RESOLVE_INPUTS, resolved_from_context = 10_u64, resolved_from_volatile = 20_u64);
+    trace_record!(
+        crate::ledger::state::RESOLVE_INPUTS,
+        resolved_from_context = 10_u64,
+        resolved_from_volatile = 20_u64
+    );
     tracing::debug!("Added computed processing metrics to current span");
 }
 
@@ -191,7 +198,7 @@ pub fn create_validation_with_context(
     _debug_mode: bool, // Extra param - ignored (not in schema)
 ) -> Result<(), String> {
     let _span = trace_span!(
-        ledger::state::CREATE_VALIDATION_CONTEXT,
+        crate::ledger::state::CREATE_VALIDATION_CONTEXT,
         block_body_hash = &block_body_hash,
         block_number = block_number,
         block_body_size = block_body_size

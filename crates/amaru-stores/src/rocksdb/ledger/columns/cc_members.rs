@@ -32,50 +32,38 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::CC_MEMBERS_GET,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "get".to_string(),
-        db_collection_name = "cc_member".to_string()
-    );
-    let _guard = _span.enter();
-
-    let key = as_key(&PREFIX, credential);
-    let bytes = db_get(&key);
-    bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
+    trace_span!(stores::ledger::cc_members::GET).in_scope(|| {
+        let key = as_key(&PREFIX, credential);
+        let bytes = db_get(&key);
+        bytes.map_err(|err| StoreError::Internal(err.into())).map(|opt| opt.map(|d| unsafe_decode::<Row>(&d)))
+    })
 }
 
 /// Register a new CC Member.
 pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::CC_MEMBERS_UPSERT,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "cc_member".to_string()
-    );
-    let _guard = _span.enter();
+    trace_span!(stores::ledger::cc_members::UPSERT).in_scope(|| {
+        for (cold_credential, (hot_credential, valid_until)) in rows {
+            let key = as_key(&PREFIX, &cold_credential);
 
-    for (cold_credential, (hot_credential, valid_until)) in rows {
-        let key = as_key(&PREFIX, &cold_credential);
+            let mut row = db
+                .get_pinned(&key)
+                .map_err(|err| StoreError::Internal(err.into()))?
+                .map(|d| unsafe_decode::<Row>(&d))
+                // NOTE:
+                // (1) If the registration doesn't exists, but a new cc member is being added,
+                // then we can initialize a default value.
+                //
+                // (2) unelected-but-potential (i.e. present in ongoing proposals) CC members are *allowed*
+                // to declare their hot/cold delegation. Unelected CC are conserved as being valid
+                // until epoch 0.
+                .unwrap_or_else(|| Row { hot_credential: None, valid_until: None });
 
-        let mut row = db
-            .get_pinned(&key)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|d| unsafe_decode::<Row>(&d))
-            // NOTE:
-            // (1) If the registration doesn't exists, but a new cc member is being added,
-            // then we can initialize a default value.
-            //
-            // (2) unelected-but-potential (i.e. present in ongoing proposals) CC members are *allowed*
-            // to declare their hot/cold delegation. Unelected CC are conserved as being valid
-            // until epoch 0.
-            .unwrap_or_else(|| Row { hot_credential: None, valid_until: None });
+            valid_until.set_or_reset(&mut row.valid_until);
+            hot_credential.set_or_reset(&mut row.hot_credential);
 
-        valid_until.set_or_reset(&mut row.valid_until);
-        hot_credential.set_or_reset(&mut row.hot_credential);
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+        }
 
-        db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-    }
-
-    Ok(())
+        Ok(())
+    })
 }

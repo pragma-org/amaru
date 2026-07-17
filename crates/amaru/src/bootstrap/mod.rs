@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod chain_sync_client;
+
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -22,24 +24,23 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor,
+    from_cbor, utils::path::relative_path,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
-use amaru_network::chain_sync_client::ChainSyncClient;
 use amaru_ouroboros::{ChainStore, Nonces, WriteChainStore};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
+use chain_sync_client::ChainSyncClient;
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
 use num::CheckedSub;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use reqwest::StatusCode;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tar::Archive;
 use tokio::{
     fs::{self, File},
@@ -47,29 +48,39 @@ use tokio::{
     time::timeout,
 };
 use tokio_util::io::StreamReader;
-use tracing::{error, info};
 
 use crate::{
     cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
     default_data_dir, default_snapshots_dir, get_bootstrap_file,
 };
 
+macro_rules! info {
+    ($name:literal $(, $($rest:tt)+)?) => {
+        amaru_observability::info!(target: "amaru::bootstrap", name: $name $(, $($rest)+)?);
+    };
+}
+
+macro_rules! error {
+    ($name:literal $(, $($rest:tt)+)?) => {
+        amaru_observability::error!(target: "amaru::bootstrap", name: $name $(, $($rest)+)?);
+    };
+}
+
 /// Configuration for a single ledger state's snapshot to be imported.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 struct Snapshot {
     /// The snapshot's epoch.
     epoch: Epoch,
 
-    /// The snapshot's point, in the form `<slot>.<header hash>`.
-    ///
-    /// TODO: make it a genuine `Point` type.
-    point: String,
+    /// The snapshot's point, typically the last point of an epoch.
+    point: Point,
+
+    /// The parent point of the snapshot's point.
+    parent_point: Point,
 
     /// The URL to retrieve snapshot from.
+    #[serde(default)]
     url: String,
-
-    #[serde(default, alias = "header_parent")]
-    parent_point: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -100,7 +111,7 @@ pub enum BootstrapError {
     MissingSnapshotDirectory(PathBuf),
 
     #[error("Missing bootstrap parent point for snapshot {0}")]
-    MissingParentPoint(String),
+    MissingParentPoint(Point),
 
     #[error("No bootstrap snapshots are configured in snapshots.json")]
     NoBootstrapSnapshots,
@@ -120,7 +131,7 @@ pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
 const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
 
 fn snapshot_directory_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
-    snapshots_dir.join(&snapshot.point)
+    snapshots_dir.join(snapshot.point.to_string())
 }
 
 fn snapshot_file_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
@@ -137,22 +148,6 @@ fn resolve_snapshot_path(snapshots_dir: &Path, snapshot: &Snapshot) -> Option<Pa
     is_cbor_snapshot_file(&file).then_some(file)
 }
 
-fn snapshot_hash(snapshot: &Snapshot) -> Result<HeaderHash, Box<dyn Error>> {
-    match Point::try_from(snapshot.point.as_str())? {
-        Point::Specific(_, hash) => Ok(hash),
-        Point::Origin => Err("bootstrap snapshots must not use origin".into()),
-    }
-}
-
-#[derive(Deserialize)]
-struct LocalEpochMetadata {
-    epoch: Epoch,
-    slot: u64,
-    hash: String,
-    #[serde(default, alias = "header_parent")]
-    parent_point: Option<String>,
-}
-
 fn load_local_epoch_snapshots(network: NetworkName) -> Vec<Snapshot> {
     let metadata_dir = PathBuf::from(default_data_dir(network)).join("epoch-snapshots").join("epochs");
     if !metadata_dir.is_dir() {
@@ -167,13 +162,7 @@ fn load_local_epoch_snapshots(network: NetworkName) -> Vec<Snapshot> {
         .flatten()
         .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
         .filter_map(|entry| std::fs::read(entry.path()).ok())
-        .filter_map(|bytes| serde_json::from_slice::<LocalEpochMetadata>(&bytes).ok())
-        .map(|meta| Snapshot {
-            epoch: meta.epoch,
-            point: format!("{}.{}", meta.slot, meta.hash),
-            url: String::new(),
-            parent_point: meta.parent_point,
-        })
+        .filter_map(|bytes| serde_json::from_slice::<Snapshot>(&bytes).ok())
         .collect()
 }
 
@@ -187,7 +176,7 @@ fn bootstrap_snapshots(network: NetworkName) -> Result<(PathBuf, Vec<Snapshot>),
 
     let local_snapshots = load_local_epoch_snapshots(network);
     if !local_snapshots.is_empty() {
-        info!(count = local_snapshots.len(), "detected locally-created snapshots from create-snapshots");
+        info!("local_snapshots.detect", count = local_snapshots.len());
         for local_snapshot in local_snapshots {
             if !snapshots.iter().any(|s| s.epoch == local_snapshot.epoch) {
                 snapshots.push(local_snapshot);
@@ -279,7 +268,7 @@ fn default_bootstrap_nonces_from_snapshots(
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, third_snapshot))
     })?;
     let (epoch, initial_nonces) =
-        initial_nonces_from_snapshot(&third_snapshot_path, global_parameters, snapshot_hash(second_snapshot)?)?;
+        initial_nonces_from_snapshot(&third_snapshot_path, global_parameters, second_snapshot.point.hash())?;
 
     Ok((epoch, initial_nonces))
 }
@@ -292,21 +281,13 @@ pub fn default_bootstrap_nonces(
     default_bootstrap_nonces_from_snapshots(&snapshots_dir, &snapshots, global_parameters)
 }
 
-fn snapshot_parent_point(snapshot: &Snapshot) -> Result<Point, Box<dyn Error>> {
-    let parent_point =
-        snapshot.parent_point.as_deref().ok_or_else(|| BootstrapError::MissingParentPoint(snapshot.point.clone()))?;
-
-    Ok(Point::try_from(parent_point)?)
-}
-
-fn bootstrap_parent_points(snapshots: [&Snapshot; 3]) -> Result<Vec<Point>, Box<dyn Error>> {
-    let [_, second_snapshot, third_snapshot] = snapshots;
-    [second_snapshot, third_snapshot].into_iter().map(snapshot_parent_point).collect()
+fn bootstrap_parent_points(snapshots: [&Snapshot; 3]) -> Vec<Point> {
+    vec![snapshots[1].parent_point, snapshots[2].parent_point]
 }
 
 pub fn default_bootstrap_parent_points(network: NetworkName) -> Result<Vec<Point>, Box<dyn Error>> {
     let (_, snapshots) = bootstrap_snapshots(network)?;
-    bootstrap_parent_points(select_bootstrap_snapshots(&snapshots, None)?)
+    Ok(bootstrap_parent_points(select_bootstrap_snapshots(&snapshots, None)?))
 }
 
 pub async fn fetch_headers_from_points(
@@ -334,13 +315,13 @@ async fn fetch_headers_from_point(
     headers_per_point: usize,
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.map_err(|err| {
-        error!(peer = %peer_address, reason = %err, "failed to connect to peer");
+        error!("peer.failed_to_connect", peer = %peer_address, reason = %err);
         err
     })?;
     let mut client = ChainSyncClient::new(Peer::new(peer_address), peer_client.chainsync, vec![point]);
     let intersection = client.find_intersection().await?;
 
-    info!(requested_point = %point, intersection = %intersection, headers_per_point, "fetching bootstrap headers from peer");
+    info!("headers.fetch", requested_point = %point, intersection = %intersection, headers_per_point);
 
     let mut headers = Vec::with_capacity(headers_per_point);
     while headers.len() < headers_per_point {
@@ -365,22 +346,16 @@ async fn fetch_headers_from_point(
                 }
             }
             NextResponse::RollBackward(point, tip) => {
-                info!(?point, ?tip, "roll backward while fetching bootstrap headers");
+                error!("fetch.rollback", ?point, ?tip);
             }
             NextResponse::Await => continue,
         }
     }
 
-    info!(requested_point = %point, total = headers.len(), "fetched bootstrap headers from peer");
-
     Ok(headers)
 }
 
-fn should_download_snapshot(snapshots_dir: &Path, snapshot: &Snapshot) -> bool {
-    resolve_snapshot_path(snapshots_dir, snapshot).is_none()
-}
-
-async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Result<(), BootstrapError> {
+async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(snapshots_dir)
         .await
         .map_err(|err| BootstrapError::CreateSnapshotsDir(snapshots_dir.to_path_buf(), err))?;
@@ -390,24 +365,22 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
     for snapshot in snapshots {
         let snapshot_dir = snapshot_directory_path(snapshots_dir, snapshot);
         let snapshot_file = snapshot_file_path(snapshots_dir, snapshot);
-        if !should_download_snapshot(snapshots_dir, snapshot) {
-            let snapshot_path = resolve_snapshot_path(snapshots_dir, snapshot)
-                .unwrap_or_else(|| snapshot_directory_path(snapshots_dir, snapshot));
-            info!(snapshot = %snapshot_path.display(), "snapshot already exists, skipping download");
+        if let Some(snapshot_path) = resolve_snapshot_path(snapshots_dir, snapshot) {
+            info!("snapshot.skip_download", snapshot = %relative_path(&snapshot_path)?.display());
             continue;
         }
 
         if snapshot_dir.exists() {
-            info!(snapshot = %snapshot_dir.display(), "snapshot directory exists but is not a valid tvar snapshot, removing it");
-            fs::remove_dir_all(&snapshot_dir).await?;
+            error!("snapshot.invalid", snapshot = %relative_path(&snapshot_dir)?.display());
+            return Err(anyhow!("snapshot directory exists but is not a valid tvar snapshot; try removing it"))?;
         }
 
         if snapshot_file.exists() && !is_cbor_snapshot_file(&snapshot_file) {
-            info!(snapshot = %snapshot_file.display(), "snapshot file exists but is not a valid cbor snapshot, removing it");
-            fs::remove_file(&snapshot_file).await?;
+            error!("snapshot.invalid", snapshot = %relative_path(&snapshot_file)?.display());
+            return Err(anyhow!("snapshot file exists but is not a valid cbor snapshot; try removing it"))?;
         }
 
-        info!(epoch = %snapshot.epoch, point = %snapshot.point, "downloading snapshot");
+        info!("snapshot.download", epoch = %snapshot.epoch, point = %snapshot.point);
 
         if snapshot.url.ends_with(".cbor.gz") {
             let (tmp_path, mut file) = create_partial_file(&snapshot_file).await?;
@@ -415,7 +388,6 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
             file.sync_all().await?;
             drop(file);
             fs::rename(&tmp_path, &snapshot_file).await?;
-            info!(snapshot = %snapshot_file.display(), "downloaded snapshot");
             continue;
         }
 
@@ -429,17 +401,15 @@ async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Re
         file.sync_all().await?;
         drop(file);
 
-        info!(snapshot = %snapshot_dir.display(), "extracting archive");
+        info!("snapshot.extract", snapshot = %relative_path(&snapshot_dir)?.display());
 
         if let Err(err) = extract_snapshot_archive(&archive_path, &extract_path, &snapshot_dir) {
             let _ = fs::remove_file(&archive_path).await;
             let _ = fs::remove_dir_all(&extract_path).await;
-            return Err(err);
+            return Err(Box::new(err));
         }
 
         fs::remove_file(&archive_path).await?;
-
-        info!(snapshot = %snapshot_dir.display(), "downloaded snapshot");
     }
 
     Ok(())
@@ -578,7 +548,7 @@ pub async fn bootstrap(
         global_parameters,
         &third_snapshot_path,
         &ledger_dir,
-        Some(snapshot_hash(second_snapshot)?),
+        Some(second_snapshot.point.hash()),
     )
     .await?;
 
@@ -630,21 +600,8 @@ fn load_packaged_headers_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u
     Ok(headers)
 }
 
-fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let buf = <&str>::deserialize(deserializer)?;
-    Point::try_from(buf).map_err(|e| serde::de::Error::custom(format!("cannot convert vector to point: {:?}", e)))
-}
-
-fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&point.to_string())
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct InitialNonces {
-    #[serde(serialize_with = "serialize_point", deserialize_with = "deserialize_point")]
     pub at: Point,
     pub active: Nonce,
     pub evolving: Nonce,
@@ -659,7 +616,7 @@ fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dy
 pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNonces) -> Result<(), Box<dyn Error>> {
     let header_hash = Hash::from(&initial_nonces.at);
 
-    info!(point.id = %header_hash, point.slot = %initial_nonces.at.slot_or_default(), "importing nonces");
+    info!("nonces.import", point = %initial_nonces.at);
 
     let nonces = Nonces {
         epoch,
@@ -678,9 +635,7 @@ pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
         let hash = block_header.hash();
-
-        info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting header");
-
+        info!("header.import", header = %hash);
         db.store_header(&block_header)?;
     }
 
@@ -725,11 +680,10 @@ pub async fn import_snapshots(
     snapshots: &[PathBuf],
     ledger_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!(count = snapshots.len(), "Importing snapshots");
+    info!("snapshots.import", count = snapshots.len());
     for snapshot in snapshots {
         import_snapshot(network, global_parameters, snapshot, ledger_dir).await?;
     }
-    info!("Imported snapshots");
     Ok(())
 }
 
@@ -757,7 +711,6 @@ async fn import_snapshot(
     ledger_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None).await?;
-
     Ok(())
 }
 
@@ -787,7 +740,7 @@ async fn import_cbor_snapshot_file(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
-    info!(snapshot=%snapshot.display(), "Importing CBOR snapshot");
+    info!("snapshot.import", file = %relative_path(snapshot)?.display());
 
     let point =
         Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap()).map_err(ImportError::MalformedDate)?;
@@ -828,7 +781,6 @@ async fn import_cbor_snapshot_file(
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    info!(epoch=%epoch, snapshot=%snapshot.display(), "Imported CBOR snapshot");
     Ok(ImportedSnapshot { epoch, initial_nonces })
 }
 
@@ -841,7 +793,7 @@ async fn import_node_snapshot_dir(
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
-    info!(snapshot=%snapshot_dir.display(), "Importing node snapshot directory");
+    info!("snapshot.import", dir = %relative_path(snapshot_dir)?.display());
 
     std::fs::create_dir_all(ledger_dir)?;
 
@@ -877,7 +829,6 @@ async fn import_node_snapshot_dir(
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    info!(epoch=%epoch, snapshot=%snapshot_dir.display(), "Imported node snapshot directory");
     Ok(ImportedSnapshot { epoch, initial_nonces })
 }
 
@@ -919,12 +870,12 @@ fn make_era_history(dir: &Path, point: &Point, network: NetworkName) -> Result<E
 mod tests {
     use std::{path::PathBuf, time::Duration};
 
-    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Point, Slot};
+    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, Hasher, HeaderHash, Point, Slot};
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, bootstrap_parent_points, is_cbor_snapshot_file, node_snapshot_paths, select_bootstrap_snapshots,
-        should_download_snapshot, snapshot_epoch, sort_snapshots_by_slot,
+        Snapshot, bootstrap_parent_points, node_snapshot_paths, select_bootstrap_snapshots, snapshot_epoch,
+        sort_snapshots_by_slot,
     };
     use crate::cardano_node::ParsedStateSnapshot;
 
@@ -977,158 +928,42 @@ mod tests {
         assert!(node_snapshot_paths(&snapshot_dir).is_none());
     }
 
-    #[test]
-    fn should_download_snapshot_for_invalid_existing_directory() {
-        let temp_dir = tempdir().unwrap();
-        let snapshots_dir = temp_dir.path();
-        let snapshot = Snapshot {
-            epoch: Epoch::from(163_u64),
-            point: "69206375.hash".to_string(),
-            url: "https://example.com/69206375.hash.tar.gz".to_string(),
-            parent_point: None,
-        };
-        let snapshot_dir = snapshots_dir.join(&snapshot.point);
-        std::fs::create_dir_all(&snapshot_dir).unwrap();
-        std::fs::write(snapshot_dir.join("state"), b"state").unwrap();
-        std::fs::write(snapshot_dir.join("tables"), b"utxo").unwrap();
+    fn snap(epoch: u64) -> Snapshot {
+        let slot = 100 * epoch;
+        let hash = Hasher::<256>::hash(&slot.to_be_bytes());
 
-        assert!(should_download_snapshot(snapshots_dir, &snapshot));
-    }
+        let parent_slot = slot - 1;
+        let parent_hash = Hasher::<256>::hash(&parent_slot.to_be_bytes());
 
-    #[test]
-    fn should_not_download_valid_tvar_snapshot_directory() {
-        let temp_dir = tempdir().unwrap();
-        let snapshots_dir = temp_dir.path();
-        let snapshot = Snapshot {
-            epoch: Epoch::from(163_u64),
-            point: "69206375.hash".to_string(),
-            url: "https://example.com/69206375.hash.tar.gz".to_string(),
-            parent_point: None,
-        };
-        let snapshot_dir = snapshots_dir.join(&snapshot.point);
-        std::fs::create_dir_all(snapshot_dir.join("tables")).unwrap();
-        std::fs::write(snapshot_dir.join("state"), b"state").unwrap();
-        std::fs::write(snapshot_dir.join("tables").join("tvar"), b"utxo").unwrap();
-
-        assert!(!should_download_snapshot(snapshots_dir, &snapshot));
-    }
-
-    #[test]
-    fn should_not_download_existing_cbor_snapshot_file() {
-        let temp_dir = tempdir().unwrap();
-        let snapshots_dir = temp_dir.path();
-        let snapshot = Snapshot {
-            epoch: Epoch::from(163_u64),
-            point: "69206375.hash".to_string(),
-            url: "https://example.com/69206375.hash.cbor.gz".to_string(),
-            parent_point: None,
-        };
-        let snapshot_file = snapshots_dir.join("69206375.hash.cbor");
-        std::fs::write(&snapshot_file, b"snapshot").unwrap();
-
-        assert!(is_cbor_snapshot_file(&snapshot_file));
-        assert!(!should_download_snapshot(snapshots_dir, &snapshot));
+        Snapshot {
+            epoch: Epoch::from(epoch),
+            point: Point::Specific(Slot::from(slot), hash),
+            parent_point: Point::Specific(Slot::from(parent_slot), parent_hash),
+            url: format!("https://example.com/{slot}.{hash}.tar.gz"),
+        }
     }
 
     #[test]
     fn select_bootstrap_snapshots_defaults_to_latest_epoch_window() {
-        let snapshots = vec![
-            Snapshot {
-                epoch: Epoch::from(165_u64),
-                point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
-                parent_point: Some(
-                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
-                ),
-            },
-            Snapshot {
-                epoch: Epoch::from(163_u64),
-                point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
-                parent_point: None,
-            },
-            Snapshot {
-                epoch: Epoch::from(164_u64),
-                point: "69638382.hash2".to_string(),
-                url: "https://example.com/164.tar.gz".to_string(),
-                parent_point: Some(
-                    "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
-                ),
-            },
-        ];
-
-        let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, None).unwrap();
-
-        assert_eq!(first_snapshot.epoch, Epoch::from(163_u64));
-        assert_eq!(second_snapshot.epoch, Epoch::from(164_u64));
-        assert_eq!(third_snapshot.epoch, Epoch::from(165_u64));
+        assert_eq!(
+            select_bootstrap_snapshots(&[snap(165), snap(163), snap(164)], None).unwrap(),
+            [&snap(163), &snap(164), &snap(165)]
+        )
     }
 
     #[test]
     fn select_bootstrap_snapshots_honors_requested_start_epoch() {
-        let snapshots = vec![
-            Snapshot {
-                epoch: Epoch::from(163_u64),
-                point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
-                parent_point: None,
-            },
-            Snapshot {
-                epoch: Epoch::from(164_u64),
-                point: "69638382.hash2".to_string(),
-                url: "https://example.com/164.tar.gz".to_string(),
-                parent_point: Some(
-                    "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
-                ),
-            },
-            Snapshot {
-                epoch: Epoch::from(165_u64),
-                point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
-                parent_point: Some(
-                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
-                ),
-            },
-            Snapshot {
-                epoch: Epoch::from(166_u64),
-                point: "70502379.hash4".to_string(),
-                url: "https://example.com/166.tar.gz".to_string(),
-                parent_point: Some(
-                    "70502331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364d".to_string(),
-                ),
-            },
-        ];
-
-        let [first_snapshot, second_snapshot, third_snapshot] =
-            select_bootstrap_snapshots(&snapshots, Some(Epoch::from(167_u64))).unwrap();
-
-        assert_eq!(first_snapshot.epoch, Epoch::from(164_u64));
-        assert_eq!(second_snapshot.epoch, Epoch::from(165_u64));
-        assert_eq!(third_snapshot.epoch, Epoch::from(166_u64));
+        assert_eq!(
+            select_bootstrap_snapshots(&[snap(165), snap(163), snap(164), snap(166)], Some(Epoch::from(167_u64)))
+                .unwrap(),
+            [&snap(164), &snap(165), &snap(166)],
+        );
     }
 
     #[test]
     fn select_bootstrap_snapshots_reports_missing_requested_epochs() {
-        let snapshots = vec![
-            Snapshot {
-                epoch: Epoch::from(163_u64),
-                point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
-                parent_point: None,
-            },
-            Snapshot {
-                epoch: Epoch::from(165_u64),
-                point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
-                parent_point: Some(
-                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
-                ),
-            },
-        ];
-
-        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(166_u64))).unwrap_err();
+        let err = select_bootstrap_snapshots(&[snap(163), snap(165)], Some(Epoch::from(166_u64))).unwrap_err();
         let err = err.to_string();
-
         assert!(err.contains("target epoch 166"));
         assert!(err.contains("must contain epochs 163, 164, 165"));
         assert!(err.contains("Available epochs: 163, 165"));
@@ -1136,49 +971,15 @@ mod tests {
 
     #[test]
     fn select_bootstrap_snapshots_reports_too_young_epoch() {
-        let snapshots = vec![Snapshot {
-            epoch: Epoch::from(1_u64),
-            point: "69206375.hash1".to_string(),
-            url: "https://example.com/1.tar.gz".to_string(),
-            parent_point: None,
-        }];
-        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(2_u64))).unwrap_err();
+        let err = select_bootstrap_snapshots(&[snap(1)], Some(Epoch::from(2_u64))).unwrap_err();
         assert!(dbg!(err.to_string()).contains("target epoch is too young"));
     }
 
     #[test]
     fn bootstrap_parent_points_use_selected_snapshot_parent_points() {
-        let snapshots = [
-            Snapshot {
-                epoch: Epoch::from(163_u64),
-                point: "69206375.hash1".to_string(),
-                url: "https://example.com/163.tar.gz".to_string(),
-                parent_point: None,
-            },
-            Snapshot {
-                epoch: Epoch::from(164_u64),
-                point: "69638382.hash2".to_string(),
-                url: "https://example.com/164.tar.gz".to_string(),
-                parent_point: Some(
-                    "69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2".to_string(),
-                ),
-            },
-            Snapshot {
-                epoch: Epoch::from(165_u64),
-                point: "70070379.hash3".to_string(),
-                url: "https://example.com/165.tar.gz".to_string(),
-                parent_point: Some(
-                    "70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c".to_string(),
-                ),
-            },
-        ];
-
         assert_eq!(
-            bootstrap_parent_points([&snapshots[0], &snapshots[1], &snapshots[2]]).unwrap(),
-            vec![
-                Point::try_from("69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2").unwrap(),
-                Point::try_from("70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c").unwrap(),
-            ]
+            bootstrap_parent_points([&snap(163), &snap(164), &snap(165)]),
+            vec![snap(164).parent_point, snap(165).parent_point,]
         );
     }
 }

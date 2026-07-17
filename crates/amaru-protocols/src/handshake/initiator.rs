@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -96,8 +96,8 @@ impl StageState<State, Initiator> for HandshakeInitiator {
                 }
             })
         }
-        .instrument(trace_span!(
-            amaru_observability::amaru::protocols::handshake::initiator::HANDSHAKE_INITIATOR_STAGE,
+        .instrument(debug_span!(
+            protocols::handshake::initiator::HANDSHAKE_INITIATOR_STAGE,
             message_type = message_type
         ))
         .await
@@ -119,8 +119,8 @@ impl ProtocolState<Initiator> for State {
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::handshake::initiator::HANDSHAKE_INITIATOR_PROTOCOL,
+        let _span = debug_span!(
+            protocols::handshake::initiator::HANDSHAKE_INITIATOR_PROTOCOL,
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();

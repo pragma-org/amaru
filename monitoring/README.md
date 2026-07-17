@@ -26,10 +26,10 @@ Any event (trace, span or metric) can be filtered by target and severity using t
 
 ### By target
 
-A `target` is a `::`-separated path of identifiers such as `amaru::ledger::state`. One can filter by providing either a full target, or a sub-path prefix. For example, the target `amaru::ledger` will match the following:
+A `target` is a `::`-separated path of identifiers such as `amaru::ledger::block`. One can filter by providing either a full target, or a sub-path prefix. For example, the target `amaru::ledger` will match the following:
 
-- `amaru::ledger::state`
-- `amaru::ledger::state::forward`
+- `amaru::ledger::block`
+- `amaru::ledger::epoch_transition`
 - `amaru::ledger::store`
 
 But it will not match any of the following:
@@ -37,18 +37,37 @@ But it will not match any of the following:
 - `amaru::sync`
 - `amaru::consensus`
 
-e.g. `AMARU_LOG="amaru::ledger::state::forward=info"` will filter out `target` **amaru::ledger::state::forward** with level bellow `info`.
+e.g. `AMARU_LOG="amaru::ledger::epoch_transition=info"` will filter out `target` **amaru::ledger::epoch_transition** with level bellow `info`.
 
 For a comprehensive list of available targets, spans, and traces, see [TRACES.md](../docs/TRACES.md).
 
 ### By severity
 
-It is also possible to filter events by severity: `error`, `warn`, `info`, `debug`, `trace`, `off`. Severity can be specified either globally (in which case it applies to all events) or for a specific target by specifying the severity after the target using `=`. For example, `amaru::ledger::state=error` will filter out any events below the error severity for the `amaru::ledger::state` target.
+It is also possible to filter events by severity: `error`, `warn`, `info`, `debug`, `trace`, `off`. Severity can be specified either globally (in which case it applies to all events) or for a specific target by specifying the severity after the target using `=`. For example, `amaru::ledger::block=error` will filter out any events below the error severity for the `amaru::ledger::block` target.
 
 ### By span
 
 A `span` name can be used as a filter too. Note that any `span` or `event` inside this `span` will be considered, including those not matching the initial `target` (e.g. `pallas` events could match).
 For example `amaru[find_intersection]=trace` will filter all `spans` and `events` with the name `find_intersection` plus all children of this event.
+
+### By tag
+
+Spans can carry functional tags, declared with `tags: <name>, ...` in the schema definitions (see `crates/amaru-observability/src/schemas.rs`). Each tag is recorded on the span as a boolean `amaru.tag.<name>` attribute. The tags currently in use are `cpu`, `setup`, `bootstrap`, and `io`.
+
+To select the spans carrying a given tag, match on the attribute value:
+
+```bash
+AMARU_LOG='[{amaru.tag.cpu=true}]=trace'
+```
+
+Directives can be combined to match several tags:
+
+- `[{amaru.tag.cpu=true}]=trace,[{amaru.tag.io=true}]=trace` selects spans with the `cpu` **or** the `io` tag;
+- `[{amaru.tag.cpu=true,amaru.tag.io=true}]=trace` selects spans with **both** tags.
+
+Like span filters, tag filters are scoped: any `span` or `event` created inside a matching span is also considered.
+
+Note that the value match (`=true`) is required: a field-presence directive such as `[{amaru.tag.cpu}]` only restricts *events*, and matches all spans regardless of their tags.
 
 ### Combining filters
 
@@ -69,18 +88,16 @@ Once running, metrics are available at `http://localhost:8889/metrics` (Promethe
 
 ### Optional Profiles
 
-Prometheus, Jaeger, and Grafana+Tempo are available as optional profiles:
+Prometheus and Grafana+Tempo are available as optional top-level profiles.
+Jaeger is provided as a dedicated standalone stack under `profiles/jaeger/` so
+that it can keep its own OTLP collector in front of the Jaeger backend.
 
 #### Prometheus
 
 To start Prometheus with the OTLP collector configured to export metrics:
 
 ```bash
-# With profile override (recommended for cleaner configuration):
 docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus up
-
-# Or using the simpler shorthand:
-docker compose --profile prometheus up
 ```
 
 **Includes:**
@@ -91,34 +108,34 @@ docker compose --profile prometheus up
 - `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 - `http://localhost:9090` - Prometheus UI
 
+> [!IMPORTANT]
+> The extra `-f profiles/prometheus/docker-compose.yml` is required.
+> Running only `docker compose --profile prometheus up` starts Prometheus, but
+> leaves the OTLP collector on its base config, so metrics are not exported to
+> Prometheus.
+
 #### Jaeger
 
 For distributed tracing with Jaeger:
 
 ```bash
-# With profile override (recommended for cleaner configuration):
-docker compose -f docker-compose.yml -f profiles/jaeger/docker-compose.yml --profile jaeger up
-
-# Or using the simpler shorthand:
-docker compose --profile jaeger up
+docker compose -f profiles/jaeger/docker-compose.yml up
 ```
 
 **Includes:**
 - **Jaeger** UI for trace visualization
+- **Prometheus** for span metrics
 - In-memory span and metrics storage
-- OTLP collector with Jaeger trace exporter
+- An OTLP collector that receives traces, metrics, and logs from Amaru
+- Forwarding from the collector to Jaeger for traces and to Prometheus for metrics
 
 **Available URLs:**
-- `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 - `http://localhost:16686` - Jaeger UI
+- `http://localhost:9090` - Prometheus UI
+- `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 
-**Optional:** Add `--profile prometheus` to also capture span metrics in Prometheus:
-
-```bash
-docker compose -f docker-compose.yml -f profiles/jaeger/docker-compose.yml --profile jaeger --profile prometheus up
-```
-
-This enables the `http://localhost:9090` Prometheus UI with trace-derived metrics.
+This stack is self-contained and should be started directly, rather than being
+combined with the top-level `monitoring/docker-compose.yml`.
 
 #### Grafana
 
@@ -140,11 +157,7 @@ docker compose --profile grafana up
 For distributed trace backend storage and visualization:
 
 ```bash
-# With profile override (recommended for cleaner configuration):
 docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile tempo up
-
-# Or using the simpler shorthand:
-docker compose --profile tempo up
 ```
 
 **Includes:**
@@ -156,16 +169,17 @@ docker compose --profile tempo up
 - `http://localhost:8889/metrics` - OTLP collector metrics endpoint
 - `http://localhost:3200/api/traces` - Tempo traces API
 
+> [!IMPORTANT]
+> The extra `-f profiles/tempo/docker-compose.yml` is required.
+> Running only `docker compose --profile tempo up` starts Tempo, but leaves the
+> OTLP collector on its base config, so traces are not forwarded to Tempo.
+
 #### Combining Profiles: Grafana + Tempo
 
 For the full visualization stack with Grafana and Tempo:
 
 ```bash
-# With profile override:
 docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile grafana --profile tempo up
-
-# Or using the simpler shorthand:
-docker compose --profile grafana --profile tempo up
 ```
 
 This enables Grafana to query Tempo traces through the "Explore" → "Tempo" datasource.
@@ -176,20 +190,24 @@ You can combine multiple profiles for different setups:
 
 ```bash
 # Prometheus metrics only
-docker compose --profile prometheus up
+docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus up
 
 # Grafana with Prometheus metrics
-docker compose --profile prometheus --profile grafana up
+docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus --profile grafana up
 
 # Grafana with Tempo traces
 docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile grafana --profile tempo up
 
-# Jaeger with Prometheus metrics
-docker compose -f docker-compose.yml -f profiles/jaeger/docker-compose.yml --profile jaeger --profile prometheus up
-
 # Full stack: Prometheus, Grafana, and Tempo
-docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile prometheus --profile grafana --profile tempo up
+docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml -f profiles/tempo/docker-compose.yml --profile prometheus --profile grafana --profile tempo up
 ```
+
+> [!WARNING]
+> When several `-f` files define the `otlp-collector` service, Docker Compose merges their `volumes`
+> but **replaces** `command` with the one from the last file. Each `--config` flag must therefore be
+> listed in the command of the last profile file: `profiles/tempo/docker-compose.yml` mounts and loads
+> the prometheus collector configuration in addition to its own, so the full Prometheus + Grafana +
+> Tempo stack keeps its metrics pipeline when the tempo file is listed last.
 
 ### Forwarding traces and logs to another OTLP backend
 

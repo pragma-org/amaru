@@ -29,6 +29,15 @@ pub enum TxOrigin {
     Remote(Peer),
 }
 
+impl Display for TxOrigin {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TxOrigin::Local => write!(f, "Local"),
+            TxOrigin::Remote(peer) => write!(f, "Remote({})", peer),
+        }
+    }
+}
+
 /// Sequence number assigned to a transaction when inserted into the mempool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 pub struct MempoolSeqNo(pub u64);

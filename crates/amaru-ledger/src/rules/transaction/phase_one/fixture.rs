@@ -175,6 +175,7 @@ pub(super) enum Predicate {
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
     FeeTooSmallUTxO,
+    IncorrectDepositDELEG,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
@@ -190,6 +191,7 @@ pub(super) enum Predicate {
     DRepAlreadyRegistered,
     StakeCredentialInvalidPoolDelegation,
     StakeCredentialInvalidVoteDelegation,
+    StakeKeyHasNonZeroAccountBalance,
     StakeKeyRegistered,
     ValueNotConservedUTxO,
     WrongNetworkInTxBody,
@@ -227,6 +229,9 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::OutsideValidityIntervalUTxO
             }
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideForecast(_)) => Predicate::OutsideForecast,
+            PhaseOneError::Certificates(InvalidCertificates::IncorrectStakeDeposit { .. }) => {
+                Predicate::IncorrectDepositDELEG
+            }
             PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
                 [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,
@@ -244,6 +249,9 @@ impl From<PhaseOneError> for Predicate {
             },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
+            }
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialHasRewards { .. }) => {
+                Predicate::StakeKeyHasNonZeroAccountBalance
             }
             PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
                 Predicate::DRepAlreadyRegistered

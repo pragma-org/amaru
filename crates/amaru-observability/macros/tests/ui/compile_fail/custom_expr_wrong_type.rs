@@ -28,5 +28,5 @@ define_local_schemas! {
 }
 
 fn main() {
-    let _span = trace_span!(test::example::STRICT_EXPR_TYPE, fee = "nah");
+    let _span = trace_span!(crate::test::example::STRICT_EXPR_TYPE, fee = "nah");
 }

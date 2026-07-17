@@ -55,7 +55,7 @@ use std::{
 
 use ProtocolError::*;
 use amaru_kernel::{EraHistory, Transaction, TransactionId, utils::string::display_collection};
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
@@ -135,8 +135,8 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
             };
             Ok((action, self))
         }
-        .instrument(trace_span!(
-            amaru_observability::amaru::protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE,
+        .instrument(debug_span!(
+            protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE,
             message_type = message_type
         ))
         .await
@@ -158,8 +158,8 @@ impl ProtocolState<Initiator> for State {
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_PROTOCOL,
+        let _span = debug_span!(
+            protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_PROTOCOL,
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();

@@ -104,6 +104,10 @@ impl MissingBlocks {
         Some((self.missing.front()?, self.missing.back()?))
     }
 
+    pub fn missing_points(&self) -> Vec<Point> {
+        self.missing.iter().copied().collect()
+    }
+
     pub fn nb_missing_blocks(&self) -> usize {
         self.missing.len()
     }

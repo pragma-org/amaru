@@ -25,7 +25,8 @@ use crate::stages::{
         assert_trace, setup, te_ledger_contains, te_rollback_ledger, te_send, te_terminate, te_terminated,
         te_validate_block, test_prep, tm_record_metrics,
     },
-}; // if needed for Literal
+};
+// if needed for Literal
 
 #[test]
 fn test_genesis_block_skips_validation() {

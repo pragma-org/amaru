@@ -176,6 +176,7 @@ pub use cardano::{
     era_name::any_era_name,
     era_params::any_era_params,
     hash::{any_hash28, any_hash32},
+    lovelace::any_lovelace,
     network::any_network,
     network_magic::any_network_magic,
     network_name::any_network_name,

@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
-use amaru_observability::trace_span;
+use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg, ToSocketAddrs};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 use tracing::Instrument;
@@ -73,7 +73,7 @@ pub enum ManagerMessage {
     /// Fetch all blocks on the given chain fragment
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64 },
     /// Advertise this new tip to all downstream peers.
-    NewTip(Tip),
+    NewTip(Tip, TraceContext),
     /// INTERNAL message sent by the connect handler stage after attempting a connection.
     ConnectionResult(Peer, Result<ConnectionId, ConnectError>),
     /// INTERNAL message sent from the connection stage only!
@@ -104,12 +104,16 @@ impl ManagerMessage {
             ManagerMessage::Disconnect(..) => "Disconnect",
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
-            ManagerMessage::NewTip(_) => "NewTip",
+            ManagerMessage::NewTip(_, _) => "NewTip",
             ManagerMessage::ConnectionResult(..) => "ConnectionResult",
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
             ManagerMessage::Accepted(..) => "Accepted",
             ManagerMessage::HandshakeComplete { .. } => "HandshakeComplete",
         }
+    }
+
+    pub fn new_tip(tip: Tip) -> Self {
+        ManagerMessage::NewTip(tip, TraceContext::none())
     }
 }
 
@@ -599,26 +603,24 @@ impl Manager {
 /// A peer can be added right after being removed even though the socket will be closed asynchronously.
 pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
     let message_type = msg.message_type().to_string();
-    let span = trace_span!(amaru_observability::amaru::protocols::manager::MANAGER_STAGE, message_type = message_type);
+    let span = debug_span!(protocols::manager::message::PROCESS, message_type = message_type);
 
     async move {
         match msg {
             ManagerMessage::AddPeer(peer) => {
-                let span =
-                    trace_span!(amaru_observability::amaru::protocols::manager::ADD_PEER, peer = peer.to_string());
+                let span = debug_span!(protocols::manager::peer::ADD, peer = peer.to_string());
                 manager.add_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Accepted(peer, conn_id) => {
-                let span = trace_span!(
-                    amaru_observability::amaru::protocols::manager::ACCEPTED,
+                let span = debug_span!(
+                    protocols::manager::peer::ACCEPTED,
                     peer = peer.to_string(),
                     conn_id = conn_id.to_string()
                 );
                 manager.accepted(peer, conn_id, &eff).instrument(span).await;
             }
             ManagerMessage::RemovePeer(peer) => {
-                let span =
-                    trace_span!(amaru_observability::amaru::protocols::manager::REMOVE_PEER, peer = peer.to_string());
+                let span = debug_span!(protocols::manager::peer::REMOVE, peer = peer.to_string());
                 manager.remove_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Disconnect(peer, conn_id) => {
@@ -630,8 +632,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 }
             }
             ManagerMessage::ConnectionDied(peer, conn_id, role) => {
-                let span = trace_span!(
-                    amaru_observability::amaru::protocols::manager::CONNECTION_DIED,
+                let span = debug_span!(
+                    protocols::manager::peer::CONNECTION_DIED,
                     peer = peer.to_string(),
                     conn_id = conn_id.to_string(),
                     role = role.to_string()
@@ -644,9 +646,9 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;
             }
-            ManagerMessage::NewTip(tip) => {
+            ManagerMessage::NewTip(tip, trace_context) => {
                 for conn in manager.connections.values() {
-                    eff.send(&conn.stage, ConnectionMessage::NewTip(tip)).await;
+                    eff.send(&conn.stage, ConnectionMessage::NewTip(tip, trace_context.clone())).await;
                 }
             }
             ManagerMessage::FetchBlocks { from, through, cr, id } => {

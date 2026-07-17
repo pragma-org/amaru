@@ -16,13 +16,12 @@ use amaru_kernel::Epoch;
 use amaru_ledger::store::{
     StoreError,
     columns::{
-        pools::{EVENT_TARGET, Key, Row, Value},
+        pools::{Key, Row, Value},
         unsafe_decode,
     },
 };
-use amaru_observability::trace_span;
+use amaru_observability::{error, trace_span};
 use rocksdb::{DBPinnableSlice, Transaction};
-use tracing::error;
 
 use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 
@@ -33,73 +32,55 @@ pub fn get<'a>(
     db_get: impl Fn(&[u8]) -> Result<Option<DBPinnableSlice<'a>>, rocksdb::Error>,
     pool: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::POOLS_GET,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "get".to_string(),
-        db_collection_name = "pool".to_string()
-    );
-    let _guard = _span.enter();
-
-    let key = as_key(&PREFIX, pool);
-    Ok(db_get(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)))
+    trace_span!(stores::ledger::pools::GET).in_scope(|| {
+        let key = as_key(&PREFIX, pool);
+        Ok(db_get(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d)))
+    })
 }
 
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::POOLS_ADD,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "pool".to_string()
-    );
-    let _guard = _span.enter();
+    trace_span!(stores::ledger::pools::ADD).in_scope(|| {
+        for (params, registered_at, deposit, epoch) in rows {
+            let pool = params.id;
 
-    for (params, registered_at, epoch) in rows {
-        let pool = params.id;
+            // Pool parameters are stored in an epoch-aware fashion.
+            //
+            // - If no parameters exist for the pool, we can immediately create a new
+            //   entry.
+            //
+            // - If one already exists, then the parameters are stashed until the next
+            //   epoch boundary.
+            //
+            // TODO: We might want to define a MERGE OPERATOR to speed this up if
+            // necessary.
+            let params = match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
+                None => as_value(Row::new(registered_at, deposit, params)),
+                Some(existing_params) => Row::extend(existing_params, (Some(params), epoch)),
+            };
 
-        // Pool parameters are stored in an epoch-aware fashion.
-        //
-        // - If no parameters exist for the pool, we can immediately create a new
-        //   entry.
-        //
-        // - If one already exists, then the parameters are stashed until the next
-        //   epoch boundary.
-        //
-        // TODO: We might want to define a MERGE OPERATOR to speed this up if
-        // necessary.
-        let params = match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
-            None => as_value(Row::new(registered_at, params)),
-            Some(existing_params) => Row::extend(existing_params, (Some(params), epoch)),
-        };
+            db.put(as_key(&PREFIX, pool), params).map_err(|err| StoreError::Internal(err.into()))?;
+        }
 
-        db.put(as_key(&PREFIX, pool), params).map_err(|err| StoreError::Internal(err.into()))?;
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Epoch)>) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru_observability::amaru::stores::ledger::columns::POOLS_REMOVE,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "write".to_string(),
-        db_collection_name = "pool".to_string()
-    );
-    let _guard = _span.enter();
+    trace_span!(stores::ledger::pools::REMOVE).in_scope(|| {
+        for (pool, epoch) in rows {
+            // We do not delete pool immediately but rather schedule the
+            // removal as an empty parameter update. The 'pool reaping' happens on
+            // every epoch boundary.
+            match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
+                None => {
+                    error!(target: "amaru::stores", name: "pools.remove", ?pool, reason = "unknown pool")
+                }
+                Some(existing_params) => db
+                    .put(as_key(&PREFIX, pool), Row::extend(existing_params, (None, epoch)))
+                    .map_err(|err| StoreError::Internal(err.into()))?,
+            };
+        }
 
-    for (pool, epoch) in rows {
-        // We do not delete pool immediately but rather schedule the
-        // removal as an empty parameter update. The 'pool reaping' happens on
-        // every epoch boundary.
-        match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
-            None => {
-                error!(target: EVENT_TARGET, ?pool, "remove.unknown")
-            }
-            Some(existing_params) => db
-                .put(as_key(&PREFIX, pool), Row::extend(existing_params, (None, epoch)))
-                .map_err(|err| StoreError::Internal(err.into()))?,
-        };
-    }
-
-    Ok(())
+        Ok(())
+    })
 }

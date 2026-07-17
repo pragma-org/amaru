@@ -1,12 +1,38 @@
-# Jaeger-specific overrides: add jaeger exporter and update traces pipeline
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  resource/drop_prometheus_labels:
+    attributes:
+      - key: service.name
+        action: delete
+      - key: service.instance.id
+        action: delete
+
 exporters:
+  debug:
+    verbosity: basic
   otlp/jaeger:
     endpoint: "jaeger:4317"
     tls:
       insecure: true
+  prometheus:
+    endpoint: "0.0.0.0:8889"
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [debug, otlp/jaeger]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [resource/drop_prometheus_labels]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      exporters: [debug]

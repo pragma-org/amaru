@@ -26,5 +26,5 @@ define_local_schemas! {
 }
 
 fn main() {
-    let _span = trace_span!(test::sub::SCHEMA, first = "nah");
+    let _span = trace_span!(crate::test::sub::SCHEMA, first = "nah");
 }

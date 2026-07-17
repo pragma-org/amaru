@@ -4,7 +4,7 @@
 
 [package]
 name = "amaru-deps"
-version = "10.10.0"
+version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -71,6 +71,8 @@ ignored = [
   "tokio",
   "tracing",
   "tracing-core",
+  "tracing-log",
+  "tracing-subscriber",
   "zerocopy",
   "zeroize",
 ]
@@ -133,6 +135,8 @@ thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -191,6 +195,8 @@ thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
+tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
