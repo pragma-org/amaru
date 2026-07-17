@@ -6,7 +6,7 @@
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json",
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
     "$override": { "maxValueSize": 1 }
   },
   "initialState": {
