@@ -647,7 +647,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `apply` | `TRACE` | public | Apply a block to stable state | point_slot |  |
 | `prepare` | `TRACE` | public | Prepare block for validation |  |  |
-| `validate` | `TRACE` | public | Validate block against rules |  |  |
 
 <details><summary>span: `apply`</summary>
 
@@ -1069,6 +1068,53 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::ledger::rules`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `execute` | `TRACE` | public | Validate block against ledger rules |  |  |
+
+## target: `amaru::ledger::rules::phase_one`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `block` | `TRACE` | public | Ledger rules related to block metadata and 'global' preflight checks |  |  |
+| `certificates` | `TRACE` | public | Ledger rules and state-transitions for certificates |  |  |
+| `collateral` | `TRACE` | public | Ledger rules and state-transitions for collateral |  |  |
+| `donation` | `TRACE` | public | Ledger rules and state-transitions for treasury donation |  |  |
+| `fees` | `TRACE` | public | Ledger rules and state-transitions for fees |  |  |
+| `inputs` | `TRACE` | public | Ledger rules and state-transitions for inputs |  |  |
+| `metadata` | `TRACE` | public | Ledger rules and state-transitions for metadata |  |  |
+| `mint` | `TRACE` | public | Ledger rules and state-transitions for minte/burned assets |  |  |
+| `outputs` | `TRACE` | public | Ledger rules and state-transitions for outputs |  |  |
+| `proposals` | `TRACE` | public | Ledger rules and state-transitions for governance proposals |  |  |
+| `scripts` | `TRACE` | public | Ledger rules and state-transitions for script witnesses |  |  |
+| `signatures` | `TRACE` | public | Ledger rules and state-transitions for key signatures |  |  |
+| `validity_interval` | `TRACE` | public | Ledger rules and state-transitions for validity interval |  |  |
+| `votes` | `TRACE` | public | Ledger rules and state-transitions for governance votes |  |  |
+| `withdrawals` | `TRACE` | public | Ledger rules and state-transitions for withdrawas |  |  |
+
+## target: `amaru::ledger::rules::phase_two`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `acquire_arena` | `TRACE` | public | Acquiring the allocation arena for decoding and execution |  |  |
+| `build_script_context` | `TRACE` | public | Initialize script context and cost models, common to all scripts |  |  |
+| `build_uplc_program` | `TRACE` | public | Construct the UPLC program from parameters, decoded script and context |  |  |
+| `decode_script` | `TRACE` | public | Decoding the script from Cbor/Flat |  |  |
+| `evaluate_uplc_program` | `TRACE` | public | Execute the fully-applied UPLC program |  |  |
+| `execute_one_script` | `TRACE` | public | A single script execution, with the associated redeemer qualifiers | purpose, index |  |
+| `execute_scripts` | `TRACE` | public | A span wrapping all script executions |  |  |
+
+<details><summary>span: `execute_one_script`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `purpose` | `string` | ✓ |
+| `index` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::ledger::stake_distribution`
 
 | name | level | public | description | required fields | optional fields |
@@ -1138,6 +1184,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `certificate_stake_registration` | `TRACE` | public | Register a stake credential | credential |  |
 | `certificate_vote_delegation` | `TRACE` | public | Delegate vote to DRep | credential | drep |
 | `found` | `TRACE` | public | Found a transaction while applying a block | point, block_height, tx_index, tx_id |  |
+| `validate` | `TRACE` | public | Validate a single transaction | transaction_id |  |
 
 <details><summary>span: `certificate_committee_delegate`</summary>
 
@@ -1244,6 +1291,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `block_height` | `integer` | ✓ |
 | `tx_index` | `integer` | ✓ |
 | `tx_id` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `validate`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `transaction_id` | `string` | ✓ |
 
 </details>
 
