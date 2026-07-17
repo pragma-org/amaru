@@ -16,6 +16,7 @@ use clap::Subcommand;
 
 pub(crate) mod convert;
 pub(crate) mod nonces;
+pub(crate) mod reset;
 pub(crate) mod states;
 
 #[derive(Debug, Subcommand)]
@@ -30,4 +31,7 @@ pub(crate) enum LedgerCommand {
     /// Manage ledger state snapshots.
     #[command(subcommand)]
     States(states::StatesCommand),
+
+    /// Reset the ledger database to the beginning of a specific epoch.
+    Reset(reset::Args),
 }

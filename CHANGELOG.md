@@ -46,6 +46,11 @@ Other guiding principles:
 
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
 
+### Changed
+
+- **amaru**: move the `node reset` command under `dev ledger`, where it belongs. ([#1055][])
+
+
 ### Fixed
 
 - **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
@@ -196,3 +201,4 @@ Other guiding principles:
 [#1053]: https://github.com/pragma-org/amaru/pull/1053
 [#1056]: https://github.com/pragma-org/amaru/pull/1056
 [#1060]: https://github.com/pragma-org/amaru/issues/1060
+[#1055]: https://github.com/pragma-org/amaru/pull/1055
