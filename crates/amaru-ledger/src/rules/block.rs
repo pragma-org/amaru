@@ -22,7 +22,7 @@ use amaru_kernel::{
     Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, Transaction,
     TransactionId, TransactionPointer, size::BLOCK_BODY,
 };
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
@@ -194,8 +194,8 @@ pub fn execute<C, S: From<C>>(
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
-    let _span = trace_span!(ledger::block::VALIDATE,);
-    let _guard = _span.enter();
+    let block_span = debug_span!(ledger::rules::EXECUTE);
+    let _block_guard = block_span.enter();
 
     let slot = Slot::from(block.header.header_body.slot);
 
@@ -205,6 +205,9 @@ where
         Ok(out) => BlockValidation::Valid(out),
         Err(err) => BlockValidation::Invalid(slot, header_hash, err),
     };
+
+    let preflight_span = debug_span!(ledger::rules::phase_one::BLOCK);
+    let _preflight_guard = preflight_span.enter();
 
     with_block_context(header_size::block_header_size_valid(block.header_len(), protocol_params))?;
 
@@ -233,18 +236,22 @@ where
     for (i, transaction, tx_size) in block {
         let transaction_id = transaction.tx_id();
 
-        if let Err(violation) = validate_transaction(
-            context,
-            arena_pool,
-            network,
-            protocol_params,
-            era_history,
-            global_parameters,
-            governance_activity,
-            TransactionPointer { slot, transaction_index: i as usize },
-            &transaction,
-            tx_size,
-        ) {
+        if let Err(violation) =
+            debug_span!(ledger::transaction::VALIDATE, transaction_id = transaction_id).in_scope(|| {
+                validate_transaction(
+                    context,
+                    arena_pool,
+                    network,
+                    protocol_params,
+                    era_history,
+                    global_parameters,
+                    governance_activity,
+                    TransactionPointer { slot, transaction_index: i as usize },
+                    &transaction,
+                    tx_size,
+                )
+            })
+        {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_id,
                 transaction_index: i,
@@ -281,10 +288,6 @@ pub fn validate_transaction<C>(
 where
     C: ValidationContext + fmt::Debug,
 {
-    transaction.body.required_signers.as_deref().unwrap_or(&[]).iter().for_each(|vk_hash| {
-        context.require_vkey_witness(*vk_hash);
-    });
-
     let consumed_inputs = transaction::phase_one::execute(
         context,
         network,
