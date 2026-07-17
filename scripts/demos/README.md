@@ -158,13 +158,14 @@ the `monitoring` directory, first removing the previous volumes so every run sta
 and metrics. The Amaru nodes export their traces and metrics to the collector using the OpenTelemetry
 settings below, and `telemetry-open` opens preconfigured Grafana Explore tabs on the collected data.
 
-| Variable                   | Default                                                                                                                                    | Description                                                              |
-|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| `START_TELEMETRY`          | `true`                                                                                                                                     | Start Grafana, Tempo, Prometheus, and the OTLP collector before the demo |
-| `TELEMETRY_DIR`            | `$AMARU_DIR/monitoring`                                                                                                                    | Directory containing the telemetry Docker Compose files                  |
-| `TELEMETRY_PROFILES`       | `prometheus grafana tempo`                                                                                                                 | Docker Compose profiles started for telemetry; each profile's `profiles/<name>/docker-compose.yml` is included automatically when present |
-| `TELEMETRY_GRAFANA_URL`    | `http://localhost`                                                                                                                         | Grafana URL opened by `telemetry-open`                                   |
-| `TELEMETRY_PROMETHEUS_URL` | `http://localhost:9090`                                                                                                                    | Prometheus URL opened by `telemetry-open`                                |
+| Variable                          | Default                                   | Description                                                                                                                               |
+|-----------------------------------|-------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `START_TELEMETRY`                 | `true`                                    | Start Grafana, Tempo, Prometheus, and the OTLP collector before the demo                                                                  |
+| `TELEMETRY_DIR`                   | `$AMARU_DIR/monitoring`                   | Directory containing the telemetry Docker Compose files                                                                                   |
+| `TELEMETRY_PROFILES`              | `prometheus grafana tempo`                | Docker Compose profiles started for telemetry; each profile's `profiles/<name>/docker-compose.yml` is included automatically when present |
+| `TELEMETRY_GRAFANA_URL`           | `http://localhost`                        | Grafana URL opened by `telemetry-open`                                                                                                    |
+| `TELEMETRY_PROMETHEUS_URL`        | `http://localhost:9090`                   | Prometheus URL opened by `telemetry-open`                                                                                                 |
+| `TELEMETRY_COMPOSE_OVERRIDE_FILE` | `<demo dir>/telemetry/docker-compose.yml` | Extra Docker Compose file layered onto the shared stack, e.g. to provision demo-owned Grafana dashboards                                  |
 
 ### OpenTelemetry export
 
