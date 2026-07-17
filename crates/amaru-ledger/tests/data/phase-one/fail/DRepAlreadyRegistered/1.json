@@ -6,7 +6,7 @@
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [
@@ -39,7 +39,7 @@
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "83a400d9010281825820abababababababababababababababababababababababababababababababab000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d4004d901028184108201581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf1a1dcd6500f6a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840a1c0dcf56041e66e86436743a09aa5e30ecfbfc6484b52292b5804888abee05d9692580a04e393af3acd9365c1ee8a777e2025e3144827bb3f1fe746d14c750801d9010281820180f5",
+  "transaction": "84a400d9010281825820abababababababababababababababababababababababababababababababab000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d4004d901028184108201581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf1a1dcd6500f6a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840a1c0dcf56041e66e86436743a09aa5e30ecfbfc6484b52292b5804888abee05d9692580a04e393af3acd9365c1ee8a777e2025e3144827bb3f1fe746d14c750801d9010281820180f5f6",
   "expected": {
     "predicate": "DRepAlreadyRegistered"
   }
