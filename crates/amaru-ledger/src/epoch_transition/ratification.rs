@@ -34,14 +34,12 @@ use amaru_kernel::{
     expect_stake_credential,
     rational_number,
 };
-use amaru_observability::info_span;
+use amaru_observability::{debug, info, info_span};
 
 use crate::{
-    debug,
     governance::ratification::{
         CandidateProposal, CommitteeUpdate, ProposalsRoots, ProposalsRootsRc, RatificationContext,
     },
-    info,
     state::StateError,
     store::columns::proposals::Row as Proposal,
 };
@@ -179,7 +177,7 @@ impl GovernanceUpdates {
                     let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
 
                     if expired || ratified_or_evicted {
-                        info!("proposal.drop", id = %id, expired, ratified_or_evicted);
+                        info!(ledger::proposal::DROP, id = %id, expired, ratified_or_evicted);
                         ctx.pruned_proposals.insert(id, RatificationStatus::NotRatified); // For expired proposals
                         let return_account = proposal.return_account;
                         let deposit = proposal.deposit;
@@ -240,20 +238,20 @@ impl GovernanceUpdates {
                     .collect();
 
                 debug!(
-                    "proposal_roots.summarize",
-                    constitution = opt_root(roots.constitution.as_deref()),
-                    constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
-                    hard_fork = opt_root(roots.hard_fork.as_deref()),
-                    protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
+                    ledger::proposal_roots::SUMMARIZE,
+                    constitution = @opt_root(roots.constitution.as_deref()),
+                    constitutional_committee = @opt_root(roots.constitutional_committee.as_deref()),
+                    hard_fork = @opt_root(roots.hard_fork.as_deref()),
+                    protocol_parameters = @opt_root(roots.protocol_parameters.as_deref()),
                 );
 
                 info!(
-                    "ratification.summarize",
-                    pruned_proposals = opt_str(pruned_proposals_str),
-                    payouts = opt_str(payouts_str),
+                    ledger::ratification::SUMMARIZE,
+                    pruned_proposals = @opt_str(pruned_proposals_str),
+                    payouts = @opt_str(payouts_str),
                     new_constitution =
-                        opt_str(ctx.new_constitution.as_ref().map(|c| c.anchor.url.clone()).unwrap_or_default()),
-                    constitutional_committee_update = opt_str(
+                        @opt_str(ctx.new_constitution.as_ref().map(|c| c.anchor.url.clone()).unwrap_or_default()),
+                    constitutional_committee_update = @opt_str(
                         ctx.constitutional_committee_update.as_ref().map(|c| c.to_string()).unwrap_or_default()
                     ),
                     is_dormant_epoch,
@@ -338,52 +336,52 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
     } = new;
 
     info!(
-        "protocol_parameters.ratify",
-        protocol_version = opt_field_with(&old.protocol_version, protocol_version, protocol_version::fmt),
-        max_block_body_size = opt_field(&old.max_block_body_size, max_block_body_size),
-        max_transaction_size = opt_field(&old.max_transaction_size, max_transaction_size),
-        max_block_header_size = opt_field(&old.max_block_header_size, max_block_header_size),
-        max_tx_ex_units = opt_field_with(&old.max_tx_ex_units, max_tx_ex_units, ex_units::fmt),
-        max_block_ex_units = opt_field_with(&old.max_block_ex_units, max_block_ex_units, ex_units::fmt),
-        max_value_size = opt_field(&old.max_value_size, max_value_size),
-        max_collateral_inputs = opt_field(&old.max_collateral_inputs, max_collateral_inputs),
-        min_fee_a = opt_field(&old.min_fee_a, min_fee_a),
-        min_fee_b = opt_field(&old.min_fee_b, min_fee_b),
-        stake_credential_deposit = opt_field(&old.stake_credential_deposit, stake_credential_deposit),
-        stake_pool_deposit = opt_field(&old.stake_pool_deposit, stake_pool_deposit),
+        ledger::protocol_parameters::RATIFY,
+        protocol_version = @opt_field_with(&old.protocol_version, protocol_version, protocol_version::fmt),
+        max_block_body_size = @opt_field(&old.max_block_body_size, max_block_body_size),
+        max_transaction_size = @opt_field(&old.max_transaction_size, max_transaction_size),
+        max_block_header_size = @opt_field(&old.max_block_header_size, max_block_header_size),
+        max_tx_ex_units = @opt_field_with(&old.max_tx_ex_units, max_tx_ex_units, ex_units::fmt),
+        max_block_ex_units = @opt_field_with(&old.max_block_ex_units, max_block_ex_units, ex_units::fmt),
+        max_value_size = @opt_field(&old.max_value_size, max_value_size),
+        max_collateral_inputs = @opt_field(&old.max_collateral_inputs, max_collateral_inputs),
+        min_fee_a = @opt_field(&old.min_fee_a, min_fee_a),
+        min_fee_b = @opt_field(&old.min_fee_b, min_fee_b),
+        stake_credential_deposit = @opt_field(&old.stake_credential_deposit, stake_credential_deposit),
+        stake_pool_deposit = @opt_field(&old.stake_pool_deposit, stake_pool_deposit),
         monetary_expansion_rate =
-            opt_field_with(&old.monetary_expansion_rate, monetary_expansion_rate, rational_number::fmt),
+            @opt_field_with(&old.monetary_expansion_rate, monetary_expansion_rate, rational_number::fmt),
         treasury_expansion_rate =
-            opt_field_with(&old.treasury_expansion_rate, treasury_expansion_rate, rational_number::fmt),
-        min_pool_cost = opt_field(&old.min_pool_cost, min_pool_cost),
-        lovelace_per_utxo_byte = opt_field(&old.lovelace_per_utxo_byte, lovelace_per_utxo_byte),
-        prices = opt_field_with(&old.prices, prices, ex_units_prices::fmt),
-        min_fee_ref_script_lovelace_per_byte = opt_field_with(
+            @opt_field_with(&old.treasury_expansion_rate, treasury_expansion_rate, rational_number::fmt),
+        min_pool_cost = @opt_field(&old.min_pool_cost, min_pool_cost),
+        lovelace_per_utxo_byte = @opt_field(&old.lovelace_per_utxo_byte, lovelace_per_utxo_byte),
+        prices = @opt_field_with(&old.prices, prices, ex_units_prices::fmt),
+        min_fee_ref_script_lovelace_per_byte = @opt_field_with(
             &old.min_fee_ref_script_lovelace_per_byte,
             min_fee_ref_script_lovelace_per_byte,
             rational_number::fmt,
         ),
-        max_ref_script_size_per_tx = opt_field(&old.max_ref_script_size_per_tx, max_ref_script_size_per_tx),
-        max_ref_script_size_per_block = opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
-        ref_script_cost_stride = opt_field(&old.ref_script_cost_stride, ref_script_cost_stride),
+        max_ref_script_size_per_tx = @opt_field(&old.max_ref_script_size_per_tx, max_ref_script_size_per_tx),
+        max_ref_script_size_per_block = @opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
+        ref_script_cost_stride = @opt_field(&old.ref_script_cost_stride, ref_script_cost_stride),
         ref_script_cost_multiplier =
-            opt_field_with(&old.ref_script_cost_multiplier, ref_script_cost_multiplier, rational_number::fmt),
+            @opt_field_with(&old.ref_script_cost_multiplier, ref_script_cost_multiplier, rational_number::fmt),
         stake_pool_max_retirement_epoch =
-            opt_field(&old.stake_pool_max_retirement_epoch, stake_pool_max_retirement_epoch),
-        optimal_stake_pools_count = opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
-        pledge_influence = opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
-        collateral_percentage = opt_field(&old.collateral_percentage, collateral_percentage),
-        cost_models = opt_field_with(&old.cost_models, cost_models, cost_models::fmt),
+            @opt_field(&old.stake_pool_max_retirement_epoch, stake_pool_max_retirement_epoch),
+        optimal_stake_pools_count = @opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
+        pledge_influence = @opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
+        collateral_percentage = @opt_field(&old.collateral_percentage, collateral_percentage),
+        cost_models = @opt_field_with(&old.cost_models, cost_models, cost_models::fmt),
         pool_voting_thresholds =
-            opt_field_with(&old.pool_voting_thresholds, pool_voting_thresholds, pool_voting_thresholds::fmt),
+            @opt_field_with(&old.pool_voting_thresholds, pool_voting_thresholds, pool_voting_thresholds::fmt),
         drep_voting_thresholds =
-            opt_field_with(&old.drep_voting_thresholds, drep_voting_thresholds, drep_voting_thresholds::fmt,),
-        min_committee_size = opt_field(&old.min_committee_size, min_committee_size),
-        max_committee_term_length = opt_field(&old.max_committee_term_length, max_committee_term_length),
-        gov_action_lifetime = opt_field(&old.gov_action_lifetime, gov_action_lifetime),
-        gov_action_deposit = opt_field(&old.gov_action_deposit, gov_action_deposit),
-        drep_deposit = opt_field(&old.drep_deposit, drep_deposit),
-        drep_expiry = opt_field(&old.drep_expiry, drep_expiry),
+            @opt_field_with(&old.drep_voting_thresholds, drep_voting_thresholds, drep_voting_thresholds::fmt,),
+        min_committee_size = @opt_field(&old.min_committee_size, min_committee_size),
+        max_committee_term_length = @opt_field(&old.max_committee_term_length, max_committee_term_length),
+        gov_action_lifetime = @opt_field(&old.gov_action_lifetime, gov_action_lifetime),
+        gov_action_deposit = @opt_field(&old.gov_action_deposit, gov_action_deposit),
+        drep_deposit = @opt_field(&old.drep_deposit, drep_deposit),
+        drep_expiry = @opt_field(&old.drep_expiry, drep_expiry),
     );
 }
 

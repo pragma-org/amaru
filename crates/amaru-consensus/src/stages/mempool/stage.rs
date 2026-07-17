@@ -152,7 +152,7 @@ async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Tip) -> R
 
     tracing::debug!(%tip, invalidated_txs = invalid_tx_ids.len(), "revalidated mempool after new tip");
     RevalidationOutcome {
-        tip_slot: u64::from(tip.slot()),
+        tip_slot: tip.slot(),
         total_before,
         evicted_tx_ids: invalid_tx_ids,
         duration_micros: started.elapsed().as_micros() as u64,

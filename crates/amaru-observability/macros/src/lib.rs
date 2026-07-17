@@ -128,6 +128,29 @@ pub fn trace_record(input: TokenStream) -> TokenStream {
     traces::expand_trace_record(input)
 }
 
+/// Emits a tracing event with a compile-time validated schema anchor.
+///
+/// The event `target` and `name` are derived from the schema constant, exactly
+/// like the spans created by [`trace_span!`](macro@trace_span). Emission is
+/// gated on the schema visibility (public schemas always emit; private ones
+/// only when `AMARU_TRACE_EMIT_PRIVATE` is set).
+///
+/// # Syntax
+///
+/// ```text
+/// trace_event!(LEVEL, SCHEMA, field = value, ...);
+/// ```
+///
+/// # Example
+///
+/// ```text
+/// trace_event!(ERROR, stores::ledger::accounts::RESET_MANY, ?credential, reason = "no account for given credential");
+/// ```
+#[proc_macro]
+pub fn trace_event(input: TokenStream) -> TokenStream {
+    traces::expand_trace_event(input)
+}
+
 /// Creates a tracing span with compile-time validated schema anchor.
 ///
 /// This macro creates spans with a schema-anchored approach that provides

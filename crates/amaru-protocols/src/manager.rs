@@ -608,19 +608,15 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
     async move {
         match msg {
             ManagerMessage::AddPeer(peer) => {
-                let span = debug_span!(protocols::manager::peer::ADD, peer = peer.to_string());
+                let span = debug_span!(protocols::manager::peer::ADD, peer = &peer);
                 manager.add_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Accepted(peer, conn_id) => {
-                let span = debug_span!(
-                    protocols::manager::peer::ACCEPTED,
-                    peer = peer.to_string(),
-                    conn_id = conn_id.to_string()
-                );
+                let span = debug_span!(protocols::manager::peer::ACCEPTED, peer = &peer, conn_id = conn_id.to_string());
                 manager.accepted(peer, conn_id, &eff).instrument(span).await;
             }
             ManagerMessage::RemovePeer(peer) => {
-                let span = debug_span!(protocols::manager::peer::REMOVE, peer = peer.to_string());
+                let span = debug_span!(protocols::manager::peer::REMOVE, peer = &peer);
                 manager.remove_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Disconnect(peer, conn_id) => {
@@ -634,7 +630,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             ManagerMessage::ConnectionDied(peer, conn_id, role) => {
                 let span = debug_span!(
                     protocols::manager::peer::CONNECTION_DIED,
-                    peer = peer.to_string(),
+                    peer = &peer,
                     conn_id = conn_id.to_string(),
                     role = role.to_string()
                 );

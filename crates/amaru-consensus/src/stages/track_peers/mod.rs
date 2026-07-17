@@ -498,7 +498,7 @@ impl TrackPeers {
 }
 
 pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<BlockHeader, ConsensusError> {
-    let span = debug_span!(consensus::header::DECODE, peer = peer.to_string(),);
+    let span = debug_span!(consensus::header::DECODE, peer = peer);
     let _guard = span.enter();
     // need to list all the variants supported by the current Amaru implementation
     if !matches!(raw_header.variant, EraName::Conway) {

@@ -42,7 +42,7 @@ pub(super) fn write_epoch_metadata(
     target: &EpochTarget,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = metadata_path_for_epoch(metadata_dir, target.epoch);
-    info!(target: "amaru::cli", name: "epoch_metadata.write", epoch = %target.epoch, path = %relative_path(&path)?.display());
+    info!(cli::epoch_metadata::WRITE, epoch = %target.epoch, path = %relative_path(&path)?.display());
     fs::write(path, serde_json::to_vec_pretty(target)?)?;
     Ok(())
 }
