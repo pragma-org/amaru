@@ -16,7 +16,7 @@ use amaru_kernel::{ExUnitPrices, ExUnits, HasExUnits, Lovelace, ProtocolParamete
 use num::{BigUint, Zero};
 
 use crate::{
-    context::{BalanceSlice, PotsSlice, UtxoSlice},
+    context::{BalanceSlice, UtxoSlice},
     summary::{SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
 };
 
@@ -41,9 +41,9 @@ pub(crate) fn execute<C>(
     witness_set: &WitnessSet,
     ref_scripts_size: u64,
     pp: &ProtocolParameters,
-) -> Result<(), InvalidFees>
+) -> Result<Lovelace, InvalidFees>
 where
-    C: UtxoSlice + PotsSlice + BalanceSlice,
+    C: UtxoSlice + BalanceSlice,
 {
     let minimum = compute_min_fee(tx_size, witness_set, ref_scripts_size, pp);
 
@@ -51,10 +51,9 @@ where
         return Err(InvalidFees::FeeTooSmall { provided: fees, minimum });
     }
 
-    context.add_fees(fees);
     context.produce_lovelace(fees);
 
-    Ok(())
+    Ok(fees)
 }
 
 fn compute_min_fee(tx_size: u64, witness_set: &WitnessSet, ref_scripts_size: u64, pp: &ProtocolParameters) -> Lovelace {
@@ -155,7 +154,8 @@ mod tests {
                     &witness_set,
                     /* ref_scripts_size */ 0,
                     &pp,
-                )
+                )?;
+                Ok(())
             },
             expected_traces,
         )

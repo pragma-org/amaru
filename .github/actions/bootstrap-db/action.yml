@@ -6,6 +6,10 @@ inputs:
   network:
     description: Network name (preprod, preview, mainnet)
     required: true
+  epoch:
+    description: Target epoch for the bootstrap, use latest available if empty.
+    type: string
+
   # Bump this version whenever the ledger or chain store serialisation format
   # changes and the cached databases become incompatible.
   # This is the single source of truth for the bootstrap cache key version.
@@ -37,6 +41,7 @@ runs:
         AMARU_NETWORK: ${{ inputs.network }}
         AMARU_LEDGER_DIR: ./ledger.${{ inputs.network }}.db
         AMARU_CHAIN_DIR: ./chain.${{ inputs.network }}.db
+        AMARU_EPOCH: ${{ inputs.epoch }}
       run: make bootstrap
 
     - name: Save bootstrap DBs to cache
