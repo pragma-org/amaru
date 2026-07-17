@@ -41,6 +41,7 @@ Other guiding principles:
 
 - **amaru-ledger**: trace spans for the ledger rules (phase-one and phase-two). ([#1056][])
 - **amaru-ledger**: run scripts in parallel within the same transaction. ([#1056][])
+- **amaru**: add spans to track the performance of the node. ([#1005][])
 
 ### Removed
 
@@ -65,7 +66,6 @@ Other guiding principles:
 - **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
 - **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
 - **amaru**: add a demo showcasing `amaru` as a relay node supporting both chainsync (to synchronize downstream nodes) and txsubmission (to diffuse transactions upstream). ([#1029][])
-- **amaru**: add spans to track the performance of the node. ([#1005][])
 
 ### Removed
 
