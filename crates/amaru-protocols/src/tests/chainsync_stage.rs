@@ -151,6 +151,9 @@ pub(super) async fn store_fetched_blocks(
             assert!(current.remaining_points.is_empty(), "expected blocks for request {id}, got no blocks");
             advance_after_fetch(&mut state, current.handler, &eff).await;
         }
+        StoreFetchedBlocksMessage::Blocks(Blocks::NoPeersAvailable(id)) => {
+            panic!("unexpected NoPeersAvailable for request {id}: test expects connected peers");
+        }
         StoreFetchedBlocksMessage::Blocks(Blocks::Block(id, _peer, network_block)) => {
             if !matches!(state.current.as_ref(), Some(current) if current.id == id) {
                 return state;

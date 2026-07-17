@@ -45,6 +45,7 @@ pub fn initiator() -> Miniprotocol<State, BlockFetchInitiator, Initiator> {
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks {
     NoBlocks(u64),
+    NoPeersAvailable(u64),
     Block(u64, Peer, NetworkBlock),
     Done(u64),
 }
@@ -52,11 +53,12 @@ pub enum Blocks {
 impl std::fmt::Debug for Blocks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NoBlocks(height) => f.debug_tuple("NoBlocks").field(height).finish(),
-            Self::Block(height, peer, block) => {
-                f.debug_tuple("Block").field(height).field(peer).field(&debug_bytes(block.as_slice(), 80)).finish()
+            Self::NoBlocks(id) => f.debug_tuple("NoBlocks").field(id).finish(),
+            Self::NoPeersAvailable(id) => f.debug_tuple("NoPeersAvailable").field(id).finish(),
+            Self::Block(id, peer, block) => {
+                f.debug_tuple("Block").field(id).field(peer).field(&debug_bytes(block.as_slice(), 80)).finish()
             }
-            Self::Done(height) => f.debug_tuple("Done").field(height).finish(),
+            Self::Done(id) => f.debug_tuple("Done").field(id).finish(),
         }
     }
 }

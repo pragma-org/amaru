@@ -63,14 +63,17 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 ///   stragglers logged and dropped). On match: store block, send `(Tip, parent_boundary, block_height)`
 ///   downstream, `shift_one_block` on cursor; if now empty, clear state, cancel timeout,
 ///   signal `FetchNextFrom` upstream.
-/// - `Timeout(req_id)`: If matches current, log error, clear missing/timeout, signal
-///   `FetchNextFrom(boundary)` upstream to retry (no direct peer penalty here).
+/// - `Timeout(req_id)`: If matches current, log error (unless paused for no peers), clear
+///   missing/timeout, signal `FetchNextFrom(boundary)` upstream to retry (no direct peer penalty here).
+/// - `NoPeersAvailable(req_id)`: If matches current, log INFO that fetch is paused; leave the
+///   5s timeout armed so retry is rate-limited without ERROR.
 ///
 /// ## Child stages and their protocols
 /// - **cleanup_replies** (dynamic, `StageRef<Blocks>`, lazily `ensure_child`'d on every
 ///   message; factory creates `Cleanup` with self-ref + block_source/peer_selection):
 ///   - Receives `Blocks` replies routed by manager (because `cr` passed in FetchBlocks).
 ///   - `NoBlocks(_)`: ignored (timeout will handle).
+///   - `NoPeersAvailable(id)`: forward `FetchBlocksMsg::NoPeersAvailable(id)` to parent.
 ///   - `Block(id, peer, nb)`: decode header (adversarial on fail + return), ALWAYS
 ///     `BlockSourceMsg::BlockReceived {peer, tip}` (for stats/selection), forward as
 ///     `FetchBlocksMsg::Block` to parent ONLY if id >= curr_id (straggler filter),
@@ -86,6 +89,7 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 ///   `from_to()`, `first()`, `boundary()`, `shift_one_block()`, `is_empty()`, `nb_missing_blocks()`.
 ///   Asserted None on NewTip/Recover entry; cleared on completion, timeout, or no-work cases.
 /// - `timeout: Option<ScheduleId>`: the pending 5s timeout for current req; taken/cancelled only on batch success.
+/// - `no_peers_pause: bool`: set when manager reports no initiating connections; suppresses ERROR on the following timeout.
 /// - `block_height: BlockHeight`: monotonic max over seen tips; passed with every downstream send (for both live and recovered blocks).
 /// - Other refs: upstream (for FetchNextFrom continuation), manager (requests), block_source (receipts via child), peer_selection (adversarial reports).
 ///
@@ -111,6 +115,8 @@ pub struct FetchBlocks {
     peer_selection: StageRef<PeerSelectionMsg>,
     cleanup_replies: StageRef<Blocks>,
     timeout: Option<ScheduleId>,
+    /// Set when the manager reports no initiating peers; suppresses ERROR on the next timeout.
+    no_peers_pause: bool,
     block_height: BlockHeight,
     /// Trace context originating from the reception of a new tip. Additional spans created by
     /// this stage are children of that context
@@ -135,6 +141,7 @@ impl FetchBlocks {
             peer_selection,
             cleanup_replies: StageRef::blackhole(),
             timeout: None,
+            no_peers_pause: false,
             block_height: BlockHeight::from(0),
             trace_context: Default::default(),
         }
@@ -287,6 +294,7 @@ impl FetchBlocks {
             Some((from, to)) => {
                 tracing::debug!(%from, %to, length = missing.nb_missing_blocks(), "requesting blocks");
                 self.req_id += 1;
+                self.no_peers_pause = false;
                 self.trace_context = Some(parent_context);
                 eff.send(
                     &self.manager,
@@ -358,6 +366,7 @@ impl FetchBlocks {
         missing.shift_one_block();
         if missing.is_empty() {
             self.missing = None;
+            self.no_peers_pause = false;
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;
             }
@@ -365,17 +374,31 @@ impl FetchBlocks {
         }
     }
 
+    pub async fn no_peers_available(&mut self, req_id: u64, _eff: Effects<FetchBlocksMsg>) {
+        if req_id != self.req_id || self.missing.is_none() {
+            return;
+        }
+
+        tracing::info!(%req_id, "block fetching paused due to no upstream peers");
+        self.no_peers_pause = true;
+    }
+
     pub async fn timeout(&mut self, req_id: u64, eff: Effects<FetchBlocksMsg>) {
         if req_id != self.req_id {
             return;
         }
 
-        tracing::error!(%req_id, "timeout fetching blocks");
+        if self.no_peers_pause {
+            tracing::debug!(%req_id, "retrying block fetch after no-peers pause");
+        } else {
+            tracing::error!(%req_id, "timeout fetching blocks");
+        }
         match self.missing.as_ref().map(|m| m.boundary()) {
             None => (),
             Some(from) => {
                 self.timeout = None;
                 self.missing = None;
+                self.no_peers_pause = false;
                 self.fetch_next_from(eff, from).await;
             }
         }
@@ -407,6 +430,7 @@ pub enum FetchBlocksMsg {
     RecoverStoredBlocks(HeaderHash, TraceContext),
     Block(Peer, NetworkBlock),
     Timeout(u64),
+    NoPeersAvailable(u64),
 }
 
 impl FetchBlocksMsg {
@@ -432,6 +456,7 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
         }
         FetchBlocksMsg::Block(peer, block) => state.block(peer, block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
+        FetchBlocksMsg::NoPeersAvailable(req_id) => state.no_peers_available(req_id, eff).await,
     }
     state
 }
@@ -461,6 +486,9 @@ async fn cleanup_replies(mut state: Cleanup, msg: Blocks, eff: Effects<Blocks>) 
     match msg {
         // completely ignore empty responses, fetch stage will deal with timeouts
         Blocks::NoBlocks(_) => {}
+        Blocks::NoPeersAvailable(id) => {
+            eff.send(&state.fetch, FetchBlocksMsg::NoPeersAvailable(id)).await;
+        }
         Blocks::Block(id, peer, network_block) => {
             let header = match network_block.decode_header() {
                 Ok(header) => header,
