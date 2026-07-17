@@ -286,9 +286,9 @@ mod tests {
 
         let produced_contexts = tx_info
             .redeemers
-            .keys()
-            .map(|key| {
-                let script_context = ScriptContext::new(&tx_info, key).unwrap();
+            .iter()
+            .map(|(key, entry)| {
+                let script_context = ScriptContext::new(&tx_info, key, entry);
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<1>>::to_plutus_data(&script_context)
                         .expect("failed to ScriptContext convert to PlutusData"),
