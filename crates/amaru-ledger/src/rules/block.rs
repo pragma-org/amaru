@@ -290,6 +290,7 @@ where
 {
     let consumed_inputs = transaction::phase_one::execute(
         context,
+        arena_pool,
         network,
         protocol_params,
         era_history,

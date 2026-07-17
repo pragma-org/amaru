@@ -25,6 +25,7 @@ use amaru_kernel::{
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
+use amaru_plutus::arena_pool::ArenaPool;
 use amaru_uplc::{
     arena::Arena,
     flat::{FlatDecodeError, decode_plutus_script},
@@ -167,6 +168,7 @@ pub enum InvalidScripts {
 // TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(
     context: &mut C,
+    arena_pool: &ArenaPool,
     witness_set: &WitnessSet,
     validity_interval: ValidityInterval,
     protocol_parameters: &ProtocolParameters,
@@ -182,8 +184,13 @@ where
     let required_script_hashes: BTreeSet<&Hash<SCRIPT>> =
         required_scripts.iter().map(|RequiredScript { hash, .. }| hash).collect();
 
-    let provided_scripts =
-        collect_provided_scripts(context, &required_script_hashes, witness_set, protocol_parameters.protocol_version)?;
+    let provided_scripts = collect_provided_scripts(
+        context,
+        arena_pool,
+        &required_script_hashes,
+        witness_set,
+        protocol_parameters.protocol_version,
+    )?;
 
     super::native_scripts::execute(&provided_scripts, &required_script_hashes, witness_set, validity_interval)?;
 
@@ -356,6 +363,7 @@ fn datum_hashes(witness_set: &WitnessSet) -> BTreeSet<Hash<DATUM>> {
 /// - Scripts from collateral return
 fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
+    arena_pool: &ArenaPool,
     required: &BTreeSet<&Hash<SCRIPT>>,
     witness_set: &'a WitnessSet,
     protocol_version: ProtocolVersion,
@@ -363,7 +371,7 @@ fn collect_provided_scripts<'a, C>(
 where
     C: WitnessSlice,
 {
-    let mut provided = validate_witness_scripts(witness_set, protocol_version)?;
+    let mut provided = validate_witness_scripts(arena_pool, witness_set, protocol_version)?;
 
     // Reference-input scripts are not validated here — they were validated when the producing
     // transaction's outputs went through the output rule. We only include those required by
@@ -496,10 +504,8 @@ pub(crate) fn validate_plutus_script<const V: usize>(
     script: &PlutusScript<V>,
     plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
-    arena: &mut Arena,
+    arena: &Arena,
 ) -> Result<(), FlatDecodeError> {
-    arena.reset();
-
     let (_program, decoded_version) = decode_plutus_script(script, protocol_version, arena)?;
 
     if plutus_version != decoded_version {
@@ -520,13 +526,13 @@ pub(crate) fn validate_plutus_script<const V: usize>(
 /// by hash (native scripts are included as-is; Plutus scripts are included after their bytes
 /// successfully decode under the given protocol version). Fails with
 /// `MalformedScriptWitnesses` if any Plutus script's flat encoding doesn't decode.
-fn validate_witness_scripts(
-    witness_set: &WitnessSet,
+fn validate_witness_scripts<'a>(
+    arena_pool: &'_ ArenaPool,
+    witness_set: &'a WitnessSet,
     protocol_version: ProtocolVersion,
-) -> Result<BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>, InvalidScripts> {
+) -> Result<BTreeMap<Hash<SCRIPT>, ProvidedScript<'a>>, InvalidScripts> {
     let mut provided = BTreeMap::new();
     let mut malformed = BTreeSet::new();
-    let mut arena = Arena::new();
 
     if let Some(scripts) = witness_set.native_script.as_deref() {
         for script in scripts {
@@ -534,11 +540,13 @@ fn validate_witness_scripts(
         }
     }
 
+    let arena = arena_pool.acquire();
+
     collect_plutus_witness_scripts(
         witness_set.plutus_v1_script.as_deref(),
         PlutusVersion::V1,
         protocol_version,
-        &mut arena,
+        &arena,
         &mut provided,
         &mut malformed,
     );
@@ -547,7 +555,7 @@ fn validate_witness_scripts(
         witness_set.plutus_v2_script.as_deref(),
         PlutusVersion::V2,
         protocol_version,
-        &mut arena,
+        &arena,
         &mut provided,
         &mut malformed,
     );
@@ -556,7 +564,7 @@ fn validate_witness_scripts(
         witness_set.plutus_v3_script.as_deref(),
         PlutusVersion::V3,
         protocol_version,
-        &mut arena,
+        &arena,
         &mut provided,
         &mut malformed,
     );
@@ -584,7 +592,7 @@ fn collect_plutus_witness_scripts<const V: usize>(
     scripts: Option<&[PlutusScript<V>]>,
     plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
-    arena: &mut Arena,
+    arena: &Arena,
     provided: &mut BTreeMap<Hash<SCRIPT>, ProvidedScript<'_>>,
     malformed: &mut BTreeSet<Hash<SCRIPT>>,
 ) {
@@ -607,6 +615,7 @@ mod tests {
         PoolVotingThresholds, ProtocolParameters, RationalNumber, TransactionBody, WitnessSet, include_cbor,
         include_json,
     };
+    use amaru_plutus::arena_pool::ArenaPool;
     use test_case::test_case;
 
     use super::{InvalidScripts, PlutusVersion};
@@ -850,19 +859,27 @@ mod tests {
             ProtocolParameters,
         ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, &witness_set, tx.validity_interval(), &protocol_parameters, tx.script_data_hash)
+        let arena_pool = ArenaPool::new(1, 1024);
+        super::execute(
+            &mut ctx,
+            &arena_pool,
+            &witness_set,
+            tx.validity_interval(),
+            &protocol_parameters,
+            tx.script_data_hash,
+        )
     }
 
     #[test]
     fn malformed_script_rejected() {
         let script: PlutusScript<3> = PlutusScript(vec![0xDE, 0xAD].into());
-        let mut arena = amaru_uplc::arena::Arena::new();
+        let arena = amaru_uplc::arena::Arena::new();
         assert!(
             super::validate_plutus_script(
                 &script,
                 PlutusVersion::V3,
                 FIXTURE_PROTOCOL_PARAMETERS.protocol_version,
-                &mut arena
+                &arena
             )
             .is_err()
         );
@@ -871,13 +888,13 @@ mod tests {
     #[test]
     fn empty_script_rejected() {
         let script: PlutusScript<3> = PlutusScript(vec![].into());
-        let mut arena = amaru_uplc::arena::Arena::new();
+        let arena = amaru_uplc::arena::Arena::new();
         assert!(
             super::validate_plutus_script(
                 &script,
                 PlutusVersion::V3,
                 FIXTURE_PROTOCOL_PARAMETERS.protocol_version,
-                &mut arena
+                &arena
             )
             .is_err()
         );
@@ -892,8 +909,10 @@ mod tests {
             ..WitnessSet::default()
         };
 
+        let arena_pool = ArenaPool::new(1, 1024);
+
         assert!(matches!(
-            super::validate_witness_scripts(&witness_set, FIXTURE_PROTOCOL_PARAMETERS.protocol_version),
+            super::validate_witness_scripts(&arena_pool, &witness_set, FIXTURE_PROTOCOL_PARAMETERS.protocol_version),
             Err(InvalidScripts::MalformedScriptWitnesses(ref hashes)) if hashes.len() == 1
         ));
     }
@@ -901,8 +920,12 @@ mod tests {
     #[test]
     fn no_scripts_no_malformed() {
         let witness_set = WitnessSet::default();
-        let provided = super::validate_witness_scripts(&witness_set, FIXTURE_PROTOCOL_PARAMETERS.protocol_version)
-            .expect("empty witness set should not produce malformed scripts");
+
+        let arena_pool = ArenaPool::new(1, 1024);
+
+        let provided =
+            super::validate_witness_scripts(&arena_pool, &witness_set, FIXTURE_PROTOCOL_PARAMETERS.protocol_version)
+                .expect("empty witness set should not produce malformed scripts");
         assert!(provided.is_empty());
     }
 }

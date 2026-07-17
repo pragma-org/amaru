@@ -19,6 +19,7 @@ use amaru_kernel::{
     TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance,
 };
 use amaru_observability::debug_span;
+use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
 use crate::{
@@ -115,6 +116,7 @@ pub enum PhaseOneError {
 #[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
+    arena_pool: &ArenaPool,
     network_name: NetworkName,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
@@ -353,6 +355,7 @@ mod tests {
     use amaru_kernel::{
         EraHistory, ProtocolParameters, Transaction, cbor, include_json, utils::serde::FilesystemRefResolver,
     };
+    use amaru_plutus::arena_pool::ArenaPool;
     use test_case::test_case;
 
     use super::fixture::{Expected, Fixture, Predicate};
@@ -485,9 +488,11 @@ mod tests {
             Default::default(),
         );
 
+        let arena_pool = ArenaPool::new(1, 1024);
 
         let result = super::execute(
             &mut ctx,
+            &arena_pool,
             fixture.network,
             &protocol_parameters,
             &era_history,
