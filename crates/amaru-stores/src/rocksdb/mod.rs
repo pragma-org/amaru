@@ -264,7 +264,7 @@ impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
-        info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch = u64::from(epoch)).in_scope(|| {
+        info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch = epoch).in_scope(|| {
             let path = self.dir.join(epoch.to_string());
 
             if path.exists() {
@@ -323,8 +323,8 @@ impl HistoricalStores for RocksDBHistoricalStores {
 
         info_span!(
             stores::ledger::epoch::PRUNE_OLD_SNAPSHOTS,
-            functional_minimum = u64::from(functional_minimum),
-            desired_minimum = u64::from(desired_minimum),
+            functional_minimum = functional_minimum,
+            desired_minimum = desired_minimum,
         )
         .in_scope(|| {
             with_snapshots(&self.config.dir, |path, epoch| {

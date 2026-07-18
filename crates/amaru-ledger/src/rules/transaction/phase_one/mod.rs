@@ -18,6 +18,8 @@ use amaru_kernel::{
     AuxiliaryData, EraHistory, HasTransactionId, Network, NetworkId, NetworkName, ProtocolParameters, TransactionBody,
     TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance,
 };
+use amaru_observability::debug_span;
+use amaru_plutus::arena_pool::ArenaPool;
 use thiserror::Error;
 
 use crate::{
@@ -114,6 +116,7 @@ pub enum PhaseOneError {
 #[expect(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
+    arena_pool: &ArenaPool,
     network_name: NetworkName,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
@@ -136,148 +139,184 @@ where
 
     fail_on_tx_size_too_large(tx_size, protocol_parameters)?;
 
-    validity_interval::execute(
-        transaction_body.validity_interval(),
-        transaction_witness_set.redeemer.is_some(),
-        era_history,
-        pointer.slot,
-    )?;
+    debug_span!(ledger::rules::phase_one::VALIDITY_INTERVAL).in_scope(|| {
+        validity_interval::execute(
+            transaction_body.validity_interval(),
+            transaction_witness_set.redeemer.is_some(),
+            era_history,
+            pointer.slot,
+        )
+    })?;
 
-    metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)?;
+    debug_span!(ledger::rules::phase_one::METADATA).in_scope(|| {
+        metadata::execute(&transaction_body, transaction_auxiliary_data, protocol_parameters.protocol_version)
+    })?;
 
-    let ref_scripts_size = inputs::execute(
-        context,
-        transaction_body.inputs.deref(),
-        transaction_body.reference_inputs.as_deref(),
-        protocol_parameters,
-    )?;
+    let ref_scripts_size = debug_span!(ledger::rules::phase_one::INPUTS).in_scope(|| {
+        inputs::execute(
+            context,
+            transaction_body.inputs.deref(),
+            transaction_body.reference_inputs.as_deref(),
+            protocol_parameters,
+        )
+    })?;
 
-    let fees = fees::execute(
-        context,
-        transaction_body.fee,
-        tx_size,
-        transaction_witness_set,
-        ref_scripts_size,
-        protocol_parameters,
-    )?;
+    let fees = debug_span!(ledger::rules::phase_one::FEES).in_scope(|| {
+        fees::execute(
+            context,
+            transaction_body.fee,
+            tx_size,
+            transaction_witness_set,
+            ref_scripts_size,
+            protocol_parameters,
+        )
+    })?;
 
     // TODO: The 'collateral' rule group shouldn't exist
     //
     // This is a mix of witness and fees; and instead of duplicating the collateral traversing
     // logic in both, we should augment fees and witness handling to also account for
     // collaterals.
-    let collateral = collateral::execute(
-        context,
-        transaction_body.collateral.as_deref(),
-        transaction_body.collateral_return.as_ref(),
-        transaction_body.total_collateral,
-        transaction_body.fee,
-        protocol_parameters,
-        transaction_witness_set.redeemer.is_some(),
-    )?;
+    let collateral = debug_span!(ledger::rules::phase_one::COLLATERAL).in_scope(|| {
+        collateral::execute(
+            context,
+            transaction_body.collateral.as_deref(),
+            transaction_body.collateral_return.as_ref(),
+            transaction_body.total_collateral,
+            transaction_body.fee,
+            protocol_parameters,
+            transaction_witness_set.redeemer.is_some(),
+        )
+    })?;
 
     context.add_fees(if is_valid { fees } else { collateral });
 
-    mint::execute(context, transaction_body.mint.as_ref());
+    debug_span!(ledger::rules::phase_one::MINT).in_scope(|| mint::execute(context, transaction_body.mint.as_ref()));
 
-    outputs::execute(
-        context,
-        protocol_parameters,
-        network,
-        mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
-        SupplementalDatumPolicy::Disallow,
-        |_context, _index, _value| {
-            if is_valid {
-                return None;
-            }
+    debug_span!(ledger::rules::phase_one::OUTPUTS).in_scope(|| {
+        outputs::execute(
+            context,
+            protocol_parameters,
+            network,
+            mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
+            SupplementalDatumPolicy::Disallow,
+            |_context, _index, _value| {
+                if is_valid {
+                    return None;
+                }
 
-            // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
-            //
-            // NOTE(2): We must process collateral before processing normal outputs, or, store
-            // the output length elsewhere since after having consumed the outputs, the .len()
-            // will always return zero.
-            let offset = transaction_body.outputs.len() as u64;
-            Some(TransactionInput { transaction_id: *transaction_id.as_ref(), index: offset })
-        },
-    )?;
+                // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
+                //
+                // NOTE(2): We must process collateral before processing normal outputs, or, store
+                // the output length elsewhere since after having consumed the outputs, the .len()
+                // will always return zero.
+                let offset = transaction_body.outputs.len() as u64;
+                Some(TransactionInput { transaction_id: *transaction_id.as_ref(), index: offset })
+            },
+        )?;
 
-    outputs::execute(
-        context,
-        protocol_parameters,
-        network,
-        mem::take(&mut transaction_body.outputs),
-        SupplementalDatumPolicy::Allow,
-        |context, index, value| {
-            context.produce_value(value);
+        outputs::execute(
+            context,
+            protocol_parameters,
+            network,
+            mem::take(&mut transaction_body.outputs),
+            SupplementalDatumPolicy::Allow,
+            |context, index, value| {
+                context.produce_value(value);
 
-            if !is_valid {
-                return None;
-            }
+                if !is_valid {
+                    return None;
+                }
 
-            Some(TransactionInput { transaction_id: *transaction_id.as_ref(), index })
-        },
-    )?;
+                Some(TransactionInput { transaction_id: *transaction_id.as_ref(), index })
+            },
+        )?;
 
-    withdrawals::execute(
-        context,
-        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
-        network,
-        is_valid,
-    )?;
+        Ok::<_, PhaseOneError>(())
+    })?;
+
+    debug_span!(ledger::rules::phase_one::WITHDRAWALS).in_scope(|| {
+        withdrawals::execute(
+            context,
+            mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
+            network,
+            is_valid,
+        )
+    })?;
 
     // NOTE: Following validations (and state changes) are entirely skipped on invalid transactions
     //
     // For invalid transactions, we only count the deposits and refunds necessary for value
     // preservation which happens also in the case of invalid transactions.
     if is_valid {
-        certificates::execute(
-            context,
-            network,
-            protocol_parameters,
-            era_history,
-            governance_activity,
-            pointer,
-            mem::take(&mut transaction_body.certificates),
-        )?;
+        debug_span!(ledger::rules::phase_one::CERTIFICATES).in_scope(|| {
+            certificates::execute(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                governance_activity,
+                pointer,
+                mem::take(&mut transaction_body.certificates),
+            )
+        })?;
 
-        proposals::execute(
-            context,
-            network,
-            protocol_parameters,
-            era_history,
-            (transaction_id, pointer),
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-        )?;
+        debug_span!(ledger::rules::phase_one::PROPOSALS).in_scope(|| {
+            proposals::execute(
+                context,
+                network,
+                protocol_parameters,
+                era_history,
+                (transaction_id, pointer),
+                mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+            )
+        })?;
 
-        voting_procedures::execute(context, mem::take(&mut transaction_body.votes));
+        debug_span!(ledger::rules::phase_one::VOTES)
+            .in_scope(|| voting_procedures::execute(context, mem::take(&mut transaction_body.votes)));
     } else {
-        certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates));
-        proposals::count_lovelace(
-            context,
-            protocol_parameters,
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
-        );
+        debug_span!(ledger::rules::phase_one::CERTIFICATES).in_scope(|| {
+            certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates))
+        });
+        debug_span!(ledger::rules::phase_one::PROPOSALS).in_scope(|| {
+            proposals::count_lovelace(
+                context,
+                protocol_parameters,
+                mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+            )
+        });
     }
 
     if let Some(donation) = transaction_body.donation.map(u64::from) {
-        context.produce_lovelace(donation);
-        context.add_donation(donation);
+        debug_span!(ledger::rules::phase_one::DONATION).in_scope(|| {
+            context.produce_lovelace(donation);
+            context.add_donation(donation);
+        });
     }
 
-    vkey_witness::execute(
-        context,
-        transaction_id,
-        transaction_witness_set.bootstrap_witness.as_deref(),
-        transaction_witness_set.vkeywitness.as_deref(),
-    )?;
+    debug_span!(ledger::rules::phase_one::SIGNATURES).in_scope(|| {
+        for vk_hash in transaction_body.required_signers.as_deref().unwrap_or(&[]) {
+            context.require_vkey_witness(*vk_hash);
+        }
 
-    scripts::execute(
-        context,
-        transaction_witness_set,
-        transaction_body.validity_interval(),
-        protocol_parameters,
-        transaction_body.script_data_hash,
-    )?;
+        vkey_witness::execute(
+            context,
+            transaction_id,
+            transaction_witness_set.bootstrap_witness.as_deref(),
+            transaction_witness_set.vkeywitness.as_deref(),
+        )
+    })?;
+
+    debug_span!(ledger::rules::phase_one::SCRIPTS).in_scope(|| {
+        scripts::execute(
+            context,
+            arena_pool,
+            transaction_witness_set,
+            transaction_body.validity_interval(),
+            protocol_parameters,
+            transaction_body.script_data_hash,
+        )
+    })?;
 
     let transaction_balance = context.balance();
     if !transaction_balance.is_zero() {
@@ -285,13 +324,11 @@ where
     }
 
     // At last, consume inputs
-    let consumed_inputs = if is_valid {
+    Ok(if is_valid {
         transaction_body.inputs.to_vec()
     } else {
         transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
-    };
-
-    Ok(consumed_inputs)
+    })
 }
 
 fn fail_on_tx_size_too_large(provided: u64, protocol_parameters: &ProtocolParameters) -> Result<(), PhaseOneError> {
@@ -318,10 +355,11 @@ mod tests {
     use amaru_kernel::{
         EraHistory, ProtocolParameters, Transaction, cbor, include_json, utils::serde::FilesystemRefResolver,
     };
+    use amaru_plutus::arena_pool::ArenaPool;
     use test_case::test_case;
 
     use super::fixture::{Expected, Fixture, Predicate};
-    use crate::context::{DefaultValidationContext, WitnessSlice};
+    use crate::context::DefaultValidationContext;
 
     macro_rules! fixture {
         ($path:literal) => {
@@ -450,15 +488,11 @@ mod tests {
             Default::default(),
         );
 
-        // Mirror block::execute: body.required_signers is pushed into the witness slice before
-        // phase-one runs, so the conformance harness must do the same to faithfully test that
-        // predicate path.
-        for vk_hash in tx.body.required_signers.as_deref().unwrap_or(&[]) {
-            ctx.require_vkey_witness(*vk_hash);
-        }
+        let arena_pool = ArenaPool::new(1, 1024);
 
         let result = super::execute(
             &mut ctx,
+            &arena_pool,
             fixture.network,
             &protocol_parameters,
             &era_history,

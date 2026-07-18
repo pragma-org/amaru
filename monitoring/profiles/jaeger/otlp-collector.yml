@@ -13,6 +13,7 @@ processors:
         action: delete
       - key: service.instance.id
         action: delete
+  batch:
 
 exporters:
   debug:
@@ -21,6 +22,8 @@ exporters:
     endpoint: "jaeger:4317"
     tls:
       insecure: true
+    sending_queue:
+      queue_size: 800
   prometheus:
     endpoint: "0.0.0.0:8889"
 
@@ -28,6 +31,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
+      processors: [batch]
       exporters: [otlp/jaeger]
     metrics:
       receivers: [otlp]

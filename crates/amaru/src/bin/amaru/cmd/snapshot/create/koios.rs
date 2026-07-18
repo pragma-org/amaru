@@ -46,7 +46,7 @@ pub(super) async fn fetch_current_epoch(
 
     let tip = response.json::<Vec<KoiosTip>>().await?.into_iter().next().ok_or("Koios returned empty tip response")?;
 
-    info!(target: "amaru::cli", name: "current_epoch.resolve", epoch = tip.epoch_no);
+    info!(cli::current_epoch::RESOLVE, epoch = tip.epoch_no);
 
     Ok(Epoch::from(tip.epoch_no))
 }
@@ -106,7 +106,7 @@ pub(super) async fn fetch_last_block_for_epoch(
     let parent_block = fetch_block_by_hash(client, network, &block.parent_hash).await?;
     let parent_point = Point::from_str(&format!("{}.{}", parent_block.abs_slot, parent_block.hash))?;
 
-    info!(target: "amaru::cli", name: "last_block.resolve", %epoch, %point);
+    info!(cli::last_block::RESOLVE, %epoch, %point);
 
     Ok(EpochTarget { epoch, snapshot: SnapshotPoint { point, parent_point }, archive_path: None, snapshot_path: None })
 }

@@ -98,7 +98,7 @@ impl<'distr> RatificationContext<'distr> {
     ) -> Result<Self, StoreError> {
         let epoch = snapshot.epoch();
 
-        info_span!(ledger::governance::NEW_RATIFICATION_CONTEXT, ratifying_epoch = u64::from(epoch)).in_scope(|| {
+        info_span!(ledger::governance::NEW_RATIFICATION_CONTEXT, ratifying_epoch = epoch).in_scope(|| {
             let constitutional_committee = match snapshot.constitutional_committee()? {
                 ConstitutionalCommitteeStatus::NoConfidence => None,
                 ConstitutionalCommitteeStatus::Trusted { threshold } => {
@@ -155,7 +155,7 @@ impl<'distr> RatificationContext<'distr> {
     ) -> Result<ProposalsRootsRc, RatificationInternalError> {
         info_span!(
             ledger::governance::RATIFY_PROPOSALS,
-            epoch = u64::from(self.epoch),
+            epoch = self.epoch,
             roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
             roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
             roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),

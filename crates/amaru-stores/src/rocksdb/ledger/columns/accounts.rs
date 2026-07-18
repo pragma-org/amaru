@@ -75,12 +75,7 @@ pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>)
                 row.rewards = 0;
                 db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
             } else {
-                error!(
-                    target: "amaru::stores",
-                    name: "accounts.reset_many",
-                    ?credential,
-                    reason = "no account for given credential"
-                )
+                error!(stores::ledger::accounts::RESET_MANY, ?credential, reason = "no account for given credential")
             }
         }
 
@@ -120,9 +115,8 @@ pub fn set<DB>(
 
         // TODO: Should probably be an error now that we have the overlay...
         debug!(
-            target: "amaru::stores",
-            name: "accounts.set",
-            type = %StakeCredentialKind::from(credential),
+            stores::ledger::accounts::SET,
+            credential_type = %StakeCredentialKind::from(credential),
             account = %credential.as_hash(),
             reason = "cannot set stake, account is gone"
         );

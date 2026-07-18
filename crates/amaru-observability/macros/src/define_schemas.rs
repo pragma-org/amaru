@@ -382,7 +382,7 @@ impl ParserState {
             return;
         };
 
-        if name == "name" || name == "schema" {
+        if name == "name" || name == "schema" || name == "message" {
             errors.push(format!(
                 "Reserved field '{}' in schema {}. The tracing macros manage this field internally.",
                 name, schema.name
@@ -1085,6 +1085,30 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
+    // Validation for pre-formatted event fields (`%expr` / `?expr` / `@expr`): the caller
+    // explicitly chose the rendering, so only check that the field is declared on the schema
+    // and that the value can actually be recorded with the requested formatter.
+    let validate_formatted_patterns: Vec<_> = all_fields
+        .iter()
+        .map(|field| {
+            let field_name = &field.name;
+            quote! {
+                (#field_name, $expr:expr, validate_event_display) => {{
+                    let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
+                    __amaru_assert_display($expr);
+                }};
+                (#field_name, $expr:expr, validate_event_debug) => {{
+                    let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
+                    __amaru_assert_debug($expr);
+                }};
+                (#field_name, $expr:expr, validate_event_value) => {{
+                    let __amaru_assert_value = |_: &dyn ::tracing::field::Value| {};
+                    __amaru_assert_value($expr);
+                }};
+            }
+        })
+        .collect();
+
     let all_field_names: Vec<_> = all_fields.iter().map(|f| f.name.as_str()).collect();
     let fields_list = all_field_names.join(", ");
 
@@ -1093,7 +1117,38 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         #[doc(hidden)]
         macro_rules! #macro_ident {
             #(#validate_value_patterns)*
+            #(#validate_formatted_patterns)*
             ($name:literal, $expr:expr, validate_value) => {
+                compile_error!(concat!(
+                    "Unknown field '",
+                    $name,
+                    "' for schema ",
+                    #schema_name,
+                    ". Available fields: ",
+                    #fields_list
+                ));
+            };
+            ($name:literal, $expr:expr, validate_event_display) => {
+                compile_error!(concat!(
+                    "Unknown field '",
+                    $name,
+                    "' for schema ",
+                    #schema_name,
+                    ". Available fields: ",
+                    #fields_list
+                ));
+            };
+            ($name:literal, $expr:expr, validate_event_debug) => {
+                compile_error!(concat!(
+                    "Unknown field '",
+                    $name,
+                    "' for schema ",
+                    #schema_name,
+                    ". Available fields: ",
+                    #fields_list
+                ));
+            };
+            ($name:literal, $expr:expr, validate_event_value) => {
                 compile_error!(concat!(
                     "Unknown field '",
                     $name,

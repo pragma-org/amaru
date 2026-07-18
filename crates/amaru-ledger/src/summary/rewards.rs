@@ -112,6 +112,7 @@ use std::collections::BTreeMap;
 use amaru_kernel::{
     Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, StakeCredential, expect_stake_credential,
 };
+use amaru_observability::info;
 use num::{
     BigUint,
     traits::{One, Zero},
@@ -120,7 +121,6 @@ use serde::ser::SerializeStruct;
 
 use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
-    info,
     store::{Snapshot, StoreError, columns::pots::Row as Pots},
     summary::{
         AccountState, PoolState, SafeRatio, floor_to_lovelace, safe_ratio, stake_distribution::StakeDistribution,
@@ -411,16 +411,16 @@ impl RewardsSummary {
             });
 
         info!(
-            "rewards.summarize",
+            ledger::rewards::SUMMARIZE,
             %efficiency,
             %incentives,
             %treasury_tax,
             %total_rewards,
             %available_rewards,
             %effective_rewards,
-            pots.reserves = %pots.reserves,
-            pots.treasury = %pots.treasury,
-            pots.fees = %pots.fees,
+            pots_reserves = %pots.reserves,
+            pots_treasury = %pots.treasury,
+            pots_fees = %pots.fees,
         );
 
         Ok(RewardsSummary {

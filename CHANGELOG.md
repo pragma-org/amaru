@@ -35,13 +35,19 @@ Other guiding principles:
   ```
 -->
 
-
 ## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
+
+### Added
+
+- **amaru-ledger**: trace spans for the ledger rules (phase-one and phase-two). ([#1056][])
+- **amaru-ledger**: run scripts in parallel within the same transaction. ([#1056][])
 
 ### Fixed
 
 - **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
 - **amaru-consensus / amaru-protocols**: do not log an ERROR when block-fetch is paused because no upstream peers are connected yet; keep ERROR for real fetch timeouts after peers were contacted. ([#1050](https://github.com/pragma-org/amaru/issues/1050))
+- **amaru-plutus**: encoding divergence between rational number present in governance actions and those present in protocol parameters. ([#1053][])
+- **amaru-ledger**: restore some spans in the ledger at the debug level. ([#1056][])
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
@@ -182,3 +188,5 @@ Other guiding principles:
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
 [#1048]: https://github.com/pragma-org/amaru/pull/1048
+[#1053]: https://github.com/pragma-org/amaru/pull/1053
+[#1056]: https://github.com/pragma-org/amaru/pull/1056

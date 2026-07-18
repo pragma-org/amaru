@@ -15,7 +15,7 @@
 use std::{fmt, fmt::Display};
 
 use amaru_kernel::{Block, Certificate, TransactionBody};
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
 use crate::context::PreparationContext;
@@ -42,9 +42,8 @@ impl<T: Display> Display for WithPosition<T> {
 
 /// Prepare the context for a whole block of transactions.
 pub fn prepare_block<'a>(context: &mut impl PreparationContext<'a>, block: &'a Block) {
-    let _span = trace_span!(ledger::block::PREPARE);
-    let _guard = _span.enter();
-    block.transaction_bodies.iter().for_each(|transaction| prepare_transaction(context, transaction));
+    debug_span!(ledger::block::PREPARE)
+        .in_scope(|| block.transaction_bodies.iter().for_each(|transaction| prepare_transaction(context, transaction)));
 }
 
 /// Prepare the context for a single transaction.

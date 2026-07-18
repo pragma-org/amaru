@@ -68,11 +68,8 @@ impl WriteChainStore for RocksDBStore {
 
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {
         let last = forward_points.last().unwrap_or(fork_point);
-        let span = debug_span!(
-            stores::consensus::chain::SWITCH_TO_FORK,
-            hash = last.hash(),
-            slot = u64::from(last.slot_or_default()),
-        );
+        let span =
+            debug_span!(stores::consensus::chain::SWITCH_TO_FORK, hash = last.hash(), slot = last.slot_or_default(),);
         let _guard = span.enter();
 
         let fork_slot = u64::from(fork_point.slot_or_default()).to_be_bytes();
@@ -123,11 +120,8 @@ impl WriteChainStore for RocksDBStore {
     }
 
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
-        let span = debug_span!(
-            stores::consensus::chain::ROLL_FORWARD,
-            hash = point.hash(),
-            slot = u64::from(point.slot_or_default()),
-        );
+        let span =
+            debug_span!(stores::consensus::chain::ROLL_FORWARD, hash = point.hash(), slot = point.slot_or_default(),);
         let _guard = span.enter();
 
         self.with_batch(|batch| {

@@ -21,12 +21,11 @@ use amaru_kernel::{
     AsHash, ComparableProposalId, ConstitutionalCommitteeStatus, Lovelace, PoolId, ProtocolParameters,
     RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind,
 };
-use amaru_observability::debug_span;
+use amaru_observability::{debug, debug_span};
 use num::BigUint;
 use tracing::Span;
 
 use crate::{
-    debug,
     epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, Rewards},
     governance::ratification::CommitteeUpdate,
     store::{StoreError, TransactionalContext, columns::pools::Row as Pool},
@@ -143,8 +142,8 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
             (0_u64, 0_u64),
             |(leftovers, paid), (account, deposit)| {
                 debug!(
-                    "account.pay_or_refund",
-                    type = %StakeCredentialKind::from(account),
+                    ledger::account::PAY_OR_REFUND,
+                    credential_type = %StakeCredentialKind::from(account),
                     account = %account.as_hash(),
                     %deposit,
                 );
@@ -236,7 +235,7 @@ pub fn apply_governance_updates<'store, 'iter>(
         if updates.is_dormant_epoch {
             governance_activity.consecutive_dormant_epochs += 1;
             debug!(
-                "governance_activity.update",
+                ledger::governance_activity::UPDATE,
                 consecutive_dormant_epochs = governance_activity.consecutive_dormant_epochs
             );
             db.set_governance_activity(governance_activity)?;
