@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
 };
 
@@ -35,8 +35,9 @@ use crate::state::{
 pub struct VolatileAggregate {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
-    pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, RepRegistration>,
+    pub accounts:
+        VecDeque<DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>>,
+    pub dreps: VecDeque<DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
@@ -72,25 +73,13 @@ impl VolatileAggregate {
     /// This aggregate's verdict on a stake account. Deregistration is immediate, so an `unregistered`
     /// entry is a live tombstone.
     pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        if let Some(bind) = self.accounts.registered.get(credential) {
-            Existence::Exists(bind.clone())
-        } else if self.accounts.unregistered.contains(credential) {
-            Existence::Gone
-        } else {
-            Existence::Unknown
-        }
+        DiffBind::scan(&self.accounts, credential).to_owned()
     }
 
     /// This aggregate's verdict on a DRep. Deregistration is immediate, so an `unregistered`
     /// entry is a live tombstone.
     pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        if let Some(bind) = self.dreps.registered.get(credential) {
-            Existence::Exists(bind.clone())
-        } else if self.dreps.unregistered.contains(credential) {
-            Existence::Gone
-        } else {
-            Existence::Unknown
-        }
+        DiffBind::scan(&self.dreps, credential).to_owned()
     }
 
     /// This aggregate's verdict on a CC member. Resignation is immediate, so a resignation entry is a
@@ -143,10 +132,17 @@ impl VolatileAggregate {
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.iter().map(|(id, value)| (id.clone(), value.clone())));
-        self.accounts.append(accounts.clone());
-        self.dreps.append(dreps.clone());
         self.dreps_deregistrations.extend(dreps_deregistrations.iter().map(|(k, v)| (k.clone(), *v)));
         self.committee.extend(committee);
+
+        if !accounts.is_empty() {
+            self.accounts.push_front(accounts.clone());
+        }
+
+        if !dreps.is_empty() {
+            self.dreps.push_front(dreps.clone());
+        }
+
         self.fees += *fees;
         self.donations += *donations;
     }
@@ -174,10 +170,10 @@ impl VolatileAggregate {
             proposals,
             fees,
             donations,
-            accounts: _,
-            committee: _,
-            dreps: _,
-            dreps_deregistrations: _,
+            accounts,
+            committee,
+            dreps,
+            dreps_deregistrations,
             pools: _,
         } = fragment;
 
@@ -185,12 +181,26 @@ impl VolatileAggregate {
 
         self.votes.cleanup(votes);
 
+        self.committee.cleanup(committee);
+
+        for credential in dreps_deregistrations.keys() {
+            self.dreps_deregistrations.remove(credential);
+        }
+
         for credential in withdrawals {
             self.withdrawals.remove(credential);
         }
 
         for proposal_id in proposals.keys() {
             self.proposals.remove(proposal_id);
+        }
+
+        if !accounts.is_empty() {
+            self.accounts.pop_back();
+        }
+
+        if !dreps.is_empty() {
+            self.dreps.pop_back();
         }
 
         self.fees -= *fees;

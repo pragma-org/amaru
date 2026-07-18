@@ -17,6 +17,8 @@ use std::{
     mem,
 };
 
+use crate::state::volatile::Existence;
+
 /// A compact data-structure tracking changes in a DAG which supports optional linking of values with
 /// another data-structure. Items can only be linked if they have been registered first. Yet, they
 /// can be unlinked without being unregistered.
@@ -24,6 +26,12 @@ use std::{
 pub struct DiffBind<K: Ord, L, R, V> {
     pub registered: BTreeMap<K, Bind<L, R, V>>,
     pub unregistered: BTreeSet<K>,
+}
+
+impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
+    pub fn is_empty(&self) -> bool {
+        self.registered.is_empty() && self.unregistered.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +165,38 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
             unregistered: self.unregistered.iter().collect(),
             registered: self.registered.iter().map(|(k, bind)| (k, bind.as_borrowed())).collect(),
         }
+    }
+
+    /// Efficiently scan a sequence of `DiffBind` looking for a specific credential.
+    pub fn scan<'iter>(
+        diffs: impl IntoIterator<Item = &'iter DiffBind<K, L, R, V>>,
+        k: &'_ K,
+    ) -> Existence<Bind<&'iter L, &'iter R, &'iter V>>
+    where
+        K: 'iter,
+        L: 'iter,
+        R: 'iter,
+        V: 'iter,
+    {
+        let mut existence = Existence::Unknown;
+
+        for diff in diffs {
+            if diff.unregistered.contains(k) {
+                existence = Existence::Gone;
+            }
+
+            if let Some(newer) = diff.registered.get(k) {
+                existence = match existence {
+                    Existence::Gone | Existence::Unknown => Existence::Exists(newer.as_borrowed()),
+                    Existence::Exists(mut bind) => {
+                        bind.then(newer.as_borrowed());
+                        Existence::Exists(bind)
+                    }
+                };
+            }
+        }
+
+        existence
     }
 
     /// Merge two states together, assuming that the other is a more recent update.

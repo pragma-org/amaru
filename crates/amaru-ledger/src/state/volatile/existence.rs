@@ -24,6 +24,16 @@ pub enum Existence<T> {
     Unknown,
 }
 
+impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Existence<Bind<&L, &R, &V>> {
+    pub fn to_owned(self) -> Existence<Bind<L, R, V>> {
+        match self {
+            Self::Exists(bind) => Existence::Exists(bind.to_owned()),
+            Self::Gone => Existence::Gone,
+            Self::Unknown => Existence::Unknown,
+        }
+    }
+}
+
 impl<L, R, V> Existence<Bind<L, R, V>> {
     /// Layer this verdict over an `older` one, evaluated lazily
     pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
