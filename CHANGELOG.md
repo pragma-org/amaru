@@ -45,6 +45,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
+- **amaru-consensus / amaru-protocols**: do not log an ERROR when block-fetch is paused because no upstream peers are connected yet; keep ERROR for real fetch timeouts after peers were contacted. ([#1050](https://github.com/pragma-org/amaru/issues/1050))
 - **amaru-plutus**: encoding divergence between rational number present in governance actions and those present in protocol parameters. ([#1053][])
 - **amaru-ledger**: restore some spans in the ledger at the debug level. ([#1056][])
 

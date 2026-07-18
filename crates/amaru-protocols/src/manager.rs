@@ -586,8 +586,8 @@ impl Manager {
             sent += 1;
         }
         if sent == 0 {
-            tracing::info!("no connections available to fetch blocks, returning empty result");
-            eff.send(&cr, Blocks::NoBlocks(id)).await;
+            tracing::debug!(%id, "no connections available to fetch blocks");
+            eff.send(&cr, Blocks::NoPeersAvailable(id)).await;
         } else {
             tracing::debug!(%id, sent, "fetch blocks request sent to connections");
         }

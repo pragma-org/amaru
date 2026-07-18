@@ -367,6 +367,95 @@ fn test_timeout_stale_is_ignored() {
 }
 
 #[test]
+fn test_no_peers_available_pauses_without_error() {
+    let mut prep = test_prep();
+    let schedule_id = prep.schedule_at(Duration::from_secs(5));
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
+        1,
+        schedule_id,
+    );
+    prep.state.trace_context = Some(Default::default());
+
+    let msg = FetchBlocksMsg::NoPeersAvailable(1);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    let state_after_pause = {
+        let mut state = prep.state.clone();
+        state.no_peers_pause = true;
+        state
+    };
+
+    assert_trace(
+        &running,
+        &[te_state("fb-1", &prep.state), te_input("fb-1", &msg), te_state("fb-1", &state_after_pause)],
+    );
+    logs.assert_and_remove(Level::INFO, &["block fetching paused due to no upstream peers"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_timeout_after_no_peers_pause_retries_without_error() {
+    let mut prep = test_prep();
+    let schedule_id = prep.schedule_at(Duration::from_secs(5));
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
+        1,
+        schedule_id,
+    );
+    prep.state.no_peers_pause = true;
+    prep.state.trace_context = Some(Default::default());
+
+    let msg = FetchBlocksMsg::Timeout(1);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    let state_after_timeout = {
+        let mut state = prep.state.clone();
+        state.missing = None;
+        state.timeout = None;
+        state.no_peers_pause = false;
+        state.trace_context = None;
+        state
+    };
+
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h0.point())),
+            te_state("fb-1", &state_after_timeout),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["retrying block fetch after no-peers pause"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_no_peers_available_stale_is_ignored() {
+    let mut prep = test_prep();
+    let schedule_id = prep.schedule_at(Duration::from_secs(5));
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
+        5,
+        schedule_id,
+    );
+
+    let msg = FetchBlocksMsg::NoPeersAvailable(3);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace(&running, &[te_state("fb-1", &prep.state), te_input("fb-1", &msg), te_state("fb-1", &prep.state)]);
+
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
 fn test_first_message_wires_cleanup_replies_child() {
     let mut prep = test_prep();
     prep.state.cleanup_replies = StageRef::blackhole();
