@@ -12,9 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
-use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{
+    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput,
+    Point, PoolId, StakeCredential, TransactionInput,
+};
+
+use crate::state::diff_bind::{Bind, Empty};
 
 mod db;
 pub use db::{RewardsAtTip, VolatileDB};
@@ -22,16 +27,30 @@ pub use db::{RewardsAtTip, VolatileDB};
 mod overlay;
 use overlay::StateOverlay;
 
+mod aggregate;
+pub use aggregate::VolatileAggregate;
+
+mod existence;
+pub use existence::Existence;
+
 mod fragment;
-pub use fragment::{
-    AccountBind, AnchoredVolatileFragment, CommitteeMemberBind, DRepBind, Existence, StoreUpdate, VolatileFragment,
-};
+pub use fragment::{AnchoredVolatileFragment, StoreUpdate, VolatileFragment};
 
 mod series;
 pub use series::VolatileSeries;
 
 mod view;
 pub use view::VolatileView;
+
+/// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
+pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
+
+/// A DRep's accumulated binding: metadata anchor, and the DRep registration data.
+pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
+
+/// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
+/// since no in-block cert establishes them.
+pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Epoch>;
 
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {
@@ -47,6 +66,7 @@ pub trait VolatileState {
     // ------------------------------------------------------------------------------------ Accounts
     type Account;
     fn resolve_account(&self, credential: &StakeCredential) -> Self::Account;
+    fn has_withdrawal(&self, credential: &StakeCredential) -> bool;
 
     // --------------------------------------------------------------------------------------- DReps
     type DRep;

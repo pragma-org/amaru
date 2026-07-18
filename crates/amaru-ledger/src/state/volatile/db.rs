@@ -112,12 +112,12 @@ impl VolatileState for VolatileDB {
         // bind-only update layers over it.
         let account = self.current.resolve_account(credential).or_else(|| self.draining.resolve_account(credential));
 
-        let rewards_at_tip = if self.current.withdrew(credential) {
+        let rewards_at_tip = if self.current.has_withdrawal(credential) {
             // rewards withdrawn after the boundary credit
             RewardsAtTip::Reset
         } else {
             let credit = self.overlay.pending_reward_credit(credential);
-            if self.draining.withdrew(credential) {
+            if self.draining.has_withdrawal(credential) {
                 // rewards withdrawn before the boundary credit
                 RewardsAtTip::Replace(credit)
             } else {
@@ -127,6 +127,10 @@ impl VolatileState for VolatileDB {
         };
 
         (account, rewards_at_tip)
+    }
+
+    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+        self.current.has_withdrawal(credential) || self.draining.has_withdrawal(credential)
     }
 
     // --------------------------------------------------------------------------------------- DReps
