@@ -183,6 +183,61 @@ define_schemas! {
                     required dreps_voting_stake: amaru_kernel::Lovelace
                 }
             }
+            rules {
+                /// Validate block against ledger rules
+                public EXECUTE {}
+                phase_one {
+                    /// Ledger rules related to block metadata and 'global' preflight checks
+                    public BLOCK {}
+                    /// Ledger rules and state-transitions for certificates
+                    public CERTIFICATES {}
+                    /// Ledger rules and state-transitions for collateral
+                    public COLLATERAL {}
+                    /// Ledger rules and state-transitions for treasury donation
+                    public DONATION {}
+                    /// Ledger rules and state-transitions for fees
+                    public FEES {}
+                    /// Ledger rules and state-transitions for inputs
+                    public INPUTS {}
+                    /// Ledger rules and state-transitions for metadata
+                    public METADATA {}
+                    /// Ledger rules and state-transitions for minte/burned assets
+                    public MINT {}
+                    /// Ledger rules and state-transitions for outputs
+                    public OUTPUTS {}
+                    /// Ledger rules and state-transitions for governance proposals
+                    public PROPOSALS {}
+                    /// Ledger rules and state-transitions for script witnesses
+                    public SCRIPTS {}
+                    /// Ledger rules and state-transitions for key signatures
+                    public SIGNATURES {}
+                    /// Ledger rules and state-transitions for validity interval
+                    public VALIDITY_INTERVAL {}
+                    /// Ledger rules and state-transitions for governance votes
+                    public VOTES {}
+                    /// Ledger rules and state-transitions for withdrawas
+                    public WITHDRAWALS {}
+                }
+                phase_two {
+                    /// Initialize script context and cost models, common to all scripts
+                    public BUILD_SCRIPT_CONTEXT {}
+                    /// A span wrapping all script executions
+                    public EXECUTE_SCRIPTS {}
+                    /// A single script execution, with the associated redeemer qualifiers
+                    public EXECUTE_ONE_SCRIPT {
+                        required purpose: String
+                        required index: u32
+                    }
+                    /// Acquiring the allocation arena for decoding and execution
+                    public ACQUIRE_ARENA {}
+                    /// Decoding the script from Cbor/Flat
+                    public DECODE_SCRIPT {}
+                    /// Construct the UPLC program from parameters, decoded script and context
+                    public BUILD_UPLC_PROGRAM {}
+                    /// Execute the fully-applied UPLC program
+                    public EVALUATE_UPLC_PROGRAM {}
+                }
+            }
             rewards {
                 /// Compute rewards for epoch
                 public COMPUTE {
@@ -209,10 +264,12 @@ define_schemas! {
                 }
                 /// Prepare block for validation
                 public PREPARE {}
-                /// Validate block against rules
-                public VALIDATE {}
             }
             transaction {
+                /// Validate a single transaction
+                public VALIDATE {
+                    required transaction_id: amaru_kernel::TransactionId,
+                }
                 /// Register a stake credential
                 public CERTIFICATE_STAKE_REGISTRATION {
                     required credential: String

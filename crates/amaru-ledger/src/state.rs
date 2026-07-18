@@ -27,7 +27,7 @@ use amaru_kernel::{
     utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::{debug_span, info, info_span, trace, trace_span, warn};
+use amaru_observability::{debug_span, info, info_span, trace, warn};
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
@@ -529,7 +529,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         &mut self,
         state: AnchoredVolatileFragment,
     ) -> Result<Option<AnchoredVolatileFragment>, StateError> {
-        trace_span!(ledger::state::PUSH).in_scope(|| {
+        debug_span!(ledger::state::PUSH).in_scope(|| {
             let security_param = self.global_parameters.consensus_security_param;
 
             // Yield any now-stable state change
@@ -646,7 +646,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         transaction: &Transaction,
     ) -> Result<DefaultValidationContext, StateError> {
         let transaction_id = transaction.tx_id();
-        trace_span!(ledger::transaction_validation_context::CREATE, transaction_id = transaction_id).in_scope(|| {
+        debug_span!(ledger::transaction_validation_context::CREATE, transaction_id = transaction_id).in_scope(|| {
             let mut ctx = DefaultPreparationContext::new();
             rules::prepare_transaction(&mut ctx, &transaction.body);
             let db = &*self.stable.lock().unwrap();
