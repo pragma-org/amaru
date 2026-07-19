@@ -122,6 +122,7 @@ amaru-metrics = { path = "crates/amaru-metrics", version = "0.1.2" }
 amaru-minicbor-extra = { path = "crates/amaru-minicbor-extra", version = "0.1.2" }
 amaru-mithril = { path = "crates/amaru-mithril", version = "0.1.2" }
 amaru-network = { path = "crates/amaru-network", version = "0.1.2" }
+amaru-node = { path = "crates/amaru-node", version = "0.1.0" }
 amaru-observability = { path = "crates/amaru-observability", version = "0.1.2" }
 amaru-observability-macros = { path = "crates/amaru-observability/macros", version = "0.1.2" }
 amaru-ouroboros = { path = "crates/amaru-ouroboros", version = "0.1.2" }
