@@ -49,6 +49,7 @@ Other guiding principles:
 - **amaru-plutus**: encoding divergence between rational number present in governance actions and those present in protocol parameters. ([#1053][])
 - **amaru-ledger**: restore some spans in the ledger at the debug level. ([#1056][])
 - **amaru**: support Cardano ledger peer snapshots via `--peer-snapshot` / `AMARU_PEER_SNAPSHOT` for cold-start big-ledger peers in peer selection (complements `--peer-address`) ([#1047](https://github.com/pragma-org/amaru/pull/1047))
+- **amaru**: embed best-effort peer snapshots for known networks (for example mainnet, preprod, preview) at build time from cardano-foundation/cardano-configurations; used by default when `--peer-snapshot` is omitted
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 

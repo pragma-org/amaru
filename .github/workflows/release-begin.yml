@@ -173,6 +173,9 @@ jobs:
         shell: bash
         env:
           BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
+          # Require peer snapshots in release artefacts; authenticate to avoid GitHub rate limits.
+          AMARU_PEER_SNAPSHOT_REQUIRED: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [[ -n "${{ matrix.environments.setup }}" ]]; then

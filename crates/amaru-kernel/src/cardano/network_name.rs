@@ -18,7 +18,7 @@ use crate::{
     PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY, PREVIEW_GLOBAL_PARAMETERS, ProtocolParameters,
 };
 
-#[derive(Debug, PartialEq, Clone, Copy, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum NetworkName {
     Mainnet,
     #[default]
@@ -26,6 +26,12 @@ pub enum NetworkName {
     Preview,
     Testnet(u32),
 }
+
+/// Networks for which Amaru may fetch and embed ledger peer snapshots at build time
+/// (for example `mainnet`, `preprod`, and `preview`).
+///
+/// Custom testnets are not included; additional networks can be added here when ready.
+pub const PEER_SNAPSHOT_NETWORKS: &[NetworkName] = &[NetworkName::Mainnet, NetworkName::Preprod, NetworkName::Preview];
 
 impl std::fmt::Display for NetworkName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -70,6 +76,15 @@ impl<'de> serde::Deserialize<'de> for NetworkName {
 }
 
 impl NetworkName {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Preprod => "preprod",
+            Self::Preview => "preview",
+            Self::Testnet(_) => "testnet",
+        }
+    }
+
     pub fn to_network_magic(self) -> NetworkMagic {
         match self {
             Self::Mainnet => NetworkMagic::MAINNET,

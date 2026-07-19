@@ -23,13 +23,13 @@ use amaru::{
     DEFAULT_DOWNSTREAM_PEERS, DEFAULT_LISTEN_ADDRESS, DEFAULT_UPSTREAM_PEERS, default_chain_dir, default_ledger_dir,
     default_peer_for_network,
     metrics::track_system_metrics,
-    peer_snapshot::load_peer_snapshot,
+    peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
     stages::{
         build_node::build_and_run_node,
         config::{Config, MaxExtraLedgerSnapshots, StoreType},
     },
 };
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
+use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
@@ -131,6 +131,9 @@ pub struct Args {
     /// Supplies stake-weighted big-ledger relays for peer selection at cold start,
     /// complementary to `--peer-address`. Compatible with cardano-node's
     /// `mainnet-peer-snapshot.json` (and similar per-network files).
+    ///
+    /// When omitted, Amaru uses the snapshot embedded at build time for known networks
+    /// (for example mainnet, preprod, preview), if one was available when the binary was built.
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
@@ -372,28 +375,26 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
 
     let network_magic = args.network.to_network_magic();
     let peer_snapshot_peers = match args.peer_snapshot.as_deref() {
-        None => BTreeSet::new(),
         Some(path) => {
             let snapshot = load_peer_snapshot(path, network_magic)?;
-            if snapshot.peers.is_empty() {
-                warn!(
-                    path = %path.display(),
-                    point = %snapshot.point,
-                    pools = snapshot.pool_count,
-                    "peer snapshot loaded but contains no relays"
-                );
-            } else {
-                info!(
-                    path = %path.display(),
-                    point = %snapshot.point,
-                    node_to_client_version = snapshot.node_to_client_version,
-                    pools = snapshot.pool_count,
-                    relays = snapshot.peers.len(),
-                    "loaded peer snapshot"
-                );
-            }
+            log_loaded_snapshot(Some(path), &snapshot);
             snapshot.peers
         }
+        None => match load_embedded_peer_snapshot(network)? {
+            Some(snapshot) => {
+                log_loaded_snapshot(None, &snapshot);
+                snapshot.peers
+            }
+            None => {
+                if PEER_SNAPSHOT_NETWORKS.contains(&network) {
+                    warn!(
+                        network = %network,
+                        "no embedded peer snapshot for this network; continuing without snapshot peers"
+                    );
+                }
+                BTreeSet::new()
+            }
+        },
     };
 
     let (trace_buffer_min_entries, trace_buffer_max_size) = match args.trace_buffer.as_deref() {
@@ -423,7 +424,22 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
             Box::new(tracing::field::Empty)
         },
         peer_address = %peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
-        peer_snapshot = %args.peer_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()),
+        peer_snapshot = %args
+            .peer_snapshot
+            .as_deref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| {
+                if peer_snapshot_peers.is_empty() {
+                    "none".to_string()
+                } else {
+                    format!(
+                        "embedded{}",
+                        embedded_configs_commit()
+                            .map(|sha| format!("@{sha}"))
+                            .unwrap_or_default()
+                    )
+                }
+            }),
         peer_snapshot_relays = peer_snapshot_peers.len(),
         pid_file = %args.pid_file.unwrap_or_default().to_string_lossy(),
         submit_api_address = %args.submit_api_address.as_deref().unwrap_or("disabled"),
@@ -468,6 +484,27 @@ fn load_era_history(path: Option<&Path>) -> Result<EraHistory, Box<dyn std::erro
     match path {
         Some(path) => Ok(serde_json::from_slice(&std::fs::read(path)?)?),
         None => Err(anyhow!("missing era history for custom network").into()),
+    }
+}
+
+fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru::peer_snapshot::PeerSnapshot) {
+    if snapshot.peers.is_empty() {
+        warn!(
+            path = %path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
+            point = %snapshot.point,
+            pools = snapshot.pool_count,
+            "peer snapshot loaded but contains no relays"
+        );
+    } else {
+        info!(
+            path = %path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
+            point = %snapshot.point,
+            node_to_client_version = snapshot.node_to_client_version,
+            pools = snapshot.pool_count,
+            relays = snapshot.peers.len(),
+            configs_commit = embedded_configs_commit().unwrap_or("unknown"),
+            "loaded peer snapshot"
+        );
     }
 }
 

@@ -15,6 +15,7 @@
 //! Cardano ledger peer snapshot (big ledger pools) JSON loading.
 //!
 //! Compatible with the `mainnet-peer-snapshot.json` format shipped by cardano-node.
+//! Known-network snapshots may be embedded at build time (see `build/peer_snapshot.rs`).
 
 use std::{
     collections::BTreeSet,
@@ -22,9 +23,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{NetworkMagic, Peer, Point, Slot, size::HEADER};
+use amaru_kernel::{NetworkMagic, NetworkName, PEER_SNAPSHOT_NETWORKS, Peer, Point, Slot, size::HEADER};
 use serde::Deserialize;
 use thiserror::Error;
+
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/embedded_peer_snapshots.rs"));
+}
 
 /// Default N2N relay port when a snapshot relay omits `port`.
 pub const DEFAULT_RELAY_PORT: u16 = 3001;
@@ -103,6 +108,28 @@ struct SnapshotRelay {
 pub fn load_peer_snapshot(path: &Path, expected_magic: NetworkMagic) -> Result<PeerSnapshot, PeerSnapshotError> {
     let bytes = fs::read(path).map_err(|source| PeerSnapshotError::Io { path: path.to_path_buf(), source })?;
     parse_peer_snapshot_bytes(&bytes, path, expected_magic)
+}
+
+/// Load the peer snapshot embedded in this binary for a network in
+/// [`PEER_SNAPSHOT_NETWORKS`] (for example mainnet, preprod, preview), if any.
+///
+/// Returns `None` when the network is not in that list, or when no snapshot was staged
+/// at build time for it (e.g. offline build).
+pub fn load_embedded_peer_snapshot(network: NetworkName) -> Result<Option<PeerSnapshot>, PeerSnapshotError> {
+    if !PEER_SNAPSHOT_NETWORKS.contains(&network) {
+        return Ok(None);
+    }
+    let network_key = network.to_string();
+    let Some(bytes) = embedded::embedded_peer_snapshot(&network_key) else {
+        return Ok(None);
+    };
+    let path = Path::new("embedded").join(&network_key).join("peer-snapshot.json");
+    Ok(Some(parse_peer_snapshot_bytes(bytes, &path, network.to_network_magic())?))
+}
+
+/// Configs repo commit used when the embedded snapshots were last refreshed at build time.
+pub fn embedded_configs_commit() -> Option<&'static str> {
+    embedded::CONFIGS_COMMIT
 }
 
 /// Parse peer snapshot JSON bytes (used by tests and [`load_peer_snapshot`]).
@@ -237,5 +264,15 @@ mod tests {
             parse_peer_snapshot_bytes(json.as_bytes(), Path::new("empty.json"), NetworkMagic::PREPROD).expect("parse");
         assert!(snap.peers.is_empty());
         assert_eq!(snap.pool_count, 0);
+    }
+
+    #[test]
+    fn embedded_mainnet_parses_when_staged_at_build() {
+        // Best-effort: when the build could not fetch/stage snapshots, this is a no-op pass.
+        let Ok(Some(snap)) = load_embedded_peer_snapshot(NetworkName::Mainnet) else {
+            return;
+        };
+        assert_eq!(snap.network_magic, NetworkMagic::MAINNET);
+        assert!(!snap.peers.is_empty());
     }
 }

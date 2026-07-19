@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod git;
+mod peer_snapshot;
 mod stake_distribution;
 mod type_aliases;
 
@@ -24,6 +25,7 @@ use anyhow::{Context, Result};
 ///  1. build-time information (via `built`)
 ///  2. The type aliases embedded in the `dump_schemas` command
 ///  3. The stake distribution test cases for each supported network.
+///  4. Peer snapshots for known networks (best-effort fetch; embed if present).
 fn main() -> Result<()> {
     built::write_built_file().context("Failed to acquire build-time information")?;
     type_aliases::write_type_aliases_file().context("Failed to generate embedded type aliases for dump_schemas")?;
@@ -34,6 +36,8 @@ fn main() -> Result<()> {
             format!("Failed to generate embedded stake distribution test cases for network={network}")
         })?;
     }
+
+    peer_snapshot::prepare_peer_snapshots().context("Failed to prepare embedded peer snapshots")?;
 
     Ok(())
 }
