@@ -19,100 +19,45 @@ mod schemas;
 mod trace_context;
 
 // Re-export the macros for convenient use
-pub use amaru_observability_macros::{define_schemas, trace_record, trace_span};
+pub use amaru_observability_macros::{define_schemas, trace_event, trace_record, trace_span};
 pub use opentelemetry;
 pub use schemas::*;
 pub use trace_context::TraceContext;
 pub use tracing;
 pub use tracing_opentelemetry;
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __amaru_event_missing_metadata {
-    ($macro_name:literal) => {
-        compile_error!(concat!("missing 'target:' and 'name:' on ", $macro_name, "! macro"));
-    };
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __amaru_event_missing_target {
-    ($macro_name:literal) => {
-        compile_error!(concat!("missing 'target:' on ", $macro_name, "! macro"));
-    };
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __amaru_event_missing_name {
-    ($macro_name:literal) => {
-        compile_error!(concat!("missing 'name:' on ", $macro_name, "! macro"));
-    };
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __amaru_event_with_name {
-    ($level:ident, target: $target:expr, name: $name:expr $(, $($fields:tt)+)?) => {
-        $crate::tracing::$level!(name: $name, target: $target, message = $name $(, $($fields)+)?)
-    };
-    ($level:ident, name: $name:expr, target: $target:expr $(, $($fields:tt)+)?) => {
-        $crate::tracing::$level!(name: $name, target: $target, message = $name $(, $($fields)+)?)
-    };
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __amaru_event {
-    ($level:ident, $macro_name:literal, target: $target:expr, name: $name:expr $(, $($fields:tt)+)?) => {
-        $crate::__amaru_event_with_name!($level, target: $target, name: $name $(, $($fields)+)?)
-    };
-    ($level:ident, $macro_name:literal, name: $name:expr, target: $target:expr $(, $($fields:tt)+)?) => {
-        $crate::__amaru_event_with_name!($level, name: $name, target: $target $(, $($fields)+)?)
-    };
-    ($level:ident, $macro_name:literal, target: $target:expr $(, $($rest:tt)+)?) => {
-        $crate::__amaru_event_missing_name!($macro_name);
-    };
-    ($level:ident, $macro_name:literal, name: $name:expr $(, $($rest:tt)+)?) => {
-        $crate::__amaru_event_missing_target!($macro_name);
-    };
-    ($level:ident, $macro_name:literal, $($rest:tt)*) => {
-        $crate::__amaru_event_missing_metadata!($macro_name);
-    };
-}
-
 #[macro_export]
 macro_rules! trace {
     ($($rest:tt)*) => {
-        $crate::__amaru_event!(trace, "trace", $($rest)*);
+        $crate::trace_event!(TRACE, $($rest)*);
     };
 }
 
 #[macro_export]
 macro_rules! debug {
     ($($rest:tt)*) => {
-        $crate::__amaru_event!(debug, "debug", $($rest)*);
+        $crate::trace_event!(DEBUG, $($rest)*);
     };
 }
 
 #[macro_export]
 macro_rules! info {
     ($($rest:tt)*) => {
-        $crate::__amaru_event!(info, "info", $($rest)*);
+        $crate::trace_event!(INFO, $($rest)*);
     };
 }
 
 #[macro_export]
 macro_rules! warn {
     ($($rest:tt)*) => {
-        $crate::__amaru_event!(warn, "warn", $($rest)*);
+        $crate::trace_event!(WARN, $($rest)*);
     };
 }
 
 #[macro_export]
 macro_rules! error {
     ($($rest:tt)*) => {
-        $crate::__amaru_event!(error, "error", $($rest)*);
+        $crate::trace_event!(ERROR, $($rest)*);
     };
 }
 

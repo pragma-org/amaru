@@ -25,7 +25,7 @@ extensions:
     backends:
       traces:
         memory:
-          max_traces: 100000
+          max_traces: 5000
     metric_backends:
       metrics:
         prometheus:

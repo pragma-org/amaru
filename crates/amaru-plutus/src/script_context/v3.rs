@@ -254,6 +254,7 @@ impl ToPlutusData<3> for GovernanceAction {
                 constr_v3!(3, [previous_action])
             }
             GovernanceAction::UpdateCommittee(previous_action, removed, added, quorum) => {
+                let quorum = governance_action_ratio(quorum)?;
                 constr_v3!(4, [previous_action, removed.deref(), added, quorum])
             }
             GovernanceAction::NewConstitution(previous_action, constitution) => {
@@ -328,15 +329,15 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(ref p) = self.pool_pledge_influence {
-            push(9, p.to_plutus_data())?;
+            push(9, protocol_parameter_ratio(p))?;
         }
 
         if let Some(ref p) = self.expansion_rate {
-            push(10, p.to_plutus_data())?;
+            push(10, protocol_parameter_ratio(p))?;
         }
 
         if let Some(ref p) = self.treasury_growth_rate {
-            push(11, p.to_plutus_data())?;
+            push(11, protocol_parameter_ratio(p))?;
         }
 
         if let Some(p) = self.min_pool_cost {
@@ -409,7 +410,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
         }
 
         if let Some(ref p) = self.minfee_refscript_cost_per_byte {
-            push(33, p.to_plutus_data())?;
+            push(33, protocol_parameter_ratio(p))?;
         }
 
         Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pparams)))
@@ -430,47 +431,56 @@ impl ToPlutusData<3> for CostModels {
     }
 }
 
-impl ToPlutusData<3> for RationalNumber {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let gcd = self.numerator.gcd(&self.denominator);
-        <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![self.numerator / gcd, self.denominator / gcd])
-    }
+fn normalized_ratio(ratio: &RationalNumber) -> (u64, u64) {
+    let gcd = ratio.numerator.gcd(&ratio.denominator);
+    (ratio.numerator / gcd, ratio.denominator / gcd)
+}
+
+fn governance_action_ratio(ratio: &RationalNumber) -> Result<PlutusData, PlutusDataError> {
+    let (numerator, denominator) = normalized_ratio(ratio);
+    constr_v3!(0, [numerator, denominator])
+}
+
+fn protocol_parameter_ratio(ratio: &RationalNumber) -> Result<PlutusData, PlutusDataError> {
+    let (numerator, denominator) = normalized_ratio(ratio);
+    <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![numerator, denominator])
 }
 
 impl ToPlutusData<3> for ExUnitPrices {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        vec![&self.mem_price, &self.step_price].to_plutus_data()
+        <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![
+            protocol_parameter_ratio(&self.mem_price)?,
+            protocol_parameter_ratio(&self.step_price)?,
+        ])
     }
 }
 
 impl ToPlutusData<3> for PoolVotingThresholds {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        vec![
-            &self.motion_no_confidence,
-            &self.committee_normal,
-            &self.committee_no_confidence,
-            &self.hard_fork_initiation,
-            &self.security_voting_threshold,
-        ]
-        .to_plutus_data()
+        <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![
+            protocol_parameter_ratio(&self.motion_no_confidence)?,
+            protocol_parameter_ratio(&self.committee_normal)?,
+            protocol_parameter_ratio(&self.committee_no_confidence)?,
+            protocol_parameter_ratio(&self.hard_fork_initiation)?,
+            protocol_parameter_ratio(&self.security_voting_threshold)?,
+        ])
     }
 }
 
 impl ToPlutusData<3> for DRepVotingThresholds {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        vec![
-            &self.motion_no_confidence,
-            &self.committee_normal,
-            &self.committee_no_confidence,
-            &self.update_constitution,
-            &self.hard_fork_initiation,
-            &self.pp_network_group,
-            &self.pp_economic_group,
-            &self.pp_technical_group,
-            &self.pp_governance_group,
-            &self.treasury_withdrawal,
-        ]
-        .to_plutus_data()
+        <Vec<_> as ToPlutusData<3>>::to_plutus_data(&vec![
+            protocol_parameter_ratio(&self.motion_no_confidence)?,
+            protocol_parameter_ratio(&self.committee_normal)?,
+            protocol_parameter_ratio(&self.committee_no_confidence)?,
+            protocol_parameter_ratio(&self.update_constitution)?,
+            protocol_parameter_ratio(&self.hard_fork_initiation)?,
+            protocol_parameter_ratio(&self.pp_network_group)?,
+            protocol_parameter_ratio(&self.pp_economic_group)?,
+            protocol_parameter_ratio(&self.pp_technical_group)?,
+            protocol_parameter_ratio(&self.pp_governance_group)?,
+            protocol_parameter_ratio(&self.treasury_withdrawal)?,
+        ])
     }
 }
 
@@ -531,7 +541,7 @@ impl ToPlutusData<3> for PlutusStakeAddress {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor};
+    use amaru_kernel::{Nullable, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Set, Transaction, cbor, to_cbor};
     use test_case::test_case;
 
     use super::{
@@ -572,9 +582,9 @@ mod tests {
 
         let produced_contexts = tx_info
             .redeemers
-            .keys()
-            .map(|key| {
-                let script_context = ScriptContext::new(&tx_info, key).unwrap();
+            .iter()
+            .map(|(key, entry)| {
+                let script_context = ScriptContext::new(&tx_info, key, entry);
                 let plutus_data = to_cbor(
                     &<ScriptContext<'_> as ToPlutusData<3>>::to_plutus_data(&script_context)
                         .expect("failed to encode as PlutusData"),
@@ -591,6 +601,49 @@ mod tests {
             "No redeemer produced the expected script context: {}\nProduced script contexts: {}",
             test_vector.expectations.script_context,
             produced_contexts.join("\n\n")
+        );
+    }
+
+    #[test]
+    fn governance_quorum_uses_constr_encoding() {
+        let action = GovernanceAction::UpdateCommittee(
+            Nullable::Null,
+            Set::from(vec![]),
+            pallas_codec::utils::KeyValuePairs::Def(vec![]),
+            RationalNumber { numerator: 2, denominator: 4 },
+        );
+
+        let PlutusData::Constr(constr) = action.to_plutus_data().expect("governance action should encode") else {
+            panic!("governance action should encode as a constructor")
+        };
+
+        let quorum = constr.fields.last().expect("update committee should contain quorum");
+        let PlutusData::Constr(quorum) = quorum else { panic!("governance quorum should encode as a constructor") };
+
+        assert_eq!(quorum.tag, 121);
+        assert_eq!(
+            quorum.fields.deref(),
+            &[
+                <u64 as ToPlutusData<3>>::to_plutus_data(&1).unwrap(),
+                <u64 as ToPlutusData<3>>::to_plutus_data(&2).unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn protocol_parameter_ratios_keep_array_encoding() {
+        let ratio = RationalNumber { numerator: 2, denominator: 4 };
+
+        let PlutusData::Array(values) = protocol_parameter_ratio(&ratio).expect("ratio should encode") else {
+            panic!("protocol parameter ratio should encode as an array")
+        };
+
+        assert_eq!(
+            values.deref(),
+            &[
+                <u64 as ToPlutusData<3>>::to_plutus_data(&1).unwrap(),
+                <u64 as ToPlutusData<3>>::to_plutus_data(&2).unwrap(),
+            ]
         );
     }
 }

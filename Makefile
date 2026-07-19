@@ -6,7 +6,6 @@ BOOTSTRAP_SNAPSHOT_EPOCH ?=
 BUCKET_NAME ?=
 ENDPOINT ?=
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config/$(AMARU_NETWORK)
-RUN_UNTIL_TARGET_EPOCH ?= 182
 HASKELL_NODE_CONFIG_REPOSITORY := https://raw.githubusercontent.com/input-output-hk/cardano-playground
 HASKELL_NODE_CONFIG_DIRECTORY := static/book.play.dev.cardano.org/environments
 CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
@@ -155,6 +154,11 @@ start: ## &build Compile and run for $BUILD_PROFILE with default options
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) run $(ARGS)
 
 run-until: ## &test Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
+	@set -e; \
+	if [ -z "$(RUN_UNTIL_TARGET_EPOCH)" ]; then \
+		echo "RUN_UNTIL_TARGET_EPOCH must be set" >&2; \
+		exit 1; \
+	fi; \
 	./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
 
 compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CONTRACT) including performance thresholds

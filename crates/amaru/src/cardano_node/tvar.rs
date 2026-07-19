@@ -65,7 +65,7 @@ where
     let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
     let new_epoch_state_offset = parsed_snapshot.ledger_data_begin;
 
-    info!(target: "amaru::bootstrap", name: "snapshot.import", %point, new_epoch_state_offset);
+    info!(bootstrap::snapshot::IMPORT_TVAR, point = point, new_epoch_state_offset = new_epoch_state_offset);
 
     state_file.seek(SeekFrom::Start(new_epoch_state_offset as u64))?;
 
@@ -202,7 +202,7 @@ where
     }
 
     progress.clear();
-    info!(target: "amaru::bootstrap", name: "import.utxo", size = actual_size);
+    info!(bootstrap::import::UTXO, size = actual_size);
 
     Ok(())
 }

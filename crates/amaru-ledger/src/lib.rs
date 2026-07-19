@@ -35,41 +35,6 @@ macro_rules! tracing_enabled {
     };
 }
 
-#[macro_export]
-macro_rules! trace {
-    ($name:literal $(, $($rest:tt)+)?) => {
-        amaru_observability::trace!(target: "amaru::ledger", name: $name $(, $($rest)+)?);
-    };
-}
-
-#[macro_export]
-macro_rules! debug {
-    ($name:literal $(, $($rest:tt)+)?) => {
-        amaru_observability::debug!(target: "amaru::ledger", name: $name $(, $($rest)+)?);
-    };
-}
-
-#[macro_export]
-macro_rules! info {
-    ($name:literal $(, $($rest:tt)+)?) => {
-        amaru_observability::info!(target: "amaru::ledger", name: $name $(, $($rest)+)?);
-    };
-}
-
-#[macro_export]
-macro_rules! warn {
-    ($name: literal $(, $($rest:tt)+)?) => {
-        amaru_observability::warn!(target: "amaru::ledger", name: $name $(, $($rest)+)?);
-    };
-}
-
-#[macro_export]
-macro_rules! error {
-    ($name:literal $(, $($rest:tt)+)?) => {
-        amaru_observability::error!(target: "amaru::ledger", name: $name $(, $($rest)+)?);
-    };
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, MemoizedValue, TransactionInput, Value};

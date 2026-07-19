@@ -140,7 +140,7 @@ pub async fn stage(
 ) -> Connection {
     let message_type = msg.message_type().to_string();
     let conn_id = params.conn_id.to_string();
-    let peer = params.peer.to_string();
+    let peer = params.peer.clone();
     let role = format!("{:?}", params.role);
 
     async move {

@@ -115,7 +115,7 @@ where
 
                 match action {
                     DbAnalyserLogAction::Report(message) => {
-                        info!(target: "amaru::cli", name: "db_analyser.progress", step = %step, message = %message);
+                        info!(cli::db_analyser::PROGRESS, step = %step, detail = %message);
                         continue;
                     }
                     DbAnalyserLogAction::Suppress => continue,
@@ -124,9 +124,9 @@ where
             }
 
             if is_stderr {
-                warn!(target: "amaru::cli", name: "db_analyser.log", step = %step, line = %line);
+                warn!(cli::db_analyser::LOG, step = %step, line = %line);
             } else {
-                info!(target: "amaru::cli", name: "db_analyser.log", step = %step, line = %line);
+                info!(cli::db_analyser::LOG, step = %step, line = %line);
             }
         }
         Ok(())

@@ -20,13 +20,11 @@ use std::{
 };
 
 use amaru_kernel::{Epoch, StakeCredential, Vote};
+use amaru_observability::warn;
 use num::Zero;
 
 use super::{OrphanProposal, ProposalEnum};
-use crate::{
-    summary::{SafeRatio, safe_ratio},
-    warn,
-};
+use crate::summary::{SafeRatio, safe_ratio};
 
 static ZERO: LazyLock<SafeRatio> = LazyLock::new(SafeRatio::zero);
 
@@ -127,8 +125,8 @@ impl ConstitutionalCommittee {
             | ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
                 if self.active_members(current_epoch).len() < (min_committee_size as usize) {
                     warn!(
-                        "constitutional_committee.ignore",
-                        members.active = self.active_members(current_epoch).len(),
+                        ledger::constitutional_committee::IGNORE,
+                        active_members = self.active_members(current_epoch).len(),
                         min_committee_size = min_committee_size,
                         reason = "committee is below minimum size; ignoring voting threshold entirely"
                     );

@@ -22,9 +22,9 @@ use amaru_kernel::{
     Epoch, Hash, Lovelace, PoolId, PoolParams, RewardAccount, StakeCredential, expect_stake_credential, hash,
     pool_metadata, rational_number, relay,
 };
-use amaru_observability::info_span;
+use amaru_observability::{debug, info_span};
 
-use crate::{debug, store::columns::pools::Row as Pool};
+use crate::store::columns::pools::Row as Pool;
 
 /// Captures stake pool updates computed at the epoch transition, but not yet applied to the
 /// immutable storage. Those updates are meant to be updated only after `k` blocks have passed in
@@ -141,16 +141,16 @@ impl PoolsEpochTransitionUpdates {
             let metadata = set(&mut current_params.metadata, metadata, pool_metadata::fmt);
 
             debug!(
-                "epoch_transition.tick_pool",
+                ledger::epoch_transition::TICK_POOL,
                 id = %pool_id,
-                vrf,
-                pledge,
-                cost,
-                margin,
-                reward_account,
-                owners,
-                relays,
-                metadata,
+                @vrf,
+                @pledge,
+                @cost,
+                @margin,
+                @reward_account,
+                @owners,
+                @relays,
+                @metadata,
             );
 
             true
@@ -169,7 +169,7 @@ impl PoolsEpochTransitionUpdates {
     }
 
     fn retire_pool(&mut self, epoch: Epoch, pool: Pool) {
-        debug!("epoch_transition.retire_pool", id = %pool.id());
+        debug!(ledger::epoch_transition::RETIRE_POOL, id = %pool.id());
 
         self.retired.insert(pool.id());
         self.refunds

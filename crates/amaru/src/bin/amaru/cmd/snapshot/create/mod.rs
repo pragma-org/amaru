@@ -32,6 +32,7 @@ use amaru_mithril::{
     chunk_for_slot, download_from_mithril, extract_block_header_cbor, first_missing_immutable_chunk,
     parse_header_slot_and_hash,
 };
+use amaru_observability::info;
 use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
@@ -48,12 +49,6 @@ use archive::{
 use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
-
-macro_rules! info {
-    ($name:literal $(, $($rest:tt)+)?) => {
-        amaru_observability::info!(target: "amaru::cli", name: $name $(, $($rest)+)?);
-    };
-}
 
 const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
 
@@ -273,16 +268,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     targets.sort_unstable_by_key(|target| target.slot());
 
     info!(
-        "snapshot.create",
+        cli::snapshot::CREATE,
         network = %network,
-        epoch = epoch
-            .map(|e| Box::new(e.to_string()) as Box<dyn tracing::Value>)
-            .unwrap_or_else(|| Box::new(tracing::field::Empty)),
+        epoch = @epoch.map(|e| e.to_string()),
         snapshot_output_dir = %relative_path(&snapshot_output_dir)?.display(),
         config_dir = %relative_path(&config_dir)?.display(),
         cardano_node_db = %relative_path(&cardano_node_db)?.display(),
         dist_dir = %relative_path(&dist_dir)?.display(),
-        snapshots = snapshots_field,
+        snapshots = @snapshots_field,
     );
 
     let mut target_snapshots = BTreeSet::new();
@@ -310,14 +303,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
         if from_chunk > required_chunk {
             info!(
-                "mithril.skip_download",
+                cli::mithril::SKIP_DOWNLOAD,
                 from_chunk,
                 required_chunk,
                 target_dir = %cardano_node_db.display(),
                 reason = "cardano-node db already covers all target slots",
             );
         } else {
-            info!("mithril.download", from_chunk, target_dir = %cardano_node_db.display());
+            info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = %cardano_node_db.display());
             download_from_mithril(network, cardano_node_db.clone(), from_chunk).await?;
         }
 
@@ -342,13 +335,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let prepared_snapshot_path = snapshot_path_for_target(context.snapshot_output_dir, target);
             let snapshot_dir = resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context)?;
 
-            info!("snapshot.materialize", epoch = %target.epoch, snapshot = %prepared_snapshot_path.display());
+            info!(cli::snapshot::MATERIALIZE, epoch = %target.epoch, snapshot = %prepared_snapshot_path.display());
             materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
             write_packaged_headers(target, context.immutable_dir, &prepared_snapshot_path)?;
             target.snapshot_path = Some(prepared_snapshot_path.to_string_lossy().into_owned());
             write_epoch_metadata(context.metadata_dir, target)?;
         } else {
-            info!("snapshot.skip_materialize", epoch = %targets[ix].epoch, reason = "already exists");
+            info!(cli::snapshot::SKIP_MATERIALIZE, epoch = %targets[ix].epoch, reason = "already exists");
         }
 
         // Create missing archives
@@ -356,12 +349,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let target = &mut targets[ix];
             let prepared_archive_path = archive_path_for_target(&snapshot_output_dir, target);
             let prepared_snapshot_path = snapshot_path_for_target(&snapshot_output_dir, target);
-            info!("snapshot.package", epoch = %target.epoch, archive = %prepared_archive_path.display());
+            info!(cli::snapshot::PACKAGE, epoch = %target.epoch, archive = %prepared_archive_path.display());
             write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
             target.archive_path = Some(prepared_archive_path.to_string_lossy().into_owned());
             write_epoch_metadata(&metadata_dir, target)?;
         } else {
-            info!("snapshot.skip_package", epoch = %targets[ix].epoch, reason = "already exists");
+            info!(cli::snapshot::SKIP_PACKAGE, epoch = %targets[ix].epoch, reason = "already exists");
         }
     }
 
@@ -384,17 +377,17 @@ fn resolve_or_create_snapshot_dir(
     context: &SnapshotBuildContext<'_>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if let Some(snapshot_dir) = exact_snapshot_dir(context.ledger_snapshot_dir, target.slot()) {
-        info!("db_analyser.reuse_ledger_snapshot", epoch = %target.epoch, slot = %target.slot());
+        info!(cli::db_analyser::REUSE_LEDGER_SNAPSHOT, epoch = %target.epoch, slot = %target.slot());
         return Ok(snapshot_dir);
     }
 
     let analyse_from = select_analyse_from_slot(context.ledger_snapshot_dir, target.slot(), previous_snapshot_slot)?;
 
     info!(
-        "db_analyser.run",
+        cli::db_analyser::RUN,
         epoch = %target.epoch,
         slot = %target.slot(),
-        analyse_from = analyse_from.map(|s| Box::new(s.to_string()) as Box<dyn tracing::Value>).unwrap_or_else(|| Box::new(tracing::field::Empty)),
+        analyse_from = @analyse_from.map(|s| s.to_string()),
     );
 
     run_db_analyser(
