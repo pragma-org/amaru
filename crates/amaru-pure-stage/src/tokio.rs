@@ -410,6 +410,7 @@ fn interpreter(
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
     // that rustc has some issue with this particular pattern
     async move {
+        let mut last_yield = tokio::time::Instant::now();
         let tb = || inner.trace_buffer.lock();
         tb().push_resume(name, &StageResponse::Unit);
         loop {
@@ -492,6 +493,14 @@ fn interpreter(
                 }
                 StageEffect::External(effect) => {
                     tracing::debug!("stage `{name}` external effect: {:?}", effect);
+                    // Many external effects are wrap_sync / immediately ready. Without an explicit
+                    // yield, a stage can process thousands of them in a single task poll and ignore
+                    // JoinHandle::abort until the whole transition finishes.
+                    let now = tokio::time::Instant::now();
+                    if now.duration_since(last_yield) > Duration::from_millis(100) {
+                        last_yield = now;
+                        tokio::task::yield_now().await;
+                    }
                     StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
                 }
                 StageEffect::Terminate => {

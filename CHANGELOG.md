@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru**: process lifecycle no longer depends on the Tokio runtime to observe SIGINT/SIGTERM; first signal requests graceful shutdown (including main-thread stage abort), second signal force-exits (exit 130). Fixes hang during catch-up roll-forward ([#860](https://github.com/pragma-org/amaru/issues/860)).
+- **amaru**: process lifecycle no longer depends on the Tokio runtime to observe SIGINT/SIGTERM; first signal requests graceful shutdown (including main-thread stage abort), second signal force-exits (exit 130). Fixes hang during catch-up roll-forward ([#1061](https://github.com/pragma-org/amaru/pull/1061)).
 
 ### Changed
 
