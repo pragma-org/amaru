@@ -13,38 +13,43 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    ops::DerefMut,
     sync::Arc,
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace,
-    MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential, TransactionInput,
+    CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId,
+    PoolParams, StakeCredential, TransactionInput,
 };
 
 use crate::state::{
-    diff_bind::{Bind, DiffBind, Empty, Resettable},
+    diff_bind::{DiffBind, Resettable},
     diff_epoch_reg::DiffEpochReg,
     diff_set::DiffSet,
-    volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileFragment},
+    volatile::{AccountBind, Bind, CommitteeMemberBind, Existence, VolatileFragment},
 };
+
+type Pools = DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>;
+
+type Accounts = DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
 
 /// A collapse/folded sequence of `crate::volatile::VolatileFragment` which can be cleaned up
 /// incrementally.
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileAggregate {
-    pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
-    pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
-    pub accounts:
-        VecDeque<DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>>,
-    pub dreps: VecDeque<DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>>,
-    pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    pub committee: DiffSet<StakeCredential, StakeCredential>,
-    pub withdrawals: BTreeSet<StakeCredential>,
-    pub proposals: BTreeMap<ComparableProposalId, Arc<(Proposal, ProposalPointer)>>,
-    pub votes: DiffSet<BallotId, Ballot>,
-    pub fees: Lovelace,
-    pub donations: Lovelace,
+    utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
+    pools: Pools,
+    accounts: RefCell<Option<Accounts>>,
+    dreps: DiffSet<StakeCredential, DRepRegistration>,
+    dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
+    committee: DiffSet<StakeCredential, StakeCredential>,
+    withdrawals: BTreeSet<StakeCredential>,
+    proposals: BTreeSet<ComparableProposalId>,
+    fees: Lovelace,
+    donations: Lovelace,
 }
 
 impl VolatileAggregate {
@@ -72,40 +77,48 @@ impl VolatileAggregate {
 
     /// This aggregate's verdict on a stake account. Deregistration is immediate, so an `unregistered`
     /// entry is a live tombstone.
-    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        DiffBind::scan(&self.accounts, credential).to_owned()
+    pub fn resolve_account(
+        &self,
+        credential: &StakeCredential,
+        scan: impl FnOnce() -> Accounts,
+    ) -> Existence<AccountBind> {
+        if let Some(accounts) = self.accounts.borrow().as_ref() {
+            return accounts.lookup(credential).to_owned();
+        }
+
+        let accounts = scan();
+
+        let account = accounts.lookup(credential).to_owned();
+
+        self.accounts.replace(Some(accounts));
+
+        account
     }
 
     /// This aggregate's verdict on a DRep. Deregistration is immediate, so an `unregistered`
     /// entry is a live tombstone.
-    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        DiffBind::scan(&self.dreps, credential).to_owned()
+    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepRegistration> {
+        self.dreps.lookup(credential).copied()
     }
 
     /// This aggregate's verdict on a CC member. Resignation is immediate, so a resignation entry is a
     /// live tombstone. A delegation resolves as a bind-only update (`value: None`): no in-block cert
     /// establishes membership, so existence still defers to the layer below.
     pub fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
-        if let Some(hot_credential) = self.committee.produced.get(credential) {
-            Existence::Exists(Bind {
-                left: Resettable::Set(hot_credential.clone()),
-                right: Resettable::Unchanged,
-                value: None,
-            })
-        } else if self.committee.consumed.contains(credential) {
-            Existence::Exists(Bind { left: Resettable::Reset, right: Resettable::Unchanged, value: None })
-        } else {
-            Existence::Unknown
+        use Existence::*;
+        use Resettable::*;
+
+        match self.committee.lookup(credential) {
+            Unknown => Unknown,
+            Gone => Exists(Bind { left: Reset, ..Bind::default() }),
+            Exists(hot) => Exists(Bind { left: Set(hot.to_owned()), ..Bind::default() }),
         }
     }
 
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is
     /// `Exists` or `Unknown`; pruning only happens at the boundary.
     pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
-        match self.proposals.get(id) {
-            Some(_) => Existence::Exists(()),
-            None => Existence::Unknown,
-        }
+        if self.proposals.contains(id) { Existence::Exists(()) } else { Existence::Unknown }
     }
 }
 
@@ -115,7 +128,6 @@ impl VolatileAggregate {
     pub fn add_fragment(&mut self, fragment: &VolatileFragment) {
         let VolatileFragment {
             utxo,
-            votes,
             pools,
             withdrawals,
             proposals,
@@ -125,22 +137,23 @@ impl VolatileAggregate {
             dreps,
             dreps_deregistrations,
             committee,
+            votes: _,
         } = fragment;
 
         self.utxo.extend(utxo);
-        self.votes.extend(votes);
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
-        self.proposals.extend(proposals.iter().map(|(id, value)| (id.clone(), value.clone())));
+        self.proposals.extend(proposals.keys().cloned());
+        self.dreps.extend_bind(dreps);
         self.dreps_deregistrations.extend(dreps_deregistrations.iter().map(|(k, v)| (k.clone(), *v)));
         self.committee.extend(committee);
 
         if !accounts.is_empty() {
-            self.accounts.push_front(accounts.clone());
-        }
-
-        if !dreps.is_empty() {
-            self.dreps.push_front(dreps.clone());
+            // Modify the accounts cache, if present. If not, does nothing. Accounts are only re-calculated
+            // lazily when needed.
+            if let Some(diff) = self.accounts.borrow_mut().deref_mut() {
+                diff.append(accounts.clone());
+            }
         }
 
         self.fees += *fees;
@@ -165,7 +178,6 @@ impl VolatileAggregate {
     pub fn remove_fragment(&mut self, fragment: &VolatileFragment) {
         let VolatileFragment {
             utxo,
-            votes,
             withdrawals,
             proposals,
             fees,
@@ -175,11 +187,10 @@ impl VolatileAggregate {
             dreps,
             dreps_deregistrations,
             pools: _,
+            votes: _,
         } = fragment;
 
         self.utxo.cleanup(utxo);
-
-        self.votes.cleanup(votes);
 
         self.committee.cleanup(committee);
 
@@ -196,11 +207,11 @@ impl VolatileAggregate {
         }
 
         if !accounts.is_empty() {
-            self.accounts.pop_back();
+            self.accounts.replace(None);
         }
 
         if !dreps.is_empty() {
-            self.dreps.pop_back();
+            self.dreps.cleanup_bind(dreps)
         }
 
         self.fees -= *fees;

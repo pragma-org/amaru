@@ -17,11 +17,21 @@ use crate::state::volatile::Bind;
 /// A volatile layer's verdict on an entity.
 /// - `T` is the resolved record.
 /// - `Gone` is a tombstone, so don't fall back to the stable store.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Existence<T> {
     Exists(T),
     Gone,
     Unknown,
+}
+
+impl<T: Copy> Existence<&T> {
+    pub fn copied(self) -> Existence<T> {
+        match self {
+            Self::Exists(t) => Existence::Exists(*t),
+            Self::Gone => Existence::Gone,
+            Self::Unknown => Existence::Unknown,
+        }
+    }
 }
 
 impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Existence<Bind<&L, &R, &V>> {
@@ -34,9 +44,19 @@ impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Existe
     }
 }
 
-impl<L, R, V> Existence<Bind<L, R, V>> {
+impl<T> Existence<T> {
     /// Layer this verdict over an `older` one, evaluated lazily
     pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
+        match self {
+            Self::Exists(..) | Self::Gone => self,
+            Self::Unknown => older(),
+        }
+    }
+}
+
+impl<L, R, V> Existence<Bind<L, R, V>> {
+    /// Layer this verdict over an `older` one, evaluated lazily
+    pub fn or_else_bind(self, older: impl FnOnce() -> Self) -> Self {
         match self {
             Existence::Unknown => older(),
 

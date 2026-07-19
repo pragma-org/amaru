@@ -15,7 +15,7 @@
 use std::{mem, sync::Arc};
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
+    ComparableProposalId, DRepRegistration, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
     PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProposalsRoots, ProtocolParameters, StakeCredential,
     TransactionInput,
 };
@@ -27,7 +27,7 @@ use crate::{
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
-            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
+            AccountBind, CommitteeMemberBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
             VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
@@ -134,7 +134,7 @@ impl VolatileState for VolatileDB {
     }
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepBind>;
+    type DRep = Existence<DRepRegistration>;
     fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
         // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
@@ -150,8 +150,8 @@ impl VolatileState for VolatileDB {
         // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
         self.current
             .resolve_cc_member(credential)
-            .or_else(|| self.overlay.committee_verdict(credential))
-            .or_else(|| self.draining.resolve_cc_member(credential))
+            .or_else_bind(|| self.overlay.committee_verdict(credential))
+            .or_else_bind(|| self.draining.resolve_cc_member(credential))
     }
 
     // ----------------------------------------------------------------------------------- Proposals

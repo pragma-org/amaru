@@ -41,6 +41,12 @@ pub struct Bind<L, R, V> {
     pub value: Option<V>,
 }
 
+impl<L, R, V> Default for Bind<L, R, V> {
+    fn default() -> Self {
+        Self { left: Resettable::default(), right: Resettable::default(), value: None }
+    }
+}
+
 impl<L, R, V> Bind<L, R, V> {
     pub fn as_borrowed(&self) -> Bind<&L, &R, &V> {
         Bind { left: self.left.as_borrowed(), right: self.right.as_borrowed(), value: self.value.as_ref() }
@@ -69,10 +75,11 @@ impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Bind<&
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Resettable<A> {
     Set(A),
     Reset,
+    #[default]
     Unchanged,
 }
 
@@ -167,36 +174,38 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         }
     }
 
-    /// Efficiently scan a sequence of `DiffBind` looking for a specific credential.
-    pub fn scan<'iter>(
-        diffs: impl IntoIterator<Item = &'iter DiffBind<K, L, R, V>>,
-        k: &'_ K,
-    ) -> Existence<Bind<&'iter L, &'iter R, &'iter V>>
+    /// Lookup the state of a Bind, if resolvable. `Existence::Unknown` means that we cannot
+    /// conclude to anything without access to historical information.
+    pub fn lookup(&self, k: &K) -> Existence<Bind<&L, &R, &V>>
+    where
+        L: ToOwned<Owned = L>,
+        R: ToOwned<Owned = R>,
+        V: ToOwned<Owned = V>,
+    {
+        if let Some(bind) = self.registered.get(k) {
+            Existence::Exists(bind.as_borrowed())
+        } else if self.unregistered.contains(k) {
+            Existence::Gone
+        } else {
+            Existence::Unknown
+        }
+    }
+
+    /// Efficiently fold a borrowed sequence of `DiffBind` into a single aggregate.
+    pub fn fold<'iter>(
+        diffs: impl Iterator<Item = &'iter DiffBind<K, L, R, V>>,
+    ) -> DiffBind<&'iter K, &'iter L, &'iter R, &'iter V>
     where
         K: 'iter,
         L: 'iter,
         R: 'iter,
         V: 'iter,
     {
-        let mut existence = Existence::Unknown;
-
+        let mut fold = DiffBind::default();
         for diff in diffs {
-            if diff.unregistered.contains(k) {
-                existence = Existence::Gone;
-            }
-
-            if let Some(newer) = diff.registered.get(k) {
-                existence = match existence {
-                    Existence::Gone | Existence::Unknown => Existence::Exists(newer.as_borrowed()),
-                    Existence::Exists(mut bind) => {
-                        bind.then(newer.as_borrowed());
-                        Existence::Exists(bind)
-                    }
-                };
-            }
+            fold.append(diff.as_borrowed());
         }
-
-        existence
+        fold
     }
 
     /// Merge two states together, assuming that the other is a more recent update.

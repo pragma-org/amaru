@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, StakeCredential, TransactionInput,
+    CertificatePointer, ComparableProposalId, DRep, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId,
+    StakeCredential, TransactionInput,
 };
 
 use crate::state::diff_bind::{Bind, Empty};
@@ -44,9 +44,6 @@ pub use view::VolatileView;
 
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
 pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
-
-/// A DRep's accumulated binding: metadata anchor, and the DRep registration data.
-pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
 
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.

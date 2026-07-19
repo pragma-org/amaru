@@ -14,6 +14,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::state::{diff_bind::DiffBind, volatile::Existence};
+
 /// A compact data-structure tracking changes in a DAG. A composition relation exists, allowing to reduce
 /// two `DiffSet` into one that is equivalent to applying both `DiffSet` in sequence.
 ///
@@ -38,16 +40,50 @@ impl<K: Ord, V> DiffSet<K, V> {
         //
         // This needs to be clone because `TransactionInput` isn't `Copy` at the moment. But
         // it's reasonable to ask keys to be always Copy in this scenario.
-        K: Clone,
-        V: Clone,
+        K: ToOwned<Owned = K>,
+        V: ToOwned<Owned = V>,
     {
         for k in &other.consumed {
             self.produced.remove(k);
-            self.consumed.insert(k.clone());
+            self.consumed.insert(k.to_owned());
         }
 
         for (k, v) in &other.produced {
-            self.produced.insert(k.clone(), v.clone());
+            self.produced.insert(k.to_owned(), v.to_owned());
+        }
+    }
+
+    /// Like `Self::extend`, but ignores bind left and right.
+    pub fn extend_bind<L, R>(&mut self, other: &DiffBind<K, L, R, V>)
+    where
+        // TODO: lower requirement to 'Copy' for DiffSet keys
+        //
+        // This needs to be clone because `TransactionInput` isn't `Copy` at the moment. But
+        // it's reasonable to ask keys to be always Copy in this scenario.
+        K: ToOwned<Owned = K>,
+        V: ToOwned<Owned = V>,
+    {
+        for k in &other.unregistered {
+            self.produced.remove(k);
+            self.consumed.insert(k.to_owned());
+        }
+
+        for (k, bind) in &other.registered {
+            if let Some(v) = bind.value.as_ref() {
+                self.produced.insert(k.to_owned(), v.to_owned());
+            }
+        }
+    }
+
+    /// Lookup the state associated to a key, if any. Returns `Existence::Unknown` if the state
+    /// cannot be determined from the available data.
+    pub fn lookup<'a>(&'a self, k: &K) -> Existence<&'a V> {
+        if let Some(v) = self.produced.get(k) {
+            Existence::Exists(v)
+        } else if self.consumed.contains(k) {
+            Existence::Gone
+        } else {
+            Existence::Unknown
         }
     }
 
@@ -64,6 +100,20 @@ impl<K: Ord, V> DiffSet<K, V> {
         }
 
         for k in &other.consumed {
+            self.consumed.remove(k);
+        }
+    }
+
+    /// Like `Self::cleanup`, but from a `DiffBind` interpreted as a `DiffSet`. The left and right
+    /// binds are ignored, and we only treat registered event with a value as having an effect.
+    pub fn cleanup_bind<L, R>(&mut self, other: &DiffBind<K, L, R, V>) {
+        for (k, bind) in &other.registered {
+            if bind.value.is_some() {
+                self.produced.remove(k);
+            }
+        }
+
+        for k in &other.unregistered {
             self.consumed.remove(k);
         }
     }

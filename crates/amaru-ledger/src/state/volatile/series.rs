@@ -14,14 +14,15 @@
 
 use std::{collections::VecDeque, mem};
 
-use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{
+    ComparableProposalId, DRepRegistration, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
+};
 use amaru_observability::debug_span;
 
 use crate::state::{
     AnchoredVolatileFragment,
-    volatile::{
-        AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
-    },
+    diff_bind::DiffBind,
+    volatile::{AccountBind, CommitteeMemberBind, Existence, VolatileAggregate, VolatileSequence, VolatileState},
 };
 
 /// Number of blocks after which, if no rollback has been observed, we forcefully re-compute the
@@ -74,11 +75,11 @@ impl Default for VolatileSeries {
 impl VolatileState for VolatileSeries {
     // --------------------------------------------------------------------------------------- UTxOs
     fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.aggregate.utxo.produced.get(input).map(|output| output.as_ref())
+        self.aggregate.resolve_input(input)
     }
 
     fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.aggregate.utxo.consumed.contains(input)
+        self.aggregate.has_consumed_input(input)
     }
 
     // --------------------------------------------------------------------------------------- Pools
@@ -92,7 +93,9 @@ impl VolatileState for VolatileSeries {
     // ------------------------------------------------------------------------------------ Accounts
     type Account = Existence<AccountBind>;
     fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
-        self.aggregate.resolve_account(credential)
+        self.aggregate.resolve_account(credential, || {
+            DiffBind::fold(self.iter().map(|anchored| &anchored.fragment.accounts)).to_owned()
+        })
     }
 
     fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
@@ -100,9 +103,8 @@ impl VolatileState for VolatileSeries {
     }
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepBind>;
+    type DRep = Existence<DRepRegistration>;
     fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
-        // This series' verdict on a DRep account, read off its aggregate.
         self.aggregate.resolve_drep(credential)
     }
 
@@ -114,7 +116,7 @@ impl VolatileState for VolatileSeries {
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal = Existence<()>;
-    fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
+    fn resolve_proposal(&self, id: &ComparableProposalId) -> Self::Proposal {
         self.aggregate.resolve_proposal(id)
     }
 }
