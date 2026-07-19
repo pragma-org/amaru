@@ -18,7 +18,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru::version;
+use amaru::{
+    lifecycle::{Runnable, RuntimeKind},
+    version,
+};
 use clap::Parser;
 use clap_complete::{Shell, generate};
 
@@ -30,7 +33,11 @@ pub struct Args {
     output_dir: PathBuf,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let output_dir = args.output_dir;
 
     create_dir(output_dir.join("share/man/man1"))?;

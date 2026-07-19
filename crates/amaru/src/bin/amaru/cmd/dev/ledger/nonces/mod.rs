@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod get;
@@ -24,4 +25,13 @@ pub(crate) enum NoncesCommand {
 
     /// Set nonces for a block.
     Set(set::Args),
+}
+
+impl NoncesCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Get(args) => get::runnable(args),
+            Self::Set(args) => set::runnable(args),
+        }
+    }
 }

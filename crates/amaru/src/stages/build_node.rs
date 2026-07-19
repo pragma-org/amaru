@@ -63,6 +63,7 @@ pub fn build_and_run_node(config: Config, meter_provider: Option<SdkMeterProvide
 ///
 /// It gives us access to be the TokioRunning runtime and to specific input / output points for
 /// the processing graph (just one for now, the mempool, but we can add more as needed).
+#[derive(Clone)]
 pub struct NodeRunning {
     tokio_running: TokioRunning,
     mempool_sender: Sender<MempoolMsg>,
@@ -79,6 +80,11 @@ impl NodeRunning {
 
     pub fn termination(&self) -> BoxFuture<'static, ()> {
         self.tokio_running.termination()
+    }
+
+    /// Abort all stage tasks without consuming this handle (safe from any thread).
+    pub fn request_abort(&self) {
+        self.tokio_running.request_abort();
     }
 
     pub fn abort(self) {

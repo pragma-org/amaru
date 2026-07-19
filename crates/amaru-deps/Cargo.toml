@@ -132,7 +132,7 @@ socket2 = { version = "0.6", default-features = false, features = ["all"] }
 subtle = { version = "2", default-features = false, features = ["std"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
-tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
@@ -192,7 +192,7 @@ socket2 = { version = "0.6", default-features = false, features = ["all"] }
 subtle = { version = "2", default-features = false, features = ["std"] }
 syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
-tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }

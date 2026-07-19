@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 
 pub(crate) mod bootstrap;
 pub(crate) mod reset;
@@ -38,4 +40,14 @@ pub(crate) enum NodeCommand {
 
     /// Reset the ledger database to the beginning of a specific epoch.
     Reset(reset::Args),
+}
+
+impl NodeCommand {
+    pub(crate) fn into_runnable(self, metrics: Option<SdkMeterProvider>) -> Runnable {
+        match self {
+            Self::Run(args) => run::runnable(args, metrics),
+            Self::Bootstrap(args) => bootstrap::runnable(args),
+            Self::Reset(args) => reset::runnable(args),
+        }
+    }
 }

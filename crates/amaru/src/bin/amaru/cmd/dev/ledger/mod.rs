@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod convert;
@@ -30,4 +31,14 @@ pub(crate) enum LedgerCommand {
     /// Manage ledger state snapshots.
     #[command(subcommand)]
     States(states::StatesCommand),
+}
+
+impl LedgerCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Convert(args) => convert::runnable(args),
+            Self::Nonces(cmd) => cmd.into_runnable(),
+            Self::States(cmd) => cmd.into_runnable(),
+        }
+    }
 }

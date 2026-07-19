@@ -264,14 +264,14 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
 
 pub struct OpenTelemetryHandle {
     pub metrics: Option<SdkMeterProvider>,
-    pub teardown: Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
+    pub teardown: Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
 }
 
 impl Default for OpenTelemetryHandle {
     fn default() -> Self {
         OpenTelemetryHandle {
             metrics: None::<SdkMeterProvider>,
-            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
+            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
         }
     }
 }
@@ -378,9 +378,8 @@ fn teardown_open_telemetry(
     metrics: SdkMeterProvider,
     logs: SdkLoggerProvider,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Shut down the providers so that it flushes any remaining spans
-    //
-    // FIXME: we might also want to wrap this in a timeout, so we don't hold the process open forever?
+    // Shut down the providers so that it flushes any remaining spans.
+    // The process lifecycle layer applies an outer timeout around this teardown.
     tracing.shutdown()?;
     metrics.shutdown()?;
     logs.shutdown()?;
@@ -511,7 +510,7 @@ pub fn setup_observability(
     with_json_traces: bool,
     color: bool,
     hints: &impl ObservabilityHints,
-) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>) {
+) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>) {
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { metrics, teardown }, warning_otlp) = if with_open_telemetry {

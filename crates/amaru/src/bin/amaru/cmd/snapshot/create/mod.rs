@@ -39,6 +39,7 @@ mod config;
 mod db_analyser;
 mod koios;
 
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use archive::{
     archive_path_for_target, materialize_snapshot, metadata_path_for_epoch, snapshot_path_for_target,
     write_epoch_metadata, write_snapshot_archive,
@@ -206,7 +207,11 @@ fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
     repo_root().join(default_snapshots_dir(network))
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let Args {
         network,
         epoch,

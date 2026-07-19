@@ -15,12 +15,17 @@
 use std::{
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use amaru::{
     DEFAULT_DOWNSTREAM_PEERS, DEFAULT_LISTEN_ADDRESS, DEFAULT_UPSTREAM_PEERS, default_chain_dir, default_ledger_dir,
     default_peer_for_network,
+    lifecycle::{Runnable, RuntimeKind, ShutdownHandle},
     metrics::track_system_metrics,
     stages::{
         build_node::build_and_run_node,
@@ -38,9 +43,10 @@ use clap::{self, ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::pid::with_optional_pid_file;
+use crate::pid::optional_pid_file;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -237,67 +243,95 @@ impl Args {
     }
 }
 
-pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result<(), Box<dyn std::error::Error>> {
-    with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
-        let config = parse_args(args)?;
-        let trace_dump_path = config.trace_dump_path.clone();
-        let submit_api_address = config.submit_api_address()?;
-        pre_flight_checks()?;
+const SUBMIT_API_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
-        let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
-        let running = build_and_run_node(config, meter_provider)?;
+pub(crate) fn runnable(args: Args, meter_provider: Option<SdkMeterProvider>) -> Runnable {
+    Runnable::soft(RuntimeKind::Node, move |shutdown| run(args, meter_provider, shutdown))
+}
 
-        let exit = amaru::exit::hook_exit_token();
-        let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
-            Ok(handle) => handle,
-            Err(err) => {
-                let trace_buffer = running.trace_buffer().clone();
-                running.abort();
-                dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
+async fn run(
+    args: Args,
+    meter_provider: Option<SdkMeterProvider>,
+    shutdown: ShutdownHandle,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _pid_file = optional_pid_file(args.pid_file.clone());
 
-                if let Some(handle) = metrics.as_ref() {
-                    handle.abort();
-                }
+    let config = parse_args(args)?;
+    let trace_dump_path = config.trace_dump_path.clone();
+    let submit_api_address = config.submit_api_address()?;
+    pre_flight_checks()?;
 
-                return Err(err);
+    let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
+    let running = build_and_run_node(config, meter_provider)?;
+
+    // Main-thread signal path can abort stages without scheduling this future.
+    let running_for_abort = running.clone();
+    shutdown.register_abort(move || running_for_abort.request_abort());
+    if shutdown.is_cancelled() {
+        running.request_abort();
+    }
+
+    let exit = shutdown.token();
+    let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
+        Ok(handle) => handle,
+        Err(err) => {
+            let trace_buffer = running.trace_buffer().clone();
+            running.request_abort();
+            dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
+
+            if let Some(handle) = metrics.as_ref() {
+                handle.abort();
             }
-        };
 
-        let term = running.termination();
-        let exit2 = exit.clone();
-        tokio::spawn(async move {
-            term.await;
-            if !exit2.is_cancelled() {
-                tracing::error!(
-                    "Consensus died, this should not happen! Please report this incl. preceding logs to the Amaru team."
-                );
-                exit2.cancel();
-            }
-        });
-
-        let trace_buffer = running.trace_buffer().clone();
-        exit.cancelled().await;
-        running.abort();
-        dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
-
-        if let Some(handle) = submit_api_handle {
-            let _ = handle.await; // Let graceful shutdown complete
+            return Err(err);
         }
+    };
 
-        if let Some(handle) = metrics {
-            handle.abort();
+    let term = running.termination();
+    let exit_for_term = exit.clone();
+    let consensus_died = Arc::new(AtomicBool::new(false));
+    let consensus_died_flag = Arc::clone(&consensus_died);
+    tokio::spawn(async move {
+        term.await;
+        if !exit_for_term.is_cancelled() {
+            consensus_died_flag.store(true, Ordering::SeqCst);
+            tracing::error!(
+                "Consensus died, this should not happen! Please report this incl. preceding logs to the Amaru team."
+            );
+            exit_for_term.cancel();
         }
+    });
 
-        Ok(())
-    })
-    .await
+    exit.cancelled().await;
+
+    let trace_buffer = running.trace_buffer().clone();
+    running.request_abort();
+    dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
+
+    if let Some(handle) = submit_api_handle {
+        match tokio::time::timeout(SUBMIT_API_JOIN_TIMEOUT, handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => warn!(error = %err, "submit API task ended with join error"),
+            Err(_) => warn!("submit API did not shut down within timeout"),
+        }
+    }
+
+    if let Some(handle) = metrics {
+        handle.abort();
+    }
+
+    if consensus_died.load(Ordering::SeqCst) {
+        return Err("consensus stage graph terminated unexpectedly".into());
+    }
+
+    Ok(())
 }
 
 /// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
 async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
     mempool_sender: Sender<MempoolMsg>,
-    exit: &tokio_util::sync::CancellationToken,
+    exit: &CancellationToken,
 ) -> Result<Option<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error>> {
     let Some(addr) = address else {
         return Ok(None);

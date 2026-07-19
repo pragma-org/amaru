@@ -576,11 +576,19 @@ pub struct TokioRunning {
 }
 
 impl TokioRunning {
-    /// Abort all stage tasks of this network.
-    pub fn abort(self) {
+    /// Abort all stage tasks of this network without consuming the handle.
+    ///
+    /// Safe to call from any thread (including the process main thread). Abort is
+    /// cooperative: stage tasks stop at their next `.await`.
+    pub fn request_abort(&self) {
         for handle in self.inner.handles.lock().iter() {
             handle.abort();
         }
+    }
+
+    /// Abort all stage tasks of this network.
+    pub fn abort(self) {
+        self.request_abort();
     }
 
     pub async fn join(self) {

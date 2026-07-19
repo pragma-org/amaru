@@ -60,6 +60,7 @@ rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+signal-hook.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 tempfile.workspace = true
@@ -69,7 +70,7 @@ tokio = { workspace = true, features = [
   "net",
   "rt",
   "rt-multi-thread",
-  "signal",
+  "time",
 ] }
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true

@@ -37,6 +37,14 @@ Other guiding principles:
 
 ## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
 
+### Fixed
+
+- **amaru**: process lifecycle no longer depends on the Tokio runtime to observe SIGINT/SIGTERM; first signal requests graceful shutdown (including main-thread stage abort), second signal force-exits (exit 130). Fixes hang during catch-up roll-forward ([#860](https://github.com/pragma-org/amaru/issues/860)).
+
+### Changed
+
+- **amaru**: removed `#[tokio::main]`; each subcommand builds its own Tokio runtime; signals are handled via `signal-hook` on the main thread (EDR 019). Unexpected consensus stage-graph death now exits non-zero. OpenTelemetry teardown is time-bounded.
+
 ### Added
 
 - **amaru-ledger**: trace spans for the ledger rules (phase-one and phase-two). ([#1056][])

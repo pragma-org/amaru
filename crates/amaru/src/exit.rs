@@ -12,43 +12,67 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tokio_util::sync::CancellationToken;
-#[cfg(windows)]
-use tracing::trace;
-#[cfg(unix)]
-use tracing::{trace, warn};
+//! Process termination signals, independent of the Tokio runtime.
+//!
+//! Handlers only increment an atomic counter (async-signal-safe). The main thread
+//! polls the counter and drives graceful shutdown / forced exit.
 
-#[inline]
-#[cfg(unix)]
-#[expect(clippy::unwrap_used)]
-async fn wait_for_exit_signal() {
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+};
 
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            warn!("SIGINT detected");
-        }
-        _ = sigterm.recv() => {
-            warn!("SIGTERM detected");
-        }
-    };
+/// Shared signal counter installed by [`install_termination_signals`].
+///
+/// Values:
+/// - `0` — no termination signal yet
+/// - `1` — request orderly shutdown
+/// - `≥2` — force-exit the process
+#[derive(Clone, Debug)]
+pub struct SignalState {
+    count: Arc<AtomicU8>,
 }
 
-#[inline]
-#[cfg(windows)]
-async fn wait_for_exit_signal() {
-    tokio::signal::ctrl_c().await.unwrap()
+impl SignalState {
+    /// Create a state that is not wired to OS signals (for tests).
+    pub fn new_disconnected() -> Self {
+        Self { count: Arc::new(AtomicU8::new(0)) }
+    }
+
+    /// Current number of termination signals observed (saturating at `u8::MAX`).
+    pub fn count(&self) -> u8 {
+        self.count.load(Ordering::SeqCst)
+    }
+
+    /// Shared atomic for tests or advanced wiring.
+    pub fn shared_count(&self) -> Arc<AtomicU8> {
+        Arc::clone(&self.count)
+    }
 }
 
-pub fn hook_exit_token() -> CancellationToken {
-    let cancel = CancellationToken::new();
+/// Install SIGINT and SIGTERM handlers that increment a shared counter.
+///
+/// Uses only `signal_hook` facilities that also work on Windows CRT signals.
+/// Handlers perform no logging or allocation beyond atomic arithmetic.
+pub fn install_termination_signals() -> io::Result<SignalState> {
+    let count = Arc::new(AtomicU8::new(0));
 
-    let cancel2 = cancel.clone();
-    tokio::spawn(async move {
-        wait_for_exit_signal().await;
-        trace!("notifying exit");
-        cancel2.cancel();
-    });
+    for sig in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+        let count = Arc::clone(&count);
+        // SAFETY: the handler only performs an atomic fetch_add, which is
+        // async-signal-safe. No locks, allocation, or logging.
+        unsafe {
+            signal_hook::low_level::register(sig, move || {
+                let old = count.fetch_add(1, Ordering::SeqCst);
+                if old == 254 {
+                    count.store(254, Ordering::SeqCst);
+                }
+            })?;
+        }
+    }
 
-    cancel
+    Ok(SignalState { count })
 }
