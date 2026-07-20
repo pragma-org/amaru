@@ -235,13 +235,13 @@ validateTestCase TestCase{network, eraHistory, protocolParameters, initialState,
             Right "PASS"
         (ExpectedPass, predicates) ->
             Left (ValidationMismatch (renderActualPredicates predicates) "PASS")
-        (ExpectedFailure predicateName, [actualPredicate])
-            | predicateName == actualPredicate ->
+        (ExpectedFailure predicateName, predicates)
+            | predicateName `elem` predicates ->
                 Right predicateName
-        (ExpectedFailure predicateName, []) ->
-            Left (ValidationMismatch "Pass" predicateName)
-        (ExpectedFailure predicateName, predicates) ->
-            Left (ValidationMismatch (renderActualPredicates predicates) predicateName)
+            | null predicates ->
+                Left (ValidationMismatch "Pass" predicateName)
+            | otherwise ->
+                Left (ValidationMismatch (renderActualPredicates predicates) predicateName)
 
 manualRefScriptSizeFailure
     :: ProtocolParameters
