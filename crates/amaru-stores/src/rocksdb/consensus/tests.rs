@@ -1592,7 +1592,7 @@ fn make_linear_headers(len: usize) -> Vec<BlockHeader> {
     headers
 }
 
-fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item=&'a BlockHeader>) {
+fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a BlockHeader>) {
     for header in headers {
         store.store_header(header).unwrap();
         store.roll_forward_chain(&header.point()).unwrap();

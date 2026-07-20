@@ -16,14 +16,13 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
     io,
-    iter::chain,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use amaru_kernel::{
-    from_cbor, num::CheckedSub, utils::path::relative_path, BlockHeader, Epoch, EraHistory, GlobalParameters, Hash,
-    HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, StakeCredential,
+    BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
+    StakeCredential, from_cbor, num::CheckedSub, utils::path::relative_path,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -32,13 +31,14 @@ use amaru_ledger::{
 use amaru_observability::{error, info, warn};
 use amaru_ouroboros::{ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
-use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB, RocksDbConfig};
+use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
 use tar::Archive;
 use tokio::{
     fs::{self, File},
@@ -51,7 +51,7 @@ mod chain_sync_client;
 use chain_sync_client::ChainSyncClient;
 
 use crate::{
-    cardano_node::{parse_state_snapshot_with_chain_state, tvar::import_snapshot_from_tvar, ParsedStateSnapshot},
+    cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_chain_state, tvar::import_snapshot_from_tvar},
     default_data_dir, default_snapshots_dir, get_bootstrap_file,
 };
 
@@ -654,7 +654,7 @@ pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainSt
 
     db.put_nonces(&header_hash, &nonces)?;
 
-    info!("importing opcert sequence numbers");
+    info!(bootstrap::opcert_sequence_numbers::IMPORT, point = %initial_nonces.at);
     db.put_opcert_seed(&chain_state.opcert_sequence_numbers, &initial_nonces.at)?;
 
     Ok(())
@@ -871,7 +871,7 @@ async fn import_node_snapshot_dir(
     let builder = std::thread::Builder::new().stack_size(10_000_000);
     let mut accounts = recently_unregistered_accounts.clone();
 
-    let (db, epoch, chain_state) = builder
+    let (db, epoch, chain_state, accounts) = builder
         .spawn(move || {
             import_snapshot_from_tvar(
                 &db,
@@ -884,7 +884,7 @@ async fn import_node_snapshot_dir(
                 |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
             )
             .map_err(|e| e.to_string())
-            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
+            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state, accounts))
         })
         .unwrap()
         .join()
@@ -913,11 +913,7 @@ fn node_snapshot_paths(path: &Path) -> Option<NodeSnapshotPaths> {
     let state = path.join("state");
     let utxo = path.join("tables").join("tvar");
 
-    if state.is_file() && utxo.is_file() {
-        Some(NodeSnapshotPaths { state, utxo })
-    } else {
-        None
-    }
+    if state.is_file() && utxo.is_file() { Some(NodeSnapshotPaths { state, utxo }) } else { None }
 }
 
 fn is_cbor_snapshot_file(path: &Path) -> bool {
@@ -945,8 +941,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        bootstrap_parent_points, node_snapshot_paths, select_bootstrap_snapshots, snapshot_epoch,
-        sort_snapshots_by_slot, Snapshot,
+        Snapshot, bootstrap_parent_points, node_snapshot_paths, select_bootstrap_snapshots, snapshot_epoch,
+        sort_snapshots_by_slot,
     };
     use crate::cardano_node::ParsedStateSnapshot;
 

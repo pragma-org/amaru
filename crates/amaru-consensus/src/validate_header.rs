@@ -14,10 +14,10 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, IsHeader, to_cbor};
+use amaru_kernel::{BlockHeader, ConsensusParameters, Epoch, EraHistory, IsHeader, to_cbor};
 use amaru_observability::debug_span;
 use amaru_ouroboros::praos::{self, header::AssertHeaderError};
-use amaru_ouroboros_traits::{ChainStore, PoolSummaries, Praos};
+use amaru_ouroboros_traits::{ChainStore, PoolSummaries, Praos, has_stake_distribution::GetPoolError};
 
 use crate::{
     errors::ConsensusError,
@@ -32,6 +32,17 @@ pub enum ValidateHeaderError {
     Assert(#[from] AssertHeaderError),
     #[error("{0}")]
     Consensus(#[from] ConsensusError),
+}
+
+impl ValidateHeaderError {
+    pub fn missing_stake_distribution(&self) -> Option<Epoch> {
+        match self {
+            ValidateHeaderError::Consensus(ConsensusError::GetPoolError(
+                GetPoolError::StakeDistributionNotAvailable(_, Some(target)),
+            )) => Some(*target),
+            ValidateHeaderError::Nonces(_) | ValidateHeaderError::Assert(_) | ValidateHeaderError::Consensus(_) => None,
+        }
+    }
 }
 
 /// Validate a block header.
@@ -72,11 +83,11 @@ pub fn validate_header(
             &pool_summary,
             &epoch_nonce,
         )
-            .and_then(|assertions| {
-                use rayon::prelude::*;
-                assertions.into_par_iter().try_for_each(|assert| assert())
-            })
-            .map_err(ValidateHeaderError::Assert)
+        .and_then(|assertions| {
+            use rayon::prelude::*;
+            assertions.into_par_iter().try_for_each(|assert| assert())
+        })
+        .map_err(ValidateHeaderError::Assert)
     })?;
 
     Ok(())

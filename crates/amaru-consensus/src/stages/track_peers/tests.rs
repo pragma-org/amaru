@@ -16,7 +16,7 @@ use std::{self, slice, time::Duration};
 
 use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, Tip, num::CheckedSub};
 use amaru_metrics::consensus::ConsensusMetrics;
-use amaru_ouroboros::{ConnectionId, praos::header::AssertHeaderError};
+use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
@@ -29,6 +29,7 @@ use tracing::Level;
 
 use crate::{
     effects::{ValidateHeaderEffect, VolatileTipEffect},
+    errors::ConsensusError,
     stages::{
         peer_selection::PeerSelectionMsg,
         test_utils::{assert_trace, te_input, te_record_consensus_metrics, te_send, te_state, tm_state},
@@ -741,7 +742,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
     let (running, _guards, mut logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
-                OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                OverrideResult::handled(Err(ValidateHeaderError::Consensus(ConsensusError::GetPoolError(
                     GetPoolError::StakeDistributionNotAvailable(slot, Some(far_epoch)),
                 ))))
             });
@@ -1145,7 +1146,7 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
                 n += 1;
                 if n == 1 {
-                    OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                    OverrideResult::handled(Err(ValidateHeaderError::Consensus(ConsensusError::GetPoolError(
                         GetPoolError::StakeDistributionNotAvailable(slot1, Some(target_epoch)),
                     ))))
                 } else {
@@ -1285,7 +1286,7 @@ fn test_redeferred_header_keeps_blocking_follow_ups() {
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
                 n += 1;
                 let target = if n == 1 { first_target } else { second_target };
-                OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                OverrideResult::handled(Err(ValidateHeaderError::Consensus(ConsensusError::GetPoolError(
                     GetPoolError::StakeDistributionNotAvailable(slot1, Some(target)),
                 ))))
             });

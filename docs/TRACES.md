@@ -190,6 +190,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::bootstrap::opcert_sequence_numbers`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `import` | `TRACE` | public | Import initial opcert sequence numbers into the chain store | point |  |
+
+<details><summary>span: `import`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::bootstrap::peer`
 
 | name | level | public | description | required fields | optional fields |

@@ -42,6 +42,7 @@ Summarizing:
                                       │ evolve nonce after each │
                                       │   block combining VRFs  │
                                       └─────────────────────────┘
+```
 */
 use amaru_kernel::{HeaderHash, IsHeader, Nonce};
 

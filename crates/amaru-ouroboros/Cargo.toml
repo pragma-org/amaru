@@ -43,6 +43,7 @@ ctor.workspace = true
 insta = { workspace = true, features = ["yaml"] }
 proptest.workspace = true
 rand.workspace = true
+rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing-subscriber.workspace = true
