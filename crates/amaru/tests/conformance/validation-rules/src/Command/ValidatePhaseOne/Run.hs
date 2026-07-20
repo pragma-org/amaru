@@ -119,6 +119,7 @@ import System.FilePath
 
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as Text
+import qualified Data.Text.IO as Text.IO
 
 run :: Options -> ExceptT Error IO ()
 run Options{target} =
@@ -139,8 +140,41 @@ runTestCaseDirectory directory = do
     results <- forM testCasePaths $ \testCasePath -> liftIO $ do
         result <- runExceptT (validateTestCaseAt testCasePath)
         putLBSLn (encode (testCaseResult testCasePath result))
-        pure result
-    when (any isLeft results) (liftIO exitFailure)
+        pure (testCasePath, result)
+    liftIO (Text.IO.hPutStr stderr (renderRunSummary directory results))
+    when (any (isLeft . snd) results) (liftIO exitFailure)
+
+renderRunSummary :: FilePath -> [(FilePath, Either Error (Text, Text))] -> Text
+renderRunSummary directory results =
+    Text.unlines (["", top, titleLine, separator] <> map renderRow rows <> [bottom])
+  where
+    total = length results
+    failed = length [() | (_, Left _) <- results]
+    passed = total - failed
+
+    title = "Validation rules conformance summary"
+    rows =
+        [ ("  ", "directory", toText directory)
+        , ("  ", "total", showText total)
+        , (green "✓ ", "passed", showText passed)
+        , (red "✗ ", "failed", showText failed)
+        ]
+
+    keyWidth = foldl' max 0 (map (\(_, key, _) -> Text.length key) rows)
+    plainRow (_, key, value) = "  " <> Text.justifyLeft keyWidth ' ' key <> " : " <> value
+    coloredRow (marker, key, value) = marker <> Text.justifyLeft keyWidth ' ' key <> " : " <> value
+    innerWidth = foldl' max (Text.length title) (map (Text.length . plainRow) rows)
+
+    horizontal = Text.replicate (innerWidth + 2) "─"
+    top = "╭" <> horizontal <> "╮"
+    separator = "├" <> horizontal <> "┤"
+    bottom = "╰" <> horizontal <> "╯"
+    titleLine = "│ " <> Text.justifyLeft innerWidth ' ' title <> " │"
+    renderRow row =
+        "│ " <> coloredRow row <> Text.replicate (innerWidth - Text.length (plainRow row)) " " <> " │"
+
+    green text = "\ESC[32m" <> text <> "\ESC[0m"
+    red text = "\ESC[31m" <> text <> "\ESC[0m"
 
 validateTestCaseAt :: FilePath -> ExceptT Error IO (Text, Text)
 validateTestCaseAt testCasePath = do
@@ -200,14 +234,14 @@ validateTestCase TestCase{network, eraHistory, protocolParameters, initialState,
         (ExpectedPass, []) ->
             Right "PASS"
         (ExpectedPass, predicates) ->
-            Left (ValidationMismatch "PASS" (renderActualPredicates predicates))
+            Left (ValidationMismatch (renderActualPredicates predicates) "PASS")
         (ExpectedFailure predicateName, [actualPredicate])
             | predicateName == actualPredicate ->
                 Right predicateName
         (ExpectedFailure predicateName, []) ->
-            Left (ValidationMismatch predicateName "Pass")
+            Left (ValidationMismatch "Pass" predicateName)
         (ExpectedFailure predicateName, predicates) ->
-            Left (ValidationMismatch predicateName (renderActualPredicates predicates))
+            Left (ValidationMismatch (renderActualPredicates predicates) predicateName)
 
 manualRefScriptSizeFailure
     :: ProtocolParameters

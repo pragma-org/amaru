@@ -76,7 +76,7 @@
       }
     },
     "hook": {
-      "on-activate": "  echo \"conformance env active.\"\n  echo \"First build:  make prerequisites && make build\"\n  echo \"Run binary:   conformance --help\"\n\n  # Drop non-existent directories from LIBRARY_PATH: outer flox environments\n  # without library packages contribute dead <env>/lib entries, which clang\n  # forwards as -L flags and the macOS linker warns about.\n  if [ -n \"${LIBRARY_PATH:-}\" ]; then\n    LIBRARY_PATH=\"$(echo \"$LIBRARY_PATH\" | tr ':' '\\n' | while IFS= read -r dir; do [ -d \"$dir\" ] && printf '%s\\n' \"$dir\"; done | paste -sd: -)\"\n    export LIBRARY_PATH\n  fi\n  "
+      "on-activate": "  echo \"conformance env active.\"\n  echo \"First build:  make prerequisites && make build\"\n  echo \"Run the tests: make test\"\n\n  # Drop non-existent directories from LIBRARY_PATH: outer flox environments\n  # without library packages contribute dead <env>/lib entries, which clang\n  # forwards as -L flags and the macOS linker warns about.\n  if [ -n \"${LIBRARY_PATH:-}\" ]; then\n    LIBRARY_PATH=\"$(echo \"$LIBRARY_PATH\" | tr ':' '\\n' | while IFS= read -r dir; do [ -d \"$dir\" ] && printf '%s\\n' \"$dir\"; done | paste -sd: -)\"\n    export LIBRARY_PATH\n  fi\n  "
     },
     "profile": {
       "common": "  alias conformance='./.build/bin/conformance'\n  "
