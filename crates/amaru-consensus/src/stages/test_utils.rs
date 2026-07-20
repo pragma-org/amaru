@@ -192,6 +192,18 @@ pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
     pretty_assertions::assert_eq!(trace, expected);
 }
 
+/// How far the simulation is driven after overrides are installed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulationRunMode {
+    /// Resolve external effects and auto-advance scheduled wakeups until the graph is idle
+    /// (or otherwise blocked without a pending sleep). Default for most stage tests.
+    UntilBlocked,
+    /// Resolve external effects but stop at the first scheduled wakeup without advancing
+    /// the clock. Use when a stage would otherwise re-arm a timer forever under a frozen
+    /// external world (e.g. ledger height held constant).
+    UntilSleeping,
+}
+
 /// Common simulation harness for stage unit tests.
 ///
 /// This factors out the repetitive boilerplate of:
@@ -200,7 +212,7 @@ pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
 /// - installing resources and creating/wiring/preloading the stage(s),
 /// - enabling virtual child stages (the recommended default per the README),
 /// - installing external effect overrides, and
-/// - running until blocked.
+/// - running until blocked (auto-advancing scheduled wakeups).
 ///
 /// The caller provides:
 /// - `guards`: the deserializers required for the stage, its messages, child stages, and any
@@ -214,6 +226,8 @@ pub fn assert_trace(running: &SimulationRunning, expected: &[TraceEntry]) {
 /// - `setup_overrides`: a function that will be called with `&mut SimulationRunning` after
 ///   the network has started (and virtual child stages have been enabled). Use it to call
 ///   `running.override_external_effect::<T>(...)`.
+///
+/// For a different run policy, use [`run_simulation_with`].
 #[track_caller]
 pub fn run_simulation<F, G>(
     rt: &Handle,
@@ -221,6 +235,23 @@ pub fn run_simulation<F, G>(
     build_network: impl FnOnce(&mut SimulationBuilder),
     setup_resources: F,
     setup_overrides: G,
+) -> (SimulationRunning, DeserializerGuards, Logs)
+where
+    F: FnOnce(&Resources),
+    G: FnOnce(&mut SimulationRunning),
+{
+    run_simulation_with(rt, guards, build_network, setup_resources, setup_overrides, SimulationRunMode::UntilBlocked)
+}
+
+/// Like [`run_simulation`], but chooses how far to drive the simulation after setup.
+#[track_caller]
+pub fn run_simulation_with<F, G>(
+    rt: &Handle,
+    guards: DeserializerGuards,
+    build_network: impl FnOnce(&mut SimulationBuilder),
+    setup_resources: F,
+    setup_overrides: G,
+    mode: SimulationRunMode,
 ) -> (SimulationRunning, DeserializerGuards, Logs)
 where
     F: FnOnce(&Resources),
@@ -249,7 +280,17 @@ where
     let mut running = network.run();
     running.use_virtual_child_stages(true);
     setup_overrides(&mut running);
-    running.run_until_blocked_incl_effects(rt);
+
+    match mode {
+        SimulationRunMode::UntilBlocked => {
+            running.run_until_blocked_incl_effects(rt);
+        }
+        SimulationRunMode::UntilSleeping => {
+            while let amaru_pure_stage::simulation::Blocked::Busy { .. } = running.run_until_sleeping_or_blocked() {
+                rt.block_on(running.await_external_effect());
+            }
+        }
+    }
 
     (running, guards, logs.logs())
 }

@@ -27,15 +27,16 @@ use amaru_pure_stage::{
 use tracing::Level;
 
 use crate::{
-    effects::{TipEffect, ValidateHeaderEffect, VolatileTipEffect},
+    effects::{ValidateHeaderEffect, VolatileTipEffect},
     stages::{
         peer_selection::PeerSelectionMsg,
         test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
-                build_store, make_block_header, new_tip, setup, setup_base, setup_with_ledger_tip, te_clock_suspend,
-                te_has_header, te_load_tip, te_store_header, te_validate_header, test_prep,
+                HEIGHT_RECHECK_INTERVAL, build_store, height_recheck_schedule_id, make_block_header, new_tip,
+                schedule_id_at, setup, setup_base, setup_with_ledger_tip_until_sleeping, te_clock, te_clock_suspend,
+                te_has_header, te_load_tip, te_schedule, te_store_header, te_validate_header, test_prep,
                 test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
@@ -770,8 +771,7 @@ fn test_roll_backward_unknown_point_removes_peer() {
 }
 
 /// Tests that a RollForward whose header height requires a ledger height beyond what is currently
-/// applied causes scheduling of height recheck (self-message) for deferred headers
-/// for a deferred RequestNext (instead of immediately pipelining RequestNext to the handler).
+/// applied defers RequestNext and arms a single coalesced height-recheck schedule.
 #[test]
 fn test_roll_forward_defers_request_next() {
     // Use max_peer_lead = 0 so any header taller than the known ledger height triggers defer.
@@ -791,10 +791,11 @@ fn test_roll_forward_defers_request_next() {
     });
 
     let store = build_store(&[]);
+    let sid = height_recheck_schedule_id();
 
-    // Use the special setup that forces ledger tip = origin (height 0).
+    // Frozen ledger tip would poll forever if wakeups auto-advanced; stop at first sleep.
     let (running, _guards, mut logs) =
-        setup_with_ledger_tip(&prep.rt_handle(), state.clone(), msg.clone(), store, Tip::origin());
+        setup_with_ledger_tip_until_sleeping(&prep.rt_handle(), state.clone(), [msg.clone()], store, Tip::origin());
 
     logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
         Level::ERROR,
@@ -809,7 +810,13 @@ fn test_roll_forward_defers_request_next() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             tm_volatile_tip("tp-1"),
-            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "ledger height deferred"),
+            te_clock_suspend("tp-1").into(),
+            te_schedule("tp-1", TrackPeersMsg::RecheckLedgerHeight, sid).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.len() == 1 && s.recheck_timer == Some(sid),
+                "ledger height deferred with recheck armed",
+            ),
         ],
     );
 
@@ -841,20 +848,17 @@ fn test_pipelined_headers_after_height_defer() {
     let mut state = prep.state.clone();
     state.insert_peer(peer.clone(), parent.tip(), h2.tip());
 
+    let sid = height_recheck_schedule_id();
+
     // Forced ledger tip = origin so height defers apply; second header is FollowUp while peer deferred.
-    let store = build_store(&[]);
-    let (running, _guards, mut logs) =
-        setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], store, |running| {
-            running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
-                let tip = Tip::origin();
-                move |_| OverrideResult::handled(tip)
-            });
-            running.override_external_effect::<TipEffect>(usize::MAX, {
-                let tip = Tip::origin();
-                move |_| OverrideResult::handled(tip)
-            });
-            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
-        });
+    // Stop at first sleep so the height-poll loop does not run forever under a frozen tip.
+    let (running, _guards, mut logs) = setup_with_ledger_tip_until_sleeping(
+        &prep.rt_handle(),
+        state.clone(),
+        [msg1.clone(), msg2.clone()],
+        build_store(&[]),
+        Tip::origin(),
+    );
 
     logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
         Level::INFO,
@@ -868,12 +872,83 @@ fn test_pipelined_headers_after_height_defer() {
             te_input("tp-1", &msg1).into(),
             te_clock_suspend("tp-1").into(),
             tm_volatile_tip("tp-1"),
+            te_clock_suspend("tp-1").into(),
+            te_schedule("tp-1", TrackPeersMsg::RecheckLedgerHeight, sid).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first ledger-height deferred"),
             te_input("tp-1", &msg2).into(),
-            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "follow-up queued while deferred"),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.len() == 2 && s.recheck_timer == Some(sid),
+                "follow-up queued while deferred; still one recheck timer",
+            ),
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);
+}
+
+/// Height defer is released when a later recheck sees the applied ledger height advance.
+#[test]
+fn test_height_defer_recheck_when_ledger_advances() {
+    let prep = test_prep_with_max_peer_lead(0);
+    let peer = Peer::new("peer1");
+    let header = prep.headers[0].clone();
+    let tip = header.tip();
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), Tip::origin(), tip);
+
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), tip),
+    });
+
+    let sid = height_recheck_schedule_id();
+    let recheck_at = schedule_id_at(HEIGHT_RECHECK_INTERVAL).time();
+    let advanced_tip = Tip::new(header.point(), header.block_height());
+
+    let (running, _guards, mut logs) =
+        setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
+            let mut n = 0u8;
+            running.override_external_effect::<VolatileTipEffect>(usize::MAX, move |_| {
+                n += 1;
+                // First call (defer decision) still at origin; recheck sees advanced height.
+                if n == 1 { OverrideResult::handled(Tip::origin()) } else { OverrideResult::handled(advanced_tip) }
+            });
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        });
+
+    logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"])
+        .assert_and_remove(Level::DEBUG, &["roll forward"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+
+    assert_trace_match(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            tm_volatile_tip("tp-1"),
+            te_clock_suspend("tp-1").into(),
+            te_schedule("tp-1", TrackPeersMsg::RecheckLedgerHeight, sid).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "height deferred"),
+            te_clock(recheck_at).into(),
+            te_input("tp-1", &TrackPeersMsg::RecheckLedgerHeight).into(),
+            tm_volatile_tip("tp-1"),
+            te_clock_suspend("tp-1").into(),
+            te_validate_header("tp-1", header.clone()).into(),
+            te_has_header("tp-1", header.hash()).into(),
+            te_store_header("tp-1", header.clone()).into(),
+            te_send("tp-1", "downstream", new_tip(header.tip(), Point::Origin)).into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.is_empty() && s.recheck_timer.is_none(),
+                "processed after height advanced",
+            ),
+        ],
+    );
 }
 
 #[test]
@@ -1009,7 +1084,9 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             tm_state::<TrackPeers>(
                 "tp-1",
                 |s| {
-                    s.deferred.is_empty() && s.upstream.get(&peer).is_some_and(|p| p.current.block_height() == 3.into())
+                    s.deferred.is_empty()
+                        && s.recheck_timer.is_none()
+                        && s.upstream.get(&peer).is_some_and(|p| p.current.block_height() == 3.into())
                 },
                 "both processed after wake",
             ),

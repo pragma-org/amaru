@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
@@ -28,7 +28,7 @@ use amaru_protocols::{
     store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
 };
 use amaru_pure_stage::{
-    DeserializerGuards, Effect, Name, StageGraph, StageRef,
+    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
@@ -42,9 +42,49 @@ use crate::{
     },
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{Logs, StartTimes, TraceMatch, run_simulation, start_in_era, tm_external_effect},
+        test_utils::{
+            Logs, SimulationRunMode, StartTimes, TraceMatch, run_simulation_with, start_in_era, tm_external_effect,
+        },
     },
 };
+
+/// Matches `run_simulation` initial clock (+10s) for schedule id expectations.
+pub const SIM_INITIAL_CLOCK_SECS: u64 = 10;
+
+/// Height recheck poll interval used by the stage (`HEIGHT_RECHECK_INTERVAL`).
+pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
+
+pub fn height_recheck_schedule_id() -> ScheduleId {
+    let when = Instant::at_offset(
+        Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + HEIGHT_RECHECK_INTERVAL,
+        start_in_era().relative_time,
+    );
+    ScheduleIds::default().next_at(when)
+}
+
+pub fn schedule_id_at(delay_from_sim_start: Duration) -> ScheduleId {
+    let when = Instant::at_offset(
+        Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + delay_from_sim_start,
+        start_in_era().relative_time,
+    );
+    ScheduleIds::default().next_at(when)
+}
+
+pub fn te_schedule(
+    at_stage: impl AsRef<str>,
+    msg: impl amaru_pure_stage::SendData,
+    schedule_id: ScheduleId,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::Schedule {
+        at_stage: Name::from(at_stage.as_ref()),
+        msg: Box::new(msg),
+        id: schedule_id,
+    })
+}
+
+pub fn te_clock(instant: Instant) -> TraceEntry {
+    TraceEntry::Clock(instant)
+}
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     let store = Arc::new(InMemoryChainStore::new());
@@ -164,17 +204,18 @@ pub fn setup(
     })
 }
 
-/// Setup variant that forces a specific ledger-applied tip (used to test the defer path).
-pub fn setup_with_ledger_tip(
+/// Forces a specific ledger-applied tip and stops when the sim first sleeps on a scheduled
+/// wakeup (does not auto-advance time). Safe for frozen-height defer tests that arm a recheck
+/// timer without running an infinite height-poll loop.
+pub fn setup_with_ledger_tip_until_sleeping(
     rt: &Handle,
     state: TrackPeers,
-    msg: TrackPeersMsg,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
     store: Arc<InMemoryChainStore>,
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base(rt, state, [msg], store, |running| {
+    setup_base_until_sleeping(rt, state, msg, store, |running| {
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
-        // Force the ledger height returned by VolatileTipEffect / TipEffect so we can control defer decisions.
         running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
             move |_| OverrideResult::handled(ledger_tip)
         });
@@ -189,7 +230,31 @@ pub fn setup_base(
     store: Arc<InMemoryChainStore>,
     overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    run_simulation(
+    setup_inner(rt, state, msg, store, overrides, true)
+}
+
+fn setup_base_until_sleeping(
+    rt: &Handle,
+    state: TrackPeers,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
+    store: Arc<InMemoryChainStore>,
+    overrides: impl FnOnce(&mut SimulationRunning),
+) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_inner(rt, state, msg, store, overrides, false)
+}
+
+fn setup_inner(
+    rt: &Handle,
+    state: TrackPeers,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
+    store: Arc<InMemoryChainStore>,
+    overrides: impl FnOnce(&mut SimulationRunning),
+    advance_wakeups: bool,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
+    use amaru_pure_stage::StageGraph;
+
+    let mode = if advance_wakeups { SimulationRunMode::UntilBlocked } else { SimulationRunMode::UntilSleeping };
+    run_simulation_with(
         rt,
         register_guards(),
         |network| {
@@ -210,5 +275,6 @@ pub fn setup_base(
             resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
         },
         overrides,
+        mode,
     )
 }

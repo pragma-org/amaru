@@ -78,6 +78,18 @@ pub enum ConsensusError {
     EraNameMismatch { from_raw_header: EraName, from_slot: EraName },
 }
 
+impl ConsensusError {
+    pub fn as_invalid_header(&self) -> Option<&ValidateHeaderError> {
+        if let ConsensusError::InvalidHeader(_, err) = self { Some(err) } else { None }
+    }
+    pub fn as_invalid_header_parent(&self) -> Option<&InvalidHeaderParentData> {
+        if let ConsensusError::InvalidHeaderParent(err) = self { Some(err) } else { None }
+    }
+    pub fn as_invalid_header_point(&self) -> Option<&InvalidHeaderPoint> {
+        if let ConsensusError::InvalidHeaderPoint(err) = self { Some(err) } else { None }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InvalidHeaderParentData {
     pub(crate) peer: Peer,

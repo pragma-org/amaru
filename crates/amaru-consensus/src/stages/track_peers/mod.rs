@@ -29,7 +29,7 @@ use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     store_effects::Store,
 };
-use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
+use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
 use tracing::Instrument;
 
 use super::peer_selection::PeerSelectionMsg;
@@ -38,6 +38,9 @@ use crate::{
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
     validate_header::ValidateHeaderError,
 };
+
+/// Poll interval while headers are deferred on applied ledger height.
+pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Stage that tracks peers from whom we receive headers over ChainSync.
 ///
@@ -57,7 +60,7 @@ use crate::{
 /// - **`FromUpstream`**: ChainSync initiator results (`Initialize`, intersect, roll forward/backward).
 /// - **`StakeDistUpdated(epoch)`**: ledger has a new stake distribution; set `max_epoch` and recheck
 ///   deferred headers.
-/// - **`RecheckLedgerHeight`**: self-scheduled wake after clock-skew waits (or other rechecks);
+/// - **`RecheckLedgerHeight`**: self-scheduled wake for deferred ledger-height / clock-skew work;
 ///   recheck deferred headers against ledger height / time / stake epoch.
 ///
 /// # Roll-forward path
@@ -81,12 +84,13 @@ use crate::{
 /// Headers that cannot be finished yet are kept in `deferred` with a reason:
 ///
 /// - **LedgerHeight** — header height exceeds applied ledger by more than `max_peer_lead`.
-///   `RequestNext` is not sent until the ledger catches up.
+///   `RequestNext` is not sent until the ledger catches up. Arms a single coalesced
+///   `RecheckLedgerHeight` timer (poll interval [`HEIGHT_RECHECK_INTERVAL`]).
 /// - **StakeDistribution** — pool stake for the header's epoch is not yet known (at most one
 ///   epoch ahead of `max_epoch`). `RequestNext` may already have been pipelined before validation
-///   failed.
-/// - **ClockSkew** — header slot is at most two slots in the future. Schedules
-///   `RecheckLedgerHeight` for the remaining wait; `RequestNext` may already have been sent.
+///   failed. Woken by [`TrackPeersMsg::StakeDistUpdated`] (no self-timer).
+/// - **ClockSkew** — header slot is at most two slots in the future. Contributes the header onset
+///   as the next recheck deadline; `RequestNext` may already have been sent.
 /// - **FollowUp** — further headers arrived while the peer was already deferred. Held until
 ///   earlier deferred items for that peer clear; no `RequestNext` from this path.
 ///
@@ -94,6 +98,11 @@ use crate::{
 /// and other validation failures are adversarial (peer removed and `peer_selection` notified).
 ///
 /// # Recheck
+///
+/// Time-based deferred work (ledger height + clock skew) shares **one** outstanding
+/// `RecheckLedgerHeight` schedule (`recheck_timer`). The earliest deadline among deferred items
+/// wins; a later arm does not replace an earlier timer; an earlier arm cancels and replaces a
+/// later one. After each recheck, the timer is re-armed only if height/clock work remains.
 ///
 /// `TrackPeers::recheck_deferred` walks `deferred` in order. A peer stays blocked while any
 /// earlier deferred item for that peer is still blocked (so FollowUps wait on prior
@@ -103,8 +112,8 @@ use crate::{
 /// # Effects and sends
 ///
 /// - **Effects**: `VolatileTipEffect`, ledger `validate_header`, store load / has / store, `clock`,
-///   `schedule_after` (clock-skew wake). Trace context is attached via [`TraceContext`] on ledger
-///   and store operations.
+///   `schedule_at` / `cancel_schedule` (coalesced deferred recheck). Trace context is attached via
+///   [`TraceContext`] on ledger and store operations.
 /// - **Sends**: per-peer `RequestNext` / `Done`; `Adversarial(peer, TraceContext)` to peer selection;
 ///   [`NewTip`] to downstream when a new header is stored.
 ///
@@ -123,6 +132,8 @@ pub struct TrackPeers {
     ledger_last_checked_at: Instant,
     max_epoch: Epoch,
     deferred: Vec<DeferredHeader>,
+    /// Single outstanding self-schedule for height/clock deferred rechecks.
+    recheck_timer: Option<ScheduleId>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -215,13 +226,6 @@ pub struct NewTip {
     pub trace_context: TraceContext,
 }
 
-impl NewTip {
-    pub fn new(tip: Tip, parent: Point) -> Self {
-        // FIXME: shouldn’t the trace context come from upstream?
-        NewTip { tip, parent, trace_context: Default::default() }
-    }
-}
-
 pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<TrackPeersMsg>) -> TrackPeers {
     match msg {
         TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg { peer, conn_id: _, handler, msg }) => {
@@ -232,6 +236,7 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
             state.recheck_deferred(&eff).await;
         }
         TrackPeersMsg::RecheckLedgerHeight => {
+            state.recheck_timer = None;
             state.recheck_deferred(&eff).await;
         }
     }
@@ -256,6 +261,7 @@ impl TrackPeers {
             ledger_applied_block_height: BlockHeight::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
             max_epoch,
+            recheck_timer: None,
         }
     }
 
@@ -373,13 +379,9 @@ impl TrackPeers {
     /// Returns true if deferred (and not adversarial).
     /// Rejects (returns false to let caller do adversarial) if the missing dist is >1 epoch ahead.
     fn try_defer_for_stake(&mut self, args: &RollForwardArgs, error: &ConsensusError) -> Option<DeferredHeader> {
-        let ConsensusError::InvalidHeader(_, vhe) = error else {
-            return None;
-        };
-        let ValidateHeaderError::Assert(AssertHeaderError::PoolError(GetPoolError::StakeDistributionNotAvailable(
-            _,
-            Some(target),
-        ))) = &**vhe
+        let Some(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+            GetPoolError::StakeDistributionNotAvailable(_, Some(target)),
+        ))) = error.as_invalid_header()
         else {
             return None;
         };
@@ -404,7 +406,7 @@ impl TrackPeers {
     }
 
     /// Try to defer this header validation due to the slot being slightly in the future (clock skew).
-    /// Returns true if deferred.
+    /// Returns true if deferred. The caller must arm the coalesced recheck timer after enqueueing.
     async fn try_defer_for_clock_skew(
         &mut self,
         args: &RollForwardArgs,
@@ -419,7 +421,6 @@ impl TrackPeers {
         let elapsed = now.duration_since_global_epoch();
         let onset = self.era_history.slot_to_relative_time_unchecked_horizon(args.header.slot()).unwrap_or_default();
         let wait = onset.saturating_sub(elapsed);
-        eff.schedule_after(TrackPeersMsg::RecheckLedgerHeight, wait).await;
         Some(DeferredHeader {
             peer: args.peer.clone(),
             handler: args.handler.clone(),
@@ -434,12 +435,54 @@ impl TrackPeers {
         })
     }
 
+    /// Earliest instant at which height- or clock-deferred work should be rechecked.
+    fn next_recheck_at(&self, now: Instant) -> Option<Instant> {
+        self.deferred
+            .iter()
+            .filter_map(|d| match &d.reason {
+                DeferReason::LedgerHeight { .. } => Some(now + HEIGHT_RECHECK_INTERVAL),
+                DeferReason::ClockSkew { min_time, .. } => Some(*min_time),
+                DeferReason::StakeDistribution { .. } | DeferReason::FollowUp { .. } | DeferReason::Placeholder => None,
+            })
+            .min()
+    }
+
+    /// Ensure at most one outstanding `RecheckLedgerHeight` for time-based deferred work.
+    async fn ensure_recheck_armed(&mut self, eff: &Effects<TrackPeersMsg>) {
+        let needs_timer = self
+            .deferred
+            .iter()
+            .any(|d| matches!(d.reason, DeferReason::LedgerHeight { .. } | DeferReason::ClockSkew { .. }));
+        if !needs_timer {
+            if let Some(id) = self.recheck_timer.take() {
+                eff.cancel_schedule(id).await;
+            }
+            return;
+        }
+        let now = eff.clock().await;
+        let Some(when) = self.next_recheck_at(now) else {
+            return;
+        };
+        match self.recheck_timer {
+            Some(id) if id.time() <= when => {}
+            Some(id) => {
+                eff.cancel_schedule(id).await;
+                let id = eff.schedule_at(TrackPeersMsg::RecheckLedgerHeight, when).await;
+                self.recheck_timer = Some(id);
+            }
+            None => {
+                let id = eff.schedule_at(TrackPeersMsg::RecheckLedgerHeight, when).await;
+                self.recheck_timer = Some(id);
+            }
+        }
+    }
+
     fn is_deferred(&self, peer: &Peer) -> bool {
         self.deferred.iter().any(|d| d.peer == *peer)
     }
 
     /// Try to execute a roll forward from a peer. Preconditions like maximum distance from applied
-    /// ledger height have already been checked. Stake distribution availability leads to deferral,
+    /// ledger height have already been checked. Stake distribution unavailability leads to deferral,
     /// so that this method can be called again later with the same inputs. `Ok(())` is also
     /// returned in case the peer was removed due to an unrecoverable error.
     async fn try_roll_forward(
@@ -583,6 +626,7 @@ impl TrackPeers {
                             },
                             trace_context,
                         });
+                        self.ensure_recheck_armed(&eff).await;
                         return;
                     }
 
@@ -598,6 +642,7 @@ impl TrackPeers {
                     };
                     if let Err(dh) = self.try_roll_forward(args, &eff, now).await {
                         self.deferred.push(dh);
+                        self.ensure_recheck_armed(&eff).await;
                     }
                 }
                 .instrument(span)
@@ -663,6 +708,7 @@ impl TrackPeers {
             }
         }
         self.deferred.truncate(pos);
+        self.ensure_recheck_armed(eff).await;
     }
 }
 

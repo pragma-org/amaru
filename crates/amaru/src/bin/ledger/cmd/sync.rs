@@ -163,8 +163,6 @@ async fn process_block(
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
     let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
 
-    // Verify block headers using the extracted pool summaries and the high-level validate path is
-    // exercised via the free function in consensus, but here we call assert_all directly (as before).
     let summaries: PoolSummaries = block_validator.state.lock().unwrap().pool_summaries();
     header::assert_all(
         consensus_parameters,

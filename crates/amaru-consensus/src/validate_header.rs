@@ -41,28 +41,25 @@ pub fn validate_header(
     pool_summaries: Arc<PoolSummaries>,
     era_history: Arc<EraHistory>,
 ) -> Result<(), ValidateHeaderError> {
-    let _span = debug_span!(consensus::header::VALIDATE, header_hash = &header.hash());
-    let _guard = _span.enter();
-    let _nonce_span = debug_span!(consensus::header::EVOLVE_NONCE, header_hash = header.hash());
-    let _nonce_guard = _nonce_span.enter();
-    let nonces = PraosChainStore::new(consensus_parameters.clone(), store.clone()).evolve_nonce(header)?;
-    drop(_nonce_guard);
-    drop(_nonce_span);
-    let epoch_nonce = nonces.active;
+    let _span = debug_span!(consensus::header::VALIDATE, header_hash = &header.hash()).entered();
 
-    let _check_span = debug_span!(consensus::header::CHECK, issuer_key = &header.header_body().issuer_vkey);
-    let _check_guard = _check_span.enter();
-    praos::header::assert_all(
-        consensus_parameters,
-        header.header(),
-        to_cbor(&header.header_body()).as_slice(),
-        &pool_summaries,
-        &era_history,
-        &epoch_nonce,
-    )
-    .and_then(|assertions| {
-        use rayon::prelude::*;
-        assertions.into_par_iter().try_for_each(|assert| assert())
+    let epoch_nonce = debug_span!(consensus::header::EVOLVE_NONCE, header_hash = header.hash())
+        .in_scope(|| PraosChainStore::new(consensus_parameters.clone(), store.clone()).evolve_nonce(header))?
+        .active;
+
+    debug_span!(consensus::header::CHECK, issuer_key = &header.header_body().issuer_vkey).in_scope(|| {
+        praos::header::assert_all(
+            consensus_parameters,
+            header.header(),
+            to_cbor(&header.header_body()).as_slice(),
+            &pool_summaries,
+            &era_history,
+            &epoch_nonce,
+        )
+        .and_then(|assertions| {
+            use rayon::prelude::*;
+            assertions.into_par_iter().try_for_each(|assert| assert())
+        })
     })?;
 
     Ok(())

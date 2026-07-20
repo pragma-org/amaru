@@ -205,15 +205,14 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     stage_graph.resources().put::<ResourceHasStakePools>(block_validation);
     stage_graph.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
 
-    // Resources for ValidateHeaderEffect (which now calls the free validate fn directly).
-    if let Some(era) = NetworkName::Preprod.as_era_history() {
-        #[allow(clippy::expect_used)]
-        let global = NetworkName::Preprod.as_global_parameters().cloned().expect("global parameters for preprod");
-        let cp = Arc::new(ConsensusParameters::new(global, era, Default::default()));
-        stage_graph.resources().put::<ResourceConsensusParameters>(cp);
-        stage_graph.resources().put::<ResourceEraHistory>(era.clone());
-        stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
-    }
+    #[expect(clippy::unwrap_used)]
+    let era = NetworkName::Preprod.as_era_history().unwrap();
+    #[expect(clippy::expect_used)]
+    let global = NetworkName::Preprod.as_global_parameters().cloned().expect("global parameters for preprod");
+    let cp = Arc::new(ConsensusParameters::new(global, era, Default::default()));
+    stage_graph.resources().put::<ResourceConsensusParameters>(cp);
+    stage_graph.resources().put::<ResourceEraHistory>(era.clone());
+    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());
     Ok(())
