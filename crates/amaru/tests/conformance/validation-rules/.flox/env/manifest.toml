@@ -47,7 +47,7 @@ ghc984.pkg-path = "haskell.compiler.ghc984"
 on-activate = '''
   echo "conformance env active."
   echo "First build:  make prerequisites && make build"
-  echo "Run binary:   conformance --help"
+  echo "Run the tests: make test"
 
   # Drop non-existent directories from LIBRARY_PATH: outer flox environments
   # without library packages contribute dead <env>/lib entries, which clang

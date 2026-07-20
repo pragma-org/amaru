@@ -2,11 +2,11 @@
 
 set -o pipefail
 
-PHASE_ONE_ROOT="../../../amaru-ledger/tests/data/phase-one"
+PHASE_ONE_ROOT="../../../../amaru-ledger/tests/data/phase-one"
 
 run_suite() {
-  cabal run -v0 exe:conformance -- validate-phase-one --test-directory "$PHASE_ONE_ROOT/$1" \
-    | jq -r '
+  cabal run -v0 exe:conformance -- validate-phase-one --test-directory "$PHASE_ONE_ROOT/$1" |
+    jq -r '
         if has("error") then
           "\u001b[31m✗ \(.error.label // .path)\u001b[0m \(.path)\n  \(.error)"
         else
