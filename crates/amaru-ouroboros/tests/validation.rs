@@ -199,7 +199,7 @@ fn consensus_parameters_from_context(context: &GeneratorContext) -> ConsensusPar
     )
 }
 
-#[ctor]
+#[ctor(unsafe)]
 fn init() {
     // initialize tracing crate
     tracing_subscriber::fmt::init();
