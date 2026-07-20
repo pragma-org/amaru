@@ -387,7 +387,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `exist` | `TRACE` | public | Chain database already exists | dir, hint |  |
-| `forcefully_remove` | `TRACE` | public | Forcefully remove an existing chain database | dir |  |
 
 <details><summary>span: `exist`</summary>
 
@@ -395,14 +394,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `dir` | `string` | ✓ |
 | `hint` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `forcefully_remove`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `dir` | `string` | ✓ |
 
 </details>
 
@@ -501,7 +492,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `exist` | `TRACE` | public | Ledger database already exists | dir, hint |  |
-| `forcefully_remove` | `TRACE` | public | Forcefully remove an existing ledger database | dir |  |
 
 <details><summary>span: `exist`</summary>
 
@@ -509,14 +499,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `dir` | `string` | ✓ |
 | `hint` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `forcefully_remove`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `dir` | `string` | ✓ |
 
 </details>
 
@@ -551,13 +533,12 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | force, chain_dir, ledger_dir, network | epoch |
+| `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
 
 <details><summary>span: `bootstrap`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `force` | `boolean` | ✓ |
 | `chain_dir` | `string` | ✓ |
 | `ledger_dir` | `string` | ✓ |
 | `network` | `string` | ✓ |

@@ -638,24 +638,6 @@
       "description": "Chain database already exists",
       "public": true
     },
-    "amaru::cli::chain_db::FORCEFULLY_REMOVE": {
-      "type": "object",
-      "properties": {
-        "dir": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "dir"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forcefully_remove",
-      "level": "TRACE",
-      "target": "amaru::cli::chain_db",
-      "description": "Forcefully remove an existing chain database",
-      "public": true
-    },
     "amaru::cli::current_epoch::RESOLVE": {
       "type": "object",
       "properties": {
@@ -841,24 +823,6 @@
       "description": "Ledger database already exists",
       "public": true
     },
-    "amaru::cli::ledger_db::FORCEFULLY_REMOVE": {
-      "type": "object",
-      "properties": {
-        "dir": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "dir"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forcefully_remove",
-      "level": "TRACE",
-      "target": "amaru::cli::ledger_db",
-      "description": "Forcefully remove an existing ledger database",
-      "public": true
-    },
     "amaru::cli::mithril::DOWNLOAD": {
       "type": "object",
       "properties": {
@@ -914,9 +878,6 @@
     "amaru::cli::node::BOOTSTRAP": {
       "type": "object",
       "properties": {
-        "force": {
-          "type": "boolean"
-        },
         "chain_dir": {
           "type": "string"
         },
@@ -933,7 +894,6 @@
         }
       },
       "required": [
-        "force",
         "chain_dir",
         "ledger_dir",
         "network"

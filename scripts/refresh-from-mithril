@@ -132,8 +132,7 @@ bootstrap_refresh() {
     --network "$NETWORK" \
     --chain-dir "$chain_dir" \
     --ledger-dir "$ledger_dir" \
-    --epoch "$((BOOTSTRAP_START_EPOCH + 3))" \
-    --force
+    --epoch "$((BOOTSTRAP_START_EPOCH + 3))"
 }
 
 prepare_latest_bootstrap_config() {
@@ -149,8 +148,7 @@ prepare_latest_bootstrap_config() {
   if ! latest_bootstrap_metadata_available "$metadata_dir" "$BOOTSTRAP_START_EPOCH"; then
     cargo run --profile "$BUILD_PROFILE" -- create-snapshots \
       --network "$NETWORK" \
-      --epoch "$((BOOTSTRAP_START_EPOCH + 3))" \
-      --force
+      --epoch "$((BOOTSTRAP_START_EPOCH + 3))"
   fi
 
   bootstrap_network_dir="$BOOTSTRAP_CONFIG_DIR/$NETWORK"

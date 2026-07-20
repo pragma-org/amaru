@@ -819,10 +819,6 @@ define_schemas! {
                 }
             }
             chain_db {
-                /// Forcefully remove an existing chain database
-                public FORCEFULLY_REMOVE {
-                    required dir: String
-                }
                 /// Chain database already exists
                 public EXIST {
                     required dir: String
@@ -873,10 +869,6 @@ define_schemas! {
                 }
             }
             ledger_db {
-                /// Forcefully remove an existing ledger database
-                public FORCEFULLY_REMOVE {
-                    required dir: String
-                }
                 /// Ledger database already exists
                 public EXIST {
                     required dir: String
@@ -900,7 +892,6 @@ define_schemas! {
             node {
                 /// Bootstrap a node from published snapshots
                 public BOOTSTRAP {
-                    required force: bool
                     required chain_dir: String
                     required ledger_dir: String
                     required network: amaru_kernel::NetworkName

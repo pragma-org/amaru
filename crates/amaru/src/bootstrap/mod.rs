@@ -541,7 +541,7 @@ pub async fn bootstrap(
     )
     .await?;
 
-    let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
+    let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone()))?;
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
