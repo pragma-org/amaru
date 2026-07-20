@@ -46,7 +46,7 @@ pub(crate) enum Command {
     LegacyBootstrap(cmd::node::bootstrap::Args),
 
     #[command(hide = true, name = "reset-to-epoch")]
-    LegacyResetToEpoch(cmd::node::reset::Args),
+    LegacyResetToEpoch(cmd::dev::ledger::reset::Args),
 
     #[command(hide = true, name = "create-snapshots")]
     LegacyCreateSnapshots(cmd::snapshot::create::Args),

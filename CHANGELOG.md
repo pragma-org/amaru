@@ -42,9 +42,14 @@ Other guiding principles:
 - **amaru-ledger**: trace spans for the ledger rules (phase-one and phase-two). ([#1056][])
 - **amaru-ledger**: run scripts in parallel within the same transaction. ([#1056][])
 
+### Changed
+
+- **amaru**: move the `node reset` command under `dev ledger`, where it belongs. ([#1055][])
+
 ### Removed
 
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
+
 
 ### Fixed
 
@@ -194,5 +199,6 @@ Other guiding principles:
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
 [#1048]: https://github.com/pragma-org/amaru/pull/1048
 [#1053]: https://github.com/pragma-org/amaru/pull/1053
+[#1055]: https://github.com/pragma-org/amaru/pull/1055
 [#1056]: https://github.com/pragma-org/amaru/pull/1056
 [#1060]: https://github.com/pragma-org/amaru/issues/1060
