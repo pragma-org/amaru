@@ -103,7 +103,7 @@ data TestCase = TestCase
     , protocolParameters :: !ProtocolParameters
     , initialState :: !InitialState
     , point :: !Point
-    , transaction :: !(Tx TopTx ConwayEra)
+    , transaction :: !(Either Error (Tx TopTx ConwayEra))
     , expected :: !Expected
     }
 
@@ -131,8 +131,7 @@ loadTestCase testCasePath = do
                 (FixtureDecodeError testCasePath . toText)
                 (parseEither protocolParametersFromJson resolvedProtocolParametersValue)
             )
-    decodedTransaction <-
-        hoistEither (decodeTransaction resolvedProtocolParameters documentTransaction)
+    let decodedTransaction = decodeTransaction resolvedProtocolParameters documentTransaction
     pure
         TestCase
             { sourcePath = testCasePath

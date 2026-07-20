@@ -81,7 +81,8 @@ import Data.Fixture.Expected
     , expectedPredicate
     )
 import Data.Fixture.InitialState
-    ( buildNewEpochState
+    ( InitialState
+    , buildNewEpochState
     )
 import Data.Fixture.Network
     ( FixtureNetwork
@@ -207,7 +208,27 @@ findTestCases directory = do
             else pure [path | takeExtension path == ".json"]
 
 validateTestCase :: TestCase -> Either Error Text
-validateTestCase TestCase{network, eraHistory, protocolParameters, initialState, point, transaction, expected} = do
+validateTestCase TestCase{network, eraHistory, protocolParameters, initialState, point, transaction, expected} =
+    case (expected, transaction) of
+        (ExpectedDecodingFailure, Left _) ->
+            Right "DecodingFailure"
+        (ExpectedDecodingFailure, Right _) ->
+            Left (ValidationMismatch "decoded successfully" "DecodingFailure")
+        (_, Left decodeError) ->
+            Left decodeError
+        (_, Right decodedTransaction) ->
+            validateDecodedTransaction network eraHistory protocolParameters initialState point decodedTransaction expected
+
+validateDecodedTransaction
+    :: FixtureNetwork
+    -> EraHistory
+    -> ProtocolParameters
+    -> InitialState
+    -> Point
+    -> Tx TopTx ConwayEra
+    -> Expected
+    -> Either Error Text
+validateDecodedTransaction network eraHistory protocolParameters initialState point transaction expected = do
     globals <- buildGlobals network eraHistory point
     newEpochState <- buildNewEpochState (pparams protocolParameters) eraHistory initialState point
 
@@ -242,6 +263,8 @@ validateTestCase TestCase{network, eraHistory, protocolParameters, initialState,
                 Left (ValidationMismatch "Pass" predicateName)
             | otherwise ->
                 Left (ValidationMismatch (renderActualPredicates predicates) predicateName)
+        (ExpectedDecodingFailure, _) ->
+            Left (ValidationMismatch "decoded successfully" "DecodingFailure")
 
 manualRefScriptSizeFailure
     :: ProtocolParameters

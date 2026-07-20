@@ -14,6 +14,7 @@ import qualified Data.Aeson.KeyMap as KeyMap
 
 data Expected
     = ExpectedPass
+    | ExpectedDecodingFailure
     | ExpectedFailure !Text
 
 instance FromJSON Expected where
@@ -21,14 +22,18 @@ instance FromJSON Expected where
         String "Pass" ->
             pure ExpectedPass
         Object objectValue
+            | KeyMap.member "decodingFailure" objectValue ->
+                pure ExpectedDecodingFailure
             | KeyMap.member "predicate" objectValue ->
                 ExpectedFailure <$> objectValue .: "predicate"
         otherValue ->
-            fail ("Expected \"Pass\" or { predicate: ... }, but got " <> show otherValue)
+            fail ("Expected \"Pass\", { decodingFailure: ... } or { predicate: ... }, but got " <> show otherValue)
 
 expectedPredicate :: Expected -> Maybe Text
 expectedPredicate = \case
     ExpectedPass ->
+        Nothing
+    ExpectedDecodingFailure ->
         Nothing
     ExpectedFailure predicateName ->
         Just predicateName

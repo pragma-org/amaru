@@ -349,15 +349,12 @@ fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Re
 
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{
-        EraHistory, ProtocolParameters, Transaction, cbor, include_json, utils::serde::FilesystemRefResolver,
-    };
-    use amaru_plutus::arena_pool::ArenaPool;
-    use test_case::test_case;
     use std::{fs, path::Path};
+
+    use amaru_kernel::{EraHistory, ProtocolParameters, Transaction, cbor, json, utils::serde::FilesystemRefResolver};
+    use amaru_plutus::arena_pool::ArenaPool;
 
     use super::fixture::{Expected, Fixture, Predicate};
     use crate::context::DefaultValidationContext;
@@ -377,7 +374,17 @@ mod tests {
         // match the size used for fee calculation. See the matching note in evaluate_ledger_states.rs.
         let tx_size = (fixture.transaction.len() - 1) as u64;
 
-        let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
+        let decoded = cbor::decode::<Transaction>(&fixture.transaction);
+
+        if matches!(fixture.expected, Expected::DecodingFailure) {
+            assert!(
+                decoded.is_err(),
+                "expected the transaction to fail to be decoded, but it was successfully decoded"
+            );
+            return;
+        }
+
+        let tx: Transaction = decoded.expect("decode tx");
 
         let resolver = FilesystemRefResolver::new(fixtures_dir);
         let era_history: EraHistory = fixture.era_history.resolve_into(&resolver).expect("resolve eraHistory");
@@ -419,6 +426,7 @@ mod tests {
                 assert_eq!(actual, expected, "expected {expected:?}, got {actual:?}");
             }
             (Expected::Fail(expected), Ok(_)) => panic!("expected fail ({expected:?}), got pass"),
+            (Expected::DecodingFailure, _) => unreachable!("handled before decoding the transaction"),
         }
     }
 }

@@ -149,6 +149,7 @@ where
 
 pub(super) enum Expected {
     Pass,
+    DecodingFailure,
     Fail(Predicate),
 }
 
@@ -157,10 +158,11 @@ impl<'de> Deserialize<'de> for Expected {
         let value = json::Value::deserialize(d)?;
         match value {
             json::Value::String(s) if s == "Pass" => Ok(Expected::Pass),
+            json::Value::Object(ref map) if map.contains_key("decodingFailure") => Ok(Expected::DecodingFailure),
             json::Value::Object(_) => json::from_value(value).map(Expected::Fail).map_err(serde::de::Error::custom),
             json::Value::String(s) => Err(serde::de::Error::custom(format!("expected \"Pass\", got {s:?}"))),
             json::Value::Null | json::Value::Bool(_) | json::Value::Number(_) | json::Value::Array(_) => {
-                Err(serde::de::Error::custom("expected \"Pass\" or { predicate: ..., ... }"))
+                Err(serde::de::Error::custom("expected \"Pass\", { decodingFailure: ... } or { predicate: ..., ... }"))
             }
         }
     }
