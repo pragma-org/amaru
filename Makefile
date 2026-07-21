@@ -56,7 +56,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
+.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version run generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -149,8 +149,8 @@ validate-trace-schemas: ## &test Validate generated trace schemas against docs/t
 		exit 1; \
 	fi
 
-dev: start # 'backward-compatibility'; might remove after a while.
-start: ## &build Compile and run for $BUILD_PROFILE with default options
+start: run # 'backward-compatibility'; might remove after a while.
+run: ## &build Compile and run for $BUILD_PROFILE with default options
 	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) run $(ARGS)
 
 run-until: ## &test Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
