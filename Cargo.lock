@@ -378,7 +378,10 @@ name = "amaru-minicbor-extra"
 version = "0.1.2"
 dependencies = [
  "amaru-deps",
+ "hex",
  "minicbor",
+ "num",
+ "num-bigint",
  "tracing",
 ]
 
@@ -681,6 +684,7 @@ version = "0.4.0"
 dependencies = [
  "amaru-deps",
  "amaru-kernel",
+ "amaru-minicbor-extra",
  "append-only-vec",
  "blst",
  "bumpalo",

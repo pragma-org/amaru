@@ -16,7 +16,6 @@ indoc.workspace = true
 walkdir.workspace = true
 
 [dependencies]
-amaru-kernel.workspace = true
 append-only-vec.workspace = true
 blst.workspace = true
 bumpalo = { workspace = true, features = ["collections"] }
@@ -30,6 +29,10 @@ num.workspace = true
 once_cell.workspace = true
 secp256k1.workspace = true
 thiserror.workspace = true
+
+# Internal dependencies ───────────────────────────────────────────────────────┐
+amaru-kernel.workspace = true
+amaru-minicbor-extra.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true

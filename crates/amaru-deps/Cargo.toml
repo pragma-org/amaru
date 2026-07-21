@@ -119,7 +119,6 @@ itertools = { version = "0.13" }
 libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
-num-bigint = { version = "0.4" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 percent-encoding = { version = "2" }
@@ -186,7 +185,6 @@ itertools = { version = "0.13" }
 libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
-num-bigint = { version = "0.4" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 percent-encoding = { version = "2" }
@@ -231,6 +229,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -245,6 +244,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -259,6 +259,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -273,6 +274,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -287,6 +289,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -301,6 +304,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -315,6 +319,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -329,6 +334,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -343,6 +349,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -357,6 +364,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -368,6 +376,7 @@ uuid = { version = "1", features = ["v4"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
@@ -378,6 +387,7 @@ windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_Fil
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
@@ -389,6 +399,7 @@ bumpalo = { version = "3", features = ["collections"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["js", "std"] }
 js-sys = { version = "0.3" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 once_cell = { version = "1" }
@@ -400,6 +411,7 @@ bumpalo = { version = "3", features = ["collections"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["js", "std"] }
 js-sys = { version = "0.3" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 once_cell = { version = "1" }
@@ -413,6 +425,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
@@ -427,6 +440,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["client-pr
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
+num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustix = { version = "1", features = ["fs", "termios"] }
