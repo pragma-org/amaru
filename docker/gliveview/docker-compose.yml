@@ -1,23 +1,15 @@
-version: '3.8'
-
 services:
   gliveview:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: gliveview
+      args:
+        - AMARU_NETWORK
     volumes:
       - gliveview-blocklog:/opt/cardano/blocklog
     stdin_open: true
     tty: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    networks:
-      - monitoring
 
 volumes:
   gliveview-blocklog:
-
-networks:
-  monitoring:
-    driver: bridge

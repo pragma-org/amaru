@@ -1,0 +1,51 @@
+diff --git a/gLiveView.sh b/gLiveView.sh
+index fd7b1eb..d7a26d9 100755
+--- a/gLiveView.sh
++++ b/gLiveView.sh
+@@ -719,6 +719,7 @@ checkPeers() {
+ }
+ 
+ checkNodeVersion() {
++  [[ ${STRICT_VERSION_CHECK} = N ]] && return
+   [[ ${running_node_version} = '?' ]] && return # ignore check if unable to fetch version from running node
+ 
+   version=$("${CNODEBIN}" version)
+@@ -839,20 +840,7 @@ while true; do
+ 
+   # Gather some data
+   getNodeMetrics
+-  [[ ${RETRIES} -gt 0 && ${fail_count} -eq ${RETRIES} ]] && printf -v error_msg "${style_status_3}COULD NOT CONNECT TO A RUNNING INSTANCE, ${RETRIES} FAILED ATTEMPTS IN A ROW!${NC}" && logln "ERROR" "${error_msg}" && myExit 1 "${error_msg}"
+-  CNODE_PID=$(pgrep -fn "$(basename ${CNODEBIN}).*.port ${CNODE_PORT}")
+-  if [[ -z ${CNODE_PID} ]]; then
+-    ((fail_count++))
+-    clrScreen && mvPos 2 2
+-    printf -v error_msg "${style_status_3}Connection to node lost, retrying (${fail_count}$([[ ${RETRIES} -gt 0 ]] && echo "/${RETRIES}"))!${NC}"
+-    printf ${error_msg}
+-    logln "ERROR" "${error_msg}"
+-    waitForInput && continue
+-  elif [[ ${fail_count} -ne 0 ]]; then # was failed but now ok, re-check
+-    checkNodeVersion
+-    fail_count=0
+-    getOpCert
+-  fi
++  CNODE_PID=$$
+ 
+   if [[ ${show_peers} = "false" ]]; then
+ 
+diff --git a/env b/env
+index c2f20ca..487b286 100644
+--- a/env
++++ b/env
+@@ -1040,6 +1040,12 @@ test_koios() {
+ [[ $1 = "offline" ]] && OFFLINE_MODE='Y'
+ 
+ set_default_vars
++if [[ ${STRICT_VERSION_CHECK} = N ]]; then
++  CCLI=${CCLI:-/bin/false}
++  CNODEBIN=${CNODEBIN:-/bin/false}
++  SOCKET=${SOCKET:-/tmp/amaru.socket}
++fi
++
+ 
+ [[ -z "${CCLI}" ]] && CCLI=$(command -v cardano-cli)
+ if [[ -z "${CCLI}" ]]; then

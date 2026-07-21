@@ -11,19 +11,36 @@ GLiveView relies on prometheus metrics exposed by Amaru to display live chain an
 
 ## Usage
 
-Build and run:
+Build the image:
 
 ```bash
-docker build --no-cache -t gliveview . && docker run --rm -it gliveview
+make build
+```
+
+Build and run the interactive view:
+
+```bash
+make dev
+```
+
+The build defaults to `preprod`. Select another network by setting `AMARU_NETWORK`:
+
+```bash
+AMARU_NETWORK=preview make dev
 ```
 
 ## Environment Variables
 
-Pass with `-e VAR=value` to override defaults.
+Set runtime values before the Make target to override defaults:
+
+```bash
+PROM_HOST=192.168.1.10 PROM_PORT=8889 make dev
+```
+
+Docker defaults are defined in `env` and added to the upstream environment helper during the image build.
 
 | Variable | Default | Description |
 |---|---|---|
-| `NETWORK` | `preprod` | Target network (`mainnet`, `preprod`, `preview`) — used to fetch genesis files |
 | `PROM_HOST` | `host.docker.internal` | Host running Amaru's Prometheus metrics |
 | `PROM_PORT` | `8889` | Prometheus port exposed by the OTLP collector |
 | `BLOCKLOG_DIR` | `/opt/cardano/blocklog` | Block log storage |

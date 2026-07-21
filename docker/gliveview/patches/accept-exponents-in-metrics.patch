@@ -1,0 +1,64 @@
+diff --git a/env b/env
+index c2f20ca..6e07759 100644
+--- a/env
++++ b/env
+@@ -592,11 +592,58 @@ createDistanceToBottom() {
+   printf "\033[$1A"
+ }
+ 
++normalizePrometheusMetrics() {
++  awk '
++    function zeros(count, result) {
++      result = ""
++      while (count-- > 0) {
++        result = result "0"
++      }
++      return result
++    }
++
++    function expandExponent(value, exponentAt, mantissa, exponent, sign, decimalAt, digits, decimalPosition, result) {
++      if (value !~ /^[+-]?[0-9]+(\.[0-9]*)?[eE][+-]?[0-9]+$/) {
++        return value
++      }
++
++      exponentAt = index(tolower(value), "e")
++      mantissa = substr(value, 1, exponentAt - 1)
++      exponent = substr(value, exponentAt + 1) + 0
++      sign = ""
++      if (substr(mantissa, 1, 1) ~ /[+-]/) {
++        sign = substr(mantissa, 1, 1)
++        mantissa = substr(mantissa, 2)
++      }
++
++      decimalAt = index(mantissa, ".")
++      digits = mantissa
++      if (decimalAt > 0) {
++        digits = substr(mantissa, 1, decimalAt - 1) substr(mantissa, decimalAt + 1)
++      } else {
++        decimalAt = length(mantissa) + 1
++      }
++      decimalPosition = decimalAt - 1 + exponent
++
++      if (decimalPosition <= 0) {
++        result = "0." zeros(-decimalPosition) digits
++      } else if (decimalPosition >= length(digits)) {
++        result = digits zeros(decimalPosition - length(digits))
++      } else {
++        result = substr(digits, 1, decimalPosition) "." substr(digits, decimalPosition + 1)
++      }
++      return sign result
++    }
++
++    !/^# / { $NF = expandExponent($NF); print }
++  '
++}
++
+ # Description : Query cardano-node for current metrics
+ getNodeMetrics() {
+   CNODE_PID=$(pgrep -fn "$(basename ${CNODEBIN}).*.--port ${CNODE_PORT}") # Define again - as node could be restarted since last attempt of sourcing env
+   [[ -n ${CNODE_PID} ]] && uptimes=$(( $(date -u +%s) - $(date -d "$(ps -p ${CNODE_PID} -o lstart=)" +%s) )) || uptimes=0
+-  node_metrics=$(curl -s -m ${PROM_TIMEOUT} "http://${PROM_HOST}:${PROM_PORT}/metrics" | grep -v '^# ' 2>/dev/null)
++  node_metrics=$(curl -s -m ${PROM_TIMEOUT} "http://${PROM_HOST}:${PROM_PORT}/metrics" | normalizePrometheusMetrics 2>/dev/null)
+   [[ ${node_metrics} =~ cardano_node_metrics_blockNum_int[[:space:]]([^[:space:]]*) ]] && blocknum=${BASH_REMATCH[1]} || blocknum=0
+   [[ ${node_metrics} =~ cardano_node_metrics_epoch_int[[:space:]]([^[:space:]]*) ]] && epochnum=${BASH_REMATCH[1]} || epochnum=0
+   [[ ${node_metrics} =~ cardano_node_metrics_slotInEpoch_int[[:space:]]([^[:space:]]*) ]] && slot_in_epoch=${BASH_REMATCH[1]} || slot_in_epoch=0
