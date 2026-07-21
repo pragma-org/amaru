@@ -23,11 +23,6 @@ name = "amaru"
 path = "src/bin/amaru/main.rs"
 doc = false
 
-[[bin]]
-name = "amaru-ledger"
-path = "src/bin/ledger/main.rs"
-doc = false
-
 [features]
 default = ["mithril"]
 mithril = ["dep:amaru-mithril"]

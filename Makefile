@@ -110,8 +110,8 @@ build: ## &build Compile for $BUILD_PROFILE
 	cargo build --profile $(BUILD_PROFILE) $(ARGS)
 
 sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
-	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
-	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
+	@cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) dev ledger mithril
+	@cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) dev ledger sync
 
 refresh: ## &start Refresh chain and ledger databases from the latest Mithril snapshot, moving the current ones to *.backup
 	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(BUILD_PROFILE)" INSTALL=true REPLACE_EXISTING=true ./scripts/refresh-from-mithril

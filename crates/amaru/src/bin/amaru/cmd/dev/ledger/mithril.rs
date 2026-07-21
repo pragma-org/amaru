@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ use clap::Parser;
 use pallas_hardano::storage::immutable::read_blocks_from_point;
 use tracing::{info, warn};
 
-use crate::cmd::new_block_validator;
+use super::new_block_validator;
 
 #[derive(Debug, Parser)]
 pub struct Args {
