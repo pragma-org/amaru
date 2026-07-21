@@ -78,6 +78,7 @@ impl ChainSyncInitiatorMsg {
             InitiatorResult::IntersectNotFound(_) => "IntersectNotFound",
             InitiatorResult::RollForward(_, _) => "RollForward",
             InitiatorResult::RollBackward(_, _) => "RollBackward",
+            InitiatorResult::Terminated => "Terminated",
         }
     }
 }
@@ -149,6 +150,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
                     self.upstream = Some(*tip);
                     None
                 }
+                InitiatorResult::Terminated => None,
             };
             eff.send(
                 &self.pipeline,
@@ -195,6 +197,11 @@ pub enum InitiatorResult {
     IntersectNotFound(Tip),
     RollForward(HeaderContent, Tip),
     RollBackward(Point, Tip),
+    /// Chainsync session ended (connection teardown or mini-protocol stage death).
+    ///
+    /// Emitted by the connection stage (not by the protocol state machine) so `track_peers`
+    /// can purge per-connection state. Correlates with `Initialize` via [`ConnectionId`].
+    Terminated,
 }
 
 impl InitiatorResult {
@@ -205,6 +212,7 @@ impl InitiatorResult {
             InitiatorResult::IntersectNotFound(_) => "IntersectNotFound",
             InitiatorResult::RollForward(_, _) => "RollForward",
             InitiatorResult::RollBackward(_, _) => "RollBackward",
+            InitiatorResult::Terminated => "Terminated",
         }
     }
 }

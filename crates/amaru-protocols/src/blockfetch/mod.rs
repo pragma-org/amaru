@@ -64,16 +64,17 @@ pub enum State {
     Done,
 }
 
-pub async fn register_blockfetch_initiator<M>(
+pub async fn register_blockfetch_initiator<M: amaru_pure_stage::SendData>(
     muxer: &StageRef<MuxMessage>,
     peer: Peer,
     conn_id: ConnectionId,
     eff: &Effects<M>,
+    tombstone: M,
 ) -> StageRef<BlockFetchMessage> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;
-    let blockfetch = eff
-        .wire_up(eff.stage("blockfetch", initiator()).await, BlockFetchInitiator::new(muxer.clone(), peer, conn_id))
-        .await;
+    let blockfetch = eff.stage("blockfetch", initiator()).await;
+    let blockfetch = eff.supervise(blockfetch, tombstone);
+    let blockfetch = eff.wire_up(blockfetch, BlockFetchInitiator::new(muxer.clone(), peer, conn_id)).await;
     eff.send(
         muxer,
         MuxMessage::Register {
@@ -87,13 +88,15 @@ pub async fn register_blockfetch_initiator<M>(
     eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Local).await
 }
 
-pub async fn register_blockfetch_responder<M>(
+pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
     muxer: &StageRef<MuxMessage>,
     eff: &Effects<M>,
+    tombstone: M,
 ) -> StageRef<StreamBlocks> {
     use crate::protocol::PROTO_N2N_BLOCK_FETCH;
-    let blockfetch =
-        eff.wire_up(eff.stage("blockfetch", responder()).await, BlockFetchResponder::new(muxer.clone())).await;
+    let blockfetch = eff.stage("blockfetch", responder()).await;
+    let blockfetch = eff.supervise(blockfetch, tombstone);
+    let blockfetch = eff.wire_up(blockfetch, BlockFetchResponder::new(muxer.clone())).await;
     eff.send(
         muxer,
         MuxMessage::Register {

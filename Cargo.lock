@@ -115,7 +115,7 @@ dependencies = [
  "parking_lot",
  "quote",
  "rayon",
- "reqwest 0.13.4",
+ "reqwest",
  "rlimit",
  "rocksdb",
  "serde",
@@ -150,7 +150,7 @@ dependencies = [
  "amaru-stores",
  "anyhow",
  "async-trait",
- "criterion 0.8.2",
+ "criterion",
  "hex",
  "itertools 0.15.0",
  "opentelemetry",
@@ -193,12 +193,14 @@ dependencies = [
  "cc",
  "clap",
  "clap_builder",
- "criterion 0.7.0",
+ "console",
+ "criterion",
  "digest 0.10.7",
  "ed25519",
  "ed25519-dalek",
  "either",
  "erased-serde 0.4.10",
+ "fastrand",
  "form_urlencoded",
  "futures-channel",
  "futures-core",
@@ -207,9 +209,9 @@ dependencies = [
  "futures-util",
  "getrandom 0.2.16",
  "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hashbrown 0.15.5",
  "hyper",
- "hyper-rustls",
  "hyper-util",
  "insta",
  "itertools 0.13.0",
@@ -237,17 +239,19 @@ dependencies = [
  "regex",
  "regex-automata 0.4.13",
  "regex-syntax 0.8.8",
- "reqwest 0.12.28",
+ "reqwest",
  "rustix",
  "serde",
  "serde_core",
  "serde_json",
  "sha2 0.10.9",
+ "slab",
  "smallvec",
  "socket2 0.6.5",
  "stable_deref_trait",
  "subtle",
  "syn 2.0.119",
+ "syn 3.0.2",
  "thiserror 2.0.19",
  "tokio",
  "tokio-util",
@@ -256,11 +260,11 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-subscriber",
+ "typenum",
  "uuid",
  "wasm-bindgen",
  "web-sys",
- "windows-sys 0.59.0",
- "windows-sys 0.60.2",
+ "winapi",
  "windows-sys 0.61.2",
  "zerocopy",
  "zeroize",
@@ -284,7 +288,7 @@ dependencies = [
  "bytes",
  "cbor4ii",
  "clap",
- "criterion 0.8.2",
+ "criterion",
  "getrandom 0.3.4",
  "hex",
  "insta",
@@ -443,7 +447,7 @@ dependencies = [
  "opentelemetry",
  "parking_lot",
  "quote",
- "reqwest 0.13.4",
+ "reqwest",
  "rocksdb",
  "syn 3.0.2",
  "tempfile",
@@ -680,7 +684,7 @@ dependencies = [
  "blst",
  "bumpalo",
  "chumsky",
- "criterion 0.8.2",
+ "criterion",
  "cryptoxide 0.6.1",
  "divan",
  "hamming",
@@ -1568,29 +1572,6 @@ dependencies = [
 
 [[package]]
 name = "criterion"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1c047a62b0cc3e145fa84415a3191f628e980b194c2755aa12300a4e6cbd928"
-dependencies = [
- "anes",
- "cast",
- "ciborium",
- "clap",
- "criterion-plot 0.6.0",
- "itertools 0.13.0",
- "num-traits",
- "oorandom",
- "plotters",
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "tinytemplate",
- "walkdir",
-]
-
-[[package]]
-name = "criterion"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "950046b2aa2492f9a536f5f4f9a3de7b9e2476e575e05bd6c333371add4d98f3"
@@ -1600,7 +1581,7 @@ dependencies = [
  "cast",
  "ciborium",
  "clap",
- "criterion-plot 0.8.2",
+ "criterion-plot",
  "itertools 0.13.0",
  "num-traits",
  "oorandom",
@@ -1612,16 +1593,6 @@ dependencies = [
  "serde_json",
  "tinytemplate",
  "walkdir",
-]
-
-[[package]]
-name = "criterion-plot"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b1bcc0dc7dfae599d84ad0b1a55f80cde8af3725da8313b528da95ef783e338"
-dependencies = [
- "cast",
- "itertools 0.13.0",
 ]
 
 [[package]]
@@ -2570,7 +2541,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots",
 ]
 
 [[package]]
@@ -3223,7 +3193,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "mithril-common",
- "reqwest 0.13.4",
+ "reqwest",
  "semver",
  "serde",
  "serde_json",
@@ -3243,7 +3213,7 @@ dependencies = [
  "mithril-aggregator-client",
  "mithril-common",
  "rand 0.10.2",
- "reqwest 0.13.4",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
@@ -3298,7 +3268,7 @@ dependencies = [
  "mithril-cardano-node-internal-database",
  "mithril-common",
  "rand 0.10.2",
- "reqwest 0.13.4",
+ "reqwest",
  "serde",
  "serde_json",
  "slog",
@@ -3677,7 +3647,7 @@ dependencies = [
  "bytes",
  "http",
  "opentelemetry",
- "reqwest 0.13.4",
+ "reqwest",
 ]
 
 [[package]]
@@ -3692,7 +3662,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
- "reqwest 0.13.4",
+ "reqwest",
  "thiserror 2.0.19",
  "tokio",
  "tonic",
@@ -4479,51 +4449,6 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "reqwest"
-version = "0.12.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "encoding_rs",
- "futures-channel",
- "futures-core",
- "futures-util",
- "h2",
- "http",
- "http-body",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "js-sys",
- "log",
- "mime",
- "percent-encoding",
- "pin-project-lite",
- "quinn",
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sync_wrapper",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "tower",
- "tower-http",
- "tower-service",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-streams 0.4.2",
- "web-sys",
- "webpki-roots",
-]
-
-[[package]]
-name = "reqwest"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
@@ -4563,7 +4488,7 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams 0.5.0",
+ "wasm-streams",
  "web-sys",
 ]
 
@@ -4657,7 +4582,6 @@ checksum = "533f54bc6a7d4f647e46ad909549eda97bf5afc1585190ef692b4286b198bd8f"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
- "ring",
  "rustls-pki-types",
  "rustls-webpki",
  "subtle",
@@ -6111,19 +6035,6 @@ dependencies = [
 
 [[package]]
 name = "wasm-streams"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
-dependencies = [
- "futures-util",
- "js-sys",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "wasm-streams"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
@@ -6160,15 +6071,6 @@ name = "webpki-root-certs"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
-dependencies = [
- "rustls-pki-types",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
 ]

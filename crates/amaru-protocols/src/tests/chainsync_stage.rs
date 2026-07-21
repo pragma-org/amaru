@@ -248,6 +248,9 @@ pub(super) async fn test_chainsync_stage(
             tracing::info!(peer = %msg.peer, %point, %tip, "roll backward");
             eff.send(&msg.handler, chainsync::InitiatorMessage::RequestNext).await;
         }
+        Terminated => {
+            tracing::info!(peer = %msg.peer, "chainsync terminated");
+        }
     }
     state
 }
