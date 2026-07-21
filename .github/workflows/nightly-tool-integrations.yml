@@ -101,6 +101,9 @@ jobs:
       AMARU_LEDGER_DIR: ./ledger.preprod.db
       AMARU_LISTEN_ADDRESS: 127.0.0.1:3000
       AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
+      AMARU_WITH_OPEN_TELEMETRY: ${{ matrix.tool.metrics || 'false' }}
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4318"
+      TOOL_TEST_TIMEOUT: ${{ matrix.tool.timeout || 120 }}
     strategy:
       fail-fast: false
       matrix:
@@ -109,22 +112,24 @@ jobs:
             install: |
               curl --proto '=https' --tlsv1.2 -LsSf \
                 https://github.com/txpipe/oura/releases/latest/download/oura-installer.sh | sh
-            setup: ""
-            run: oura watch 127.0.0.1:3000 --bearer tcp
-            output: oura-output.txt
-            success-pattern: "BLOCK:"
+            test: |
+              set +e
+              timeout "$TOOL_TEST_TIMEOUT" oura watch 127.0.0.1:3000 --bearer tcp 2>&1 | tee tool-output.txt
+              set -e
+              grep -q 'BLOCK:' tool-output.txt
 
           - name: Dolos
             install: |
               curl --proto '=https' --tlsv1.2 -LsSf \
                 https://github.com/txpipe/dolos/releases/latest/download/dolos-installer.sh | sh
               make download-haskell-config HASKELL_NODE_CONFIG_DIR=cardano-node-config AMARU_NETWORK=preprod
-            setup: |
+            test: |
               sed "s|cardano-node-config/|${PWD}/cardano-node-config/|g" \
                 .github/dolos.toml > dolos.toml
-            run: dolos daemon
-            output: dolos-output.txt
-            success-pattern: "apply"
+              set +e
+              timeout "$TOOL_TEST_TIMEOUT" dolos daemon 2>&1 | tee tool-output.txt
+              set -e
+              grep -q 'apply' tool-output.txt
 
           - name: Yaci Store
             install: |
@@ -136,7 +141,7 @@ jobs:
                 "https://github.com/bloxbean/yaci-store/releases/download/rel-native-${version}/yaci-store-${version}-linux-x64-all.zip"
               unzip -q yaci-store.zip -d yaci-store-bin
               chmod +x yaci-store-bin/*/yaci-store
-            setup: |
+            test: |
               # Point Yaci at Amaru's current best tip so it only requests blocks Amaru already
               # has bodies for, rather than the entire chain history from the well-known point.
               TIP_POINT=$(./target/release/amaru dev chain best-chain \
@@ -151,9 +156,21 @@ jobs:
               export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/yaci_store"
               export SPRING_DATASOURCE_USERNAME=postgres
               export SPRING_DATASOURCE_PASSWORD=postgres
-            run: yaci-store-bin/*/yaci-store
-            output: yaci-store-output.txt
-            success-pattern: "Handshake Ok"
+              set +e
+              timeout "$TOOL_TEST_TIMEOUT" yaci-store-bin/*/yaci-store 2>&1 | tee tool-output.txt
+              set -e
+              grep -q 'Handshake Ok' tool-output.txt
+
+          - name: GLiveView
+            metrics: "true"
+            timeout: 300
+            install: |
+              docker build \
+                --build-arg AMARU_NETWORK="${AMARU_NETWORK}" \
+                --tag gliveview:nightly \
+                docker/gliveview
+            test: .github/scripts/test-gliveview 2>&1 | tee tool-output.txt
+            cleanup: docker rm -f gliveview otlp-collector 2>/dev/null || true
 
     steps:
       - uses: actions/checkout@v6
@@ -168,6 +185,18 @@ jobs:
       - name: Restore executable permissions
         shell: bash
         run: chmod +x target/release/amaru
+
+      - name: Start OTLP collector
+        if: matrix.tool.metrics == 'true'
+        shell: bash
+        run: |
+          docker run -d --network host \
+            --name otlp-collector \
+            -v "$PWD/monitoring/otlp-collector.yml:/etc/otlp-collector.yml:ro" \
+            -v "$PWD/monitoring/profiles/prometheus/otlp-collector.yml:/etc/otlp-collector-prometheus.yml:ro" \
+            otel/opentelemetry-collector-contrib:0.127.0 \
+              --config=/etc/otlp-collector.yml \
+              --config=/etc/otlp-collector-prometheus.yml
 
       - name: Start Amaru
         shell: bash
@@ -184,26 +213,33 @@ jobs:
             exit 1
           }
 
+      - name: Wait for Amaru metrics endpoint
+        if: matrix.tool.metrics == 'true'
+        shell: bash
+        run: |
+          timeout 120 bash -c \
+            'until curl -sf http://localhost:8889/metrics >/dev/null; do sleep 2; done' || {
+            echo "Amaru OTLP metrics endpoint did not become ready within 120s."
+            tail -50 amaru.log
+            docker logs otlp-collector 2>&1 | tail -20 || true
+            exit 1
+          }
+
       - name: Install ${{ matrix.tool.name }}
         shell: bash
         run: ${{ matrix.tool.install }}
 
-      - name: Run ${{ matrix.tool.name }}
+      - name: Test ${{ matrix.tool.name }}
         shell: bash
         run: |
-          ${{ matrix.tool.setup }}
-          set +e
-          timeout 120 ${{ matrix.tool.run }} 2>&1 | tee ${{ matrix.tool.output }}
-          set -e
-          grep -q '${{ matrix.tool.success-pattern }}' ${{ matrix.tool.output }} || {
-            echo "Expected '${{ matrix.tool.success-pattern }}' in ${{ matrix.tool.name }} output but did not find it"
-            exit 1
-          }
+          set -o pipefail
+          ${{ matrix.tool.test }}
 
-      - name: Stop Amaru
+      - name: Clean up ${{ matrix.tool.name }} and Amaru
         if: always()
         shell: bash
         run: |
+          ${{ matrix.tool.cleanup }}
           kill "$(cat amaru.pid)" || true
 
       - name: Upload artifacts on failure
@@ -213,5 +249,5 @@ jobs:
           name: ${{ matrix.tool.name }}-output
           path: |
             amaru.log
-            ${{ matrix.tool.output }}
+            tool-output.txt
 
