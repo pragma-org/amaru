@@ -96,6 +96,7 @@ test-suite conformance-test
   build-depends:
       QuickCheck
     , aeson
+    , base >=4.7 && <5
     , conformance
     , hspec
     , relude

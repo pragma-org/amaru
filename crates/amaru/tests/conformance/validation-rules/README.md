@@ -95,3 +95,13 @@ zlib: zlib (1.3.2)
 ```
 
 You will also be able to run the `conformance` binary directly from the shell, without needing to prefix it with `cabal run`.
+
+### Tricorder
+
+You can start a [`tricoder`](https://github.com/atelier-hub/tricorder) daemon in the background to observe the compilation
+of the executable and execution of the test suite in real time:
+
+```console
+> tricorder start
+> tricorder ui
+```
