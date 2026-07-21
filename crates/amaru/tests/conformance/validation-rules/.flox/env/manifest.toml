@@ -43,6 +43,10 @@ hls.flake = "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea#haskel
 jq.pkg-path = "jq"
 ghc984.pkg-path = "haskell.compiler.ghc984"
 
+# Tricorder conformance tool (haskell.nix flake; provides x86_64-linux + aarch64-darwin).
+tricorder.flake = "github:atelier-hub/tricorder#tricorder"
+tricorder.systems = ["aarch64-darwin"]
+
 [hook]
 on-activate = '''
   echo "conformance env active."

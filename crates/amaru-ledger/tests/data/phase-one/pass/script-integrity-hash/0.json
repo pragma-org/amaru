@@ -36,7 +36,38 @@
       }
     ],
     "pools": [],
-    "accounts": [],
+    "accounts": [
+      {
+        "credential": "8201581c2ddbec6a9fc03b81cf040b99b16f0c421c8fc26b2292a0728b27bad1",
+        "deposit": 2000000,
+        "rewards": 0,
+        "drep": {
+          "id": "8102",
+          "delegatedAt": {
+            "transaction": {
+              "slot": 0,
+              "transactionIndex": 0
+            },
+            "certificateIndex": 0
+          }
+        }
+      },
+      {
+        "credential": "8201581c35232252113f0c4541777f1dcd66ef757f357e0267c5795de7b539a4",
+        "deposit": 2000000,
+        "rewards": 1234087,
+        "drep": {
+          "id": "8102",
+          "delegatedAt": {
+            "transaction": {
+              "slot": 0,
+              "transactionIndex": 0
+            },
+            "certificateIndex": 0
+          }
+        }
+      }
+    ],
     "dreps": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0

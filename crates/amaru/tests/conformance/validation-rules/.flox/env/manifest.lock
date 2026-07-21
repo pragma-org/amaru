@@ -70,6 +70,12 @@
         "pkg-path": "secp256k1",
         "outputs": "all"
       },
+      "tricorder": {
+        "flake": "github:atelier-hub/tricorder#tricorder",
+        "systems": [
+          "aarch64-darwin"
+        ]
+      },
       "zlib": {
         "pkg-path": "zlib",
         "outputs": "all"
@@ -2564,6 +2570,37 @@
       "description": "LSP server for GHC",
       "licenses": [
         "Apache-2.0"
+      ],
+      "broken": false,
+      "unfree": false,
+      "priority": 5
+    },
+    {
+      "install_id": "tricorder",
+      "locked-url": "github:atelier-hub/tricorder/9a00391883e0b3ac2e836ba9267a68a44cd91dc7?narHash=sha256-14ZvvxaWs76QPJFdTLMtKwvgFRQLHKewsqz6liR3VOE%3D",
+      "flake-description": "Tricorder",
+      "locked-flake-attr-path": "packages.aarch64-darwin.tricorder",
+      "derivation": "/nix/store/1961g6r0b0vlnmlyn3caq93dsmdxzdgi-tricorder-exe-tricorder-0.1.1.0.drv",
+      "outputs": {
+        "data": "/nix/store/qnzvx22viblcanhcwwzqqk80wb9k8wbl-tricorder-exe-tricorder-0.1.1.0-data",
+        "out": "/nix/store/ii9q1fx7jw7663m52wpyizp4mpk63djg-tricorder-exe-tricorder-0.1.1.0"
+      },
+      "output-names": [
+        "out",
+        "data"
+      ],
+      "outputs-to-install": [
+        "out"
+      ],
+      "requested-outputs-to-install": [],
+      "package-system": "aarch64-darwin",
+      "system": "aarch64-darwin",
+      "name": "tricorder-exe-tricorder-0.1.1.0",
+      "pname": "tricorder-exe-tricorder",
+      "version": "0.1.1.0",
+      "description": "Continuous Haskell build status, diagnostics, and tests via a shared daemon",
+      "licenses": [
+        "MIT"
       ],
       "broken": false,
       "unfree": false,
