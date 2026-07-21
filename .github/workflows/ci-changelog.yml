@@ -8,7 +8,7 @@ permissions:
 
 on:
   workflow_run:
-    workflows: ["Coding Practices"]
+    workflows: ["CI Coding Practices"]
     types:
       - requested
       - in_progress
