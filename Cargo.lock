@@ -105,7 +105,6 @@ dependencies = [
  "include_dir",
  "indoc",
  "minicbor",
- "num",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",

@@ -546,7 +546,7 @@ mod test {
         sim.run_until_blocked();
         assert!(sim.is_terminated());
 
-        let two_sec = Instant::at_offset(Duration::from_secs(2));
+        let two_sec = Instant::at_offset(Duration::from_secs(2), Duration::ZERO);
         pretty_assertions::assert_eq!(
             trace.lock().hydrate_without_timestamps(),
             vec![

@@ -156,7 +156,7 @@ fn automatic() {
     assert_eq!(replay.is_idle(in_ref.name()), true);
     assert_eq!(replay.is_terminating(output.name()), false);
     assert_eq!(replay.is_idle(output.name()), true);
-    assert_eq!(replay.clock(), Instant::at_offset(Duration::from_secs(30)));
+    assert_eq!(replay.clock(), Instant::at_offset(Duration::from_secs(30), Duration::ZERO));
 }
 
 #[test]
@@ -681,7 +681,10 @@ fn virtual_child_stages() {
     running.resume_receive(&parent).unwrap();
 
     // Run the simulation using the high-level automatic driver (the style used by consensus tests).
-    running.run_until_blocked_or_time_incl_effects(Instant::at_offset(Duration::from_secs(1)), rt.handle());
+    running.run_until_blocked_or_time_incl_effects(
+        Instant::at_offset(Duration::from_secs(1), Duration::ZERO),
+        rt.handle(),
+    );
 
     // Because the child was virtual, its logic never ran → nothing reached the output.
     assert!(rx.drain().collect::<Vec<_>>().is_empty(), "virtual child must not produce any output");

@@ -108,7 +108,7 @@ impl TestPrep {
     }
 
     pub fn schedule_at(&self, duration: Duration) -> ScheduleId {
-        ScheduleIds::default().next_at(Instant::at_offset(duration))
+        ScheduleIds::default().next_at(Instant::at_offset(duration, Duration::ZERO))
     }
 
     pub fn state_with_request(&self, missing: MissingBlocks, req_id: u64, timeout: ScheduleId) -> FetchBlocks {

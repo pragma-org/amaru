@@ -37,12 +37,11 @@ pub fn tm_add_stage_starts_with(prefix: &str) -> TraceMatch<'static> {
     let prefix = prefix.to_string();
     let description = format!("AddStage name starts with {}", prefix);
     TraceMatch::Property(
-        Box::new(move |e: &TraceEntry| {
-            if let TraceEntry::Suspend(Effect::AddStage { name, .. }) = e {
-                name.as_str().starts_with(&prefix)
-            } else {
-                false
-            }
+        Box::new(move |e| {
+            let TraceEntry::Suspend(Effect::AddStage { name, .. }) = e else {
+                return false;
+            };
+            name.as_str().starts_with(&prefix)
         }),
         description,
     )
@@ -50,12 +49,19 @@ pub fn tm_add_stage_starts_with(prefix: &str) -> TraceMatch<'static> {
 
 pub const COOLDOWN_SECS: u64 = 1;
 
+/// Matches `run_simulation`'s `with_initial_clock(Instant::at_offset(10s))`.
+pub const SIM_INITIAL_CLOCK_SECS: u64 = 10;
+
 pub fn cooldown_duration() -> Duration {
     Duration::from_secs(COOLDOWN_SECS)
 }
 
+/// Absolute schedule time when a cooldown started at simulation t0 ends.
+///
+/// Matches `run_simulation`: initial clock at +10s and `global_epoch_offset` from `start_in_era()`.
 pub fn cooldown_instant() -> Instant {
-    Instant::at_offset(cooldown_duration())
+    use crate::stages::test_utils::start_in_era;
+    Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + cooldown_duration(), start_in_era().relative_time)
 }
 
 pub fn first_schedule_id() -> ScheduleId {

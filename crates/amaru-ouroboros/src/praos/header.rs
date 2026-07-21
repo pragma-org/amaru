@@ -18,8 +18,8 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use amaru_kernel::{ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, PoolId, Slot};
-use amaru_ouroboros_traits::{HasStakeDistribution, has_stake_distribution::GetPoolError};
+use amaru_kernel::{ConsensusParameters, EraHistory, Hash, Hasher, Header, HeaderHash, Nonce, PoolId, Slot};
+use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::GetPoolError};
 use thiserror::Error;
 
 use crate::{
@@ -91,7 +91,8 @@ pub fn assert_all<'a>(
     consensus_parameters: Arc<ConsensusParameters>,
     header: &'a Header,
     raw_header_body: &'a [u8],
-    ledger_state: Arc<dyn HasStakeDistribution>,
+    pool_summaries: &'a PoolSummaries,
+    era_history: &'a EraHistory,
     epoch_nonce: &'a Nonce,
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
@@ -103,10 +104,10 @@ pub fn assert_all<'a>(
     // TODO: Pallas should hold sized slices
     let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.header_body.vrf_vkey[..].try_into()?;
 
-    let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) = ledger_state
-        .get_pool(absolute_slot, &pool)
-        .map(|pool| {
-            pool.map(|pool| {
+    let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) =
+        pool_summaries
+            .get_pool(absolute_slot, &pool, era_history)?
+            .map(|pool| {
                 let leader_relative_stake = if pool.active_stake == 0 {
                     FixedDecimal::from(0u64)
                 } else {
@@ -114,8 +115,7 @@ pub fn assert_all<'a>(
                 };
                 (pool.vrf, leader_relative_stake)
             })
-        })?
-        .ok_or(AssertHeaderError::UnknownPool { pool })?;
+            .ok_or(AssertHeaderError::UnknownPool { pool })?;
 
     let active_slot_coeff = consensus_parameters.active_slot_coeff();
     let slot_to_kes_period = consensus_parameters.slot_to_kes_period(absolute_slot);

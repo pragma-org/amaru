@@ -18,7 +18,7 @@ categories.workspace = true
 [features]
 default = []
 profiling = ["dep:pprof"]
-test-utils = ["proptest", "serde_json"]
+test-utils = ["proptest", "serde_json", "dep:tracing-subscriber", "dep:pretty_assertions"]
 
 [dependencies]
 async-trait.workspace = true
@@ -27,6 +27,7 @@ hex.workspace = true
 itertools.workspace = true
 opentelemetry.workspace = true
 parking_lot.workspace = true
+pretty_assertions = { workspace = true, optional = true }
 proptest = { workspace = true, optional = true }
 rand = { workspace = true }
 rayon.workspace = true
@@ -35,6 +36,7 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
 
 amaru-kernel.workspace = true
 amaru-mempool.workspace = true

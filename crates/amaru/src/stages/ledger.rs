@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, GlobalParameters, Point};
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros::{CanValidateBlocks, CanValidateTxs, HasStakeDistribution, HasStakePools};
+use amaru_ouroboros::{CanValidateBlocks, CanValidateTxs, HasStakePools, PoolSummaries};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 
@@ -50,11 +50,16 @@ impl Ledger {
         self.0.get_tip()
     }
 
-    /// Return the current stake distribution.
-    /// It used to validate header nonces.
-    pub fn get_stake_distribution(&self) -> anyhow::Result<Arc<dyn HasStakeDistribution>> {
+    /// Return the current (projected) pool summaries for use by header validation.
+    pub fn get_pool_summaries(&self) -> anyhow::Result<PoolSummaries> {
         let state = self.0.state.lock().map_err(|e| anyhow::anyhow!("{:?}", e))?;
-        Ok(Arc::new(state.view_stake_distribution()))
+        Ok(state.pool_summaries())
+    }
+
+    /// Set a callback that will be invoked whenever the ledger computes a new stake distribution.
+    /// The callback receives fresh PoolSummaries (to update resources and notify other stages).
+    pub fn set_on_stake_dist_updated(&self, cb: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        self.0.set_on_stake_dist_updated(cb);
     }
 
     /// Return the ledger as a capability for validating blocks.

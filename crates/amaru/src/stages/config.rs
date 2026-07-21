@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Display, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    fmt::Display,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use amaru_kernel::{
     EraHistory, GlobalParameters, NetworkMagic, NetworkName, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
@@ -20,6 +26,7 @@ use amaru_kernel::{
 use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::ChainStore;
 use amaru_protocols::tx_submission::ResponderParams;
+use amaru_pure_stage::Instant;
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::Context;
 
@@ -49,9 +56,6 @@ pub struct Config {
     // virtual machine. Higher sizes means less re-allocations but more resident memory footprint
     // since the arena is leaking memory on purpose.
     pub ledger_vm_alloc_arena_size: usize,
-
-    /// How often the `defer_req_next` stage polls the ledger to dispatch deferred `RequestNext` messages.
-    pub defer_req_next_poll_ms: u64,
 
     /// After a misbehaving upstream peer is removed, do not allow it to be re-added for this many seconds.
     pub peer_removal_cooldown_secs: u64,
@@ -85,6 +89,25 @@ impl Config {
     pub fn submit_api_address(&self) -> anyhow::Result<Option<SocketAddr>> {
         self.submit_api_address.as_deref().map(|addr| addr.parse().context("invalid submit API address")).transpose()
     }
+
+    /// The global clock offset for real-time node execution (i.e. not in a simulation test)
+    /// needs to be the difference between the `GlobalParameters::start_time` and the pure-stage EPOCH
+    #[expect(clippy::expect_used)]
+    pub fn compute_global_clock_offset(&self) -> Duration {
+        let system_time = SystemTime::now();
+        // calling `.duration_since_global_epoch()` ensures that EPOCH is initialized
+        // and constructing the Instant with `Duration::ZERO` returns `now-EPOCH`
+        let duration_since_epoch =
+            Instant::from_tokio(tokio::time::Instant::now(), Duration::ZERO).duration_since_global_epoch();
+        let system_start = SystemTime::UNIX_EPOCH
+            .checked_add(Duration::from_millis(self.global_parameters.system_start))
+            .expect("System start time must be valid POSIX time");
+        system_time
+            .duration_since(system_start)
+            .expect("Process start must be after Ouroboros system start time")
+            .checked_sub(duration_since_epoch)
+            .expect("Process EPOCH must be after the UNIX_EPOCH")
+    }
 }
 
 impl Default for Config {
@@ -105,7 +128,6 @@ impl Default for Config {
             submit_api_address: None,
             ledger_vm_alloc_arena_count: 3,
             ledger_vm_alloc_arena_size: 20_971_520,
-            defer_req_next_poll_ms: 200,
             peer_removal_cooldown_secs: DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
             block_source_max_tip_distance: 2_500,
             trace_buffer_min_entries: 0,

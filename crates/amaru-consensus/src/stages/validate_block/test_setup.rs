@@ -42,7 +42,7 @@ use crate::{
     },
     stages::{
         block_source::BlockSourceMsg,
-        test_utils::{Logs, TraceMatch, run_simulation},
+        test_utils::{Logs, TraceMatch, run_simulation, tm_external_effect},
     },
 };
 
@@ -344,17 +344,7 @@ pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> Tr
 
 /// Returns a TraceMatch that matches any RecordMetricsEffect for the given stage.
 /// Use this (instead of a te_record_metrics literal) in assert_trace_contains / assert_trace_match
-/// lists because the exact LedgerMetrics payload can vary.
+/// lists because the exact metrics payload can vary.
 pub fn tm_record_metrics(at_stage: &str) -> TraceMatch<'static> {
-    let stage_name = Name::from(at_stage);
-    TraceMatch::Property(
-        Box::new(move |entry: &TraceEntry| {
-            if let TraceEntry::Suspend(Effect::External { at_stage, effect }) = entry {
-                if at_stage == &stage_name { effect.cast_ref::<RecordMetricsEffect>().is_some() } else { false }
-            } else {
-                false
-            }
-        }),
-        format!("RecordMetricsEffect(at_stage: {at_stage})"),
-    )
+    tm_external_effect::<RecordMetricsEffect>(at_stage)
 }

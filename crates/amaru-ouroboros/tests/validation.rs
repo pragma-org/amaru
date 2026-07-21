@@ -14,10 +14,11 @@
 
 use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
-use amaru_kernel::{ConsensusParameters, Header, NetworkName, Nonce, cbor};
-use amaru_ouroboros::{kes, praos};
+use amaru_kernel::{ConsensusParameters, Epoch, Header, NetworkName, Nonce, PoolId, cbor};
+use amaru_ouroboros::{issuer_to_pool_id, kes, praos};
 use amaru_ouroboros_traits::has_stake_distribution::mock_ledger_state::MockLedgerState;
 use ctor::ctor;
+use num::CheckedSub;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_primitives::babbage;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -234,12 +235,20 @@ fn validation_conforms_to_test_vectors() {
             .get_header()
             .map(|minted_header| {
                 let expected = &test.1.mutation;
-                let ledger_state = Arc::new(mock_ledger_state(context));
+                let mock = mock_ledger_state(context);
+                let issuer = pallas_crypto::key::ed25519::PublicKey::from(<[u8; pallas_crypto::key::ed25519::PublicKey::SIZE]>::try_from(&minted_header.header_body.issuer_vkey[..]).expect("issuer vkey"));
+                let pool: PoolId = issuer_to_pool_id(&issuer);
                 let epoch_nonce = context.nonce;
                 let raw_header_body = minted_header.header_body.raw_cbor();
                 let header = Header::from(minted_header);
                 let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
-                let assertions = praos::header::assert_all(consensus_parameters, &header, raw_header_body, ledger_state, &epoch_nonce)
+                let era_history = NetworkName::Preprod.as_era_history().expect("era");
+                let slot = amaru_kernel::Slot::from(header.header_body.slot);
+                let target = era_history.slot_to_epoch_unchecked_horizon(slot).ok().and_then(|e| {
+                    e.checked_sub(Epoch::TWO)
+                }).expect("test vector epoch should be >= 2");
+                let summaries = mock.to_pool_summaries(pool, target);
+                let assertions = praos::header::assert_all(consensus_parameters, &header, raw_header_body, &summaries, era_history, &epoch_nonce)
                     .unwrap()
                     .into_par_iter()
                     .map(|assert| assert())

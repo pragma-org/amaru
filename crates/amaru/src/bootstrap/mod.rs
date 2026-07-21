@@ -24,7 +24,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor, utils::path::relative_path,
+    from_cbor, num::CheckedSub, utils::path::relative_path,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -39,7 +39,6 @@ use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
 use chain_sync_client::ChainSyncClient;
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
-use num::CheckedSub;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use reqwest::StatusCode;
 use tar::Archive;
