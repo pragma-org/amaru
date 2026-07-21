@@ -34,7 +34,7 @@ use crate::{
     effects::{
         RecordMetricsEffect, ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation, ValidateTxEffect,
     },
-    stages::test_utils::{BufferWriter, Logs},
+    stages::test_utils::{BufferWriter, Logs, start_in_era},
 };
 
 pub struct TestPrep {
@@ -73,8 +73,10 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
 
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000));
     let era_history = &*PREPROD_ERA_HISTORY;
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000))
+        .with_global_epoch_offset(start_in_era().relative_time);
     let global_parameters = &PREPROD_GLOBAL_PARAMETERS;
 
     network.resources().put::<ResourceParameters>(global_parameters.clone());

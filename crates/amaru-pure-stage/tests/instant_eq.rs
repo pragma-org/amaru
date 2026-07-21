@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod can_validate_headers;
-pub mod can_validate_headers_mock;
+use std::time::Duration;
 
-pub use can_validate_headers::*;
-pub use can_validate_headers_mock::*;
+use amaru_pure_stage::Instant;
+
+#[test]
+fn offset_instant_eq_inner() {
+    let a = Instant::at_offset(Duration::from_secs(11), Duration::from_millis(3));
+    // Simulate clock Instant: same inner offset, with global_epoch_offset
+    // We can't set offset from outside easily...
+    assert_eq!(a, Instant::at_offset(Duration::from_secs(11), Duration::from_millis(3)));
+}

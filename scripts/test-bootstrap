@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# test-bootstrap [--force] <start_epoch> [end_epoch]
+#
+# For each epoch in [start_epoch, end_epoch], runs the full
+# create-snapshots + bootstrap cycle and records results in
+# data/$NETWORK/bootstrap.json so results accumulate over time.
+#
+# Epochs already present in bootstrap.json are skipped unless --force is given.
+# end_epoch defaults to the last finished epoch on the network
+# (current epoch - 1, fetched from Koios).
+#
+# Usage:
+#   ./scripts/test-bootstrap [--force] <start_epoch> [end_epoch]
+#
+# Env vars:
+#   AMARU_NETWORK    Network to use (default: preprod)
+#   BUILD_PROFILE    Cargo build profile (default: release)
+
+force=false
+start_epoch=""
+end_epoch=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --force) force=true ;;
+    *) if [ -z "$start_epoch" ]; then start_epoch="$arg"; else end_epoch="$arg"; fi ;;
+  esac
+done
+network="${AMARU_NETWORK:-preprod}"
+build_profile="${BUILD_PROFILE:-release}"
+output_file="data/${network}/bootstrap.json"
+
+require_command() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    printf 'Error: required command "%s" is not available.\n' "$cmd" >&2
+    exit 1
+  fi
+}
+
+require_command jq
+require_command curl
+
+run_with_spinner() {
+  local msg="$1"; shift
+  local log="$1"; shift
+  local spinner='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+  local i=0
+  local start
+  start="$(date +%s)"
+  "$@" >"$log" 2>&1 &
+  local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r%s %s' "$msg" "${spinner:$((i % ${#spinner})):1}" >&2
+    i=$((i + 1))
+    sleep 0.1
+  done
+  local exit_code=0
+  wait "$pid" || exit_code=$?
+  local elapsed=$(( $(date +%s) - start ))
+  printf '\r%s (%ds)\n' "$msg" "$elapsed" >&2
+  return $exit_code
+}
+
+if [ -z "$start_epoch" ]; then
+  printf 'Error: start_epoch argument is required.\n' >&2
+  printf 'Usage: %s [--force] <start_epoch> [end_epoch]\n' "$0" >&2
+  exit 1
+fi
+
+koios_api_base() {
+  case "$1" in
+    mainnet) echo "https://api.koios.rest/api/v1" ;;
+    preview)  echo "https://preview.koios.rest/api/v1" ;;
+    *)        echo "https://preprod.koios.rest/api/v1" ;;
+  esac
+}
+
+if [ -z "$end_epoch" ]; then
+  printf '==> Fetching last finished epoch from Koios...\n' >&2
+  current_epoch="$(curl -sf "$(koios_api_base "$network")/tip" \
+    -H 'Accept: application/json' | jq -r '.[0].epoch_no')"
+  end_epoch="$((current_epoch - 1))"
+  printf '==> Last finished epoch: %s\n' "$end_epoch" >&2
+fi
+
+case "$build_profile" in
+  dev) bin_dir="target/debug" ;;
+  *) bin_dir="target/${build_profile}" ;;
+esac
+
+amaru_bin="${bin_dir}/amaru"
+
+printf '==> Building amaru (%s)...\n' "$build_profile" >&2
+cargo build --profile "$build_profile" --bin amaru
+
+overall_success=true
+
+for epoch in $(seq "$start_epoch" "$end_epoch"); do
+  if [ "$force" = "false" ] && [ -f "$output_file" ] && \
+      jq -e --argjson e "$epoch" 'any(.[]; .epoch == $e)' "$output_file" >/dev/null 2>&1; then
+    printf '==> Epoch %s already recorded, skipping (use --force to redo)\n' "$epoch" >&2
+    continue
+  fi
+
+  timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # --- Step 1: create bootstrap snapshots ---
+
+  create_success=true
+  create_error=""
+  create_log="$(mktemp)"
+
+  if ! run_with_spinner "==> Creating bootstrap snapshots for epoch $epoch on $network..." "$create_log" \
+      "$amaru_bin" snapshot create \
+      --network "$network" \
+      --epoch "$epoch"; then
+    create_success=false
+    create_error="$(tail -n 40 "$create_log")"
+  fi
+
+  rm -f "$create_log"
+
+  # --- Step 2: bootstrap (only if create succeeded) ---
+
+  bootstrap_success=false
+  bootstrap_error=""
+
+  if [ "$create_success" = "true" ]; then
+    tmp_dir="$(mktemp -d)"
+    ledger_dir="${tmp_dir}/ledger"
+    chain_dir="${tmp_dir}/chain"
+    bootstrap_log="$(mktemp)"
+
+    if run_with_spinner "==> Testing bootstrap for epoch $epoch on $network..." "$bootstrap_log" \
+        "$amaru_bin" node bootstrap \
+        --network "$network" \
+        --epoch "$epoch" \
+        --ledger-dir "$ledger_dir" \
+        --chain-dir "$chain_dir"; then
+      bootstrap_success=true
+    else
+      bootstrap_error="$(tail -n 40 "$bootstrap_log")"
+    fi
+
+    rm -f "$bootstrap_log"
+    rm -rf "$tmp_dir"
+  fi
+
+  # --- Step 3: write results to data/$NETWORK/bootstrap.json ---
+
+  mkdir -p "$(dirname "$output_file")"
+
+  new_entry="$(jq -n \
+    --argjson epoch "$epoch" \
+    --arg timestamp "$timestamp" \
+    --argjson create_success "$create_success" \
+    --arg create_error "$create_error" \
+    --argjson bootstrap_success "$bootstrap_success" \
+    --arg bootstrap_error "$bootstrap_error" \
+    '{
+      epoch: $epoch,
+      timestamp: $timestamp,
+      create_snapshots: (if $create_success then {success: true} else {success: false, error: $create_error} end),
+      bootstrap: (if $bootstrap_success then {success: true} else {success: false, error: $bootstrap_error} end)
+    }')"
+
+  if [ -f "$output_file" ]; then
+    jq --argjson entry "$new_entry" \
+      'map(select(.epoch != $entry.epoch)) + [$entry] | sort_by(.epoch)' \
+      "$output_file" >"${output_file}.tmp"
+    mv "${output_file}.tmp" "$output_file"
+  else
+    printf '[%s]\n' "$new_entry" | jq '.' >"$output_file"
+  fi
+
+  if [ "$bootstrap_success" = "true" ]; then
+    printf '==> Epoch %s \033[32mOK\033[0m\n' "$epoch" >&2
+  else
+    printf '==> Epoch %s \033[31mKO\033[0m\n' "$epoch" >&2
+    overall_success=false
+  fi
+done
+
+if [ "$overall_success" != "true" ]; then
+  exit 1
+fi

@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, fs::remove_dir_all, path::PathBuf};
+use std::{error::Error, path::PathBuf};
 
 use amaru::{bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
 use amaru_kernel::{Epoch, GlobalParameters, NetworkName, utils::path::relative_path};
 use amaru_observability::{info, warn};
-use clap::{ArgAction, Parser};
+use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -30,14 +30,6 @@ pub struct Args {
         env = amaru::env_vars::CHAIN_DIR,
     )]
     chain_dir: Option<PathBuf>,
-
-    /// Forcefully erase and overwrite the ledger database if it already exists.
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        default_value_t = false,
-    )]
-    force: bool,
 
     /// Path of the ledger on-disk storage.
     ///
@@ -88,7 +80,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     info!(
         cli::node::BOOTSTRAP,
-        force = args.force,
         chain_dir = %relative_path(&chain_dir)?.display(),
         ledger_dir = %relative_path(&ledger_dir)?.display(),
         network = %network,
@@ -96,25 +87,23 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     );
 
     if ledger_dir.exists() || chain_dir.exists() {
-        if !args.force {
-            if ledger_dir.exists() {
-                let dir = relative_path(&ledger_dir)?.display();
-                warn!(cli::ledger_db::EXIST, dir = %dir, hint = "ledger directory already exists: use another location, remove it or use --force");
-            } else {
-                let dir = relative_path(&chain_dir)?.display();
-                warn!(cli::chain_db::EXIST, dir = %dir, hint = "chain directory already exists: use another location, remove it or use --force");
-            }
-            return Ok(());
-        } else {
-            if ledger_dir.exists() {
-                warn!(cli::ledger_db::FORCEFULLY_REMOVE, dir = %relative_path(&ledger_dir)?.display());
-                remove_dir_all(&ledger_dir)?;
-            }
-            if chain_dir.exists() {
-                warn!(cli::chain_db::FORCEFULLY_REMOVE, dir = %relative_path(&chain_dir)?.display());
-                remove_dir_all(&chain_dir)?;
-            }
+        let mut messages = Vec::new();
+
+        if ledger_dir.exists() {
+            let dir = relative_path(&ledger_dir)?.display().to_string();
+            let hint = "ledger directory already exists: use another location or remove it manually";
+            warn!(cli::ledger_db::EXIST, dir = %dir, hint = hint);
+            messages.push(format!("{hint} ({dir})"));
         }
+
+        if chain_dir.exists() {
+            let dir = relative_path(&chain_dir)?.display().to_string();
+            let hint = "chain directory already exists: use another location or remove it manually";
+            warn!(cli::chain_db::EXIST, dir = %dir, hint = hint);
+            messages.push(format!("{hint} ({dir})"));
+        }
+
+        return Err(messages.join("; ").into());
     }
 
     bootstrap(network, &global_parameters, ledger_dir, chain_dir, args.epoch).await

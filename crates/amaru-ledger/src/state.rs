@@ -15,7 +15,7 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
@@ -28,7 +28,7 @@ use amaru_kernel::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, info, info_span, trace, warn};
-use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
+use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
@@ -113,6 +113,10 @@ where
     /// Which network are we connected to. This is mostly helpful for distinguishing between
     /// behavious that are network specifics (e.g. address discriminant).
     network: NetworkName,
+
+    /// Optional callback invoked whenever a new stake distribution snapshot is added.
+    /// Used to update resources and notify stages (e.g. track_peers) about fresh PoolSummaries.
+    on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
@@ -219,13 +223,34 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             era_history: Arc::new(era_history),
 
             network,
+
+            on_stake_dist_updated: None,
         }
     }
 
-    /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
-    /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
-        StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
+    /// Set a callback to be invoked when a new stake distribution snapshot becomes available.
+    /// The callback receives the projected PoolSummaries.
+    pub fn set_on_stake_dist_updated(&mut self, cb: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        self.on_stake_dist_updated = Some(cb);
+    }
+
+    /// Project the small pool summaries needed for header validation (and leader schedule)
+    /// from the held stake distributions. Only the `.pools` data is included.
+    pub fn pool_summaries(&self) -> PoolSummaries {
+        #[expect(clippy::unwrap_used)]
+        let guard = self.stake_distributions.lock().unwrap();
+        let mut by_epoch = BTreeMap::new();
+        for distr in guard.iter() {
+            let mut pools: BTreeMap<PoolId, PoolSummary> = BTreeMap::new();
+            for (pid, pst) in &distr.pools {
+                pools.insert(
+                    *pid,
+                    PoolSummary { vrf: pst.parameters.vrf, stake: pst.stake, active_stake: distr.active_stake },
+                );
+            }
+            by_epoch.insert(distr.epoch, pools);
+        }
+        PoolSummaries { by_epoch }
     }
 
     pub fn network(&self) -> NetworkName {
@@ -473,15 +498,18 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             && self.most_recent_snapshot() == current_epoch - 1
             && is_previous_epoch_stable
         {
-            let rewards = self.compute_rewards(current_epoch)?;
-            self.volatile.set_computed_rewards(rewards);
+            let (computed, pushed_new) = self.compute_rewards(current_epoch)?;
+            self.volatile.set_computed_rewards(computed);
+            if pushed_new && let Some(cb) = &self.on_stake_dist_updated {
+                cb(self.pool_summaries());
+            }
         }
 
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn compute_rewards(&mut self, for_epoch: Epoch) -> Result<RewardsSummary, StateError> {
+    fn compute_rewards(&mut self, for_epoch: Epoch) -> Result<(RewardsSummary, bool), StateError> {
         let span = info_span!(ledger::rewards::COMPUTE, for_epoch = for_epoch);
 
         // NOTE: Explicit span guard handling
@@ -502,24 +530,25 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         assert_eq!(stake_distribution.epoch + 3, for_epoch, "unexpected stake distribution for epoch");
 
         span.record("using_stake_distribution_from", u64::from(stake_distribution.epoch));
-
         let snapshot = self.snapshots.for_epoch(for_epoch - 1)?;
 
         let rewards_summary =
             RewardsSummary::new(&snapshot, stake_distribution, &self.global_parameters, self.protocol_parameters())
                 .map_err(StateError::Storage)?;
-
         drop(span_guard);
+
+        let mut pushed_new = false;
 
         if stake_distributions.front().map(|distr| distr.epoch < snapshot.epoch()).unwrap_or(true) {
             stake_distributions.push_front(compute_stake_distribution(&snapshot, &self.era_history)?);
+            pushed_new = true;
             info!(
                 ledger::stake_distribution::ROTATE,
                 available_stake_distributions = display_collection(stake_distributions.iter().map(|distr| distr.epoch)),
             );
         }
 
-        Ok(rewards_summary)
+        Ok((rewards_summary, pushed_new))
     }
 
     /// Push a next state into the ledger volatile storage. Once the volatile is full (i.e. filled
@@ -938,47 +967,6 @@ impl<'a> Deref for StakeDistributionView<'a> {
         // Safe, because Self can only be created after checking that the index was present. Plus,
         // we hold the guard, so that data cannot change.
         &self.guard[self.position]
-    }
-}
-
-// HasStakeDistribution
-// ----------------------------------------------------------------------------
-
-// The 'LedgerState' trait materializes the interface required of the consensus layer in order to
-// validate block headers. It allows to keep the ledger implementation rather abstract to the
-// consensus in order to decouple both components.
-pub struct StakeDistributionObserver {
-    view: Arc<Mutex<VecDeque<StakeDistribution>>>,
-    era_history: Arc<EraHistory>,
-}
-
-impl HasStakeDistribution for StakeDistributionObserver {
-    #[expect(clippy::unwrap_used)]
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        let epoch = self
-            .era_history
-            // NOTE: This function is called by the consensus when validating block headers. So in
-            // theory, the slot is either within the current epoch or the next since blocks must
-            // form a chain. Either the previous block is well within the current epoch, or it was
-            // the last block of the previous epoch.
-            //
-            // Either way, we do know at this point how to forecast this slot.
-            .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(GetPoolError::SlotToEpochConversionFailure)?
-            .checked_sub(Epoch::TWO);
-
-        let view = self.view.lock().unwrap();
-
-        let stake_distribution = view
-            .iter()
-            .find(|s| Some(s.epoch) == epoch)
-            .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
-
-        Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
-            vrf: st.parameters.vrf,
-            stake: st.stake,
-            active_stake: stake_distribution.active_stake,
-        }))
     }
 }
 

@@ -15,7 +15,6 @@
 use clap::Subcommand;
 
 pub(crate) mod bootstrap;
-pub(crate) mod reset;
 pub(crate) mod run;
 
 #[derive(Debug, Subcommand)]
@@ -35,7 +34,4 @@ pub(crate) enum NodeCommand {
     /// It imports snapshots, bootstrap headers and bootstrap nonces in one step.
     #[clap(verbatim_doc_comment)]
     Bootstrap(bootstrap::Args),
-
-    /// Reset the ledger database to the beginning of a specific epoch.
-    Reset(reset::Args),
 }

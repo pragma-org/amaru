@@ -17,6 +17,7 @@ use std::{
     collections::{HashMap, VecDeque},
     mem::replace,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Context as _, ensure};
@@ -66,7 +67,7 @@ impl Replay {
             schedule_ids,
             pending_suspend: HashMap::new(),
             latest_state: HashMap::new(),
-            clock: *EPOCH,
+            clock: Instant::from_tokio(*EPOCH, Duration::ZERO),
         }
     }
 

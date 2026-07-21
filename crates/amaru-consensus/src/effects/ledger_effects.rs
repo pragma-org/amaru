@@ -14,23 +14,24 @@
 
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
-use amaru_kernel::{BlockHeader, EraHistory, Peer, Point, Tip, Transaction};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, Peer, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
-    TransactionValidationError,
+    BlockValidationError, CanValidateBlocks, CanValidateTxs, HasStakePools, PoolSummaries, TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 use opentelemetry::trace::FutureExt;
+
+use crate::validate_header::ValidateHeaderError;
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps: Send + Sync {
     fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>>;
 
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), HeaderValidationError>>;
+    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), ValidateHeaderError>>;
 
     fn validate_block(
         &self,
@@ -77,7 +78,7 @@ impl LedgerOps for Ledger {
         self.effects.external(ValidateTxEffect::new(tx))
     }
 
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), HeaderValidationError>> {
+    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), ValidateHeaderError>> {
         self.effects.external(ValidateHeaderEffect::new(header).with_trace_context(&self.trace_context))
     }
 
@@ -114,10 +115,11 @@ impl LedgerOps for Ledger {
 
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
-pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 pub type ResourceEraHistory = EraHistory;
+pub type ResourceConsensusParameters = Arc<ConsensusParameters>;
+pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
@@ -224,17 +226,37 @@ impl ExternalEffect for ValidateHeaderEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let _guard = self.trace_context.attach();
-            let validator = resources
-                .get::<ResourceHeaderValidation>()
-                .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
+
+            let consensus_parameters = resources
+                .get::<ResourceConsensusParameters>()
+                .expect("ValidateHeaderEffect requires a ResourceConsensusParameters resource")
                 .clone();
-            validator.validate_header(&self.header)
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("ValidateHeaderEffect requires a ResourceHeaderStore resource")
+                .clone();
+            let pool_summaries = resources
+                .get::<ResourcePoolSummaries>()
+                .expect("ValidateHeaderEffect requires a ResourcePoolSummaries resource")
+                .clone();
+            let era_history = resources
+                .get::<ResourceEraHistory>()
+                .expect("ValidateHeaderEffect requires a ResourceEraHistory resource")
+                .clone();
+
+            crate::validate_header::validate_header(
+                &self.header,
+                consensus_parameters,
+                store,
+                pool_summaries,
+                Arc::new(era_history),
+            )
         })
     }
 }
 
 impl ExternalEffectAPI for ValidateHeaderEffect {
-    type Response = Result<(), HeaderValidationError>;
+    type Response = Result<(), ValidateHeaderError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

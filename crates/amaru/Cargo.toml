@@ -46,7 +46,6 @@ hex.workspace = true
 include_dir = { workspace = true, features = ["glob"] }
 indoc.workspace = true
 minicbor.workspace = true
-num.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true

@@ -36,6 +36,12 @@ pub trait CanValidateBlocks: Send + Sync {
     /// The chain tip of the volatile in-memory ledger view, if any (`VolatileDB::view_back`).
     /// When `None`, the applied ledger tip is entirely in stable storage.
     fn volatile_tip(&self) -> Option<Tip>;
+
+    /// Return the current (projected) pool summaries. Default impl returns empty; real impls
+    /// should return up-to-date data for header validation.
+    fn current_pool_summaries(&self) -> crate::PoolSummaries {
+        crate::PoolSummaries::default()
+    }
 }
 #[derive(Debug, Error)]
 pub struct BlockValidationError(anyhow::Error);

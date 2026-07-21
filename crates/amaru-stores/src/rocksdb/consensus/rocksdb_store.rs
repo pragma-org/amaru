@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use amaru_kernel::{HeaderHash, IsHeader as _};
 use amaru_ouroboros_traits::{BaseReadChainStore, StoreError};
@@ -27,6 +30,13 @@ use crate::rocksdb::{
         },
     },
 };
+
+fn is_absent_or_empty_dir(path: &Path) -> bool {
+    match fs::read_dir(path) {
+        Err(_) => true,
+        Ok(entries) => entries.count() == 0,
+    }
+}
 
 pub struct RocksDBStore<T: DbOps = DB> {
     pub basedir: PathBuf,
@@ -72,10 +82,18 @@ impl RocksDBStore<DB> {
 
     /// Open or create a `RocksDBStore` with given configuration.
     ///
-    /// This function is deemed "unsafe" because it automatically tries to migrate the
-    /// DB it opens or creates which can potentially causes data corruption.
+    /// When the directory does not exist or is empty, creates a fresh database at the
+    /// current `CHAIN_DB_VERSION` without replaying historical migrations.
+    ///
+    /// When the directory already contains a database, opens it and applies migrations
+    /// up to the current version. This path is deemed "unsafe" because automatic
+    /// migration can potentially cause data corruption.
     pub fn open_and_migrate(config: &RocksDbConfig) -> Result<Self, StoreError> {
-        let (basedir, db) = open_or_create_db(config)?;
+        if is_absent_or_empty_dir(&config.dir) {
+            return Self::create(config.clone());
+        }
+
+        let (basedir, db) = open_db(config)?;
         let store = Self { db, basedir };
 
         migrate_db(&store)?;

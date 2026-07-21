@@ -24,7 +24,7 @@ use std::{
 use amaru_kernel::NonEmptyBytes;
 use amaru_observability::debug_span;
 use amaru_ouroboros::ConnectionId;
-use amaru_pure_stage::{EPOCH, Effects, Instant, OrTerminateWith, StageRef, TryInStage, Void};
+use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef, TryInStage, Void};
 use anyhow::Context;
 use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 use cbor_data::{Cbor, ErrorKind, ParseError};
@@ -68,7 +68,7 @@ impl Timestamp {
     }
 
     pub fn from_instant(instant: Instant) -> Self {
-        Self(instant.saturating_since(*EPOCH).as_micros() as u32)
+        Self(instant.sim_elapsed().as_micros() as u32)
     }
 
     fn decode(buffer: &mut Bytes) -> Result<Self, TryGetError> {

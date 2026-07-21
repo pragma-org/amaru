@@ -91,10 +91,8 @@ fn run_tokio(graph: impl Fn(&mut TokioBuilder)) -> Vec<E> {
     let trace_buffer = TraceBuffer::new_shared(100, 1_000_000);
     let guard = TraceBuffer::drop_guard(&trace_buffer);
 
-    let mut network = TokioBuilder::default()
-        .with_trace_buffer(trace_buffer.clone())
-        .with_schedule_ids(ScheduleIds::default())
-        .with_epoch_clock();
+    let mut network =
+        TokioBuilder::default().with_trace_buffer(trace_buffer.clone()).with_schedule_ids(ScheduleIds::default());
     graph(&mut network);
 
     let sim = network.run(rt.handle().clone());
@@ -218,7 +216,7 @@ fn clock_wait_then_terminate() {
         ]
     };
 
-    assert_equiv(run_sim(graph), &expected(*amaru_pure_stage::EPOCH));
+    assert_equiv(run_sim(graph), &expected(Instant::at_offset(Duration::ZERO, Duration::ZERO)));
 
     let _guard = Instant::with_tolerance_for_test(dur(300));
     let actual = run_tokio(graph);
@@ -262,9 +260,9 @@ fn scheduling() {
         builder.preload(trigger, [0]).unwrap();
     }
     let schedule_ids = ScheduleIds::default();
-    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(3)));
-    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(2)));
-    let schedule_id_3 = schedule_ids.next_at(Instant::at_offset(dur(1)));
+    let schedule_id_1 = schedule_ids.next_at(Instant::at_offset(dur(3), Duration::ZERO));
+    let schedule_id_2 = schedule_ids.next_at(Instant::at_offset(dur(2), Duration::ZERO));
+    let schedule_id_3 = schedule_ids.next_at(Instant::at_offset(dur(1), Duration::ZERO));
 
     let expected = {
         [

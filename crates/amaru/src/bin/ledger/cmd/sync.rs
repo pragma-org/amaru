@@ -28,7 +28,7 @@ use amaru_kernel::{
     cardano::network_block::NetworkBlock, to_cbor,
 };
 use amaru_ledger::block_validator::BlockValidator;
-use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
+use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use flate2::read::GzDecoder;
@@ -152,6 +152,7 @@ async fn process_block(
     praos_chain_store: &PraosChainStore,
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
+    era_history: &EraHistory,
     point: Point,
     raw_block: RawBlock,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -162,12 +163,13 @@ async fn process_block(
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
     let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
 
-    // Verify block headers
+    let summaries: PoolSummaries = block_validator.state.lock().unwrap().pool_summaries();
     header::assert_all(
         consensus_parameters,
         block_header.header(),
         to_cbor(&block_header.header_body()).as_slice(),
-        Arc::new(block_validator.state.lock().unwrap().view_stake_distribution()),
+        &summaries,
+        era_history,
         &epoch_nonce.active,
     )
     .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
@@ -227,6 +229,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &praos_chain_store,
                 consensus_parameters.clone(),
                 &block_validator,
+                era_history,
                 point,
                 raw_block,
             )

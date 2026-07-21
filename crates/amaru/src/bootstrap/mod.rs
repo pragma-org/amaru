@@ -24,7 +24,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor, utils::path::relative_path,
+    from_cbor, num::CheckedSub, utils::path::relative_path,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -39,7 +39,6 @@ use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
 use chain_sync_client::ChainSyncClient;
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
-use num::CheckedSub;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use reqwest::StatusCode;
 use tar::Archive;
@@ -541,7 +540,7 @@ pub async fn bootstrap(
     )
     .await?;
 
-    let chain_db = RocksDBStore::open_and_migrate(&RocksDbConfig::new(chain_dir.clone()))?;
+    let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone()))?;
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;

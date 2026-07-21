@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
 use amaru_observability::{TraceContext, debug_span};
-use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg, ToSocketAddrs};
+use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
 use tracing::Instrument;
 
@@ -29,6 +29,8 @@ use crate::{
     protocol::Role,
     tx_submission::ResponderParams,
 };
+
+pub mod connector;
 
 /// Messages the [`Manager`] sends to the consensus `peer_selection` stage.
 ///
@@ -74,7 +76,7 @@ pub enum ManagerMessage {
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64 },
     /// Advertise this new tip to all downstream peers.
     NewTip(Tip, TraceContext),
-    /// INTERNAL message sent by the connect handler stage after attempting a connection.
+    /// INTERNAL message sent by the connector stage after a connection attempt completes.
     ConnectionResult(Peer, Result<ConnectionId, ConnectError>),
     /// INTERNAL message sent from the connection stage only!
     ///
@@ -163,7 +165,7 @@ impl ManagerMessage {
 pub struct Manager {
     peers: BTreeMap<Peer, PeerState>,
     connections: BTreeMap<ConnectionId, Connection>,
-    connect_handler: StageRef<(Peer, Duration)>,
+    connector: StageRef<connector::ConnectorMsg>,
     magic: NetworkMagic,
     config: ManagerConfig,
     era_history: Arc<EraHistory>,
@@ -218,7 +220,7 @@ impl Manager {
         Self {
             peers: BTreeMap::new(),
             connections: BTreeMap::new(),
-            connect_handler: StageRef::blackhole(),
+            connector: StageRef::blackhole(),
             magic,
             config,
             era_history,
@@ -315,12 +317,12 @@ impl Manager {
         };
         if *attempts > 0 {
             *attempts -= 1;
-            eff.ensure_child(&mut self.connect_handler, "connect_handler", connect_handler, || {
-                ConnectHandler::new(self.config.connection_timeout, eff.me())
+            eff.ensure_child(&mut self.connector, "connector", connector::stage, || {
+                connector::Connector::new(self.config.connection_timeout, eff.me())
             })
             .await;
             let delay = if immediate { Duration::ZERO } else { self.config.reconnect_delay };
-            eff.send(&self.connect_handler, (peer, delay)).await;
+            eff.send(&self.connector, connector::ConnectorMsg::Connect { peer, delay }).await;
         } else {
             tracing::info!(%peer, "no more connection attempts left, removing peer");
             if !has_inbound {
@@ -667,37 +669,13 @@ async fn close_connection(eff: &Effects<ManagerMessage>, peer: &Peer, conn_id: C
     }
 }
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct ConnectHandler {
-    connection_timeout: Duration,
-    manager: StageRef<ManagerMessage>,
-}
-
-impl ConnectHandler {
-    fn new(connection_timeout: Duration, manager: StageRef<ManagerMessage>) -> Self {
-        Self { connection_timeout, manager }
-    }
-}
-
-async fn connect_handler(
-    state: ConnectHandler,
-    (peer, delay): (Peer, Duration),
-    eff: Effects<(Peer, Duration)>,
-) -> ConnectHandler {
-    if delay > Duration::ZERO {
-        eff.schedule_after((peer, Duration::ZERO), delay).await;
-        return state;
-    }
-    let result = Network::new(&eff).connect(ToSocketAddrs::String(peer.to_string()), state.connection_timeout).await;
-    eff.send(&state.manager, ManagerMessage::ConnectionResult(peer, result)).await;
-    state
-}
-
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![
+    let mut guards = vec![
         register_data_deserializer::<Manager>().boxed(),
         register_data_deserializer::<ManagerMessage>().boxed(),
         register_data_deserializer::<PeerSelectionNotify>().boxed(),
         register_data_deserializer::<Instant>().boxed(),
-    ]
+    ];
+    guards.extend(connector::register_deserializers());
+    guards
 }

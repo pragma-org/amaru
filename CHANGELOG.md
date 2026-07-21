@@ -43,12 +43,24 @@ Other guiding principles:
 - **amaru-ledger**: run scripts in parallel within the same transaction. ([#1056][])
 - **amaru / amaru-node**: break out the `amaru-node` crate which can then be used as a library to embed Amaru into other applications. ([#1054](https://github.com/pragma-org/amaru/pull/1054))
 
+### Changed
+
+- **amaru**: move the `node reset` command under `dev ledger`, where it belongs. ([#1055][])
+
+### Removed
+
+- **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
+
+
 ### Fixed
 
 - **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
+- **amaru-consensus**: gracefully handle header validation deferral due to missing stake distribution, clock skew, or exceeding lead over block application; also switch back to block height for the latter. ([#1041][])
 - **amaru-consensus / amaru-protocols**: do not log an ERROR when block-fetch is paused because no upstream peers are connected yet; keep ERROR for real fetch timeouts after peers were contacted. ([#1050](https://github.com/pragma-org/amaru/issues/1050))
 - **amaru-plutus**: encoding divergence between rational number present in governance actions and those present in protocol parameters. ([#1053][])
 - **amaru-ledger**: restore some spans in the ledger at the debug level. ([#1056][])
+- **amaru**: bootstrap creates the chain DB at the current schema version instead of replaying migrations on an empty store (avoids a spurious migration warning). ([#1060](https://github.com/pragma-org/amaru/pull/1062))
+- **amaru-protocols**: delegate connection attempts to connector stage to avoid blocking the manager and allow up to 10 concurrent connections. ([#1058](https://github.com/pragma-org/amaru/pull/1058))
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
@@ -187,7 +199,10 @@ Other guiding principles:
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
+[#1041]: https://github.com/pragma-org/amaru/pull/1041
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
 [#1048]: https://github.com/pragma-org/amaru/pull/1048
 [#1053]: https://github.com/pragma-org/amaru/pull/1053
+[#1055]: https://github.com/pragma-org/amaru/pull/1055
 [#1056]: https://github.com/pragma-org/amaru/pull/1056
+[#1060]: https://github.com/pragma-org/amaru/issues/1060

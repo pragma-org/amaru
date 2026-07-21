@@ -24,14 +24,14 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{EraHistory, GlobalParameters, HeaderHash, Peer, Slot, Tip};
+use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
 use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
     manager::{Manager, ManagerConfig, ManagerMessage, PeerSelectionNotify},
 };
-use amaru_pure_stage::{StageGraph, StageRef};
+use amaru_pure_stage::{Sender, StageGraph, StageRef};
 
 use crate::stages::config::Config;
 
@@ -52,6 +52,7 @@ pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
     ledger_tip: Tip,
     best_hash: HeaderHash,
+    max_epoch: Epoch,
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
     let span = debug_span!(consensus::node::INITIALIZE);
@@ -97,10 +98,11 @@ pub fn build_stage_graph(
     let block_source_sender = block_source_stage.sender();
 
     let k = global_parameters.consensus_security_param;
-    // `track_peers` can safely look ahead by at most 4*k/f slots: one stability window for the
-    // previous epoch stake distribution to become due, plus one more window to observe a block
-    // that advances the ledger clock far enough to compute it.
-    let max_forecast = Slot::new(global_parameters.randomness_stabilization_window());
+
+    // The number of headers fetched via chainsync ahead of the applied ledger tip.
+    // This value should be large enough to avoid stalling block fetches, but not much
+    // larger because those headers also consume resources.
+    let max_peer_lead = 1000;
 
     // Wire mempool (from main) — kept for its own use even if not passed to adopt_chain in this resolution
     let mempool_stage = stage_graph.wire_up(mempool_stage, MempoolStageState::default()).without_state();
@@ -161,17 +163,12 @@ pub fn build_stage_graph(
         SelectChainMsg::TipFromUpstream { tip, parent, trace_context }
     });
 
-    let track_peers = stage_graph.wire_up(
+    let track_peers_wired = stage_graph.wire_up(
         track_peers,
-        TrackPeers::new(
-            era_history.clone(),
-            peer_selection_ref,
-            select_chain_input,
-            max_forecast,
-            config.defer_req_next_poll_ms,
-        ),
+        TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, max_peer_lead, max_epoch),
     );
-    let track_peers_input = stage_graph.contramap(track_peers, "track_peers_input", TrackPeersMsg::FromUpstream);
+    let track_peers_stake_dist_sender = stage_graph.input(&track_peers_wired);
+    let track_peers_input = stage_graph.contramap(track_peers_wired, "track_peers_input", TrackPeersMsg::FromUpstream);
 
     // Keep branch's peer_selection initialization preload (core to the peer_selection work)
     #[expect(clippy::expect_used)]
@@ -193,7 +190,7 @@ pub fn build_stage_graph(
             ),
         )
         .without_state();
-    NodeStages { manager_stage, mempool_stage }
+    NodeStages { manager_stage, mempool_stage, track_peers_stake_dist_sender }
 }
 
 /// This data types encapsulates stage references that we need to export in order to
@@ -202,6 +199,9 @@ pub fn build_stage_graph(
 pub struct NodeStages {
     pub manager_stage: StageRef<ManagerMessage>,
     pub mempool_stage: StageRef<MempoolMsg>,
+    /// Sender to notify track_peers when a new stake distribution becomes available in the ledger.
+    /// Created via stage_graph.input().
+    pub track_peers_stake_dist_sender: Sender<TrackPeersMsg>,
 }
 
 impl NodeStages {
@@ -211,5 +211,9 @@ impl NodeStages {
 
     pub fn mempool_stage(&self) -> StageRef<MempoolMsg> {
         self.mempool_stage.clone()
+    }
+
+    pub fn track_peers_stake_dist_sender(&self) -> Sender<TrackPeersMsg> {
+        self.track_peers_stake_dist_sender.clone()
     }
 }

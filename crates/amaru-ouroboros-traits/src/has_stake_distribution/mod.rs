@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, EraHistoryError, Hash, Lovelace, PoolId, Slot, size::VRF_KEY};
+use std::collections::BTreeMap;
+
+use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hash, Lovelace, PoolId, Slot, num::CheckedSub, size::VRF_KEY};
 use thiserror::Error;
 
 pub mod mock_ledger_state;
@@ -41,9 +43,40 @@ pub enum GetPoolError {
     StakeDistributionNotAvailable(Slot, Option<Epoch>),
 }
 
-/// The HasStakeDistribution trait provides a lookup mechanism for various information sourced from the ledger
-pub trait HasStakeDistribution: Send + Sync {
-    /// Obtain information about a pool such as its VRF key hash and its stake. The information is
-    /// fetched from the ledger based on the given slot.
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError>;
+/// PoolSummaries holds (up to three) projected maps of `PoolId -> PoolSummary` derived from the
+/// ledger's stake distributions (only the small `.pools` data, not the large accounts map).
+///
+/// This replaces the previous `HasStakeDistribution` trait for header validation. The ledger
+/// projects the required values; the struct is cheap to clone and can be passed as a resource
+/// or effect input.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct PoolSummaries {
+    /// Keyed by the epoch of the corresponding stake distribution snapshot.
+    pub by_epoch: BTreeMap<Epoch, BTreeMap<PoolId, PoolSummary>>,
+}
+
+impl PoolSummaries {
+    pub fn max_epoch(&self) -> Epoch {
+        self.by_epoch.last_key_value().map(|(e, _)| *e).unwrap_or(*Epoch::ZERO)
+    }
+
+    /// Obtain information about a pool such as its VRF key hash and its stake.
+    /// The epoch is derived from the slot using the same rule as before (slot_epoch - 2).
+    pub fn get_pool(
+        &self,
+        slot: Slot,
+        pool: &PoolId,
+        era_history: &EraHistory,
+    ) -> Result<Option<PoolSummary>, GetPoolError> {
+        let target_epoch = era_history
+            .slot_to_epoch_unchecked_horizon(slot)
+            .map_err(GetPoolError::SlotToEpochConversionFailure)?
+            .checked_sub(Epoch::TWO);
+
+        let pools = target_epoch
+            .and_then(|e| self.by_epoch.get(&e))
+            .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, target_epoch))?;
+
+        Ok(pools.get(pool).copied())
+    }
 }

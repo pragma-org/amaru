@@ -1,12 +1,17 @@
 ---
 type: architecture
-status: accepted
+status: obsolete
 ---
 
 # Interaction between Consensus and Ledger
 
 The work progressing on deterministic simulation testing has raised questions about where to draw the line: which parts of the codebase shall be executed using `amaru-pure-stage` and which parts are outside its scope?
 In a meeting on Aug 8, 2025 between @KtorZ, @stevana, @rkuhn the following response was developed.
+
+> **NOTE:**
+>
+> This EDR is obsolete in the sense that the consensus stage graph has evolved beyond the scope of this EDR.
+> The mentioned stages and message types were aspirational and have been replaced by a more sophisticated design.
 
 ## Context
 
@@ -68,7 +73,7 @@ This implies that a new and better longest chain received from upstreams while l
 When switching between chains, this may incur significant latency in case of deep rollback, in which case we may want to revisit the ability to preempt ledger validation.
 
 Ledger updates from epoch boundary processing will arrive asynchronously within the consensus part.
-This implies that e.g. updated stake distributions need to be actively awaited by the `ValidateHeader` stage when it detects an epoch change.
+This implies that e.g. updated stake distributions need to be actively awaited by the `ValidateHeader` (obsoletion notice: now in `track_peers`) stage when it detects an epoch change.
 It also implies that updated protocol parameters need to be actively awaited by any concerned consensus stages before being able to participate in the epoch after the following epoch change.
 These concerns can be handled by handling the ledger updates in a dedicated stage that can then be interrogated from other stages that need the information, asserting back pressure on the incoming data flow until the required information is available.
 
