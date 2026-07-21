@@ -431,6 +431,10 @@ normalizeDelegFailure expectedHint = \case
         "DelegateeDRepNotRegistered"
     DelegateeStakePoolNotRegisteredDELEG{} ->
         "DelegateeStakePoolNotRegistered"
+    IncorrectDepositDELEG{} ->
+        "IncorrectDepositDELEG"
+    StakeKeyHasNonZeroAccountBalanceDELEG{} ->
+        "StakeKeyHasNonZeroAccountBalance"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
