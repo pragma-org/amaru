@@ -8,7 +8,11 @@ import Relude
 
 import Cardano.Ledger.Api.Tx
     ( IsValid (..)
+    , bodyTxL
     , isValidTxL
+    )
+import Cardano.Ledger.Api.Tx.Body
+    ( inputsTxBodyL
     )
 import Cardano.Ledger.BaseTypes
     ( ActiveSlotCoeff
@@ -233,6 +237,7 @@ validateDecodedTransaction network eraHistory protocolParameters initialState po
     newEpochState <- buildNewEpochState (pparams protocolParameters) eraHistory initialState point
 
     let expectedPredicateHint = expectedPredicate expected
+    let emptyInputs = null (transaction ^. bodyTxL . inputsTxBodyL)
     let utxoState = esLState (nesEs newEpochState)
     let actualPredicates =
             case manualRefScriptSizeFailure protocolParameters utxoState transaction of
@@ -247,7 +252,7 @@ validateDecodedTransaction network eraHistory protocolParameters initialState po
                             transaction
                      of
                         Left err ->
-                            normalizeApplyTxError expectedPredicateHint err
+                            normalizeApplyTxError emptyInputs expectedPredicateHint err
                         Right _ ->
                             []
 
@@ -328,16 +333,16 @@ renderActualPredicates predicates =
 -- Phase-one conformance validates structure only, not Plutus script *execution*. 'applyTx' runs
 -- both phases, so we drop the phase-two script-result failure ('ValidationTagMismatch'). Context
 -- collection failures such as 'OutsideForecast' happen before execution and are kept.
-normalizeApplyTxError :: Maybe Text -> ApplyTxError ConwayEra -> [Text]
-normalizeApplyTxError expectedHint (ConwayApplyTxError failures) =
-    map (normalizeLedgerFailure expectedHint) (filter (not . isScriptExecutionFailure) (NonEmpty.toList failures))
+normalizeApplyTxError :: Bool -> Maybe Text -> ApplyTxError ConwayEra -> [Text]
+normalizeApplyTxError emptyInputs expectedHint (ConwayApplyTxError failures) =
+    map (normalizeLedgerFailure emptyInputs expectedHint) (filter (not . isScriptExecutionFailure) (NonEmpty.toList failures))
 
 isScriptExecutionFailure :: ConwayLedgerPredFailure ConwayEra -> Bool
 isScriptExecutionFailure failure =
     "ValidationTagMismatch" `Text.isInfixOf` showText failure
 
-normalizeLedgerFailure :: Maybe Text -> ConwayLedgerPredFailure ConwayEra -> Text
-normalizeLedgerFailure expectedHint = \case
+normalizeLedgerFailure :: Bool -> Maybe Text -> ConwayLedgerPredFailure ConwayEra -> Text
+normalizeLedgerFailure emptyInputs expectedHint = \case
     ConwayUtxowFailure failure ->
         normalizeUtxowFailure expectedHint failure
     ConwayCertsFailure failure ->
@@ -346,7 +351,7 @@ normalizeLedgerFailure expectedHint = \case
         "ConwayTxRefScriptsSizeTooBig"
     ConwayMempoolFailure message
         | "All inputs are spent." `Text.isPrefixOf` message ->
-            "BadInputsUTxO"
+            if emptyInputs then "InputSetEmptyUTxO" else "BadInputsUTxO"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
