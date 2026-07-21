@@ -325,9 +325,16 @@ renderActualPredicates :: [Text] -> Text
 renderActualPredicates predicates =
     "[" <> Text.intercalate ", " predicates <> "]"
 
+-- Phase-one conformance validates structure only, not Plutus script *execution*. 'applyTx' runs
+-- both phases, so we drop the phase-two script-result failure ('ValidationTagMismatch'). Context
+-- collection failures such as 'OutsideForecast' happen before execution and are kept.
 normalizeApplyTxError :: Maybe Text -> ApplyTxError ConwayEra -> [Text]
 normalizeApplyTxError expectedHint (ConwayApplyTxError failures) =
-    map (normalizeLedgerFailure expectedHint) (NonEmpty.toList failures)
+    map (normalizeLedgerFailure expectedHint) (filter (not . isScriptExecutionFailure) (NonEmpty.toList failures))
+
+isScriptExecutionFailure :: ConwayLedgerPredFailure ConwayEra -> Bool
+isScriptExecutionFailure failure =
+    "ValidationTagMismatch" `Text.isInfixOf` showText failure
 
 normalizeLedgerFailure :: Maybe Text -> ConwayLedgerPredFailure ConwayEra -> Text
 normalizeLedgerFailure expectedHint = \case
