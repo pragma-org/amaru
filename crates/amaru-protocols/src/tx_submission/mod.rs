@@ -71,6 +71,7 @@ where
     spec
 }
 
+#[expect(clippy::too_many_arguments)]
 pub async fn register_tx_submission(
     role: Role,
     muxer: StageRef<mux::MuxMessage>,
@@ -79,15 +80,20 @@ pub async fn register_tx_submission(
     mempool_stage: StageRef<MempoolMsg>,
     params: ResponderParams,
     era_history: Arc<EraHistory>,
+    tombstone: ConnectionMessage,
 ) -> StageRef<mux::HandlerMessage> {
     let tx_submission = if role == Role::Initiator {
         let (state, stage) = initiator::TxSubmissionInitiator::new(muxer.clone(), mempool_stage.clone(), era_history);
-        let tx_submission = eff.wire_up(eff.stage("tx_submission", initiator::initiator()).await, (state, stage)).await;
+        let tx_submission = eff.stage("tx_submission", initiator::initiator()).await;
+        let tx_submission = eff.supervise(tx_submission, tombstone);
+        let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
         eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<initiator::InitiatorLocalIn>::Network).await
     } else {
         let (state, stage) =
             responder::TxSubmissionResponder::new(muxer.clone(), params, origin, mempool_stage, era_history);
-        let tx_submission = eff.wire_up(eff.stage("tx_submission", responder::responder()).await, (state, stage)).await;
+        let tx_submission = eff.stage("tx_submission", responder::responder()).await;
+        let tx_submission = eff.supervise(tx_submission, tombstone);
+        let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
         eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<ResponderLocalIn>::Network).await
     };
 

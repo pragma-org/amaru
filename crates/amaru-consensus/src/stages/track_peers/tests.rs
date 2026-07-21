@@ -15,7 +15,7 @@
 use std::{self, slice, time::Duration};
 
 use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, Tip, num::CheckedSub};
-use amaru_ouroboros::praos::header::AssertHeaderError;
+use amaru_ouroboros::{ConnectionId, praos::header::AssertHeaderError};
 use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
@@ -49,15 +49,19 @@ use crate::{
 fn test_new_peer() {
     let prep = test_prep();
     let state = prep.state.clone();
+    let peer = Peer::new("peer1");
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: Peer::new("peer1"),
+        peer: peer.clone(),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Initialize,
     });
 
+    let mut expected = state.clone();
+    expected.record_connecting(peer, prep.conn_id);
+
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace(&running, &[te_state("tp-1", &state), te_input("tp-1", &msg), te_state("tp-1", &state)]);
+    assert_trace(&running, &[te_state("tp-1", &state), te_input("tp-1", &msg), te_state("tp-1", &expected)]);
     logs.assert_and_remove(Level::INFO, &["initializing chainsync"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
@@ -66,21 +70,83 @@ fn test_new_peer() {
 }
 
 #[test]
-fn test_initialize_existing_peer() {
+fn test_initialize_resets_established_session() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
+    let header = &prep.headers[1];
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), Tip::origin(), Tip::origin());
+    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), Tip::origin());
+    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), header.clone(), header.tip());
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer,
+        peer: peer.clone(),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
         msg: chainsync::InitiatorResult::Initialize,
     });
 
+    let mut expected = prep.state.clone();
+    expected.record_connecting(peer, prep.conn_id);
+
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
-    assert_trace(&running, &[te_state("tp-1", &state), te_input("tp-1", &msg), te_state("tp-1", &state)]);
-    logs.assert_and_remove(Level::INFO, &["initializing chainsync"]).assert_no_remaining_at([
+    assert_trace(&running, &[te_state("tp-1", &state), te_input("tp-1", &msg), te_state("tp-1", &expected)]);
+    logs.assert_and_remove(Level::WARN, &["unexpected re-initialize"])
+        .assert_and_remove(Level::INFO, &["initializing chainsync"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_terminated_purges_upstream_and_deferred() {
+    let prep = test_prep_with_max_peer_lead(0);
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let header = &prep.headers[1];
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
+    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), header.clone(), header.tip());
+
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::Terminated,
+    });
+
+    let expected = prep.state.clone(); // empty upstream + deferred
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+    assert_trace(&running, &[te_state("tp-1", &state), te_input("tp-1", &msg), te_state("tp-1", &expected)]);
+    logs.assert_and_remove(Level::INFO, &["chainsync terminated"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_terminated_only_purges_matching_connection() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let mut other_id = ConnectionId::initial();
+    let conn_a = other_id.get_and_increment();
+    let conn_b = other_id.get_and_increment();
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), conn_a, Tip::origin(), Tip::origin());
+    state.insert_peer(peer.clone(), conn_b, prep.headers[0].tip(), prep.headers[0].tip());
+
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: conn_a,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::Terminated,
+    });
+
+    let mut expected = prep.state.clone();
+    expected.insert_peer(peer, conn_b, prep.headers[0].tip(), prep.headers[0].tip());
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+    assert_trace(&running, &[te_state("tp-1", &state), te_input("tp-1", &msg), te_state("tp-1", &expected)]);
+    logs.assert_and_remove(Level::INFO, &["chainsync terminated"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -133,7 +199,7 @@ fn test_intersect_found_tracks_peer() {
     });
 
     let mut expected = state.clone();
-    expected.insert_peer(Peer::new("peer1"), header.tip(), tip);
+    expected.insert_peer(Peer::new("peer1"), prep.conn_id, header.tip(), tip);
 
     let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(slice::from_ref(header)));
@@ -187,7 +253,7 @@ fn test_intersect_not_found_removes_peer() {
     let peer = Peer::new("peer1");
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), Tip::origin(), Tip::origin());
+    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), Tip::origin());
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer,
         conn_id: prep.conn_id,
@@ -256,10 +322,10 @@ fn test_roll_forward_known_peer_header_already_stored() {
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), parent.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), header.tip(), header.tip());
+    expected.insert_peer(peer.clone(), prep.conn_id, header.tip(), header.tip());
 
     let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(slice::from_ref(header)));
@@ -296,10 +362,10 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), parent.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer.clone(), header.tip(), header.tip());
+    expected.insert_peer(peer.clone(), prep.conn_id, header.tip(), header.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -337,7 +403,7 @@ fn test_roll_forward_invalid_variant_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), parent.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace(
@@ -370,7 +436,7 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), parent.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace(
@@ -402,7 +468,7 @@ fn test_roll_forward_invalid_parent_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), parent.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -435,7 +501,7 @@ fn test_roll_forward_invalid_height_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), parent.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -468,7 +534,7 @@ fn test_roll_forward_invalid_point_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), parent.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_match(
@@ -501,7 +567,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), header.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), header.tip());
 
     // Use empty store so evolve_nonce fails (unknown parent), exercising the real validate_header fn failure path.
     let (running, _guards, mut logs) =
@@ -551,7 +617,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), header.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), header.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
@@ -591,7 +657,7 @@ fn test_roll_forward_header_slot_near_future_defers() {
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), header.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), header.tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
@@ -631,7 +697,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), header.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), header.tip());
 
     // More than one epoch beyond known max_epoch (start-2) → adversarial, not defer.
     let far_epoch = prep.start_times.epoch;
@@ -680,10 +746,10 @@ fn test_roll_backward_updates_peer() {
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), Tip::origin(), Tip::origin());
+    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), Tip::origin());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer, header.tip(), tip);
+    expected.insert_peer(peer, prep.conn_id, header.tip(), tip);
 
     let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(slice::from_ref(header)));
@@ -751,7 +817,7 @@ fn test_roll_backward_unknown_point_removes_peer() {
 
     let expected = prep.state.clone();
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), Tip::origin(), Tip::origin());
+    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), Tip::origin());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace(
@@ -781,7 +847,7 @@ fn test_roll_forward_defers_request_next() {
     let tip = header.tip();
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), Tip::origin(), tip);
+    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), tip);
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -846,7 +912,7 @@ fn test_pipelined_headers_after_height_defer() {
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), h2.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), h2.tip());
 
     let sid = height_recheck_schedule_id();
 
@@ -895,7 +961,7 @@ fn test_height_defer_recheck_when_ledger_advances() {
     let tip = header.tip();
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), Tip::origin(), tip);
+    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), tip);
 
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
@@ -976,7 +1042,7 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
     });
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), h2.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), h2.tip());
 
     let (running, _guards, mut logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], build_store(&[]), |running| {
@@ -1024,7 +1090,7 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
     let wake = TrackPeersMsg::StakeDistUpdated(prep.start_times.epoch);
 
     let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), parent.tip(), h2.tip());
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), h2.tip());
 
     let slot1 = h1.slot();
     // One epoch ahead of known max_epoch (start-2) → defer, not reject.
@@ -1086,7 +1152,9 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
                 |s| {
                     s.deferred.is_empty()
                         && s.recheck_timer.is_none()
-                        && s.upstream.get(&peer).is_some_and(|p| p.current.block_height() == 3.into())
+                        && s.upstream.get(&prep.conn_id).is_some_and(|p| {
+                            p.established().is_some_and(|(current, _)| current.block_height() == 3.into())
+                        })
                 },
                 "both processed after wake",
             ),
