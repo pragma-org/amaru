@@ -392,6 +392,9 @@ normalizeUtxoFailure = \case
         "BabbageOutputTooSmallUTxO"
     BabbageNonDisjointRefInputs{} ->
         "BabbageNonDisjointRefInputs"
+    UtxosFailure failure
+        | "TimeTranslationPastHorizon" `Text.isInfixOf` showText failure ->
+            "OutsideForecast"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
