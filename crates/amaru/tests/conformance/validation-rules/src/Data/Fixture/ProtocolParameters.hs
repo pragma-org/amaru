@@ -64,9 +64,17 @@ import Cardano.Ledger.Conway.PParams
     , ppMinFeeRefScriptCostPerByteL
     , ppPoolVotingThresholdsL
     )
+import Cardano.Ledger.Plutus.CostModels
+    ( CostModels
+    , mkCostModel
+    , mkCostModels
+    )
 import Cardano.Ledger.Plutus.ExUnits
     ( ExUnits (..)
     , Prices (..)
+    )
+import Cardano.Ledger.Plutus.Language
+    ( Language (..)
     )
 import Data.Aeson
     ( Object
@@ -96,6 +104,7 @@ import Lens.Micro
     )
 
 import qualified Data.Aeson.Key as Key
+import qualified Data.Map.Strict as Map
 
 data ProtocolParameters = ProtocolParameters
     { maxReferenceScriptsSize :: !Word64
@@ -137,7 +146,7 @@ protocolParametersFromJson =
         protocolVersion <- objectValue .: "version" >>= protocolVersionFromJson
         minUtxoDepositCoefficientValue <- fromIntegral <$> (objectValue .: "minUtxoDepositCoefficient" :: Parser Word64)
         minUtxoDepositConstantValue <- (objectValue .:? "minUtxoDepositConstant" :: Parser (Maybe Integer))
-        plutusCostModels <- objectValue .: "plutusCostModels"
+        plutusCostModels <- objectValue .: "plutusCostModels" >>= plutusCostModelsFromJson
 
         case minUtxoDepositConstantValue of
             Nothing ->
@@ -184,6 +193,30 @@ protocolParametersFromJson =
                         & ppMinFeeRefScriptCostPerByteL .~ minFeeReferenceScripts
                         & ppCostModelsL .~ plutusCostModels
                 }
+
+-- | Parse the Plutus cost models from JSON. The JSON object is expected to have keys "plutusV1", "plutusV2", and "plutusV3",
+--   each containing the cost model parameters for the respective Plutus version.
+--   If any of the cost models are invalid, a parsing error will be raised.
+plutusCostModelsFromJson :: Value -> Parser CostModels
+plutusCostModelsFromJson =
+    withObject "plutusCostModels" $ \objectValue -> do
+        plutusV1 <- objectValue .:? "plutusV1"
+        plutusV2 <- objectValue .:? "plutusV2"
+        plutusV3 <- objectValue .:? "plutusV3"
+        costModels <-
+            sequence
+                [ buildCostModel language parameters
+                | (language, Just parameters) <-
+                    [(PlutusV1, plutusV1), (PlutusV2, plutusV2), (PlutusV3, plutusV3)]
+                ]
+        pure (mkCostModels (Map.fromList costModels))
+  where
+    buildCostModel language parameters =
+        case mkCostModel language parameters of
+            Left err ->
+                fail ("invalid " <> show language <> " cost model: " <> show err)
+            Right costModel ->
+                pure (language, costModel)
 
 parseBounded :: forall a. (Bounded a, Integral a) => Object -> Key -> Parser a
 parseBounded objectValue fieldName = do
