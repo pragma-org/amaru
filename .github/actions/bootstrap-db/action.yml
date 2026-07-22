@@ -46,7 +46,7 @@ runs:
         if [[ -z "${AMARU_EPOCH}" ]]; then
           unset AMARU_EPOCH
         fi
-        make bootstrap
+        cargo run --profile test -- node bootstrap
 
     - name: Save bootstrap DBs to cache
       if: steps.cache-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
