@@ -14,15 +14,15 @@
 
 use std::{fs::create_dir_all, iter::once, path::Path, sync::Arc, time::SystemTime};
 
-use amaru::tests::{
+use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
+use amaru_kernel::{BlockHeader, Peer};
+use amaru_node::tests::{
     configuration::{
         NodeTestConfig,
         NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode},
     },
     setup::create_nodes,
 };
-use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
-use amaru_kernel::{BlockHeader, Peer};
 use amaru_pure_stage::trace_buffer::TraceBuffer;
 use anyhow::anyhow;
 use rayon::prelude::*;

@@ -14,9 +14,9 @@
 
 use std::{error::Error, path::PathBuf};
 
-use amaru::stages::config::Config;
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_ledger::block_validator::BlockValidator;
+use amaru_node::stages::config::Config;
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 use anyhow::anyhow;

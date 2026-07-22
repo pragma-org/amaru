@@ -18,11 +18,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru::version;
 use clap::Parser;
 use clap_complete::{Shell, generate};
 
-use crate::cli;
+use crate::{cli, version};
 
 #[derive(Debug, Parser)]
 pub struct Args {
