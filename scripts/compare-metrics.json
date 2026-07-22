@@ -1,0 +1,10 @@
+{
+  "ignore_prefixes": [
+    "rts_",
+    "cardano_node_metrics_RTS_",
+    "cardano_node_metrics_haskell_compiler_"
+  ],
+  "ignore_metrics": [
+    "cardano_node_metrics_GSM_state_int"
+  ]
+}

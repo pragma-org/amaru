@@ -217,3 +217,107 @@ jobs:
             amaru.log
             ${{ matrix.tool.output }}
 
+  metrics-coverage:
+    name: Metrics coverage vs cardano-node
+    needs: prepare
+    runs-on: ubuntu-24.04
+    env:
+      AMARU_NETWORK: preprod
+      AMARU_CHAIN_DIR: ./chain.preprod.db
+      AMARU_LEDGER_DIR: ./ledger.preprod.db
+      AMARU_LISTEN_ADDRESS: 127.0.0.1:3000
+      AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
+      AMARU_WITH_OPEN_TELEMETRY: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4318"
+      CARDANO_NODE_VERSION: "11.0.1"
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download Amaru artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: amaru-preprod
+
+      - name: Restore executable permissions
+        shell: bash
+        run: chmod +x target/release/amaru
+
+      - name: Start OTLP collector
+        shell: bash
+        run: |
+          docker run -d --network host \
+            --name otlp-collector \
+            -v "$PWD/monitoring/otlp-collector.yml:/etc/otlp-collector.yml:ro" \
+            -v "$PWD/monitoring/profiles/prometheus/otlp-collector.yml:/etc/otlp-collector-prometheus.yml:ro" \
+            otel/opentelemetry-collector-contrib:0.127.0 \
+              --config=/etc/otlp-collector.yml \
+              --config=/etc/otlp-collector-prometheus.yml
+
+      - name: Start cardano-node
+        shell: bash
+        run: |
+          mkdir -p /tmp/cardano-db
+          docker run -d --network host \
+            --name cardano-node \
+            -v "$PWD/cardano-node-config:/config:ro" \
+            -v "/tmp/cardano-db:/data" \
+            ghcr.io/intersectmbo/cardano-node:${{ env.CARDANO_NODE_VERSION }} run \
+              --config /config/config.json \
+              --topology /config/topology.json \
+              --database-path /data \
+              --socket-path /tmp/cardano.socket \
+              --host-addr 127.0.0.1 \
+              --port 3001
+
+      - name: Start Amaru
+        shell: bash
+        run: |
+          ./target/release/amaru node run > amaru.log 2>&1 &
+          echo $! > amaru.pid
+
+      - name: Wait for Amaru metrics endpoint
+        shell: bash
+        run: |
+          timeout 120 bash -c \
+            'until curl -sf http://localhost:8889/metrics >/dev/null; do sleep 2; done' || {
+            echo "Amaru OTLP metrics endpoint did not become ready within 120s."
+            echo "--- Amaru log (last 50 lines) ---"
+            tail -50 amaru.log
+            echo "--- OTLP collector log ---"
+            docker logs otlp-collector 2>&1 | tail -20 || true
+            exit 1
+          }
+
+      - name: Wait for cardano-node metrics endpoint
+        shell: bash
+        run: |
+          timeout 120 bash -c \
+            'until curl -sf http://localhost:12798/metrics >/dev/null; do sleep 2; done' || {
+            echo "cardano-node metrics endpoint did not become ready within 120s."
+            docker logs cardano-node 2>&1 | tail -30 || true
+            exit 1
+          }
+
+      - name: Compare metrics
+        shell: bash
+        run: |
+          scripts/compare-metrics \
+            --output metrics-report.json \
+            --summary
+
+      - name: Upload metrics report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: metrics-coverage-report
+          path: metrics-report.json
+          if-no-files-found: warn
+
+      - name: Stop Amaru
+        if: always()
+        shell: bash
+        run: |
+          [[ -f amaru.pid ]] && kill "$(cat amaru.pid)" 2>/dev/null || true
