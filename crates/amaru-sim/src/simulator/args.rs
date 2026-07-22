@@ -20,7 +20,7 @@ use std::{
     str::FromStr,
 };
 
-use amaru::tests::configuration::NodeTestConfig;
+use amaru_node::tests::configuration::NodeTestConfig;
 use anyhow::anyhow;
 use clap::Parser;
 use rand::Rng;

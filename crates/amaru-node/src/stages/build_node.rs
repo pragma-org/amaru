@@ -23,7 +23,6 @@ use amaru_consensus::{
 };
 use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
-use amaru_metrics::METRICS_METER_NAME;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool};
 use amaru_protocols::{
@@ -37,8 +36,7 @@ use amaru_pure_stage::{
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::anyhow;
-use opentelemetry::metrics::MeterProvider;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
+use opentelemetry::metrics::Meter;
 use parking_lot::Mutex;
 use tokio::runtime::Handle;
 
@@ -49,13 +47,13 @@ use crate::stages::{
 };
 
 /// Build a node given the provided configuration and run it using Tokio.
-pub fn build_and_run_node(config: Config, meter_provider: Option<SdkMeterProvider>) -> anyhow::Result<NodeRunning> {
+pub fn build_and_run_node(config: Config, meter: Option<Meter>) -> anyhow::Result<NodeRunning> {
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default()
         .with_trace_buffer(trace_buffer)
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
-    let node_stages = build_node(&config, &config.global_parameters, meter_provider, &mut stage_builder)?;
+    let node_stages = build_node(&config, &config.global_parameters, meter, &mut stage_builder)?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(Handle::current().clone());
     Ok(NodeRunning { tokio_running, mempool_sender })
@@ -103,7 +101,7 @@ impl NodeRunning {
 pub fn build_node(
     config: &Config,
     global_parameters: &GlobalParameters,
-    meter_provider: Option<SdkMeterProvider>,
+    meter: Option<Meter>,
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
     let era_history = &config.era_history;
@@ -178,7 +176,7 @@ pub fn build_node(
         consensus_parameters,
         era_history.clone(),
         pool_summaries,
-        meter_provider,
+        meter,
         config.mempool.clone(),
     );
 
@@ -201,7 +199,7 @@ fn register_resources(
     consensus_parameters: Arc<ConsensusParameters>,
     era_history: EraHistory,
     pool_summaries: PoolSummaries,
-    meter_provider: Option<SdkMeterProvider>,
+    meter: Option<Meter>,
     mempool_config: MempoolConfig,
 ) {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
@@ -216,8 +214,7 @@ fn register_resources(
     stage_graph.resources().put::<ResourceEraHistory>(era_history);
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
 
-    if let Some(provider) = meter_provider {
-        let meter = provider.meter(METRICS_METER_NAME);
+    if let Some(meter) = meter {
         stage_graph.resources().put::<ResourceMeter>(Arc::new(meter));
     };
 }

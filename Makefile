@@ -1,7 +1,6 @@
 export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 AWS_DEFAULT_REGION ?= auto
-BOOTSTRAP_TARGET_EPOCH ?=
 BOOTSTRAP_SNAPSHOT_EPOCH ?=
 BUCKET_NAME ?=
 ENDPOINT ?=
@@ -56,7 +55,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
+.PHONY: help publish-bootstrap-snapshots download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -73,12 +72,6 @@ help:
 	@echo ""
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m%s\033[00m=%s\n" "$$(echo $$l | cut -f 1 -d'=')" "$$(echo $$l | cut -f 2- -d'=')"; done
-
-bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
-
-create-snapshots: ## &start Create a three-epoch bootstrap snapshots (set BOOTSTRAP_TARGET_EPOCH to override auto epoch)
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) create-snapshots $(if $(BOOTSTRAP_TARGET_EPOCH),--epoch $(BOOTSTRAP_TARGET_EPOCH),) $(ARGS)
 
 publish-bootstrap-snapshots: ## &start Upload and publish the three existing bootstrap snapshots starting at $BOOTSTRAP_SNAPSHOT_EPOCH
 	@set -euo pipefail; \
@@ -105,9 +98,6 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/peer-snapshot.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/shelley-genesis.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/topology.json"
-
-build: ## &build Compile for $BUILD_PROFILE
-	cargo build --profile $(BUILD_PROFILE) $(ARGS)
 
 sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
 	@cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) dev ledger mithril
@@ -148,10 +138,6 @@ validate-trace-schemas: ## &test Validate generated trace schemas against docs/t
 		} >> "$${GITHUB_STEP_SUMMARY:-/dev/null}"; \
 		exit 1; \
 	fi
-
-dev: start # 'backward-compatibility'; might remove after a while.
-start: ## &build Compile and run for $BUILD_PROFILE with default options
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) run $(ARGS)
 
 run-until: ## &test Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
 	@set -e; \
@@ -214,9 +200,6 @@ ledger-conformance-known-failures: ## &test Update the set of 'known conformance
 
 regenerate-cbor-fixtures: ## &test Regenerate cuddle/antigen CBOR fixtures (requires GHC + cabal)
 	@./scripts/regenerate-cbor-fixtures
-
-test-e2e: ## &test Run snapshot tests, assuming snapshots are available
-	cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 
 check-llvm-cov: ## &test Check if cargo-llvm-cov is installed, install if not
 	@if ! cargo llvm-cov --version >/dev/null 2>&1; then \

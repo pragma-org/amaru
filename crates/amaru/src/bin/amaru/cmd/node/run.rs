@@ -19,22 +19,26 @@ use std::{
 };
 
 use amaru::{
-    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_LISTEN_ADDRESS, DEFAULT_UPSTREAM_PEERS, default_chain_dir, default_ledger_dir,
-    default_peer_for_network,
+    DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
     metrics::track_system_metrics,
+};
+use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
+use amaru_mempool::MempoolConfig;
+use amaru_metrics::METRICS_METER_NAME;
+use amaru_node::{
+    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
     stages::{
         build_node::build_and_run_node,
         config::{Config, MaxExtraLedgerSnapshots, StoreType},
     },
 };
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
-use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::anyhow;
 use clap::{self, ArgAction, Parser};
+use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use thiserror::Error;
@@ -167,7 +171,7 @@ pub struct Args {
         long,
         value_name = amaru::value_names::UINT,
         env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-        default_value_t = amaru::DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+        default_value_t = DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
         display_order = 0,
         help_heading = "Advanced Options",
     )]
@@ -245,9 +249,10 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
         pre_flight_checks()?;
 
         let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
-        let running = build_and_run_node(config, meter_provider)?;
+        let meter = meter_provider.map(|mp| mp.meter(METRICS_METER_NAME));
+        let running = build_and_run_node(config, meter)?;
 
-        let exit = amaru::exit::hook_exit_token();
+        let exit = amaru_node::exit::hook_exit_token();
         let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
             Ok(handle) => handle,
             Err(err) => {
@@ -303,7 +308,7 @@ async fn start_submit_api(
         return Ok(None);
     };
     let shutdown = exit.child_token();
-    let (handle, _) = amaru::submit_api::start(addr, mempool_sender, shutdown).await?;
+    let (handle, _) = amaru_node::submit_api::start(addr, mempool_sender, shutdown).await?;
     Ok(Some(handle))
 }
 

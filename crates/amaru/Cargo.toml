@@ -32,7 +32,6 @@ test-utils = ["amaru-consensus/test-utils"]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 async-compression.workspace = true
-axum.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
@@ -44,8 +43,8 @@ indoc.workspace = true
 minicbor.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
-opentelemetry-semantic-conventions.workspace = true
 opentelemetry.workspace = true
+opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true
@@ -66,9 +65,9 @@ tokio = { workspace = true, features = [
   "signal",
 ] }
 tokio-util.workspace = true
+tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
-tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus.workspace = true
@@ -78,6 +77,7 @@ amaru-mempool.workspace = true
 amaru-metrics.workspace = true
 amaru-mithril = { workspace = true, optional = true }
 amaru-network.workspace = true
+amaru-node.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 amaru-plutus.workspace = true

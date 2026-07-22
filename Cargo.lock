@@ -82,6 +82,7 @@ dependencies = [
  "amaru-metrics",
  "amaru-mithril",
  "amaru-network",
+ "amaru-node",
  "amaru-observability",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
@@ -93,7 +94,6 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "async-compression",
- "axum",
  "built",
  "clap",
  "clap_complete",
@@ -254,6 +254,7 @@ dependencies = [
  "syn 3.0.2",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
  "tower",
  "tracing",
  "tracing-core",
@@ -419,6 +420,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-node"
+version = "0.1.0"
+dependencies = [
+ "amaru-consensus",
+ "amaru-deps",
+ "amaru-iter-borrow",
+ "amaru-kernel",
+ "amaru-ledger",
+ "amaru-mempool",
+ "amaru-network",
+ "amaru-observability",
+ "amaru-ouroboros",
+ "amaru-ouroboros-traits",
+ "amaru-plutus",
+ "amaru-protocols",
+ "amaru-pure-stage",
+ "amaru-stores",
+ "anyhow",
+ "assert_cmd",
+ "axum",
+ "diff_json",
+ "futures-util",
+ "minicbor",
+ "num",
+ "opentelemetry",
+ "parking_lot",
+ "quote",
+ "reqwest",
+ "rocksdb",
+ "syn 3.0.2",
+ "tempfile",
+ "test-case",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "xz",
+]
+
+[[package]]
 name = "amaru-observability"
 version = "0.1.2"
 dependencies = [
@@ -576,10 +617,10 @@ dependencies = [
 name = "amaru-sim"
 version = "0.1.2"
 dependencies = [
- "amaru",
  "amaru-consensus",
  "amaru-deps",
  "amaru-kernel",
+ "amaru-node",
  "amaru-ouroboros",
  "amaru-protocols",
  "amaru-pure-stage",
@@ -3334,9 +3375,9 @@ dependencies = [
 
 [[package]]
 name = "ntapi"
-version = "0.4.1"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8a3895c6391c39d7fe7ebc444a87eb2991b2a0bc718fdabd071eec617fc68e4"
+checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
 dependencies = [
  "winapi",
 ]
@@ -3864,18 +3905,18 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pin-project"
-version = "1.1.10"
+version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677f1add503faace112b9f1373e43e9e054bfdd22ff1a63c1bc485eaec6a6a8a"
+checksum = "2466b2336ed02bcdca6b294417127b90ec92038d1d5c4fbeac971a922e0e0924"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.10"
+version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
+checksum = "c96395f0a926bc13b1c17622aaddda1ecb55d49c8f1bf9777e4d877800a43f8b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4066,9 +4107,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.1"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7231bd9b3d3d33c86b58adbac74b5ec0ad9f496b19d22801d773636feaa95f3d"
+checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -4076,9 +4117,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.1"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
+checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -5481,9 +5522,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-stream"
-version = "0.1.17"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eca58d7bba4a75707817a2c44174253f9236b2d5fbd055602e9d5c07c139a047"
+checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
 dependencies = [
  "futures-core",
  "pin-project-lite",
@@ -5544,9 +5585,9 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tonic"
-version = "0.14.2"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb7613188ce9f7df5bfe185db26c5814347d110db17920415cf2fbcad85e7203"
+checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5570,9 +5611,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost"
-version = "0.14.2"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66bd50ad6ce1252d87ef024b3d64fe4c3cf54a86fb9ef4c631fdd0ded7aeaa67"
+checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
 dependencies = [
  "bytes",
  "prost",

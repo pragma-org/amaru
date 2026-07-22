@@ -41,6 +41,7 @@ Other guiding principles:
 
 - **amaru-ledger**: trace spans for the ledger rules (phase-one and phase-two). ([#1056][])
 - **amaru-ledger**: run scripts in parallel within the same transaction. ([#1056][])
+- **amaru / amaru-node**: break out the `amaru-node` crate which can then be used as a library to embed Amaru into other applications. ([#1054](https://github.com/pragma-org/amaru/pull/1054))
 
 ### Changed
 
