@@ -33,6 +33,15 @@ use crate::{
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// Default maximum number of undelivered self-scheduled messages a stage may have outstanding.
+///
+/// This is the default for both [`SimulationBuilder::with_priority_mailbox_size`](crate::simulation::SimulationBuilder::with_priority_mailbox_size)
+/// and [`TokioBuilder::with_priority_mailbox_size`](crate::tokio::TokioBuilder::with_priority_mailbox_size).
+/// The bound covers armed timers that have not yet fired and due messages waiting in the
+/// stage's priority ingress. Exceeding the configured limit panics (schedule storms are a
+/// programming error and must fail loudly).
+pub const PRIORITY_MAILBOX_SIZE: usize = 10;
+
 /// Type constraint for messages, which must be self-contained and have a `Debug` instance.
 ///
 /// It is not possible to require an implementation of `PartialEq<Box<dyn Message>>`, but it

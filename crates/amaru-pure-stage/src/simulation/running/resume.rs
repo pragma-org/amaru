@@ -71,10 +71,16 @@ pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Na
             return Ok(false);
         }
         None => {
-            let Some(msg) = data.mailbox.pop_front() else {
-                return Ok(false);
-            };
-            msg
+            // Prefer due self-scheduled (priority) messages over bulk mailbox traffic.
+            if let Some(msg) = data.priority.pop_front() {
+                data.scheduled_pending = data.scheduled_pending.saturating_sub(1);
+                msg
+            } else {
+                let Some(msg) = data.mailbox.pop_front() else {
+                    return Ok(false);
+                };
+                msg
+            }
         }
     };
 

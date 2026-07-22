@@ -81,6 +81,7 @@ pub struct SimulationRunning {
     runnable: VecDeque<(Name, StageResponse)>,
     scheduled: ScheduledRunnables,
     mailbox_size: usize,
+    priority_mailbox_size: usize,
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
     schedule_ids: ScheduleIds,
@@ -106,6 +107,7 @@ impl SimulationRunning {
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
         mailbox_size: usize,
+        priority_mailbox_size: usize,
         schedule_ids: ScheduleIds,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
         eval_strategy: Box<dyn EvalStrategy>,
@@ -123,6 +125,7 @@ impl SimulationRunning {
             runnable: VecDeque::new(),
             scheduled: ScheduledRunnables::new(),
             mailbox_size,
+            priority_mailbox_size,
             overrides: Vec::new(),
             breakpoints: Vec::new(),
             schedule_ids,
@@ -741,19 +744,24 @@ impl SimulationRunning {
             Effect::Schedule { at_stage, msg, id } => {
                 let data =
                     self.stages.get_mut(&at_stage).log_termination(&at_stage)?.assert_stage("which cannot schedule");
+                let limit = self.priority_mailbox_size;
+                if data.scheduled_pending >= limit {
+                    panic!(
+                        "stage `{}` exceeded priority mailbox size ({limit}): too many outstanding scheduled messages",
+                        data.name
+                    );
+                }
+                data.scheduled_pending += 1;
                 resume_schedule_internal(data, run, id).expect("schedule effect is always runnable");
-                // Now schedule the wakeup (after run is dropped)
                 let now = self.clock.now(self.global_epoch_offset);
                 if id.time() > now {
-                    // Schedule wakeup
                     self.schedule_wakeup(id, {
                         move |sim| {
-                            let _ = deliver_message(&mut sim.stages, sim.mailbox_size, at_stage, msg);
+                            deliver_priority(sim, at_stage, msg);
                         }
                     });
                 } else {
-                    // Send immediately
-                    let _ = deliver_message(&mut self.stages, self.mailbox_size, at_stage, msg);
+                    deliver_priority(self, at_stage, msg);
                 }
             }
             Effect::CancelSchedule { at_stage, id } => {
@@ -763,6 +771,9 @@ impl SimulationRunning {
                     .get_mut(&at_stage)
                     .log_termination(&at_stage)?
                     .assert_stage("which cannot cancel schedule");
+                if cancelled {
+                    data.scheduled_pending = data.scheduled_pending.saturating_sub(1);
+                }
                 resume_cancel_schedule_internal(data, run, cancelled)
                     .expect("cancel_schedule effect is always runnable");
             }
@@ -853,11 +864,13 @@ impl SimulationRunning {
                         StageOrAdapter::Stage(StageData {
                             name,
                             mailbox: VecDeque::new(),
+                            priority: VecDeque::new(),
                             tombstones: VecDeque::new(),
                             state: StageState::Idle(initial_state),
                             transition: (transition)(self.effect.clone()),
                             waiting: Some(StageEffect::Receive),
                             senders: VecDeque::new(),
+                            scheduled_pending: 0,
                             supervised_by: at_stage,
                             tombstone,
                         }),
@@ -1190,11 +1203,13 @@ impl SimulationRunning {
                 StageOrAdapter::Stage(StageData {
                     name,
                     mailbox: VecDeque::new(),
+                    priority: VecDeque::new(),
                     tombstones: VecDeque::new(),
                     state: StageState::Idle(initial_state),
                     transition: (transition)(self.effect.clone()),
                     waiting: Some(StageEffect::Receive),
                     senders: VecDeque::new(),
+                    scheduled_pending: 0,
                     supervised_by: at_stage.name().clone(),
                     tombstone,
                 }),
@@ -1504,6 +1519,26 @@ fn post_message(data: &mut StageData, mailbox_size: usize, msg: Box<dyn SendData
     }
     data.mailbox.push_back(msg);
     DeliverMessageResult::Delivered(data)
+}
+
+/// Deliver a due self-scheduled message into the stage's priority ingress.
+///
+/// Priority messages never compete with the bulk mailbox. The outstanding budget was
+/// already reserved when the schedule effect ran (`scheduled_pending`).
+fn deliver_priority(sim: &mut SimulationRunning, at_stage: Name, msg: Box<dyn SendData>) {
+    let limit = sim.priority_mailbox_size;
+    let Some(data) = sim.stages.get_mut(&at_stage) else {
+        tracing::warn!(name = %at_stage, "stage was terminated, skipping scheduled message delivery");
+        return;
+    };
+    let data = data.assert_stage("which cannot receive scheduled messages");
+    if data.priority.len() >= limit {
+        panic!("stage `{}` exceeded priority mailbox size ({limit}): too many due scheduled messages", data.name);
+    }
+    data.priority.push_back(msg);
+    let name = data.name.clone();
+    // Stage may already be waiting on Receive; wake it so the priority message is not stuck.
+    let _ = resume_receive_internal(sim, &name);
 }
 
 #[test]

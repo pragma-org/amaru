@@ -51,7 +51,6 @@ Other guiding principles:
 
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
 
-
 ### Fixed
 
 - **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
@@ -62,6 +61,7 @@ Other guiding principles:
 - **amaru**: bootstrap creates the chain DB at the current schema version instead of replaying migrations on an empty store (avoids a spurious migration warning). ([#1060](https://github.com/pragma-org/amaru/pull/1062))
 - **amaru-protocols**: delegate connection attempts to connector stage to avoid blocking the manager and allow up to 10 concurrent connections. ([#1058](https://github.com/pragma-org/amaru/pull/1058))
 - **amaru-consensus**: fix chainsync mini-protocol lifecycle handling in `track_peers` stage to properly clean up resources when stopping to sync from a peer. ([#1059](https://github.com/pragma-org/amaru/pull/1059))
+- **amaru-pure-stage**: simulation runtime now also guarantees delivery of scheduled messages; both runtimes enforce limit on priority messages in flight. ([#1066](https://github.com/pragma-org/amaru/pull/1066))
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
