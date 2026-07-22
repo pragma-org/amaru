@@ -92,7 +92,7 @@ See either:
 #### Building from sources
 
 ```console
-make build
+cargo build --release
 ```
 
 > [!TIP]
@@ -110,7 +110,7 @@ on the selected network (e.g. [preprod](https://book.world.dev.cardano.org/env-p
 1. Bootstrap the node:
 
 ```bash
-make AMARU_NETWORK=preprod bootstrap
+AMARU_NETWORK=preprod cargo run --release -- bootstrap
 ```
 
 2. _(Optional)_ Setup observability backends:
@@ -122,14 +122,14 @@ docker compose -f monitoring/profiles/jaeger/docker-compose.yml up
 3. Run Amaru:
 
 ```console
-make AMARU_NETWORK=preprod start
+AMARU_NETWORK=preprod cargo run --release -- run
 ```
 
 > [!TIP]
 > To ensure logs are forwarded to an OpenTelemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=true`:
 >
 > ```console
-> make AMARU_NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=true start
+> AMARU_NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=true cargo run --release -- run
 > ```
 
 ### Monitoring
