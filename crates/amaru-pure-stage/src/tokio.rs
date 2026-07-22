@@ -165,7 +165,7 @@ impl TokioBuilder {
 
     /// Set the maximum number of undelivered self-scheduled messages allowed per stage.
     ///
-    /// Defaults to [`PRIORITY_MAILBOX_SIZE`](crate::PRIORITY_MAILBOX_SIZE). Exceeding the limit
+    /// Defaults to [`PRIORITY_MAILBOX_SIZE`]. Exceeding the limit
     /// panics so schedule storms fail loudly.
     pub fn with_priority_mailbox_size(mut self, size: usize) -> Self {
         self.inner.priority_mailbox_size = size;
