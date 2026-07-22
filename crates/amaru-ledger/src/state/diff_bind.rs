@@ -305,8 +305,65 @@ where
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use proptest::prelude::*;
+
+    use super::DiffBind;
+
+    #[derive(Debug)]
+    enum Operation {
+        Register(u8, u8, Option<u8>, Option<u8>),
+        BindLeft(u8, Option<u8>),
+        BindRight(u8, Option<u8>),
+        Unregister(u8),
+    }
+
+    fn any_op() -> impl Strategy<Value = Operation> {
+        let key = 0u8..8;
+        prop_oneof![
+            (key.clone(), any::<u8>(), prop::option::of(any::<u8>()), prop::option::of(any::<u8>()))
+                .prop_map(|(k, v, l, r)| Operation::Register(k, v, l, r)),
+            (key.clone(), prop::option::of(any::<u8>())).prop_map(|(k, l)| Operation::BindLeft(k, l)),
+            (key.clone(), prop::option::of(any::<u8>())).prop_map(|(k, r)| Operation::BindRight(k, r)),
+            key.prop_map(Operation::Unregister),
+        ]
+    }
+
+    prop_compose! {
+        /// An arbitrary [`DiffBind`] produced by replaying a sequence of registrations,
+        /// bindings/unbindings and unregistrations over a small key space. The result is always
+        /// a state reachable through the public API.
+        pub(crate) fn arbitrary_diff_bind()(
+            ops in prop::collection::vec(any_op(), 0..24),
+        ) -> DiffBind<u8, u8, u8, u8> {
+            let mut diff = DiffBind::default();
+            for op in ops {
+                match op {
+                    Operation::Register(k, v, l, r) if !diff.registered.contains_key(&k) => {
+                        diff.register(k, v, l, r).expect("key not already registered");
+                    }
+                    Operation::BindLeft(k, l) if !diff.unregistered.contains(&k) => {
+                        diff.bind_left(k, l).expect("key not unregistered");
+                    }
+                    Operation::BindRight(k, r) if !diff.unregistered.contains(&k) => {
+                        diff.bind_right(k, r).expect("key not unregistered");
+                    }
+                    Operation::Unregister(k) => diff.unregister(k),
+                    // Precondition not met: skip the mutation to keep the DiffBind consistent.
+                    Operation::Register(..) | Operation::BindLeft(..) | Operation::BindRight(..) => {}
+                }
+            }
+            diff
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use super::*;
+    use proptest::prelude::*;
+
+    use super::{test_support::arbitrary_diff_bind, *};
+    use crate::state::volatile::Existence;
 
     #[test]
     fn register_some_left_then_bind_left() {
@@ -490,5 +547,64 @@ mod tests {
             Some(&Bind { left: Resettable::Reset, right: Resettable::Set("abstain"), value: Some("deposit") }),
             current.registered.get(&1)
         );
+    }
+
+    #[test]
+    fn is_empty_reflects_contents() {
+        let mut diff = DiffBind::<u8, (), (), &str>::default();
+        assert!(diff.is_empty());
+
+        diff.register(1, "value", None, None).unwrap();
+        assert!(!diff.is_empty());
+
+        diff.unregister(1);
+        assert!(!diff.is_empty());
+    }
+
+    #[test]
+    fn lookup_resolves_existence() {
+        let mut diff = DiffBind::<u8, u8, u8, u8>::default();
+        diff.register(1, 100, Some(10), None).unwrap();
+        diff.bind_left(2, Some(10)).unwrap(); // bind-only: registered without a value
+        diff.unregister(3);
+
+        match diff.lookup(&1) {
+            Existence::Exists(bind) => {
+                assert_eq!(bind.value, Some(&100));
+                assert!(matches!(bind.left, Resettable::Set(&10)));
+            }
+            other @ (Existence::Gone | Existence::Unknown) => panic!("expected Exists, got {other:?}"),
+        }
+
+        match diff.lookup(&2) {
+            Existence::Exists(bind) => assert_eq!(bind.value, None),
+            other @ (Existence::Gone | Existence::Unknown) => panic!("expected bind-only Exists, got {other:?}"),
+        }
+
+        assert!(matches!(diff.lookup(&3), Existence::Gone));
+        assert!(matches!(diff.lookup(&4), Existence::Unknown));
+    }
+
+    #[test]
+    fn fold_empty_is_default() {
+        let folded = DiffBind::fold(std::iter::empty::<&DiffBind<u8, u8, u8, u8>>()).to_owned();
+        assert_eq!(folded, DiffBind::default());
+    }
+
+    proptest! {
+        /// Folding a borrowed sequence must equal applying each diff in order via `append`. This is
+        /// the property `VolatileSeries::resolve_account` relies on when it recomputes the accounts
+        /// aggregate lazily from the fragments.
+        #[test]
+        fn fold_matches_sequential_append(diffs in prop::collection::vec(arbitrary_diff_bind(), 0..6)) {
+            let folded = DiffBind::fold(diffs.iter()).to_owned();
+
+            let sequential = diffs.iter().fold(DiffBind::default(), |mut acc, diff| {
+                acc.append(diff.clone());
+                acc
+            });
+
+            prop_assert_eq!(folded, sequential);
+        }
     }
 }

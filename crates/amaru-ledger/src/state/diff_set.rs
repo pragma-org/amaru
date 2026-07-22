@@ -139,6 +139,10 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+    use crate::state::{
+        diff_bind::{DiffBind, test_support::arbitrary_diff_bind},
+        volatile::Existence,
+    };
 
     prop_compose! {
         fn any_diff()(
@@ -243,6 +247,67 @@ mod tests {
             );
 
             assert_eq!(st_seq, st_compose);
+        }
+    }
+
+    #[test]
+    fn lookup_resolves_existence() {
+        let mut diff = DiffSet::<u8, u8>::default();
+        diff.produce(1, 100);
+        diff.consume(2);
+
+        assert!(matches!(diff.lookup(&1), Existence::Exists(&100)));
+        assert!(matches!(diff.lookup(&2), Existence::Gone));
+        assert!(matches!(diff.lookup(&3), Existence::Unknown));
+    }
+
+    #[test]
+    fn extend_bind_projects_registrations_and_unregistrations() {
+        let mut set = DiffSet::<u8, u8>::default();
+        set.produce(3, 30);
+
+        let mut bind = DiffBind::<u8, (), (), u8>::default();
+        bind.register(1, 100, None, None).unwrap();
+        bind.unregister(3);
+
+        set.extend_bind(&bind);
+
+        assert_eq!(set.produced.get(&1), Some(&100));
+        assert!(!set.produced.contains_key(&3));
+        assert!(set.consumed.contains(&3));
+    }
+
+    #[test]
+    fn extend_bind_ignores_bind_only_updates() {
+        let mut bind = DiffBind::<u8, u8, u8, u8>::default();
+        bind.bind_left(1, Some(10)).unwrap();
+        bind.bind_right(2, Some(20)).unwrap();
+
+        let mut set = DiffSet::<u8, u8>::default();
+        set.extend_bind(&bind);
+
+        assert!(set.produced.is_empty());
+        assert!(set.consumed.is_empty());
+    }
+
+    proptest! {
+        /// `extend_bind` folds a fragment's bindings into the aggregate DiffSet; `cleanup_bind`
+        /// retracts them. Applied in sequence over keys disjoint from the base, they must cancel
+        /// out. This is exactly what `VolatileAggregate::{add_fragment, remove_fragment}` rely on.
+        #[test]
+        fn extend_bind_then_cleanup_bind_is_identity(base in any_diff(), bind in arbitrary_diff_bind()) {
+            // Precondition: the bind's keys must be disjoint from the base's, otherwise extend/cleanup would clobber pre-existing base entries.
+            let bind_keys: BTreeSet<u8> =
+                bind.registered.keys().chain(bind.unregistered.iter()).copied().collect();
+            let mut base = base;
+            base.produced.retain(|k, _| !bind_keys.contains(k));
+            base.consumed.retain(|k| !bind_keys.contains(k));
+
+            let mut roundtrip = base.clone();
+            roundtrip.extend_bind(&bind);
+            roundtrip.cleanup_bind(&bind);
+
+            prop_assert_eq!(roundtrip, base);
         }
     }
 }
