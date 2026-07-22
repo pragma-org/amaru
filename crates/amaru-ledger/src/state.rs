@@ -36,9 +36,7 @@ use tracing::Span;
 
 use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
-    epoch_transition::{
-        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards,
-    },
+    epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
     governance::ratification::RatificationContext,
     rules::{
         self,
@@ -424,11 +422,6 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // pre-conditions have been checked).
             let mut volatile_view = VolatileView::new(&self.volatile, &*db);
 
-            // Compute the updates to perform on pools at the epoch boundary. This uses information
-            // from both the immutable store and the volatile database, since we compute the updates
-            // before they are "stable" and safe to store.
-            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
-
             // NOTE: No rewards during epoch transition?
             //
             // It is fine in some situation to compute an epoch transition and yet have no rewards.
@@ -439,24 +432,28 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // process behaves as if we had interrupted the transition just after taking the
             // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
             // pool updates, etc...) but not the end (rewards).
-            let (effective_rewards, pools_undelegations) = Rewards::<Effective>::new(
-                if progress.is_none() {
+            let (treasury, effective_rewards) = if progress.is_none() {
+                let effective_rewards = Rewards::<Effective>::new(
                     // FIXME: asynchronous rewards calculations
                     //
                     // This should eventually be a '.await', as we always expect to *eventually*
                     // have some rewards summary being available. There's no way to continue progressing
                     // the ledger if we don't.
-                    computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?
-                } else {
-                    Rewards::<Computed>::new(0, 0, BTreeMap::default())
-                },
-                pools_updates.retired(),
-                volatile_view.iter_accounts()?,
-            );
+                    computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
+                    volatile_view.iter_accounts()?,
+                );
 
-            let treasury = db.pots()?.treasury + effective_rewards.delta_treasury();
+                (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
+            } else {
+                (db.pots()?.treasury, None)
+            };
 
             let protocol_parameters = self.protocol_parameters();
+
+            // Compute the updates to perform on pools at the epoch boundary. This uses information
+            // from both the immutable store and the volatile database, since we compute the updates
+            // before they are "stable" and safe to store.
+            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
 
             let ratification_context = RatificationContext::new(
                 // Ratification happens with one epoch of delay, and at the next epoch transition. So,
@@ -489,12 +486,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
             drop(db); // Dropping the *mutable reference*, not the *actual database* :)
 
-            self.volatile.transition(
-                if progress.is_none() { Some(effective_rewards) } else { None },
-                pools_undelegations,
-                pools_updates,
-                governance_updates,
-            );
+            self.volatile.transition(effective_rewards, pools_updates, governance_updates);
 
             Ok(())
         })

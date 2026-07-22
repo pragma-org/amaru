@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{Lovelace, PoolId, StakeCredential};
+use amaru_kernel::{Lovelace, StakeCredential};
 
 /// Captures the lifecycle of rewards calculation throughout block applications. Rewards are
 /// computed and later consumed/applied to accounts.

@@ -384,10 +384,6 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// deposit.
     fn refund(&self, credential: &accounts::Key, deposit: Lovelace) -> Result<Lovelace>;
 
-    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
-    /// deposit.
-    fn drop_pool_delegation(&self, credential: &accounts::Key) -> Result<()>;
-
     /// Persist ProtocolParameters for the ongoing epoch.
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<()>;
 

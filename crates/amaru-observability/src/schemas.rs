@@ -407,10 +407,6 @@ define_schemas! {
                     optional skipped: bool
                     optional resuming_from: String
                 }
-                /// Perform end-of-epoch epoch boundary computations
-                public END_EPOCH {}
-                /// Perform start-of-epoch epoch boundary computations
-                public BEGIN_EPOCH {}
                 /// Create pools updates
                 public NEW_POOLS_UPDATES {}
                 /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
@@ -976,11 +972,6 @@ define_schemas! {
                         optional total_paid_or_refunded: amaru_kernel::Lovelace
                         /// Total amounts that couldn't be paid to accounts, going back to treasury instead.
                         optional treasury_leftovers: amaru_kernel::Lovelace
-                    }
-                    /// Removing dangling delegations from accounts to pools after pools de-registrations
-                    public REMOVE_DANGLING_POOLS_DELEGATIONS {
-                        /// Total number of affected accounts
-                        required accounts: u64
                     }
                     /// Updating pools metadata or retiring pools at an epoch boundary.
                     public UPDATE_OR_RETIRE_POOLS {

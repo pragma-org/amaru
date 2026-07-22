@@ -690,9 +690,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `apply` | `TRACE` | public | Flushing the epoch transition overlay to disk | epoch | should_end_epoch, should_snapshot, should_begin_epoch |
-| `begin_epoch` | `TRACE` | public | Perform start-of-epoch epoch boundary computations |  |  |
 | `compute` | `TRACE` | public | Epoch transition processing | from, into | skipped, resuming_from |
-| `end_epoch` | `TRACE` | public | Perform end-of-epoch epoch boundary computations |  |  |
 | `new_governance_updates` | `TRACE` | public | Create governance updates (i.e. ratify proposals) at an epoch boundary. | proposals_count |  |
 | `new_pools_updates` | `TRACE` | public | Create pools updates |  |  |
 | `record` | `TRACE` | public | Record an in-flight epoch transition | from, to |  |
@@ -1773,7 +1771,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `pay_or_refund_accounts` | `TRACE` | public | Pay withdrawals to accounts, or refund deposits | total_paid_or_refunded, treasury_leftovers |  |
 | `pay_rewards` | `TRACE` | public | Pay rewards to all accounts before the epoch end | accounts_paid, rewards_paid, treasury_delta, reserves_delta |  |
 | `record_pruned_proposals` | `TRACE` | public | Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations. |  |  |
-| `remove_dangling_pools_delegations` | `TRACE` | public | Removing dangling delegations from accounts to pools after pools de-registrations | accounts |  |
 | `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
 | `reset_fees` | `TRACE` | public | Reset fees to zero |  |  |
 | `update_constitutional_committee` | `TRACE` | public | Add or remove CC members; or switch to a no-confidence state | no_confidence |  |
@@ -1796,14 +1793,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `rewards_paid` | `integer` |  |
 | `treasury_delta` | `integer` |  |
 | `reserves_delta` | `integer` |  |
-
-</details>
-
-<details><summary>span: `remove_dangling_pools_delegations`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `accounts` | `integer` | ✓ |
 
 </details>
 

@@ -1216,18 +1216,6 @@
       "description": "Flushing the epoch transition overlay to disk",
       "public": true
     },
-    "amaru::ledger::epoch_transition::BEGIN_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "begin_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform start-of-epoch epoch boundary computations",
-      "public": true
-    },
     "amaru::ledger::epoch_transition::COMPUTE": {
       "type": "object",
       "properties": {
@@ -1259,18 +1247,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::epoch_transition",
       "description": "Epoch transition processing",
-      "public": true
-    },
-    "amaru::ledger::epoch_transition::END_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "end_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform end-of-epoch epoch boundary computations",
       "public": true
     },
     "amaru::ledger::epoch_transition::NEW_GOVERNANCE_UPDATES": {
@@ -3771,24 +3747,6 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::overlay",
       "description": "Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations.",
-      "public": true
-    },
-    "amaru::stores::ledger::overlay::REMOVE_DANGLING_POOLS_DELEGATIONS": {
-      "type": "object",
-      "properties": {
-        "accounts": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "accounts"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "remove_dangling_pools_delegations",
-      "level": "TRACE",
-      "target": "amaru::stores::ledger::overlay",
-      "description": "Removing dangling delegations from accounts to pools after pools de-registrations",
       "public": true
     },
     "amaru::stores::ledger::overlay::RESET_BLOCKS_COUNT": {

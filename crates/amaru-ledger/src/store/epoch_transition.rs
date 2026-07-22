@@ -168,21 +168,6 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
     })
 }
 
-pub fn remove_dangling_pools_delegations<'store>(
-    db: &impl TransactionalContext<'store>,
-    accounts: BTreeSet<StakeCredential>,
-) -> Result<(), StoreError> {
-    debug_span!(stores::ledger::overlay::REMOVE_DANGLING_POOLS_DELEGATIONS, accounts = accounts.len() as u64).in_scope(
-        || {
-            for account in &accounts {
-                db.drop_pool_delegation(account)?;
-            }
-
-            Ok(())
-        },
-    )
-}
-
 /// Update pool parameters now valid at an epoch boundary, and retire pools that have reached their
 /// retirement epoch.
 pub fn update_or_retire_pools<'store>(
