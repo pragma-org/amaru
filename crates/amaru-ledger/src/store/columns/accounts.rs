@@ -20,9 +20,7 @@ use crate::state::diff_bind::Resettable;
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = AccountsValue;
-
-pub enum AccountsValue {
+pub enum Value {
     /// Register an account, providing its mandatory deposit and its opening rewards balance.
     Create {
         pool: Resettable<(PoolId, CertificatePointer)>,

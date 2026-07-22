@@ -29,10 +29,7 @@ use crate::{
         diff_epoch_reg::{DiffEpochReg, Registrations},
         diff_set::DiffSet,
     },
-    store::{
-        self,
-        columns::{accounts::AccountsValue, *},
-    },
+    store::{self, columns::*},
 };
 // ----------------------------------------------------------------------------------- VolatileFragment
 
@@ -416,8 +413,8 @@ pub(crate) fn add_accounts(
         // A bound deposit denotes a (re-)registration within the window (see DiffBind::register);
         // without one, only delegations changed and the account is known to exist already.
         let value = match deposit {
-            Some(deposit) => AccountsValue::Create { pool, drep, deposit, rewards: 0 },
-            None => AccountsValue::Update { pool, drep },
+            Some(deposit) => accounts::Value::Create { pool, drep, deposit, rewards: 0 },
+            None => accounts::Value::Update { pool, drep },
         };
         (credential, value)
     })

@@ -16,7 +16,7 @@ use amaru_kernel::{AsHash, Lovelace, StakeCredentialKind};
 use amaru_ledger::store::{
     StoreError,
     columns::{
-        accounts::{AccountsValue, Key, Row, Value},
+        accounts::{Key, Row, Value},
         unsafe_decode,
     },
 };
@@ -38,28 +38,20 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
                 db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d));
 
             let row = match (value, existing) {
-                (AccountsValue::Create { pool, drep, deposit, rewards }, None) => {
+                (Value::Create { pool, drep, deposit, rewards }, _) => {
                     let mut row = Row { deposit, pool: None, drep: None, rewards };
                     pool.set_or_reset(&mut row.pool);
                     drep.set_or_reset(&mut row.drep);
                     row
                 }
 
-                // A creation over an existing registration must preserve the current rewards balance.
-                (AccountsValue::Create { pool, drep, deposit, rewards: _ }, Some(mut row)) => {
-                    pool.set_or_reset(&mut row.pool);
-                    drep.set_or_reset(&mut row.drep);
-                    row.deposit = deposit;
-                    row
-                }
-
-                (AccountsValue::Update { pool, drep }, Some(mut row)) => {
+                (Value::Update { pool, drep }, Some(mut row)) => {
                     pool.set_or_reset(&mut row.pool);
                     drep.set_or_reset(&mut row.drep);
                     row
                 }
 
-                (AccountsValue::Update { .. }, None) => {
+                (Value::Update { .. }, None) => {
                     unreachable!("attempted to update a non-existing account: account={:?}", credential)
                 }
             };

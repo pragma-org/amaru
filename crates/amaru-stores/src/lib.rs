@@ -31,9 +31,7 @@ pub mod tests {
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
             columns::{
-                accounts::{self, AccountsValue},
-                cc_members, dreps,
-                proposals::{self},
+                accounts, cc_members, dreps, proposals,
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },
@@ -109,7 +107,12 @@ pub mod tests {
 
         let accounts_iter = std::iter::once((
             account_key_clone,
-            AccountsValue::Create { pool: delegatee, drep, deposit: account_row.deposit, rewards: account_row.rewards },
+            accounts::Value::Create {
+                pool: delegatee,
+                drep,
+                deposit: account_row.deposit,
+                rewards: account_row.rewards,
+            },
         ));
 
         // pools
@@ -413,7 +416,7 @@ pub mod tests {
         let accounts = vec![
             (
                 account1.clone(),
-                AccountsValue::Create {
+                accounts::Value::Create {
                     pool: Resettable::Set((pool1.id, delegated_at)),
                     drep: Resettable::Reset,
                     deposit: 2_000_000,
@@ -422,7 +425,7 @@ pub mod tests {
             ),
             (
                 account2.clone(),
-                AccountsValue::Create {
+                accounts::Value::Create {
                     pool: Resettable::Set((pool2.id, delegated_at)),
                     drep: Resettable::Reset,
                     deposit: 2_000_000,

@@ -37,7 +37,7 @@ use crate::{
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{
         self, Store, StoreError, TransactionalContext,
-        columns::{accounts::AccountsValue, pots::Row as Pots, proposals},
+        columns::{accounts, pots::Row as Pots, proposals},
     },
 };
 
@@ -631,7 +631,7 @@ fn import_accounts(
 
             (
                 credential,
-                AccountsValue::Create {
+                accounts::Value::Create {
                     pool: Resettable::from(
                         Option::<PoolId>::from(pool).map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER)),
                     ),
