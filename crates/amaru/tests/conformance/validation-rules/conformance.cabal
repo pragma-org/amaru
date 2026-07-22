@@ -1,0 +1,102 @@
+cabal-version: 3.0
+
+name:           conformance
+version:        0
+synopsis:       A tool for running conformance tests against the Haskell's implementation.
+description:    A tool for validating conformance fixtures against the Haskell ledger implementation.
+category:       Web
+stability:      experimental
+homepage:       https://github.com/pragma-org/amaru
+bug-reports:    https://github.com/pragma-org/amaru/issues
+author:         KtorZ <matthias.benkort@gmail.com>
+maintainer:     matthias.benkort@gmail.com
+copyright:      2026 KtorZ
+license:        Apache-2.0
+license-file:   LICENSE
+build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/pragma-org/amaru
+
+library
+  default-language: Haskell2010
+  hs-source-dirs: src
+  exposed-modules:
+      Command
+    , Command.ValidatePhaseOne
+    , Command.ValidatePhaseOne.Error
+    , Command.ValidatePhaseOne.Parse
+    , Command.ValidatePhaseOne.Run
+    , Data.Fixture.Common
+    , Data.Fixture.EraHistory
+    , Data.Fixture.Expected
+    , Data.Fixture.InitialState
+    , Data.Fixture.Network
+    , Data.Fixture.Point
+    , Data.Fixture.ProtocolParameters
+    , Data.Fixture.SharedDocument
+    , Data.Fixture.TestCase
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -Wunused-packages -threaded
+  default-extensions:
+      LambdaCase
+      MultiWayIf
+      NamedFieldPuns
+      NoImplicitPrelude
+      OverloadedStrings
+      TypeApplications
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , cardano-ledger-api
+    , cardano-ledger-binary
+    , cardano-ledger-conway
+    , cardano-ledger-core
+    , cardano-ledger-shelley
+    , cardano-slotting
+    , cardano-strict-containers
+    , containers
+    , data-default-class
+    , directory
+    , filepath
+    , microlens
+    , optparse-applicative
+    , ouroboros-consensus
+    , relude
+    , sop-extras
+    , time
+
+executable conformance
+  main-is: Main.hs
+  default-language: Haskell2010
+  hs-source-dirs: app
+  ghc-options: -rtsopts
+  build-depends:
+      base >=4.7 && <5
+    , conformance
+
+test-suite conformance-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  default-language: Haskell2010
+  hs-source-dirs: test
+  other-modules:
+      Command.ValidatePhaseOne.ErrorSpec
+  build-tool-depends:
+      hspec-discover:hspec-discover
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints -Wunused-packages -threaded
+  default-extensions:
+      LambdaCase
+      MultiWayIf
+      NamedFieldPuns
+      NoImplicitPrelude
+      OverloadedStrings
+      TypeApplications
+  build-depends:
+      QuickCheck
+    , aeson
+    , base >=4.7 && <5
+    , conformance
+    , hspec
+    , relude

@@ -1,12 +1,12 @@
 {
-  "title": "invalid-tx-collateral",
+  "title": "invalid transaction collects fee from collateral",
   "description": "An is_valid=false transaction collects its fee from the collateral input.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

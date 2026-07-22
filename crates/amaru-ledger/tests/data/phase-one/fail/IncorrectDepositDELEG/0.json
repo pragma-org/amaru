@@ -1,12 +1,12 @@
 {
-  "title": "IncorrectDepositDELEG",
+  "title": "stake registration cert with incorrect deposit",
   "description": "A Conway `Reg` cert supplies a deposit that disagrees with protocolParameters.stakeCredentialDeposit.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

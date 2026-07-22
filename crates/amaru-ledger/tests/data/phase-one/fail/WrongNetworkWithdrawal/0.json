@@ -1,12 +1,12 @@
 {
-  "title": "WrongNetworkWithdrawal",
+  "title": "withdrawal reward account on wrong network",
   "description": "The transaction body carries one withdrawal whose reward account is on Mainnet (first byte 0xe1: stake key hash, network=1) while the fixture network is Preprod (network=0); phase-one must reject.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

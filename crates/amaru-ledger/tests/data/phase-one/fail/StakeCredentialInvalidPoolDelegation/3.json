@@ -1,12 +1,12 @@
 {
-  "title": "StakeCredentialInvalidPoolDelegation",
+  "title": "script credential delegation after conway unreg",
   "description": "Script credential delegation after Conway-era UnReg in the same transaction.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

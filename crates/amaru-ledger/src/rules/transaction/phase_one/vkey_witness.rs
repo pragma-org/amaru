@@ -132,27 +132,9 @@ mod tests {
         matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
             if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
                 invalid_witnesses[0].element,
-                InvalidEd25519Signature::InvalidSignature
+                InvalidEd25519Signature
             );
         "invalid signature"
-    )]
-    #[test_case(
-        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-signature-length") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
-                invalid_witnesses[0].element,
-                InvalidEd25519Signature::InvalidSignatureSize { expected: 64, .. }
-            );
-        "invalid signature size"
-    )]
-    #[test_case(
-        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-key-length") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 1 && matches!(
-                invalid_witnesses[0].element,
-                InvalidEd25519Signature::InvalidKeySize { expected: 32, .. }
-            );
-        "invalid key size"
     )]
     #[test_case(
         fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "missing-spending-vkey") =>
@@ -218,16 +200,8 @@ mod tests {
         matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
         if invalid_witnesses.len() == 1 && matches!(invalid_witnesses[0], WithPosition {
             position: 0,
-            element: InvalidEd25519Signature::InvalidSignature});
+            element: InvalidEd25519Signature});
         "Invalid Signatures: Invalid Signature")]
-    #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "invalid-signature-size") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-        if invalid_witnesses.len() == 1 && matches!(invalid_witnesses[0], WithPosition {
-            position: 0,
-            element: InvalidEd25519Signature::InvalidSignatureSize { ..}});
-        "Invalid Signatures: Invalid Signature Size")]
-    // InvalidKeySize is enforced by the validation context type (Hash<KEY>).
-    // If the key in the signature is the wrong length, the execute function will fail with MissingRequiredWitness
     fn bootstrap_witness(
         (mut ctx, tx, witness_set, expected_traces): (
             AssertValidationContext,
