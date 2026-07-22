@@ -3773,6 +3773,24 @@
       "description": "Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations.",
       "public": true
     },
+    "amaru::stores::ledger::overlay::REMOVE_DANGLING_POOLS_DELEGATIONS": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "accounts"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove_dangling_pools_delegations",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::overlay",
+      "description": "Removing dangling delegations from accounts to pools after pools de-registrations",
+      "public": true
+    },
     "amaru::stores::ledger::overlay::RESET_BLOCKS_COUNT": {
       "type": "object",
       "properties": {},
@@ -3823,18 +3841,13 @@
         },
         "pools_retired": {
           "type": "integer"
-        },
-        "accounts_unbound": {
-          "type": "integer"
         }
       },
       "required": [
         "pools_updated",
         "pools_retired"
       ],
-      "optional": [
-        "accounts_unbound"
-      ],
+      "optional": [],
       "additionalProperties": false,
       "name": "update_or_retire_pools",
       "level": "TRACE",

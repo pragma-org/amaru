@@ -97,7 +97,7 @@ pub fn get<'a>(
 
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
 /// amount that couldn't be allocated to the account.
-pub fn set<DB>(
+pub fn set_rewards<DB>(
     db: &Transaction<'_, DB>,
     credential: &Key,
     with_rewards: impl FnOnce(Lovelace) -> Lovelace,
@@ -122,6 +122,29 @@ pub fn set<DB>(
         );
 
         Ok(with_rewards(0))
+    })
+}
+
+pub fn drop_pool_delegation<DB>(db: &Transaction<'_, DB>, credential: &Key) -> Result<(), StoreError> {
+    trace_span!(stores::ledger::accounts::SET).in_scope(|| {
+        let key = as_key(&PREFIX, credential);
+
+        if let Some(mut row) =
+            db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
+        {
+            row.pool = None;
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            // TODO: Should probably be an error now that we have the overlay...
+            debug!(
+                stores::ledger::accounts::SET,
+                credential_type = %StakeCredentialKind::from(credential),
+                account = %credential.as_hash(),
+                reason = "cannot drop pool delegation, account is gone"
+            );
+        }
+
+        Ok(())
     })
 }
 

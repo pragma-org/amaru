@@ -1773,10 +1773,11 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `pay_or_refund_accounts` | `TRACE` | public | Pay withdrawals to accounts, or refund deposits | total_paid_or_refunded, treasury_leftovers |  |
 | `pay_rewards` | `TRACE` | public | Pay rewards to all accounts before the epoch end | accounts_paid, rewards_paid, treasury_delta, reserves_delta |  |
 | `record_pruned_proposals` | `TRACE` | public | Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations. |  |  |
+| `remove_dangling_pools_delegations` | `TRACE` | public | Removing dangling delegations from accounts to pools after pools de-registrations | accounts |  |
 | `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
 | `reset_fees` | `TRACE` | public | Reset fees to zero |  |  |
 | `update_constitutional_committee` | `TRACE` | public | Add or remove CC members; or switch to a no-confidence state | no_confidence |  |
-| `update_or_retire_pools` | `TRACE` | public | Updating pools metadata or retiring pools at an epoch boundary. | pools_updated, pools_retired | accounts_unbound |
+| `update_or_retire_pools` | `TRACE` | public | Updating pools metadata or retiring pools at an epoch boundary. | pools_updated, pools_retired |  |
 
 <details><summary>span: `pay_or_refund_accounts`</summary>
 
@@ -1798,6 +1799,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `remove_dangling_pools_delegations`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `accounts` | `integer` | ✓ |
+
+</details>
+
 <details><summary>span: `update_constitutional_committee`</summary>
 
 | field | type | required |
@@ -1812,7 +1821,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `pools_updated` | `integer` | ✓ |
 | `pools_retired` | `integer` | ✓ |
-| `accounts_unbound` | `integer` |  |
 
 </details>
 

@@ -51,10 +51,7 @@ use crate::{
 pub mod columns;
 
 mod epoch_transition;
-pub use epoch_transition::{
-    apply_governance_updates, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
-    reset_recently_pruned_proposals, update_constitutional_committee, update_or_retire_pools,
-};
+pub use epoch_transition::*;
 
 #[derive(Debug, Error)]
 #[error(transparent)]
@@ -386,6 +383,10 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
     /// deposit.
     fn refund(&self, credential: &accounts::Key, deposit: Lovelace) -> Result<Lovelace>;
+
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
+    /// deposit.
+    fn drop_pool_delegation(&self, credential: &accounts::Key) -> Result<()>;
 
     /// Persist ProtocolParameters for the ongoing epoch.
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<()>;

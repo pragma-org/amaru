@@ -168,6 +168,21 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
     })
 }
 
+pub fn remove_dangling_pools_delegations<'store>(
+    db: &impl TransactionalContext<'store>,
+    accounts: BTreeSet<StakeCredential>,
+) -> Result<(), StoreError> {
+    debug_span!(stores::ledger::overlay::REMOVE_DANGLING_POOLS_DELEGATIONS, accounts = accounts.len() as u64).in_scope(
+        || {
+            for account in &accounts {
+                db.drop_pool_delegation(account)?;
+            }
+
+            Ok(())
+        },
+    )
+}
+
 /// Update pool parameters now valid at an epoch boundary, and retire pools that have reached their
 /// retirement epoch.
 pub fn update_or_retire_pools<'store>(
@@ -181,25 +196,6 @@ pub fn update_or_retire_pools<'store>(
         pools_retired = retirements.len() as u64,
     )
     .in_scope(|| {
-        if !retirements.is_empty() {
-            db.with_accounts(|iterator| {
-                let mut accounts_unbound: u64 = 0;
-                for (_, mut row) in iterator {
-                    let delegated_to_retired = row
-                        .borrow()
-                        .as_ref()
-                        .and_then(|account| account.pool.as_ref())
-                        .is_some_and(|(pool, _)| retirements.contains(pool));
-
-                    if delegated_to_retired && let Some(account) = row.borrow_mut() {
-                        account.pool = None;
-                        accounts_unbound += 1;
-                    }
-                }
-
-                Span::current().record("accounts_unbound", accounts_unbound);
-            })?;
-        }
         // TODO: multi-modify without full iterations?
         //
         // This quite inefficient, as we have to iterate through ALL pools just to possibly update a

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{mem, sync::Arc};
+use std::{collections::BTreeSet, mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
@@ -330,6 +330,7 @@ impl VolatileDB {
     pub fn transition(
         &mut self,
         effective_rewards: Option<Rewards<Effective>>,
+        pools_undelegations: BTreeSet<StakeCredential>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
     ) {
@@ -352,7 +353,7 @@ impl VolatileDB {
             "transitioning volatile series while a draining series is still present; two epoch boundaries inside the k-block window?"
         );
         self.draining = mem::take(&mut self.current);
-        self.overlay.transition(effective_rewards, pools_updates, governance_updates);
+        self.overlay.transition(effective_rewards, pools_undelegations, pools_updates, governance_updates);
     }
 
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
@@ -921,7 +922,7 @@ mod tests {
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
 
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         assert!(!db.draining.is_empty(), "draining should hold the transitioned series");
         assert_eq!(db.current.len(), 0, "current should be reset to empty");
@@ -932,7 +933,7 @@ mod tests {
     fn transition_is_a_noop_on_empty_current() {
         let mut db = VolatileDB::default();
 
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         assert!(db.draining.is_empty(), "transitioning an empty current must not open a draining series");
     }
@@ -942,10 +943,10 @@ mod tests {
     fn transition_panics_if_draining_already_present() {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
 
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
     }
 
     #[test]
@@ -953,7 +954,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(10)));
@@ -971,7 +972,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
         db.push_back(AnchoredVolatileFragment::fixture(40, 4));
 
@@ -1017,7 +1018,7 @@ mod tests {
 
         let mut db = VolatileDB::default();
         db.push_back(draining_block);
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(current_block);
 
         assert_eq!(db.resolve_input(&input).is_some(), resolvable);
@@ -1029,7 +1030,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.len(), 3, "two draining blocks plus one current block");
@@ -1057,7 +1058,7 @@ mod tests {
             let mut db = VolatileDB::default();
             for (index, diff) in diffs.iter().enumerate() {
                 if index == transition_after {
-                    db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+                    db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
                 }
                 let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
                 anchored.fragment.utxo = diff.clone();
@@ -1084,7 +1085,7 @@ mod tests {
         if let Some(act) = draining {
             db.push_back(account_block(10, act));
         }
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
         if let Some(act) = current {
             db.push_back(account_block(20, act));
         }
@@ -1111,7 +1112,7 @@ mod tests {
         // A withdrawal in `draining` (pre-boundary) with no pending credit also leaves nothing.
         let mut db = VolatileDB::default();
         db.push_back(withdrawal_block(10));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(0));
     }
@@ -1120,14 +1121,20 @@ mod tests {
     fn reward_balance_folds_in_the_pending_overlay_credit_during_the_straddle() {
         let mut db = VolatileDB::default();
         let computed = Rewards::<Computed>::new(0, 0, BTreeMap::from([(cred(1), 5_000_000)]));
-        let effective = Rewards::<Effective>::new(computed, std::iter::once(cred(1)));
+        let (effective, pools_undelegations) =
+            Rewards::<Effective>::new(computed, &BTreeSet::default(), std::iter::once((cred(1), None)));
 
         // The pending boundary credit is added on top of the stable base.
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(0));
 
         db.push_back(withdrawal_block(10));
 
-        db.transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(
+            Some(effective),
+            pools_undelegations,
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(None),
+        );
 
         // Withdrawn in `draining`, before the boundary credit: only the credit remains.
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(5_000_000));
@@ -1146,7 +1153,7 @@ mod tests {
         let mut db = VolatileDB::default();
         let mut updates = committee_update(None);
         updates.payouts = BTreeMap::from([(cred(1), 3_000_000)]);
-        db.transition(None, PoolsEpochTransitionUpdates::default(), updates);
+        db.transition(None, BTreeSet::new(), PoolsEpochTransitionUpdates::default(), updates);
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
 
@@ -1159,11 +1166,17 @@ mod tests {
     fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Expect {
         let mut db = VolatileDB::default();
         let computed = Rewards::<Computed>::new(0, 0, BTreeMap::new());
-        let effective = Rewards::<Effective>::new(computed, std::iter::empty());
+        let (effective, pools_undelegations) =
+            Rewards::<Effective>::new(computed, &BTreeSet::new(), std::iter::empty());
         if let Some(act) = draining {
             db.push_back(committee_block(10, act));
         }
-        db.transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.transition(
+            Some(effective),
+            pools_undelegations,
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(None),
+        );
         if let Some(act) = current {
             db.push_back(committee_block(20, act));
         }
@@ -1182,6 +1195,7 @@ mod tests {
         let valid_until = Epoch::from(99);
         db.transition(
             None,
+            BTreeSet::new(),
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
                 added: BTreeMap::from([(cred(1), valid_until)]),
@@ -1198,6 +1212,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.transition(
             None,
+            BTreeSet::new(),
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
                 added: BTreeMap::new(),
@@ -1211,6 +1226,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.transition(
             None,
+            BTreeSet::new(),
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::NoConfidence)),
         );

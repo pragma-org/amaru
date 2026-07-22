@@ -635,10 +635,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         })
     }
 
-    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
-    /// deposit.
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded deposit.
     fn refund(&self, credential: &scolumns::accounts::Key, deposit: Lovelace) -> Result<Lovelace, StoreError> {
-        accounts::set(&self.db, credential, |balance| balance + deposit)
+        accounts::set_rewards(&self.db, credential, |balance| balance + deposit)
+    }
+
+    fn drop_pool_delegation(&self, credential: &scolumns::accounts::Key) -> Result<(), StoreError> {
+        accounts::drop_pool_delegation(&self.db, credential)
     }
 
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<(), StoreError> {

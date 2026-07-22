@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, mem};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem,
+};
 
-use amaru_kernel::StakeCredential;
+use amaru_kernel::{PoolId, StakeCredential};
 
 use crate::store::columns::accounts::Row as Account;
 
@@ -23,14 +26,14 @@ use crate::store::columns::accounts::Row as Account;
 /// such as registrations or de-registrations.
 pub(crate) struct IterAccounts<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> {
     db_iterator: DBIter,
-    registrations: BTreeSet<&'volatile StakeCredential>,
+    registrations: BTreeMap<&'volatile StakeCredential, Option<PoolId>>,
     deregistrations: BTreeSet<&'volatile StakeCredential>,
 }
 
 impl<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> IterAccounts<'volatile, DBIter> {
     pub fn new(
         db_iterator: DBIter,
-        registrations: &mut BTreeSet<&'volatile StakeCredential>,
+        registrations: &mut BTreeMap<&'volatile StakeCredential, Option<PoolId>>,
         deregistrations: &mut BTreeSet<&'volatile StakeCredential>,
     ) -> Self {
         Self { db_iterator, registrations: mem::take(registrations), deregistrations: mem::take(deregistrations) }
@@ -38,19 +41,19 @@ impl<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> IterAccount
 }
 
 impl<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> Iterator for IterAccounts<'volatile, DBIter> {
-    type Item = StakeCredential;
+    type Item = (StakeCredential, Option<PoolId>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        for (account, _) in &mut self.db_iterator {
-            if self.deregistrations.contains(&account) {
+        for (credential, account) in &mut self.db_iterator {
+            if self.deregistrations.contains(&credential) {
                 continue;
             }
 
-            return Some(account);
+            return Some((credential, account.pool.map(|(pool_id, _)| pool_id)));
         }
 
-        if let Some(account) = self.registrations.pop_first() {
-            return Some(account.clone());
+        if let Some((credential, pool)) = self.registrations.pop_first() {
+            return Some((credential.clone(), pool));
         }
 
         None

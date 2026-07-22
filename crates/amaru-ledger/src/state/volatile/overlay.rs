@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    mem,
+    sync::Arc,
+};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
@@ -32,8 +37,8 @@ use crate::{
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
-        pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
-        reset_recently_pruned_proposals, update_or_retire_pools,
+        pay_or_refund_accounts, pay_rewards, remove_dangling_pools_delegations, reset_blocks_count,
+        reset_fees_and_donations, reset_recently_pruned_proposals, update_or_retire_pools,
     },
 };
 
@@ -61,6 +66,9 @@ pub struct StateOverlay {
     /// used for leader schedule is moved as rewards stake.
     rewards: RewardsState,
 
+    /// Credentials that are no longer delegated to any stake pool due to the pool retiring.
+    pools_undelegations: BTreeSet<StakeCredential>,
+
     /// Computed pools updates that are pending application to the stable store. The value is only
     /// `Some` during the first `k` blocks of an epoch since this corresponds to the unstable part
     /// of an epoch.
@@ -85,6 +93,7 @@ impl StateOverlay {
             epoch,
             most_recent_snapshot: RefCell::new(None),
             rewards: RewardsState::NotReady,
+            pools_undelegations: BTreeSet::new(),
             pools_updates: None,
             governance_updates: None,
         }
@@ -137,6 +146,7 @@ impl StateOverlay {
     pub fn transition(
         &mut self,
         effective_rewards: Option<Rewards<Effective>>,
+        pools_undelegations: BTreeSet<StakeCredential>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
     ) {
@@ -217,6 +227,7 @@ impl StateOverlay {
                         None
                     }
                 } else {
+                    mem::take(&mut self.pools_undelegations);
                     mem::take(&mut self.pools_updates);
                     mem::take(&mut self.governance_updates);
                     None

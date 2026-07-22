@@ -74,8 +74,21 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         }
 
         let accounts = AccountVolatileView {
-            registered: accounts.registered.into_keys().collect(),
             unregistered: accounts.unregistered,
+            registered: accounts
+                .registered
+                .into_iter()
+                .filter_map(|(credential, bind)| {
+                    // NOTE: only accounts that are newly registered (i.e. .value is some)
+                    //
+                    // Delegations only needs not to appear here as they'll be available from the
+                    // stable store.
+                    bind.value.map(|_| {
+                        let pool_delegation = bind.left.to_option(None).map(|(pool_id, _)| pool_id);
+                        (credential, pool_delegation)
+                    })
+                })
+                .collect(),
         };
 
         Self {
@@ -118,7 +131,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     /// registration or deregistration from the aggregated volatile state.
     ///
     /// IMPORTANT: Yields accounts in no particular order.
-    pub fn iter_accounts(&mut self) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
+    pub fn iter_accounts(&mut self) -> Result<impl Iterator<Item = (StakeCredential, Option<PoolId>)>, StoreError> {
         match mem::take(&mut self.accounts) {
             None => {
                 // Just being careful here. There's no reason to ever call this twice; but if it
@@ -146,6 +159,6 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
 /// A simplified 'DiffBind' for accounts, specialized to just the stake credentials.
 #[derive(Debug)]
 struct AccountVolatileView<'volatile> {
-    registered: BTreeSet<&'volatile StakeCredential>,
+    registered: BTreeMap<&'volatile StakeCredential, Option<PoolId>>,
     unregistered: BTreeSet<&'volatile StakeCredential>,
 }

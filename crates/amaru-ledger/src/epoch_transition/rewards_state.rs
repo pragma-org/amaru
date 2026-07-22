@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{Lovelace, StakeCredential};
+use amaru_kernel::{Lovelace, PoolId, StakeCredential};
 
 /// Captures the lifecycle of rewards calculation throughout block applications. Rewards are
 /// computed and later consumed/applied to accounts.
@@ -229,7 +229,7 @@ impl Rewards<Effective> {
             .map(|(account, _)| account.clone())
             .collect();
 
-        Rewards {
+        Self {
             step: PhantomData,
             delta_reserves: computed_rewards.delta_reserves,
             delta_treasury: computed_rewards.delta_treasury,

@@ -977,14 +977,17 @@ define_schemas! {
                         /// Total amounts that couldn't be paid to accounts, going back to treasury instead.
                         optional treasury_leftovers: amaru_kernel::Lovelace
                     }
+                    /// Removing dangling delegations from accounts to pools after pools de-registrations
+                    public REMOVE_DANGLING_POOLS_DELEGATIONS {
+                        /// Total number of affected accounts
+                        required accounts: u64
+                    }
                     /// Updating pools metadata or retiring pools at an epoch boundary.
                     public UPDATE_OR_RETIRE_POOLS {
                         /// Total number of pools updating metadata
                         required pools_updated: u64
                         /// Total number of pools retired
                         required pools_retired: u64
-                        /// Total number of accounts whose delegation was cleared because their pool retired
-                        optional accounts_unbound: u64
                     }
                     /// Enact all governance updates and flush their outcome to disk
                     public APPLY_GOVERNANCE_UPDATES {}

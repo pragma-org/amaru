@@ -35,7 +35,7 @@ pub mod tests {
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },
-            update_or_retire_pools,
+            remove_dangling_pools_delegations, update_or_retire_pools,
         },
     };
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
@@ -467,15 +467,11 @@ pub mod tests {
         assert_eq!(delegatee(&account1)?, Some(pool1.id), "account1 should be delegated to pool1");
         assert_eq!(delegatee(&account2)?, Some(pool2.id), "account2 should be delegated to pool2");
 
-        let row1 = store.account(&account1)?.expect("account1 should still exist");
-        assert_eq!(row1.pool.map(|p| p.0), Some(pool1.id));
-        assert_eq!(row1.deposit, 2_000_000);
-        assert_eq!(row1.rewards, 1_000_000);
-
         // Retire pool1
         {
             let context = store.create_transaction();
             update_or_retire_pools(&context, BTreeMap::new(), BTreeSet::from([pool1.id]))?;
+            remove_dangling_pools_delegations(&context, BTreeSet::from([account1.clone()]))?;
             context.commit()?;
         }
 

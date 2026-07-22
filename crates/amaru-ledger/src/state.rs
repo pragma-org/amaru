@@ -36,7 +36,9 @@ use tracing::Span;
 
 use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
-    epoch_transition::{self, GovernanceActivity},
+    epoch_transition::{
+        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards,
+    },
     governance::ratification::RatificationContext,
     rules::{
         self,
@@ -422,6 +424,11 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // pre-conditions have been checked).
             let mut volatile_view = VolatileView::new(&self.volatile, &*db);
 
+            // Compute the updates to perform on pools at the epoch boundary. This uses information
+            // from both the immutable store and the volatile database, since we compute the updates
+            // before they are "stable" and safe to store.
+            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
+
             // NOTE: No rewards during epoch transition?
             //
             // It is fine in some situation to compute an epoch transition and yet have no rewards.
@@ -432,21 +439,22 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // process behaves as if we had interrupted the transition just after taking the
             // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
             // pool updates, etc...) but not the end (rewards).
-            let (treasury, effective_rewards) = if progress.is_none() {
-                // FIXME: asynchronous rewards calculations
-                //
-                // This should eventually be a '.await', as we always expect to *eventually*
-                // have some rewards summary being available. There's no way to continue progressing
-                // the ledger if we don't.
-                let effective_rewards = epoch_transition::end_epoch(
-                    &mut volatile_view,
-                    computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
-                )?;
+            let (effective_rewards, pools_undelegations) = Rewards::<Effective>::new(
+                if progress.is_none() {
+                    // FIXME: asynchronous rewards calculations
+                    //
+                    // This should eventually be a '.await', as we always expect to *eventually*
+                    // have some rewards summary being available. There's no way to continue progressing
+                    // the ledger if we don't.
+                    computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?
+                } else {
+                    Rewards::<Computed>::new(0, 0, BTreeMap::default())
+                },
+                pools_updates.retired(),
+                volatile_view.iter_accounts()?,
+            );
 
-                (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
-            } else {
-                (db.pots()?.treasury, None)
-            };
+            let treasury = db.pots()?.treasury + effective_rewards.delta_treasury();
 
             let protocol_parameters = self.protocol_parameters();
 
@@ -467,9 +475,13 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 treasury,
             )?;
 
-            let (pools_updates, governance_updates) = epoch_transition::begin_epoch(
-                &mut volatile_view,
-                next_epoch,
+            // Ratify and enact proposals at the epoch boundary. Note that this does not modify the
+            // immutable store in any fashion (db is read-only here) but produces a series of
+            // governance updates to be applied to the database once stable; and use in-memory in the
+            // meantime.
+            let governance_updates = GovernanceUpdates::new(
+                volatile_view.proposals_roots()?,
+                volatile_view.iter_proposals()?,
                 &self.era_history,
                 protocol_parameters,
                 ratification_context,
@@ -477,7 +489,12 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
             drop(db); // Dropping the *mutable reference*, not the *actual database* :)
 
-            self.volatile.transition(effective_rewards, pools_updates, governance_updates);
+            self.volatile.transition(
+                if progress.is_none() { Some(effective_rewards) } else { None },
+                pools_undelegations,
+                pools_updates,
+                governance_updates,
+            );
 
             Ok(())
         })
