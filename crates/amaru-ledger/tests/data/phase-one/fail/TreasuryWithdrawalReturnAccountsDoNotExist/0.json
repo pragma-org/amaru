@@ -16,7 +16,13 @@
       }
     ],
     "pools": [],
-    "accounts": [],
+    "accounts": [
+      {
+        "credential": "8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
     "dreps": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0

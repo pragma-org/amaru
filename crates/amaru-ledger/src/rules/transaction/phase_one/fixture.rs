@@ -197,6 +197,7 @@ pub(super) enum Predicate {
     OutsideValidityIntervalUTxO,
     ScriptsNotPaidUTxO,
     TooManyCollateralInputs,
+    ProposalReturnAccountDoesNotExist,
     TreasuryWithdrawalReturnAccountsDoNotExist,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
@@ -264,6 +265,9 @@ impl From<PhaseOneError> for Predicate {
             },
             PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
                 Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
+            }
+            PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
+                Predicate::ProposalReturnAccountDoesNotExist
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
