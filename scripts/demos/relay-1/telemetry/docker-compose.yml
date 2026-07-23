@@ -10,7 +10,7 @@ services:
 
   # Keep service.name for this multi-node demo (see ./otlp-collector.yml). Docker Compose
   # replaces the command list rather than appending, so this restates the collector configs
-  # contributed by the active TELEMETRY_PROFILES (TELEMETRY_COLLECTOR_CONFIGS, exported by
+  # contributed by the shared stack (TELEMETRY_COLLECTOR_CONFIGS, exported by
   # telemetry_compose()) and adds the demo layer last.
   otlp-collector:
     volumes:

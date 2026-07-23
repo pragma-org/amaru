@@ -26,9 +26,7 @@ We would like the codebase to organize the metrics it tracks in a simple, consis
 - All traces and spans can be made available on stdout in a structured format (JSON).
 
 - All traces, spans and metrics can be made available via the OpenTelemetry Protocol (OTLP) on the default OTLP ports.
-    - To ease its consumption, we provide at least two example setups for collecting and monitoring this telemetry:
-        - [Jaeger](https://www.jaegertracing.io/)
-        - [Grafana](https://grafana.com/) and [Tempo](https://grafana.com/oss/tempo/)
+    - To ease its consumption, we provide a unified monitoring stack using [Grafana](https://grafana.com/), [Tempo](https://grafana.com/oss/tempo/), [Prometheus](https://prometheus.io/), and [Loki](https://grafana.com/oss/loki/).
 
     - We will use the [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) crate to collect and report traces and metrics.
 
