@@ -26,7 +26,7 @@ use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HAS
 use amaru_ledger::state::State;
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{CanValidateBlocks, ChainStore, ConnectionsResource, MempoolMsg, ResourceMempool};
+use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
     manager::ManagerMessage,
@@ -118,6 +118,7 @@ pub fn build_node(
     let chain_store = make_chain_store(config)?;
     let pool_summaries = state.pool_summaries();
     let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
+    let max_epoch = pool_summaries.max_epoch();
 
     // Make the chain store, either from the network resources if already set
     // or from the configuration.
@@ -138,6 +139,7 @@ pub fn build_node(
         stage_builder,
         chain_store,
         global_parameters,
+        pool_summaries,
         block_validator.clone(),
         consensus_parameters,
         config.era_history().clone(),
@@ -147,15 +149,8 @@ pub fn build_node(
     let resources = stage_builder.resources().clone();
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
-    let node_stages = build_stage_graph(
-        config,
-        era_history,
-        global_parameters,
-        ledger_tip,
-        best_hash,
-        pool_summaries.max_epoch(),
-        stage_builder,
-    );
+    let node_stages =
+        build_stage_graph(config, era_history, global_parameters, ledger_tip, best_hash, max_epoch, stage_builder);
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
     block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
@@ -195,6 +190,7 @@ fn register_resources(
     stage_graph: &mut impl StageGraph,
     chain_store: Arc<dyn ChainStore>,
     global_parameters: &GlobalParameters,
+    pool_summaries: PoolSummaries,
     block_validator: Arc<BlockValidator<RocksDB, RocksDBHistoricalStores>>,
     consensus_parameters: Arc<ConsensusParameters>,
     era_history: EraHistory,
@@ -207,7 +203,7 @@ fn register_resources(
     stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
     stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
-    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(block_validator.current_pool_summaries()));
+    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
     stage_graph.resources().put::<ConnectionsResource>(Arc::new(TokioConnections::new(65535)));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
 
