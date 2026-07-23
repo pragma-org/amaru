@@ -66,17 +66,6 @@ impl<S: Store, HS: HistoricalStores + Send> BlockValidator<S, HS> {
     }
 }
 
-impl<S: Store, HS: HistoricalStores> BlockValidator<S, HS>
-where
-    HS: Send,
-{
-    #[expect(clippy::unwrap_used)]
-    pub fn get_tip(&self) -> Point {
-        let state = self.state.lock().unwrap();
-        state.tip().into_owned()
-    }
-}
-
 #[async_trait::async_trait]
 impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBlocks for BlockValidator<S, HS> {
     #[expect(clippy::unwrap_used)]
