@@ -26,7 +26,7 @@ use crate::{emit_rerun_if_exists, write_if_changed};
 /// case per stake distribution fixture.
 pub(crate) fn write_stake_distribution_test_cases_file(network: &str) -> Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let fixtures_root = manifest_dir.join("tests").join("stake-distributions");
+    let fixtures_root = manifest_dir.join("tests").join("conformance").join("stake-distributions");
     let network_dir = fixtures_root.join(network);
     let ledger_dir = default_ledger_dir(&manifest_dir, network);
 

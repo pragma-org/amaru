@@ -85,6 +85,7 @@ fn compare_stake_distribution_with_haskell_node(
 fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, Box<dyn std::error::Error>> {
     let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
+        .join("conformance")
         .join("stake-distributions")
         .join(network.to_string())
         .join(format!("epoch_{epoch}.json"));
