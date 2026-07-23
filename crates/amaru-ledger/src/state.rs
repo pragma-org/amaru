@@ -879,7 +879,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                         st.volatile = *volatile;
                     }
                     StateRecoveryKind::RecoverVolatileDBPart { recovery } => {
-                        st.volatile.recover(*recovery);
+                        st.volatile.undo_rollback(*recovery);
                     }
                 }
             },
@@ -954,7 +954,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 // for the upcoming roll forwards.
                 Ok(StateRecovery {
                     immutable_tip,
-                    kind: StateRecoveryKind::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.take()) },
+                    kind: StateRecoveryKind::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.clear()) },
                 })
             } else if *to < immutable_tip {
                 Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip))

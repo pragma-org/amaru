@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
 use amaru_observability::debug_span;
@@ -192,9 +192,22 @@ impl VolatileSeries {
         Ok(recovery)
     }
 
-    pub fn recover(&mut self, recovery: VecDeque<AnchoredVolatileFragment>) {
-        self.sequence.extend(recovery);
+    pub fn undo_rollback(&mut self, point: &Point, fragments: VecDeque<AnchoredVolatileFragment>) {
+        let ix = self
+            .sequence
+            .binary_search_by_key(point, |anchored| anchored.point())
+            .unwrap_or_else(|e| unreachable!("failed to undo_rollback, fork point {point} is gone: {e}"));
+        self.sequence.truncate(ix + 1);
+        self.sequence.extend(fragments);
         self.recompute_aggregate();
+    }
+
+    pub fn clear(&mut self) -> Self {
+        Self {
+            sequence: mem::take(&mut self.sequence),
+            aggregate: mem::take(&mut self.aggregate),
+            forced_recompute_in: self.forced_recompute_in,
+        }
     }
 }
 
