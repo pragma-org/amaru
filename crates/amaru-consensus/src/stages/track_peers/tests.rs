@@ -1161,3 +1161,110 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
         ],
     );
 }
+
+/// Two headers deferred for the same connection; on recheck the first fails validation and
+/// purges the connection, which also drops the second entry from the deferred list.
+/// Regression: the recheck loop used to index past the shrunk list and panic.
+#[test]
+fn test_recheck_deferred_survives_purge_shrinking_the_list() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let wrong_parent = HeaderHash::from([9u8; 32]);
+    let h1 = make_block_header(2, 2, Some(wrong_parent));
+    let h2 = make_block_header(3, 3, Some(h1.hash()));
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
+    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), h1.clone(), h1.tip());
+    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), h2.clone(), h2.tip());
+
+    let msg = TrackPeersMsg::RecheckLedgerHeight;
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+    assert_trace_match(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            tm_volatile_tip("tp-1"),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.is_empty() && s.upstream.is_empty(),
+                "connection purged with all its deferred entries",
+            ),
+        ],
+    );
+    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header parent"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// A deferred header that is still deferred on recheck must keep blocking its follow-ups.
+/// The peer tip has not advanced, so validating a follow-up would wrongly flag the peer as adversarial.
+#[test]
+fn test_redeferred_header_keeps_blocking_follow_ups() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let h1 = prep.headers[1].clone();
+    let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
+
+    let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.tip()),
+    });
+    let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.tip()),
+    });
+    // One epoch ahead of known max_epoch (start-2). We defer the header.
+    let first_target = prep.start_times.epoch.checked_sub(Epoch::ONE).unwrap();
+    // The stake distribution is updated but the header stays deferred.
+    let stake_distribution_update = TrackPeersMsg::StakeDistUpdated(first_target);
+    let second_target = prep.start_times.epoch;
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), h2.tip());
+
+    let slot1 = h1.slot();
+    let (running, _guards, mut logs) = setup_base(
+        &prep.rt_handle(),
+        state.clone(),
+        [msg1.clone(), msg2.clone(), stake_distribution_update.clone()],
+        build_store(&[]),
+        |running| {
+            let mut n = 0u8;
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
+                n += 1;
+                let target = if n == 1 { first_target } else { second_target };
+                OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                    GetPoolError::StakeDistributionNotAvailable(slot1, Some(target)),
+                ))))
+            });
+        },
+    );
+
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &msg1).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first header deferred"),
+            te_input("tp-1", &msg2).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "its follow-up is queued"),
+            te_input("tp-1", &stake_distribution_update).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.len() == 2 && !s.upstream.is_empty(),
+                "both headers are still deferred after recheck. The connection is active",
+            ),
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
+}
