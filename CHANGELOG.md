@@ -41,7 +41,7 @@ Other guiding principles:
 ### Added
 
 - **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
-
+- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
 
 ### Fixed
 
@@ -193,6 +193,7 @@ Other guiding principles:
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
+[#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#929]: https://github.com/pragma-org/amaru/issues/929
@@ -224,6 +225,7 @@ Other guiding principles:
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1034]: https://github.com/pragma-org/amaru/pull/1034
 [#1036]: https://github.com/pragma-org/amaru/pull/1036
+[#1037]: https://github.com/pragma-org/amaru/pull/1037
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
 [#1041]: https://github.com/pragma-org/amaru/pull/1041
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
