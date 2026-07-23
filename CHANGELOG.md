@@ -49,6 +49,11 @@ Other guiding principles:
 
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
 
+### Added
+
+- **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][] [#895][])
+
+
 ### Fixed
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
