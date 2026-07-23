@@ -158,8 +158,11 @@ define_schemas! {
                 /// Roll forward with a new block
                 public ROLL_FORWARD {}
                 /// Roll backward to a specific point
-                public ROLL_BACKWARD {
-                    required rollback_point: amaru_kernel::Point
+                public ROLL_BACKWARD {}
+                /// Switching to an alternative chain fork
+                public SWITCH_TO_FORK {
+                    required fork_point: amaru_kernel::Point
+                    required fork_length: usize
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}

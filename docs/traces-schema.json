@@ -2426,15 +2426,8 @@
     },
     "amaru::ledger::state::ROLL_BACKWARD": {
       "type": "object",
-      "properties": {
-        "rollback_point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
-        }
-      },
-      "required": [
-        "rollback_point"
-      ],
+      "properties": {},
+      "required": [],
       "optional": [],
       "additionalProperties": false,
       "name": "roll_backward",
@@ -2453,6 +2446,29 @@
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Roll forward with a new block",
+      "public": true
+    },
+    "amaru::ledger::state::SWITCH_TO_FORK": {
+      "type": "object",
+      "properties": {
+        "fork_point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "fork_length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fork_point",
+        "fork_length"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch_to_fork",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Switching to an alternative chain fork",
       "public": true
     },
     "amaru::ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE": {

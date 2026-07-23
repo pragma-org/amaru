@@ -1138,14 +1138,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `push` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
-| `roll_backward` | `TRACE` | public | Roll backward to a specific point | rollback_point |  |
+| `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
 | `roll_forward` | `TRACE` | public | Roll forward with a new block |  |  |
+| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length |  |
 
-<details><summary>span: `roll_backward`</summary>
+<details><summary>span: `switch_to_fork`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `rollback_point` | `string` | ✓ |
+| `fork_point` | `string` | ✓ |
+| `fork_length` | `integer` | ✓ |
 
 </details>
 

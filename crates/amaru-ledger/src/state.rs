@@ -863,55 +863,57 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         let blocks = blocks.into_iter();
         let count = blocks.len();
 
-        let recover = match self.rollback_to(fork_point) {
-            Ok(state_recovery) => move |st: &mut Self| {
-                let immutable_tip = st.immutable_tip();
+        info_span!(ledger::state::SWITCH_TO_FORK, fork_point = *fork_point, fork_length = count).in_scope(|| {
+            let recover = match self.rollback_to(fork_point) {
+                Ok(state_recovery) => move |st: &mut Self| {
+                    let immutable_tip = st.immutable_tip();
 
-                assert_eq!(
-                    immutable_tip, state_recovery.immutable_tip,
-                    "cannot recover: immutable tip moved from {} to {} during the replay",
-                    state_recovery.immutable_tip, immutable_tip,
-                );
+                    assert_eq!(
+                        immutable_tip, state_recovery.immutable_tip,
+                        "cannot recover: immutable tip moved from {} to {} during the replay",
+                        state_recovery.immutable_tip, immutable_tip,
+                    );
 
-                match state_recovery.kind {
-                    StateRecovery::RecoverWholeVolatileDB { volatile } => {
-                        st.volatile = *volatile;
+                    match state_recovery.kind {
+                        StateRecovery::RecoverWholeVolatileDB { volatile } => {
+                            st.volatile = *volatile;
+                        }
+                        StateRecovery::RecoverVolatileDBPart { recovery } => {
+                            st.volatile.undo_rollback(*recovery);
+                        }
                     }
-                    StateRecovery::RecoverVolatileDBPart { recovery } => {
-                        st.volatile.undo_rollback(*recovery);
-                    }
-                }
-            },
+                },
 
-            Err(error) => return BlockValidation::Err(error.into()),
-        };
-
-        self.assert_replay_stays_volatile(count);
-
-        let mut metrics = LedgerMetrics::default();
-
-        for block in blocks {
-            let (point, block) = match block {
-                Ok(block) => block,
-                Err(error) => {
-                    recover(self);
-                    return BlockValidation::Err(error);
-                }
+                Err(error) => return BlockValidation::Err(error.into()),
             };
-            match self.roll_forward(&point, block, arena_pool) {
-                BlockValidation::Valid(new_metrics) => metrics = new_metrics,
-                BlockValidation::Invalid(slot, hash, details) => {
-                    recover(self);
-                    return BlockValidation::Invalid(slot, hash, details);
-                }
-                BlockValidation::Err(error) => {
-                    recover(self);
-                    return BlockValidation::Err(error);
+
+            self.assert_replay_stays_volatile(count);
+
+            let mut metrics = LedgerMetrics::default();
+
+            for block in blocks {
+                let (point, block) = match block {
+                    Ok(block) => block,
+                    Err(error) => {
+                        recover(self);
+                        return BlockValidation::Err(error);
+                    }
+                };
+                match self.roll_forward(&point, block, arena_pool) {
+                    BlockValidation::Valid(new_metrics) => metrics = new_metrics,
+                    BlockValidation::Invalid(slot, hash, details) => {
+                        recover(self);
+                        return BlockValidation::Invalid(slot, hash, details);
+                    }
+                    BlockValidation::Err(error) => {
+                        recover(self);
+                        return BlockValidation::Err(error);
+                    }
                 }
             }
-        }
 
-        BlockValidation::Valid(metrics)
+            BlockValidation::Valid(metrics)
+        })
     }
 
     /// Assert, before replaying a fork, that the replay cannot flush anything to the stable store.
@@ -940,7 +942,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
     }
 
     fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
-        info_span!(ledger::state::ROLL_BACKWARD, rollback_point = to).in_scope(|| {
+        info_span!(ledger::state::ROLL_BACKWARD).in_scope(|| {
             let immutable_tip = self.immutable_tip();
             let volatile_tip = self.volatile_tip().map(|t| t.point()).unwrap_or(immutable_tip);
 
