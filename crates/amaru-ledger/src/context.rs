@@ -185,8 +185,7 @@ pub trait PoolsSlice {
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
 
-    // FIXME: Should yield an error when pool doesn't exists.
-    fn retire(&mut self, pool: PoolId, epoch: Epoch);
+    fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
 }
 
 /// An interface to help constructing the concrete PoolsSlice ahead of time.

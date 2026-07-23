@@ -196,6 +196,7 @@ pub(super) enum Predicate {
     StakeKeyHasNonZeroAccountBalance,
     StakeKeyRegistered,
     StakePoolRetirementWrongEpochPOOL,
+    StakePoolNotRegisteredOnKeyPOOL,
     ValueNotConservedUTxO,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -261,6 +262,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::PoolRetirementWrongEpoch { .. }) => {
                 Predicate::StakePoolRetirementWrongEpochPOOL
+            }
+            PhaseOneError::Certificates(InvalidCertificates::StakePoolUnknown(_)) => {
+                Predicate::StakePoolNotRegisteredOnKeyPOOL
             }
             PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
             PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {
