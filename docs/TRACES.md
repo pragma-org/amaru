@@ -690,9 +690,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `apply` | `TRACE` | public | Flushing the epoch transition overlay to disk | epoch | should_end_epoch, should_snapshot, should_begin_epoch |
-| `begin_epoch` | `TRACE` | public | Perform start-of-epoch epoch boundary computations |  |  |
 | `compute` | `TRACE` | public | Epoch transition processing | from, into | skipped, resuming_from |
-| `end_epoch` | `TRACE` | public | Perform end-of-epoch epoch boundary computations |  |  |
 | `new_governance_updates` | `TRACE` | public | Create governance updates (i.e. ratify proposals) at an epoch boundary. | proposals_count |  |
 | `new_pools_updates` | `TRACE` | public | Create pools updates |  |  |
 | `record` | `TRACE` | public | Record an in-flight epoch transition | from, to |  |

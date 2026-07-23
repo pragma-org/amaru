@@ -1216,18 +1216,6 @@
       "description": "Flushing the epoch transition overlay to disk",
       "public": true
     },
-    "amaru::ledger::epoch_transition::BEGIN_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "begin_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform start-of-epoch epoch boundary computations",
-      "public": true
-    },
     "amaru::ledger::epoch_transition::COMPUTE": {
       "type": "object",
       "properties": {
@@ -1259,18 +1247,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::epoch_transition",
       "description": "Epoch transition processing",
-      "public": true
-    },
-    "amaru::ledger::epoch_transition::END_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "end_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform end-of-epoch epoch boundary computations",
       "public": true
     },
     "amaru::ledger::epoch_transition::NEW_GOVERNANCE_UPDATES": {

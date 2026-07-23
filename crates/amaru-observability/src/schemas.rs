@@ -407,10 +407,6 @@ define_schemas! {
                     optional skipped: bool
                     optional resuming_from: String
                 }
-                /// Perform end-of-epoch epoch boundary computations
-                public END_EPOCH {}
-                /// Perform start-of-epoch epoch boundary computations
-                public BEGIN_EPOCH {}
                 /// Create pools updates
                 public NEW_POOLS_UPDATES {}
                 /// Create governance updates (i.e. ratify proposals) at an epoch boundary.

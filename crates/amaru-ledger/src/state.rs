@@ -36,7 +36,7 @@ use tracing::Span;
 
 use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
-    epoch_transition::{self, GovernanceActivity},
+    epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
     governance::ratification::RatificationContext,
     rules::{
         self,
@@ -433,15 +433,15 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
             // pool updates, etc...) but not the end (rewards).
             let (treasury, effective_rewards) = if progress.is_none() {
-                // FIXME: asynchronous rewards calculations
-                //
-                // This should eventually be a '.await', as we always expect to *eventually*
-                // have some rewards summary being available. There's no way to continue progressing
-                // the ledger if we don't.
-                let effective_rewards = epoch_transition::end_epoch(
-                    &mut volatile_view,
+                let effective_rewards = Rewards::<Effective>::new(
+                    // FIXME: asynchronous rewards calculations
+                    //
+                    // This should eventually be a '.await', as we always expect to *eventually*
+                    // have some rewards summary being available. There's no way to continue progressing
+                    // the ledger if we don't.
                     computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
-                )?;
+                    volatile_view.iter_accounts()?,
+                );
 
                 (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
             } else {
@@ -449,6 +449,11 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             };
 
             let protocol_parameters = self.protocol_parameters();
+
+            // Compute the updates to perform on pools at the epoch boundary. This uses information
+            // from both the immutable store and the volatile database, since we compute the updates
+            // before they are "stable" and safe to store.
+            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
 
             let ratification_context = RatificationContext::new(
                 // Ratification happens with one epoch of delay, and at the next epoch transition. So,
@@ -467,9 +472,13 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 treasury,
             )?;
 
-            let (pools_updates, governance_updates) = epoch_transition::begin_epoch(
-                &mut volatile_view,
-                next_epoch,
+            // Ratify and enact proposals at the epoch boundary. Note that this does not modify the
+            // immutable store in any fashion (db is read-only here) but produces a series of
+            // governance updates to be applied to the database once stable; and use in-memory in the
+            // meantime.
+            let governance_updates = GovernanceUpdates::new(
+                volatile_view.proposals_roots()?,
+                volatile_view.iter_proposals()?,
                 &self.era_history,
                 protocol_parameters,
                 ratification_context,
