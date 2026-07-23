@@ -92,6 +92,10 @@ fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a
 }
 
 fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, proposal: &'a Proposal) {
+    if let Some((account, _)) = parse_reward_account(&proposal.reward_account) {
+        context.require_account(Cow::Owned(account));
+    }
+
     if let GovernanceAction::TreasuryWithdrawals(withdrawals, _) = &proposal.gov_action {
         withdrawals
             .iter()

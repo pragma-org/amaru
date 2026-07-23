@@ -15,7 +15,7 @@
 use std::fmt;
 
 use crate::{
-    Address, HasOwnership, Hash, Network, cbor,
+    Address, HasOwnership, Hash, Network, StakePayload, cbor,
     size::{KEY, SCRIPT},
 };
 
@@ -91,6 +91,15 @@ pub fn parse_reward_account(bytes: &[u8]) -> Option<(StakeCredential, Network)> 
         Some((address.owner(), network))
     } else {
         None
+    }
+}
+
+impl From<StakePayload> for StakeCredential {
+    fn from(payload: StakePayload) -> Self {
+        match payload {
+            StakePayload::Key(hash) => Self::AddrKeyhash(hash),
+            StakePayload::Script(hash) => Self::ScriptHash(hash),
+        }
     }
 }
 

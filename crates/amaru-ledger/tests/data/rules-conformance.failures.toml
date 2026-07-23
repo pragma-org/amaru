@@ -30,7 +30,6 @@
 "conway/fail-gov-invalid-index-in-govpurposeid/0" = "Expected failure, got success"
 "conway/fail-gov-non-existent-gov-actions/0" = "Expected failure, got success"
 "conway/fail-gov-policy-is-respected-by-proposals/0" = "Expected failure, got success"
-"conway/fail-gov-proposalreturnaccountdoesnotexist/0" = "Expected failure, got success"
 "conway/fail-gov-proposals-submitted-without-proper-parent-fail/0" = "Expected failure, got success"
 "conway/fail-gov-valid-govpurposeid-but-invalid-purpose/0" = "Expected failure, got success"
 "conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
