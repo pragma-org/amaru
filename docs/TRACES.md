@@ -1138,14 +1138,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `push` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
-| `roll_backward` | `TRACE` | public | Roll backward to a specific point | rollback_point |  |
+| `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
 | `roll_forward` | `TRACE` | public | Roll forward with a new block |  |  |
+| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length |  |
 
-<details><summary>span: `roll_backward`</summary>
+<details><summary>span: `switch_to_fork`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `rollback_point` | `string` | ✓ |
+| `fork_point` | `string` | ✓ |
+| `fork_length` | `integer` | ✓ |
 
 </details>
 
@@ -1392,20 +1394,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `aggregate` | `TRACE` | public | Recompute the volatile aggregate |  |  |
-| `rollback_to` | `TRACE` | public | Rollback the volatile state to a specific point | target_slot | last_slot, first_slot, warning, error |
 | `warm_up` | `TRACE` | public | The volatile db is still warming up and hasn't reached a stable point yet | size |  |
-
-<details><summary>span: `rollback_to`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `target_slot` | `string` | ✓ |
-| `last_slot` | `string` |  |
-| `first_slot` | `string` |  |
-| `warning` | `string` |  |
-| `error` | `string` |  |
-
-</details>
 
 <details><summary>span: `warm_up`</summary>
 

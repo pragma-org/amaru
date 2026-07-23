@@ -58,6 +58,7 @@ Other guiding principles:
 - **amaru-consensus / amaru-protocols**: do not log an ERROR when block-fetch is paused because no upstream peers are connected yet; keep ERROR for real fetch timeouts after peers were contacted. ([#1050](https://github.com/pragma-org/amaru/issues/1050))
 - **amaru-plutus**: encoding divergence between rational number present in governance actions and those present in protocol parameters. ([#1053][])
 - **amaru-ledger**: restore some spans in the ledger at the debug level. ([#1056][])
+- **amaru**: make sure that switching to a new fork is atomic and recovers in case a block on the fork fails to validate ([#1009][])
 - **amaru**: bootstrap creates the chain DB at the current schema version instead of replaying migrations on an empty store (avoids a spurious migration warning). ([#1060](https://github.com/pragma-org/amaru/pull/1062))
 - **amaru-protocols**: delegate connection attempts to connector stage to avoid blocking the manager and allow up to 10 concurrent connections. ([#1058](https://github.com/pragma-org/amaru/pull/1058))
 - **amaru-consensus**: fix chainsync mini-protocol lifecycle handling in `track_peers` stage to properly clean up resources when stopping to sync from a peer. ([#1059](https://github.com/pragma-org/amaru/pull/1059))
@@ -191,6 +192,7 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017

@@ -29,7 +29,7 @@ use amaru_node::{
     DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
     stages::{
         build_node::build_and_run_node,
-        config::{Config, MaxExtraLedgerSnapshots, StoreType},
+        config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
     },
 };
 use amaru_ouroboros::MempoolMsg;
@@ -402,17 +402,20 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     );
 
     Ok(Config {
-        ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+        ledger_config: LedgerConfig {
+            ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+            network: args.network,
+            global_parameters,
+            era_history,
+            max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+            ..LedgerConfig::default()
+        },
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: peer_address,
         target_upstream_peers: args.upstream_peers,
         target_downstream_peers: args.downstream_peers,
-        network: args.network,
         network_magic: args.network.to_network_magic(),
-        era_history,
-        global_parameters,
         listen_address: args.listen_address,
-        max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
         submit_api_address: args.submit_api_address,
         trace_buffer_min_entries,

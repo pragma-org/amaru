@@ -15,17 +15,13 @@
 use std::sync::Arc;
 
 use amaru_consensus::{
-    effects::{
-        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourcePoolSummaries, ResourceTxValidation,
-    },
+    effects::{ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, ResourceTxValidation},
     headers_tree::data_generation::Action,
-    stages::test_utils::start_in_era,
 };
-use amaru_kernel::{BlockHeight, ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Tip, Transaction};
+use amaru_kernel::{BlockHeight, IsHeader, NonEmptyVec, Tip, Transaction};
 use amaru_ouroboros::{
-    BaseReadChainStore, ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateTxs,
-    PoolSummaries, ResourceMempool, has_stake_pools::MockHasStakePools,
+    BaseReadChainStore, ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateHeaders,
+    MockCanValidateTxs, ResourceMempool, has_stake_pools::MockHasStakePools,
 };
 use amaru_protocols::{
     manager::ManagerMessage,
@@ -59,8 +55,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
         let mut stage_graph = SimulationBuilder::default()
             .with_seed(config.seed)
             .with_mailbox_size(10000)
-            .with_trace_buffer(config.trace_buffer.clone())
-            .with_global_epoch_offset(start_in_era().relative_time);
+            .with_trace_buffer(config.trace_buffer.clone());
 
         let config = config.with_connections(connections.clone());
         let test_node_stages = create_node(&config, &mut stage_graph)?;
@@ -197,16 +192,8 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     stage_graph.resources().put::<Arc<dyn DiagnosticChainStore>>(node_config.chain_store.clone());
     stage_graph.resources().put::<ResourceBlockValidation>(block_validation.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
+    stage_graph.resources().put::<ResourceHeaderValidation>(Arc::new(MockCanValidateHeaders));
     stage_graph.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
-
-    #[expect(clippy::unwrap_used)]
-    let era = NetworkName::Preprod.as_era_history().unwrap();
-    #[expect(clippy::expect_used)]
-    let global = NetworkName::Preprod.as_global_parameters().cloned().expect("global parameters for preprod");
-    let cp = Arc::new(ConsensusParameters::new(global, era, Default::default()));
-    stage_graph.resources().put::<ResourceConsensusParameters>(cp);
-    stage_graph.resources().put::<ResourceEraHistory>(era.clone());
-    stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
     stage_graph.resources().put::<ResourceMempool<Transaction>>(node_config.mempool.clone());
     stage_graph.resources().put(node_config.connections.clone());
     Ok(())

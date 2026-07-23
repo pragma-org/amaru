@@ -18,47 +18,30 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{Block, EraHistory, GlobalParameters, NetworkName, Point, Tip, Transaction};
+use amaru_kernel::{Block, Point, Tip, Transaction};
+use amaru_ledger::{
+    rules::block::BlockValidation,
+    state::State,
+    store::{HistoricalStores, Store},
+};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, HasStakePools, PoolSummaries, TransactionValidationError,
-    can_validate_blocks::BlockValidationError,
+    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ChainStore, FindAncestorOnBestChainResult, HasStakePools,
+    PoolSummaries, ReadChainStore, TransactionValidationError, can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
 
-use crate::{
-    rules::block::BlockValidation,
-    state,
-    store::{HistoricalStores, Store},
-};
-
 /// This data type encapsulate the ledger state in order to implement the `CanValidateBlocks` trait.
 /// and be able to validate blocks (including rollback).
-pub struct BlockValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
-    pub state: Arc<Mutex<state::State<S, HS>>>,
-    pub vm_eval_pool: ArenaPool,
+#[derive(Clone)]
+pub struct BlockValidator<S: Store, HS: HistoricalStores> {
+    state: Arc<Mutex<State<S, HS>>>,
+    vm_eval_pool: ArenaPool,
+    chain_store: Arc<dyn ChainStore>,
 }
 
-impl<S, HS> Clone for BlockValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
-    fn clone(&self) -> Self {
-        Self { state: self.state.clone(), vm_eval_pool: self.vm_eval_pool.clone() }
-    }
-}
-
-impl<S, HS> CanValidateTxs for BlockValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
+impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateTxs for BlockValidator<S, HS> {
     fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
         let state = self.state.lock().map_err(|error| {
             TransactionValidationError::from(anyhow!("failed to acquire ledger state lock: {error}"))
@@ -69,40 +52,22 @@ where
     }
 }
 
-impl<S: Store + Send, HS: HistoricalStores + Send> BlockValidator<S, HS> {
-    pub fn new(
-        store: S,
-        snapshots: HS,
-        vm_eval_pool: ArenaPool,
-        network: NetworkName,
-        era_history: EraHistory,
-        global_parameters: GlobalParameters,
-    ) -> anyhow::Result<Self> {
-        let state = state::State::new(store, snapshots, network, era_history, global_parameters)?;
-        Ok(Self { state: Arc::new(Mutex::new(state)), vm_eval_pool })
-    }
-
-    #[expect(clippy::unwrap_used)]
-    pub fn get_tip(&self) -> Point {
-        let state = self.state.lock().unwrap();
-        state.tip().into_owned()
+impl<S: Store, HS: HistoricalStores + Send> BlockValidator<S, HS> {
+    pub fn new(state: State<S, HS>, vm_eval_pool: ArenaPool, chain_store: Arc<dyn ChainStore>) -> Self {
+        Self { state: Arc::new(Mutex::new(state)), vm_eval_pool, chain_store }
     }
 
     /// Set callback invoked when a new stake distribution is computed/available.
     /// The provided PoolSummaries should be used to update resources for header validation.
     #[expect(clippy::unwrap_used)]
-    pub fn set_on_stake_dist_updated(&self, cb: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+    pub fn set_on_stake_dist_updated(&self, callback: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
         let mut state = self.state.lock().unwrap();
-        state.set_on_stake_dist_updated(cb);
+        state.set_on_stake_dist_updated(callback);
     }
 }
 
 #[async_trait::async_trait]
-impl<S, HS> CanValidateBlocks for BlockValidator<S, HS>
-where
-    S: Store + Send,
-    HS: HistoricalStores + Send,
-{
+impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBlocks for BlockValidator<S, HS> {
     #[expect(clippy::unwrap_used)]
     async fn roll_forward_block(
         &self,
@@ -120,15 +85,40 @@ where
     }
 
     #[expect(clippy::unwrap_used)]
-    fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError> {
-        let mut state = self.state.lock().unwrap();
-        state.rollback_to(to).map_err(|e| BlockValidationError::new(anyhow!(e)))
-    }
+    fn switch_to_fork(&self, to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+        match self
+            .chain_store
+            .find_ancestor_on_best_chain(to.hash())
+            .map_err(|error| BlockValidationError::new(anyhow!(error)))?
+        {
+            FindAncestorOnBestChainResult::StartHeaderNotFound => {
+                Err(BlockValidationError::new(anyhow!("header missing for {}", to.hash())))
+            }
+            FindAncestorOnBestChainResult::NotFound => {
+                Err(BlockValidationError::new(anyhow!("no ancestor on best chain chain {}", to.hash())))
+            }
+            FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
+                let forward_blocks = forward_points.iter().map(|point| {
+                    let block = self
+                        .chain_store
+                        .load_block(&point.hash())
+                        .map_err(|e| anyhow!(e))?
+                        .ok_or_else(|| anyhow!("block not found"))?
+                        .decode()
+                        .map_err(|e| anyhow!(e))?;
+                    Ok((*point, block))
+                });
 
-    #[expect(clippy::unwrap_used)]
-    fn contains_point(&self, point: &Point) -> bool {
-        let state = self.state.lock().unwrap();
-        state.contains_volatile_point(point)
+                let mut state = self.state.lock().unwrap();
+                match state.switch_to_fork(&fork_point, forward_blocks, &self.vm_eval_pool) {
+                    BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
+                    BlockValidation::Invalid(_, _, details) => {
+                        Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))))
+                    }
+                    BlockValidation::Err(err) => Err(BlockValidationError::new(anyhow!(err))),
+                }
+            }
+        }
     }
 
     #[expect(clippy::unwrap_used)]
@@ -142,21 +132,14 @@ where
         let state = self.state.lock().unwrap();
         state.volatile_tip()
     }
-
-    #[expect(clippy::unwrap_used)]
-    fn current_pool_summaries(&self) -> amaru_ouroboros_traits::PoolSummaries {
-        let state = self.state.lock().unwrap();
-        state.pool_summaries()
-    }
 }
 
-#[async_trait::async_trait]
 impl<S, HS> HasStakePools for BlockValidator<S, HS>
 where
     S: Store + Send,
     HS: HistoricalStores + Send,
 {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
         #[expect(clippy::unwrap_used)]
         {
             let state = self.state.lock().unwrap();
