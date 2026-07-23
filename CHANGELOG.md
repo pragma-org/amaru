@@ -38,6 +38,11 @@ Other guiding principles:
 
 ## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
+### Added
+
+- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
+
+
 ### Fixed
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
@@ -73,7 +78,6 @@ Other guiding principles:
 - **amaru-pure-stage**: simulation runtime now also guarantees delivery of scheduled messages; both runtimes enforce limit on priority messages in flight. ([#1066](https://github.com/pragma-org/amaru/pull/1066))
 - **amaru-uplc**: fixed the CBOR encoding of `-2^64`.
 - **amaru-ledger**: unbind accounts from deregistered pools. ([#1030][])
-- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][])
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
@@ -189,6 +193,7 @@ Other guiding principles:
 [#902]: https://github.com/pragma-org/amaru/issues/902
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#929]: https://github.com/pragma-org/amaru/issues/929
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953

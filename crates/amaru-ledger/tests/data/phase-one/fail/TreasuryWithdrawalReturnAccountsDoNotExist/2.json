@@ -1,5 +1,5 @@
 {
-  "title": "TreasuryWithdrawalReturnAccountsDoNotExist",
+  "title": "treasry withdrawal with multiple target reward accounts where one is missing",
   "description": "A proposal with TreasuryWithdrawals governance action where one withdrawal target is registered and another is not. Only the unregistered account should cause the failure.",
   "network": "preprod",
   "eraHistory": {

@@ -1,5 +1,5 @@
 {
-  "title": "TreasuryWithdrawalReturnAccountsDoNotExist",
+  "title": "treasry withdrawal with a missing target reward account",
   "description": "A proposal with TreasuryWithdrawals governance action where the withdrawal target reward account is not registered in the accounts state.",
   "network": "preprod",
   "eraHistory": {
