@@ -1,0 +1,429 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pragma-org/amaru/blob/main/conformance-tests/haskell-node-extractor/schema/stake-distribution.json",
+  "title": "Cardano Stake Distribution",
+  "description": "Stake distribution snapshot produced by the Haskell node extractor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "epoch",
+    "treasury",
+    "reserves",
+    "active_stake",
+    "voting_stake",
+    "accounts",
+    "pools",
+    "dreps"
+  ],
+  "properties": {
+    "epoch": {
+      "$ref": "#/$defs/epoch"
+    },
+    "treasury": {
+      "$ref": "#/$defs/coin"
+    },
+    "reserves": {
+      "$ref": "#/$defs/coin"
+    },
+    "active_stake": {
+      "$ref": "#/$defs/coin"
+    },
+    "voting_stake": {
+      "$ref": "#/$defs/coin"
+    },
+    "accounts": {
+      "$ref": "#/$defs/accountsSummary"
+    },
+    "pools": {
+      "$ref": "#/$defs/poolsSummary"
+    },
+    "dreps": {
+      "$ref": "#/$defs/drepsSummary"
+    }
+  },
+  "$defs": {
+    "accountSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "balance",
+        "pool",
+        "drep"
+      ],
+      "properties": {
+        "balance": {
+          "$ref": "#/$defs/coin"
+        },
+        "pool": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/poolId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "drep": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/drepReference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "accountsMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[0-9a-f]+$": {
+          "$ref": "#/$defs/accountSummary"
+        }
+      }
+    },
+    "accountsSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verification_keys",
+        "scripts"
+      ],
+      "properties": {
+        "verification_keys": {
+          "$ref": "#/$defs/accountsMap"
+        },
+        "scripts": {
+          "$ref": "#/$defs/accountsMap"
+        }
+      }
+    },
+    "coin": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "drepReference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "abstain"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "no_confidence"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "hash"
+          ],
+          "properties": {
+            "type": {
+              "const": "verification_key"
+            },
+            "hash": {
+              "$ref": "#/$defs/keyHash"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "hash"
+          ],
+          "properties": {
+            "type": {
+              "const": "script"
+            },
+            "hash": {
+              "$ref": "#/$defs/hash"
+            }
+          }
+        }
+      ]
+    },
+    "drepStakeSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "voting_stake"
+      ],
+      "properties": {
+        "voting_stake": {
+          "$ref": "#/$defs/coin"
+        }
+      }
+    },
+    "drepSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid_until",
+        "metadata",
+        "voting_stake"
+      ],
+      "properties": {
+        "valid_until": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metadata": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/metadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "voting_stake": {
+          "$ref": "#/$defs/coin"
+        }
+      }
+    },
+    "drepsMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[0-9a-f]+$": {
+          "$ref": "#/$defs/drepSummary"
+        }
+      }
+    },
+    "drepsSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "abstain",
+        "no_confidence",
+        "verification_keys",
+        "scripts"
+      ],
+      "properties": {
+        "abstain": {
+          "$ref": "#/$defs/drepStakeSummary"
+        },
+        "no_confidence": {
+          "$ref": "#/$defs/drepStakeSummary"
+        },
+        "verification_keys": {
+          "$ref": "#/$defs/drepsMap"
+        },
+        "scripts": {
+          "$ref": "#/$defs/drepsMap"
+        }
+      }
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]+$"
+    },
+    "keyHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]+$",
+      "minLength": 56,
+      "maxLength": 56
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "content_hash"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    "poolId": {
+      "$ref": "#/$defs/keyHash"
+    },
+    "poolSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blocks_count",
+        "stake",
+        "voting_stake",
+        "vrf_key_hash",
+        "pledge",
+        "cost",
+        "margin",
+        "reward_address",
+        "owners",
+        "relays",
+        "metadata"
+      ],
+      "properties": {
+        "blocks_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stake": {
+          "$ref": "#/$defs/coin"
+        },
+        "voting_stake": {
+          "$ref": "#/$defs/coin"
+        },
+        "vrf_key_hash": {
+          "$ref": "#/$defs/vrfKeyHash"
+        },
+        "pledge": {
+          "$ref": "#/$defs/coin"
+        },
+        "cost": {
+          "$ref": "#/$defs/coin"
+        },
+        "margin": {
+          "$ref": "#/$defs/rational"
+        },
+        "reward_address": {
+          "$ref": "#/$defs/rewardAddress"
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keyHash"
+          }
+        },
+        "relays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relay"
+          }
+        },
+        "metadata": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/metadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "poolsSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[0-9a-f]+$": {
+          "$ref": "#/$defs/poolSummary"
+        }
+      }
+    },
+    "rational": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "integer",
+          "minimum": 1
+        }
+      ]
+    },
+    "relay": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "ip_address"
+            },
+            "ipv4": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ipv6": {
+              "type": "string",
+              "minLength": 1
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "hostname"
+          ],
+          "properties": {
+            "type": {
+              "const": "hostname"
+            },
+            "hostname": {
+              "type": "string",
+              "minLength": 1
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            }
+          }
+        }
+      ]
+    },
+    "rewardAddress": {
+      "type": "string",
+      "pattern": "^[0-9a-f]+$",
+      "minLength": 58,
+      "maxLength": 58
+    },
+    "vrfKeyHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]+$",
+      "minLength": 64,
+      "maxLength": 64
+    }
+  }
+}
