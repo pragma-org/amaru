@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
+### Changed
+
+- **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
+
 ### Fixed
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
@@ -89,10 +93,6 @@ Other guiding principles:
 ### Removed
 
 - **amaru**: no more `--force` flag on `snapshot create`. ([#1039][])
-
-### Changed
-
-- **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
 
 ### Fixed
 
