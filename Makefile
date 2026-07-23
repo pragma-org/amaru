@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-bootstrap-snapshots publish-bootstrap-snapshots download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -71,16 +71,6 @@ help:
 	@echo ""
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m%s\033[00m=%s\n" "$$(echo $$l | cut -f 1 -d'=')" "$$(echo $$l | cut -f 2- -d'=')"; done
-
-bootstrap: ## &start Bootstrap Amaru from scratch (snapshots + headers + ledger-state + nonces)
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) bootstrap $(ARGS)
-
-create-bootstrap-snapshots: ## &start Create a three-epoch bootstrap snapshots (set AMARU_EPOCH=<E+1> to target epoch E, e.g. AMARU_EPOCH=273 for epochs 270-272)
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) snapshot create $(ARGS)
-
-publish-bootstrap-snapshots: ## &start Upload and publish required snapshots files to bootstrap at $AMARU_EPOCH
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) snapshot publish \
-		$(ARGS)
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
