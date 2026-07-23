@@ -1,12 +1,12 @@
 {
-  "title": "treasry withdrawal with multiple missing target reward accounts",
+  "title": "treasury withdrawal with multiple missing target reward accounts",
   "description": "A proposal with TreasuryWithdrawals governance action where multiple withdrawal target reward accounts are not registered in the accounts state.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [
