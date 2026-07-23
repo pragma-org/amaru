@@ -28,7 +28,7 @@ use crate::{
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
-            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileDBRecovery, VolatileSequence,
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
             VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
@@ -402,52 +402,55 @@ impl VolatileDB {
     ///
     /// Returns a [`VolatileDBRecovery`] capturing what was discarded, so a failed fork switch can be
     /// undone via [`Self::undo_rollback`].
-    pub fn rollback_to(&mut self, point: &Point) -> Result<VolatileDBRecovery, String> {
-        if self.draining.has_point(point) {
-            // If we are rolling back to a point in the draining sequence, we need to
-            // promote it as current while discarding the entire current series.
-            let old_current = mem::take(&mut self.current);
-            self.current = mem::take(&mut self.draining);
-            let drained = self.current.rollback_to(point)?;
+    pub fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<RollbackGuard<'a>, String> {
+        Ok(RollbackGuard {
+            fork_point: point,
+            recovery: if self.draining.has_point(point) {
+                // If we are rolling back to a point in the draining sequence, we need to
+                // promote it as current while discarding the entire current series.
+                let old_current = mem::take(&mut self.current);
+                self.current = mem::take(&mut self.draining);
+                let drained = self.current.rollback_to(point)?;
 
-            // We must also rollback the overlay since we are crossing the epoch boundary again.
-            let overlay = self.overlay.snapshot();
-            self.overlay.rollback();
-            Ok(VolatileDBRecovery::RecoverAcrossEpoch { fork_point: *point, old_current, drained, overlay })
-        } else {
-            let discarded = self.current.rollback_to(point)?;
-            let overlay = self.overlay.snapshot();
-            Ok(VolatileDBRecovery::RecoverInEpoch { fork_point: *point, discarded, overlay })
-        }
+                // We must also rollback the overlay since we are crossing the epoch boundary again.
+                let overlay = self.overlay.snapshot();
+                self.overlay.rollback();
+                VolatileDBRecovery::RecoverAcrossEpoch { old_current, drained, overlay }
+            } else {
+                let discarded = self.current.rollback_to(point)?;
+                let overlay = self.overlay.snapshot();
+                VolatileDBRecovery::RecoverInEpoch { discarded, overlay }
+            },
+        })
     }
 
     /// Restore the volatile DB to its pre-rollback state, undoing both the rollback and any
     /// roll-forwards replayed since (a fork switch replays blocks before it may recover).
-    pub fn undo_rollback(&mut self, recovery: VolatileDBRecovery) {
+    pub fn undo_rollback(&mut self, RollbackGuard { fork_point, recovery }: RollbackGuard<'_>) {
         match recovery {
-            VolatileDBRecovery::RecoverInEpoch { fork_point, discarded, overlay } => {
+            VolatileDBRecovery::RecoverInEpoch { discarded, overlay } => {
                 // While the rollback was in epoch, the attempt to switch fork could have pushed
                 // block through an epoch transition. So the old 'current' may now be draining
                 // and we must recover it back.
-                if self.draining.has_point(&fork_point) {
+                if self.draining.has_point(fork_point) {
                     self.current = mem::take(&mut self.draining);
                 }
-                self.current.undo_rollback(&fork_point, discarded);
+                self.current.undo_rollback(fork_point, discarded);
                 self.overlay = overlay;
             }
-            VolatileDBRecovery::RecoverAcrossEpoch { fork_point, old_current, drained, overlay } => {
+            VolatileDBRecovery::RecoverAcrossEpoch { old_current, drained, overlay } => {
                 // Similarly, we could rollback across an epoch, but end up in one of two scenarios:
                 //
                 // 1. The new fork did not cross the epoch again, and the fork point is still in
                 //    current.
                 // 2. The new fork also crossed the epoch and has moved back the fork point to
                 //    draining.
-                if !self.draining.has_point(&fork_point) {
+                if !self.draining.has_point(fork_point) {
                     self.draining = mem::replace(&mut self.current, old_current);
                 } else {
                     self.current = old_current;
                 }
-                self.draining.undo_rollback(&fork_point, drained);
+                self.draining.undo_rollback(fork_point, drained);
                 self.overlay = overlay;
             }
         }

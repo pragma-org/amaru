@@ -78,25 +78,10 @@ pub trait VolatileSequence {
     fn push_back(&mut self, item: Self::Item);
 }
 
-/// Captures what a rollback discards, so a failed fork switch can be undone.
-/// If the fork point is inside the volatile window, we keep only the fragments above that point (moved, not copied)
-/// plus a snapshot of the volatile overlay.
-///
-/// The immutable tip observed at rollback time is retained so recovery can assert it has not moved:
-/// restoring the pre-rollback volatile is only sound while no replayed block has reached the stable store.
 #[derive(Debug)]
-pub struct StateRecovery {
-    pub(crate) immutable_tip: Point,
-    pub(crate) kind: StateRecoveryKind,
-}
-
-#[derive(Debug)]
-pub(crate) enum StateRecoveryKind {
-    /// A rollback to the immutable tip cleared the whole window; the entire pre-rollback volatile
-    /// is moved out (via [`VolatileDB::take`]) and restored wholesale.
-    RecoverWholeVolatileDB { volatile: Box<VolatileDB> },
-    /// A rollback within the volatile window; only the discarded parts are captured.
-    RecoverVolatileDBPart { recovery: Box<VolatileDBRecovery> },
+pub struct RollbackGuard<'a> {
+    fork_point: &'a Point,
+    recovery: VolatileDBRecovery,
 }
 
 /// The discarded parts of a within-window rollback, enough to restore the pre-rollback state after
@@ -108,11 +93,10 @@ pub(crate) enum StateRecoveryKind {
 #[derive(Debug)]
 pub enum VolatileDBRecovery {
     /// The rollback stayed within the current epoch: only a suffix of `current` was removed.
-    RecoverInEpoch { fork_point: Point, discarded: VecDeque<AnchoredVolatileFragment>, overlay: StateOverlay },
+    RecoverInEpoch { discarded: VecDeque<AnchoredVolatileFragment>, overlay: StateOverlay },
     /// The rollback crossed the epoch boundary: the opening-epoch `current` was discarded and the
     /// `draining` series was promoted and split.
     RecoverAcrossEpoch {
-        fork_point: Point,
         old_current: VolatileSeries,
         drained: VecDeque<AnchoredVolatileFragment>,
         overlay: StateOverlay,

@@ -43,8 +43,7 @@ use crate::{
         block::{BlockValidation, TransactionInvalid},
     },
     state::volatile::{
-        AnchoredVolatileFragment, StateRecovery, StateRecoveryKind, StoreUpdate, VolatileDB, VolatileFragment,
-        VolatileSequence, VolatileView,
+        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -875,10 +874,10 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 );
 
                 match state_recovery.kind {
-                    StateRecoveryKind::RecoverWholeVolatileDB { volatile } => {
+                    StateRecovery::RecoverWholeVolatileDB { volatile } => {
                         st.volatile = *volatile;
                     }
-                    StateRecoveryKind::RecoverVolatileDBPart { recovery } => {
+                    StateRecovery::RecoverVolatileDBPart { recovery } => {
                         st.volatile.undo_rollback(*recovery);
                     }
                 }
@@ -940,7 +939,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         );
     }
 
-    fn rollback_to(&mut self, to: &Point) -> Result<StateRecovery, BackwardError> {
+    fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
         info_span!(ledger::state::ROLL_BACKWARD, rollback_point = to).in_scope(|| {
             let immutable_tip = self.immutable_tip();
             let volatile_tip = self.volatile_tip().map(|t| t.point()).unwrap_or(immutable_tip);
@@ -952,9 +951,9 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             if *to == immutable_tip {
                 // Snapshot the whole VolatileDB fragment but leave the metadata initialized
                 // for the upcoming roll forwards.
-                Ok(StateRecovery {
+                Ok(RollbackGuard {
                     immutable_tip,
-                    kind: StateRecoveryKind::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.clear()) },
+                    kind: StateRecovery::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.clear()) },
                 })
             } else if *to < immutable_tip {
                 Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip))
@@ -968,9 +967,9 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                     .volatile
                     .rollback_to(to)
                     .map_err(|_| BackwardError::unknown(*to, volatile_tip, immutable_tip))?;
-                Ok(StateRecovery {
+                Ok(RollbackGuard {
                     immutable_tip,
-                    kind: StateRecoveryKind::RecoverVolatileDBPart { recovery: Box::new(recovery) },
+                    kind: StateRecovery::RecoverVolatileDBPart { recovery: Box::new(recovery) },
                 })
             }
         })
@@ -1089,6 +1088,30 @@ fn unsafe_slot_to_epoch(era_history: &EraHistory, slot: Slot) -> Epoch {
     era_history
         .slot_to_epoch_unchecked_horizon(slot)
         .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from tip ({slot:?}): {e:?}"))
+}
+
+// Rollback
+// ----------------------------------------------------------------------------
+
+/// Captures what a rollback discards, so a failed fork switch can be undone.
+/// If the fork point is inside the volatile window, we keep only the fragments above that point (moved, not copied)
+/// plus a snapshot of the volatile overlay.
+///
+/// The immutable tip observed at rollback time is retained so recovery can assert it has not moved:
+/// restoring the pre-rollback volatile is only sound while no replayed block has reached the stable store.
+#[derive(Debug)]
+struct RollbackGuard<'a> {
+    immutable_tip: Point,
+    kind: StateRecovery<'a>,
+}
+
+#[derive(Debug)]
+enum StateRecovery<'a> {
+    /// A rollback to the immutable tip cleared the whole window; the entire pre-rollback volatile
+    /// is moved out (via [`VolatileDB::take`]) and restored wholesale.
+    RecoverWholeVolatileDB { volatile: Box<VolatileDB> },
+    /// A rollback within the volatile window; only the discarded parts are captured.
+    RecoverVolatileDBPart { recovery: Box<volatile::RollbackGuard<'a>> },
 }
 
 // Errors
