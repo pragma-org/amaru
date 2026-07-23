@@ -29,8 +29,8 @@ use syn::Type;
 use crate::utils::{
     format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_assign_macro_name,
     make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_schema_field_const_name, make_schema_field_count_const_name,
-    make_schema_public_const_name,
+    make_require_macro_name, make_required_field_check_macro_name, make_schema_field_const_name,
+    make_schema_field_count_const_name, make_schema_public_const_name,
 };
 
 // =============================================================================
@@ -98,6 +98,9 @@ pub struct Schema {
     name: String,
     /// Optional description from doc comment
     description: Option<String>,
+    /// Functional tags, each recorded as a boolean `amaru.tag.<name>` span attribute.
+    /// Declared with `tags: <name>, ...` at the module level (inherited) or per schema (override).
+    tags: Vec<String>,
     /// Fields that must be present
     required_fields: Vec<SchemaField>,
     /// Fields that may optionally be present
@@ -112,6 +115,7 @@ impl Schema {
             categories,
             name: name.to_string(),
             description: None,
+            tags: Vec::new(),
             required_fields: Vec::new(),
             optional_fields: Vec::new(),
         }
@@ -254,6 +258,9 @@ struct ParserState {
     depth: i32,
     /// Category path stack (grows as we nest deeper)
     category_stack: Vec<String>,
+    /// Module-level `tags: <name>, ...` declarations, tagged with the depth they were declared at.
+    /// The innermost declaration applies to schemas that do not declare their own tags.
+    module_tags: Vec<(i32, Vec<String>)>,
     /// Schema being built (if any)
     current_schema: Option<Schema>,
     /// Depth at which the current schema was started
@@ -267,6 +274,7 @@ impl ParserState {
         ParserState {
             depth: 0,
             category_stack: Vec::new(),
+            module_tags: Vec::new(),
             current_schema: None,
             schema_depth: -1,
             pending_description: None,
@@ -278,17 +286,30 @@ impl ParserState {
         self.depth += 1;
     }
 
+    /// Finalize a schema, applying the innermost module-level tags unless it has its own.
+    fn finalize_schema(&mut self, mut schema: Schema, schemas: &mut Vec<Schema>) {
+        if schema.tags.is_empty()
+            && let Some((_, tags)) = self.module_tags.last()
+        {
+            schema.tags = tags.clone();
+        }
+        schemas.push(schema);
+    }
+
     /// Handle closing brace, potentially finalizing a schema.
     fn close_brace(&mut self, schemas: &mut Vec<Schema>) {
         // Check if we're closing a schema
         if self.schema_depth >= 0 && self.depth == self.schema_depth + 1 {
             if let Some(schema) = self.current_schema.take() {
-                schemas.push(schema);
+                self.finalize_schema(schema, schemas);
             }
             self.schema_depth = -1;
         } else if self.depth > 0 && self.category_stack.len() >= self.depth as usize {
-            // Closing a category level - pop from stack
+            // Closing a category level - pop from stack, along with its tags declarations
             self.category_stack.pop();
+            while self.module_tags.last().is_some_and(|(depth, _)| *depth >= self.depth) {
+                self.module_tags.pop();
+            }
         }
 
         self.depth = self.depth.saturating_sub(1);
@@ -360,6 +381,14 @@ impl ParserState {
         let Some(schema) = self.current_schema.as_mut() else {
             return;
         };
+
+        if name == "name" || name == "schema" || name == "message" {
+            errors.push(format!(
+                "Reserved field '{}' in schema {}. The tracing macros manage this field internally.",
+                name, schema.name
+            ));
+            return;
+        }
 
         // Check for duplicate field names
         let is_duplicate = schema.required_fields.iter().chain(schema.optional_fields.iter()).any(|f| f.name == name);
@@ -453,6 +482,29 @@ fn parse_token(
             }
             index + 1
         }
+        "tags" if tokens.get(index + 1).map(|s| s.as_str()) == Some(":") => {
+            // Parse: tags: <name>, <name>, ... (module level or inside a schema definition)
+            match try_parse_tags_list(tokens, index + 2) {
+                Ok((tags, next_index)) => {
+                    if let Some(schema) = state.current_schema.as_mut() {
+                        if !schema.tags.is_empty() {
+                            errors.push(format!("Duplicate tags declaration in schema {}", schema.name));
+                        } else {
+                            schema.tags = tags;
+                        }
+                    } else if state.depth > 0 {
+                        state.module_tags.push((state.depth, tags));
+                    } else {
+                        errors.push("`tags:` declarations must appear inside a module or schema".to_string());
+                    }
+                    next_index
+                }
+                Err(error) => {
+                    errors.push(error);
+                    index + 1
+                }
+            }
+        }
         _ if is_identifier_start(token) => {
             // Check for optional public keyword before schema/category
             let (public, actual_name_idx) = if token == "public" && tokens.get(index + 1).map(|s| s.as_str()).is_some()
@@ -474,6 +526,43 @@ fn parse_token(
             index + 1
         }
         _ => index + 1,
+    }
+}
+
+/// Try to parse a comma-separated list of tag names starting at `start_index`.
+///
+/// Tags must be lowercase identifiers (e.g. `tags: cpu, io`).
+/// Returns the tags and the index of the first token after the list.
+fn try_parse_tags_list(tokens: &[String], start_index: usize) -> Result<(Vec<String>, usize), String> {
+    let is_tag_name = |token: &str| {
+        is_valid_identifier(token)
+            && !is_uppercase_identifier(token)
+            && !matches!(token, "required" | "optional" | "public" | "tags")
+    };
+
+    let mut tags = Vec::new();
+    let mut index = start_index;
+    loop {
+        match tokens.get(index).map(|s| s.as_str()) {
+            Some(token) if is_tag_name(token) => {
+                if tags.contains(&token.to_string()) {
+                    return Err(format!("Duplicate tag '{token}' in tags declaration"));
+                }
+                tags.push(token.to_string());
+                index += 1;
+            }
+            other => {
+                return Err(format!(
+                    "Invalid tag {:?}. Tags must be lowercase identifiers (e.g. `tags: cpu, io`).",
+                    other.unwrap_or("<missing>")
+                ));
+            }
+        }
+        if tokens.get(index).map(|s| s.as_str()) == Some(",") {
+            index += 1;
+        } else {
+            return Ok((tags, index));
+        }
     }
 }
 
@@ -615,7 +704,7 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
 
     // Finalize any pending schemas
     if let Some(schema) = state.current_schema.take() {
-        schemas.push(schema);
+        state.finalize_schema(schema, &mut schemas);
     }
 
     // Validate that all schemas have descriptions
@@ -684,7 +773,8 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
 
     for (i, field_ident) in field_idents.iter().enumerate() {
         let field_name_str = &required_names[i];
-        let helper_name = make_ident(&format!("__{}_CHECK_{}", schema.name, required_names[i].to_uppercase()));
+        let helper_name =
+            make_ident(&make_required_field_check_macro_name(&schema.categories, &schema.name, &required_names[i]));
 
         helper_macros.push(quote! {
             #macro_export
@@ -715,7 +805,8 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
     let helper_calls: Vec<_> = required_names
         .iter()
         .map(|field_name| {
-            let helper_name = make_ident(&format!("__{}_CHECK_{}", schema.name, field_name.to_uppercase()));
+            let helper_name =
+                make_ident(&make_required_field_check_macro_name(&schema.categories, &schema.name, field_name));
             quote! { #crate_prefix #helper_name!($($fields)*); }
         })
         .collect();
@@ -747,13 +838,55 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
     let macro_export = config.macro_export_attr();
     let crate_prefix = config.crate_prefix();
 
-    let target = schema.target_path();
-    let name = schema.name.to_lowercase();
+    let full_path = schema.categories.iter().chain(std::iter::once(&schema.name)).collect::<Vec<_>>();
+    let target = full_path.iter().take(2).map(|part| part.as_str()).collect::<Vec<_>>().join("::");
+    let name = full_path.iter().skip(2).map(|part| part.to_lowercase()).collect::<Vec<_>>().join(".");
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
-    let field_count = all_fields.len();
-    let field_name_literals: Vec<_> =
+    let mut field_name_literals: Vec<_> =
         all_fields.iter().map(|field| syn::LitStr::new(&field.name, proc_macro2::Span::call_site())).collect();
+    let schema_field_count = field_name_literals.len();
+    for tag in &schema.tags {
+        field_name_literals.push(syn::LitStr::new(&format!("amaru.tag.{tag}"), proc_macro2::Span::call_site()));
+    }
+    let field_count = field_name_literals.len();
+
+    // Prepare the value slice paired positionally with the metadata fields. When the schema has
+    // tags, the caller-provided values only cover the schema fields; each `amaru.tag.<name>` value
+    // is recorded automatically as `true`.
+    let values_setup = if schema.tags.is_empty() {
+        quote! {
+            let __amaru_default_values = [
+                ::tracing::__macro_support::Option::Some(
+                    &tracing::field::Empty as &dyn ::tracing::field::Value
+                );
+                #field_count
+            ];
+            let __amaru_values = __amaru_values.unwrap_or(&__amaru_default_values);
+        }
+    } else {
+        let tag_slots = (schema_field_count..field_count).map(|slot| {
+            quote! {
+                __amaru_all_values[#slot] =
+                    ::tracing::__macro_support::Option::Some(&true as &dyn ::tracing::field::Value);
+            }
+        });
+        quote! {
+            let mut __amaru_all_values = [
+                ::tracing::__macro_support::Option::Some(
+                    &tracing::field::Empty as &dyn ::tracing::field::Value
+                );
+                #field_count
+            ];
+            if let ::tracing::__macro_support::Option::Some(__amaru_given) = __amaru_values {
+                for (__amaru_slot, __amaru_given_value) in __amaru_all_values.iter_mut().zip(__amaru_given.iter()) {
+                    *__amaru_slot = *__amaru_given_value;
+                }
+            }
+            #(#tag_slots)*
+            let __amaru_values = &__amaru_all_values[..];
+        }
+    };
 
     let span_expr = quote! {{
         use ::tracing::__macro_support::Callsite as _;
@@ -775,13 +908,7 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
             ::tracing::callsite::DefaultCallsite::new(&META)
         };
 
-        let __amaru_default_values = [
-            ::tracing::__macro_support::Option::Some(
-                &tracing::field::Empty as &dyn ::tracing::field::Value
-            );
-            #field_count
-        ];
-        let __amaru_values = __amaru_values.unwrap_or(&__amaru_default_values);
+        #values_setup
 
         __CALLSITE.register();
 
@@ -859,10 +986,9 @@ fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
 
-    let assign_patterns: Vec<_> = schema
-        .required_fields
+    let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
+    let assign_patterns: Vec<_> = all_fields
         .iter()
-        .chain(schema.optional_fields.iter())
         .enumerate()
         .map(|(index, field)| {
             let field_name = &field.name;
@@ -959,6 +1085,30 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
+    // Validation for pre-formatted event fields (`%expr` / `?expr` / `@expr`): the caller
+    // explicitly chose the rendering, so only check that the field is declared on the schema
+    // and that the value can actually be recorded with the requested formatter.
+    let validate_formatted_patterns: Vec<_> = all_fields
+        .iter()
+        .map(|field| {
+            let field_name = &field.name;
+            quote! {
+                (#field_name, $expr:expr, validate_event_display) => {{
+                    let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
+                    __amaru_assert_display($expr);
+                }};
+                (#field_name, $expr:expr, validate_event_debug) => {{
+                    let __amaru_assert_debug = |_: &dyn ::std::fmt::Debug| {};
+                    __amaru_assert_debug($expr);
+                }};
+                (#field_name, $expr:expr, validate_event_value) => {{
+                    let __amaru_assert_value = |_: &dyn ::tracing::field::Value| {};
+                    __amaru_assert_value($expr);
+                }};
+            }
+        })
+        .collect();
+
     let all_field_names: Vec<_> = all_fields.iter().map(|f| f.name.as_str()).collect();
     let fields_list = all_field_names.join(", ");
 
@@ -967,7 +1117,38 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         #[doc(hidden)]
         macro_rules! #macro_ident {
             #(#validate_value_patterns)*
+            #(#validate_formatted_patterns)*
             ($name:literal, $expr:expr, validate_value) => {
+                compile_error!(concat!(
+                    "Unknown field '",
+                    $name,
+                    "' for schema ",
+                    #schema_name,
+                    ". Available fields: ",
+                    #fields_list
+                ));
+            };
+            ($name:literal, $expr:expr, validate_event_display) => {
+                compile_error!(concat!(
+                    "Unknown field '",
+                    $name,
+                    "' for schema ",
+                    #schema_name,
+                    ". Available fields: ",
+                    #fields_list
+                ));
+            };
+            ($name:literal, $expr:expr, validate_event_debug) => {
+                compile_error!(concat!(
+                    "Unknown field '",
+                    $name,
+                    "' for schema ",
+                    #schema_name,
+                    ". Available fields: ",
+                    #fields_list
+                ));
+            };
+            ($name:literal, $expr:expr, validate_event_value) => {
                 compile_error!(concat!(
                     "Unknown field '",
                     $name,
@@ -1035,6 +1216,15 @@ fn generate_module_validator_macro(
     }
 }
 
+/// Check whether the macro is expanding within the `amaru-observability` lib itself.
+///
+/// We check both CARGO_PKG_NAME and CARGO_CRATE_NAME because examples within the
+/// amaru-observability package have the package name but a different crate name.
+fn is_observability_lib() -> bool {
+    std::env::var("CARGO_PKG_NAME").ok().as_deref() == Some("amaru-observability")
+        && std::env::var("CARGO_CRATE_NAME").ok().as_deref() == Some("amaru_observability")
+}
+
 /// Generate inventory submission for runtime schema registry.
 ///
 /// Note: When the macro is expanded within the `amaru-observability` crate itself,
@@ -1074,13 +1264,7 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
         })
         .collect();
 
-    // Use `crate::` path when inside amaru-observability lib itself, external path otherwise.
-    // We check both CARGO_PKG_NAME and CARGO_CRATE_NAME because examples within the
-    // amaru-observability package have the package name but a different crate name.
-    let is_observability_lib = std::env::var("CARGO_PKG_NAME").ok().as_deref() == Some("amaru-observability")
-        && std::env::var("CARGO_CRATE_NAME").ok().as_deref() == Some("amaru_observability");
-
-    let use_stmt = if is_observability_lib {
+    let use_stmt = if is_observability_lib() {
         quote! { use crate::registry::SchemaEntry; }
     } else {
         quote! { use amaru_observability::registry::SchemaEntry; }
@@ -1329,7 +1513,7 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) 
                 modules.push(quote! {
                     pub const #schema_ident: &str = #schema_name_lowercase;
 
-                    /// Compile-time validation constant for the `trace_span!` macro.
+                    /// Compile-time validation constant for the `debug_span!` macro.
                     /// Format: R|required_field:type,...|O|optional_field:type,...
                     pub const #validation_const_ident: &str = #validation_string;
 
@@ -1497,7 +1681,7 @@ mod tests {
                         /// Test schema
                         SCHEMA {
                             required id: String
-                            optional name: String
+                            optional label: String
                         }
                     }
                 }
@@ -1508,7 +1692,7 @@ mod tests {
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].optional_fields.len(), 1);
-        assert_eq!(schemas[0].optional_fields[0].name, "name");
+        assert_eq!(schemas[0].optional_fields[0].name, "label");
     }
 
     #[test]
@@ -1601,6 +1785,80 @@ mod tests {
         schema.required_fields.push(SchemaField { name: "id".to_string(), ty: "u64".to_string() });
         schema.optional_fields.push(SchemaField { name: "name".to_string(), ty: "String".to_string() });
         assert_eq!(schema.validation_string(), "R|id:u64|O|name:String");
+    }
+
+    #[test]
+    fn test_tags_inheritance_and_override() {
+        let input = r#"
+            amaru {
+                cat {
+                    tags: cpu, io
+                    sub {
+                        /// Schema inheriting the module tags
+                        INHERITED {
+                            required x: u32
+                        }
+                        /// Schema overriding the module tags
+                        OVERRIDDEN {
+                            tags: setup
+                            required y: u32
+                        }
+                    }
+                }
+                other {
+                    sub {
+                        /// Schema without any tags
+                        UNTAGGED {
+                            required z: u32
+                        }
+                    }
+                }
+            }
+        "#;
+        let (schemas, errors) = extract_schemas(input);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert_eq!(schemas.len(), 3);
+        assert_eq!(schemas[0].tags, vec!["cpu".to_string(), "io".to_string()]);
+        assert_eq!(schemas[1].tags, vec!["setup".to_string()]);
+        assert!(schemas[2].tags.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_tag_error() {
+        let input = r#"
+            amaru {
+                cat {
+                    tags: {
+                    sub {
+                        /// Schema
+                        SCHEMA {
+                            required x: u32
+                        }
+                    }
+                }
+            }
+        "#;
+        let (_, errors) = extract_schemas(input);
+        assert!(errors.iter().any(|e| e.contains("Invalid tag")), "got: {:?}", errors);
+    }
+
+    #[test]
+    fn test_duplicate_tag_error() {
+        let input = r#"
+            amaru {
+                cat {
+                    sub {
+                        /// Schema with a duplicated tag
+                        SCHEMA {
+                            tags: cpu, cpu
+                            required x: u32
+                        }
+                    }
+                }
+            }
+        "#;
+        let (_, errors) = extract_schemas(input);
+        assert!(errors.iter().any(|e| e.contains("Duplicate tag 'cpu'")), "got: {:?}", errors);
     }
 
     #[test]

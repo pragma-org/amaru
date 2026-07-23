@@ -1,12 +1,12 @@
 {
-  "title": "stake-reg-deleg",
+  "title": "registration and delegation to registered pool",
   "description": "StakeRegDeleg registers a new credential and delegates to a registered pool.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [
@@ -26,6 +26,6 @@
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "83bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a002ab980ff021a00030d4004d9010281840b8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd1a001e84800800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840f29be77c5d3e7d5f740dbc8bbc1dd686c7dc566e705f9f3a37e9a465059132cd7dc12a7fbf4b004c8a6454c6366fe2ba1a117d4aaee35946860324e96314410bf5",
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a002ab980ff021a00030d4004d9010281840b8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd1a001e84800800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840f29be77c5d3e7d5f740dbc8bbc1dd686c7dc566e705f9f3a37e9a465059132cd7dc12a7fbf4b004c8a6454c6366fe2ba1a117d4aaee35946860324e96314410bf5f6",
   "expected": "Pass"
 }

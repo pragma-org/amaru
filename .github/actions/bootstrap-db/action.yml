@@ -6,6 +6,10 @@ inputs:
   network:
     description: Network name (preprod, preview, mainnet)
     required: true
+  epoch:
+    description: Target epoch for the bootstrap, use latest available if empty.
+    type: string
+
   # Bump this version whenever the ledger or chain store serialisation format
   # changes and the cached databases become incompatible.
   # This is the single source of truth for the bootstrap cache key version.
@@ -19,7 +23,7 @@ runs:
   steps:
     - name: Restore Amaru bootstrap DBs
       id: cache-restore
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: |
           ./ledger.${{ inputs.network }}.db
@@ -37,7 +41,12 @@ runs:
         AMARU_NETWORK: ${{ inputs.network }}
         AMARU_LEDGER_DIR: ./ledger.${{ inputs.network }}.db
         AMARU_CHAIN_DIR: ./chain.${{ inputs.network }}.db
-      run: make bootstrap
+        AMARU_EPOCH: ${{ inputs.epoch }}
+      run: |
+        if [[ -z "${AMARU_EPOCH}" ]]; then
+          unset AMARU_EPOCH
+        fi
+        cargo run --profile test -- node bootstrap
 
     - name: Save bootstrap DBs to cache
       if: steps.cache-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'

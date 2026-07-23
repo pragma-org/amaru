@@ -1,0 +1,141 @@
+version: "0.5"
+
+# process_compose_file (scripts/demos/common/orchestration.sh) rewrites this file with awk to
+# generate the public-upstream (mainnet) variant; it matches process names and their exact
+# indentation, so re-indenting this file, or renaming a process without updating
+# PUBLIC_UPSTREAM_EXCLUDED_PROCESSES in process-compose.sh, breaks that filter.
+
+log_level: info
+log_length: 50000
+
+processes:
+  0-setup:
+    description: Download local Cardano node tools when CARDANO_NODE_HOME is not configured.
+    command: ./process-compose.sh run setup
+
+  1-mithril-refresh:
+    description: Refresh the Amaru chain and ledger databases from the latest Mithril snapshot.
+    command: ./process-compose.sh run mithril-refresh
+    depends_on:
+      0-setup:
+        condition: process_completed_successfully
+
+  2-initialize:
+    description: Validate configuration and copy refreshed Amaru databases into isolated run directories.
+    command: ./process-compose.sh run initialize
+    depends_on:
+      1-mithril-refresh:
+        condition: process_completed_successfully
+
+  3-cardano-node:
+    description: Run the upstream Haskell cardano-node using the configured preprod node config.
+    command: ./process-compose.sh run cardano-upstream
+    shutdown:
+      signal: 15
+      timeout_seconds: 120
+    readiness_probe:
+      exec:
+        command: ./process-compose.sh ready cardano-upstream
+      initial_delay_seconds: 1
+      period_seconds: 2
+      timeout_seconds: 5
+      failure_threshold: 900
+    depends_on:
+      2-initialize:
+        condition: process_completed_successfully
+
+  4-amaru-middle:
+    description: Run the middle Amaru relay, connected upstream to cardano-node and listening for downstream peers.
+    command: ./process-compose.sh run amaru-middle
+    shutdown:
+      signal: 15
+      timeout_seconds: 30
+    readiness_probe:
+      exec:
+        command: ./process-compose.sh ready amaru-middle
+      initial_delay_seconds: 1
+      period_seconds: 2
+      timeout_seconds: 3
+      failure_threshold: 900
+    depends_on:
+      2-initialize:
+        condition: process_completed_successfully
+      3-cardano-node:
+        condition: process_healthy
+
+  5-amaru-downstream:
+    description: Run the downstream Amaru relay, connected to amaru-middle and exposing the local submit API.
+    command: ./process-compose.sh run amaru-downstream
+    shutdown:
+      signal: 15
+      timeout_seconds: 30
+    readiness_probe:
+      exec:
+        command: ./process-compose.sh ready amaru-downstream
+      initial_delay_seconds: 1
+      period_seconds: 2
+      timeout_seconds: 3
+      failure_threshold: 900
+    depends_on:
+      2-initialize:
+        condition: process_completed_successfully
+      4-amaru-middle:
+        condition: process_healthy
+
+  6-prepare-wallet:
+    description: Ensure the demo payment wallet has clean UTxOs for concurrent submit-tx runs.
+    command: ./process-compose.sh run prepare-wallet
+    depends_on:
+      3-cardano-node:
+        condition: process_healthy
+
+  7-submit-tx:
+    description: Generate signed runtime transactions from the configured payment key and submit them downstream.
+    command: ./process-compose.sh run submit-tx
+    depends_on:
+      2-initialize:
+        condition: process_completed_successfully
+      3-cardano-node:
+        condition: process_healthy
+      4-amaru-middle:
+        condition: process_healthy
+      5-amaru-downstream:
+        condition: process_healthy
+      6-prepare-wallet:
+        condition: process_completed_successfully
+
+  7-submit-tx-batch:
+    description: Prompt for a transaction count, then submit that many independent transactions downstream.
+    command: ./process-compose.sh run submit-tx-batch
+    disabled: true
+    is_interactive: true
+    depends_on:
+      2-initialize:
+        condition: process_completed_successfully
+      3-cardano-node:
+        condition: process_healthy
+      4-amaru-middle:
+        condition: process_healthy
+      5-amaru-downstream:
+        condition: process_healthy
+      6-prepare-wallet:
+        condition: process_completed_successfully
+
+  8-telemetry-setup:
+    description: Start Grafana, Tempo, Prometheus, and the OTLP collector.
+    command: ./process-compose.sh run telemetry-up
+
+  8-telemetry-open:
+    description: Open Grafana Tempo traces and Prometheus metrics for Amaru in the browser.
+    command: ./process-compose.sh run telemetry-open
+    disabled: true
+
+  9-watch:
+    description: Follow relay logs and highlight connection, sync, mempool, transaction, warning, and error events.
+    command: ./process-compose.sh run watch
+    shutdown:
+      signal: 15
+      timeout_seconds: 10
+    depends_on:
+      2-initialize:
+        condition: process_completed_successfully

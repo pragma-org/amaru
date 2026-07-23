@@ -25,7 +25,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use super::{BlockSource, BlockSourceMsg, stage};
 use crate::stages::{
     peer_selection::PeerSelectionMsg,
-    test_utils::{BufferWriter, Logs},
+    test_utils::{BufferWriter, Logs, start_in_era},
 };
 
 pub struct TestPrep {
@@ -64,7 +64,9 @@ pub fn setup(prep: &TestPrep, msgs: &[BlockSourceMsg]) -> (SimulationRunning, De
 
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(200, 1000000));
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(TraceBuffer::new_shared(200, 1000000))
+        .with_global_epoch_offset(start_in_era().relative_time);
     let bs = network.stage("bs", stage);
     let bs = network.wire_up(bs, prep.state.clone());
     network.preload(&bs, msgs.iter().cloned()).expect("preload");

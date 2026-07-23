@@ -27,7 +27,6 @@ use std::{
     time::Duration,
 };
 
-use amaru_observability::trace_span;
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
@@ -39,10 +38,11 @@ use tokio::{
     },
     task::JoinHandle,
 };
+use tracing::trace_span;
 
 use crate::{
-    BoxFuture, EPOCH, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph,
-    StageRef,
+    BoxFuture, Effects, Instant, Name, PRIORITY_MAILBOX_SIZE, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef,
+    StageGraph, StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     drop_guard::DropGuard,
     effect::{CallExtra, CallTimeout, CanSupervise, StageEffect, StageResponse, TransitionFactory},
@@ -68,9 +68,11 @@ struct TokioInner {
     senders: Mutex<BTreeMap<Name, StageOrAdapter<mpsc::Sender<Box<dyn SendData>>>>>,
     handles: Mutex<Vec<JoinHandle<()>>>,
     clock: Arc<dyn Clock + Send + Sync>,
+    global_epoch_offset: Duration,
     resources: Resources,
     schedule_ids: ScheduleIds,
     mailbox_size: usize,
+    priority_mailbox_size: usize,
     stage_counter: Mutex<usize>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
@@ -81,9 +83,11 @@ impl TokioInner {
             senders: Default::default(),
             handles: Default::default(),
             clock: Arc::new(TokioClock),
+            global_epoch_offset: Duration::ZERO,
             resources: Resources::default(),
             schedule_ids: ScheduleIds::default(),
             mailbox_size: 10,
+            priority_mailbox_size: PRIORITY_MAILBOX_SIZE,
             stage_counter: Mutex::new(0usize),
             trace_buffer: TraceBuffer::new_shared(0, 0),
         }
@@ -92,8 +96,8 @@ impl TokioInner {
 
 struct TokioClock;
 impl Clock for TokioClock {
-    fn now(&self) -> Instant {
-        Instant::now()
+    fn now(&self, global_epoch_offset: Duration) -> Instant {
+        Instant::from_tokio(tokio::time::Instant::now(), global_epoch_offset)
     }
     fn advance_to(&self, _instant: Instant) {}
 }
@@ -154,36 +158,19 @@ impl TokioBuilder {
         self
     }
 
-    pub fn with_epoch_clock(mut self) -> Self {
-        self.inner.clock = Arc::new(EpochClock::new());
+    pub fn with_global_epoch_offset(mut self, offset: Duration) -> Self {
+        self.inner.global_epoch_offset = offset;
         self
     }
-}
 
-struct EpochClock {
-    offset: Mutex<Option<Duration>>,
-}
-
-impl EpochClock {
-    fn new() -> Self {
-        Self { offset: Mutex::new(None) }
+    /// Set the maximum number of undelivered self-scheduled messages allowed per stage.
+    ///
+    /// Defaults to [`PRIORITY_MAILBOX_SIZE`]. Exceeding the limit
+    /// panics so schedule storms fail loudly.
+    pub fn with_priority_mailbox_size(mut self, size: usize) -> Self {
+        self.inner.priority_mailbox_size = size;
+        self
     }
-}
-
-impl Clock for EpochClock {
-    fn now(&self) -> Instant {
-        let mut offset = self.offset.lock();
-        if let Some(offset) = *offset {
-            Instant::now() - offset
-        } else {
-            let now = Instant::now();
-            let since_epoch = now.saturating_since(*EPOCH);
-            *offset = Some(since_epoch);
-            now - since_epoch
-        }
-    }
-
-    fn advance_to(&self, _instant: Instant) {}
 }
 
 type RefAux = (Receiver<Box<dyn SendData>>, TransitionFactory);
@@ -206,11 +193,12 @@ impl StageGraph for TokioBuilder {
 
         let me = StageRef::new(name.clone());
         let clock = self.inner.clock.clone();
+        let global_epoch_offset = self.inner.global_epoch_offset;
         let resources = self.inner.resources.clone();
         let schedule_ids = self.inner.schedule_ids.clone();
         let trace_buffer = self.inner.trace_buffer.clone();
         let ff = Box::new(move |effect| {
-            let eff = Effects::new(me, effect, clock, resources, schedule_ids, trace_buffer);
+            let eff = Effects::new(me, effect, clock, global_epoch_offset, resources, schedule_ids, trace_buffer);
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg.cast::<Msg>().expect("internal message type error");
@@ -286,6 +274,7 @@ impl StageGraph for TokioBuilder {
 }
 
 enum PriorityMessage {
+    /// Due self-scheduled message; bypasses the bulk mpsc mailbox.
     Scheduled(Box<dyn SendData>, ScheduleId, watch::Receiver<bool>),
     TimerCancelled(ScheduleId),
     Tombstone(Box<dyn SendData>),
@@ -307,6 +296,8 @@ async fn run_stage_boxed(
     // will terminate those spawned stages
     let mut timers = FuturesUnordered::<BoxFuture<'static, PriorityMessage>>::new();
     let mut cancel_senders = BTreeMap::<ScheduleId, watch::Sender<bool>>::new();
+    // Armed schedules not yet consumed by receive (matches simulation `scheduled_pending`).
+    let mut scheduled_pending: usize = 0;
 
     let tb = DropGuard::new(inner.trace_buffer.clone(), |tb| {
         // ensure that Aborted is traced when this Future is dropped
@@ -322,6 +313,7 @@ async fn run_stage_boxed(
         // if multiple timers have fired since the last poll, we need them all so that we can deliver them in order
         let mut timer_chunks = (&mut timers).ready_chunks(1000);
 
+        // Prefer due scheduled (priority) messages over bulk mailbox traffic.
         tokio::select! { biased;
             Some(res) = timer_chunks.next(), if poll_timers => {
                 let mut scheduled = Vec::new();
@@ -330,7 +322,10 @@ async fn run_stage_boxed(
                         PriorityMessage::Scheduled(msg, id, cancelation) => {
                             scheduled.push((id, msg, cancelation));
                         }
-                        PriorityMessage::TimerCancelled(_id) => {}
+                        PriorityMessage::TimerCancelled(_id) => {
+                            // Cancel won before the timer fired; free the outstanding budget.
+                            scheduled_pending = scheduled_pending.saturating_sub(1);
+                        }
                         PriorityMessage::Tombstone(msg) => msgs.push((msg, None)),
                     }
                 }
@@ -350,6 +345,7 @@ async fn run_stage_boxed(
         for (msg, cancelation) in msgs.drain(..) {
             if let Some((id, canceled)) = cancelation {
                 cancel_senders.remove(&id);
+                scheduled_pending = scheduled_pending.saturating_sub(1);
                 if *canceled.borrow() {
                     // cancellation happened after the timer fired but before the message was delivered
                     continue;
@@ -365,7 +361,9 @@ async fn run_stage_boxed(
             inner.trace_buffer.lock().push_input(&stage_name, &msg);
 
             let f = (transition)(state, msg);
-            let result = interpreter(&inner, &effect, &stage_name, &mut timers, &mut cancel_senders, f).await;
+            let result =
+                interpreter(&inner, &effect, &stage_name, &mut timers, &mut cancel_senders, &mut scheduled_pending, f)
+                    .await;
             match result {
                 Some(st) => state = st,
                 None => {
@@ -405,6 +403,7 @@ fn interpreter(
     name: &Name,
     timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
     cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
+    scheduled_pending: &mut usize,
     mut stage: BoxFuture<'static, Box<dyn SendData>>,
 ) -> impl Future<Output = Option<Box<dyn SendData>>> + Send {
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
@@ -414,7 +413,7 @@ fn interpreter(
         tb().push_resume(name, &StageResponse::Unit);
         loop {
             let poll = {
-                let _span = trace_span!(amaru_observability::amaru::stage::tokio::POLL, stage = %name).entered();
+                let _span = trace_span!("amaru::stages::interpreter::tokio::POLL", stage = %name).entered();
                 stage.as_mut().poll(&mut Context::from_waker(Waker::noop()))
             };
             if let Poll::Ready(state) = poll {
@@ -485,10 +484,10 @@ fn interpreter(
                         _ => StageResponse::CallResponse(Box::new(CallTimeout)),
                     }
                 }
-                StageEffect::Clock => StageResponse::ClockResponse(now()),
+                StageEffect::Clock => StageResponse::ClockResponse(inner.clock.now(inner.global_epoch_offset)),
                 StageEffect::Wait(duration) => {
                     tokio::time::sleep(duration).await;
-                    StageResponse::WaitResponse(now())
+                    StageResponse::WaitResponse(inner.clock.now(inner.global_epoch_offset))
                 }
                 StageEffect::External(effect) => {
                     tracing::debug!("stage `{name}` external effect: {:?}", effect);
@@ -535,10 +534,19 @@ fn interpreter(
                     StageResponse::ContramapResponse(name)
                 }
                 StageEffect::Schedule(msg, id) => {
+                    let limit = inner.priority_mailbox_size;
+                    #[expect(clippy::panic)]
+                    if *scheduled_pending >= limit {
+                        panic!(
+                            "stage `{name}` exceeded priority mailbox size ({limit}): too many outstanding scheduled messages"
+                        );
+                    }
+                    *scheduled_pending += 1;
                     let when = id.time();
                     let sleep = tokio::time::sleep_until(when.to_tokio());
                     let (tx, mut rx) = watch::channel(false);
                     cancel_senders.insert(id, tx);
+                    // Priority path: timers bypass the bounded mpsc bulk mailbox.
                     timers.push(Box::pin(async move {
                         let rx2 = rx.clone();
                         tokio::select! { biased;
@@ -551,6 +559,8 @@ fn interpreter(
                 StageEffect::CancelSchedule(id) => {
                     if let Some(tx) = cancel_senders.remove(&id) {
                         tx.send_replace(true);
+                        // Budget is released when TimerCancelled is observed (or when a
+                        // late-fired Scheduled is discarded after cancel).
                         StageResponse::CancelScheduleResponse(true)
                     } else {
                         StageResponse::CancelScheduleResponse(false)
@@ -561,10 +571,6 @@ fn interpreter(
             *effect.lock() = Some(Right(resp));
         }
     }
-}
-
-fn now() -> Instant {
-    Instant::from_tokio(tokio::time::Instant::now())
 }
 
 /// Handle to the running stages.

@@ -18,7 +18,6 @@ use amaru::{
     version,
 };
 use cli::Command;
-use tracing::info;
 
 mod cli;
 mod cmd;
@@ -46,13 +45,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (Some(m), t)
     };
 
-    info!("Started");
-
     let result = match cli.command {
         Command::Node(node_cmd) => match node_cmd {
             cmd::node::NodeCommand::Run(args) => cmd::node::run::run(args, metrics.unwrap_or(None)).await,
             cmd::node::NodeCommand::Bootstrap(args) => cmd::node::bootstrap::run(args).await,
-            cmd::node::NodeCommand::Reset(args) => cmd::node::reset::run(args).await,
         },
         Command::Snapshot(snap_cmd) => match snap_cmd {
             cmd::snapshot::SnapshotCommand::Create(args) => cmd::snapshot::create::run(args).await,
@@ -71,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cmd::dev::chain::ChainCommand::Remove(args) => cmd::dev::chain::remove::run(args).await,
             },
             cmd::dev::DevCommand::Ledger(ledger_cmd) => match ledger_cmd {
+                cmd::dev::ledger::LedgerCommand::Reset(args) => cmd::dev::ledger::reset::run(args).await,
                 cmd::dev::ledger::LedgerCommand::Convert(args) => cmd::dev::ledger::convert::run(args).await,
                 cmd::dev::ledger::LedgerCommand::Nonces(nonces_cmd) => match nonces_cmd {
                     cmd::dev::ledger::nonces::NoncesCommand::Get(args) => {
@@ -102,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Legacy aliases
         Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::run(args, metrics.unwrap()).await,
         Command::LegacyBootstrap(args) => cmd::node::bootstrap::run(args).await,
-        Command::LegacyResetToEpoch(args) => cmd::node::reset::run(args).await,
+        Command::LegacyResetToEpoch(args) => cmd::dev::ledger::reset::run(args).await,
         Command::LegacyCreateSnapshots(args) => cmd::snapshot::create::run(args).await,
         Command::LegacyDumpChainDB(args) => cmd::dev::chain::dump::run(args).await,
         Command::LegacyRemoveValidationStatus(args) => cmd::dev::chain::clear_invalid::run(args).await,

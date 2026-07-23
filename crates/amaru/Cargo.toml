@@ -2,7 +2,7 @@ lints.workspace = true
 
 [package]
 name = "amaru"
-version = "10.10.0"
+version = "10.11.0"
 edition.workspace = true
 description.workspace = true
 license.workspace = true
@@ -14,8 +14,8 @@ readme = "../../README.md"
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
-build = "build.rs"
-include = ["src/**/*", "config/**", "Cargo.toml", "build.rs"]
+build = "build/build.rs"
+include = ["src/**/*", "config/**", "Cargo.toml", "build/**/*"]
 default-run = "amaru"
 
 [[bin]]
@@ -39,6 +39,7 @@ anyhow.workspace = true
 aws-credential-types.workspace = true
 aws-sdk-s3.workspace = true
 axum.workspace = true
+async-compression.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
@@ -47,11 +48,10 @@ futures-util.workspace = true
 hex.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
-num.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
-opentelemetry-semantic-conventions.workspace = true
 opentelemetry.workspace = true
+opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true
@@ -73,9 +73,9 @@ tokio = { workspace = true, features = [
   "signal",
 ] }
 tokio-util.workspace = true
+tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
-tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus.workspace = true
@@ -85,9 +85,9 @@ amaru-mempool.workspace = true
 amaru-metrics.workspace = true
 amaru-mithril = { workspace = true, optional = true }
 amaru-network.workspace = true
+amaru-node.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
-amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
@@ -118,6 +118,7 @@ amaru-ledger = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
 [build-dependencies]
+anyhow.workspace = true
 built = { workspace = true, features = ["git2"] }
 quote.workspace = true
 syn.workspace = true

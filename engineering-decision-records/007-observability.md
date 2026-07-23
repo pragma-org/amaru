@@ -26,17 +26,17 @@ We would like the codebase to organize the metrics it tracks in a simple, consis
 - All traces and spans can be made available on stdout in a structured format (JSON).
 
 - All traces, spans and metrics can be made available via the OpenTelemetry Protocol (OTLP) on the default OTLP ports.
-  - To ease its consumption, we provide at least two example setups for collecting and monitoring this telemetry:
-    - [Jaeger](https://www.jaegertracing.io/)
-    - [Grafana](https://grafana.com/) and [Tempo](https://grafana.com/oss/tempo/)
+    - To ease its consumption, we provide at least two example setups for collecting and monitoring this telemetry:
+        - [Jaeger](https://www.jaegertracing.io/)
+        - [Grafana](https://grafana.com/) and [Tempo](https://grafana.com/oss/tempo/)
 
-  - We will use the [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) crate to collect and report traces and metrics.
+    - We will use the [opentelemetry-rust](https://github.com/open-telemetry/opentelemetry-rust) crate to collect and report traces and metrics.
 
-  - We will make judicious use of [Spans](https://opentelemetry.io/docs/concepts/observability-primer/#spans) to expose the structured nature of the workload the Amaru node performs.
+    - We will make judicious use of [Spans](https://opentelemetry.io/docs/concepts/observability-primer/#spans) to expose the structured nature of the workload the Amaru node performs.
 
 - We define the frontier between logs and traces by following a simple rule:
-  - Any event at the DEBUG level or above is considered a log
-  - Any event at the TRACE level is considered a trace
+    - Any event at the DEBUG level or above is considered a log
+    - Any event at the TRACE level is considered a trace
 
 ### Tracing Schemas
 
@@ -44,25 +44,31 @@ To ensure consistency and enable compile-time validation of tracing instrumentat
 
 #### Schema Definition
 
-Schemas are defined using the `define_schemas!` macro in a central location (`amaru-observability/src/schemas.rs`). They are organized hierarchically matching the crate/module structure:
+Schemas are defined using the `define_schemas!` macro in a central location (`amaru-observability/src/schemas.rs`). They are organized hierarchically:
+
+- The first two levels define the target of a span, for example `amaru::consensus` or `amaru::ledger`.
+- The other levels (two or three in practice) define the name of the span, for example `header.evolve_nonce` or `block.apply` (
+  see [EDR-026](./026-tracing-span-design.md) for more details).
 
 ```rust
 define_schemas! {
-    consensus {
-        validate_header {
-            EVOLVE_NONCE {
-                required hash: String
-            }
-            VALIDATE {
-                required issuer_key: String
+    amaru {
+        consensus {
+            header {
+                EVOLVE_NONCE {
+                    required hash: String
+                }
+                VALIDATE {
+                    required issuer_key: String
+                }
             }
         }
-    }
-    ledger {
-        state {
-            APPLY_BLOCK {
-                required point_slot: u64
-                optional error: String
+        ledger {
+            block {
+                APPLY {
+                    required point_slot: u64
+                    optional error: String
+                }
             }
         }
     }
@@ -70,16 +76,32 @@ define_schemas! {
 ```
 
 Each schema declares:
+
 - **Required fields**: Must be supplied when creating the span, with matching types
 - **Optional fields**: Supplementary context that can be recorded later
 
+##### Tags
+
+In addition to fields, a `tags: <name>, ...` entry assigns functional tags to schemas, classifying spans by the kind of work they perform (`setup`, `cpu`, `db`, `io`, etc., see [EDR-026](./026-tracing-span-design.md) for the list of tags).
+
+Tags can be declared at the module level, in which case they are inherited by all the schemas nested below that module, or inside a specific schema, in which case they override the module-level declaration. Each tag is automatically recorded on the corresponding spans as a boolean attribute named `amaru.tag.<name>`.
+
+Since tags are regular span attributes, they can be used to select spans regardless of their target and name with an `EnvFilter` directive: for example `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'` enables all the spans tagged with `cpu`.
+
+Several tags can be combined:
+
+- To select the spans carrying _either_ tag (OR), use one directive per tag: `AMARU_LOG='[{amaru.tag.db=true}]=trace,[{amaru.tag.io=true}]=trace'` enables all the spans tagged with `db` plus all the spans tagged with `io`, because each directive is evaluated independently.
+- To select only the spans carrying _all_ the tags (AND), list the tags inside a single directive: `AMARU_LOG='[{amaru.tag.cpu=true,amaru.tag.db=true}]=trace'` only enables the spans tagged with both `cpu` and `db`.
+
 #### Explicit Span Construction
 
-Amaru now prefers explicit span creation over function-wide instrumentation wrappers. New schema-based tracing should use `trace_span!` to create a span at the point where the work actually begins, then either enter that span or attach it to a future with `.instrument(...)`.
+Amaru now prefers explicit span creation over function-wide instrumentation wrappers. New schema-based tracing should use `debug_span!` or `info_span!` to create a span at the point where the work actually begins, then either enter that span or attach it to a future with `.instrument(...)`.
+
+Note that even though the schema compilation generates full names like `amaru_observability::amaru::consensus::header::EVOLVE_NONCE`, the `info_span!/debug_span!/trace_span!` macros only requires the second target name and the span name, e.g. `consensus::header::EVOLVE_NONCE`.
 
 ```rust
 fn evolve_nonce(&self, hash: String) -> Result<Nonce, ConsensusError> {
-    let span = trace_span!(consensus::validate_header::EVOLVE_NONCE, hash = &hash);
+    let span = debug_span!(consensus::header::EVOLVE_NONCE, hash = &hash);
     let _guard = span.enter();
 
     // function body
@@ -92,11 +114,12 @@ For async work, the same schema-validated span can be attached directly to the f
 async move {
     apply_block(block).await
 }
-.instrument(trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot))
+.instrument(debug_span!(ledger::block::APPLY, point_slot = point_slot))
 .await;
 ```
 
-At compile time, `trace_span!` validates:
+At compile time, `debug_span!` validates:
+
 - The schema exists at the specified path
 - Required fields are supplied when the span is created
 - Field names and types match the schema declaration
@@ -109,11 +132,11 @@ The `trace_record!` macro records fields to the current span with a schema ancho
 
 ```rust
 fn apply_block(block: &Block, point_slot: u64) {
-    let span = trace_span!(ledger::state::APPLY_BLOCK, point_slot = point_slot);
+    let span = debug_span!(ledger::block::APPLY, point_slot = point_slot);
     let _guard = span.enter();
 
     trace_record!(
-        ledger::state::APPLY_BLOCK,
+        ledger::block::APPLY,
         block_size = block.size(),
         tx_count = block.transactions.len()
     );
@@ -131,7 +154,7 @@ This macro is a lightweight way to add context to the current span without creat
 
 ### Metrics
 
-Each top-level module or crate will (optionally) define its own Metrics module, which exposes a `{CrateName}Metrics` struct, with a `new(..)` method and deriving `Clone`. At the time of this decision record, this would be the Amaru binary, Consensus, the Ledger, and the Sync module.
+Each top-level module or crate will (optionally) define its own Metrics module, which exposes a `{CrateName}Metrics` struct, with a `new(..)` method and deriving `Clone`. At the time of this decision record, this would be the Ledger module.
 
 Each module or crate will, if applicable, accept an argument of type `{CrateName}Metrics` during initialization, and store an owned instance of this struct.
 

@@ -1,0 +1,41 @@
+{
+  "title": "pool retirement at current epoch",
+  "description": "Pool retirement with epoch 0, which is not greater than the current epoch (0).",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a004c4b40ff"
+      }
+    ],
+    "pools": [
+      "e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec"
+    ],
+    "accounts": [
+      {
+        "credential": "8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a00493e00ff021a00030d4004d90102818304581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec000800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b58584080c3d51785de014cd521067b538d8786e0fe3f392d387677ccfdeecbff6f2a3608268e2344e8cebbe2dbc69a946697e4503bf27eb3508ce20dcd6dd64ec44903f5f6",
+  "expected": {
+    "predicate": "StakePoolRetirementWrongEpochPOOL"
+  }
+}

@@ -17,8 +17,8 @@ use std::{
     sync::Arc,
 };
 
-use amaru::tests::nodes::Nodes;
 use amaru_consensus::headers_tree::data_generation::GeneratedActions;
+use amaru_node::tests::nodes::Nodes;
 use amaru_pure_stage::trace_buffer::TraceBuffer;
 use anyhow::anyhow;
 use parking_lot::Mutex;

@@ -182,6 +182,7 @@ pub fn setup(prep: &TestPrep, msg: AdoptChainMsg) -> (SimulationRunning, Deseria
 
     let guards = register_guards();
 
+    // No global_epoch_offset: adopt_chain only needs relative sim time for the 1s log throttle.
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
     network.resources().put::<ResourceHeaderStore>(prep.store.clone());
 

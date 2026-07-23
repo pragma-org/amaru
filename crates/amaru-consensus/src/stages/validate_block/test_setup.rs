@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq,
+    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq,
 };
-use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, HasStakePools, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+    MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, LoadBlockEffect, LoadFromBestChainEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
@@ -29,20 +28,18 @@ use amaru_pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason, simulation::SimulationRunning,
     trace_buffer::TraceEntry,
 };
-use async_trait::async_trait;
-use parking_lot::Mutex;
 use tokio::runtime::{Builder, Runtime};
 
 use super::*;
 pub use crate::stages::test_utils::assert_trace;
 use crate::{
     effects::{
-        ContainsPointEffect, RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, RollbackBlockEffect,
-        TipEffect, ValidateBlockEffect,
+        RecordMetricsEffect, ResourceBlockValidation, ResourceHasStakePools, SwitchToForkEffect, TipEffect,
+        ValidateBlockEffect,
     },
     stages::{
         block_source::BlockSourceMsg,
-        test_utils::{Logs, TraceMatch, run_simulation},
+        test_utils::{Logs, TraceMatch, run_simulation, tm_external_effect},
     },
 };
 
@@ -100,112 +97,6 @@ impl HeaderTree {
 impl Default for HeaderTree {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Configurable mock ledger for testing rollback/roll-forward paths.
-pub struct MockBlockValidator {
-    inner: Mutex<MockBlockValidatorInner>,
-}
-
-struct MockBlockValidatorInner {
-    /// Points the ledger is considered to contain (validated).
-    contains: BTreeSet<Point>,
-    /// Current ledger tip.
-    tip: Point,
-    /// If set, rollback_block will return this error.
-    rollback_fails: bool,
-    /// If set, roll_forward_block will return Ok(Err(...)) for these points.
-    validate_fails: BTreeSet<Point>,
-    /// If set, roll_forward_block will return Err(...) for these points.
-    ledger_fails: BTreeSet<Point>,
-}
-
-impl MockBlockValidator {
-    pub fn new(tip: Point) -> Self {
-        Self {
-            inner: Mutex::new(MockBlockValidatorInner {
-                contains: BTreeSet::default(),
-                tip,
-                rollback_fails: false,
-                validate_fails: BTreeSet::default(),
-                ledger_fails: BTreeSet::default(),
-            }),
-        }
-    }
-
-    pub fn with_contains(&self, point: Point) -> &Self {
-        self.inner.lock().contains.insert(point);
-        self
-    }
-
-    pub fn with_rollback_fails(&self, fails: bool) -> &Self {
-        self.inner.lock().rollback_fails = fails;
-        self
-    }
-
-    pub fn with_validate_fails(&self, point: Point) -> &Self {
-        self.inner.lock().validate_fails.insert(point);
-        self
-    }
-
-    pub fn with_ledger_fails(&self, point: Point) -> &Self {
-        self.inner.lock().ledger_fails.insert(point);
-        self
-    }
-
-    pub fn with_tip(&self, tip: Point) -> &Self {
-        self.inner.lock().tip = tip;
-        self
-    }
-}
-
-#[async_trait]
-impl CanValidateBlocks for MockBlockValidator {
-    async fn roll_forward_block(
-        &self,
-        point: &Point,
-        _block: amaru_kernel::Block,
-    ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        let mut inner = self.inner.lock();
-        if inner.ledger_fails.contains(point) {
-            return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed")));
-        }
-        if inner.validate_fails.contains(point) {
-            return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed"))));
-        }
-        inner.contains.insert(*point);
-        Ok(Ok(Default::default()))
-    }
-
-    fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError> {
-        let mut inner = self.inner.lock();
-        if inner.rollback_fails {
-            return Err(BlockValidationError::new(anyhow::anyhow!("mock rollback failed")));
-        }
-        inner.tip = *to;
-        inner.contains.retain(|p| p.slot_or_default() <= to.slot_or_default());
-        Ok(())
-    }
-
-    fn contains_point(&self, point: &Point) -> bool {
-        self.inner.lock().contains.contains(point)
-    }
-
-    fn tip(&self) -> Point {
-        self.inner.lock().tip
-    }
-
-    fn volatile_tip(&self) -> Option<Tip> {
-        let inner = self.inner.lock();
-        inner.contains.last().map(|p| Tip::new(*p, BlockHeight::from(inner.contains.len() as u64) + 1))
-    }
-}
-
-#[async_trait]
-impl HasStakePools for MockBlockValidator {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
-        Ok(BTreeSet::new())
     }
 }
 
@@ -270,9 +161,8 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<ContainsPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<RollbackBlockEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed(),
     ]
@@ -309,7 +199,7 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
             resources.put::<ResourceBlockValidation>(prep.block_validator.clone());
-            resources.put::<ResourceHasStakePools>(prep.block_validator.clone());
+            resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
         },
         |_running| {
             // No special external effect overrides needed for most validate_block tests.
@@ -318,20 +208,12 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
     )
 }
 
-pub fn te_validate_block(at_stage: &str, peer: &Peer, point: Point) -> TraceEntry {
-    let ctx = opentelemetry::Context::current();
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(peer, &point, ctx))))
-}
-
-pub fn te_ledger_contains(at_stage: &str, point: &Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ContainsPointEffect::new(point))))
+pub fn te_validate_block(at_stage: &str, point: Point) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(&point))))
 }
 
 pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage,
-        Box::new(RollbackBlockEffect::new(&Peer::new("unknown"), point, opentelemetry::Context::current())),
-    ))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(point))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {
@@ -348,17 +230,7 @@ pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> Tr
 
 /// Returns a TraceMatch that matches any RecordMetricsEffect for the given stage.
 /// Use this (instead of a te_record_metrics literal) in assert_trace_contains / assert_trace_match
-/// lists because the exact LedgerMetrics payload can vary.
+/// lists because the exact metrics payload can vary.
 pub fn tm_record_metrics(at_stage: &str) -> TraceMatch<'static> {
-    let stage_name = Name::from(at_stage);
-    TraceMatch::Property(
-        Box::new(move |entry: &TraceEntry| {
-            if let TraceEntry::Suspend(Effect::External { at_stage, effect }) = entry {
-                if at_stage == &stage_name { effect.cast_ref::<RecordMetricsEffect>().is_some() } else { false }
-            } else {
-                false
-            }
-        }),
-        format!("RecordMetricsEffect(at_stage: {at_stage})"),
-    )
+    tm_external_effect::<RecordMetricsEffect>(at_stage)
 }

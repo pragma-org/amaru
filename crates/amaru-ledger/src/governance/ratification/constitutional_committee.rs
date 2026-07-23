@@ -20,8 +20,8 @@ use std::{
 };
 
 use amaru_kernel::{Epoch, StakeCredential, Vote};
+use amaru_observability::warn;
 use num::Zero;
-use tracing::warn;
 
 use super::{OrphanProposal, ProposalEnum};
 use crate::summary::{SafeRatio, safe_ratio};
@@ -125,9 +125,10 @@ impl ConstitutionalCommittee {
             | ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
                 if self.active_members(current_epoch).len() < (min_committee_size as usize) {
                     warn!(
-                        members.active = self.active_members(current_epoch).len(),
+                        ledger::constitutional_committee::IGNORE,
+                        active_members = self.active_members(current_epoch).len(),
                         min_committee_size = min_committee_size,
-                        "no voting threshold because committee is too small"
+                        reason = "committee is below minimum size; ignoring voting threshold entirely"
                     );
                     return None;
                 }

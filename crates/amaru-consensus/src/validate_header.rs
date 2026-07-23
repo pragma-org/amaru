@@ -12,83 +12,55 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, sync::Arc};
+use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, IsHeader, Nonce, to_cbor};
-use amaru_observability::trace_span;
-use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::{CanValidateHeaders, ChainStore, HasStakeDistribution, HeaderValidationError, Praos};
-use anyhow::anyhow;
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, IsHeader, to_cbor};
+use amaru_observability::debug_span;
+use amaru_ouroboros::praos::{self, header::AssertHeaderError};
+use amaru_ouroboros_traits::{ChainStore, PoolSummaries, Praos};
 
-use crate::{errors::ConsensusError, store::PraosChainStore};
+use crate::store::{NoncesError, PraosChainStore};
 
-pub struct ValidateHeader {
+#[derive(Debug, thiserror::Error, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ValidateHeaderError {
+    #[error("evolve_nonce failed: {0}")]
+    Nonces(#[from] NoncesError),
+    #[error("header validation failed: {0}")]
+    Assert(#[from] AssertHeaderError),
+}
+
+/// Validate a block header.
+///
+/// This is the core implementation, intended to be called from within an external effect
+/// (ValidateHeaderEffect) so that up-to-date resources (in particular PoolSummaries) can be
+/// obtained on each use.
+pub fn validate_header(
+    header: &BlockHeader,
     consensus_parameters: Arc<ConsensusParameters>,
     store: Arc<dyn ChainStore>,
-    ledger: Arc<dyn HasStakeDistribution>,
-}
+    pool_summaries: Arc<PoolSummaries>,
+    era_history: Arc<EraHistory>,
+) -> Result<(), ValidateHeaderError> {
+    let _span = debug_span!(consensus::header::VALIDATE, header_hash = &header.hash()).entered();
 
-impl fmt::Debug for ValidateHeader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ValidateHeader")
-            .field("store", &"Arc<dyn ChainStore<H>>")
-            .field("ledger", &"Arc<dyn HasStakeDistribution>")
-            .finish()
-    }
-}
+    let epoch_nonce = debug_span!(consensus::header::EVOLVE_NONCE, header_hash = header.hash())
+        .in_scope(|| PraosChainStore::new(consensus_parameters.clone(), store.clone()).evolve_nonce(header))?
+        .active;
 
-impl ValidateHeader {
-    pub fn new(
-        consensus_parameters: Arc<ConsensusParameters>,
-        store: Arc<dyn ChainStore>,
-        ledger: Arc<dyn HasStakeDistribution>,
-    ) -> Self {
-        Self { consensus_parameters, store, ledger }
-    }
-
-    pub fn validate(&self, header: &BlockHeader) -> Result<(), ConsensusError> {
-        let epoch_nonce = self.evolve_nonce(header)?;
-        self.check_header(header, to_cbor(&header.header_body()).as_slice(), &epoch_nonce)?;
-        Ok(())
-    }
-
-    fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonce, ConsensusError> {
-        let _span =
-            trace_span!(amaru_observability::amaru::consensus::validate_header::EVOLVE_NONCE, hash = header.hash());
-        let _guard = _span.enter();
-        let nonces =
-            PraosChainStore::new(self.consensus_parameters.clone(), self.store.clone()).evolve_nonce(header)?;
-        Ok(nonces.active)
-    }
-
-    fn check_header(
-        &self,
-        header: &BlockHeader,
-        raw_header_body: &[u8],
-        epoch_nonce: &Nonce,
-    ) -> Result<(), ConsensusError> {
-        let _span = trace_span!(
-            amaru_observability::amaru::consensus::validate_header::VALIDATE,
-            issuer_key = &header.header_body().issuer_vkey
-        );
-        let _guard = _span.enter();
+    debug_span!(consensus::header::CHECK, issuer_key = &header.header_body().issuer_vkey).in_scope(|| {
         praos::header::assert_all(
-            self.consensus_parameters.clone(),
+            consensus_parameters,
             header.header(),
-            raw_header_body,
-            self.ledger.clone(),
-            epoch_nonce,
+            to_cbor(&header.header_body()).as_slice(),
+            &pool_summaries,
+            &era_history,
+            &epoch_nonce,
         )
         .and_then(|assertions| {
             use rayon::prelude::*;
             assertions.into_par_iter().try_for_each(|assert| assert())
         })
-        .map_err(|e| ConsensusError::InvalidHeader(header.point(), HeaderValidationError::new(anyhow!(e))))
-    }
-}
+    })?;
 
-impl CanValidateHeaders for ValidateHeader {
-    fn validate_header(&self, header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        self.validate(header).map_err(|e| HeaderValidationError::new(anyhow!(e)))
-    }
+    Ok(())
 }

@@ -16,17 +16,17 @@ use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 
 use amaru::{default_data_dir, default_ledger_dir};
 use amaru_kernel::{NetworkName, Point, cbor};
+use amaru_ledger::store::ReadStore;
 use amaru_mithril::{
     BLOCKS_PER_ARCHIVE, archive_name_for_blocks, download_from_mithril, from_chunk_for_resume_point, get_latest_chunk,
     latest_archive, list_existing_archives, package_blocks, parse_header_slot_and_hash, resume_point_for_archives,
 };
 use amaru_network::point::to_network_point;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use clap::Parser;
 use pallas_hardano::storage::immutable::read_blocks_from_point;
 use tracing::{info, warn};
-
-use crate::cmd::new_block_validator;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -68,13 +68,24 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let immutable_dir = target_dir.join("immutable");
     let blocks_dir = PathBuf::from(format!("{}/blocks", default_data_dir(network)));
 
-    let ledger = new_block_validator(network, ledger_dir)?;
-    let tip = ledger.get_tip();
+    let store = RocksDB::new(&RocksDbConfig::new(ledger_dir))?;
+    let tip = store.tip()?;
     let mut existing_archives = list_existing_archives(&blocks_dir)?;
     let tail_archive = latest_archive(&existing_archives);
 
     // Determine the chunk to start from
-    let resume_point = resume_point_for_archives(&existing_archives);
+    let mut resume_point = resume_point_for_archives(&existing_archives);
+    if resume_point == Point::Origin {
+        // Origin means fewer than two archives exist, so there is no complete archive to
+        // resume from. Resuming from Origin would download and package the whole chain
+        // since genesis, but the ledger already covers everything up to its tip (e.g.
+        // after a snapshot bootstrap), so only blocks after the tip are needed. When a
+        // single tail archive exists it starts right after the tip, and the packaging
+        // loop below retains or replaces it. This relies on the chunk containing the tip
+        // being available locally, which from_chunk_for_resume_point ensures by starting
+        // the download one chunk before the tip.
+        resume_point = tip;
+    }
 
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
     let from_chunk = from_chunk_for_resume_point(network, latest_chunk, resume_point)?;

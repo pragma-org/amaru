@@ -479,7 +479,11 @@ impl EraHistory {
     /// to the next era.
     pub fn posix_time_to_slot(&self, time: SystemTime, system_start: SystemTime) -> Result<Slot, EraHistoryError> {
         let relative_time = time.duration_since(system_start).map_err(|_| EraHistoryError::InvalidEraHistory)?;
+        self.relative_time_to_slot(relative_time)
+    }
 
+    /// Convert a duration since system_start into a slot containing that time.
+    pub fn relative_time_to_slot(&self, relative_time: Duration) -> Result<Slot, EraHistoryError> {
         for era in &self.eras {
             if era.start.time > relative_time {
                 return Err(EraHistoryError::InvalidEraHistory);
@@ -658,6 +662,11 @@ impl EraHistory {
     pub fn current_era_tag(&self) -> EraName {
         #[expect(clippy::expect_used)]
         self.eras.last().expect("EraHistory cannot be empty").params.era_name
+    }
+
+    pub fn current_era_summary(&self) -> &EraSummary {
+        #[expect(clippy::expect_used)]
+        self.eras.last().expect("EraHistory cannot be empty")
     }
 }
 

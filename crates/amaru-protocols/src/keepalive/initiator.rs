@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use amaru_observability::trace_span;
+use amaru_observability::debug_span;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
@@ -104,10 +104,7 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
             eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
             Ok((None, self))
         }
-        .instrument(trace_span!(
-            amaru_observability::amaru::protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE,
-            cookie = cookie
-        ))
+        .instrument(debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie = cookie))
         .await
     }
 
@@ -128,8 +125,8 @@ impl ProtocolState<Initiator> for State {
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        let _span = trace_span!(
-            amaru_observability::amaru::protocols::keepalive::initiator::KEEPALIVE_INITIATOR_PROTOCOL,
+        let _span = debug_span!(
+            protocols::keepalive::initiator::KEEPALIVE_INITIATOR_PROTOCOL,
             message_type = input.message_type().to_string()
         );
         let _guard = _span.enter();

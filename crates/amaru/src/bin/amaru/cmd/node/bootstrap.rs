@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, fs::remove_dir_all, path::PathBuf};
+use std::{error::Error, path::PathBuf};
 
 use amaru::{
     aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Config},
     bootstrap::bootstrap,
     default_chain_dir, default_ledger_dir,
 };
-use amaru_kernel::{Epoch, GlobalParameters, NetworkName};
-use clap::{ArgAction, Parser};
-use tracing::{info, warn};
+use amaru_kernel::{Epoch, GlobalParameters, NetworkName, utils::path::relative_path};
+use amaru_observability::{info, warn};
+use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -34,14 +34,6 @@ pub struct Args {
         env = amaru::env_vars::CHAIN_DIR,
     )]
     chain_dir: Option<PathBuf>,
-
-    /// Forcefully erase and overwrite the ledger database if it already exists.
-    #[arg(
-        long,
-        action = ArgAction::SetTrue,
-        default_value_t = false,
-    )]
-    force: bool,
 
     /// Path of the ledger on-disk storage.
     ///
@@ -113,41 +105,31 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
-        _command = "node bootstrap",
-        chain_dir = %chain_dir.to_string_lossy(),
-        force = %args.force,
-        ledger_dir = %ledger_dir.to_string_lossy(),
+        cli::node::BOOTSTRAP,
+        chain_dir = %relative_path(&chain_dir)?.display(),
+        ledger_dir = %relative_path(&ledger_dir)?.display(),
         network = %network,
-        epoch = args.epoch
-            .map(|e| Box::new(e.to_string()) as Box<dyn tracing::Value>)
-            .unwrap_or_else(|| Box::new(tracing::field::Empty)),
-        "running",
+        epoch = @args.epoch.map(|e| e.to_string()),
     );
 
     if ledger_dir.exists() || chain_dir.exists() {
-        if !args.force {
-            warn!(
-                ledger_dir=%ledger_dir.to_string_lossy(),
-                chain_dir=%chain_dir.to_string_lossy(),
-                "ledger or chain directory already exists"
-            );
-            return Ok(());
-        } else {
-            if ledger_dir.exists() {
-                info!(
-                    ledger_dir=%ledger_dir.to_string_lossy(),
-                    "forcing bootstrap, removing existing ledger directory"
-                );
-                remove_dir_all(&ledger_dir)?;
-            }
-            if chain_dir.exists() {
-                info!(
-                    chain_dir=%chain_dir.to_string_lossy(),
-                    "forcing bootstrap, removing existing chain directory"
-                );
-                remove_dir_all(&chain_dir)?;
-            }
+        let mut messages = Vec::new();
+
+        if ledger_dir.exists() {
+            let dir = relative_path(&ledger_dir)?.display().to_string();
+            let hint = "ledger directory already exists: use another location or remove it manually";
+            warn!(cli::ledger_db::EXIST, dir = %dir, hint = hint);
+            messages.push(format!("{hint} ({dir})"));
         }
+
+        if chain_dir.exists() {
+            let dir = relative_path(&chain_dir)?.display().to_string();
+            let hint = "chain directory already exists: use another location or remove it manually";
+            warn!(cli::chain_db::EXIST, dir = %dir, hint = hint);
+            messages.push(format!("{hint} ({dir})"));
+        }
+
+        return Err(messages.join("; ").into());
     }
 
     bootstrap(

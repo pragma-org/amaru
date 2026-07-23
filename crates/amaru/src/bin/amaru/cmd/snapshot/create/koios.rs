@@ -15,8 +15,8 @@
 use std::{error::Error, str::FromStr};
 
 use amaru_kernel::{Epoch, Hash, NetworkName, Point, Slot};
+use amaru_observability::info;
 use serde::Deserialize;
-use tracing::info;
 
 use super::EpochTarget;
 
@@ -45,7 +45,7 @@ pub(super) async fn fetch_current_epoch(
 
     let tip = response.json::<Vec<KoiosTip>>().await?.into_iter().next().ok_or("Koios returned empty tip response")?;
 
-    info!(epoch = tip.epoch_no, "resolved current epoch from Koios");
+    info!(cli::current_epoch::RESOLVE, epoch = tip.epoch_no);
 
     Ok(Epoch::from(tip.epoch_no))
 }
@@ -100,10 +100,12 @@ pub(super) async fn fetch_last_block_for_epoch(
         .next()
         .ok_or_else(|| format!("Koios returned no blocks for epoch {epoch}"))?;
 
+    let point = Point::Specific(Slot::from(block.abs_slot), Hash::from_str(&block.hash)?);
+
     let parent_block = fetch_block_by_hash(client, network, &block.parent_hash).await?;
     let parent_point = Point::from_str(&format!("{}.{}", parent_block.abs_slot, parent_block.hash))?;
 
-    info!(%epoch, slot = %block.abs_slot, hash = block.hash, %parent_point, "resolved last produced block for epoch");
+    info!(cli::last_block::RESOLVE, %epoch, %point);
 
     Ok(EpochTarget {
         epoch,

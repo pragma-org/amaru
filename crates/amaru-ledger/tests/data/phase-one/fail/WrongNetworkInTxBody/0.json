@@ -1,12 +1,12 @@
 {
-  "title": "WrongNetworkInTxBody",
+  "title": "body network_id disagrees with fixture network",
   "description": "The transaction body's network_id field declares Mainnet (1) but the fixture network is Preprod (Testnet, 0); phase-one must reject.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

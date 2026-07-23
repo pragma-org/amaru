@@ -21,12 +21,15 @@ use std::{
 };
 
 use amaru::default_snapshots_dir;
-use amaru_kernel::{Epoch, HeaderHash, NetworkName, Point, Slot, utils};
+use amaru_kernel::{
+    Epoch, HeaderHash, NetworkName, Point, Slot,
+    num::{CheckedAdd, CheckedSub},
+    utils,
+};
 use amaru_mithril::{chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use anyhow::anyhow;
 use clap::{ArgAction, Parser};
-use num::{CheckedAdd, CheckedSub};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 

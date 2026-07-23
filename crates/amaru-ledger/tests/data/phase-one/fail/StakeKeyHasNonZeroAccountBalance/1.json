@@ -1,12 +1,12 @@
 {
-  "title": "StakeKeyHasNonZeroAccountBalance",
+  "title": "conway unregister a credential with non-zero reward balance",
   "description": "Conway unregister (UnReg) of a stake credential that still has a non-zero reward balance.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

@@ -17,7 +17,8 @@ use amaru_kernel::{
     size::TRANSACTION_BODY,
 };
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
-use amaru_ouroboros::{MempoolMsg, MockCanValidateBlocks, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_ouroboros_traits::MockBlockValidator;
 use amaru_protocols::store_effects::ResourceParameters;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
@@ -34,7 +35,7 @@ use crate::{
     effects::{
         RecordMetricsEffect, ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation, ValidateTxEffect,
     },
-    stages::test_utils::{BufferWriter, Logs},
+    stages::test_utils::{BufferWriter, Logs, start_in_era},
 };
 
 pub struct TestPrep {
@@ -73,13 +74,15 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
 
     let guards = register_guards();
 
-    let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000));
     let era_history = &*PREPROD_ERA_HISTORY;
+    let mut network = SimulationBuilder::default()
+        .with_trace_buffer(TraceBuffer::new_shared(100, 1_000_000))
+        .with_global_epoch_offset(start_in_era().relative_time);
     let global_parameters = &PREPROD_GLOBAL_PARAMETERS;
 
     network.resources().put::<ResourceParameters>(global_parameters.clone());
     network.resources().put::<ResourceEraHistory>(era_history.clone());
-    network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockCanValidateBlocks));
+    network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockBlockValidator::default()));
     network.resources().put::<ResourceMempool<Transaction>>(prep.mempool.clone());
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
 

@@ -4,5 +4,5 @@ services:
       - "./otlp-collector.yml:/etc/otlp-collector.yml"
       - "./profiles/prometheus/otlp-collector.yml:/etc/otlp-collector-prometheus.yml"
     command:
-      - "--config"
-      - "file:/etc/otlp-collector.yml,file:/etc/otlp-collector-prometheus.yml"
+      - "--config=/etc/otlp-collector.yml"
+      - "--config=/etc/otlp-collector-prometheus.yml"

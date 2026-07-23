@@ -36,7 +36,7 @@ use amaru_ledger::{
         TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
     },
 };
-use amaru_observability::{info_span, trace_record, trace_span};
+use amaru_observability::{debug_span, info_span, trace_record};
 use anyhow::anyhow;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
@@ -264,29 +264,22 @@ impl Store for RocksDB {
     type Transaction<'a> = RocksDBTransactionalContext<'a>;
 
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
-        let _span = trace_span!(
-            INFO,
-            amaru::stores::ledger::SNAPSHOT,
-            epoch = u64::from(epoch),
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "checkpoint".to_string()
-        );
-        let _guard = _span.enter();
+        info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch = epoch).in_scope(|| {
+            let path = self.dir.join(epoch.to_string());
 
-        let path = self.dir.join(epoch.to_string());
+            if path.exists() {
+                // RocksDB error can't be created externally, so panic instead
+                // It might be better to come up with a global error type
+                fs::remove_dir_all(&path)
+                    .map_err(|_| StoreError::Internal("Unable to remove existing snapshot directory".into()))?;
+            }
 
-        if path.exists() {
-            // RocksDB error can't be created externally, so panic instead
-            // It might be better to come up with a global error type
-            fs::remove_dir_all(&path)
-                .map_err(|_| StoreError::Internal("Unable to remove existing snapshot directory".into()))?;
-        }
+            checkpoint::Checkpoint::new(&self.db)
+                .and_then(|handle| handle.create_checkpoint(path))
+                .map_err(|err| StoreError::Internal(err.into()))?;
 
-        checkpoint::Checkpoint::new(&self.db)
-            .and_then(|handle| handle.create_checkpoint(path))
-            .map_err(|err| StoreError::Internal(err.into()))?;
-
-        Ok(())
+            Ok(())
+        })
     }
 
     #[expect(clippy::panic)] // Expected
@@ -329,11 +322,9 @@ impl HistoricalStores for RocksDBHistoricalStores {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
 
         info_span!(
-            amaru::stores::ledger::PRUNE,
-            functional_minimum = u64::from(functional_minimum),
-            desired_minimum = u64::from(desired_minimum),
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "delete".to_string()
+            stores::ledger::epoch::PRUNE_OLD_SNAPSHOTS,
+            functional_minimum = functional_minimum,
+            desired_minimum = desired_minimum,
         )
         .in_scope(|| {
             with_snapshots(&self.config.dir, |path, epoch| {
@@ -598,31 +589,21 @@ impl Drop for RocksDBTransactionalContext<'_> {
 
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn commit(mut self) -> Result<(), StoreError> {
-        let _span = trace_span!(
-            amaru::stores::rocksdb::COMMIT,
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "commit".to_string()
-        );
-        let _guard = _span.enter();
-
-        let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
-        let res = transaction.commit().map_err(|err| StoreError::Internal(err.into()));
-        self.host.transaction_ended();
-        res
+        debug_span!(stores::batch::COMMIT).in_scope(|| {
+            let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
+            let res = transaction.commit().map_err(|err| StoreError::Internal(err.into()));
+            self.host.transaction_ended();
+            res
+        })
     }
 
     fn rollback(mut self) -> Result<(), StoreError> {
-        let _span = trace_span!(
-            amaru::stores::rocksdb::ROLLBACK,
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "rollback".to_string()
-        );
-        let _guard = _span.enter();
-
-        let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
-        let res = transaction.rollback().map_err(|err| StoreError::Internal(err.into()));
-        self.host.transaction_ended();
-        res
+        debug_span!(stores::batch::ROLLBACK).in_scope(|| {
+            let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
+            let res = transaction.rollback().map_err(|err| StoreError::Internal(err.into()));
+            self.host.transaction_ended();
+            res
+        })
     }
 
     fn reset_epoch_transition_progress(&self) -> Result<(), StoreError> {
@@ -634,32 +615,29 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         from: Option<EpochTransitionProgress>,
         to: Option<EpochTransitionProgress>,
     ) -> Result<bool, StoreError> {
-        let _span = trace_span!(
-            amaru::stores::ledger::TRY_EPOCH_TRANSITION,
+        debug_span!(
+            stores::ledger::epoch::TRY_TRANSITION,
             from = from.map(|s| s.to_string()).unwrap_or_else(|| "None".to_string()),
             to = to.map(|s| s.to_string()).unwrap_or_else(|| "None".to_string()),
-            db_system_name = "rocksdb".to_string(),
-            db_operation_name = "put".to_string()
-        );
-        let _guard = _span.enter();
+        )
+        .in_scope(|| {
+            if self.epoch_transition_progress()? != from {
+                return Ok(false);
+            }
 
-        if self.epoch_transition_progress()? != from {
-            return Ok(false);
-        }
+            match to {
+                None => self.db.delete(KEY_PROGRESS),
+                Some(to) => self.db.put(KEY_PROGRESS, as_value(to)),
+            }
+            .map_err(|err| StoreError::Internal(err.into()))?;
 
-        match to {
-            None => self.db.delete(KEY_PROGRESS),
-            Some(to) => self.db.put(KEY_PROGRESS, as_value(to)),
-        }
-        .map_err(|err| StoreError::Internal(err.into()))?;
-
-        Ok(true)
+            Ok(true)
+        })
     }
 
-    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
-    /// deposit.
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded deposit.
     fn refund(&self, credential: &scolumns::accounts::Key, deposit: Lovelace) -> Result<Lovelace, StoreError> {
-        accounts::set(&self.db, credential, |balance| balance + deposit)
+        accounts::set_rewards(&self.db, credential, |balance| balance + deposit)
     }
 
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<(), StoreError> {
@@ -760,12 +738,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             }
             _ => {
                 let tip = point.slot_or_default();
-                trace_record!(
-                    amaru_observability::amaru::stores::rocksdb::SAVE_POINT,
-                    slot = tip,
-                    db_system_name = "rocksdb".to_string(),
-                    db_operation_name = "write".to_string()
-                );
                 self.db.put(KEY_TIP, as_value(point)).map_err(|err| StoreError::Internal(err.into()))?;
 
                 let current_epoch =
@@ -788,7 +760,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 let voting_dreps = votes::add(&self.db, add.votes)?;
 
                 // Reset validity period of voting dreps.
-                if !voting_dreps.is_empty() {
+                if !voting_dreps.is_empty() && !self.host.incremental_save {
                     dreps::set_valid_until(&self.db, voting_dreps, drep_validity)?;
                 }
 
@@ -801,7 +773,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
                 // When a proposal is seen during a dormant period, we flush the current dormant
                 // epochs counter on each drep.
-                if governance_activity.consecutive_dormant_epochs > 0 && proposals_count > 0 {
+                if governance_activity.consecutive_dormant_epochs > 0
+                    && proposals_count > 0
+                    && !self.host.incremental_save
+                {
                     self.with_dreps(|iterator| {
                         for (_, mut entry) in iterator {
                             if let Some(row) = entry.borrow_mut() {
@@ -894,21 +869,23 @@ fn split_continuous(input: Vec<u64>) -> Vec<Vec<u64>> {
 }
 
 fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
-    let snapshots = RocksDB::snapshots(dir)?;
-    let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
-    let snapshot_count = snapshots.len() as u64;
-    let continuous_ranges = snapshots_ranges.len() as u64;
-    trace_record!(
-        amaru_observability::amaru::stores::rocksdb::VALIDATE_SNAPSHOTS,
-        snapshot_count = snapshot_count,
-        continuous_ranges = continuous_ranges,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "scan".to_string()
-    );
-    if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
-        return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
-    }
-    Ok(())
+    debug_span!(stores::ledger::snapshots::VALIDATE).in_scope(|| {
+        let snapshots = RocksDB::snapshots(dir)?;
+        let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
+        let snapshot_count = snapshots.len() as u64;
+        let continuous_ranges = snapshots_ranges.len() as u64;
+
+        trace_record!(
+            stores::ledger::snapshots::VALIDATE,
+            snapshot_count = snapshot_count,
+            continuous_ranges = continuous_ranges
+        );
+
+        if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
+            return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
+        }
+        Ok(())
+    })
 }
 
 fn set_default_opts(mut opts: Options) -> Options {
@@ -995,45 +972,39 @@ fn with_prefix_iterator<
     collection: &'static str,
     mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
 ) -> Result<(), StoreError> {
-    let _span = trace_span!(
-        amaru::stores::ledger::columns::ITER_SCAN,
-        db_system_name = "rocksdb".to_string(),
-        db_operation_name = "scan".to_string(),
-        db_collection_name = collection.to_string()
-    );
-    let _guard = _span.enter();
+    debug_span!(stores::ledger::ITER_SCAN, db_collection_name = collection).in_scope(|| {
+        let mut iterator = amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+            // FIXME: clarify what kind of errors can come from the database at this point.
+            // We are merely iterating over a collection.
+            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+        }));
 
-    let mut iterator = amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-        // FIXME: clarify what kind of errors can come from the database at this point.
-        // We are merely iterating over a collection.
-        item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-    }));
+        with(iterator.as_iter_borrow());
 
-    with(iterator.as_iter_borrow());
-
-    let rows_scanned = iterator.rows_seen();
-    let mut rows_written: u64 = 0;
-    let mut rows_deleted: u64 = 0;
-    for (k, v) in iterator.into_iter_updates() {
-        match v {
-            Some(v) => {
-                rows_written += 1;
-                db.put(k, as_value(v))
+        let rows_scanned = iterator.rows_seen();
+        let mut rows_written: u64 = 0;
+        let mut rows_deleted: u64 = 0;
+        for (k, v) in iterator.into_iter_updates() {
+            match v {
+                Some(v) => {
+                    rows_written += 1;
+                    db.put(k, as_value(v))
+                }
+                None => {
+                    rows_deleted += 1;
+                    db.delete(k)
+                }
             }
-            None => {
-                rows_deleted += 1;
-                db.delete(k)
-            }
+            .map_err(|err| StoreError::Internal(err.into()))?;
         }
-        .map_err(|err| StoreError::Internal(err.into()))?;
-    }
-    trace_record!(
-        amaru_observability::amaru::stores::ledger::columns::ITER_SCAN,
-        rows_scanned = rows_scanned,
-        rows_written = rows_written,
-        rows_deleted = rows_deleted
-    );
-    Ok(())
+        trace_record!(
+            stores::ledger::ITER_SCAN,
+            rows_scanned = rows_scanned,
+            rows_written = rows_written,
+            rows_deleted = rows_deleted
+        );
+        Ok(())
+    })
 }
 
 // Tests

@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    mem,
     ops::Deref,
 };
 
@@ -22,8 +21,7 @@ use amaru_kernel::{
     Epoch, Hash, Lovelace, PoolId, PoolParams, RewardAccount, StakeCredential, expect_stake_credential, hash,
     pool_metadata, rational_number, relay,
 };
-use amaru_observability::info_span;
-use tracing::debug;
+use amaru_observability::{debug, info_span};
 
 use crate::store::columns::pools::Row as Pool;
 
@@ -46,7 +44,7 @@ impl PoolsEpochTransitionUpdates {
     /// Create a new transition update from a read-only store and the epoch that is *beginning*. So
     /// when transitioning from e -> e + 1; 'epoch' is e + 1.
     pub fn new(pools_iter: impl Iterator<Item = (PoolId, Pool)>, epoch: Epoch) -> Self {
-        info_span!(amaru_observability::amaru::ledger::epoch_transition::NEW_POOLS_UPDATES).in_scope(|| {
+        info_span!(ledger::epoch_transition::NEW_POOLS_UPDATES).in_scope(|| {
             let mut pools_updates = Self::default();
 
             for (_pool_id, pool) in pools_iter {
@@ -61,16 +59,8 @@ impl PoolsEpochTransitionUpdates {
         &self.retired
     }
 
-    pub fn take_retired(&mut self) -> BTreeSet<PoolId> {
-        mem::take(&mut self.retired)
-    }
-
     pub fn updated(&self) -> &BTreeMap<PoolId, Pool> {
         &self.updated
-    }
-
-    pub fn take_updated(&mut self) -> BTreeMap<PoolId, Pool> {
-        mem::take(&mut self.updated)
     }
 
     pub fn refunds(&self) -> impl Iterator<Item = (&StakeCredential, Lovelace)> {
@@ -142,16 +132,16 @@ impl PoolsEpochTransitionUpdates {
             let metadata = set(&mut current_params.metadata, metadata, pool_metadata::fmt);
 
             debug!(
-                name: "pool.update",
+                ledger::epoch_transition::TICK_POOL,
                 id = %pool_id,
-                vrf,
-                pledge,
-                cost,
-                margin,
-                reward_account,
-                owners,
-                relays,
-                metadata,
+                @vrf,
+                @pledge,
+                @cost,
+                @margin,
+                @reward_account,
+                @owners,
+                @relays,
+                @metadata,
             );
 
             true
@@ -170,7 +160,7 @@ impl PoolsEpochTransitionUpdates {
     }
 
     fn retire_pool(&mut self, epoch: Epoch, pool: Pool) {
-        debug!(name: "pool.retire", id = %pool.id());
+        debug!(ledger::epoch_transition::RETIRE_POOL, id = %pool.id());
 
         self.retired.insert(pool.id());
         self.refunds

@@ -187,14 +187,8 @@ impl<'a> TxInfo<'a> {
     }
 
     /// Construct all script contexts for this TxInfo
-    pub fn to_script_contexts(&self) -> Vec<(ScriptContext<'_>, &BorrowedScript<'_>)> {
-        self.redeemers
-            .iter()
-            .filter_map(|(key, entry)| {
-                let script_context = ScriptContext::new(self, key)?;
-                Some((script_context, &entry.script))
-            })
-            .collect()
+    pub fn to_script_contexts(&self) -> Vec<(&RedeemerKey, ScriptContext<'_>, &BorrowedScript<'_>)> {
+        self.redeemers.iter().map(|(key, entry)| (key, ScriptContext::new(self, key, entry), &entry.script)).collect()
     }
 
     fn translate_inputs(

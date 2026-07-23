@@ -37,21 +37,21 @@ define_local_schemas! {
 }
 
 fn trace_private_schema(key_id: String) {
-    let _span = trace_span!(security::secrets::PRIVATE_SECRET, key_id = &key_id);
+    let _span = trace_span!(crate::security::secrets::PRIVATE_SECRET, key_id = &key_id);
     let _guard = _span.enter();
 }
 
 fn trace_public_schema(key_name: String) {
-    let _span = trace_span!(security::secrets::PUBLIC_SECRET, key_name = &key_name);
+    let _span = trace_span!(crate::security::secrets::PUBLIC_SECRET, key_name = &key_name);
     let _guard = _span.enter();
 }
 
 fn trace_record_private_schema(key_id: String) {
-    trace_record!(security::secrets::PRIVATE_SECRET, key_id = key_id);
+    trace_record!(crate::security::secrets::PRIVATE_SECRET, key_id = key_id);
 }
 
 fn trace_span_private_schema(key_id: String) {
-    let _span = trace_span!(security::secrets::PRIVATE_SECRET, key_id = &key_id);
+    let _span = trace_span!(crate::security::secrets::PRIVATE_SECRET, key_id = &key_id);
     let _guard = _span.enter();
 }
 
@@ -73,7 +73,7 @@ fn test_schema_visibility_in_schemas() {
 fn test_disabled_private_span_skips_field_evaluation() {
     PRIVATE_FIELD_EVALUATIONS.store(0, Ordering::SeqCst);
 
-    let _span = trace_span!(security::secrets::PRIVATE_SECRET, key_id = count_private_field_evaluation());
+    let _span = trace_span!(crate::security::secrets::PRIVATE_SECRET, key_id = count_private_field_evaluation());
 
     assert_eq!(PRIVATE_FIELD_EVALUATIONS.load(Ordering::SeqCst), 0);
 }

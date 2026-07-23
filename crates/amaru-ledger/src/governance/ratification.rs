@@ -97,11 +97,8 @@ impl<'distr> RatificationContext<'distr> {
         treasury: Lovelace,
     ) -> Result<Self, StoreError> {
         let epoch = snapshot.epoch();
-        info_span!(
-            amaru_observability::amaru::ledger::governance::NEW_RATIFICATION_CONTEXT,
-            ratifying_epoch = u64::from(epoch)
-        )
-        .in_scope(|| {
+
+        info_span!(ledger::governance::NEW_RATIFICATION_CONTEXT, ratifying_epoch = epoch).in_scope(|| {
             let constitutional_committee = match snapshot.constitutional_committee()? {
                 ConstitutionalCommitteeStatus::NoConfidence => None,
                 ConstitutionalCommitteeStatus::Trusted { threshold } => {
@@ -157,8 +154,8 @@ impl<'distr> RatificationContext<'distr> {
         roots: ProposalsRootsRc,
     ) -> Result<ProposalsRootsRc, RatificationInternalError> {
         info_span!(
-            amaru_observability::amaru::ledger::governance::RATIFY_PROPOSALS,
-            epoch = u64::from(self.epoch),
+            ledger::governance::RATIFY_PROPOSALS,
+            epoch = self.epoch,
             roots_protocol_parameters = opt_root(roots.protocol_parameters.as_deref()),
             roots_hard_fork = opt_root(roots.hard_fork.as_deref()),
             roots_constitutional_committee = opt_root(roots.constitutional_committee.as_deref()),
@@ -286,7 +283,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
-            amaru_observability::amaru::ledger::governance::ENACTING,
+            ledger::governance::ENACTING,
             proposal_id = id.to_compact_string(),
             proposal_kind = proposal.display_kind(),
         )
@@ -294,7 +291,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
-            amaru_observability::amaru::ledger::governance::RATIFYING,
+            ledger::governance::RATIFYING,
             proposal_id = id.to_compact_string(),
             proposal_kind = proposal.display_kind(),
         )

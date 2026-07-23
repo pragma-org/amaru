@@ -1,12 +1,12 @@
 {
-  "title": "reference-script-size-at-limit",
+  "title": "reference scripts size exactly at per-tx limit",
   "description": "Reference scripts size (50 bytes) exactly equals the per-tx limit.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json",
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
     "$override": {
       "maxReferenceScriptsSize": 50
     }

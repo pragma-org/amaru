@@ -1,0 +1,70 @@
+schema-version = "1.12.0"
+
+[install]
+# Haskell toolchain. cardano-node 10.5.x (which the cabal.project pins)
+# tested against GHC 9.6.x
+cabal-install.pkg-path = "cabal-install"
+
+# Build tools the Makefile relies on.
+gnumake.pkg-path = "gnumake"
+gnumake.outputs = "all"
+pkg-config.pkg-path = "pkg-config"
+pkg-config.outputs = "all"
+autoconf.pkg-path = "autoconf"
+autoconf.outputs = "all"
+libtool.pkg-path = "libtool"
+libtool.outputs = "all"
+automake.pkg-path = "automake"
+
+# Native deps for the Haskell stack and crypto libs.
+libffi.pkg-path = "libffi"
+libffi.outputs = "all"
+zlib.pkg-path = "zlib"
+zlib.outputs = "all"
+gmp.pkg-path = "gmp"
+gmp.outputs = "all"
+libsodium.pkg-path = "libsodium"
+libsodium.outputs = "all"
+llvm.pkg-path = "llvm"
+llvm.outputs = "all"
+lmdb.pkg-path = "lmdb"
+lmdb.outputs = "all"
+pcre.pkg-path = "pcre"           # for `regex-pcre*` Haskell bindings (PCRE 1)
+pcre.outputs = "all"
+# pcre2.pkg-path = "pcre2"        # uncomment if cabal pulls in a PCRE-2-based binding
+# pcre2.outputs = "all"
+openssl.pkg-path = "openssl"
+openssl.outputs = "all"
+secp256k1.pkg-path = "secp256k1"
+secp256k1.outputs = "all"
+blst.pkg-path = "blst"
+blst.outputs = "all"
+hls.flake = "github:flox/nixpkgs/d407951447dcd00442e97087bf374aad70c04cea#haskell.packages.ghc96.haskell-language-server"
+jq.pkg-path = "jq"
+ghc984.pkg-path = "haskell.compiler.ghc984"
+
+# Tricorder conformance tool (haskell.nix flake; provides x86_64-linux + aarch64-darwin).
+tricorder.flake = "github:atelier-hub/tricorder#tricorder"
+tricorder.systems = ["aarch64-darwin"]
+
+[hook]
+on-activate = '''
+  echo "conformance env active."
+  echo "First build:  make prerequisites && make build"
+  echo "Run the tests: make test"
+
+  # Drop non-existent directories from LIBRARY_PATH: outer flox environments
+  # without library packages contribute dead <env>/lib entries, which clang
+  # forwards as -L flags and the macOS linker warns about.
+  if [ -n "${LIBRARY_PATH:-}" ]; then
+    LIBRARY_PATH="$(echo "$LIBRARY_PATH" | tr ':' '\n' | while IFS= read -r dir; do [ -d "$dir" ] && printf '%s\n' "$dir"; done | paste -sd: -)"
+    export LIBRARY_PATH
+  fi
+  '''
+[profile]
+common = '''
+  alias conformance='./.build/bin/conformance'
+  '''
+
+[options]
+systems = ["x86_64-linux", "aarch64-linux", "aarch64-darwin", "x86_64-darwin"]

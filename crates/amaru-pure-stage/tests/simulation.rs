@@ -24,8 +24,8 @@ use std::{
 };
 
 use amaru_pure_stage::{
-    Effect, ExternalEffect, Instant, Name, OrTerminateWith, OutputEffect, Receiver, Resources, SendData, StageGraph,
-    StageGraphRunning, StageRef, StageResponse, UnknownExternalEffect,
+    Effect, ExternalEffect, Instant, Name, OrTerminateWith, OutputEffect, PRIORITY_MAILBOX_SIZE, Receiver, Resources,
+    ScheduleId, SendData, StageGraph, StageGraphRunning, StageRef, StageResponse, UnknownExternalEffect,
     serde::SendDataValue,
     simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
     trace_buffer::{TraceBuffer, TraceEntry},
@@ -156,7 +156,7 @@ fn automatic() {
     assert_eq!(replay.is_idle(in_ref.name()), true);
     assert_eq!(replay.is_terminating(output.name()), false);
     assert_eq!(replay.is_idle(output.name()), true);
-    assert_eq!(replay.clock(), Instant::at_offset(Duration::from_secs(30)));
+    assert_eq!(replay.clock(), Instant::at_offset(Duration::from_secs(30), Duration::ZERO));
 }
 
 #[test]
@@ -285,6 +285,118 @@ fn backpressure() {
     running.run_until_blocked().assert_idle();
 
     assert_eq!(*running.get_state(&pressure).unwrap(), 7);
+}
+
+/// Self-scheduled messages are delivered via the priority path even when the bulk mailbox is full,
+/// and are preferred over bulk messages when both are pending.
+#[test]
+fn schedule_delivered_despite_full_bulk_mailbox() {
+    tracing_subscriber::fmt().with_test_writer().with_env_filter(EnvFilter::from_default_env()).try_init().ok();
+
+    let mut network = SimulationBuilder::default().with_mailbox_size(1);
+
+    let stage = network.stage("stage", async |mut state: Vec<u32>, msg: u32, eff| {
+        if msg == 0 {
+            // Schedule control message immediately, then suspend so bulk can fill the mailbox.
+            eff.schedule_after(99, Duration::ZERO).await;
+            eff.clock().await;
+        }
+        state.push(msg);
+        state
+    });
+    let stage = network.wire_up(stage, Vec::<u32>::new());
+    let mut running = network.run();
+
+    running.enqueue_msg(&stage, [0u32]);
+    running.breakpoint("clock", {
+        let stage = stage.clone();
+        move |eff| matches!(eff, Effect::Clock { at_stage } if at_stage == stage.name())
+    });
+
+    // Run until schedule is registered and clock is hit; due schedule may already be in priority.
+    let clock_eff = running.run_until_blocked().assert_breakpoint("clock");
+
+    // Fill bulk mailbox while stage is suspended on clock.
+    running.enqueue_msg(&stage, [1u32]);
+    assert_eq!(running.mailbox_len(&stage), 1);
+
+    // Resume clock; stage finishes msg 0. Next receives must prefer priority (99) over bulk (1).
+    running.clear_breakpoint("clock");
+    running.handle_effect(clock_eff);
+    running.run_until_blocked().assert_idle();
+
+    let state = running.get_state(&stage).unwrap();
+    assert!(state.contains(&99), "scheduled control message must be delivered: {state:?}");
+    assert!(state.contains(&1), "bulk message must still be delivered: {state:?}");
+    // Control (priority) before remaining bulk.
+    let pos_ctrl = state.iter().position(|m| *m == 99).unwrap();
+    let pos_bulk = state.iter().position(|m| *m == 1).unwrap();
+    assert!(pos_ctrl < pos_bulk, "priority message must precede bulk: {state:?}");
+}
+
+#[test]
+fn schedule_cap_panics_at_limit_plus_one() {
+    tracing_subscriber::fmt().with_test_writer().with_env_filter(EnvFilter::from_default_env()).try_init().ok();
+
+    // Use an explicit limit (not the default) so the test documents configurability.
+    const LIMIT: usize = 3;
+    let mut network = SimulationBuilder::default().with_priority_mailbox_size(LIMIT);
+    let stage = network.stage("stage", async |state: (), msg: u32, eff| {
+        if msg == 0 {
+            for i in 0..=LIMIT as u32 {
+                // Future schedules so they stay outstanding without being received.
+                eff.schedule_after(i + 1, Duration::from_secs(10)).await;
+            }
+        }
+        state
+    });
+    let stage = network.wire_up(stage, ());
+    let mut running = network.run();
+
+    running.enqueue_msg(&stage, [0u32]);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        running.run_until_blocked();
+    }));
+    assert!(result.is_err(), "expected panic when exceeding configured priority mailbox size");
+}
+
+#[test]
+fn cancel_schedule_frees_priority_slot() {
+    tracing_subscriber::fmt().with_test_writer().with_env_filter(EnvFilter::from_default_env()).try_init().ok();
+
+    let mut network = SimulationBuilder::default().with_priority_mailbox_size(PRIORITY_MAILBOX_SIZE);
+    let stage = network.stage("stage", async |state: Option<ScheduleId>, msg: u32, eff| {
+        match msg {
+            0 => {
+                let mut last = None;
+                for i in 0..PRIORITY_MAILBOX_SIZE as u32 {
+                    // Far-future so they stay armed until we cancel (do not auto-advance into them).
+                    last = Some(eff.schedule_after(100 + i, Duration::from_secs(10)).await);
+                }
+                last
+            }
+            1 => {
+                let id = state.expect("id from previous message");
+                assert!(eff.cancel_schedule(id).await);
+                // Slot freed: one more schedule must succeed without exceeding the cap.
+                eff.schedule_after(200, Duration::from_secs(10)).await;
+                None
+            }
+            _ => state,
+        }
+    });
+    let stage = network.wire_up(stage, None);
+    let mut running = network.run();
+
+    running.enqueue_msg(&stage, [0u32]);
+    // Stop at Sleeping so far-future schedules are not delivered yet.
+    running.run_until_sleeping_or_blocked().assert_sleeping();
+    assert!(running.get_state(&stage).unwrap().is_some());
+
+    running.enqueue_msg(&stage, [1u32]);
+    running.run_until_sleeping_or_blocked().assert_sleeping();
+    // No panic and state cleared after successful cancel+reschedule.
+    assert!(running.get_state(&stage).unwrap().is_none());
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -681,7 +793,10 @@ fn virtual_child_stages() {
     running.resume_receive(&parent).unwrap();
 
     // Run the simulation using the high-level automatic driver (the style used by consensus tests).
-    running.run_until_blocked_or_time_incl_effects(Instant::at_offset(Duration::from_secs(1)), rt.handle());
+    running.run_until_blocked_or_time_incl_effects(
+        Instant::at_offset(Duration::from_secs(1), Duration::ZERO),
+        rt.handle(),
+    );
 
     // Because the child was virtual, its logic never ran → nothing reached the output.
     assert!(rx.drain().collect::<Vec<_>>().is_empty(), "virtual child must not produce any output");

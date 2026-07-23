@@ -19,24 +19,24 @@
         pkgs = import nixpkgs { inherit system; };
         release = {
           x86_64-linux = {
-            archive = "amaru-10.10.20260709-linux-x86_64.tar.gz";
-            hash = "sha256-r6k2lR3bmGm60tUqnJ11fPMGyNiLgMX9Zff/fGIuLjQ=";
+            archive = "amaru-10.11.20260723-linux-x86_64.tar.gz";
+            hash = "sha256-9KX+0+DbYue+2Wl6XpgMZfZsz4ybWdLgGW3GMPgRDj0=";
           };
           aarch64-linux = {
-            archive = "amaru-10.10.20260709-linux-aarch64.tar.gz";
-            hash = "sha256-+UTzUl04l8lXcg4/OaUUy9kF6CWq7BzPRNBLEfVPkEM=";
+            archive = "amaru-10.11.20260723-linux-aarch64.tar.gz";
+            hash = "sha256-dRtEMEfybOqq9YIcnWxo7+yxX9UYrs/Ewj2jEDNyawk=";
           };
           aarch64-darwin = {
-            archive = "amaru-10.10.20260709-macos-aarch64.tar.gz";
-            hash = "sha256-9iThwHE14KmrdKBDhNbz8rACLZKH+qVw4VJ5NPu/G/A=";
+            archive = "amaru-10.11.20260723-macos-aarch64.tar.gz";
+            hash = "sha256-cbYZ/U/8xKCd7Eq1kPHWHenhTeviuMbxXk9eIoFF6mE=";
           };
         }.${system};
 
         amaru = pkgs.stdenvNoCC.mkDerivation {
           pname = "amaru";
-          version = "10.10.20260709";
+          version = "10.11.20260723";
           src = pkgs.fetchurl {
-            url = "https://github.com/pragma-org/amaru/releases/download/v10.10.20260709/${release.archive}";
+            url = "https://github.com/pragma-org/amaru/releases/download/v10.11.20260723/${release.archive}";
             hash = release.hash;
           };
 

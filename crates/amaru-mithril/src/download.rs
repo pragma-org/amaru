@@ -18,7 +18,7 @@ use amaru_kernel::NetworkName;
 use amaru_progress_bar::ProgressBar;
 use async_trait::async_trait;
 use mithril_client::{
-    ClientBuilder, MessageBuilder,
+    ClientBuilder, GenesisVerificationKey, MessageBuilder,
     cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
@@ -119,7 +119,8 @@ pub async fn download_from_mithril(
     with_progress: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let AggregatorDetails { endpoint, verification_key } = aggregator_details(network)?;
-    let client = ClientBuilder::aggregator(endpoint, verification_key)
+    let client = ClientBuilder::new(mithril_client::AggregatorDiscoveryType::Url(endpoint.to_string()))
+        .set_genesis_verification_key(GenesisVerificationKey::JsonHex(verification_key.into()))
         .with_origin_tag(Some("AMARU".to_string()))
         .add_feedback_receiver(Arc::new(MithrilFeedbackReceiver::new(with_progress)))
         .build()?;

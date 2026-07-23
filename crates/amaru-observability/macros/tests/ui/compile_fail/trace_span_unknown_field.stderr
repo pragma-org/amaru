@@ -9,7 +9,7 @@ error: Unknown field 'typo' for schema SCHEMA. Available fields: first
 26 | | }
    | |_^
 ...
-29 |       let _span = trace_span!(test::sub::SCHEMA, first = 42_u64, typo = 1_u64);
-   |                   ------------------------------------------------------------ in this macro invocation
+29 |       let _span = trace_span!(crate::test::sub::SCHEMA, first = 42_u64, typo = 1_u64);
+   |                   ------------------------------------------------------------------- in this macro invocation
    |
    = note: this error originates in the macro `__TEST__SUB__SCHEMA_RECORD` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

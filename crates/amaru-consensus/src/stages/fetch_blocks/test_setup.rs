@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, Peer, Point, RawBlock, Tip,
+    BlockHeader, EraHistory, HeaderHash, Peer, RawBlock,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
 use amaru_ouroboros_traits::{MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -108,7 +108,7 @@ impl TestPrep {
     }
 
     pub fn schedule_at(&self, duration: Duration) -> ScheduleId {
-        ScheduleIds::default().next_at(Instant::at_offset(duration))
+        ScheduleIds::default().next_at(Instant::at_offset(duration, Duration::ZERO))
     }
 
     pub fn state_with_request(&self, missing: MissingBlocks, req_id: u64, timeout: ScheduleId) -> FetchBlocks {
@@ -130,7 +130,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::Peer>().boxed(),
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<(Tip, Point, BlockHeight)>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<DownloadedBlock>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasBlockEffect>().boxed(),

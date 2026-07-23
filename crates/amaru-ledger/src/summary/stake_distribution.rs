@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{DRep, Epoch, HasLovelace, Hash, Lovelace, PoolId, StakeCredential, expect_stake_credential};
+use amaru_observability::info;
 use serde::ser::SerializeStruct;
-use tracing::info;
 
 use crate::{
     epoch_transition::PoolsEpochTransitionUpdates,
@@ -200,7 +200,7 @@ impl StakeDistribution {
         let Pots { reserves, treasury, .. } = db.pots()?;
 
         info!(
-            name: "stake_distribution.snapshot",
+            ledger::stake_distribution::SNAPSHOT,
             accounts = %accounts.len(),
             dreps = %dreps.len(),
             pools = %pools.len(),

@@ -75,6 +75,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
             match result {
                 TxInsertResult::Accepted { seq_no, .. } => {
+                    tracing::info!(%tx_id, %seq_no, %origin, "transaction accepted into mempool");
                     notify_ready_waiters(&mut state, &eff, seq_no).await;
                 }
                 TxInsertResult::Rejected { tx_id, ref reason } => {
@@ -92,6 +93,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
                 record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
                 match result {
                     TxInsertResult::Accepted { seq_no, .. } => {
+                        tracing::info!(%tx_id, %seq_no, %origin, "transaction accepted into mempool");
                         notify_ready_waiters(&mut state, &eff, seq_no).await;
                     }
                     TxInsertResult::Rejected { tx_id, ref reason } => {
@@ -150,7 +152,7 @@ async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Tip) -> R
 
     tracing::debug!(%tip, invalidated_txs = invalid_tx_ids.len(), "revalidated mempool after new tip");
     RevalidationOutcome {
-        tip_slot: u64::from(tip.slot()),
+        tip_slot: tip.slot(),
         total_before,
         evicted_tx_ids: invalid_tx_ids,
         duration_micros: started.elapsed().as_micros() as u64,

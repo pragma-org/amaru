@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use amaru_kernel::{BlockHeader, EraHistory, HeaderHash, SlotDelta, Tip, make_header};
+use amaru_kernel::{
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
+    num::CheckedSub,
+};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    CanValidateHeaders, HeaderValidationError, MockCanValidateBlocks, MockCanValidateHeaders, WriteChainStore,
+    BaseReadChainStore, MockBlockValidator, PoolSummaries, WriteChainStore, has_stake_pools::MockHasStakePools,
     in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
@@ -26,26 +29,63 @@ use amaru_protocols::{
     store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
 };
 use amaru_pure_stage::{
-    DeserializerGuards, Effect, StageGraph, StageRef, TraceMatch,
+    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
-use anyhow::anyhow;
-use opentelemetry::Context;
 use tokio::runtime::{Builder, Handle, Runtime};
 
-use super::*;
+use super::{NewTip, TrackPeers, TrackPeersMsg, stage};
 use crate::{
     effects::{
-        ResourceBlockValidation, ResourceHasStakePools, ResourceHeaderValidation, TipEffect, ValidateHeaderEffect,
-        VolatileTipEffect,
+        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
+        ResourcePoolSummaries, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
     },
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{Logs, run_simulation},
-        track_peers::defer_req_next::DeferReqNext,
+        test_utils::{
+            Logs, SimulationRunMode, StartTimes, TraceMatch, run_simulation_with, start_in_era, tm_external_effect,
+        },
     },
 };
+
+/// Matches `run_simulation` initial clock (+10s) for schedule id expectations.
+pub const SIM_INITIAL_CLOCK_SECS: u64 = 10;
+
+/// Height recheck poll interval used by the stage (`HEIGHT_RECHECK_INTERVAL`).
+pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
+
+pub fn height_recheck_schedule_id() -> ScheduleId {
+    let when = Instant::at_offset(
+        Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + HEIGHT_RECHECK_INTERVAL,
+        start_in_era().relative_time,
+    );
+    ScheduleIds::default().next_at(when)
+}
+
+pub fn schedule_id_at(delay_from_sim_start: Duration) -> ScheduleId {
+    let when = Instant::at_offset(
+        Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + delay_from_sim_start,
+        start_in_era().relative_time,
+    );
+    ScheduleIds::default().next_at(when)
+}
+
+pub fn te_schedule(
+    at_stage: impl AsRef<str>,
+    msg: impl amaru_pure_stage::SendData,
+    schedule_id: ScheduleId,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::Schedule {
+        at_stage: Name::from(at_stage.as_ref()),
+        msg: Box::new(msg),
+        id: schedule_id,
+    })
+}
+
+pub fn te_clock(instant: Instant) -> TraceEntry {
+    TraceEntry::Clock(instant)
+}
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     let store = Arc::new(InMemoryChainStore::new());
@@ -63,6 +103,7 @@ pub struct TestPrep {
     pub conn_id: ConnectionId,
     /// Three linked headers: [h1, h2, h3] with h1 parent None, h2 parent h1, h3 parent h2.
     pub headers: [BlockHeader; 3],
+    pub start_times: StartTimes,
 }
 
 impl TestPrep {
@@ -73,17 +114,20 @@ impl TestPrep {
 
 /// Creates basic state, runtime, handler, conn_id, and three properly linked headers for tests.
 pub fn test_prep() -> TestPrep {
-    test_prep_with_max_forecast(SlotDelta::from(10_000_000))
+    test_prep_with_max_peer_lead(10_000_000)
 }
 
-/// Creates a `TestPrep` with a configurable slot forecast limit (for testing defer logic).
-pub fn test_prep_with_max_forecast(max_forecast: SlotDelta) -> TestPrep {
+/// Creates a `TestPrep` with a configurable peer lead limit (for testing defer logic).
+pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
+    let start_times = start_in_era();
+    // EraHistory::default() matches synthetic headers at slots 1,2,3 used throughout these tests.
+    // Clock-skew tests map simulation time through this same history (see tests).
     let state = TrackPeers::new(
         EraHistory::default(),
         StageRef::named_for_tests("peer_selection"),
         StageRef::named_for_tests("downstream"),
-        max_forecast,
-        200,
+        max_peer_lead,
+        start_times.epoch.checked_sub(Epoch::TWO).unwrap(),
     );
     let rt = Builder::new_current_thread().build().unwrap();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
@@ -91,7 +135,8 @@ pub fn test_prep_with_max_forecast(max_forecast: SlotDelta) -> TestPrep {
     let h1 = make_block_header(1, 1, None);
     let h2 = make_block_header(2, 2, Some(h1.hash()));
     let h3 = make_block_header(3, 3, Some(h2.hash()));
-    TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3] }
+
+    TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3], start_times }
 }
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
@@ -99,7 +144,7 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
 }
 
 pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header, Context::new()))))
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header))))
 }
 
 pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
@@ -114,13 +159,16 @@ pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
 }
 
-pub fn tm_store_header(at_stage: &str) -> TraceMatch<'_> {
-    TraceMatch::Property(
-        Box::new(
-            move |e| matches!(e, TraceEntry::Suspend(Effect::External { at_stage: at, effect }) if at.as_str() == at_stage && effect.is::<StoreHeaderEffect>()),
-        ),
-        format!("store_header at {}", at_stage),
-    )
+pub fn te_clock_suspend(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::Clock { at_stage: Name::from(at_stage) })
+}
+
+pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
+    tm_external_effect::<VolatileTipEffect>(at_stage)
+}
+
+pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
+    NewTip { tip, parent, trace_context: Default::default() }
 }
 
 fn register_guards() -> DeserializerGuards {
@@ -133,10 +181,9 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<chainsync::InitiatorMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<chainsync::HeaderContent>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<NewTip>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<DeferReqNext>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<DeferReqNextMsg>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
@@ -153,29 +200,23 @@ pub fn setup(
     msg: TrackPeersMsg,
     store: Arc<InMemoryChainStore>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_with_validation(rt, state, msg, store, Arc::new(MockCanValidateHeaders))
+    setup_base(rt, state, [msg], store, |running| {
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+    })
 }
 
-pub fn setup_with_validation(
+/// Forces a specific ledger-applied tip and stops when the sim first sleeps on a scheduled
+/// wakeup (does not auto-advance time). Safe for frozen-height defer tests that arm a recheck
+/// timer without running an infinite height-poll loop.
+pub fn setup_with_ledger_tip_until_sleeping(
     rt: &Handle,
     state: TrackPeers,
-    msg: TrackPeersMsg,
-    store: Arc<InMemoryChainStore>,
-    validation: Arc<dyn CanValidateHeaders + Send + Sync>,
-) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base(rt, state, msg, store, validation, |_| {})
-}
-
-/// Setup variant that forces a specific ledger-applied tip (used to test the defer path).
-pub fn setup_with_ledger_tip(
-    rt: &Handle,
-    state: TrackPeers,
-    msg: TrackPeersMsg,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
     store: Arc<InMemoryChainStore>,
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base(rt, state, msg, store, Arc::new(MockCanValidateHeaders), |running| {
-        // Force the ledger height returned by VolatileTipEffect / TipEffect so we can control defer decisions.
+    setup_base_until_sleeping(rt, state, msg, store, |running| {
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
         running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
             move |_| OverrideResult::handled(ledger_tip)
         });
@@ -183,37 +224,58 @@ pub fn setup_with_ledger_tip(
     })
 }
 
-fn setup_base(
+pub fn setup_base(
     rt: &Handle,
     state: TrackPeers,
-    msg: TrackPeersMsg,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
     store: Arc<InMemoryChainStore>,
-    validation: Arc<dyn CanValidateHeaders + Send + Sync>,
     overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
-    run_simulation(
+    setup_inner(rt, state, msg, store, overrides, true)
+}
+
+fn setup_base_until_sleeping(
+    rt: &Handle,
+    state: TrackPeers,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
+    store: Arc<InMemoryChainStore>,
+    overrides: impl FnOnce(&mut SimulationRunning),
+) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_inner(rt, state, msg, store, overrides, false)
+}
+
+fn setup_inner(
+    rt: &Handle,
+    state: TrackPeers,
+    msg: impl IntoIterator<Item = TrackPeersMsg>,
+    store: Arc<InMemoryChainStore>,
+    overrides: impl FnOnce(&mut SimulationRunning),
+    advance_wakeups: bool,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
+    use amaru_pure_stage::StageGraph;
+
+    let mode = if advance_wakeups { SimulationRunMode::UntilBlocked } else { SimulationRunMode::UntilSleeping };
+    run_simulation_with(
         rt,
         register_guards(),
         |network| {
             let tp = network.stage("tp", stage);
             let tp = network.wire_up(tp, state);
-            network.preload(&tp, [msg]).unwrap();
+            network.preload(&tp, msg).unwrap();
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());
-            resources.put::<ResourceHeaderValidation>(validation);
-            let block_validation = Arc::new(MockCanValidateBlocks);
+            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());
-            resources.put::<ResourceHasStakePools>(block_validation);
+            resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
+            let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
+            let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
+            let cp = Arc::new(ConsensusParameters::new(global, &era_history, Default::default()));
+            resources.put::<ResourceConsensusParameters>(cp);
+            resources.put::<ResourceEraHistory>(era_history);
+            resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
         },
         overrides,
+        mode,
     )
-}
-
-pub struct FailingHeaderValidation;
-
-impl CanValidateHeaders for FailingHeaderValidation {
-    fn validate_header(&self, _header: &BlockHeader) -> Result<(), HeaderValidationError> {
-        Err(HeaderValidationError::new(anyhow!("header validation failed: booyah!")))
-    }
 }

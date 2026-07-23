@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::VecDeque;
+
 use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
 
 mod db;
 pub use db::{RewardsAtTip, VolatileDB};
 
 mod overlay;
+use overlay::StateOverlay;
 
 mod fragment;
 pub use fragment::{
@@ -73,9 +76,31 @@ pub trait VolatileSequence {
 
     fn pop_front(&mut self) -> Option<Self::Item>;
     fn push_back(&mut self, item: Self::Item);
+}
 
-    fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point>;
-    fn clear(&mut self);
+#[derive(Debug)]
+pub struct RollbackGuard<'a> {
+    fork_point: &'a Point,
+    recovery: VolatileDBRecovery,
+}
+
+/// The discarded parts of a within-window rollback, enough to restore the pre-rollback state after
+/// an arbitrary sequence of roll-forwards (a fork switch replays blocks before it may recover).
+///
+/// Recovery works by first stripping the replayed blocks (rolling the live series back to
+/// `fork_point`) and then re-attaching what was discarded and restoring the overlay snapshot. Only
+/// the overlay is cloned; the series parts are moved out at rollback time.
+#[derive(Debug)]
+pub enum VolatileDBRecovery {
+    /// The rollback stayed within the current epoch: only a suffix of `current` was removed.
+    RecoverInEpoch { discarded: VecDeque<AnchoredVolatileFragment>, overlay: StateOverlay },
+    /// The rollback crossed the epoch boundary: the opening-epoch `current` was discarded and the
+    /// `draining` series was promoted and split.
+    RecoverAcrossEpoch {
+        old_current: VolatileSeries,
+        drained: VecDeque<AnchoredVolatileFragment>,
+        overlay: StateOverlay,
+    },
 }
 
 /// Shared test fixtures for the volatile keystone proptests, used by both `series` and `db`: a

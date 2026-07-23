@@ -1,0 +1,48 @@
+schema-version = "1.12.0"
+
+[install]
+# Orchestrates the demo processes defined in each demo's process-compose.yaml.
+process-compose.pkg-path = "process-compose"
+
+# Used throughout the demo scripts: JSON parsing (jq), downloads and Koios/Submit
+# API calls (curl), database synchronization into per-node run directories (rsync).
+jq.pkg-path = "jq"
+curl.pkg-path = "curl"
+rsync.pkg-path = "rsync"
+
+# Hex encoding of signed transaction CBOR in tx.sh.
+xxd.pkg-path = "unixtools.xxd"
+
+# Rust toolchain manager for building the amaru node; the repository's
+# rust-toolchain.toml selects the pinned nightly on first cargo invocation.
+rustup.pkg-path = "rustup"
+
+[hook]
+on-activate = '''
+  # cardano-cli is not packaged in the Flox catalog. The demo `setup` step downloads
+  # a cardano-node release (which bundles cardano-cli) into $LOGDIR, so point
+  # CARDANO_CLI at that copy when no cardano-cli is already on PATH.
+  if [[ -z "${CARDANO_CLI:-}" ]] && ! command -v cardano-cli >/dev/null 2>&1; then
+    for candidate in /tmp/amaru-*/cardano-node-*/bin/cardano-cli; do
+      if [[ -x "$candidate" ]]; then
+        export CARDANO_CLI="$candidate"
+        break
+      fi
+    done
+  fi
+
+  # The telemetry stack (Grafana/Tempo/Prometheus) needs a Docker daemon, which
+  # Flox cannot provide. Run the demos with START_TELEMETRY=false when Docker is
+  # not available on the host.
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "note: docker not found; run the demos with START_TELEMETRY=false" >&2
+  fi
+'''
+
+[options]
+systems = [
+  "aarch64-darwin",
+  "x86_64-darwin",
+  "aarch64-linux",
+  "x86_64-linux",
+]

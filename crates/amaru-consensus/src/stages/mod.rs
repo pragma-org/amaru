@@ -18,7 +18,8 @@ pub mod fetch_blocks;
 pub mod mempool;
 pub mod peer_selection;
 pub mod select_chain;
-#[cfg(test)]
-pub mod test_utils;
 pub mod track_peers;
 pub mod validate_block;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;

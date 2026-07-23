@@ -3,8 +3,7 @@ export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 AWS_DEFAULT_REGION ?= auto
 BUCKET_NAME ?=
 ENDPOINT ?=
-HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
-RUN_UNTIL_TARGET_EPOCH ?= 182
+HASKELL_NODE_CONFIG_DIR ?= cardano-node-config/$(AMARU_NETWORK)
 HASKELL_NODE_CONFIG_REPOSITORY := https://raw.githubusercontent.com/input-output-hk/cardano-playground
 HASKELL_NODE_CONFIG_DIRECTORY := static/book.play.dev.cardano.org/environments
 CARDANO_NODE_CONFIG_COMMIT := 791baff19a998a0cee840d6abbd8fcaa23e8f826
@@ -55,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help bootstrap create-bootstrap-snapshots publish-bootstrap-snapshots start download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version dev generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix
+.PHONY: help bootstrap create-bootstrap-snapshots publish-bootstrap-snapshots download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -94,12 +93,12 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/shelley-genesis.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/topology.json"
 
-build: ## &build Compile for $BUILD_PROFILE
-	cargo build --profile $(BUILD_PROFILE) $(ARGS)
-
 sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
 	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
+
+refresh: ## &start Refresh chain and ledger databases from the latest Mithril snapshot, moving the current ones to *.backup
+	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(BUILD_PROFILE)" INSTALL=true REPLACE_EXISTING=true ./scripts/refresh-from-mithril
 
 generate-traces-doc: ## &build Generate documentation for Amaru's tracing spans
 	@./scripts/generate-traces-doc
@@ -134,11 +133,12 @@ validate-trace-schemas: ## &test Validate generated trace schemas against docs/t
 		exit 1; \
 	fi
 
-dev: start # 'backward-compatibility'; might remove after a while.
-start: ## &build Compile and run for $BUILD_PROFILE with default options
-	cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) run $(ARGS)
-
 run-until: ## &test Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
+	@set -e; \
+	if [ -z "$(RUN_UNTIL_TARGET_EPOCH)" ]; then \
+		echo "RUN_UNTIL_TARGET_EPOCH must be set" >&2; \
+		exit 1; \
+	fi; \
 	./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
 
 compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CONTRACT) including performance thresholds
@@ -194,9 +194,6 @@ ledger-conformance-known-failures: ## &test Update the set of 'known conformance
 
 regenerate-cbor-fixtures: ## &test Regenerate cuddle/antigen CBOR fixtures (requires GHC + cabal)
 	@./scripts/regenerate-cbor-fixtures
-
-test-e2e: ## &test Run snapshot tests, assuming snapshots are available
-	cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 
 check-llvm-cov: ## &test Check if cargo-llvm-cov is installed, install if not
 	@if ! cargo llvm-cov --version >/dev/null 2>&1; then \

@@ -6,3 +6,4 @@
 data/**/*.json linguist-generated=true linguist-vendored
 crates/amaru-ledger/tests/data/rules-conformance/**/* linguist-generated=true linguist-vendored
 crates/amaru-ledger/tests/data/**/*.cbor linguist-generated=true linguist-vendored
+CHANGELOG.md merge=union

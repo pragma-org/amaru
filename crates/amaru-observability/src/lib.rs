@@ -16,9 +16,50 @@ pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
 // the amaru module with all schema constants and validation macros
 mod schemas;
+mod trace_context;
+
 // Re-export the macros for convenient use
-pub use amaru_observability_macros::{define_schemas, trace_record, trace_span};
+pub use amaru_observability_macros::{define_schemas, trace_event, trace_record, trace_span};
+pub use opentelemetry;
 pub use schemas::*;
+pub use trace_context::TraceContext;
+pub use tracing;
+pub use tracing_opentelemetry;
+
+#[macro_export]
+macro_rules! trace {
+    ($($rest:tt)*) => {
+        $crate::trace_event!(TRACE, $($rest)*);
+    };
+}
+
+#[macro_export]
+macro_rules! debug {
+    ($($rest:tt)*) => {
+        $crate::trace_event!(DEBUG, $($rest)*);
+    };
+}
+
+#[macro_export]
+macro_rules! info {
+    ($($rest:tt)*) => {
+        $crate::trace_event!(INFO, $($rest)*);
+    };
+}
+
+#[macro_export]
+macro_rules! warn {
+    ($($rest:tt)*) => {
+        $crate::trace_event!(WARN, $($rest)*);
+    };
+}
+
+#[macro_export]
+macro_rules! error {
+    ($($rest:tt)*) => {
+        $crate::trace_event!(ERROR, $($rest)*);
+    };
+}
 
 #[macro_export]
 macro_rules! debug_span {
@@ -31,5 +72,19 @@ macro_rules! debug_span {
 macro_rules! info_span {
     ($($rest:tt)*) => {
         $crate::trace_span!(INFO, $($rest)*)
+    };
+}
+
+#[macro_export]
+macro_rules! debug_record {
+    ($($rest:tt)*) => {
+        $crate::trace_record!(DEBUG, $($rest)*)
+    };
+}
+
+#[macro_export]
+macro_rules! info_record {
+    ($($rest:tt)*) => {
+        $crate::trace_record!(INFO, $($rest)*)
     };
 }

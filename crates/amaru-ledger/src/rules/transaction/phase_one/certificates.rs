@@ -67,6 +67,9 @@ pub enum InvalidCertificates {
     #[error("pool retirement epoch out of range: epoch {epoch}, must satisfy {current_epoch} < epoch <= {max_epoch}")]
     PoolRetirementWrongEpoch { epoch: Epoch, current_epoch: Epoch, max_epoch: Epoch },
 
+    #[error("unknown pool: {0}")]
+    StakePoolUnknown(#[from] UnregisterError<PoolId, PoolId>),
+
     #[error("incorrect stake deposit: provided {provided}, expected {expected}")]
     IncorrectStakeDeposit { provided: Lovelace, expected: Lovelace },
 
@@ -224,7 +227,7 @@ where
                 });
             }
 
-            PoolsSlice::retire(context, id, Epoch::from(epoch));
+            PoolsSlice::retire(context, id, Epoch::from(epoch))?;
 
             Ok(())
         }

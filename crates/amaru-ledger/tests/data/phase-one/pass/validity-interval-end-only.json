@@ -1,12 +1,12 @@
 {
-  "title": "validity-interval-end-only",
+  "title": "slot below end with no lower bound",
   "description": "validity_interval = [None, 200) (no lower bound) and point.slot = 100; the slot is below the upper bound, so phase-one must accept.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

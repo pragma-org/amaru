@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Test: Duplicate field names should fail
-//! Expected error: Duplicate field 'name' in schema VALIDATE_HEADER
+//! Expected error: Duplicate field 'peer' in schema VALIDATE_HEADER
 
 use amaru_observability_macros::define_local_schemas;
 
@@ -22,8 +22,8 @@ define_local_schemas! {
         chain_sync {
             /// Test schema with duplicate fields
             VALIDATE_HEADER {
-                required name: String
-                required name: u64
+                required peer: String
+                required peer: u64
             }
         }
     }

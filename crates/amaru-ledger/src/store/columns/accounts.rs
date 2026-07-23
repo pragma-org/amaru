@@ -17,13 +17,21 @@ use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, StakeCredential, 
 
 use crate::state::diff_bind::Resettable;
 
-pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
-
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value =
-    (Resettable<(PoolId, CertificatePointer)>, Resettable<(DRep, CertificatePointer)>, Option<Lovelace>, Lovelace);
+pub enum Value {
+    /// Register an account, providing its mandatory deposit and its opening rewards balance.
+    Create {
+        pool: Resettable<(PoolId, CertificatePointer)>,
+        drep: Resettable<(DRep, CertificatePointer)>,
+        deposit: Lovelace,
+        rewards: Lovelace,
+    },
+    /// Change the delegations of an account known to be registered; its deposit and rewards
+    /// balance are left untouched.
+    Update { pool: Resettable<(PoolId, CertificatePointer)>, drep: Resettable<(DRep, CertificatePointer)> },
+}
 
 pub type Key = StakeCredential;
 

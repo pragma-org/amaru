@@ -112,12 +112,12 @@ use std::collections::BTreeMap;
 use amaru_kernel::{
     Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, StakeCredential, expect_stake_credential,
 };
+use amaru_observability::info;
 use num::{
     BigUint,
     traits::{One, Zero},
 };
 use serde::ser::SerializeStruct;
-use tracing::info;
 
 use crate::{
     epoch_transition::{Computed, PoolsEpochTransitionUpdates, Rewards},
@@ -126,8 +126,6 @@ use crate::{
         AccountState, PoolState, SafeRatio, floor_to_lovelace, safe_ratio, stake_distribution::StakeDistribution,
     },
 };
-
-const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 
 impl PoolState {
     pub fn relative_stake(&self, total_stake: Lovelace) -> SafeRatio {
@@ -413,17 +411,16 @@ impl RewardsSummary {
             });
 
         info!(
-            target: EVENT_TARGET,
+            ledger::rewards::SUMMARIZE,
             %efficiency,
             %incentives,
             %treasury_tax,
             %total_rewards,
             %available_rewards,
             %effective_rewards,
-            pots.reserves = %pots.reserves,
-            pots.treasury = %pots.treasury,
-            pots.fees = %pots.fees,
-            "rewards.summary",
+            pots_reserves = %pots.reserves,
+            pots_treasury = %pots.treasury,
+            pots_fees = %pots.fees,
         );
 
         Ok(RewardsSummary {
@@ -537,10 +534,12 @@ impl RewardsSummary {
 
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
-        accounts
-            .entry(expect_stake_credential(&pool.parameters.reward_account))
-            .and_modify(|rewards| *rewards += rewards_leader)
-            .or_insert(rewards_leader);
+        if rewards_leader > 0 {
+            accounts
+                .entry(expect_stake_credential(&pool.parameters.reward_account))
+                .and_modify(|rewards| *rewards += rewards_leader)
+                .or_insert(rewards_leader);
+        }
 
         PoolRewards { leader: rewards_leader, pot: rewards_pot }
     }

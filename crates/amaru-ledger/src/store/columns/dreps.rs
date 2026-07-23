@@ -17,8 +17,6 @@ use amaru_kernel::{Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace
 
 use crate::state::diff_bind::Resettable;
 
-pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
-
 /// Iterator used to browse rows from the DRep column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 

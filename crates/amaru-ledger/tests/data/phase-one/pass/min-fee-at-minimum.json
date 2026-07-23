@@ -1,12 +1,12 @@
 {
-  "title": "min-fee-at-minimum",
+  "title": "declared fee exactly at the minimum",
   "description": "Declared fee exactly equals the computed minimum.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

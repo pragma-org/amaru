@@ -35,16 +35,6 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
         .collect()
 }
 
-pub fn to_traverse(header: &messages::HeaderContent) -> Result<MultiEraHeader<'_>, String> {
-    let out = match header.byron_prefix {
-        Some((subtag, _)) => MultiEraHeader::decode(header.variant.header_variant(), Some(subtag), &header.cbor),
-        None => MultiEraHeader::decode(header.variant.header_variant(), None, &header.cbor),
-    };
-
-    out.map_err(|e| e.to_string())
-}
-
-use pallas_traverse::MultiEraHeader;
 pub use register::{register_chainsync_initiator, register_chainsync_responder};
 
 mod register {
@@ -65,13 +55,11 @@ mod register {
         conn_id: ConnectionId,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
         eff: &Effects<ConnectionMessage>,
+        tombstone: ConnectionMessage,
     ) -> StageRef<InitiatorMessage> {
-        let chainsync = eff
-            .wire_up(
-                eff.stage("chainsync", initiator()).await,
-                ChainSyncInitiator::new(peer, conn_id, muxer.clone(), pipeline),
-            )
-            .await;
+        let chainsync = eff.stage("chainsync", initiator()).await;
+        let chainsync = eff.supervise(chainsync, tombstone);
+        let chainsync = eff.wire_up(chainsync, ChainSyncInitiator::new(peer, conn_id, muxer.clone(), pipeline)).await;
         eff.send(
             muxer,
             MuxMessage::Register {
@@ -91,13 +79,11 @@ mod register {
         peer: Peer,
         conn_id: ConnectionId,
         eff: &Effects<ConnectionMessage>,
+        tombstone: ConnectionMessage,
     ) -> StageRef<ResponderMessage> {
-        let chainsync = eff
-            .wire_up(
-                eff.stage("chainsync", responder()).await,
-                ChainSyncResponder::new(upstream, peer, conn_id, muxer.clone()),
-            )
-            .await;
+        let chainsync = eff.stage("chainsync", responder()).await;
+        let chainsync = eff.supervise(chainsync, tombstone);
+        let chainsync = eff.wire_up(chainsync, ChainSyncResponder::new(upstream, peer, conn_id, muxer.clone())).await;
         eff.send(
             muxer,
             MuxMessage::Register {

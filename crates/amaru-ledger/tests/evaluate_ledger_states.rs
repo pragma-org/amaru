@@ -36,6 +36,7 @@ pub mod tests {
         rules::transaction,
         snapshot,
     };
+    use amaru_plutus::arena_pool::ArenaPool;
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
     include!(concat!(env!("OUT_DIR"), "/test_cases.rs"));
@@ -297,6 +298,8 @@ pub mod tests {
             proposals_roots,
         );
 
+        let arena_pool = ArenaPool::new(1, 1024);
+
         for (ix, event) in record.events.into_iter().enumerate() {
             let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {
                 TestVectorEvent::Transaction(tx, success, slot) => (tx, success, slot),
@@ -325,6 +328,7 @@ pub mod tests {
             // Run the transaction against the imported ledger state
             let result = transaction::phase_one::execute(
                 &mut validation_context,
+                &arena_pool,
                 NetworkName::Preprod,
                 &protocol_parameters,
                 era_history,
