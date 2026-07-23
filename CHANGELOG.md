@@ -48,6 +48,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
+- **amaru-ledger**: track account unregistrations to avoid O(n) scan on all accounts during epoch transition calculations.
 
 ### Fixed
 

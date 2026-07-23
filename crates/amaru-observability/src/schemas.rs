@@ -1057,6 +1057,14 @@ define_schemas! {
                         optional reason: String
                     }
                 }
+                recently_unregistered_accounts {
+                    /// Insert a recently unregistered account
+                    public INSERT {}
+                    /// Remove a recently unregistered account
+                    public REMOVE {}
+                    /// Clear all recently unregistered accounts
+                    public CLEAR {}
+                }
                 dreps {
                     /// Point-read a DRep entry
                     public GET {}

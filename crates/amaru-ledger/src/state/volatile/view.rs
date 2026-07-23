@@ -36,8 +36,8 @@ use crate::{
     },
 };
 
-mod iter_accounts;
 mod iter_pools;
+mod iter_unregistered_accounts;
 
 // ------------------------------------------------------------------------------------ VolatileView
 
@@ -127,15 +127,15 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     /// registration or deregistration from the aggregated volatile state.
     ///
     /// IMPORTANT: Yields accounts in no particular order.
-    pub fn iter_accounts(&mut self) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
+    pub fn iter_unregistered_accounts(&mut self) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
         match mem::take(&mut self.accounts) {
             None => {
                 // Just being careful here. There's no reason to ever call this twice; but if it
                 // ever happens, this line might save us from hours of debugging.
-                unreachable!(".iter_accounts() called twice on the same VolatileView! Don't do that.")
+                unreachable!(".iter_unregistered_accounts() called twice on the same VolatileView! Don't do that.")
             }
-            Some(mut accounts) => Ok(iter_accounts::IterAccounts::new(
-                self.db.iter_accounts()?,
+            Some(mut accounts) => Ok(iter_unregistered_accounts::IterUnregisteredAccounts::new(
+                self.db.iter_recently_unregistered_accounts()?,
                 &mut accounts.registered,
                 &mut accounts.unregistered,
             )),

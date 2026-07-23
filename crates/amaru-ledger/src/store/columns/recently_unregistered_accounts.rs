@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,24 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+use amaru_kernel::StakeCredential;
 
-use amaru_kernel::cbor;
-
-pub mod accounts;
-pub mod cc_members;
-pub mod dreps;
-pub mod pools;
-pub mod pots;
-pub mod proposals;
-pub mod recently_pruned_proposals;
-pub mod recently_unregistered_accounts;
-pub mod slots;
-pub mod utxo;
-pub mod votes;
-
-#[expect(clippy::panic)]
-pub fn unsafe_decode<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> T {
-    cbor::decode(bytes).unwrap_or_else(|e| {
-        panic!("unable to decode {} from CBOR ({}): {e:?}", std::any::type_name::<T>(), hex::encode(bytes))
-    })
-}
+pub type Key = StakeCredential;
+pub type Value = ();

@@ -689,6 +689,29 @@ fn import_accounts(
         progress.tick(n);
     }
 
+    if !rewards_updates.is_empty() {
+        transaction.save(
+            era_history,
+            protocol_parameters,
+            GovernanceActivity::default(),
+            point,
+            None,
+            Default::default(),
+            // Mark unclaimed rewards as 'recently unregistered accounts' so that our internal invariants
+            // align with the snapshot import.
+            store::Columns {
+                utxo: iter::empty(),
+                pools: iter::empty(),
+                accounts: rewards_updates.keys().cloned(),
+                dreps: iter::empty(),
+                cc_members: iter::empty(),
+                proposals: iter::empty(),
+                votes: iter::empty(),
+            },
+            iter::empty(),
+        )?;
+    }
+
     transaction.commit()?;
     progress.clear();
 

@@ -175,31 +175,9 @@ impl Rewards<Effective> {
     /// have a reward but were no longer registered at the epoch boundary. Their amounts stay in the
     /// shared map (they are folded back into the treasury via [`Self::delta_treasury`]) but they are
     /// never paid out to the account.
-    ///
-    /// TODO: retain unregistered accounts for epoch transition instead of searching for them
-    //
-    //   We have to prune accounts from that have been unregistered in this epoch and can no longer
-    //   receive rewards. The number of accounts doing so is usually limited compared to the total
-    //   number of accounts (~1.5M on Mainnet). So instead of iterating through all accounts to see
-    //   which have disappeared, we could simply remember which accounts have unregistered in the
-    //   epoch and prune them here rapidly.
-    //
-    //   With interning of the account key, each account weights ~8 bytes; so even if all accounts
-    //   were to unregister in the epoch (end of Cardano?), that'd still be ~11MB of resident memory.
-    //   So very negligeable.
-    pub fn new(computed_rewards: Rewards<Computed>, accounts: impl Iterator<Item = StakeCredential>) -> Self {
-        // The set of accounts still registered at the boundary, used to tell claimed from unclaimed.
-        let registered: BTreeSet<StakeCredential> = accounts.collect();
-
-        let unclaimed: BTreeSet<StakeCredential> = computed_rewards
-            .accounts
-            .iter()
-            .filter(|(account, reward)| {
-                debug_assert!(**reward > 0, "the account {account:?} doesn't have a strictly positive reward");
-                !registered.contains(account)
-            })
-            .map(|(account, _)| account.clone())
-            .collect();
+    pub fn new(computed_rewards: Rewards<Computed>, unregistered: &BTreeSet<StakeCredential>) -> Self {
+        let unclaimed: BTreeSet<StakeCredential> =
+            computed_rewards.accounts.keys().filter(|account| unregistered.contains(account)).cloned().collect();
 
         Self {
             step: PhantomData,
@@ -272,9 +250,8 @@ mod test {
         let delta_reserves = 1_000;
         let delta_treasury = 7;
         let computed_rewards = Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts);
-
-        // `unregistered` unregistered during the epoch, so its rewards can no longer be paid out.
-        let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), [registered.clone()].into_iter());
+        let effective_rewards =
+            Rewards::<Effective>::new(computed_rewards.clone(), &BTreeSet::from([unregistered.clone()]));
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
         // is folded back into the treasury instead).

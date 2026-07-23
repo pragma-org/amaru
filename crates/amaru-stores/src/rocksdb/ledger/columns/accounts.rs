@@ -23,7 +23,10 @@ use amaru_ledger::store::{
 use amaru_observability::{debug, error, trace_span};
 use rocksdb::{DBPinnableSlice, Transaction};
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use crate::rocksdb::{
+    common::{PREFIX_LEN, as_key, as_value},
+    recently_unregistered_accounts,
+};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
@@ -42,6 +45,9 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
                     let mut row = Row { deposit, pool: None, drep: None, rewards };
                     pool.set_or_reset(&mut row.pool);
                     drep.set_or_reset(&mut row.drep);
+
+                    recently_unregistered_accounts::remove(db, &credential)?;
+
                     row
                 }
 
@@ -129,6 +135,7 @@ pub fn set_rewards<DB>(
 pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::REMOVE).in_scope(|| {
         for credential in rows {
+            recently_unregistered_accounts::insert(db, &credential)?;
             db.delete(as_key(&PREFIX, &credential)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 

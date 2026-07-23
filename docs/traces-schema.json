@@ -4004,6 +4004,42 @@
       "description": "Inserting recently pruned proposals",
       "public": true
     },
+    "amaru::stores::ledger::recently_unregistered_accounts::CLEAR": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "clear",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Clear all recently unregistered accounts",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::INSERT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "insert",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Insert a recently unregistered account",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::REMOVE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Remove a recently unregistered account",
+      "public": true
+    },
     "amaru::stores::ledger::slots::GET": {
       "type": "object",
       "properties": {},

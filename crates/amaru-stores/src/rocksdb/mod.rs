@@ -483,6 +483,16 @@ macro_rules! impl_ReadStore_body {
                 )
             }
 
+            fn iter_recently_unregistered_accounts(
+                &self,
+            ) -> Result<impl Iterator<Item = scolumns::recently_unregistered_accounts::Key>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    recently_unregistered_accounts::PREFIX,
+                ).map(|iterator| iterator.map(|(k, ())| k))
+            }
+
             fn iter_block_issuers(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
@@ -700,6 +710,11 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Id: Deref<Target = ProposalId> + 'iter,
     {
         proposals::remove(&self.db, proposals.into_iter())
+    }
+
+    /// Clear all recently unregistered accounts from the database
+    fn clear_recently_unregistered_accounts(&self) -> Result<(), StoreError> {
+        recently_unregistered_accounts::clear(&self.db)
     }
 
     fn save(

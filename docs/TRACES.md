@@ -1887,6 +1887,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `replace_all` | `TRACE` | public | Inserting recently pruned proposals |  |  |
 
+## target: `amaru::stores::ledger::recently_unregistered_accounts`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `clear` | `TRACE` | public | Clear all recently unregistered accounts |  |  |
+| `insert` | `TRACE` | public | Insert a recently unregistered account |  |  |
+| `remove` | `TRACE` | public | Remove a recently unregistered account |  |  |
+
 ## target: `amaru::stores::ledger::slots`
 
 | name | level | public | description | required fields | optional fields |
