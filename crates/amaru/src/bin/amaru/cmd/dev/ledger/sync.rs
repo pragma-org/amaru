@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -188,7 +188,6 @@ async fn process_block(
 
     Ok(())
 }
-
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());

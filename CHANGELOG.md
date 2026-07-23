@@ -63,6 +63,8 @@ Other guiding principles:
 ### Removed
 
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
+- **amaru**: no more separate `amaru-ledger` binary; associated commands have been moved into the main `amaru` binary under `amaru dev ledger`. ([#1064](https://github.com/pragma-org/amaru/pull/1064))
+
 
 ### Fixed
 
