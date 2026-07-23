@@ -105,7 +105,12 @@ where
 
                 context.consume_lovelace(amount);
 
-                if is_valid {
+                // TODO: Move state management to context
+                //
+                // Zero-value withdrawals are effectively no-ops. So, to save space and prevent potentially problematic state,
+                // we simply don't add it to the context. This logic can, and probably should, be done *in* the context, but
+                // that changes the signature of `withdraw_from`.
+                if is_valid && amount > 0 {
                     context.withdraw_from(credential);
                 }
             });

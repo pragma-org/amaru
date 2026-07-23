@@ -131,14 +131,13 @@ impl VolatileSeries {
     /// [`VolatileAggregate::remove_fragment`]).
     ///
     /// Rollback *could* be incremental too, peel the discarded tail newest-first, the mirror of
-    /// stabilization, but that would need an exact back-removal on every field. Two fields don't have
-    /// one: `utxo` is a [`crate::state::diff_set::DiffSet`] with front-removal only, and
-    /// `withdrawals` is a blind set whose front-peel is exact only by epoch-homogeneity (the
-    /// effectful withdrawal flushes below as it stabilizes). A back-peel has no such flush, so
-    /// removing a rolled-back credential would wrongly drop one a surviving earlier fragment also
-    /// withdrew for. A rollback discards a whole suffix at once and fires relatively infrequently,
-    /// so re-folding it is cheap and obviously correct; the exact incremental path is reserved for stabilization,
-    /// which runs on every block.
+    /// stabilization, but that would need an exact back-removal on every field, and `utxo` doesn't
+    /// have one. It is a collapsed [`crate::state::diff_set::DiffSet`]: when a later fragment
+    /// consumes an input an earlier one produced, the collapse discards that produced value
+    /// outright. Retracting the oldest fragment never needs it back (nothing earlier remains), but
+    /// retracting the newest would have to restore it, and it is gone. A rollback discards a whole
+    /// suffix at once and fires relatively infrequently, so re-folding it is cheap and obviously
+    /// correct; the exact incremental path is reserved for stabilization, which runs on every block.
     fn new_aggregate(&mut self) {
         debug_span!(ledger::volatile::AGGREGATE).in_scope(|| {
             self.aggregate = VolatileAggregate::default();

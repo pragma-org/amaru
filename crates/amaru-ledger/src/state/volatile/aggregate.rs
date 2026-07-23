@@ -206,16 +206,14 @@ impl VolatileAggregate {
     ///   update is left intact. This is what the collapse above would lose.
     /// - `committee`: same per-key history; a member may rotate their hot key (produce then
     ///   produce), and both verdicts are kept, so stabilizing the older one leaves the newer live.
-    /// - `withdrawals`: a series is epoch-homogeneous, so a credential has at most one *effectful*
-    ///   withdrawal in it (once withdrawn its rewards are zero, and any further withdrawal is a
-    ///   no-op). That effect is flushed to the layer below as it stabilizes, so dropping the
-    ///   credential from the set is exact for the only question asked of it ([`has_withdrawal`]).
+    /// - `withdrawals`: only *effectful* withdrawals are recorded (the rule drops zero-value ones,
+    ///   which move no rewards), and a series is epoch-homogeneous, so a credential has at most one
+    ///   of them. Rewards accrue only at the epoch boundary and a withdrawal drains the whole
+    ///   balance. A credential therefore appears in at most one fragment, and dropping it from the
+    ///   set as that fragment retracts is exact.
     /// - `proposals`: proposal ids are globally unique, so, as with `utxo`, a removed id is never
     ///   re-added.
     /// - `fees`, `donations`: running totals, retracted by subtracting exactly what was added.
-    ///
-    /// [`DiffSet::cleanup`]: crate::state::diff_set::DiffSet::cleanup
-    /// [`has_withdrawal`]: Self::has_withdrawal
     pub fn remove_fragment(&mut self, fragment: &VolatileFragment) {
         let VolatileFragment {
             utxo,
