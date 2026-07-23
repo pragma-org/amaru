@@ -17,7 +17,7 @@ use std::{
     io::Read,
     path::PathBuf,
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::Instant,
 };
 
@@ -31,7 +31,7 @@ use amaru_node::stages::{
     build_node::{make_block_validator, make_state},
     config::LedgerConfig,
 };
-use amaru_ouroboros::{ChainStore, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
+use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use flate2::read::GzDecoder;
@@ -148,11 +148,13 @@ async fn load_blocks(
 /// Particularly all on disk side-effects are performed
 /// Blocks are assumed valid; no validation error should happen
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::too_many_arguments)]
 async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     praos_chain_store: &PraosChainStore,
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
+    pool_summaries: &RwLock<PoolSummaries>,
     era_history: &EraHistory,
     point: Point,
     raw_block: RawBlock,
@@ -164,16 +166,18 @@ async fn process_block(
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
     let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
 
-    let summaries = block_validator.current_pool_summaries();
-    header::assert_all(
-        consensus_parameters,
-        block_header.header(),
-        to_cbor(&block_header.header_body()).as_slice(),
-        &summaries,
-        era_history,
-        &epoch_nonce.active,
-    )
-    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
+    {
+        let summaries = pool_summaries.read().unwrap();
+        header::assert_all(
+            consensus_parameters,
+            block_header.header(),
+            to_cbor(&block_header.header_body()).as_slice(),
+            &summaries,
+            era_history,
+            &epoch_nonce.active,
+        )
+        .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
+    }
 
     // Verify block content
     block_validator
@@ -207,7 +211,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         LedgerConfig { ledger_store: RocksDbConfig::new(ledger_dir), network, ..LedgerConfig::default() };
     let state = make_state(&ledger_config)?;
     let tip = state.tip().into_owned();
+    let pool_summaries = Arc::new(RwLock::new(state.pool_summaries()));
     let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())?;
+    {
+        let pool_summaries = pool_summaries.clone();
+        #[allow(clippy::unwrap_used)]
+        block_validator
+            .set_on_stake_dist_updated(Arc::new(move |summaries| *pool_summaries.write().unwrap() = summaries));
+    }
 
     // Collect .tar.gz files
     let archive_names = list_archive_names(network)?;
@@ -234,6 +245,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &praos_chain_store,
                 consensus_parameters.clone(),
                 &block_validator,
+                &pool_summaries,
                 era_history,
                 point,
                 raw_block,
