@@ -21,8 +21,8 @@ Any event (trace, span or metric) can be filtered by target and severity using t
 > [!TIP]
 > Both environment variable are optional.
 >
-> - When omitted, `AMARU_TRACE` defaults to all **amaru** and **pure-stage** targets above the **trace** level;
-> - When omitted, `AMARU_LOG` defaults to all **errors**, **amaru** targets above the **debug** level, and **pure-stage** above the **warn** level;
+> - When omitted, `AMARU_TRACE` defaults to all **errors** and **amaru** targets at or above the **info** level;
+> - When omitted, `AMARU_LOG` defaults to all **errors** and **amaru** targets at or above the **info** level;
 
 ### By target
 
