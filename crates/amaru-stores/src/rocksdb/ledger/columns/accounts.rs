@@ -31,32 +31,32 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
 /// Register a new credential, with or without a stake pool.
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::ADD).in_scope(|| {
-        for (credential, (pool, drep, deposit, rewards)) in rows {
+        for (credential, value) in rows {
             let key = as_key(&PREFIX, &credential);
 
-            // In case where a registration already exists, then we must only update the underlying
-            // entry, while preserving the reward amount.
-            if let Some(mut row) =
-                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-            {
-                pool.set_or_reset(&mut row.pool);
-                drep.set_or_reset(&mut row.drep);
+            let existing =
+                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d));
 
-                if let Some(deposit) = deposit {
-                    row.deposit = deposit;
+            let row = match (value, existing) {
+                (Value::Create { pool, drep, deposit, rewards }, _) => {
+                    let mut row = Row { deposit, pool: None, drep: None, rewards };
+                    pool.set_or_reset(&mut row.pool);
+                    drep.set_or_reset(&mut row.drep);
+                    row
                 }
 
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else if let Some(deposit) = deposit {
-                let mut row = Row { deposit, pool: None, drep: None, rewards };
+                (Value::Update { pool, drep }, Some(mut row)) => {
+                    pool.set_or_reset(&mut row.pool);
+                    drep.set_or_reset(&mut row.drep);
+                    row
+                }
 
-                pool.set_or_reset(&mut row.pool);
-                drep.set_or_reset(&mut row.drep);
+                (Value::Update { .. }, None) => {
+                    unreachable!("attempted to update a non-existing account: account={:?}", credential)
+                }
+            };
 
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else {
-                unreachable!("attempted to create an account without a deposit: account={:?}", credential);
-            }
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
         Ok(())
@@ -97,7 +97,7 @@ pub fn get<'a>(
 
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
 /// amount that couldn't be allocated to the account.
-pub fn set<DB>(
+pub fn set_rewards<DB>(
     db: &Transaction<'_, DB>,
     credential: &Key,
     with_rewards: impl FnOnce(Lovelace) -> Lovelace,

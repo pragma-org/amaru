@@ -46,6 +46,7 @@ initialize_cardano_node_database() {
 
   if [[ -f "$target_db/immutable/00000.primary" ]] && same_mithril_snapshot_metadata "$source_marker" "$target_marker"; then
     if ! truthy "$CARDANO_NODE_INIT_FROM_MITHRIL"; then
+      ensure_cardano_node_db_marker "$target_db" "$(dirname "$source_immutable")"
       echo "[initialize] cardano-node database already initialized from selected Mithril snapshot; skipping sync"
       return 0
     fi
@@ -61,9 +62,26 @@ initialize_cardano_node_database() {
   rm -rf "$target_db/ledger" "$target_db/volatile"
   mkdir -p "$target_db/immutable"
   rsync -a --delete "$source_immutable"/ "$target_db/immutable"/
+  ensure_cardano_node_db_marker "$target_db" "$(dirname "$source_immutable")"
   cp "$source_marker" "$target_marker"
   echo "[initialize] cardano-node immutable database initialized from $source_immutable"
   echo "[initialize] cardano-node will rebuild ledger and volatile state on next start"
+}
+
+# cardano-node refuses to open a non-empty database directory that lacks the protocolMagicId
+# marker file it normally writes itself (NoDbMarkerAndNotEmpty), so provide one when only the
+# immutable files were synchronized.
+ensure_cardano_node_db_marker() {
+  local target_db="$1" source_root="$2"
+  if [[ -f "$source_root/clean" && ! -f "$target_db/clean" ]]; then
+    cp "$source_root/clean" "$target_db/clean"
+  fi
+  [[ -f "$target_db/protocolMagicId" ]] && return 0
+  if [[ -f "$source_root/protocolMagicId" ]]; then
+    cp "$source_root/protocolMagicId" "$target_db/protocolMagicId"
+  else
+    jq -j '.networkMagic' "$CARDANO_NODE_CONFIG_DIR/shelley-genesis.json" > "$target_db/protocolMagicId"
+  fi
 }
 
 same_mithril_snapshot_metadata() {
@@ -95,6 +113,7 @@ mark_database_dir_dirty() {
 }
 
 refresh_from_mithril() {
+  require_db_analyser_with_analyse_from
   cd "$AMARU_DIR" || return
   mkdir -p "$(dirname "$MITHRIL_REFRESH_LOG_FILE")"
   AMARU_NETWORK="$NETWORK" \

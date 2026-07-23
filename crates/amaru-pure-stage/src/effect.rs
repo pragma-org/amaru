@@ -232,12 +232,29 @@ impl<M> Effects<M> {
         )
     }
 
-    /// Schedule a message to be sent to the given stage at a specific instant in the future.
+    /// Schedule a message to be delivered to **this** stage at a specific instant in the future.
     ///
-    /// Returns a token that can be used to cancel the scheduled message using [`cancel_schedule`](Self::cancel_schedule).
+    /// Returns a token that can be used to cancel the scheduled message using
+    /// [`cancel_schedule`](Self::cancel_schedule).
     ///
-    /// The scheduled message will be sent at the specified `when` instant. If `when` is in the past,
-    /// the message will be sent immediately.
+    /// # Delivery guarantees
+    ///
+    /// Scheduled messages are **control traffic**: they do not compete with the stage's bulk
+    /// mailbox for capacity and are preferred over ordinary mailbox messages when both are
+    /// available. Unless cancelled or the stage terminates, a due scheduled message is
+    /// eventually presented as a normal transition input, even when the bulk mailbox is full.
+    ///
+    /// A stage may have only a limited number of undelivered scheduled messages outstanding
+    /// (armed timers plus due messages not yet received). The limit defaults to
+    /// [`PRIORITY_MAILBOX_SIZE`](crate::PRIORITY_MAILBOX_SIZE) and is configured per network via
+    /// the stage-graph builder (`with_priority_mailbox_size`). Exceeding that limit panics —
+    /// stages should coalesce control wakeups rather than arm many concurrent schedules.
+    ///
+    /// If `when` is in the past, the message is delivered as soon as the runtime can run this
+    /// stage again (still via the priority path, not the bulk mailbox).
+    ///
+    /// Ordering among due schedules is by [`ScheduleId`](crate::ScheduleId) (time, then sequence).
+    /// The schedule effect itself never waits on mailbox space.
     pub fn schedule_at(&self, msg: M, when: Instant) -> BoxFuture<'static, ScheduleId>
     where
         M: SendData,
@@ -249,11 +266,10 @@ impl<M> Effects<M> {
         })
     }
 
-    /// Schedule a message to be sent to the given stage after a delay.
+    /// Schedule a message to be delivered to **this** stage after a delay.
     ///
-    /// Returns a token that can be used to cancel the scheduled message using [`cancel_schedule`](Self::cancel_schedule).
-    ///
-    /// The scheduled message will be sent after the specified `delay` duration from now.
+    /// Equivalent to [`schedule_at`](Self::schedule_at) with `now + delay`. See that method for
+    /// delivery guarantees, priority over the bulk mailbox, and the outstanding-schedule cap.
     pub fn schedule_after(&self, msg: M, delay: Duration) -> BoxFuture<'static, ScheduleId>
     where
         M: SendData,
@@ -266,7 +282,9 @@ impl<M> Effects<M> {
     /// Cancel a previously scheduled message.
     ///
     /// Returns `true` if the scheduled message was found and cancelled, or `false` if it was
-    /// not found (e.g., it was already sent or already cancelled).
+    /// not found (e.g., it was already delivered into the stage's receive path or already
+    /// cancelled). Cancelling frees a slot under the stage's configured priority-mailbox
+    /// outstanding budget (default [`PRIORITY_MAILBOX_SIZE`](crate::PRIORITY_MAILBOX_SIZE)).
     pub fn cancel_schedule(&self, id: ScheduleId) -> BoxFuture<'static, bool> {
         airlock_effect(&self.effect, StageEffect::CancelSchedule(id), |eff| match eff {
             Some(StageResponse::CancelScheduleResponse(cancelled)) => Some(cancelled),

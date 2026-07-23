@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem;
+use std::{mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
     PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProtocolParameters, StakeCredential, TermLimit,
     TransactionInput,
 };
-use amaru_observability::{error, warn};
 
 use crate::{
     epoch_transition::{
@@ -29,13 +28,14 @@ use crate::{
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
-            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileSequence, VolatileSeries, VolatileState,
-            overlay::StateOverlay,
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
+            VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
     store::{HistoricalStores, Store},
 };
 
+#[derive(Debug)]
 pub struct VolatileDB {
     /// The always active underlying volatiles series. New blocks are always added to the
     /// `current`. It represents the *most* recent part of the syncing window, but always contains
@@ -212,69 +212,6 @@ impl VolatileSequence for VolatileDB {
         // By design, we should never be pushing to the back of the draining sequence
         self.current.push_back(item);
     }
-
-    /// Rewind the volatile DB back to a given point, discarding everything that came after.
-    fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
-        let target_slot = point.slot_or_default();
-
-        // Check if the target point is beyond the newest known fragment across both series
-        // In this case we simply return Ok since it this would not change the volatile DB.
-        // Use `self.view_back()` so the check still fires when `current` is empty but `draining` holds fragments.
-        if let Some(last) = self.view_back()
-            && last.slot() < target_slot
-        {
-            warn!(
-                ledger::volatile::ROLLBACK_TO,
-                %target_slot,
-                last_slot = ?last.slot(),
-                warning = "attempting to rollback to a point beyond the last known volatile fragment"
-            );
-            return Ok(());
-        }
-
-        // Check if the target point is before the active sequence
-        // In this case we return an error since it means rolling back the stable DB
-        if let Some(first) = self.view_front()
-            && target_slot < first.slot()
-        {
-            error!(
-                ledger::volatile::ROLLBACK_TO,
-                %target_slot,
-                first_slot = ?first.slot(),
-                error = "attempting to rollback to a point before the first known of the volatile fragment"
-            );
-            return Err(point);
-        }
-
-        // Now we know the target point is within our volatile DB.
-        // Keep all elements with point <= target point.
-
-        let should_rollback = if self.draining.has_point(point) {
-            // If we are rolling back to a point in the draining sequence, we need to
-            // promote it as current while discarding the entire current series.
-            self.current = std::mem::take(&mut self.draining);
-            // We must also rollback the overlay since we are crossing the epoch boundary again.
-            self.overlay.rollback();
-            true
-        } else {
-            self.current.has_point(point)
-        };
-
-        if should_rollback {
-            self.current.rollback_to(point)?;
-            return Ok(());
-        }
-
-        Err(point)
-    }
-
-    fn clear(&mut self) {
-        self.current.clear();
-        if !self.draining.is_empty() {
-            self.overlay.rollback();
-        }
-        self.draining.clear();
-    }
 }
 
 impl VolatileDB {
@@ -367,7 +304,7 @@ impl VolatileDB {
 
     /// Stash the freshly computed rewards summary, to be applied at the next epoch boundary.
     pub fn set_computed_rewards(&mut self, rewards: impl Into<Rewards<Computed>>) {
-        *self.overlay.rewards_mut() = RewardsState::Computed(rewards.into());
+        *self.overlay.rewards_mut() = RewardsState::Computed(Arc::new(rewards.into()));
     }
 
     /// Ensure that the 'draining' sequence is empty before we cross an epoch boundary. Note that
@@ -437,6 +374,86 @@ impl VolatileDB {
         }
 
         Ok(())
+    }
+
+    /// Empty the volatile window and return its previous contents, leaving behind an empty window.
+    /// The current metadata (epoch, protocol parameters, governance activity) is kept rather than
+    /// reset to defaults. The returned `VolatileDB` can be used to fully restore the volatile state
+    /// through the whole-volatile recovery path if switching to the new fork fails.
+    pub fn clear(&mut self) -> Self {
+        let current = self.current.clear();
+
+        let draining = self.draining.clear();
+        let overlay = self.overlay.snapshot();
+        if !draining.is_empty() {
+            self.overlay.rollback();
+        }
+
+        Self {
+            current,
+            draining,
+            overlay,
+            protocol_parameters: self.protocol_parameters.clone(),
+            governance_activity: self.governance_activity,
+        }
+    }
+
+    /// Rewind the volatile DB back to a given point, discarding everything that came after.
+    ///
+    /// Returns a [`VolatileDBRecovery`] capturing what was discarded, so a failed fork switch can be
+    /// undone via [`Self::undo_rollback`].
+    pub fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<RollbackGuard<'a>, String> {
+        Ok(RollbackGuard {
+            fork_point: point,
+            recovery: if self.draining.has_point(point) {
+                // If we are rolling back to a point in the draining sequence, we need to
+                // promote it as current while discarding the entire current series.
+                let old_current = mem::take(&mut self.current);
+                self.current = mem::take(&mut self.draining);
+                let drained = self.current.rollback_to(point)?;
+
+                // We must also rollback the overlay since we are crossing the epoch boundary again.
+                let overlay = self.overlay.snapshot();
+                self.overlay.rollback();
+                VolatileDBRecovery::RecoverAcrossEpoch { old_current, drained, overlay }
+            } else {
+                let discarded = self.current.rollback_to(point)?;
+                let overlay = self.overlay.snapshot();
+                VolatileDBRecovery::RecoverInEpoch { discarded, overlay }
+            },
+        })
+    }
+
+    /// Restore the volatile DB to its pre-rollback state, undoing both the rollback and any
+    /// roll-forwards replayed since (a fork switch replays blocks before it may recover).
+    pub fn undo_rollback(&mut self, RollbackGuard { fork_point, recovery }: RollbackGuard<'_>) {
+        match recovery {
+            VolatileDBRecovery::RecoverInEpoch { discarded, overlay } => {
+                // While the rollback was in epoch, the attempt to switch fork could have pushed
+                // block through an epoch transition. So the old 'current' may now be draining
+                // and we must recover it back.
+                if self.draining.has_point(fork_point) {
+                    self.current = mem::take(&mut self.draining);
+                }
+                self.current.undo_rollback(fork_point, discarded);
+                self.overlay = overlay;
+            }
+            VolatileDBRecovery::RecoverAcrossEpoch { old_current, drained, overlay } => {
+                // Similarly, we could rollback across an epoch, but end up in one of two scenarios:
+                //
+                // 1. The new fork did not cross the epoch again, and the fork point is still in
+                //    current.
+                // 2. The new fork also crossed the epoch and has moved back the fork point to
+                //    draining.
+                if !self.draining.has_point(fork_point) {
+                    self.draining = mem::replace(&mut self.current, old_current);
+                } else {
+                    self.current = old_current;
+                }
+                self.draining.undo_rollback(fork_point, drained);
+                self.overlay = overlay;
+            }
+        }
     }
 }
 
@@ -540,36 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rollback_to_point_after_sequence_succeeds() {
-        // Create a VolatileDB with three fragments at slots 10, 20, 30
-        let mut db = VolatileDB::fixture();
-
-        // Try to rollback to slot 40 (after the sequence)
-        let rollback_point = Point::Specific(Slot::from(40), Hash::new([0u8; 32]));
-
-        let result = db.rollback_to(&rollback_point);
-
-        // This should succeed
-        assert!(result.is_ok(), "Rolling back to a point after the sequence should succeed");
-        assert_eq!(db.len(), 3, "All elements should be retained");
-    }
-
-    #[test]
-    fn rollback_beyond_tip_is_a_noop_when_current_is_empty() {
-        let mut db = VolatileDB::default();
-        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
-        assert!(!db.draining.is_empty() && db.current.is_empty());
-
-        let beyond = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
-
-        assert!(db.rollback_to(&beyond).is_ok(), "rollback beyond the draining tip should be a no-op success");
-        assert_eq!(db.len(), 2, "all draining fragments should be retained");
-    }
-
-    #[test]
-    fn test_rollback_to_slot_between_elements_succeeds() {
+    fn test_rollback_to_missing_slot_fails() {
         // Create a VolatileDB with three fragments at slots 10, 20, 30
         let mut db = VolatileDB::fixture();
 
@@ -578,8 +566,321 @@ mod tests {
 
         let result = db.rollback_to(&rollback_point);
 
-        assert_eq!(result.unwrap_err(), &rollback_point);
+        assert!(result.is_err());
         assert_eq!(db.len(), 3, "All elements should be retained");
+    }
+
+    #[test]
+    fn recover_across_epoch_restores_the_full_db_with_a_draining_sequence() {
+        let mut db = VolatileDB::default();
+
+        // Two blocks in the closing epoch
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        let point1 = block1.point();
+        db.push_back(block1);
+        db.push_back(block2);
+
+        // Then cross the epoch boundary and add two more in the opening epoch.
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        let block3 = AnchoredVolatileFragment::fixture(30, 3);
+        let block4 = AnchoredVolatileFragment::fixture(40, 4);
+        db.push_back(block3);
+        db.push_back(block4);
+
+        let slots_before = db.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let epoch_before = db.epoch();
+
+        // Rolling back across the boundary and immediately recovering must restore the full window.
+        let recovery = db.rollback_to(&point1).expect("rollback across the epoch boundary should succeed");
+        db.undo_rollback(recovery);
+
+        assert_eq!(
+            db.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            slots_before,
+            "recover must restore every block, including the retained draining prefix"
+        );
+        assert_eq!(db.len(), slots_before.len());
+        assert_eq!(db.epoch(), epoch_before, "recover must restore the pre-rollback epoch anchor");
+    }
+
+    #[test]
+    fn recover_restores_the_pre_rollback_state_after_roll_forwards() {
+        // A cross-epoch window: draining [10, 20] in the closing epoch, current [30, 40] in the
+        // opening epoch.
+        let mut db = VolatileDB::default();
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        let point1 = block1.point();
+        db.push_back(block1);
+        db.push_back(block2);
+        // Give the boundary transition a non-trivial overlay (effective rewards crediting an
+        // account) so we exercise recovery of the overlay, not just the block series.
+        db.transition(
+            Some(effective_reward(cred(1), 5_000_000)),
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(None),
+        );
+        let block3 = AnchoredVolatileFragment::fixture(30, 3);
+        let block4 = AnchoredVolatileFragment::fixture(40, 4);
+        db.push_back(block3);
+        db.push_back(block4);
+
+        let current_before = db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let draining_before = db.draining.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let epoch_before = db.epoch();
+        // The overlay's pending boundary reward credit, observed through the account balance.
+        let reward_credit_before = db.resolve_account(&cred(1)).1;
+        assert_eq!(
+            reward_credit_before,
+            RewardsAtTip::Add(5_000_000),
+            "sanity: the boundary credit is visible pre-rollback"
+        );
+
+        // Roll back across the boundary
+        let recovery = db.rollback_to(&point1).expect("rollback across the epoch boundary should succeed");
+
+        // Then roll a few blocks forward onto the rolled-back state, exactly as `switch_to_fork`
+        // does before it may hit an invalid block. This is the case the recovery must survive: by
+        // now `current` no longer holds the retained draining prefix.
+        let block5 = AnchoredVolatileFragment::fixture(50, 5);
+        let block6 = AnchoredVolatileFragment::fixture(60, 6);
+        db.push_back(block5);
+        db.push_back(block6);
+
+        // Recovering must restore the exact pre-rollback state, discarding the roll-forwards.
+        db.undo_rollback(recovery);
+
+        assert_eq!(
+            db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            current_before,
+            "recover must restore the pre-rollback `current`, not the rolled-forward one"
+        );
+        assert_eq!(
+            db.draining.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            draining_before,
+            "recover must restore the pre-rollback `draining`"
+        );
+        assert_eq!(db.epoch(), epoch_before, "recover must restore the pre-rollback epoch anchor");
+        assert_eq!(
+            db.resolve_account(&cred(1)).1,
+            reward_credit_before,
+            "recover must restore the overlay's pending reward credit (undoing the rollback's rewind)"
+        );
+    }
+
+    #[test]
+    fn recover_in_epoch_after_roll_forwards() {
+        // A single-epoch window: current [10, 20, 30], no draining.
+        let mut db = VolatileDB::default();
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        db.push_back(block1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        let point2 = block2.point();
+        db.push_back(block2);
+        let block3 = AnchoredVolatileFragment::fixture(30, 3);
+        db.push_back(block3);
+
+        let current_before = db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let epoch_before = db.epoch();
+
+        // Roll back within the epoch, then replay a couple of fork blocks before recovering.
+        let recovery = db.rollback_to(&point2).expect("in-epoch rollback should succeed");
+        let block4 = AnchoredVolatileFragment::fixture(25, 4);
+        let block5 = AnchoredVolatileFragment::fixture(28, 5);
+        db.push_back(block4);
+        db.push_back(block5);
+
+        db.undo_rollback(recovery);
+
+        assert_eq!(
+            db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            current_before,
+            "recover must restore the pre-rollback `current`, discarding the roll-forwards"
+        );
+        assert!(db.draining.is_empty(), "draining stays empty across an in-epoch rollback and recovery");
+        assert_eq!(db.epoch(), epoch_before, "recover must restore the pre-rollback epoch anchor");
+    }
+
+    #[test]
+    fn recover_in_epoch_survives_a_fork_that_crosses_the_epoch_boundary() {
+        // A single-epoch window right before an epoch boundary: current [10, 20, 30], no
+        // draining.
+        //
+        // The rollback is therefore in-epoch, yet the fork replayed on top of it will cross
+        // the boundary.
+        let mut db = VolatileDB::default();
+
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        let block3 = AnchoredVolatileFragment::fixture(30, 3);
+
+        let point2 = block2.point();
+
+        db.push_back(block1);
+        db.push_back(block2);
+        db.push_back(block3);
+
+        let current_before = db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let epoch_before = db.epoch();
+        let reward_credit_before = db.resolve_account(&cred(1)).1;
+
+        // Roll back within the epoch. `draining` is empty, so this is a `RecoverInEpoch`.
+        let recovery = db.rollback_to(&point2).expect("in-epoch rollback should succeed");
+
+        // Replay a fork that crosses the boundary: one more closing-epoch block, then a transition
+        // installing a boundary reward credit, then an opening-epoch block.
+        let block4 = AnchoredVolatileFragment::fixture(25, 4);
+        db.push_back(block4);
+        db.transition(
+            Some(effective_reward(cred(1), 7_000_000)),
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(None),
+        );
+        let block5 = AnchoredVolatileFragment::fixture(35, 5);
+        db.push_back(block5);
+        assert_eq!(db.epoch(), epoch_before + 1, "replay crossed into the next epoch");
+        assert!(!db.draining.is_empty(), "the transition moved the fork point into `draining`");
+        assert_eq!(
+            db.resolve_account(&cred(1)).1,
+            RewardsAtTip::Add(7_000_000),
+            "the fork installed a boundary reward credit before recovery"
+        );
+
+        // Recovering must undo the replay entirely, including the transition it triggered.
+        db.undo_rollback(recovery);
+
+        assert_eq!(
+            db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            current_before,
+            "recover must restore the pre-rollback `current`, discarding the boundary-crossing replay"
+        );
+        assert!(db.draining.is_empty(), "recover must clear the `draining` created by the replay");
+        assert_eq!(db.epoch(), epoch_before, "recover must restore the pre-rollback epoch anchor");
+        assert_eq!(
+            db.resolve_account(&cred(1)).1,
+            reward_credit_before,
+            "recover must undo the overlay transition installed by the replay"
+        );
+    }
+
+    // #[test]
+    // fn recover_across_epoch_survives_a_fork_remains_in_same_epoch() {
+    // }
+
+    #[test]
+    fn recover_across_epoch_survives_a_fork_that_crosses_the_epoch_boundary_again() {
+        // Pre-rollback: draining [10, 20] (closing epoch), current [30, 40] (opening epoch).
+        let mut db = VolatileDB::default();
+
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        let block3 = AnchoredVolatileFragment::fixture(30, 3);
+        let block4 = AnchoredVolatileFragment::fixture(40, 4);
+
+        let point1 = block1.point();
+
+        db.push_back(block1);
+        db.push_back(block2);
+        // The original boundary transition credits cred(1) with 5M — this is the overlay state
+        // recovery must restore.
+        db.transition(
+            Some(effective_reward(cred(1), 5_000_000)),
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(None),
+        );
+        db.push_back(block3);
+        db.push_back(block4);
+
+        let current_before = db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let draining_before = db.draining.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>();
+        let epoch_before = db.epoch();
+        let reward_credit_before = db.resolve_account(&cred(1)).1;
+        assert_eq!(
+            reward_credit_before,
+            RewardsAtTip::Add(5_000_000),
+            "sanity: the original boundary credit is visible"
+        );
+
+        // Roll back across the boundary to the first closing-epoch block.
+        let recovery = db.rollback_to(&point1).expect("cross-epoch rollback should succeed");
+
+        // Replay a fork that itself re-crosses the epoch boundary before failing, installing a
+        // *different* overlay (a different boundary credit for cred(1)).
+        db.push_back(AnchoredVolatileFragment::fixture(15, 5));
+        db.transition(
+            Some(effective_reward(cred(1), 9_000_000)),
+            PoolsEpochTransitionUpdates::default(),
+            committee_update(None),
+        );
+        db.push_back(AnchoredVolatileFragment::fixture(35, 6));
+        assert_eq!(
+            db.resolve_account(&cred(1)).1,
+            RewardsAtTip::Add(9_000_000),
+            "sanity: the fork installed a different overlay before recovery"
+        );
+
+        db.undo_rollback(recovery);
+
+        assert_eq!(
+            db.current.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            current_before,
+            "recover must restore the pre-rollback `current` even after the replay transitioned"
+        );
+        assert_eq!(
+            db.draining.iter().map(|fragment| fragment.slot()).collect::<Vec<_>>(),
+            draining_before,
+            "recover must restore the pre-rollback `draining`"
+        );
+        assert_eq!(db.epoch(), epoch_before, "recover must restore the pre-rollback epoch anchor");
+        assert_eq!(
+            db.resolve_account(&cred(1)).1,
+            reward_credit_before,
+            "recover must restore the pre-rollback overlay (the original boundary credit), not the fork's"
+        );
+    }
+
+    #[test]
+    fn clear_empties_the_window_but_keeps_the_epoch_anchor() {
+        let epoch = Epoch::from(42);
+        let mut db = VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        db.push_back(block1);
+        db.push_back(block2);
+
+        let snapshot = db.clear();
+
+        // The snapshot holds the full previous window
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot.epoch(), epoch);
+
+        // While the current window is empty but still anchored to the same epoch, rather than
+        // being reset to the default epoch.
+        assert!(db.is_empty());
+        assert_eq!(db.epoch(), epoch);
+    }
+
+    #[test]
+    fn clear_rewinds_the_retained_window_across_an_epoch_boundary() {
+        let epoch = Epoch::from(42);
+        let mut db = VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let block1 = AnchoredVolatileFragment::fixture(10, 1);
+        let block2 = AnchoredVolatileFragment::fixture(20, 2);
+        db.push_back(block1);
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
+        db.push_back(block2);
+        assert_eq!(db.epoch(), epoch + 1, "transition opened the next epoch");
+
+        let snapshot = db.clear();
+
+        // The snapshot keeps the full window and its post-transition anchor
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot.epoch(), epoch + 1);
+
+        // While the retained window is empty and rewound across the boundary
+        assert!(db.is_empty());
+        assert_eq!(db.epoch(), epoch);
     }
 
     #[test]
@@ -945,6 +1246,13 @@ mod tests {
 
     fn cred(tag: u8) -> StakeCredential {
         StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    }
+
+    /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
+    /// observable state (its pending reward credit surfaces through `resolve_account`).
+    fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
+        let computed = Rewards::<Computed>::new(0, 0, BTreeMap::from([(credential.clone(), amount)]));
+        Rewards::<Effective>::new(computed, std::iter::once(credential))
     }
 
     fn account_block(slot: u64, act: Act) -> AnchoredVolatileFragment {

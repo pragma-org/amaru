@@ -158,8 +158,11 @@ define_schemas! {
                 /// Roll forward with a new block
                 public ROLL_FORWARD {}
                 /// Roll backward to a specific point
-                public ROLL_BACKWARD {
-                    required rollback_point: amaru_kernel::Point
+                public ROLL_BACKWARD {}
+                /// Switching to an alternative chain fork
+                public SWITCH_TO_FORK {
+                    required fork_point: amaru_kernel::Point
+                    required fork_length: usize
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}
@@ -404,10 +407,6 @@ define_schemas! {
                     optional skipped: bool
                     optional resuming_from: String
                 }
-                /// Perform end-of-epoch epoch boundary computations
-                public END_EPOCH {}
-                /// Perform start-of-epoch epoch boundary computations
-                public BEGIN_EPOCH {}
                 /// Create pools updates
                 public NEW_POOLS_UPDATES {}
                 /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
@@ -494,14 +493,6 @@ define_schemas! {
             volatile {
                 /// Recompute the volatile aggregate
                 public AGGREGATE {}
-                /// Rollback the volatile state to a specific point
-                public ROLLBACK_TO {
-                    required target_slot: amaru_kernel::Slot
-                    optional last_slot: amaru_kernel::Slot
-                    optional first_slot: amaru_kernel::Slot
-                    optional warning: String
-                    optional error: String
-                }
                 /// The volatile db is still warming up and hasn't reached a stable point yet
                 public WARM_UP {
                     required size: usize

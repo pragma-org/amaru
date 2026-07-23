@@ -63,12 +63,20 @@ impl fmt::Debug for StageState {
 
 pub(crate) struct StageData {
     pub name: Name,
+    /// Bounded bulk ingress (subject to `mailbox_size` and back-pressure).
     pub mailbox: VecDeque<Box<dyn SendData>>,
+    /// Due self-scheduled messages, preferred over [`Self::mailbox`] on receive.
+    /// Capacity is governed by the network's configured `priority_mailbox_size` together with
+    /// armed timers via [`Self::scheduled_pending`].
+    pub priority: VecDeque<Box<dyn SendData>>,
     pub tombstones: VecDeque<Result<Box<dyn SendData>, Name>>,
     pub state: StageState,
     pub waiting: Option<StageEffect<()>>,
     pub transition: Transition,
     pub senders: VecDeque<(Name, Box<dyn SendData>)>,
+    /// Armed schedules not yet consumed by receive (including due entries still in
+    /// [`Self::priority`]). Must stay ≤ the network's configured `priority_mailbox_size`.
+    pub scheduled_pending: usize,
     pub supervised_by: Name,
     pub tombstone: Option<Box<dyn SendData>>,
 }

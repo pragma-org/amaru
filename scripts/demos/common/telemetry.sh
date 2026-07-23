@@ -7,11 +7,16 @@
 # printing the Grafana URLs that open_telemetry opens in the browser. The Docker Compose
 # files are the base $TELEMETRY_DIR/docker-compose.yml plus, for each selected profile,
 # its $TELEMETRY_DIR/profiles/<profile>/docker-compose.yml when that file exists.
+#
+# A demo can layer its own services or mounts (e.g. Grafana dashboards) on top of the shared
+# stack by setting TELEMETRY_COMPOSE_OVERRIDE_FILE to an extra compose file; that file can
+# anchor host paths on the exported TELEMETRY_COMPOSE_OVERRIDE_DIR.
 
 telemetry_compose() {
   have docker || die "docker not found; install Docker or set START_TELEMETRY=false"
   local -a compose_args=()
   local -a profile_args=()
+  local -a collector_configs=("--config=/etc/otlp-collector.yml")
   local profile profile_compose_file
   [[ -f "$TELEMETRY_DIR/docker-compose.yml" ]] || die "telemetry compose file not found: $TELEMETRY_DIR/docker-compose.yml"
   compose_args=(-f "$TELEMETRY_DIR/docker-compose.yml")
@@ -21,7 +26,19 @@ telemetry_compose() {
     if [[ -f "$profile_compose_file" ]]; then
       compose_args+=(-f "$profile_compose_file")
     fi
+    if [[ -f "$TELEMETRY_DIR/profiles/$profile/otlp-collector.yml" ]]; then
+      collector_configs+=("--config=/etc/otlp-collector-$profile.yml")
+    fi
   done
+  # Exported for override compose files (e.g. a demo layer) whose command must restate the
+  # collector configs contributed by the active profiles, since Docker Compose replaces the
+  # command list rather than appending to it.
+  export TELEMETRY_COLLECTOR_CONFIGS="${collector_configs[*]}"
+  if [[ -n "${TELEMETRY_COMPOSE_OVERRIDE_FILE:-}" ]]; then
+    [[ -f "$TELEMETRY_COMPOSE_OVERRIDE_FILE" ]] || die "telemetry compose override not found: $TELEMETRY_COMPOSE_OVERRIDE_FILE"
+    export TELEMETRY_COMPOSE_OVERRIDE_DIR="$(cd "$(dirname "$TELEMETRY_COMPOSE_OVERRIDE_FILE")" && pwd)"
+    compose_args+=(-f "$TELEMETRY_COMPOSE_OVERRIDE_FILE")
+  fi
   docker compose "${compose_args[@]}" "${profile_args[@]}" "$@"
 }
 
@@ -108,34 +125,9 @@ grafana_metrics_url() {
   printf '%s/explore?orgId=1&schemaVersion=1&refresh=5s&panes=%s\n' "$TELEMETRY_GRAFANA_URL" "$(urlencode "$panes")"
 }
 
-grafana_mempool_dashboard_url() {
-  grafana_metrics_url '[
-    {
-      "name": "A",
-      "expr": "sum by (origin, result) (increase(amaru_metrics_mempoolTxInsertionsNum_int[5m]))",
-      "legend": "mempool insertions {{origin}} {{result}}"
-    },
-    {
-      "name": "B",
-      "expr": "cardano_node_metrics_mempoolBytes_int",
-      "legend": "mempool bytes"
-    },
-    {
-      "name": "C",
-      "expr": "cardano_node_metrics_blockNum_int",
-      "legend": "block height"
-    },
-    {
-      "name": "D",
-      "expr": "process_memory_live_resident",
-      "legend": "resident memory"
-    },
-    {
-      "name": "E",
-      "expr": "process_cpu_live",
-      "legend": "cpu"
-    }
-  ]'
+# Prints the URL of a provisioned Grafana dashboard identified by its uid.
+grafana_dashboard_url() {
+  printf '%s/d/%s?orgId=1&refresh=5s\n' "$TELEMETRY_GRAFANA_URL" "$1"
 }
 
 open_telemetry() {

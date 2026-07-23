@@ -25,13 +25,11 @@ pub mod tests {
     };
     use amaru_ledger::{
         epoch_transition::GovernanceActivity,
-        state::diff_bind,
+        state::diff_bind::Resettable,
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
             columns::{
-                accounts::{self},
-                cc_members, dreps,
-                proposals::{self},
+                accounts, cc_members, dreps, proposals,
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },
@@ -80,8 +78,6 @@ pub mod tests {
         _era_history: &EraHistory,
         runner: &mut TestRunner,
     ) -> Result<Fixture, StoreError> {
-        use diff_bind::Resettable;
-
         // utxos
         let txin = any_txin().new_tree(runner).unwrap().current();
         let output = any_memoized_transaction_output().new_tree(runner).unwrap().current();
@@ -104,10 +100,15 @@ pub mod tests {
             None => Resettable::Reset,
         };
 
-        let rewards = Some(account_row.rewards);
-        let deposit = account_row.deposit;
-
-        let accounts_iter = std::iter::once((account_key_clone, (delegatee, drep, rewards, deposit)));
+        let accounts_iter = std::iter::once((
+            account_key_clone,
+            accounts::Value::Create {
+                pool: delegatee,
+                drep,
+                deposit: account_row.deposit,
+                rewards: account_row.rewards,
+            },
+        ));
 
         // pools
         let pool_params = any_pool_params().new_tree(runner).unwrap().current();

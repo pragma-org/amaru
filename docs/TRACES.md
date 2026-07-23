@@ -690,9 +690,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `apply` | `TRACE` | public | Flushing the epoch transition overlay to disk | epoch | should_end_epoch, should_snapshot, should_begin_epoch |
-| `begin_epoch` | `TRACE` | public | Perform start-of-epoch epoch boundary computations |  |  |
 | `compute` | `TRACE` | public | Epoch transition processing | from, into | skipped, resuming_from |
-| `end_epoch` | `TRACE` | public | Perform end-of-epoch epoch boundary computations |  |  |
 | `new_governance_updates` | `TRACE` | public | Create governance updates (i.e. ratify proposals) at an epoch boundary. | proposals_count |  |
 | `new_pools_updates` | `TRACE` | public | Create pools updates |  |  |
 | `record` | `TRACE` | public | Record an in-flight epoch transition | from, to |  |
@@ -1138,14 +1136,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `push` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
-| `roll_backward` | `TRACE` | public | Roll backward to a specific point | rollback_point |  |
+| `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
 | `roll_forward` | `TRACE` | public | Roll forward with a new block |  |  |
+| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length |  |
 
-<details><summary>span: `roll_backward`</summary>
+<details><summary>span: `switch_to_fork`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `rollback_point` | `string` | ✓ |
+| `fork_point` | `string` | ✓ |
+| `fork_length` | `integer` | ✓ |
 
 </details>
 
@@ -1392,20 +1392,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `aggregate` | `TRACE` | public | Recompute the volatile aggregate |  |  |
-| `rollback_to` | `TRACE` | public | Rollback the volatile state to a specific point | target_slot | last_slot, first_slot, warning, error |
 | `warm_up` | `TRACE` | public | The volatile db is still warming up and hasn't reached a stable point yet | size |  |
-
-<details><summary>span: `rollback_to`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `target_slot` | `string` | ✓ |
-| `last_slot` | `string` |  |
-| `first_slot` | `string` |  |
-| `warning` | `string` |  |
-| `error` | `string` |  |
-
-</details>
 
 <details><summary>span: `warm_up`</summary>
 

@@ -12,14 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, path::PathBuf};
-
-use amaru::stages::config::Config;
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
-use amaru_ledger::block_validator::BlockValidator;
-use amaru_plutus::arena_pool::ArenaPool;
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
-use anyhow::anyhow;
 use clap::Subcommand;
 
 pub(crate) mod convert;
@@ -53,30 +45,4 @@ pub(crate) enum LedgerCommand {
 
     #[cfg(feature = "mithril")]
     Mithril(mithril::Args),
-}
-
-pub(crate) fn new_block_validator(
-    network: NetworkName,
-    ledger_dir: PathBuf,
-) -> Result<BlockValidator<RocksDB, RocksDBHistoricalStores>, Box<dyn Error>> {
-    let era_history: &EraHistory =
-        network.as_era_history().ok_or_else(|| anyhow!("missing default EraHistory for network {}", network))?;
-
-    let global_parameters: &GlobalParameters = network
-        .as_global_parameters()
-        .ok_or_else(|| anyhow!("missing default GlobalParameters for network {}", network))?;
-
-    let rocks_db_config = RocksDbConfig::new(ledger_dir);
-    let store = RocksDBHistoricalStores::new(&rocks_db_config, 2);
-    let config = Config::default();
-    let block_validator = BlockValidator::new(
-        RocksDB::new(&rocks_db_config)?,
-        store,
-        ArenaPool::new(config.ledger_vm_alloc_arena_count, config.ledger_vm_alloc_arena_size),
-        network,
-        era_history.clone(),
-        global_parameters.clone(),
-    )?;
-
-    Ok(block_validator)
 }

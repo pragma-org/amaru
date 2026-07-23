@@ -1,12 +1,12 @@
 {
-  "title": "MissingTxBodyMetadataHash",
+  "title": "auxiliary data without body hash",
   "description": "Auxiliary data is present but the transaction body lacks an auxiliary_data_hash; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

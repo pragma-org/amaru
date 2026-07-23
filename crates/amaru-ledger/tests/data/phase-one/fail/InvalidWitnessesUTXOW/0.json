@@ -1,12 +1,12 @@
 {
-  "title": "InvalidVKeyWitness",
+  "title": "invalid vkey signature",
   "description": "Copy of simple-transfer with one nibble flipped in the vkey signature; phase-one must reject on invalid signature.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

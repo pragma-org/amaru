@@ -35,7 +35,14 @@ Other guiding principles:
   ```
 -->
 
-## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
+
+## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
+
+### Fixed
+
+- **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
+
+## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
 ### Added
 
@@ -52,6 +59,7 @@ Other guiding principles:
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
 - **amaru**: no more separate `amaru-ledger` binary; associated commands have been moved into the main `amaru` binary under `amaru dev ledger`. ([#1064](https://github.com/pragma-org/amaru/pull/1064))
 
+
 ### Fixed
 
 - **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
@@ -59,9 +67,13 @@ Other guiding principles:
 - **amaru-consensus / amaru-protocols**: do not log an ERROR when block-fetch is paused because no upstream peers are connected yet; keep ERROR for real fetch timeouts after peers were contacted. ([#1050](https://github.com/pragma-org/amaru/issues/1050))
 - **amaru-plutus**: encoding divergence between rational number present in governance actions and those present in protocol parameters. ([#1053][])
 - **amaru-ledger**: restore some spans in the ledger at the debug level. ([#1056][])
+- **amaru**: make sure that switching to a new fork is atomic and recovers in case a block on the fork fails to validate ([#1009][])
 - **amaru**: bootstrap creates the chain DB at the current schema version instead of replaying migrations on an empty store (avoids a spurious migration warning). ([#1060](https://github.com/pragma-org/amaru/pull/1062))
 - **amaru-protocols**: delegate connection attempts to connector stage to avoid blocking the manager and allow up to 10 concurrent connections. ([#1058](https://github.com/pragma-org/amaru/pull/1058))
 - **amaru-consensus**: fix chainsync mini-protocol lifecycle handling in `track_peers` stage to properly clean up resources when stopping to sync from a peer. ([#1059](https://github.com/pragma-org/amaru/pull/1059))
+- **amaru-pure-stage**: simulation runtime now also guarantees delivery of scheduled messages; both runtimes enforce limit on priority messages in flight. ([#1066](https://github.com/pragma-org/amaru/pull/1066))
+- **amaru-uplc**: fixed the CBOR encoding of `-2^64`.
+- **amaru-ledger**: unbind accounts from deregistered pools. ([#1030][])
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
@@ -190,6 +202,7 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
@@ -197,8 +210,10 @@ Other guiding principles:
 [#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
 [#1029]: https://github.com/pragma-org/amaru/pull/1029
+[#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
+[#1036]: https://github.com/pragma-org/amaru/pull/1036
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
 [#1041]: https://github.com/pragma-org/amaru/pull/1041
 [#1043]: https://github.com/pragma-org/amaru/pull/1043

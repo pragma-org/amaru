@@ -1216,18 +1216,6 @@
       "description": "Flushing the epoch transition overlay to disk",
       "public": true
     },
-    "amaru::ledger::epoch_transition::BEGIN_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "begin_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform start-of-epoch epoch boundary computations",
-      "public": true
-    },
     "amaru::ledger::epoch_transition::COMPUTE": {
       "type": "object",
       "properties": {
@@ -1259,18 +1247,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::epoch_transition",
       "description": "Epoch transition processing",
-      "public": true
-    },
-    "amaru::ledger::epoch_transition::END_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "end_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform end-of-epoch epoch boundary computations",
       "public": true
     },
     "amaru::ledger::epoch_transition::NEW_GOVERNANCE_UPDATES": {
@@ -2426,15 +2402,8 @@
     },
     "amaru::ledger::state::ROLL_BACKWARD": {
       "type": "object",
-      "properties": {
-        "rollback_point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
-        }
-      },
-      "required": [
-        "rollback_point"
-      ],
+      "properties": {},
+      "required": [],
       "optional": [],
       "additionalProperties": false,
       "name": "roll_backward",
@@ -2453,6 +2422,29 @@
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Roll forward with a new block",
+      "public": true
+    },
+    "amaru::ledger::state::SWITCH_TO_FORK": {
+      "type": "object",
+      "properties": {
+        "fork_point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "fork_length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fork_point",
+        "fork_length"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch_to_fork",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Switching to an alternative chain fork",
       "public": true
     },
     "amaru::ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE": {
@@ -2909,44 +2901,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::volatile",
       "description": "Recompute the volatile aggregate",
-      "public": true
-    },
-    "amaru::ledger::volatile::ROLLBACK_TO": {
-      "type": "object",
-      "properties": {
-        "target_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "last_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "first_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "warning": {
-          "type": "string"
-        },
-        "error": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "target_slot"
-      ],
-      "optional": [
-        "last_slot",
-        "first_slot",
-        "warning",
-        "error"
-      ],
-      "additionalProperties": false,
-      "name": "rollback_to",
-      "level": "TRACE",
-      "target": "amaru::ledger::volatile",
-      "description": "Rollback the volatile state to a specific point",
       "public": true
     },
     "amaru::ledger::volatile::WARM_UP": {

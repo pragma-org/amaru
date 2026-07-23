@@ -236,11 +236,13 @@ impl Replay {
                     StageData {
                         name: name.clone(),
                         mailbox: VecDeque::new(),
+                        priority: VecDeque::new(),
                         tombstones: VecDeque::new(),
                         state: StageState::Idle(initial_state),
                         transition,
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
+                        scheduled_pending: 0,
                         supervised_by: at_stage,
                         tombstone,
                     },

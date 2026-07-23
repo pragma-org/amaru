@@ -121,7 +121,11 @@ processes:
       6-prepare-wallet:
         condition: process_completed_successfully
 
-  8-telemetry:
+  8-telemetry-setup:
+    description: Start Grafana, Tempo, Prometheus, and the OTLP collector.
+    command: ./process-compose.sh run telemetry-up
+
+  8-telemetry-open:
     description: Open Grafana Tempo traces and Prometheus metrics for Amaru in the browser.
     command: ./process-compose.sh run telemetry-open
     disabled: true

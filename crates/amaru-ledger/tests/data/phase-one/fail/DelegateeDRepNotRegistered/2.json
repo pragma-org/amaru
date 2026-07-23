@@ -1,12 +1,12 @@
 {
-  "title": "DelegateeDRepNotRegistered",
+  "title": "vote reg delegation to unregistered drep",
   "description": "A registration-and-vote-delegation certificate delegates the vote to a DRep that is not registered.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [
@@ -26,7 +26,7 @@
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "83a400d9010281825820abababababababababababababababababababababababababababababababab000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480ff021a00030d4004d9010281840c8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ccdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd1a001e8480a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584088daf94c670110a882d7f2f34b9b1f1cff84a22ea2c92ecd5bb00a6b5a02ac759b2b5308dafc4e50113404744b0b636edb671ab82e0bfb83e181fe26d9602c06f5",
+  "transaction": "84a400d9010281825820abababababababababababababababababababababababababababababababab000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480ff021a00030d4004d9010281840c8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ccdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd1a001e8480a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584088daf94c670110a882d7f2f34b9b1f1cff84a22ea2c92ecd5bb00a6b5a02ac759b2b5308dafc4e50113404744b0b636edb671ab82e0bfb83e181fe26d9602c06f5f6",
   "expected": {
     "predicate": "DelegateeDRepNotRegistered"
   }

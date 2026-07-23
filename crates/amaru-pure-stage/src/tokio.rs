@@ -41,7 +41,8 @@ use tokio::{
 use tracing::trace_span;
 
 use crate::{
-    BoxFuture, Effects, Instant, Name, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BoxFuture, Effects, Instant, Name, PRIORITY_MAILBOX_SIZE, ScheduleId, ScheduleIds, SendData, Sender, StageBuildRef,
+    StageGraph, StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     drop_guard::DropGuard,
     effect::{CallExtra, CallTimeout, CanSupervise, StageEffect, StageResponse, TransitionFactory},
@@ -71,6 +72,7 @@ struct TokioInner {
     resources: Resources,
     schedule_ids: ScheduleIds,
     mailbox_size: usize,
+    priority_mailbox_size: usize,
     stage_counter: Mutex<usize>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
@@ -85,6 +87,7 @@ impl TokioInner {
             resources: Resources::default(),
             schedule_ids: ScheduleIds::default(),
             mailbox_size: 10,
+            priority_mailbox_size: PRIORITY_MAILBOX_SIZE,
             stage_counter: Mutex::new(0usize),
             trace_buffer: TraceBuffer::new_shared(0, 0),
         }
@@ -157,6 +160,15 @@ impl TokioBuilder {
 
     pub fn with_global_epoch_offset(mut self, offset: Duration) -> Self {
         self.inner.global_epoch_offset = offset;
+        self
+    }
+
+    /// Set the maximum number of undelivered self-scheduled messages allowed per stage.
+    ///
+    /// Defaults to [`PRIORITY_MAILBOX_SIZE`]. Exceeding the limit
+    /// panics so schedule storms fail loudly.
+    pub fn with_priority_mailbox_size(mut self, size: usize) -> Self {
+        self.inner.priority_mailbox_size = size;
         self
     }
 }
@@ -262,6 +274,7 @@ impl StageGraph for TokioBuilder {
 }
 
 enum PriorityMessage {
+    /// Due self-scheduled message; bypasses the bulk mpsc mailbox.
     Scheduled(Box<dyn SendData>, ScheduleId, watch::Receiver<bool>),
     TimerCancelled(ScheduleId),
     Tombstone(Box<dyn SendData>),
@@ -283,6 +296,8 @@ async fn run_stage_boxed(
     // will terminate those spawned stages
     let mut timers = FuturesUnordered::<BoxFuture<'static, PriorityMessage>>::new();
     let mut cancel_senders = BTreeMap::<ScheduleId, watch::Sender<bool>>::new();
+    // Armed schedules not yet consumed by receive (matches simulation `scheduled_pending`).
+    let mut scheduled_pending: usize = 0;
 
     let tb = DropGuard::new(inner.trace_buffer.clone(), |tb| {
         // ensure that Aborted is traced when this Future is dropped
@@ -298,6 +313,7 @@ async fn run_stage_boxed(
         // if multiple timers have fired since the last poll, we need them all so that we can deliver them in order
         let mut timer_chunks = (&mut timers).ready_chunks(1000);
 
+        // Prefer due scheduled (priority) messages over bulk mailbox traffic.
         tokio::select! { biased;
             Some(res) = timer_chunks.next(), if poll_timers => {
                 let mut scheduled = Vec::new();
@@ -306,7 +322,10 @@ async fn run_stage_boxed(
                         PriorityMessage::Scheduled(msg, id, cancelation) => {
                             scheduled.push((id, msg, cancelation));
                         }
-                        PriorityMessage::TimerCancelled(_id) => {}
+                        PriorityMessage::TimerCancelled(_id) => {
+                            // Cancel won before the timer fired; free the outstanding budget.
+                            scheduled_pending = scheduled_pending.saturating_sub(1);
+                        }
                         PriorityMessage::Tombstone(msg) => msgs.push((msg, None)),
                     }
                 }
@@ -326,6 +345,7 @@ async fn run_stage_boxed(
         for (msg, cancelation) in msgs.drain(..) {
             if let Some((id, canceled)) = cancelation {
                 cancel_senders.remove(&id);
+                scheduled_pending = scheduled_pending.saturating_sub(1);
                 if *canceled.borrow() {
                     // cancellation happened after the timer fired but before the message was delivered
                     continue;
@@ -341,7 +361,9 @@ async fn run_stage_boxed(
             inner.trace_buffer.lock().push_input(&stage_name, &msg);
 
             let f = (transition)(state, msg);
-            let result = interpreter(&inner, &effect, &stage_name, &mut timers, &mut cancel_senders, f).await;
+            let result =
+                interpreter(&inner, &effect, &stage_name, &mut timers, &mut cancel_senders, &mut scheduled_pending, f)
+                    .await;
             match result {
                 Some(st) => state = st,
                 None => {
@@ -381,6 +403,7 @@ fn interpreter(
     name: &Name,
     timers: &mut FuturesUnordered<BoxFuture<'static, PriorityMessage>>,
     cancel_senders: &mut BTreeMap<ScheduleId, watch::Sender<bool>>,
+    scheduled_pending: &mut usize,
     mut stage: BoxFuture<'static, Box<dyn SendData>>,
 ) -> impl Future<Output = Option<Box<dyn SendData>>> + Send {
     // trying to write this as an async fn fails with inscrutable compile errors, it seems
@@ -511,10 +534,19 @@ fn interpreter(
                     StageResponse::ContramapResponse(name)
                 }
                 StageEffect::Schedule(msg, id) => {
+                    let limit = inner.priority_mailbox_size;
+                    #[expect(clippy::panic)]
+                    if *scheduled_pending >= limit {
+                        panic!(
+                            "stage `{name}` exceeded priority mailbox size ({limit}): too many outstanding scheduled messages"
+                        );
+                    }
+                    *scheduled_pending += 1;
                     let when = id.time();
                     let sleep = tokio::time::sleep_until(when.to_tokio());
                     let (tx, mut rx) = watch::channel(false);
                     cancel_senders.insert(id, tx);
+                    // Priority path: timers bypass the bounded mpsc bulk mailbox.
                     timers.push(Box::pin(async move {
                         let rx2 = rx.clone();
                         tokio::select! { biased;
@@ -527,6 +559,8 @@ fn interpreter(
                 StageEffect::CancelSchedule(id) => {
                     if let Some(tx) = cancel_senders.remove(&id) {
                         tx.send_replace(true);
+                        // Budget is released when TimerCancelled is observed (or when a
+                        // late-fired Scheduled is discarded after cancel).
                         StageResponse::CancelScheduleResponse(true)
                     } else {
                         StageResponse::CancelScheduleResponse(false)
