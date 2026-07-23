@@ -14,7 +14,7 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::{Block, Certificate, TransactionBody};
+use amaru_kernel::{Block, Certificate, GovernanceAction, Proposal, TransactionBody};
 use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
@@ -55,6 +55,9 @@ pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transa
     certificates.for_each(|certificate| prepare_certificate(context, certificate));
 
     prepare_votes(context, transaction);
+
+    let gov_actions = transaction.proposals.as_deref().unwrap_or(&[]).iter();
+    gov_actions.for_each(|action| prepare_governance_action(context, action));
 }
 
 /// Collect and require the inputs from a single transaction.
@@ -87,6 +90,11 @@ fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a
     }
 }
 
+fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, proposal: &'a Proposal) {
+    if let GovernanceAction::TreasuryWithdrawals(withdrawals, _) = &proposal.gov_action {
+        withdrawals.iter().for_each(|withdrawal| context.require_withdrawal(&withdrawal.0));
+    }
+}
 /// Collect and require values from a single certificate.
 fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificate: &'a Certificate) {
     match certificate {

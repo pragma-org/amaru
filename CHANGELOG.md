@@ -38,6 +38,11 @@ Other guiding principles:
 
 ## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
+### Added
+
+- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
+
+
 ### Fixed
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
@@ -188,6 +193,7 @@ Other guiding principles:
 [#902]: https://github.com/pragma-org/amaru/issues/902
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#929]: https://github.com/pragma-org/amaru/issues/929
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
@@ -212,6 +218,7 @@ Other guiding principles:
 [#1029]: https://github.com/pragma-org/amaru/pull/1029
 [#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
+[#1032]: https://github.com/pragma-org/amaru/pull/1032
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1034]: https://github.com/pragma-org/amaru/pull/1034
 [#1036]: https://github.com/pragma-org/amaru/pull/1036

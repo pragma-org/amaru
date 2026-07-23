@@ -30,6 +30,7 @@ use crate::{
             InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
             InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
+            proposals::InvalidProposals,
         },
     },
 };
@@ -188,6 +189,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    TreasuryWithdrawalReturnAccountsDoNotExist,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
     DRepAlreadyRegistered,
@@ -242,6 +244,9 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
+            PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
+                Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
+            }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,

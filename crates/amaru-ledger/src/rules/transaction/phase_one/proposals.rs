@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
 use amaru_kernel::{
     Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal,
     ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
-    TransactionId, TransactionPointer, size::SCRIPT,
+    StakeCredential, TransactionId, TransactionPointer, parse_reward_account, size::SCRIPT,
 };
 use thiserror::Error;
 
-use crate::context::{BalanceSlice, ProposalsSlice, WitnessSlice};
+use crate::context::{AccountsSlice, BalanceSlice, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -37,6 +39,9 @@ pub enum InvalidProposals {
 
     #[error("treasury withdrawal address has wrong network: expected {expected:?}, actual {actual:?}")]
     TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
+
+    #[error("treasury withdrawal return accounts do not exist: {0:?}")]
+    TreasuryWithdrawalReturnAccountsDoNotExist(BTreeSet<StakeCredential>),
 
     #[error("conflicting committee update: members appear in both add and remove sets")]
     ConflictingCommitteeUpdate,
@@ -63,11 +68,23 @@ pub(crate) fn execute<C>(
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
-    C: ProposalsSlice + WitnessSlice + BalanceSlice,
+    C: ProposalsSlice + AccountsSlice + WitnessSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
         validate_proposal(&proposal, network, protocol_parameters, era_history, transaction.1)?;
 
+        if let GovernanceAction::TreasuryWithdrawals(ref wdrls, _) = proposal.gov_action {
+            let missing: BTreeSet<StakeCredential> = wdrls
+                .iter()
+                .filter_map(|(account, _)| {
+                    let (credential, _) = parse_reward_account(account)?;
+                    AccountsSlice::lookup(context, &credential).is_none().then_some(credential)
+                })
+                .collect();
+            if !missing.is_empty() {
+                return Err(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(missing));
+            }
+        }
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
                 hash: script_hash,
