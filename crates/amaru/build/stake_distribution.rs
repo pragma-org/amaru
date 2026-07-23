@@ -73,11 +73,11 @@ fn stake_distribution_epochs(network_dir: &Path) -> Result<Vec<u64>> {
     Ok(epochs)
 }
 
-/// Extract the epoch number from an `epoch_<N>.json` or `epoch_<N>.json.xz` fixture file name.
+/// Extract the epoch number from an `epoch_<N>.json` or `epoch_<N>.json.zst` fixture file name.
 fn stake_distribution_epoch(path: &Path) -> Option<u64> {
     let file_name = path.file_name()?.to_str()?;
     let epoch = file_name.strip_prefix("epoch_")?;
-    let epoch = epoch.strip_suffix(".json").or_else(|| epoch.strip_suffix(".json.xz"))?;
+    let epoch = epoch.strip_suffix(".json").or_else(|| epoch.strip_suffix(".json.zst"))?;
 
     epoch.parse().ok()
 }
@@ -215,9 +215,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_stake_distribution_epoch_supports_json_and_json_xz() {
+    fn test_stake_distribution_epoch_supports_json_and_json_zst() {
         assert_eq!(stake_distribution_epoch(Path::new("epoch_999.json")), Some(999));
-        assert_eq!(stake_distribution_epoch(Path::new("epoch_1000.json.xz")), Some(1000));
+        assert_eq!(stake_distribution_epoch(Path::new("epoch_1000.json.zst")), Some(1000));
         assert_eq!(stake_distribution_epoch(Path::new("generated_test_cases.incl")), None);
     }
 }

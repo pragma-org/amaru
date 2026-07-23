@@ -99,7 +99,7 @@ rocksdb.workspace = true
 syn.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
-xz.workspace = true
+zstd.workspace = true
 diff_json.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
