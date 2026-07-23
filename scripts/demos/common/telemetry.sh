@@ -130,6 +130,10 @@ grafana_dashboard_url() {
   printf '%s/d/%s?orgId=1&refresh=5s\n' "$TELEMETRY_GRAFANA_URL" "$1"
 }
 
+grafana_dashboard_panel_url() {
+  printf '%s/d/%s?orgId=1&refresh=5s&viewPanel=%s\n' "$TELEMETRY_GRAFANA_URL" "$1" "$2"
+}
+
 open_telemetry() {
   local url
   if have open; then

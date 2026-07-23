@@ -75,12 +75,13 @@ TELEMETRY_COMPOSE_OVERRIDE_FILE="${TELEMETRY_COMPOSE_OVERRIDE_FILE:-$SCRIPT_DIR/
 TELEMETRY_PROFILES="${TELEMETRY_PROFILES:-prometheus grafana tempo}"
 TELEMETRY_GRAFANA_URL="${TELEMETRY_GRAFANA_URL:-http://localhost}"
 TELEMETRY_PROMETHEUS_URL="${TELEMETRY_PROMETHEUS_URL:-http://localhost:9090}"
+export AMARU_RELAY_LOGDIR="$LOGDIR"
 OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4317}"
 OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-http://localhost:4318/v1/metrics}"
 AMARU_MIDDLE_WITH_OPEN_TELEMETRY="${AMARU_MIDDLE_WITH_OPEN_TELEMETRY:-true}"
 AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY="${AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY:-true}"
-AMARU_MIDDLE_WITH_JSON_TRACES="${AMARU_MIDDLE_WITH_JSON_TRACES:-false}"
-AMARU_DOWNSTREAM_WITH_JSON_TRACES="${AMARU_DOWNSTREAM_WITH_JSON_TRACES:-false}"
+AMARU_MIDDLE_WITH_JSON_TRACES="${AMARU_MIDDLE_WITH_JSON_TRACES:-true}"
+AMARU_DOWNSTREAM_WITH_JSON_TRACES="${AMARU_DOWNSTREAM_WITH_JSON_TRACES:-true}"
 AMARU_TRACE_EMIT_PRIVATE="${AMARU_TRACE_EMIT_PRIVATE:-true}"
 AMARU_MIDDLE_LOG="${AMARU_MIDDLE_LOG:-info,amaru::ledger::state=trace}"
 AMARU_DOWNSTREAM_LOG="${AMARU_DOWNSTREAM_LOG:-info,amaru::ledger::state=trace}"
@@ -217,7 +218,9 @@ run_prepare_wallet() {
 
 telemetry_urls() {
   grafana_trace_url "traces" '{ resource.service.name = "amaru-middle" && span:name = "roll_forward.process" } with (most_recent=true)'
+  grafana_dashboard_panel_url "amaru-relay-consensus-perf" 7
   grafana_dashboard_url "amaru-relay-mempool"
+  grafana_dashboard_url "amaru-relay-consensus-perf"
 }
 
 case "${1:-up}" in
