@@ -13,27 +13,76 @@
 // limitations under the License.
 
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
-    ops::DerefMut,
     sync::Arc,
 };
 
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId,
-    PoolParams, StakeCredential, TransactionInput,
+    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput,
+    PoolId, StakeCredential, TransactionInput,
 };
 
 use crate::state::{
-    diff_bind::{DiffBind, Resettable},
+    diff_bind::{Empty, Resettable},
     diff_epoch_reg::DiffEpochReg,
     diff_set::DiffSet,
-    volatile::{AccountBind, Bind, CommitteeMemberBind, Existence, VolatileFragment},
+    indexed_bind::IndexedBind,
+    indexed_set::IndexedSet,
+    volatile::{AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, VolatileFragment},
 };
 
-type Pools = DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>;
+/// The window's accounts, indexed by credential so each one's per-fragment history is retracted
+/// exactly on stabilization and folded on read. See [`IndexedBind`].
+type Accounts = IndexedBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
 
-type Accounts = DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
+/// The window's DReps, indexed by credential so each one's per-fragment history is retracted exactly
+/// on stabilization and folded on read. See [`IndexedBind`].
+type DReps = IndexedBind<StakeCredential, Anchor, Empty, DRepRegistration>;
+
+/// The window's constitutional committee, indexed by cold credential so each member's hot-key
+/// history is retracted exactly on stabilization. A member may rotate their hot key (produce then
+/// produce), so a blind collapse would lose the newer key when the older fragment stabilizes. See
+/// [`IndexedSet`].
+type Committee = IndexedSet<StakeCredential, StakeCredential>;
+
+/// The window's pools, counted by id: how many fragments in the window registered each one. Pool
+/// existence is monotonic-additive here; `register` adds a pool, and an `unregister` is a deferred
+/// retirement resolved at the epoch boundary (by the overlay), never in this aggregate. Retracting
+/// the oldest fragment (stabilization) and the newest (rollback) are therefore the same decrement.
+#[derive(Debug, Default, Clone)]
+struct PoolRegistrations {
+    counts: BTreeMap<PoolId, usize>,
+}
+
+impl PoolRegistrations {
+    /// Record a fragment's registrations, one increment per pool it registered.
+    fn extend<V>(&mut self, diff: &DiffEpochReg<PoolId, V>) {
+        for pool_id in diff.registered.keys() {
+            *self.counts.entry(*pool_id).or_default() += 1;
+        }
+    }
+
+    /// Retract a fragment's registrations, one decrement per pool it registered, dropping a pool
+    /// once no fragment in the window registers it.
+    fn retract<V>(&mut self, diff: &DiffEpochReg<PoolId, V>) {
+        for pool_id in diff.registered.keys() {
+            match self.counts.get_mut(pool_id) {
+                Some(count) => {
+                    *count -= 1;
+                    if *count == 0 {
+                        self.counts.remove(pool_id);
+                    }
+                }
+                None => unreachable!("retracted a fragment registering a pool absent from the aggregate"),
+            }
+        }
+    }
+
+    /// Whether any fragment in the window registered this pool.
+    fn resolve(&self, pool_id: &PoolId) -> bool {
+        self.counts.contains_key(pool_id)
+    }
+}
 
 /// A collapse/folded sequence of `crate::volatile::VolatileFragment` which can be cleaned up
 /// incrementally.
@@ -41,11 +90,10 @@ type Accounts = DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, C
 #[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileAggregate {
     utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
-    pools: Pools,
-    accounts: RefCell<Option<Accounts>>,
-    dreps: DiffSet<StakeCredential, DRepRegistration>,
-    dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    committee: DiffSet<StakeCredential, StakeCredential>,
+    pools: PoolRegistrations,
+    accounts: Accounts,
+    dreps: DReps,
+    committee: Committee,
     withdrawals: BTreeSet<StakeCredential>,
     proposals: BTreeSet<ComparableProposalId>,
     fees: Lovelace,
@@ -72,33 +120,21 @@ impl VolatileAggregate {
     /// Whether this aggregate registered the given pool. Unregistrations
     /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
     pub fn resolve_pool(&self, pool_id: PoolId) -> bool {
-        self.pools.registered.contains_key(&pool_id)
+        self.pools.resolve(&pool_id)
     }
 
-    /// This aggregate's verdict on a stake account. Deregistration is immediate, so an `unregistered`
-    /// entry is a live tombstone.
-    pub fn resolve_account(
-        &self,
-        credential: &StakeCredential,
-        scan: impl FnOnce() -> Accounts,
-    ) -> Existence<AccountBind> {
-        if let Some(accounts) = self.accounts.borrow().as_ref() {
-            return accounts.lookup(credential).to_owned();
-        }
-
-        let accounts = scan();
-
-        let account = accounts.lookup(credential).to_owned();
-
-        self.accounts.replace(Some(accounts));
-
-        account
+    /// This aggregate's verdict on a stake account, folding the credential's per-fragment
+    /// contributions oldest to newest. Deregistration is immediate, so an `unregistered` entry is a
+    /// live tombstone.
+    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
+        self.accounts.resolve(credential)
     }
 
-    /// This aggregate's verdict on a DRep. Deregistration is immediate, so an `unregistered`
-    /// entry is a live tombstone.
-    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepRegistration> {
-        self.dreps.lookup(credential).copied()
+    /// This aggregate's verdict on a DRep, folding the credential's per-fragment contributions
+    /// oldest to newest. Deregistration is immediate, so a tombstone is live; an anchor-only update
+    /// is a bind-only change that defers the registration to the layer below.
+    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
+        self.dreps.resolve(credential)
     }
 
     /// This aggregate's verdict on a CC member. Resignation is immediate, so a resignation entry is a
@@ -108,7 +144,7 @@ impl VolatileAggregate {
         use Existence::*;
         use Resettable::*;
 
-        match self.committee.lookup(credential) {
+        match self.committee.resolve(credential) {
             Unknown => Unknown,
             Gone => Exists(Bind { left: Reset, ..Bind::default() }),
             Exists(hot) => Exists(Bind { left: Set(hot.to_owned()), ..Bind::default() }),
@@ -123,7 +159,7 @@ impl VolatileAggregate {
 }
 
 impl VolatileAggregate {
-    /// Fold a `more_recent`  into this aggregate, treating it as applied *after* `self`.
+    /// Fold a `more_recent` into this aggregate, treating it as applied *after* `self`.
     /// This maintains the running aggregate of a [`crate::state::volatile::VolatileSeries`].
     pub fn add_fragment(&mut self, fragment: &VolatileFragment) {
         let VolatileFragment {
@@ -135,7 +171,7 @@ impl VolatileAggregate {
             donations,
             accounts,
             dreps,
-            dreps_deregistrations,
+            dreps_deregistrations: _,
             committee,
             votes: _,
         } = fragment;
@@ -144,37 +180,42 @@ impl VolatileAggregate {
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.keys().cloned());
-        self.dreps.extend_bind(dreps);
-        self.dreps_deregistrations.extend(dreps_deregistrations.iter().map(|(k, v)| (k.clone(), *v)));
+        self.dreps.extend(dreps);
         self.committee.extend(committee);
-
-        if !accounts.is_empty() {
-            // Modify the accounts cache, if present. If not, does nothing. Accounts are only re-calculated
-            // lazily when needed.
-            if let Some(diff) = self.accounts.borrow_mut().deref_mut() {
-                diff.append(accounts.clone());
-            }
-        }
+        self.accounts.extend(accounts);
 
         self.fees += *fees;
         self.donations += *donations;
     }
 
-    /// A best-effort cleanup of a previous fragment in the current aggreate. This is not generally
-    /// possible (with our current design), for all elements in a fragment, because we loose
-    /// information each time we aggregate two fragments (a little thought exercise with account
-    /// registrations and delegations should be convincing enough).
+    /// Retract the oldest fragment as it stabilizes off the front of the window, leaving this
+    /// aggregate exactly equal to what re-folding the remaining fragments would produce.
     ///
-    /// But it is possible for a few types such as the `DiffSet` and the various maps. Note that
-    /// not cleaning up all the data is not fundamentally wrong; but it is *leaking memory*. We
-    /// just keep in memory information that we should have flushed on-disk.
+    /// This exactness is what lets a series stabilize purely incrementally, with no periodic
+    /// recompute to fall back on. It is not automatic: a naive collapse loses information every
+    /// time two fragments merge (e.g. an account that registers, deregisters, then re-registers
+    /// within the window collapses to a single verdict, and retracting the front then reads the
+    /// wrong existence). Each field is therefore shaped so that retracting the front is exact,
+    /// each for its own reason:
     ///
-    /// Yet, this is counterbalanced by the frequent rollbacks happening on Cardano (once every
-    /// 10-15min due to slot battles). Rollbacks are infrequent enough and frequent enough that
-    /// they are the perfect opportunity to cleanup the now-stable memory (by re-computing the
-    /// aggregate from scratch). Also, because we cannot *guarantee* that rollbacks happen, we
-    /// still also manually perform such a cleanup every now-and-then using a counter that gets
-    /// reset for every rollback.
+    /// - `utxo`: utxos, by definition, are unique, so cleaning up specific UTxOs can never overwrite older state.
+    /// - `pools`: existence is monotonic-additive, a registration counts up and retirement is
+    ///   deferred to the epoch boundary, so retracting just decrements the count this fragment added.
+    /// - `accounts`, `dreps`: each credential keeps its own per-fragment history, so retracting
+    ///   pops only the front of that credential's deque and a later re-registration or bind-only
+    ///   update is left intact. This is what the collapse above would lose.
+    /// - `committee`: same per-key history; a member may rotate their hot key (produce then
+    ///   produce), and both verdicts are kept, so stabilizing the older one leaves the newer live.
+    /// - `withdrawals`: a series is epoch-homogeneous, so a credential has at most one *effectful*
+    ///   withdrawal in it (once withdrawn its rewards are zero, and any further withdrawal is a
+    ///   no-op). That effect is flushed to the layer below as it stabilizes, so dropping the
+    ///   credential from the set is exact for the only question asked of it ([`has_withdrawal`]).
+    /// - `proposals`: proposal ids are globally unique, so, as with `utxo`, a removed id is never
+    ///   re-added.
+    /// - `fees`, `donations`: running totals, retracted by subtracting exactly what was added.
+    ///
+    /// [`DiffSet::cleanup`]: crate::state::diff_set::DiffSet::cleanup
+    /// [`has_withdrawal`]: Self::has_withdrawal
     pub fn remove_fragment(&mut self, fragment: &VolatileFragment) {
         let VolatileFragment {
             utxo,
@@ -185,18 +226,16 @@ impl VolatileAggregate {
             accounts,
             committee,
             dreps,
-            dreps_deregistrations,
-            pools: _,
+            dreps_deregistrations: _,
+            pools,
             votes: _,
         } = fragment;
 
         self.utxo.cleanup(utxo);
 
-        self.committee.cleanup(committee);
+        self.pools.retract(pools);
 
-        for credential in dreps_deregistrations.keys() {
-            self.dreps_deregistrations.remove(credential);
-        }
+        self.committee.cleanup(committee);
 
         for credential in withdrawals {
             self.withdrawals.remove(credential);
@@ -206,15 +245,42 @@ impl VolatileAggregate {
             self.proposals.remove(proposal_id);
         }
 
-        if !accounts.is_empty() {
-            self.accounts.replace(None);
-        }
+        self.accounts.cleanup(accounts);
 
-        if !dreps.is_empty() {
-            self.dreps.cleanup_bind(dreps)
-        }
+        self.dreps.cleanup(dreps);
 
         self.fees -= *fees;
         self.donations -= *donations;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::Hash;
+
+    use super::*;
+
+    fn pool(tag: u8) -> PoolId {
+        Hash::new([tag; 28])
+    }
+
+    fn registers(tag: u8) -> DiffEpochReg<PoolId, ()> {
+        let mut diff = DiffEpochReg::default();
+        diff.register(pool(tag), ());
+        diff
+    }
+
+    #[test]
+    fn pool_stays_registered_until_every_registering_fragment_is_retracted() {
+        let mut pools = PoolRegistrations::default();
+        pools.extend(&registers(1));
+        pools.extend(&registers(1));
+        assert!(pools.resolve(&pool(1)));
+
+        pools.retract(&registers(1));
+        assert!(pools.resolve(&pool(1)), "a second registration keeps the pool live");
+
+        pools.retract(&registers(1));
+        assert!(!pools.resolve(&pool(1)), "retracting the last registration drops the pool");
     }
 }

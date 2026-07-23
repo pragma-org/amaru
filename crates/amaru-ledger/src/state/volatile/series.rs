@@ -14,62 +14,21 @@
 
 use std::{collections::VecDeque, mem};
 
-use amaru_kernel::{
-    ComparableProposalId, DRepRegistration, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
-};
+use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
 use amaru_observability::debug_span;
 
 use crate::state::{
     AnchoredVolatileFragment,
-    diff_bind::DiffBind,
-    volatile::{AccountBind, CommitteeMemberBind, Existence, VolatileAggregate, VolatileSequence, VolatileState},
+    volatile::{
+        AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+    },
 };
 
-/// Number of blocks after which, if no rollback has been observed, we forcefully re-compute the
-/// aggregate. This number is chosen 'arbitrarily' but with a few considerations:
-///
-/// 1. We don't want the memory footprint of the volatile to grow *too much*. 100MB appears as a
-///    good arbitrary upper-bound. At least, that's one dimension we have freedom to decide on.
-///
-/// 2. We make a gross approximation that 1 block equals 90KB (i.e. the maximum block size) of
-///    memory allocation. In practice, it is far less since blocks contain a variety of
-///    informations that we do not store here, but it seems like a reasonable limit again. Plus, we
-///    do cleanup UTxOs, votes, and a couple of other things to reduce the growth.
-///
-/// 3. From there; we know that slot battles are "frequent enough" that they occurs somewhere
-///    around every ~13 minutes on average. Or said differently, they occur every 40 blocks on
-///    average. These don't necessarily lead to an observable rollback, but that gives a lower
-///    bound.
-///
-/// 4. We use a safe margin on top of what was described in (3) for two reasons: it gives some
-///    safety net in case where the block size would change due to a protocol parameter update
-///    (although we do expect to have time to notify our users about hardware requirements increase
-///    if that ever occurs); but also, it prevents the forced recompute to occur too often when
-///    syncing, since no rollbacks can be observed during that time.
-///
-/// So putting it all together; using 1080 means that the memory footprint of the volatile
-/// shouldn't grow beyond ~100MB. There should also be ~27 slot battles during that timeframe and
-/// it is highly likely that *at least one* would lead to an observable rollback. Finally, when
-/// syncing, the impact should be negligible as only one block every 1080 would cause an aggregate
-/// recompute.
-const DEFAULT_FORCED_RECOMPUTE_IN: usize = 4096;
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileSeries {
-    forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
     aggregate: VolatileAggregate,
-}
-
-impl Default for VolatileSeries {
-    fn default() -> Self {
-        Self {
-            forced_recompute_in: DEFAULT_FORCED_RECOMPUTE_IN,
-            sequence: Default::default(),
-            aggregate: Default::default(),
-        }
-    }
 }
 
 impl VolatileState for VolatileSeries {
@@ -93,9 +52,7 @@ impl VolatileState for VolatileSeries {
     // ------------------------------------------------------------------------------------ Accounts
     type Account = Existence<AccountBind>;
     fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
-        self.aggregate.resolve_account(credential, || {
-            DiffBind::fold(self.iter().map(|anchored| &anchored.fragment.accounts)).to_owned()
-        })
+        self.aggregate.resolve_account(credential)
     }
 
     fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
@@ -103,7 +60,7 @@ impl VolatileState for VolatileSeries {
     }
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepRegistration>;
+    type DRep = Existence<DRepBind>;
     fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
         self.aggregate.resolve_drep(credential)
     }
@@ -156,8 +113,6 @@ impl VolatileSequence for VolatileSeries {
         let popped = self.sequence.pop_front()?;
         if self.sequence.is_empty() {
             self.aggregate = VolatileAggregate::default();
-        } else if self.forced_recompute_in == 0 {
-            self.new_aggregate()
         } else {
             self.aggregate.remove_fragment(&popped.fragment);
         }
@@ -165,15 +120,26 @@ impl VolatileSequence for VolatileSeries {
     }
 
     fn push_back(&mut self, item: Self::Item) {
-        self.forced_recompute_in = self.forced_recompute_in.saturating_sub(1);
         self.aggregate.add_fragment(&item.fragment);
         self.sequence.push_back(item);
     }
 }
 
 impl VolatileSeries {
+    /// Rebuild the aggregate from scratch by re-folding the surviving sequence. Only rollback uses
+    /// this; stabilization retracts a single fragment off the front exactly and incrementally (see
+    /// [`VolatileAggregate::remove_fragment`]).
+    ///
+    /// Rollback *could* be incremental too, peel the discarded tail newest-first, the mirror of
+    /// stabilization, but that would need an exact back-removal on every field. Two fields don't have
+    /// one: `utxo` is a [`crate::state::diff_set::DiffSet`] with front-removal only, and
+    /// `withdrawals` is a blind set whose front-peel is exact only by epoch-homogeneity (the
+    /// effectful withdrawal flushes below as it stabilizes). A back-peel has no such flush, so
+    /// removing a rolled-back credential would wrongly drop one a surviving earlier fragment also
+    /// withdrew for. A rollback discards a whole suffix at once and fires relatively infrequently,
+    /// so re-folding it is cheap and obviously correct; the exact incremental path is reserved for stabilization,
+    /// which runs on every block.
     fn new_aggregate(&mut self) {
-        self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
         debug_span!(ledger::volatile::AGGREGATE).in_scope(|| {
             self.aggregate = VolatileAggregate::default();
             for anchored in &self.sequence {
@@ -200,11 +166,7 @@ impl VolatileSeries {
     }
 
     pub fn clear(&mut self) -> Self {
-        Self {
-            sequence: mem::take(&mut self.sequence),
-            aggregate: mem::take(&mut self.aggregate),
-            forced_recompute_in: self.forced_recompute_in,
-        }
+        Self { sequence: mem::take(&mut self.sequence), aggregate: mem::take(&mut self.aggregate) }
     }
 }
 

@@ -15,7 +15,7 @@
 use std::{mem, sync::Arc};
 
 use amaru_kernel::{
-    ComparableProposalId, DRepRegistration, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
+    ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
     PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProposalsRoots, ProtocolParameters, StakeCredential,
     TransactionInput,
 };
@@ -27,7 +27,7 @@ use crate::{
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
-            AccountBind, CommitteeMemberBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
             VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
@@ -134,12 +134,12 @@ impl VolatileState for VolatileDB {
     }
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepRegistration>;
+    type DRep = Existence<DRepBind>;
     fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
         // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
-        // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
-        // bind-only update layers over it.
-        self.current.resolve_drep(credential).or_else(|| self.draining.resolve_drep(credential))
+        // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, an
+        // anchor-only update layers over the registration it finds below.
+        self.current.resolve_drep(credential).or_else_bind(|| self.draining.resolve_drep(credential))
     }
 
     // ----------------------------------------------------------------------------------- CCMembers

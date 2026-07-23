@@ -1,0 +1,236 @@
+// Copyright 2026 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::collections::{BTreeMap, VecDeque};
+
+use crate::state::{
+    diff_bind::{Bind, DiffBind},
+    volatile::Existence,
+};
+
+/// A per-key log of `Bind` verdicts, indexed so that folding one key's history is cheap and
+/// retracting the oldest contribution is exact.
+///
+/// A [`DiffBind`] represents a single change: the bindings one fragment applied to a set of keys.
+/// An `IndexedBind` tracks *many* such changes: for each key it keeps the ordered sequence of
+/// per-fragment verdicts that touched it, oldest at the front. Each verdict is an [`Existence`]:
+///
+/// - `Exists(bind)`: the fragment (re-)registered the key, or updated its bindings;
+/// - `Gone`: the fragment unregistered the key.
+///
+/// A fragment that doesn't touch a key adds nothing to its deque, so `Unknown` is never stored.
+///
+/// Folding those changes down into a single `DiffBind` would still answer reads, but it collapses
+/// the sequence into one flat state and forgets which fragment contributed what; keeping them
+/// separate per key is what makes retracting the oldest fragment exact.
+///
+/// This buys exact incremental cleanup: retracting the oldest fragment pops the front of
+/// each touched key's deque, meaning there is no need to recompute an aggregate.
+///
+/// The cost is paid on read, where [`resolve`](Self::resolve) folds a key's history back into a single verdict.
+#[derive(Debug, Clone)]
+pub struct IndexedBind<K: Ord, L, R, V> {
+    index: BTreeMap<K, VecDeque<Existence<Bind<L, R, V>>>>,
+}
+
+impl<K: Ord, L, R, V> Default for IndexedBind<K, L, R, V> {
+    fn default() -> Self {
+        Self { index: BTreeMap::new() }
+    }
+}
+
+impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
+    /// Append a fragment's bindings, treating them as applied *after* everything already recorded.
+    /// Each registered key gains an `Exists` verdict at the back of its deque; each unregistered
+    /// key gains a `Gone` tombstone.
+    pub fn extend(&mut self, diff: &DiffBind<K, L, R, V>)
+    where
+        K: Clone,
+        L: Clone,
+        R: Clone,
+        V: Clone,
+    {
+        for (key, bind) in &diff.registered {
+            self.index.entry(key.clone()).or_default().push_back(Existence::Exists(bind.clone()));
+        }
+        for key in &diff.unregistered {
+            self.index.entry(key.clone()).or_default().push_back(Existence::Gone);
+        }
+    }
+
+    /// Retract the oldest fragment's contribution for every key it touched, popping the front of
+    /// each deque and dropping the key once its history empties.
+    pub fn cleanup(&mut self, diff: &DiffBind<K, L, R, V>) {
+        for key in diff.registered.keys().chain(diff.unregistered.iter()) {
+            match self.index.get_mut(key) {
+                Some(contributions) => {
+                    contributions.pop_front();
+                    if contributions.is_empty() {
+                        self.index.remove(key);
+                    }
+                }
+                None => unreachable!("retracted a fragment touching a key absent from the aggregate"),
+            }
+        }
+    }
+
+    /// Retract the newest fragment's contribution for every key it touched, popping the back of
+    /// each deque and dropping the key once its history empties.
+    pub fn pop_back(&mut self, diff: &DiffBind<K, L, R, V>) {
+        for key in diff.registered.keys().chain(diff.unregistered.iter()) {
+            match self.index.get_mut(key) {
+                Some(contributions) => {
+                    contributions.pop_back();
+                    if contributions.is_empty() {
+                        self.index.remove(key);
+                    }
+                }
+                None => unreachable!("retracted a fragment touching a key absent from the aggregate"),
+            }
+        }
+    }
+
+    /// Fold a key's per-fragment history into a single verdict.
+    ///
+    /// Folding, rather than reading only the newest entry, is required because a bind-only update
+    /// (`value: None`, e.g. a lone delegation change) is partial: it must compose with the
+    /// registration established by an earlier fragment. `Existence::or_else_bind` performs exactly
+    /// that composition. `Gone` and full re-registrations supersede, bind-only updates merge onto
+    /// what came before.
+    pub fn resolve(&self, key: &K) -> Existence<Bind<L, R, V>>
+    where
+        L: Clone,
+        R: Clone,
+        V: Clone,
+    {
+        match self.index.get(key) {
+            Some(contributions) => {
+                contributions.iter().fold(Existence::Unknown, |older, newer| newer.clone().or_else_bind(|| older))
+            }
+            None => Existence::Unknown,
+        }
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.index.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::state::diff_bind::{Resettable, test_support::arbitrary_diff_bind};
+
+    fn as_parts(verdict: Existence<Bind<u8, u8, u8>>) -> Option<Option<Bind<u8, u8, u8>>> {
+        match verdict {
+            Existence::Exists(bind) => Some(Some(bind)),
+            Existence::Gone => Some(None),
+            Existence::Unknown => None,
+        }
+    }
+
+    #[test]
+    fn resolve_composes_registration_then_bind_only_update() {
+        let mut register = DiffBind::<u8, u8, u8, u8>::default();
+        register.register(1, 100, Some(10), None).unwrap();
+
+        let mut delegate = DiffBind::<u8, u8, u8, u8>::default();
+        delegate.bind_left(1, Some(20)).unwrap();
+
+        let mut indexed = IndexedBind::default();
+        indexed.extend(&register);
+        indexed.extend(&delegate);
+
+        match indexed.resolve(&1) {
+            Existence::Exists(bind) => {
+                assert_eq!(bind.value, Some(100));
+                assert!(matches!(bind.left, Resettable::Set(20)));
+            }
+            other @ (Existence::Gone | Existence::Unknown) => panic!("expected a merged registration, got {other:?}"),
+        }
+    }
+
+    proptest! {
+        /// Resolving a key from its indexed history must equal folding the same fragments into a
+        /// single `DiffBind` and looking the key up. This ties the per-key incremental structure to
+        /// the flat fold it stands in for.
+        #[test]
+        fn resolve_matches_diff_bind_fold(window in prop::collection::vec(arbitrary_diff_bind(), 0..6)) {
+            let mut indexed = IndexedBind::default();
+            for diff in &window {
+                indexed.extend(diff);
+            }
+
+            let folded = DiffBind::fold(window.iter()).to_owned();
+
+            for key in 0u8..8 {
+                prop_assert_eq!(as_parts(indexed.resolve(&key)), as_parts(folded.lookup(&key).to_owned()));
+            }
+        }
+
+        /// Retracting the newest fragment must leave reads equal to folding only the fragments that
+        /// remain. This is the rollback-side mirror of retracting the oldest as it stabilizes.
+        #[test]
+        fn resolve_after_retracting_newest_matches_prefix(
+            window in prop::collection::vec(arbitrary_diff_bind(), 1..6),
+        ) {
+            let mut indexed = IndexedBind::default();
+            for diff in &window {
+                indexed.extend(diff);
+            }
+
+            let (last, rest) = window.split_last().expect("non-empty window");
+            indexed.pop_back(last);
+
+            let folded = DiffBind::fold(rest.iter()).to_owned();
+
+            for key in 0u8..8 {
+                prop_assert_eq!(as_parts(indexed.resolve(&key)), as_parts(folded.lookup(&key).to_owned()));
+            }
+        }
+
+        /// Extending a window of fragments then retracting them oldest-first must leave the index
+        /// empty.
+        #[test]
+        fn extend_then_cleanup_is_empty(window in prop::collection::vec(arbitrary_diff_bind(), 0..6)) {
+            let mut indexed = IndexedBind::default();
+            for diff in &window {
+                indexed.extend(diff);
+            }
+            for diff in &window {
+                indexed.cleanup(diff);
+            }
+
+            prop_assert!(indexed.is_empty());
+        }
+
+        /// Extending a window of fragments then retracting them newest-first must leave the index
+        /// empty. This is what rolling the whole window back relies on.
+        #[test]
+        fn extend_then_pop_back_is_empty(window in prop::collection::vec(arbitrary_diff_bind(), 0..6)) {
+            let mut indexed = IndexedBind::default();
+            for diff in &window {
+                indexed.extend(diff);
+            }
+            for diff in window.iter().rev() {
+                indexed.pop_back(diff);
+            }
+
+            prop_assert!(indexed.is_empty());
+        }
+    }
+}

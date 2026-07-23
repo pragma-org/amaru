@@ -15,8 +15,8 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, DRep, Epoch, Lovelace, MemoizedTransactionOutput, Point, PoolId,
-    StakeCredential, TransactionInput,
+    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace,
+    MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
 };
 
 use crate::state::diff_bind::{Bind, Empty};
@@ -48,6 +48,11 @@ pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePoin
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.
 pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Epoch>;
+
+/// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
+/// is the queryable value; the anchor is updated independently of registration, so an anchor-only
+/// update is a bind-only (`value: None`) change that composes onto the registration from below.
+pub type DRepBind = Bind<Anchor, Empty, DRepRegistration>;
 
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {

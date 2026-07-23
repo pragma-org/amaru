@@ -31,7 +31,7 @@ use crate::{
     },
     state::{
         diff_bind::Bind,
-        volatile::{AccountBind, CommitteeMemberBind, Existence, RewardsAtTip, VolatileState},
+        volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
     },
     store::ReadStore,
 };
@@ -121,7 +121,7 @@ impl<'a> DefaultPreparationContext<'a> {
         volatile: &impl VolatileState<
             Pool = Existence<()>,
             Account = (Existence<AccountBind>, RewardsAtTip),
-            DRep = Existence<DRepRegistration>,
+            DRep = Existence<DRepBind>,
             CCMember = Existence<CommitteeMemberBind>,
             Proposal = Existence<()>,
         >,
@@ -321,7 +321,7 @@ fn resolve_accounts<'iter>(
 /// DReps carry no balance, so there is no reward dimension; the anchor is metadata outside the
 /// registration record, so a bind-only (anchor) update reads the registration from below.
 fn resolve_dreps(
-    volatile: &impl VolatileState<DRep = Existence<DRepRegistration>>,
+    volatile: &impl VolatileState<DRep = Existence<DRepBind>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydratationError> {
@@ -333,13 +333,15 @@ fn resolve_dreps(
             keys.try_fold(BTreeMap::new(), |mut dreps, credential| match volatile.resolve_drep(&credential) {
                 Existence::Gone => Ok(dreps),
 
-                Existence::Exists(registration) => {
+                Existence::Exists(Bind { value: Some(registration), .. }) => {
                     from_volatile += 1;
                     dreps.insert(credential, registration);
                     Ok(dreps)
                 }
 
-                Existence::Unknown => {
+                // An anchor-only update carries no registration, so the record still lives below;
+                // the anchor itself is metadata outside `DRepRegistration` and isn't materialized here.
+                Existence::Exists(Bind { value: None, .. }) | Existence::Unknown => {
                     if let Some(row) = db.drep(&credential).map_err(ContextHydratationError::ResolveDReps)? {
                         from_db += 1;
 

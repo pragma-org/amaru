@@ -593,8 +593,8 @@ mod tests {
 
     proptest! {
         /// Folding a borrowed sequence must equal applying each diff in order via `append`. This is
-        /// the property `VolatileSeries::resolve_account` relies on when it recomputes the accounts
-        /// aggregate lazily from the fragments.
+        /// the property the volatile aggregate relies on to resolve an account by folding its
+        /// windowed per-fragment contributions on read.
         #[test]
         fn fold_matches_sequential_append(diffs in prop::collection::vec(arbitrary_diff_bind(), 0..6)) {
             let folded = DiffBind::fold(diffs.iter()).to_owned();
