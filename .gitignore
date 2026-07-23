@@ -26,6 +26,7 @@ target/
 # conformance-tests/haskell-node-extractor/scripts/generate-snap-files.
 crates/amaru/tests/**/stake-distributions/**/*.json
 crates/amaru/tests/**/stake-distributions/**/*.json.zst
+!crates/amaru/tests/**/stake-distributions/**/package.json
 !crates/amaru/tests/**/haskell-node-extractor/**/schemas/*.json
 
 # Files downloaded for the demo
