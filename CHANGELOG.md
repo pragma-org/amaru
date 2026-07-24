@@ -38,26 +38,14 @@ Other guiding principles:
 
 ## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
+### Added
+
+- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
+- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
+
 ### Changed
 
 - **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
-
-### Added
-
-- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
-- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
-
-### Changed
-
-- **amaru**: use `zst` compression for all individual stake distribution snapshots.
-
-### Added
-
-- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
-- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
-
-### Changed
-
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
 
 ### Fixed
