@@ -27,11 +27,11 @@ use amaru_kernel::{
     utils,
 };
 use amaru_mithril::{chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks};
+use amaru_observability::info;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 mod archive;
 mod config;
@@ -255,17 +255,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!(
-        _command = "snapshot create",
+        cli::snapshot::CREATE,
         snapshot_output_dir = %snapshot_output_dir.display(),
         config_dir = %config_dir.display(),
         cardano_node_db = %cardano_node_db.display(),
         network = %network,
         dist_dir = %dist_dir.display(),
-        epoch = epoch
-            .map(|e| Box::new(e.to_string()) as Box<dyn tracing::Value>)
-            .unwrap_or_else(|| Box::new(tracing::field::Empty)),
+        epoch = @epoch.map(|e| e.to_string()),
         snapshots = snapshots_str,
-        "running",
     );
 
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
@@ -277,9 +274,15 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         });
 
     if from_chunk > required_chunk {
-        info!(from_chunk, required_chunk, target_dir = %cardano_node_db.display(), "local cardano-db already covers all target slots; skipping Mithril download");
+        info!(
+            cli::mithril::SKIP_DOWNLOAD,
+            from_chunk,
+            required_chunk,
+            target_dir = %cardano_node_db.display(),
+            reason = "cardano-node db already covers all target slots",
+        );
     } else {
-        info!(from_chunk, target_dir = %cardano_node_db.display(), "synchronizing cardano-db from Mithril");
+        info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = %cardano_node_db.display());
         download_from_mithril(network, cardano_node_db.clone(), from_chunk, progress_factory.clone()).await?;
     }
 
@@ -322,7 +325,13 @@ fn process_target(
     let prepared_archive_path = archive_path_for_target(context.snapshot_output_dir, target);
 
     if prepared_archive_path.is_file() {
-        info!(epoch = %target.epoch, slot = %target.slot, archive = %prepared_archive_path.display(), "snapshot archive already exists, skipping");
+        info!(
+            cli::snapshot::SKIP_PACKAGE,
+            epoch = %target.epoch,
+            slot = %target.slot,
+            archive = %prepared_archive_path.display(),
+            reason = "already exists",
+        );
         return Ok(target.slot);
     }
 
@@ -330,17 +339,33 @@ fn process_target(
         let snapshot_dir =
             resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
 
-        info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), "materializing bootstrap snapshot directory");
+        info!(
+            cli::snapshot::MATERIALIZE,
+            epoch = %target.epoch,
+            slot = %target.slot,
+            snapshot = %prepared_snapshot_path.display(),
+        );
         materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
         write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
     } else {
-        info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), "snapshot directory already exists, skipping materialization");
+        info!(
+            cli::snapshot::SKIP_MATERIALIZE,
+            epoch = %target.epoch,
+            slot = %target.slot,
+            snapshot = %prepared_snapshot_path.display(),
+            reason = "already exists",
+        );
     }
 
-    info!(epoch = %target.epoch, slot = %target.slot, archive = %prepared_archive_path.display(), "packaging snapshot archive");
+    info!(
+        cli::snapshot::PACKAGE,
+        epoch = %target.epoch,
+        slot = %target.slot,
+        archive = %prepared_archive_path.display(),
+    );
     write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
 
-    info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), archive = %prepared_archive_path.display(), "finished epoch snapshot");
+    tracing::info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), archive = %prepared_archive_path.display(), "finished epoch snapshot");
 
     Ok(target.slot)
 }
@@ -352,17 +377,22 @@ fn resolve_or_create_snapshot_dir(
     context: &SnapshotBuildContext<'_>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if let Some(snapshot_dir) = exact_snapshot_dir(ledger_snapshot_dir, target.slot) {
-        info!(epoch = %target.epoch, slot = %target.slot, snapshot = %snapshot_dir.display(), "reusing existing db-analyser snapshot");
+        info!(
+            cli::db_analyser::REUSE_LEDGER_SNAPSHOT,
+            epoch = %target.epoch,
+            slot = %target.slot,
+            snapshot = %snapshot_dir.display(),
+        );
         return Ok(snapshot_dir);
     }
 
     let analyse_from = select_analyse_from_slot(ledger_snapshot_dir, target.slot, previous_snapshot_slot)?;
 
     info!(
+        cli::db_analyser::RUN,
         epoch = %target.epoch,
         slot = %target.slot,
-        analyse_from = analyse_from.map(|s| Box::new(s.to_string()) as Box<dyn tracing::Value>).unwrap_or_else(|| Box::new(tracing::field::Empty)),
-        "creating ledger snapshot with db-analyser"
+        analyse_from = @analyse_from.map(|s| s.to_string()),
     );
 
     if let Err(err) = run_db_analyser(

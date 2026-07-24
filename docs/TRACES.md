@@ -152,20 +152,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::bootstrap::local_snapshots`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `detect` | `TRACE` | public | Detect locally-created snapshots from create-snapshots | count |  |
-
-<details><summary>span: `detect`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `count` | `integer` | ✓ |
-
-</details>
-
 ## target: `amaru::bootstrap::nonces`
 
 | name | level | public | description | required fields | optional fields |
@@ -248,7 +234,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `download` | `TRACE` | public | Download a snapshot archive | epoch, point |  |
+| `download` | `TRACE` | public | Download a snapshot archive | epoch, point, key |  |
 | `extract` | `TRACE` | public | Extract a snapshot archive | snapshot |  |
 | `import_dir` | `TRACE` | public | Import a snapshot directory | path |  |
 | `import_file` | `TRACE` | public | Import a single snapshot | path |  |
@@ -262,6 +248,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
 | `point` | `string` | ✓ |
+| `key` | `string` | ✓ |
 
 </details>
 
@@ -416,8 +403,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `log` | `TRACE` | public | Output line from an external db-analyser command | step, line |  |
-| `progress` | `TRACE` | public | Progress reported by an external db-analyser command | step, detail |  |
-| `reuse_ledger_snapshot` | `TRACE` | public | Reuse an existing db-analyser ledger snapshot | epoch, slot |  |
+| `reuse_ledger_snapshot` | `TRACE` | public | Reuse an existing db-analyser ledger snapshot | epoch, slot, snapshot |  |
 | `run` | `TRACE` | public | Run db-analyser to produce a ledger snapshot | epoch, slot | analyse_from |
 
 <details><summary>span: `log`</summary>
@@ -429,21 +415,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `progress`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `step` | `string` | ✓ |
-| `detail` | `string` | ✓ |
-
-</details>
-
 <details><summary>span: `reuse_ledger_snapshot`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
 | `slot` | `string` | ✓ |
+| `snapshot` | `string` | ✓ |
 
 </details>
 
@@ -454,21 +432,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `epoch` | `string` | ✓ |
 | `slot` | `string` | ✓ |
 | `analyse_from` | `string` |  |
-
-</details>
-
-## target: `amaru::cli::epoch_metadata`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `write` | `TRACE` | public | Write the epoch metadata file for a snapshot | epoch, path |  |
-
-<details><summary>span: `write`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `path` | `string` | ✓ |
 
 </details>
 
@@ -551,10 +514,10 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `create` | `TRACE` | public | Create snapshots for the given network | network, snapshot_output_dir, config_dir, cardano_node_db, dist_dir | epoch, snapshots |
-| `materialize` | `TRACE` | public | Materialize a bootstrap snapshot directory | epoch, snapshot |  |
-| `package` | `TRACE` | public | Package a snapshot archive | epoch, archive |  |
-| `skip_materialize` | `TRACE` | public | Snapshot already materialized; skipping | epoch, reason |  |
-| `skip_package` | `TRACE` | public | Snapshot archive already packaged; skipping | epoch, reason |  |
+| `materialize` | `TRACE` | public | Materialize a bootstrap snapshot directory | epoch, slot, snapshot |  |
+| `package` | `TRACE` | public | Package a snapshot archive | epoch, slot, archive |  |
+| `skip_materialize` | `TRACE` | public | Snapshot already materialized; skipping | epoch, slot, snapshot, reason |  |
+| `skip_package` | `TRACE` | public | Snapshot archive already packaged; skipping | epoch, slot, archive, reason |  |
 
 <details><summary>span: `create`</summary>
 
@@ -575,6 +538,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
+| `slot` | `string` | ✓ |
 | `snapshot` | `string` | ✓ |
 
 </details>
@@ -584,6 +548,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
+| `slot` | `string` | ✓ |
 | `archive` | `string` | ✓ |
 
 </details>
@@ -593,6 +558,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
+| `slot` | `string` | ✓ |
+| `snapshot` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 
 </details>
@@ -602,6 +569,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
+| `slot` | `string` | ✓ |
+| `archive` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 
 </details>

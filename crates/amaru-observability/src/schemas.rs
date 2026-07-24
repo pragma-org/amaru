@@ -699,12 +699,6 @@ define_schemas! {
                     required size: usize
                 }
             }
-            local_snapshots {
-                /// Detect locally-created snapshots from create-snapshots
-                public DETECT {
-                    required count: usize
-                }
-            }
             nonces {
                 /// Import initial nonces into the chain store
                 public IMPORT {
@@ -749,6 +743,7 @@ define_schemas! {
                 public DOWNLOAD {
                     required epoch: amaru_kernel::Epoch
                     required point: amaru_kernel::Point
+                    required key: String
                 }
                 /// Snapshot already downloaded; skipping download
                 public SKIP_DOWNLOAD {
@@ -833,23 +828,12 @@ define_schemas! {
                 public REUSE_LEDGER_SNAPSHOT {
                     required epoch: amaru_kernel::Epoch
                     required slot: amaru_kernel::Slot
-                }
-                /// Progress reported by an external db-analyser command
-                public PROGRESS {
-                    required step: String
-                    required detail: String
+                    required snapshot: String
                 }
                 /// Output line from an external db-analyser command
                 public LOG {
                     required step: String
                     required line: String
-                }
-            }
-            epoch_metadata {
-                /// Write the epoch metadata file for a snapshot
-                public WRITE {
-                    required epoch: amaru_kernel::Epoch
-                    required path: String
                 }
             }
             last_block {
@@ -903,21 +887,27 @@ define_schemas! {
                 /// Materialize a bootstrap snapshot directory
                 public MATERIALIZE {
                     required epoch: amaru_kernel::Epoch
+                    required slot: amaru_kernel::Slot
                     required snapshot: String
                 }
                 /// Snapshot already materialized; skipping
                 public SKIP_MATERIALIZE {
                     required epoch: amaru_kernel::Epoch
+                    required slot: amaru_kernel::Slot
+                    required snapshot: String
                     required reason: String
                 }
                 /// Package a snapshot archive
                 public PACKAGE {
                     required epoch: amaru_kernel::Epoch
+                    required slot: amaru_kernel::Slot
                     required archive: String
                 }
                 /// Snapshot archive already packaged; skipping
                 public SKIP_PACKAGE {
                     required epoch: amaru_kernel::Epoch
+                    required slot: amaru_kernel::Slot
+                    required archive: String
                     required reason: String
                 }
             }

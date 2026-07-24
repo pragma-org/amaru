@@ -226,24 +226,6 @@
       "description": "Import UTxO entries from a snapshot",
       "public": true
     },
-    "amaru::bootstrap::local_snapshots::DETECT": {
-      "type": "object",
-      "properties": {
-        "count": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "count"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "detect",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::local_snapshots",
-      "description": "Detect locally-created snapshots from create-snapshots",
-      "public": true
-    },
     "amaru::bootstrap::nonces::IMPORT": {
       "type": "object",
       "properties": {
@@ -385,11 +367,15 @@
         "point": {
           "type": "string",
           "description": "Custom type: amaru_kernel::Point"
+        },
+        "key": {
+          "type": "string"
         }
       },
       "required": [
         "epoch",
-        "point"
+        "point",
+        "key"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -678,28 +664,6 @@
       "description": "Output line from an external db-analyser command",
       "public": true
     },
-    "amaru::cli::db_analyser::PROGRESS": {
-      "type": "object",
-      "properties": {
-        "step": {
-          "type": "string"
-        },
-        "detail": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "step",
-        "detail"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "progress",
-      "level": "TRACE",
-      "target": "amaru::cli::db_analyser",
-      "description": "Progress reported by an external db-analyser command",
-      "public": true
-    },
     "amaru::cli::db_analyser::REUSE_LEDGER_SNAPSHOT": {
       "type": "object",
       "properties": {
@@ -710,11 +674,15 @@
         "slot": {
           "type": "string",
           "description": "Custom type: amaru_kernel::Slot"
+        },
+        "snapshot": {
+          "type": "string"
         }
       },
       "required": [
         "epoch",
-        "slot"
+        "slot",
+        "snapshot"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -752,29 +720,6 @@
       "level": "TRACE",
       "target": "amaru::cli::db_analyser",
       "description": "Run db-analyser to produce a ledger snapshot",
-      "public": true
-    },
-    "amaru::cli::epoch_metadata::WRITE": {
-      "type": "object",
-      "properties": {
-        "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "epoch",
-        "path"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "write",
-      "level": "TRACE",
-      "target": "amaru::cli::epoch_metadata",
-      "description": "Write the epoch metadata file for a snapshot",
       "public": true
     },
     "amaru::cli::last_block::RESOLVE": {
@@ -960,12 +905,17 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
         "snapshot": {
           "type": "string"
         }
       },
       "required": [
         "epoch",
+        "slot",
         "snapshot"
       ],
       "optional": [],
@@ -983,12 +933,17 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
         "archive": {
           "type": "string"
         }
       },
       "required": [
         "epoch",
+        "slot",
         "archive"
       ],
       "optional": [],
@@ -1006,12 +961,21 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
+        "snapshot": {
+          "type": "string"
+        },
         "reason": {
           "type": "string"
         }
       },
       "required": [
         "epoch",
+        "slot",
+        "snapshot",
         "reason"
       ],
       "optional": [],
@@ -1029,12 +993,21 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
+        "archive": {
+          "type": "string"
+        },
         "reason": {
           "type": "string"
         }
       },
       "required": [
         "epoch",
+        "slot",
+        "archive",
         "reason"
       ],
       "optional": [],
