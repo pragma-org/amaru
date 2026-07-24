@@ -168,7 +168,12 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
 }
 
 pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
-    NewTip { tip, parent, trace_context: Default::default() }
+    NewTip {
+        tip,
+        parent,
+        trace_context: Default::default(),
+        received_at: amaru_pure_stage::Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO),
+    }
 }
 
 fn register_guards() -> DeserializerGuards {
@@ -191,6 +196,8 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<amaru_protocols::metrics_effects::RecordMetricsEffect>()
+            .boxed(),
     ]
 }
 

@@ -1045,6 +1045,78 @@
       "description": "Snapshot archive already packaged; skipping",
       "public": true
     },
+    "amaru::consensus::perf::fork::SWITCH": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "duration_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [
+        "outcome",
+        "duration_micros"
+      ],
+      "additionalProperties": false,
+      "name": "switch",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::fork",
+      "description": "Event recorded when a fork switch ends. `duration_micros` measures the time from the detection of the fork to its application (or abandonment).",
+      "public": true
+    },
+    "amaru::consensus::perf::header::LIFECYCLE": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "block_fetch_wait_micros": {
+          "type": "integer"
+        },
+        "block_fetch_micros": {
+          "type": "integer"
+        },
+        "forward_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "peer",
+        "header_hash",
+        "outcome",
+        "error",
+        "block_fetch_wait_micros",
+        "block_fetch_micros",
+        "forward_micros"
+      ],
+      "additionalProperties": false,
+      "name": "lifecycle",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::header",
+      "description": "Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. `outcome` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
+      "public": true
+    },
     "amaru::ledger::account::PAY_OR_REFUND": {
       "type": "object",
       "properties": {

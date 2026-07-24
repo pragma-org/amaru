@@ -606,6 +606,42 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::perf::fork`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `switch` | `TRACE` | public | Event recorded when a fork switch ends. \`duration_micros\` measures the time from the detection of the fork to its application (or abandonment). | header_hash | outcome, duration_micros |
+
+<details><summary>span: `switch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+| `outcome` | `string` |  |
+| `duration_micros` | `integer` |  |
+
+</details>
+
+## target: `amaru::consensus::perf::header`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block | peer, header_hash, outcome, error, block_fetch_wait_micros, block_fetch_micros, forward_micros |  |
+
+<details><summary>span: `lifecycle`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` |  |
+| `header_hash` | `string` |  |
+| `outcome` | `string` |  |
+| `error` | `string` |  |
+| `block_fetch_wait_micros` | `integer` |  |
+| `block_fetch_micros` | `integer` |  |
+| `forward_micros` | `integer` |  |
+
+</details>
+
 ## target: `amaru::ledger::account`
 
 | name | level | public | description | required fields | optional fields |
