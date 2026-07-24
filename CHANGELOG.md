@@ -93,6 +93,7 @@ Other guiding principles:
   from the cardano-node snapshot at bootstrap. ([#1021][])
 - **amaru**: automate prometheus metrics comparison with cardano-node. ([#1075](https://github.com/pragma-org/amaru/pull/1075))
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#932][])
+- **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
 
 ### Changed
 
@@ -320,3 +321,4 @@ Other guiding principles:
 [#1101]: https://github.com/pragma-org/amaru/pull/1101
 [#1109]: https://github.com/pragma-org/amaru/pull/1109
 [#1118]: https://github.com/pragma-org/amaru/pull/1118
+[#1090]: https://github.com/pragma-org/amaru/pull/1090
