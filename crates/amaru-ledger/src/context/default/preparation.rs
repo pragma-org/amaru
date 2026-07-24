@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{
     ComparableProposalId, DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalsRoots,
-    StakeCredential, TermLimit, TransactionInput, drep,
+    StakeCredential, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
 
@@ -122,7 +122,7 @@ impl<'a> DefaultPreparationContext<'a> {
             Pool = Existence<()>,
             Account = (Existence<AccountBind>, RewardsAtTip),
             DRep = Existence<DRepBind>,
-            CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>),
+            CCMember = Existence<CommitteeMemberBind>,
             Proposal = Existence<()>,
         >,
         db: &impl ReadStore,
@@ -377,7 +377,7 @@ fn resolve_dreps(
 // its hot key. That source needs the proposals read-path, so it is deferred until proposals are
 // exposed.
 fn resolve_committee<'a>(
-    volatile: &impl VolatileState<CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>)>,
+    volatile: &impl VolatileState<CCMember = Existence<CommitteeMemberBind>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = &'a StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
@@ -386,50 +386,41 @@ fn resolve_committee<'a>(
         let mut from_db = 0;
 
         let cc_members = keys.try_fold(BTreeMap::new(), |mut cc_members, credential| {
-            match volatile.resolve_cc_member(credential) {
-                (Existence::Gone, _) => Ok(cc_members),
-                (Existence::Exists(Bind { value: Some(..), left, .. }), valid_until) => {
+            let member_opt = match volatile.resolve_cc_member(credential) {
+                Existence::Gone => {
                     from_volatile += 1;
-
-                    let member = CCMember {
-                        hot_credential: left.as_borrowed().to_option(None),
-                        valid_until: valid_until.unwrap_or_default(),
-                    };
-
-                    cc_members.insert(credential.clone(), member);
-
-                    Ok(cc_members)
+                    None
                 }
 
-                (Existence::Exists(Bind { value: None, left, .. }), valid_until) => {
-                    if let Some(row) = db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)? {
-                        from_db += 1;
-
-                        let member = CCMember {
-                            hot_credential: left.as_borrowed().to_option(row.hot_credential.as_ref()),
-                            valid_until: valid_until.unwrap_or(row.valid_until),
-                        };
-                        cc_members.insert(credential.clone(), member);
-                    };
-
-                    Ok(cc_members)
-                }
-
-                (Existence::Unknown, valid_until) => {
-                    if let Some(row) = db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)? {
-                        from_db += 1;
-
-                        let member = CCMember {
-                            hot_credential: row.hot_credential,
-                            valid_until: valid_until.unwrap_or(row.valid_until),
-                        };
-
-                        cc_members.insert(credential.clone(), member);
+                Existence::Exists(Bind { value, left: hot_credential, .. }) => {
+                    if let Some(valid_until) = value {
+                        from_volatile += 1;
+                        Some(CCMember {
+                            hot_credential: hot_credential.into_option(None),
+                            valid_until: Some(valid_until),
+                        })
+                    } else {
+                        db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|mut row| {
+                            from_db += 1;
+                            hot_credential.set_or_reset(&mut row.hot_credential);
+                            CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
+                        })
                     }
-
-                    Ok(cc_members)
                 }
+
+                Existence::Unknown => {
+                    db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|row| {
+                        from_db += 1;
+                        CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
+                    })
+                }
+            };
+
+            if let Some(member) = member_opt {
+                cc_members.insert(credential.clone(), member);
             }
+
+            Ok(cc_members)
         })?;
 
         let span = tracing::Span::current();

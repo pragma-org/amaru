@@ -137,7 +137,6 @@ pub use cardano::{
     slot::{Slot, SlotArithmeticError},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
-    term_limit::TermLimit,
     time_range::TimeRange,
     tip::Tip,
     transaction::Transaction,

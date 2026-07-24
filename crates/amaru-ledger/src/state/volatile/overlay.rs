@@ -16,7 +16,7 @@ use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, Lovelace, PoolId, ProposalsRoots, ProtocolParameters, RatificationStatus,
-    StakeCredential, TermLimit,
+    StakeCredential,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -28,7 +28,7 @@ use crate::{
     governance::ratification::CommitteeUpdate,
     state::{
         StateError,
-        diff_bind::{Bind, Empty, Resettable},
+        diff_bind::{Bind, Resettable},
         volatile::{CommitteeMemberBind, Existence},
     },
     store::{
@@ -277,28 +277,18 @@ impl StateOverlay {
             Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
                 if removed.contains(credential) {
                     Existence::Gone
-                } else if added.contains_key(credential) {
+                } else if let Some(epoch) = added.get(credential) {
                     // freshly elected; no hot key yet and no stable row to fall back to
                     Existence::Exists(Bind {
-                        left: Resettable::Unchanged,
+                        left: Resettable::Reset,
                         right: Resettable::Unchanged,
-                        value: Some(Empty),
+                        value: Some(*epoch),
                     })
                 } else {
                     Existence::Unknown
                 }
             }
             Some(CommitteeUpdate::NoConfidence) | None => Existence::Unknown,
-        }
-    }
-
-    /// A CC member's term at the pending boundary, if the transition sets one: `Some(term)` for a
-    /// newly added member, `Some(None)` under no-confidence (members go inactive), `None` when the
-    /// boundary leaves this member's term untouched.
-    pub fn pending_committee_term(&self, credential: &StakeCredential) -> Option<TermLimit> {
-        match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref())? {
-            CommitteeUpdate::ChangeMembers { added, .. } => added.get(credential).map(|epoch| Some(*epoch)),
-            CommitteeUpdate::NoConfidence => Some(None),
         }
     }
 

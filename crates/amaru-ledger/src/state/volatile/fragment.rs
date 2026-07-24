@@ -41,12 +41,12 @@ pub type DRepBind = Bind<Anchor, Empty, DRepRegistration>;
 
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.
-pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Empty>;
+pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Epoch>;
 
 /// A volatile layer's verdict on an entity.
 /// - `T` is the resolved record.
 /// - `Gone` is a tombstone, so don't fall back to the stable store.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Existence<T> {
     Exists(T),
     Gone,
@@ -156,7 +156,7 @@ impl VolatileFragment {
                 value: None,
             })
         } else if self.committee.consumed.contains(credential) {
-            Existence::Gone
+            Existence::Exists(Bind { left: Resettable::Reset, right: Resettable::Unchanged, value: None })
         } else {
             Existence::Unknown
         }

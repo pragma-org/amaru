@@ -105,7 +105,7 @@ impl VolatileState for VolatileSeries {
 
     // ----------------------------------------------------------------------------------- CCMembers
     type CCMember = Existence<CommitteeMemberBind>;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
         self.aggregate.resolve_cc_member(credential)
     }
 
