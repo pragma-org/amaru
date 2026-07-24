@@ -118,7 +118,6 @@ pub fn build_node(
     let chain_store = make_chain_store(config)?;
     let pool_summaries = state.pool_summaries();
     let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
-    let max_epoch = pool_summaries.max_epoch();
 
     // Make the chain store, either from the network resources if already set
     // or from the configuration.
@@ -149,8 +148,7 @@ pub fn build_node(
     let resources = stage_builder.resources().clone();
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
-    let node_stages =
-        build_stage_graph(config, era_history, global_parameters, ledger_tip, best_hash, max_epoch, stage_builder);
+    let node_stages = build_stage_graph(config, era_history, global_parameters, ledger_tip, best_hash, stage_builder);
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
     block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {

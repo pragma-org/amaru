@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, Epoch, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Slot, Tip,
-    from_cbor_no_leftovers, num::CheckedSub,
+    from_cbor_no_leftovers,
 };
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
@@ -41,9 +41,6 @@ use crate::{
     stages::select_chain::PerfHeaderForwardOutcome,
     validate_header::ValidateHeaderError,
 };
-
-/// Poll interval while headers are deferred on applied ledger height.
-pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Stage that tracks chainsync sessions from whom we receive headers.
 ///
@@ -90,9 +87,6 @@ pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
 ///
 /// Headers that cannot be finished yet are kept in `deferred` with a reason:
 ///
-/// - **LedgerHeight** — header height exceeds applied ledger by more than `max_peer_lead`.
-///   `RequestNext` is not sent until the ledger catches up. Arms a single coalesced
-///   `RecheckLedgerHeight` timer (poll interval [`HEIGHT_RECHECK_INTERVAL`]).
 /// - **StakeDistribution** — pool stake for the header's epoch is not yet known (at most one
 ///   epoch ahead of `max_epoch`). `RequestNext` may already have been pipelined before validation
 ///   failed. Woken by [`TrackPeersMsg::StakeDistUpdated`] (no self-timer).
@@ -135,10 +129,8 @@ pub struct TrackPeers {
     upstream: BTreeMap<ConnectionId, PerPeer>,
     peer_selection: StageRef<PeerSelectionMsg>,
     downstream: StageRef<NewTip>,
-    max_peer_lead: u64,
     ledger_applied_block_height: BlockHeight,
     ledger_last_checked_at: Instant,
-    max_epoch: Epoch,
     deferred: Vec<DeferredHeader>,
     /// Single outstanding self-schedule for height/clock deferred rechecks.
     recheck_timer: Option<ScheduleId>,
@@ -171,8 +163,6 @@ impl PerPeer {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum DeferReason {
-    /// Wait until the ledger has reached at least this applied block height before asking the peer for more.
-    LedgerHeight { min_height: BlockHeight, header: BlockHeader, tip: Tip, variant: EraName },
     /// The header's validation requires a stake distribution that is not yet available; hold the
     /// data needed to re-validate and store once it arrives (via StakeDistUpdated).
     StakeDistribution { epoch: Epoch, header: BlockHeader, tip: Tip, variant: EraName, rn_sent: bool },
@@ -226,17 +216,6 @@ impl From<DeferredHeader> for RollForwardArgs {
     fn from(dh: DeferredHeader) -> RollForwardArgs {
         let DeferredHeader { peer, conn_id, handler, reason, trace_context, received_at } = dh;
         match reason {
-            DeferReason::LedgerHeight { header, tip, variant, .. } => RollForwardArgs {
-                peer,
-                conn_id,
-                sent_request_next: false,
-                handler,
-                variant,
-                header,
-                tip,
-                trace_context,
-                received_at,
-            },
             DeferReason::StakeDistribution { header, tip, variant, rn_sent, .. } => RollForwardArgs {
                 peer,
                 conn_id,
@@ -279,8 +258,8 @@ pub enum TrackPeersMsg {
     FromUpstream(ChainSyncInitiatorMsg),
     /// A new stake distribution is available; recheck any headers deferred for stake dist.
     StakeDistUpdated(Epoch),
-    /// Self-scheduled message to check if ledger height has advanced enough for deferred headers.
-    RecheckLedgerHeight,
+    /// Self-scheduled message to check headers that were deferred due to a slight clock skew.
+    RecheckClock,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -316,13 +295,12 @@ pub async fn stage(mut state: TrackPeers, msg: TrackPeersMsg, eff: Effects<Track
         TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg { peer, conn_id, handler, msg }) => {
             state.handle_from_upstream(peer, conn_id, handler, msg, eff).await;
         }
-        TrackPeersMsg::StakeDistUpdated(max_epoch) => {
-            state.max_epoch = max_epoch;
-            state.recheck_deferred(&eff).await;
+        TrackPeersMsg::StakeDistUpdated(epoch) => {
+            state.recheck_deferred(&eff, Some(epoch)).await;
         }
-        TrackPeersMsg::RecheckLedgerHeight => {
+        TrackPeersMsg::RecheckClock => {
             state.recheck_timer = None;
-            state.recheck_deferred(&eff).await;
+            state.recheck_deferred(&eff, None).await;
         }
     }
     state
@@ -333,19 +311,15 @@ impl TrackPeers {
         era_history: EraHistory,
         peer_selection: StageRef<PeerSelectionMsg>,
         downstream: StageRef<NewTip>,
-        max_peer_lead: u64,
-        max_epoch: Epoch,
     ) -> Self {
         Self {
             era_history,
             upstream: BTreeMap::new(),
             peer_selection,
             downstream,
-            max_peer_lead,
             deferred: Vec::new(),
             ledger_applied_block_height: BlockHeight::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
-            max_epoch,
             recheck_timer: None,
         }
     }
@@ -507,11 +481,6 @@ impl TrackPeers {
             return None;
         };
 
-        // target more than one epoch ahead of known stake dists → adversarial; otherwise defer.
-        // Use checked_sub so target < max_epoch does not panic (treat as defer / retry).
-        if target.checked_sub(&self.max_epoch).is_some_and(|d| d > *Epoch::ONE) {
-            return None;
-        }
         Some(DeferredHeader {
             peer: args.peer.clone(),
             conn_id: args.conn_id,
@@ -561,42 +530,37 @@ impl TrackPeers {
     }
 
     /// Earliest instant at which height- or clock-deferred work should be rechecked.
-    fn next_recheck_at(&self, now: Instant) -> Option<Instant> {
+    fn next_recheck_at(&self) -> Option<Instant> {
         self.deferred
             .iter()
             .filter_map(|d| match &d.reason {
-                DeferReason::LedgerHeight { .. } => Some(now + HEIGHT_RECHECK_INTERVAL),
                 DeferReason::ClockSkew { min_time, .. } => Some(*min_time),
                 DeferReason::StakeDistribution { .. } | DeferReason::FollowUp { .. } => None,
             })
             .min()
     }
 
-    /// Ensure at most one outstanding `RecheckLedgerHeight` for time-based deferred work.
+    /// Ensure at most one outstanding `RecheckClock` for time-based deferred work.
     async fn ensure_recheck_armed(&mut self, eff: &Effects<TrackPeersMsg>) {
-        let needs_timer = self
-            .deferred
-            .iter()
-            .any(|d| matches!(d.reason, DeferReason::LedgerHeight { .. } | DeferReason::ClockSkew { .. }));
+        let needs_timer = self.deferred.iter().any(|d| matches!(d.reason, DeferReason::ClockSkew { .. }));
         if !needs_timer {
             if let Some(id) = self.recheck_timer.take() {
                 eff.cancel_schedule(id).await;
             }
             return;
         }
-        let now = eff.clock().await;
-        let Some(when) = self.next_recheck_at(now) else {
+        let Some(when) = self.next_recheck_at() else {
             return;
         };
         match self.recheck_timer {
             Some(id) if id.time() <= when => {}
             Some(id) => {
                 eff.cancel_schedule(id).await;
-                let id = eff.schedule_at(TrackPeersMsg::RecheckLedgerHeight, when).await;
+                let id = eff.schedule_at(TrackPeersMsg::RecheckClock, when).await;
                 self.recheck_timer = Some(id);
             }
             None => {
-                let id = eff.schedule_at(TrackPeersMsg::RecheckLedgerHeight, when).await;
+                let id = eff.schedule_at(TrackPeersMsg::RecheckClock, when).await;
                 self.recheck_timer = Some(id);
             }
         }
@@ -771,36 +735,7 @@ impl TrackPeers {
                         return;
                     }
 
-                    let header_height = header.block_height();
-                    let limit = header_height - self.max_peer_lead;
-                    // maybe update ledger applied block height (rate-limited to 500ms or initial)
-                    if limit > self.ledger_applied_block_height
-                        && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_millis(500)
-                            || self.ledger_applied_block_height == BlockHeight::from(0))
-                    {
-                        self.ledger_last_checked_at = now;
-                        self.ledger_applied_block_height = eff.external(VolatileTipEffect).await.block_height();
-                    }
-
-                    let ledger_height = self.ledger_applied_block_height;
-                    if ledger_height < limit {
-                        tracing::debug!(%peer, %header_height, %ledger_height, %limit, "track_peers.defer_request_next");
-                        self.deferred.push(DeferredHeader {
-                            peer: peer.clone(),
-                            conn_id,
-                            handler: handler.clone(),
-                            reason: DeferReason::LedgerHeight {
-                                header: header.clone(),
-                                tip,
-                                variant,
-                                min_height: limit,
-                            },
-                            trace_context,
-                            received_at: now,
-                        });
-                        self.ensure_recheck_armed(&eff).await;
-                        return;
-                    }
+                    let now = eff.clock().await;
 
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
                     let args = RollForwardArgs {
@@ -850,7 +785,7 @@ impl TrackPeers {
         }
     }
 
-    async fn recheck_deferred(&mut self, eff: &Effects<TrackPeersMsg>) {
+    async fn recheck_deferred(&mut self, eff: &Effects<TrackPeersMsg>, max_epoch: Option<Epoch>) {
         let curr_height = eff.external(VolatileTipEffect).await.block_height();
         self.ledger_applied_block_height = curr_height;
 
@@ -868,8 +803,7 @@ impl TrackPeers {
             }
             let defer = blocked.contains(&conn_id)
                 || match &d.reason {
-                    DeferReason::LedgerHeight { min_height, .. } => curr_height < *min_height,
-                    DeferReason::StakeDistribution { epoch, .. } => self.max_epoch < *epoch,
+                    DeferReason::StakeDistribution { epoch, .. } => *epoch > max_epoch.unwrap_or_default(),
                     DeferReason::ClockSkew { min_time, .. } => current_time < *min_time,
                     DeferReason::FollowUp { .. } => false,
                 };

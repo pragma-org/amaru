@@ -53,6 +53,7 @@ Other guiding principles:
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
 - **amaru-ledger**: validate stake pool exists when attempting to unregister ([#912][], [#1034][])
 - **amaru-consensus**: fix the recheck deferred headers loop ([#1078][], [#1082][])
+- **amaru-consensus**: do not defer header validation based on height or epoch; only rely on availability of the stake distributions.
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 

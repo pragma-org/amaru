@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
-    num::CheckedSub,
+    BlockHeader, ConsensusParameters, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
@@ -29,7 +28,7 @@ use amaru_protocols::{
     store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
 };
 use amaru_pure_stage::{
-    DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageRef,
+    DeserializerGuards, Effect, Name, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
@@ -48,44 +47,6 @@ use crate::{
         },
     },
 };
-
-/// Matches `run_simulation` initial clock (+10s) for schedule id expectations.
-pub const SIM_INITIAL_CLOCK_SECS: u64 = 10;
-
-/// Height recheck poll interval used by the stage (`HEIGHT_RECHECK_INTERVAL`).
-pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
-
-pub fn height_recheck_schedule_id() -> ScheduleId {
-    let when = Instant::at_offset(
-        Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + HEIGHT_RECHECK_INTERVAL,
-        start_in_era().relative_time,
-    );
-    ScheduleIds::default().next_at(when)
-}
-
-pub fn schedule_id_at(delay_from_sim_start: Duration) -> ScheduleId {
-    let when = Instant::at_offset(
-        Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + delay_from_sim_start,
-        start_in_era().relative_time,
-    );
-    ScheduleIds::default().next_at(when)
-}
-
-pub fn te_schedule(
-    at_stage: impl AsRef<str>,
-    msg: impl amaru_pure_stage::SendData,
-    schedule_id: ScheduleId,
-) -> TraceEntry {
-    TraceEntry::suspend(Effect::Schedule {
-        at_stage: Name::from(at_stage.as_ref()),
-        msg: Box::new(msg),
-        id: schedule_id,
-    })
-}
-
-pub fn te_clock(instant: Instant) -> TraceEntry {
-    TraceEntry::Clock(instant)
-}
 
 pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     let store = Arc::new(InMemoryChainStore::new());
@@ -114,11 +75,6 @@ impl TestPrep {
 
 /// Creates basic state, runtime, handler, conn_id, and three properly linked headers for tests.
 pub fn test_prep() -> TestPrep {
-    test_prep_with_max_peer_lead(10_000_000)
-}
-
-/// Creates a `TestPrep` with a configurable peer lead limit (for testing defer logic).
-pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
     let start_times = start_in_era();
     // EraHistory::default() matches synthetic headers at slots 1,2,3 used throughout these tests.
     // Clock-skew tests map simulation time through this same history (see tests).
@@ -126,8 +82,6 @@ pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
         EraHistory::default(),
         StageRef::named_for_tests("peer_selection"),
         StageRef::named_for_tests("downstream"),
-        max_peer_lead,
-        start_times.epoch.checked_sub(Epoch::TWO).unwrap(),
     );
     let rt = Builder::new_current_thread().build().unwrap();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
@@ -212,25 +166,6 @@ pub fn setup(
     })
 }
 
-/// Forces a specific ledger-applied tip and stops when the sim first sleeps on a scheduled
-/// wakeup (does not auto-advance time). Safe for frozen-height defer tests that arm a recheck
-/// timer without running an infinite height-poll loop.
-pub fn setup_with_ledger_tip_until_sleeping(
-    rt: &Handle,
-    state: TrackPeers,
-    msg: impl IntoIterator<Item = TrackPeersMsg>,
-    store: Arc<InMemoryChainStore>,
-    ledger_tip: Tip,
-) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_base_until_sleeping(rt, state, msg, store, |running| {
-        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
-        running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
-            move |_| OverrideResult::handled(ledger_tip)
-        });
-        running.override_external_effect::<TipEffect>(usize::MAX, move |_| OverrideResult::handled(ledger_tip));
-    })
-}
-
 pub fn setup_base(
     rt: &Handle,
     state: TrackPeers,
@@ -239,16 +174,6 @@ pub fn setup_base(
     overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_inner(rt, state, msg, store, overrides, true)
-}
-
-fn setup_base_until_sleeping(
-    rt: &Handle,
-    state: TrackPeers,
-    msg: impl IntoIterator<Item = TrackPeersMsg>,
-    store: Arc<InMemoryChainStore>,
-    overrides: impl FnOnce(&mut SimulationRunning),
-) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_inner(rt, state, msg, store, overrides, false)
 }
 
 fn setup_inner(
