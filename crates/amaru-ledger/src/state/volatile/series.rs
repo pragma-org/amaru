@@ -52,7 +52,7 @@ use crate::state::{
 /// it is highly likely that *at least one* would lead to an observable rollback. Finally, when
 /// syncing, the impact should be negligible as only one block every 1080 would cause an aggregate
 /// recompute.
-const DEFAULT_FORCED_RECOMPUTE_IN: usize = 1080;
+const DEFAULT_FORCED_RECOMPUTE_IN: usize = 4096;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "test-utils", derive(Clone))]

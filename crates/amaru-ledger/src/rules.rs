@@ -14,7 +14,7 @@
 
 use std::{borrow::Cow, fmt, fmt::Display};
 
-use amaru_kernel::{Block, Certificate, GovernanceAction, Proposal, TransactionBody, expect_stake_credential};
+use amaru_kernel::{Block, Certificate, GovernanceAction, Proposal, TransactionBody, parse_reward_account};
 use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
@@ -73,9 +73,10 @@ fn prepare_withdrawals<'a>(context: &mut impl PreparationContext<'a>, transactio
     let Some(withdrawals) = transaction.withdrawals.as_ref() else {
         return;
     };
-    for (reward_account, _) in withdrawals.iter() {
-        context.require_account(Cow::Owned(expect_stake_credential(reward_account)))
-    }
+    withdrawals
+        .iter()
+        .filter_map(|(bytes, _)| parse_reward_account(bytes))
+        .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
 }
 
 /// Collect and require the proposals a transaction votes on.
@@ -94,7 +95,8 @@ fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, prop
     if let GovernanceAction::TreasuryWithdrawals(withdrawals, _) = &proposal.gov_action {
         withdrawals
             .iter()
-            .for_each(|withdrawal| context.require_account(Cow::Owned(expect_stake_credential(&withdrawal.0))));
+            .filter_map(|withdrawal| parse_reward_account(&withdrawal.0))
+            .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
     }
 }
 /// Collect and require values from a single certificate.
