@@ -171,6 +171,7 @@ pub use cardano::{
     constitution::any_constitution,
     constitutional_committee_status::any_constitutional_committee_status,
     drep::any_drep,
+    drep_registration::any_drep_registration,
     epoch::any_epoch,
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
     era_history::EraHistoryProxy,
