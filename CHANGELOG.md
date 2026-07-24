@@ -56,6 +56,7 @@ Other guiding principles:
 - **amaru-ledger**: track account unregistrations to avoid O(n) scan on all accounts during epoch transition calculations.
 - **amaru-ledger**: add phase-one conformance coverage for `TooManyCollateralInputs`, `ScriptsNotPaidUTxO` and `IncorrectTotalCollateralField`, and move the fixture that was filed under `InsufficientCollateral` while expecting `ValueNotConservedUTxO` to the directory matching its predicate.
 - **amaru**: consolidate the monitoring stack.
+- **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 
 ### Fixed
 
@@ -262,6 +263,7 @@ Other guiding principles:
 [#1060]: https://github.com/pragma-org/amaru/issues/1060
 [#1078]: https://github.com/pragma-org/amaru/issues/1078
 [#1082]: https://github.com/pragma-org/amaru/pull/1082
+[#1087]: https://github.com/pragma-org/amaru/pull/1087
 [#1095]: https://github.com/pragma-org/amaru/issues/1095
 [#1098]: https://github.com/pragma-org/amaru/pull/1098
 [#1109]: https://github.com/pragma-org/amaru/pull/1109

@@ -223,7 +223,8 @@ impl SelectChain {
         };
 
         if let Some(valid) = valid {
-            // track_peers only sends a tip if the header was just stored, so it cannot be already validated
+            // track_peers only sends a tip if the header was just validated,
+            // so its block cannot be already validated.
             tracing::error!(tip = %tip.point(), %valid, "got tip from upstream that was already validated");
             return eff.terminate().await;
         } else {
