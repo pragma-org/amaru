@@ -51,6 +51,15 @@ Other guiding principles:
 
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
 
+### Added
+
+- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
+- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
+
+### Changed
+
+- **amaru**: use `zst` compression for all individual stake distribution snapshots.
+
 ### Fixed
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
