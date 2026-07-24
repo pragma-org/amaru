@@ -15,18 +15,20 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
-    num::CheckedSub,
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Point, Tip,
+    make_header, num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, MockBlockValidator, PoolSummaries, WriteChainStore, has_stake_pools::MockHasStakePools,
+    BaseReadChainStore, MockBlockValidator, Nonces, PoolSummaries, WriteChainStore, has_stake_pools::MockHasStakePools,
     in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
     manager::ManagerMessage,
-    store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
+    store_effects::{
+        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect,
+    },
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageRef,
@@ -95,6 +97,21 @@ pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     store
 }
 
+/// Like [`build_store`] but also persists nonces for each header, mimicking a header that has
+/// already been fully validated (as opposed to one merely imported during bootstrap).
+pub fn build_store_with_nonces(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
+    let store = build_store(headers);
+    for header in headers {
+        store.put_nonces(&header.hash(), &dummy_nonces()).unwrap();
+    }
+    store
+}
+
+fn dummy_nonces() -> Nonces {
+    let zero = Hash::from([0u8; 32]);
+    Nonces { active: zero, evolving: zero, candidate: zero, tail: zero, epoch: Epoch::from(0) }
+}
+
 /// Bundles state, runtime, handler, conn_id, and three linked headers for tests.
 pub struct TestPrep {
     pub state: TrackPeers,
@@ -151,8 +168,8 @@ pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
 }
 
-pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
+pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetNoncesEffect::new(hash))))
 }
 
 pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
@@ -192,6 +209,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<GetNoncesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
