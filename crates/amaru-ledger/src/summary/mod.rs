@@ -15,8 +15,8 @@
 use std::ops::Deref;
 
 use ::serde::ser::SerializeStruct;
-use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, relay};
-use num::{BigUint, rational::Ratio};
+use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, SafeRatio, drep, relay};
+use num::rational::Ratio;
 
 pub mod governance;
 pub mod rewards;
@@ -101,21 +101,4 @@ impl ::serde::Serialize for PoolState {
 
         s.end()
     }
-}
-
-// ------------------------------------------------------------------- SafeRatio
-
-pub type SafeRatio = Ratio<BigUint>;
-
-pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
-    SafeRatio::new(BigUint::from(numerator), BigUint::from(denominator))
-}
-
-pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
-    SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
-}
-
-pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
-    Lovelace::try_from(n.floor().to_integer())
-        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
 }

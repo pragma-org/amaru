@@ -1,0 +1,43 @@
+{
+  "title": "parameter change proposal chaining to a parent of a different purpose",
+  "description": "A ParameterChange governance action whose previous action id points to an in-flight proposal that exists but is a NewConstitution (a different governance purpose), so it cannot be a valid protocol-parameters parent.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c33340ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "proposals": [
+      {
+        "id": {
+          "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3",
+          "proposalIndex": 0
+        },
+        "govAction": "8305f682827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000f6"
+      }
+    ],
+    "proposalsRoots": {},
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d40080014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88400825820a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee300a100182cf6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b58584096ee37e29ed88572050d5bdfffc8dc1eafbb1ae514e8e1175df9273ecc89be1d2d5951581435df5756c78c1ee3a24449a23a8777059f337408c2b7dba435880bf5f6",
+  "expected": {
+    "predicate": "InvalidPrevGovActionId"
+  }
+}

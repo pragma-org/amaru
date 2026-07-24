@@ -15,8 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Lovelace, MemoizedTransactionOutput,
-    NetworkName, PoolId, Pots, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, GovernanceAction, Hash, Lovelace,
+    MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalEnum, ProposalId, ProposalsRoots, ProtocolParameters,
+    StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
@@ -59,6 +60,10 @@ pub(super) struct InitialState {
     pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
     pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
+    #[serde(deserialize_with = "deserialize_proposals", default)]
+    pub(super) proposals: BTreeMap<ProposalId, ProposalEnum>,
+    #[serde(deserialize_with = "deserialize_proposals_roots", default)]
+    pub(super) proposals_roots: ProposalsRoots,
     #[serde(default)]
     pub(super) governance_activity: GovernanceActivity,
     #[serde(default)]
@@ -151,6 +156,57 @@ where
         .collect())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProposalIdProxy {
+    transaction_id: Hash<32>,
+    proposal_index: u32,
+}
+
+impl From<ProposalIdProxy> for ProposalId {
+    fn from(proxy: ProposalIdProxy) -> Self {
+        ProposalId { transaction_id: proxy.transaction_id, action_index: proxy.proposal_index }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProposalProxy {
+    id: ProposalIdProxy,
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    gov_action: GovernanceAction,
+}
+
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalEnum>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<ProposalProxy>::deserialize(deserializer)?;
+    Ok(entries.into_iter().map(|entry| (ProposalId::from(entry.id), ProposalEnum::from(&entry.gov_action))).collect())
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct ProposalsRootsProxy {
+    protocol_parameters: Option<ProposalIdProxy>,
+    hard_fork: Option<ProposalIdProxy>,
+    constitutional_committee: Option<ProposalIdProxy>,
+    constitution: Option<ProposalIdProxy>,
+}
+
+fn deserialize_proposals_roots<'de, D>(deserializer: D) -> Result<ProposalsRoots, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let proxy = ProposalsRootsProxy::deserialize(deserializer)?;
+    Ok(ProposalsRoots {
+        protocol_parameters: proxy.protocol_parameters.map(ProposalId::from),
+        hard_fork: proxy.hard_fork.map(ProposalId::from),
+        constitutional_committee: proxy.constitutional_committee.map(ProposalId::from),
+        constitution: proxy.constitution.map(ProposalId::from),
+    })
+}
+
 pub(super) enum Expected {
     Pass,
     DecodingFailure,
@@ -187,6 +243,7 @@ pub(super) enum Predicate {
     ConwayTreasuryValueMismatch,
     InputSetEmptyUTxO,
     InsufficientCollateral,
+    InvalidPrevGovActionId,
     InvalidWitnessesUTXOW,
     MalformedReferenceScripts,
     MaxTxSizeUTxO,
@@ -276,6 +333,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
                 Predicate::ProposalReturnAccountDoesNotExist
+            }
+            PhaseOneError::Proposals(InvalidProposals::InvalidPrevGovActionId { .. }) => {
+                Predicate::InvalidPrevGovActionId
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {

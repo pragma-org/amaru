@@ -15,8 +15,10 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use amaru_kernel::{
-    Ballot, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace, PoolId, ProposalId,
-    ProposalsRootsRc, ProtocolParameters, RatificationStatus, StakeCredential, Vote, Voter,
+    Ballot, Constitution, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, DRep, Epoch, EraHistory,
+    Lovelace, OrphanProposal, PoolId, ProposalEnum, ProposalId, ProposalsRootsRc, ProtocolParameters,
+    RatificationStatus, StakeCredential, Vote, Voter,
+    rational_number::{SafeRatio, into_safe_ratio},
 };
 use amaru_observability::info_span;
 use num::Zero;
@@ -25,7 +27,7 @@ use tracing::{Span, field};
 use crate::{
     state::StakeDistributionView,
     store::{Snapshot, StoreError},
-    summary::{SafeRatio, into_safe_ratio, stake_distribution::StakeDistribution},
+    summary::stake_distribution::StakeDistribution,
 };
 
 mod constitutional_committee;
@@ -34,9 +36,6 @@ pub use constitutional_committee::ConstitutionalCommittee;
 mod dreps;
 
 mod stake_pools;
-
-mod proposal_enum;
-pub use proposal_enum::*;
 
 mod proposals_forest;
 pub use proposals_forest::*;
@@ -68,7 +67,7 @@ pub struct RatificationContext<'distr> {
     pub constitutional_committee: Option<ConstitutionalCommittee>,
 
     /// An update that occured on the constitutional committee
-    pub constitutional_committee_update: Option<CommitteeUpdate>,
+    pub constitutional_committee_update: Option<ConstitutionalCommitteeUpdate>,
 
     /// A new constitution that has been voted and approved, if any.
     pub new_constitution: Option<Constitution>,
@@ -238,10 +237,10 @@ impl<'distr> RatificationContext<'distr> {
 
                 ProposalEnum::ConstitutionalCommittee(update, _parent) => {
                     match update.clone() {
-                        CommitteeUpdate::NoConfidence => {
+                        ConstitutionalCommitteeUpdate::NoConfidence => {
                             self.constitutional_committee = None;
                         }
-                        CommitteeUpdate::ChangeMembers { removed, added, threshold } => {
+                        ConstitutionalCommitteeUpdate::ChangeMembers { removed, added, threshold } => {
                             let added_as_inactive = added
                                 .iter()
                                 .map(|(cold_cred, valid_until)| (*cold_cred, (None, *valid_until)))
@@ -279,11 +278,11 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_enact_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
-        info_span!(ledger::governance::ENACTING, proposal_id = id.to_string(), proposal_kind = proposal.display_kind(),)
+        info_span!(ledger::governance::ENACTING, proposal_id = id.to_string(), proposal_kind = proposal.display_kind())
     }
 
     fn new_ratify_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
-        info_span!(ledger::governance::RATIFYING, proposal_id = id.to_string(), proposal_kind = proposal.display_kind(),)
+        info_span!(ledger::governance::RATIFYING, proposal_id = id.to_string(), proposal_kind = proposal.display_kind())
     }
 
     fn is_accepted_by_everyone(

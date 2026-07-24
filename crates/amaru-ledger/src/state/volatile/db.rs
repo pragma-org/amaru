@@ -16,7 +16,8 @@ use std::{iter, mem};
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters, StakeCredential, TransactionInput,
+    Point, PoolId, Pots, ProposalEnum, ProposalId, ProposalsRoots, ProtocolParameters, StakeCredential,
+    TransactionInput,
 };
 
 use crate::{
@@ -148,7 +149,7 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<()>;
+    type Proposal = Existence<ProposalEnum>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.
@@ -499,8 +500,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Slot, StakeCredential, any_modern_output,
-        any_transaction_input, utils::tests::run_strategy,
+        ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, SafeRatio, Slot,
+        StakeCredential, any_modern_output, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -508,9 +509,7 @@ mod tests {
     use super::*;
     use crate::{
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
-        governance::ratification::CommitteeUpdate,
         state::volatile::{Bind, Resettable},
-        summary::SafeRatio,
     };
 
     /// Define a type with various `From` instance to ease the notations below and avoid repetition
@@ -1285,7 +1284,7 @@ mod tests {
         let mut db = VolatileDB::default();
         let expected_term_limit = Epoch::from(99);
 
-        db.simple_transition(committee_update(Some(CommitteeUpdate::ChangeMembers {
+        db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::ChangeMembers {
             added: BTreeMap::from([(cred(1), expected_term_limit)]),
             removed: BTreeSet::new(),
             threshold: SafeRatio::zero(),
@@ -1298,7 +1297,7 @@ mod tests {
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
         let mut db = VolatileDB::default();
-        db.simple_transition(committee_update(Some(CommitteeUpdate::ChangeMembers {
+        db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::ChangeMembers {
             added: BTreeMap::new(),
             removed: BTreeSet::from([cred(1)]),
             threshold: SafeRatio::zero(),
@@ -1307,7 +1306,7 @@ mod tests {
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
-        db.simple_transition(committee_update(Some(CommitteeUpdate::NoConfidence)));
+        db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::NoConfidence)));
         assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Unknown));
     }
 
@@ -1380,7 +1379,7 @@ mod tests {
         block
     }
 
-    fn committee_update(committee: Option<CommitteeUpdate>) -> GovernanceUpdates {
+    fn committee_update(committee: Option<ConstitutionalCommitteeUpdate>) -> GovernanceUpdates {
         GovernanceUpdates {
             constitutional_committee: committee,
             ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())

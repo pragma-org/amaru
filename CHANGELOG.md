@@ -92,6 +92,7 @@ Other guiding principles:
   Sequence numbers are migrated from header already stored in the chain store and otherwise seeded
   from the cardano-node snapshot at bootstrap. ([#1021][])
 - **amaru**: automate prometheus metrics comparison with cardano-node. ([#1075](https://github.com/pragma-org/amaru/pull/1075))
+- **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#932][])
 
 ### Changed
 
@@ -268,6 +269,7 @@ Other guiding principles:
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
+[#932]: https://github.com/pragma-org/amaru/issues/932
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953

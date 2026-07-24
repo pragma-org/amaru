@@ -1,0 +1,33 @@
+{
+  "title": "parameter change proposal is accepted",
+  "description": "A ParameterChange proposal with no previous action (genesis) is accepted when no protocol-parameters root has been enacted.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c64080ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "proposals": [],
+    "proposalsRoots": {},
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 100,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff021a00030d400f0014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88400f6a100182cf6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258409ef1c693d4e0a9bd2c0f4c9fe10b5895bdd343fb50e17529453dca1a30e1e4ece1201fe64e9af439712d2ab0032ec271d28c6801e289ac57ee757b62f515fa02f5f6",
+  "expected": "Pass"
+}

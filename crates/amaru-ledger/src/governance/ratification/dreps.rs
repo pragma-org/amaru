@@ -14,14 +14,13 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{DRep, DRepVotingThresholds, Epoch, ProtocolParamUpdate, Vote};
+use amaru_kernel::{
+    ConstitutionalCommitteeUpdate, DRep, DRepVotingThresholds, Epoch, OrphanProposal, ProposalEnum,
+    ProtocolParamUpdate, SafeRatio, Vote, into_safe_ratio, safe_ratio,
+};
 use num::Zero;
 
-use super::{OrphanProposal, ProposalEnum};
-use crate::{
-    governance::ratification::CommitteeUpdate,
-    summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution},
-};
+use crate::summary::stake_distribution::StakeDistribution;
 
 // Voting Thresholds
 // ----------------------------------------------------------------------------
@@ -58,11 +57,11 @@ pub fn voting_threshold(
 
         ProposalEnum::HardFork(..) => Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation)),
 
-        ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
+        ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::NoConfidence, _) => {
             Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
         }
 
-        ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _) => {
+        ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { .. }, _) => {
             Some(into_safe_ratio(if is_state_of_no_confidence {
                 &voting_thresholds.committee_no_confidence
             } else {
@@ -183,20 +182,16 @@ pub fn tally(
 mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
-    use amaru_kernel::{DRep, Epoch, Vote, any_drep_voting_thresholds, any_vote_ref};
+    use amaru_kernel::{
+        DRep, Epoch, ProposalEnum, SafeRatio, Vote, any_drep_voting_thresholds, any_proposal_enum, any_vote_ref,
+    };
     use num::One;
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
 
     use super::{tally, voting_threshold};
     use crate::{
-        governance::ratification::{
-            ProposalEnum, any_proposal_enum,
-            tests::{MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
-        },
-        summary::{
-            SafeRatio,
-            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_pools},
-        },
+        governance::ratification::tests::{MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
+        summary::stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_pools},
     };
     proptest! {
         #[test]

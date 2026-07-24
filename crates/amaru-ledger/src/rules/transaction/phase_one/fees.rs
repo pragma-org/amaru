@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ExUnitPrices, ExUnits, HasExUnits, Lovelace, ProtocolParameters, RationalNumber, WitnessSet};
+use amaru_kernel::{
+    ExUnitPrices, ExUnits, HasExUnits, Lovelace, ProtocolParameters, RationalNumber, WitnessSet,
+    rational_number::{SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
+};
 use num::{BigUint, Zero};
 
-use crate::{
-    context::{BalanceSlice, UtxoSlice},
-    summary::{SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
-};
+use crate::context::{BalanceSlice, UtxoSlice};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {

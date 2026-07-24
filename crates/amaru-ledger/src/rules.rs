@@ -96,13 +96,28 @@ fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, prop
         context.require_account(Cow::Owned(account));
     }
 
-    if let GovernanceAction::TreasuryWithdrawals(withdrawals, _) = &proposal.gov_action {
-        withdrawals
-            .iter()
-            .filter_map(|withdrawal| parse_reward_account(&withdrawal.0))
-            .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
+    match &proposal.gov_action {
+        GovernanceAction::TreasuryWithdrawals(withdrawals, _) => {
+            withdrawals
+                .iter()
+                .filter_map(|withdrawal| parse_reward_account(&withdrawal.0))
+                .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
+        }
+
+        GovernanceAction::ParameterChange(parent, ..)
+        | GovernanceAction::HardForkInitiation(parent, ..)
+        | GovernanceAction::UpdateCommittee(parent, ..)
+        | GovernanceAction::NoConfidence(parent)
+        | GovernanceAction::NewConstitution(parent, ..) => {
+            if let Some(id) = parent {
+                context.require_proposal(id);
+            }
+        }
+
+        GovernanceAction::Information => {}
     }
 }
+
 /// Collect and require values from a single certificate.
 fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificate: &'a Certificate) {
     match certificate {

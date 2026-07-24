@@ -14,7 +14,9 @@
 
 use std::fmt;
 
-use crate::cbor;
+use num::{BigUint, rational::Ratio};
+
+use crate::{Lovelace, cbor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct RationalNumber {
@@ -49,6 +51,23 @@ impl<C> cbor::encode::Encode<C> for RationalNumber {
         e.encode_with(self.denominator, ctx)?;
         Ok(())
     }
+}
+
+// ------------------------------------------------------------------- SafeRatio
+
+pub type SafeRatio = Ratio<BigUint>;
+
+pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
+    SafeRatio::new(BigUint::from(numerator), BigUint::from(denominator))
+}
+
+pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
+    SafeRatio::new(BigUint::from(ratio.numerator), BigUint::from(ratio.denominator))
+}
+
+pub fn floor_to_lovelace(n: SafeRatio) -> Lovelace {
+    Lovelace::try_from(n.floor().to_integer())
+        .unwrap_or_else(|_| unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply."))
 }
 
 #[cfg(any(test, feature = "test-utils"))]
