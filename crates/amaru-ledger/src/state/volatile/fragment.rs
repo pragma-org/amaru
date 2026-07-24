@@ -87,7 +87,7 @@ impl<L, R, V> Existence<Bind<L, R, V>> {
 }
 
 /// Resulting state change coming from processing a block.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
@@ -256,7 +256,7 @@ impl VolatileFragment {
 // --------------------------------------------------------------------------- AnchoredVolatileFragment
 
 /// A [`VolatileFragment`] anchored to a specific point and block issuer.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AnchoredVolatileFragment {
     pub anchor: (Tip, PoolId),
     pub fragment: VolatileFragment,

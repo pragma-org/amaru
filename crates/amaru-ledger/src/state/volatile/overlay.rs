@@ -46,6 +46,7 @@ use crate::{
 /// (it can be rolled back), and co-locating it with the two volatile series keeps reads and
 /// rollback cohesive.
 #[derive(Default, Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
@@ -105,7 +106,7 @@ impl StateOverlay {
         StateOverlay {
             epoch: self.epoch,
             most_recent_snapshot: RefCell::new(*self.most_recent_snapshot.borrow()),
-            rewards: self.rewards.snapshot(),
+            rewards: self.rewards.clone(),
             pools_updates: self.pools_updates.clone(),
             governance_updates: self.governance_updates.clone(),
         }

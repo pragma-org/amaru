@@ -35,6 +35,7 @@ use crate::{
 };
 
 #[derive(Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileDB {
     /// The always active underlying volatiles series. New blocks are always added to the
     /// `current`. It represents the *most* recent part of the syncing window, but always contains

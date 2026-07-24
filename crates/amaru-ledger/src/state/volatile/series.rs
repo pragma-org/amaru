@@ -55,6 +55,7 @@ use crate::state::{
 const DEFAULT_FORCED_RECOMPUTE_IN: usize = 1080;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileSeries {
     forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
