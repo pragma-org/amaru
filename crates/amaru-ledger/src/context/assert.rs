@@ -20,22 +20,19 @@ use std::{
 use amaru_kernel::{
     Anchor, AsHash, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Value,
-    Vote, Voter, VoterKind,
+    ProposalPointer, ProposalsRoots, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind,
+    TransactionInput, Value, Vote, Voter, VoterKind,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
 };
 use tracing::instrument;
 
-use crate::{
-    context::{
-        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice,
-        PreparePoolsSlice, PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
-        UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
-    },
-    governance::ratification::ProposalsRoots,
+use crate::context::{
+    AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+    PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
+    PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
+    ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
 };
 
 // ------------------------------------------------------------------------------------- Preparation

@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    ComparableProposalId, DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, RewardAccount,
-    StakeCredential, TermLimit, TransactionInput, drep, parse_reward_account,
+    ComparableProposalId, DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalsRoots,
+    RewardAccount, StakeCredential, TermLimit, TransactionInput, drep, parse_reward_account,
 };
 use amaru_observability::debug_span;
 
@@ -26,7 +26,6 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, UnresolvedInputPolicy,
     },
-    governance::ratification::ProposalsRoots,
     state::{
         diff_bind::Bind,
         volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},

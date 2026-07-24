@@ -21,14 +21,15 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Value, Vote, Voter,
+    ProposalPointer, ProposalsRoots, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Value, Vote,
+    Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
 use thiserror::Error;
 
-use crate::{governance::ratification::ProposalsRoots, state::diff_bind, store::StoreError};
+use crate::{state::diff_bind, store::StoreError};
 
 pub(crate) mod assert;
 mod default;

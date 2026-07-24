@@ -22,7 +22,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -34,7 +34,6 @@ use crate::{
         PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
         WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
-    governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
 };
 

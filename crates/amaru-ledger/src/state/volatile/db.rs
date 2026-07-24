@@ -16,7 +16,7 @@ use std::{mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProtocolParameters, StakeCredential, TermLimit,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProposalsRoots, ProtocolParameters, StakeCredential, TermLimit,
     TransactionInput,
 };
 
@@ -24,7 +24,6 @@ use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    governance::ratification::ProposalsRoots,
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
@@ -496,7 +495,9 @@ mod tests {
         sync::Arc,
     };
 
-    use amaru_kernel::{Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Slot, StakeCredential};
+    use amaru_kernel::{
+        Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, ProposalsRoots, Slot, StakeCredential,
+    };
     use num::Zero;
     use proptest::prelude::*;
     use test_case::test_case;
@@ -504,7 +505,7 @@ mod tests {
     use super::*;
     use crate::{
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
-        governance::ratification::{CommitteeUpdate, ProposalsRoots},
+        governance::ratification::CommitteeUpdate,
         state::volatile::test_support::*,
         summary::SafeRatio,
     };

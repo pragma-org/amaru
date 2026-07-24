@@ -31,6 +31,7 @@ use amaru_kernel::{
     MemoizedTransactionOutput,
     Point,
     PoolId,
+    ProposalsRoots,
     ProtocolParameters,
     StakeCredential,
     TransactionInput,
@@ -44,9 +45,7 @@ use amaru_kernel::{ProposalId, RatificationStatus};
 use columns::*;
 use thiserror::Error;
 
-use crate::{
-    epoch_transition::GovernanceActivity, governance::ratification::ProposalsRoots, store::columns::pots::Row as Pots,
-};
+use crate::{epoch_transition::GovernanceActivity, store::columns::pots::Row as Pots};
 
 pub mod columns;
 

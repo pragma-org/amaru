@@ -86,6 +86,7 @@ pub mod proposal;
 pub mod proposal_id;
 pub mod proposal_pointer;
 pub mod proposal_state;
+pub mod proposals_roots;
 pub mod protocol_parameters;
 pub mod protocol_parameters_update;
 pub mod protocol_version;

@@ -108,6 +108,7 @@ pub use cardano::{
     proposal_id::{ComparableProposalId, ProposalId},
     proposal_pointer::ProposalPointer,
     proposal_state::ProposalState,
+    proposals_roots::{self, ProposalsRoots, ProposalsRootsRc},
     protocol_parameters::{
         self, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
@@ -185,6 +186,7 @@ pub use cardano::{
     proposal::any_proposal,
     proposal_id::{any_comparable_proposal_id, any_proposal_id},
     proposal_pointer::any_proposal_pointer,
+    proposals_roots::any_proposals_roots,
     protocol_parameters::{
         any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_ex_units,
         any_ex_units_prices, any_gov_action, any_guardrails_script, any_pool_voting_thresholds, any_protocol_parameter,

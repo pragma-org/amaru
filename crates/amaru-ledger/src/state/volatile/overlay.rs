@@ -15,7 +15,8 @@
 use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
+    ComparableProposalId, Epoch, Lovelace, PoolId, ProposalsRoots, ProtocolParameters, RatificationStatus,
+    StakeCredential, TermLimit,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -24,7 +25,7 @@ use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    governance::ratification::{CommitteeUpdate, ProposalsRoots},
+    governance::ratification::CommitteeUpdate,
     state::{
         StateError,
         diff_bind::{Bind, Empty, Resettable},
@@ -353,10 +354,10 @@ impl StateOverlay {
 mod test {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS};
+    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalsRoots};
 
     use super::*;
-    use crate::{epoch_transition::Computed, governance::ratification::ProposalsRoots};
+    use crate::epoch_transition::Computed;
 
     #[test]
     fn test_rollback() {

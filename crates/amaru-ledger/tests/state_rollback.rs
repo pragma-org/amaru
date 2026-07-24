@@ -295,7 +295,7 @@ impl ReadStore for MockStore {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
-    fn proposals_roots(&self) -> amaru_ledger::store::Result<amaru_ledger::governance::ratification::ProposalsRoots> {
+    fn proposals_roots(&self) -> amaru_ledger::store::Result<amaru_kernel::ProposalsRoots> {
         Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 
