@@ -274,7 +274,7 @@ impl DRepsSlice for DefaultValidationContext {
         match self.state.dreps.registered.get(credential) {
             // a fresh in-block registration carries its own record; an anchor-only update has no
             // `value`, so fall through to the block-start registration.
-            Some(bind) => bind.value.as_deref().or_else(|| self.dreps.get(credential)),
+            Some(bind) => bind.value.as_ref().or_else(|| self.dreps.get(credential)),
             // deregistered in-block; gone
             None if self.state.dreps.unregistered.contains(credential) => None,
             // untouched in-block; the block-start state
@@ -300,7 +300,7 @@ impl DRepsSlice for DefaultValidationContext {
         if DRepsSlice::lookup(self, &drep).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
         }
-        self.state.dreps.register(drep, Arc::new(registration), anchor, None)?;
+        self.state.dreps.register(drep, registration, anchor, None)?;
         Ok(())
     }
 

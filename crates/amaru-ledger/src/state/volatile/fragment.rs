@@ -37,7 +37,7 @@ use crate::{
 pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
 
 /// A DRep's accumulated binding: metadata anchor, and the DRep registration data.
-pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
+pub type DRepBind = Bind<Anchor, Empty, DRepRegistration>;
 
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.
@@ -92,7 +92,7 @@ pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, Arc<DRepRegistration>>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
@@ -137,7 +137,7 @@ impl VolatileFragment {
     /// entry is a live tombstone.
     pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
         if let Some(bind) = self.dreps.registered.get(credential) {
-            Existence::Exists(bind.clone())
+            Existence::Exists(bind.to_owned())
         } else if self.dreps.unregistered.contains(credential) {
             Existence::Gone
         } else {
@@ -423,10 +423,10 @@ pub(crate) fn add_accounts(
 // ------------------------------------------------------------------------------------------- DReps
 
 pub(crate) fn add_dreps(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, Arc<DRepRegistration>>)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(move |(credential, Bind { left: anchor, right: _, value: registration }): (_, Bind<_, Empty, _>)| {
-        (credential, (anchor, registration.map(Arc::unwrap_or_clone)))
+        (credential, (anchor, registration))
     })
 }
 

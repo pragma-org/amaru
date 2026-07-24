@@ -348,7 +348,7 @@ fn resolve_dreps(
 
                 Existence::Exists(Bind { value: Some(registration), .. }) => {
                     from_volatile += 1;
-                    dreps.insert(credential, *registration);
+                    dreps.insert(credential, registration);
                     Ok(dreps)
                 }
 
