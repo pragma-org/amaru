@@ -735,8 +735,6 @@ impl TrackPeers {
                         return;
                     }
 
-                    let now = eff.clock().await;
-
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
                     let args = RollForwardArgs {
                         peer,

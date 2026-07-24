@@ -96,6 +96,10 @@ impl MissingBlocks {
         self.missing.back().copied()
     }
 
+    pub fn nth(&self, n: usize) -> Option<Point> {
+        self.missing.get(n).copied()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.missing.is_empty()
     }

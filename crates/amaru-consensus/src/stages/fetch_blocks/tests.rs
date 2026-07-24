@@ -26,8 +26,8 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     fetch_blocks::test_setup::{
-        TestPrep, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_has_block, te_load_header,
-        te_load_tip, te_schedule, te_store_block, te_unvalidated_ancestor_hashes, test_peer, test_prep,
+        TestPrep, make_block_header, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_has_block,
+        te_load_header, te_load_tip, te_schedule, te_store_block, te_unvalidated_ancestor_hashes, test_peer, test_prep,
     },
     test_utils::{
         assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated, tm_state,
@@ -48,7 +48,7 @@ fn test_new_tip_load_header_fails() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_find_missing_blocks("fb-1", tip.hash(), 25),
+            te_find_missing_blocks("fb-1", tip.hash(), MAX_MISSING_BLOCKS_SCAN),
             te_terminate("fb-1"),
             te_terminated("fb-1", TerminationReason::Voluntary),
         ],
@@ -72,14 +72,15 @@ fn test_new_tip_no_blocks_to_fetch() {
     let msg = FetchBlocksMsg::new_tip(tip, parent);
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let expected = prep.state_with_block_height(3);
     assert_trace(
         &running,
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_find_missing_blocks("fb-1", tip.hash(), 25),
+            te_find_missing_blocks("fb-1", tip.hash(), MAX_MISSING_BLOCKS_SCAN),
             te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(tip.point())),
-            te_state("fb-1", &prep.state_with_block_height(3)),
+            te_state("fb-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::INFO, &["no blocks to fetch"]).assert_no_remaining_at([
@@ -160,7 +161,7 @@ fn test_new_tip_blocks_to_fetch() {
     let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
-        state.missing = None;
+        state.requested_through = None;
         state.timeout = None;
         state.trace_context = None;
         state
@@ -170,7 +171,7 @@ fn test_new_tip_blocks_to_fetch() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
-            te_find_missing_blocks("fb-1", tip.hash(), 25),
+            te_find_missing_blocks("fb-1", tip.hash(), MAX_MISSING_BLOCKS_SCAN),
             te_clock_read("fb-1"),
             te_send(
                 "fb-1",
@@ -267,6 +268,7 @@ fn test_block2_received() {
     let expected = {
         let mut state = prep.state.clone();
         state.missing = None;
+        state.requested_through = None;
         state.timeout = None;
         state
     };
@@ -321,7 +323,7 @@ fn test_new_tip_find_missing_blocks_error() {
         &running,
         &[
             te_input("fb-1", &msg).into(),
-            te_find_missing_blocks("fb-1", tip.hash(), 25).into(),
+            te_find_missing_blocks("fb-1", tip.hash(), MAX_MISSING_BLOCKS_SCAN).into(),
             te_terminate("fb-1").into(),
             te_terminated("fb-1", TerminationReason::Voluntary).into(),
         ],
@@ -442,7 +444,7 @@ fn test_timeout_after_no_peers_pause_retries_without_error() {
 
     let state_after_timeout = {
         let mut state = prep.state.clone();
-        state.missing = None;
+        state.requested_through = None;
         state.timeout = None;
         state.no_peers_pause = false;
         state.trace_context = None;
@@ -481,6 +483,211 @@ fn test_no_peers_available_stale_is_ignored() {
     assert_trace(&running, &[te_state("fb-1", &prep.state), te_input("fb-1", &msg), te_state("fb-1", &prep.state)]);
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_new_tip_reuses_cursor_for_same_tip() {
+    let mut prep = test_prep();
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
+    prep.set_anchor(prep.headers.h0.hash());
+    // leftover cursor from a timed-out request for the same tip
+    prep.state.missing =
+        Some(MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]));
+    prep.state.req_id = 1;
+
+    let tip = prep.headers.h2.tip();
+    let msg = FetchBlocksMsg::new_tip(tip, prep.headers.h1.point());
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    let timeout_at = Instant::at_offset(Duration::from_secs(10 + 5), start_in_era().relative_time);
+    let schedule_id = ScheduleIds::default().next_at(timeout_at);
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let expected = {
+        let mut state = prep.state.clone();
+        state.req_id = 2;
+        state.requested_through = Some(prep.headers.h2.point());
+        state.timeout = Some(schedule_id);
+        state.block_height = BlockHeight::from(3);
+        state.trace_context = Some(Default::default());
+        state
+    };
+    let state_after_timeout = {
+        let mut state = expected.clone();
+        state.requested_through = None;
+        state.timeout = None;
+        state.trace_context = None;
+        state
+    };
+    // the cursor is reused as-is: no find_missing_blocks
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "manager",
+                ManagerMessage::FetchBlocks {
+                    from: prep.headers.h1.point(),
+                    through: prep.headers.h2.point(),
+                    id: 2,
+                    cr: prep.cleanup_replies.clone(),
+                },
+            ),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlocksRequested(vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at),
+            ),
+            te_schedule("fb-1", FetchBlocksMsg::Timeout(2), schedule_id),
+            te_state("fb-1", &expected),
+            te_clock(timeout_at),
+            te_input("fb-1", &FetchBlocksMsg::Timeout(2)),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h0.point())),
+            te_state("fb-1", &state_after_timeout),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
+        .assert_and_remove(Level::ERROR, &["timeout fetching blocks"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_new_tip_reuses_cursor_when_tip_extends_its_chain() {
+    let mut prep = test_prep();
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
+    prep.set_anchor(prep.headers.h0.hash());
+    // cursor computed when h1 was the tip; h2 now extends that chain
+    prep.state.missing = Some(MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]));
+    prep.state.req_id = 1;
+
+    let tip = prep.headers.h2.tip();
+    let msg = FetchBlocksMsg::new_tip(tip, prep.headers.h1.point());
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    let timeout_at = Instant::at_offset(Duration::from_secs(10 + 5), start_in_era().relative_time);
+    let schedule_id = ScheduleIds::default().next_at(timeout_at);
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let expected = {
+        let mut state = prep.state.clone();
+        state.req_id = 2;
+        state.requested_through = Some(prep.headers.h1.point());
+        state.timeout = Some(schedule_id);
+        state.block_height = BlockHeight::from(3);
+        state.trace_context = Some(Default::default());
+        state
+    };
+    let state_after_timeout = {
+        let mut state = expected.clone();
+        state.requested_through = None;
+        state.timeout = None;
+        state.trace_context = None;
+        state
+    };
+    // the chain has not switched: the cursor is reused without any store access
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "manager",
+                ManagerMessage::FetchBlocks {
+                    from: prep.headers.h1.point(),
+                    through: prep.headers.h1.point(),
+                    id: 2,
+                    cr: prep.cleanup_replies.clone(),
+                },
+            ),
+            te_send("fb-1", "upstream", SelectChainMsg::BlocksRequested(vec![prep.headers.h1.hash()], requested_at)),
+            te_schedule("fb-1", FetchBlocksMsg::Timeout(2), schedule_id),
+            te_state("fb-1", &expected),
+            te_clock(timeout_at),
+            te_input("fb-1", &FetchBlocksMsg::Timeout(2)),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h0.point())),
+            te_state("fb-1", &state_after_timeout),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
+        .assert_and_remove(Level::ERROR, &["timeout fetching blocks"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_new_tip_drops_cursor_on_fork_switch() {
+    let mut prep = test_prep();
+    // f2 is a sibling of h2: same parent h1, same height
+    let f2 = make_block_header(3, 4, Some(prep.headers.h1.hash()));
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2, &f2]);
+    prep.store_block(&prep.headers.h0);
+    prep.store_block(&prep.headers.h1);
+    prep.set_anchor(prep.headers.h0.hash());
+    // cursor computed for the h2 branch
+    prep.state.missing = Some(MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]));
+    prep.state.req_id = 1;
+
+    let tip = f2.tip();
+    let msg = FetchBlocksMsg::NewTip {
+        tip,
+        parent: prep.headers.h1.point(),
+        chain_switched: true,
+        trace_context: Default::default(),
+    };
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    let timeout_at = Instant::at_offset(Duration::from_secs(10 + 5), start_in_era().relative_time);
+    let schedule_id = ScheduleIds::default().next_at(timeout_at);
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let expected = {
+        let mut state = prep.state.clone();
+        state.missing = Some(MissingBlocks::new(prep.headers.h1.point(), vec![f2.point()]));
+        state.req_id = 2;
+        state.requested_through = Some(f2.point());
+        state.timeout = Some(schedule_id);
+        state.block_height = BlockHeight::from(3);
+        state.trace_context = Some(Default::default());
+        state
+    };
+    let state_after_timeout = {
+        let mut state = expected.clone();
+        state.requested_through = None;
+        state.timeout = None;
+        state.trace_context = None;
+        state
+    };
+    // the chain switched to the f2 branch: the cursor is recomputed
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_find_missing_blocks("fb-1", f2.hash(), MAX_MISSING_BLOCKS_SCAN),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "manager",
+                ManagerMessage::FetchBlocks {
+                    from: f2.point(),
+                    through: f2.point(),
+                    id: 2,
+                    cr: prep.cleanup_replies.clone(),
+                },
+            ),
+            te_send("fb-1", "upstream", SelectChainMsg::BlocksRequested(vec![f2.hash()], requested_at)),
+            te_schedule("fb-1", FetchBlocksMsg::Timeout(2), schedule_id),
+            te_state("fb-1", &expected),
+            te_clock(timeout_at),
+            te_input("fb-1", &FetchBlocksMsg::Timeout(2)),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h1.point())),
+            te_state("fb-1", &state_after_timeout),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
+        .assert_and_remove(Level::ERROR, &["timeout fetching blocks"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]

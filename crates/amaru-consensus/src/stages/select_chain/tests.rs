@@ -180,7 +180,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip { chain_switched: true, ..NewBestTip::new(tip, parent) }),
             te_state("sc-1", &expected),
         ],
     );
@@ -224,7 +224,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip { chain_switched: true, ..NewBestTip::new(tip, parent) }),
             te_state("sc-1", &expected),
         ],
     );
@@ -303,7 +303,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
             te_unvalidated_ancestor_hashes("sc-1", parent.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(tip, parent)),
+            te_send("sc-1", "downstream", NewBestTip { chain_switched: true, ..NewBestTip::new(tip, parent) }),
             te_state("sc-1", &expected),
         ],
     );
@@ -418,7 +418,11 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
             te_load_tip("sc-1", prep.headers.h0.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.tip(), prep.headers.h0.point())),
+            te_send(
+                "sc-1",
+                "downstream",
+                NewBestTip { chain_switched: true, ..NewBestTip::new(prep.headers.h1.tip(), prep.headers.h0.point()) },
+            ),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
             te_clock_read("sc-1"),
             te_state("sc-1", &expected),
@@ -465,7 +469,14 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
             te_load_tip("sc-1", prep.headers.h2a.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.tip(), prep.headers.h2a.point())),
+            te_send(
+                "sc-1",
+                "downstream",
+                NewBestTip {
+                    chain_switched: true,
+                    ..NewBestTip::new(prep.headers.h3a.tip(), prep.headers.h2a.point())
+                },
+            ),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
             te_clock_read("sc-1"),
             te_state("sc-1", &expected),
@@ -621,6 +632,43 @@ fn test_fetch_next_from_resumes_best_candidate() {
             te_load_header("sc-1", prep.headers.h3.hash(), false).into(),
             te_load_tip("sc-1", prep.headers.h2.hash()).into(),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.tip(), prep.headers.h2.point())).into(),
+        ],
+    );
+
+    logs.assert_and_remove(Level::DEBUG, &["resuming block fetching"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_fetch_next_from_carries_pending_chain_switch() {
+    let mut prep = test_prep();
+    prep.store_headers(&prep.headers.main());
+    prep.state.best_tip = Some(prep.headers.h3.clone());
+    prep.state.may_fetch_blocks = false;
+    // the best tip moved to another branch while the downstream stage was busy fetching
+    prep.state.chain_switched = true;
+
+    let msg = SelectChainMsg::fetch_next_from(prep.headers.h1.point());
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    let expected = SelectChain { chain_switched: false, ..prep.state.clone() };
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &msg),
+            te_load_header("sc-1", prep.headers.h3.hash(), false),
+            te_load_tip("sc-1", prep.headers.h2.hash()),
+            te_send(
+                "sc-1",
+                "downstream",
+                NewBestTip { chain_switched: true, ..NewBestTip::new(prep.headers.h3.tip(), prep.headers.h2.point()) },
+            ),
+            te_state("sc-1", &expected),
         ],
     );
 

@@ -44,6 +44,8 @@ pub use headers_performance::PerfHeaderForwardOutcome;
 /// - `best_tip`: the current best `BlockHeader` (or `None`); updated only on strictly better candidates per `cmp_tip`.
 /// - `may_fetch_blocks`: "Whether the downstream stage has sent a FetchNextFrom message that has not yet been responded to."
 ///   Starts `false` (see `new()`); controls whether a newly superior tip triggers an immediate send.
+/// - `chain_switched`: whether the best tip moved to a different branch since the last `NewBestTip` send
+///   (set on forks and on best-tip invalidation); drained into the `chain_switched` field of the next send.
 ///
 /// This stage must be preloaded at graph construction time with `Initialize(...)` (current best from store); if there is
 /// no FetchBlocks stage connected (e.g. in tests) it also needs `FetchNextFrom(Point::Origin)` (to kick off fetching) —
@@ -102,6 +104,10 @@ pub struct SelectChain {
     best_tip: Option<BlockHeader>,
     /// Whether the downstream stage has sent a FetchNextFrom message that has not yet been responded to.
     may_fetch_blocks: bool,
+    /// Whether the best tip has moved to a different branch since the last `NewBestTip` sent
+    /// downstream. Carried on the next `NewBestTip` so that the fetch_blocks stage knows whether
+    /// its missing-blocks cursor still applies to the chain of the new tip.
+    chain_switched: bool,
     /// Performance tracking for headers. It emits one `perf.header.lifecycle` event per header and
     /// records the matching metrics when a header reaches a terminal state.
     headers_performance: HeadersPerformance,
@@ -114,6 +120,7 @@ impl SelectChain {
             best_tip: None,
             tips: BTreeMap::new(),
             may_fetch_blocks: false,
+            chain_switched: false,
             headers_performance: HeadersPerformance::new(),
         }
     }
@@ -261,12 +268,15 @@ impl SelectChain {
 
             // if we have a real fork, start recording the time it takes to switch to that fork
             if parent.hash() != best_tip.hash() {
+                self.chain_switched = true;
                 self.headers_performance.fork_started(&eff.erase(), tip, received_at).await;
             }
 
             if self.may_fetch_blocks {
                 self.may_fetch_blocks = false;
-                eff.send(&self.downstream, NewBestTip { tip, parent, trace_context: parent_context }).await;
+                let chain_switched = std::mem::take(&mut self.chain_switched);
+                eff.send(&self.downstream, NewBestTip { tip, parent, chain_switched, trace_context: parent_context })
+                    .await;
             }
             self.best_tip = Some(header);
         }
@@ -317,6 +327,7 @@ impl SelectChain {
             && !self.tips.contains_key(&best_tip.hash())
         {
             tracing::info!(%removed, "best tip candidate invalidated");
+            self.chain_switched = true;
             // need to pick new best tip
             match eff.external(FindBestCandidate).await {
                 Ok(new_best_tip) if new_best_tip != ORIGIN_HASH => {
@@ -330,7 +341,12 @@ impl SelectChain {
                     let parent = load_parent_point(&eff, &store, &new_best_tip).await;
                     if self.may_fetch_blocks {
                         self.may_fetch_blocks = false;
-                        eff.send(&self.downstream, NewBestTip { tip: new_best_tip.tip(), parent, trace_context }).await;
+                        let chain_switched = std::mem::take(&mut self.chain_switched);
+                        eff.send(
+                            &self.downstream,
+                            NewBestTip { tip: new_best_tip.tip(), parent, chain_switched, trace_context },
+                        )
+                        .await;
                     }
                     let (to_validate, _) = store.unvalidated_ancestor_hashes(new_best_tip.hash()).await;
                     self.tips.insert(new_best_tip.hash(), to_validate);
@@ -396,7 +412,8 @@ impl SelectChain {
                 Point::Origin
             };
             tracing::debug!(tip = %best_tip.point(), %parent, "resuming block fetching");
-            eff.send(&self.downstream, NewBestTip { tip: best_tip.tip(), parent, trace_context }).await;
+            let chain_switched = std::mem::take(&mut self.chain_switched);
+            eff.send(&self.downstream, NewBestTip { tip: best_tip.tip(), parent, chain_switched, trace_context }).await;
         } else {
             self.may_fetch_blocks = true;
         }
@@ -408,12 +425,14 @@ impl SelectChain {
 pub struct NewBestTip {
     pub tip: Tip,
     pub parent: Point,
+    /// Whether the best tip has moved to a different branch since the previous `NewBestTip`.
+    pub chain_switched: bool,
     pub trace_context: TraceContext,
 }
 
 impl NewBestTip {
     pub fn new(tip: Tip, parent: Point) -> Self {
-        NewBestTip { tip, parent, trace_context: Default::default() }
+        NewBestTip { tip, parent, chain_switched: false, trace_context: Default::default() }
     }
 }
 

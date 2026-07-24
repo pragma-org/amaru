@@ -112,7 +112,8 @@ impl TestPrep {
     }
 
     pub fn state_with_request(&self, missing: MissingBlocks, req_id: u64, timeout: ScheduleId) -> FetchBlocks {
-        FetchBlocks { req_id, missing: Some(missing), timeout: Some(timeout), ..self.state.clone() }
+        let requested_through = missing.last();
+        FetchBlocks { req_id, missing: Some(missing), requested_through, timeout: Some(timeout), ..self.state.clone() }
     }
 
     pub fn state_with_block_height(&self, block_height: u64) -> FetchBlocks {

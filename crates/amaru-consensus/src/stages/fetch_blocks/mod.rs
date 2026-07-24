@@ -32,6 +32,10 @@ use crate::stages::{
 // TODO make configurable
 const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 
+/// Upper bound on the number of points collected when computing the missing-blocks cursor.
+/// This only bounds memory: the cursor itself is consumed in batches of [`MAX_MISSING_BLOCKS_PER_BATCH`].
+const MAX_MISSING_BLOCKS_SCAN: usize = 100_000;
+
 /// Block fetch coordinator stage.
 ///
 /// This stage drives the retrieval of full blocks for headers that have been selected
@@ -46,13 +50,17 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 /// - Pure actor stage (see `stage()` fn) processing `FetchBlocksMsg`.
 /// - Collaborates with a dynamically ensured child stage (`cleanup_replies`) to safely
 ///   handle out-of-order or late block replies without clogging its own mailbox.
-/// - Uses bounded batches (MAX_MISSING_BLOCKS_PER_BATCH=25) for fetch requests.
+/// - Maintains a missing-blocks cursor that is consumed in bounded batches across successive fetch
+///   requests.
 /// - Timeout-driven retry (5s) with upstream signaling for continuation.
 ///
 /// ## Input messages and behaviour
-/// - `NewTip(tip, parent)`: Update tracked block_height, assert no outstanding missing,
-///   delegate to `request_missing_blocks` which queries store for gaps and (if any)
-///   sends `ManagerMessage::FetchBlocks` (with cr=child ref for replies) then schedules
+/// - `NewTip(tip, parent, chain_switched)`: Update tracked block_height, assert no outstanding request,
+///   delegate to `request_missing_blocks`. When the cursor still holds points and the best chain
+///   has not switched to another branch (`chain_switched` is false, as tracked by select_chain),
+///   the next batch is served straight from the cursor.
+///   Otherwise the cursor is recomputed via `find_missing_blocks`. If there is anything to fetch, sends
+///   `ManagerMessage::FetchBlocks` (with cr=child ref for replies) then schedules
 ///   a `Timeout(req_id)`.
 /// - `RecoverStoredBlocks(best_hash)`: Startup recovery only. If origin, signal upstream
 ///   immediately. Otherwise replay any unvalidated-but-stored blocks downstream for
@@ -61,10 +69,12 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 /// - `Block(peer, network_block)`: Decode + basic integrity (body_hash match → adversarial
 ///   on fail), ordering checks against current `missing` cursor (parent + first point;
 ///   stragglers logged and dropped). On match: store block, send `(Tip, parent_boundary, block_height)`
-///   downstream, `shift_one_block` on cursor; if now empty, clear state, cancel timeout,
-///   signal `FetchNextFrom` upstream.
-/// - `Timeout(req_id)`: If matches current, log error (unless paused for no peers), clear
-///   missing/timeout, signal `FetchNextFrom(boundary)` upstream to retry (no direct peer penalty here).
+///   downstream, `shift_one_block` on cursor; when the current request's last point
+///   (`requested_through`) arrives, cancel the timeout and signal `FetchNextFrom` upstream
+///   (the cursor keeps any remaining points for the next batch).
+/// - `Timeout(req_id)`: If matches current, log error (unless paused for no peers), clear the
+///   outstanding request/timeout (the cursor is kept: the unfetched remainder is still at its
+///   front), signal `FetchNextFrom(boundary)` upstream to retry (no direct peer penalty here).
 /// - `NoPeersAvailable(req_id)`: If matches current, log INFO that fetch is paused; leave the
 ///   5s timeout armed so retry is rate-limited without ERROR.
 ///
@@ -85,9 +95,12 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 /// ## Key state (missing blocks, requests, timeouts)
 /// - `downstream: StageRef<(Tip, Point, BlockHeight)>`: where validated-ready blocks go (contramapped in wiring).
 /// - `req_id: u64`: monotonic, incremented on each new FetchBlocks; used to pair timeouts and filter in child.
-/// - `missing: Option<MissingBlocks>`: cursor over current batch (from `find_missing_blocks`); supports
-///   `from_to()`, `first()`, `boundary()`, `shift_one_block()`, `is_empty()`, `nb_missing_blocks()`.
-///   Asserted None on NewTip/Recover entry; cleared on completion, timeout, or no-work cases.
+/// - `missing: Option<MissingBlocks>`: cursor over all known-missing blocks (from `find_missing_blocks`);
+///   supports `first()`, `nth()`, `boundary()`, `shift_one_block()`, `is_empty()`, `nb_missing_blocks()`.
+///   Persists across fetch requests and timeouts; cleared when exhausted or when the best chain
+///   switched to another branch (`chain_switched` on `NewTip`).
+/// - `requested_through: Option<Point>`: last point of the outstanding fetch request; asserted None on
+///   NewTip entry; cleared on completion or timeout.
 /// - `timeout: Option<ScheduleId>`: the pending 5s timeout for current req; taken/cancelled only on batch success.
 /// - `no_peers_pause: bool`: set when manager reports no initiating connections; suppresses ERROR on the following timeout.
 /// - `block_height: BlockHeight`: monotonic max over seen tips; passed with every downstream send (for both live and recovered blocks).
@@ -108,7 +121,12 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 pub struct FetchBlocks {
     downstream: StageRef<DownloadedBlock>,
     req_id: u64,
+    /// Cursor over the blocks that still need to be fetched, oldest first. It is computed with a
+    /// single (expensive) backward walk over unfetched headers and then consumed in batches of
+    /// [`MAX_MISSING_BLOCKS_PER_BATCH`] across successive fetch requests.
     missing: Option<MissingBlocks>,
+    /// The last point of the currently outstanding fetch request, if any.
+    requested_through: Option<Point>,
     upstream: StageRef<SelectChainMsg>,
     manager: StageRef<ManagerMessage>,
     block_source: StageRef<BlockSourceMsg>,
@@ -135,6 +153,7 @@ impl FetchBlocks {
             downstream,
             req_id: 0,
             missing: None,
+            requested_through: None,
             upstream,
             manager,
             block_source,
@@ -165,6 +184,7 @@ impl FetchBlocks {
         &mut self,
         tip: Tip,
         parent: Point,
+        chain_switched: bool,
         eff: Effects<FetchBlocksMsg>,
         parent_context: TraceContext,
     ) {
@@ -172,9 +192,9 @@ impl FetchBlocks {
 
         tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
         assert!(
-            self.missing.is_none(),
-            "there shouldn't be any missing blocks when starting a new tip: {:?}",
-            self.missing
+            self.requested_through.is_none(),
+            "there shouldn't be an outstanding fetch request when starting a new tip: {:?}",
+            self.requested_through
         );
 
         let span = debug_span!(
@@ -185,7 +205,9 @@ impl FetchBlocks {
         );
         let stage_context = (&span).into();
 
-        self.request_missing_blocks(tip, parent, eff, parent_context, stage_context).instrument(span).await;
+        self.request_missing_blocks(tip, parent, chain_switched, eff, parent_context, stage_context)
+            .instrument(span)
+            .await;
     }
 
     /// Startup-only recovery: resubmit downloaded blocks whose validity was not
@@ -241,7 +263,8 @@ impl FetchBlocks {
                     parent = Some(tip.point());
                 }
                 Ok(false) => {
-                    self.request_missing_blocks(tip, block_parent, eff, trace_context.clone(), trace_context).await;
+                    self.request_missing_blocks(tip, block_parent, true, eff, trace_context.clone(), trace_context)
+                        .await;
                     return;
                 }
                 Err(error) => {
@@ -259,55 +282,52 @@ impl FetchBlocks {
         &mut self,
         tip: Tip,
         parent: Point,
+        chain_switched: bool,
         eff: Effects<FetchBlocksMsg>,
         parent_context: TraceContext,
         stage_context: TraceContext,
     ) {
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
-        match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_PER_BATCH).await {
-            Ok(MissingBlocksResult::StartHeaderNotFound) => {
-                tracing::error!("failed to load initial header");
-                return eff.terminate().await;
-            }
-            Ok(MissingBlocksResult::BoundaryNotFound) => {
-                tracing::debug!("no boundary for missing blocks found given the new tip");
-                self.missing = None;
-            }
-            Ok(MissingBlocksResult::Found(missing_blocks)) => {
-                self.missing = Some(missing_blocks);
-            }
-            Err(error) => {
-                tracing::error!(%error, "failed to find missing blocks");
-                return eff.terminate().await;
+
+        let reuse_cursor = !chain_switched && self.missing.as_ref().is_some_and(|missing| !missing.is_empty());
+        if !reuse_cursor {
+            self.missing = None;
+            match store.find_missing_blocks(tip.hash(), MAX_MISSING_BLOCKS_SCAN).await {
+                Ok(MissingBlocksResult::StartHeaderNotFound) => {
+                    tracing::error!("failed to load initial header");
+                    return eff.terminate().await;
+                }
+                Ok(MissingBlocksResult::BoundaryNotFound) => {
+                    tracing::debug!("no boundary for missing blocks found given the new tip");
+                }
+                Ok(MissingBlocksResult::Found(missing_blocks)) => {
+                    self.missing = Some(missing_blocks);
+                }
+                Err(error) => {
+                    tracing::error!(%error, "failed to find missing blocks");
+                    return eff.terminate().await;
+                }
             }
         }
         let Some(missing) = self.missing.as_ref() else {
             return;
         };
 
-        match missing.from_to() {
-            None => {
-                self.missing = None;
-                tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
-                self.fetch_next_from(eff, tip.point()).await;
-            }
-            Some((from, to)) => {
-                tracing::debug!(%from, %to, length = missing.nb_missing_blocks(), "requesting blocks");
+        let batch_size = missing.nb_missing_blocks().min(MAX_MISSING_BLOCKS_PER_BATCH);
+        match (missing.first(), missing.nth(batch_size.wrapping_sub(1))) {
+            (Some(from), Some(through)) => {
+                tracing::debug!(%from, %through, length = batch_size, remaining = missing.nb_missing_blocks(), "requesting blocks");
                 self.req_id += 1;
                 self.no_peers_pause = false;
+                self.requested_through = Some(through);
                 self.trace_context = Some(parent_context);
 
                 let now = eff.clock().await;
                 let requested: Vec<HeaderHash> =
-                    missing.missing_points().into_iter().map(|point| point.hash()).collect();
+                    missing.missing_points().into_iter().take(batch_size).map(|point| point.hash()).collect();
                 eff.send(
                     &self.manager,
-                    ManagerMessage::FetchBlocks {
-                        from: *from,
-                        through: *to,
-                        id: self.req_id,
-                        cr: self.cleanup_replies.clone(),
-                    },
+                    ManagerMessage::FetchBlocks { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
                 )
                 .await;
                 // Tell the select_chain stage when this block was received so it can record the
@@ -315,6 +335,11 @@ impl FetchBlocks {
                 eff.send(&self.upstream, SelectChainMsg::BlocksRequested(requested, now)).await;
                 let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
                 self.timeout = Some(timeout);
+            }
+            _ => {
+                self.missing = None;
+                tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
+                self.fetch_next_from(eff, tip.point()).await;
             }
         }
     }
@@ -377,6 +402,9 @@ impl FetchBlocks {
         missing.shift_one_block();
         if missing.is_empty() {
             self.missing = None;
+        }
+        if self.requested_through == Some(point) {
+            self.requested_through = None;
             self.no_peers_pause = false;
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;
@@ -386,7 +414,7 @@ impl FetchBlocks {
     }
 
     pub async fn no_peers_available(&mut self, req_id: u64, _eff: Effects<FetchBlocksMsg>) {
-        if req_id != self.req_id || self.missing.is_none() {
+        if req_id != self.req_id || self.requested_through.is_none() {
             return;
         }
 
@@ -408,7 +436,9 @@ impl FetchBlocks {
             None => (),
             Some(from) => {
                 self.timeout = None;
-                self.missing = None;
+                // keep `missing`: the unfetched remainder of the timed-out request is still at
+                // the front of the cursor and will be re-requested on the next tip
+                self.requested_through = None;
                 self.no_peers_pause = false;
                 self.fetch_next_from(eff, from).await;
             }
@@ -437,7 +467,7 @@ impl DownloadedBlock {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
-    NewTip { tip: Tip, parent: Point, trace_context: TraceContext },
+    NewTip { tip: Tip, parent: Point, chain_switched: bool, trace_context: TraceContext },
     RecoverStoredBlocks(HeaderHash, TraceContext),
     Block(Peer, NetworkBlock),
     Timeout(u64),
@@ -446,7 +476,7 @@ pub enum FetchBlocksMsg {
 
 impl FetchBlocksMsg {
     pub fn new_tip(tip: Tip, parent: Point) -> Self {
-        Self::NewTip { tip, parent, trace_context: Default::default() }
+        Self::NewTip { tip, parent, chain_switched: false, trace_context: Default::default() }
     }
 
     pub fn recover_stored_blocks(best_hash: HeaderHash) -> Self {
@@ -460,7 +490,9 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
     })
     .await;
     match msg {
-        FetchBlocksMsg::NewTip { tip, parent, trace_context } => state.new_tip(tip, parent, eff, trace_context).await,
+        FetchBlocksMsg::NewTip { tip, parent, chain_switched, trace_context } => {
+            state.new_tip(tip, parent, chain_switched, eff, trace_context).await
+        }
         FetchBlocksMsg::RecoverStoredBlocks(best_hash, trace_context) => {
             state.trace_context = Some(trace_context);
             state.recover_stored_blocks(eff, best_hash).await

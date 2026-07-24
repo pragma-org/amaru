@@ -143,8 +143,8 @@ pub fn build_stage_graph(
         .expect("fetch blocks recovery message must be preloaded");
 
     let fetch_blocks_input = stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |msg| {
-        let select_chain::NewBestTip { tip, parent, trace_context } = msg;
-        FetchBlocksMsg::NewTip { tip, parent, trace_context }
+        let select_chain::NewBestTip { tip, parent, chain_switched, trace_context } = msg;
+        FetchBlocksMsg::NewTip { tip, parent, chain_switched, trace_context }
     });
 
     let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));

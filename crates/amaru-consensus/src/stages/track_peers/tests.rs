@@ -14,9 +14,9 @@
 
 use std::{self, slice, time::Duration};
 
-use amaru_kernel::{num::CheckedSub, BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, Tip, num::CheckedSub};
 use amaru_metrics::consensus::ConsensusMetrics;
-use amaru_ouroboros::{praos::header::AssertHeaderError, ConnectionId};
+use amaru_ouroboros::{ConnectionId, praos::header::AssertHeaderError};
 use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage::RequestNext};
 use amaru_pure_stage::{
@@ -31,11 +31,11 @@ use crate::{
         peer_selection::PeerSelectionMsg,
         test_utils::{assert_trace, te_input, te_record_consensus_metrics, te_send, te_state, tm_state},
         track_peers::{
+            TrackPeers, TrackPeersMsg,
             test_setup::{
                 build_store, make_block_header, new_tip, setup, setup_base, te_clock_suspend, te_has_header,
                 te_load_tip, te_store_header, te_validate_header, test_prep, tm_volatile_tip,
             },
-            TrackPeers, TrackPeersMsg,
         },
     },
     store::NoncesError,
@@ -729,10 +729,10 @@ fn test_roll_forward_stake_dist_far_ahead_defer() {
     let mut state = prep.state.clone();
     state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), header.tip());
 
-    // More than one epoch beyond known max_epoch (start-2) → adversarial, not defer.
+    // More than one epoch beyond known max_epoch (start-2): the header is deferred, not rejected.
     let far_epoch = prep.start_times.epoch;
     let slot = header.slot();
-    // Override to simulate far-ahead stake dist not available (distance >1 -> reject)
+    // Override to simulate the required stake distribution not being available yet.
     let (running, _guards, mut logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
             running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
@@ -742,11 +742,7 @@ fn test_roll_forward_stake_dist_far_ahead_defer() {
             });
         });
 
-    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
     assert_trace_contains(
         &running,
         &[
@@ -865,156 +861,6 @@ fn test_roll_backward_unknown_point_removes_peer() {
         .assert_and_remove(Level::INFO, &["roll backward"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
-
-/// Tests that a RollForward whose header height requires a ledger height beyond what is currently
-/// applied defers RequestNext and arms a single coalesced height-recheck schedule.
-#[test]
-fn test_roll_forward_defers_request_next() {
-    // Use max_peer_lead = 0 so any header taller than the known ledger height triggers defer.
-    let prep = test_prep_with_max_peer_lead(0);
-    let peer = Peer::new("peer1");
-    let header = prep.headers[0].clone();
-    let tip = header.tip();
-
-    let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), tip);
-
-    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
-        conn_id: prep.conn_id,
-        handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), tip),
-    });
-
-    let store = build_store(&[]);
-    let sid = height_recheck_schedule_id();
-
-    // Frozen ledger tip would poll forever if wakeups auto-advanced; stop at first sleep.
-    let (running, _guards, mut logs) =
-        setup_with_ledger_tip_until_sleeping(&prep.rt_handle(), state.clone(), [msg.clone()], store, Tip::origin());
-
-    logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
-        Level::ERROR,
-        Level::WARN,
-        Level::INFO,
-    ]);
-
-    assert_trace_match(
-        &running,
-        &[
-            te_state("tp-1", &state).into(),
-            te_input("tp-1", &msg).into(),
-            te_clock_suspend("tp-1").into(),
-            tm_volatile_tip("tp-1"),
-            te_clock_suspend("tp-1").into(),
-            te_schedule("tp-1", TrackPeersMsg::RecheckLedgerHeight, sid).into(),
-            tm_state::<TrackPeers>(
-                "tp-1",
-                |s| s.deferred.len() == 1 && s.recheck_timer == Some(sid),
-                "ledger height deferred with recheck armed",
-            ),
-        ],
-    );
-
-    // The handler must *not* have received an immediate RequestNext (that is the whole point of deferring).
-    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);
-}
-
-#[test]
-fn test_pipelined_headers_after_height_defer() {
-    let prep = test_prep_with_max_peer_lead(0);
-    let peer = Peer::new("peer1");
-    let parent = &prep.headers[0];
-    let h1 = prep.headers[1].clone();
-    let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
-
-    let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
-        conn_id: prep.conn_id,
-        handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.tip()),
-    });
-    let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
-        conn_id: prep.conn_id,
-        handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.tip()),
-    });
-
-    let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), h2.tip());
-
-    let sid = height_recheck_schedule_id();
-
-    // Forced ledger tip = origin so height defers apply; second header is FollowUp while peer deferred.
-    // Stop at first sleep so the height-poll loop does not run forever under a frozen tip.
-    let (running, _guards, mut logs) = setup_with_ledger_tip_until_sleeping(
-        &prep.rt_handle(),
-        state.clone(),
-        [msg1.clone(), msg2.clone()],
-        build_store(&[]),
-        Tip::origin(),
-    );
-
-    logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
-    assert_trace_match(
-        &running,
-        &[
-            te_state("tp-1", &state).into(),
-            te_input("tp-1", &msg1).into(),
-            te_clock_suspend("tp-1").into(),
-            tm_volatile_tip("tp-1"),
-            te_clock_suspend("tp-1").into(),
-            te_schedule("tp-1", TrackPeersMsg::RecheckLedgerHeight, sid).into(),
-            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first ledger-height deferred"),
-            te_input("tp-1", &msg2).into(),
-            tm_state::<TrackPeers>(
-                "tp-1",
-                |s| s.deferred.len() == 2 && s.recheck_timer == Some(sid),
-                "follow-up queued while deferred; still one recheck timer",
-            ),
-        ],
-    );
-    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "", InitiatorMessage::RequestNext)]);
-}
-
-/// Height defer is released when a later recheck sees the applied ledger height advance.
-#[test]
-fn test_height_defer_recheck_when_ledger_advances() {
-    let prep = test_prep_with_max_peer_lead(0);
-    let peer = Peer::new("peer1");
-    let header = prep.headers[0].clone();
-    let tip = header.tip();
-
-    let mut state = prep.state.clone();
-    state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), tip);
-
-    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer: peer.clone(),
-        conn_id: prep.conn_id,
-        handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), tip),
-    });
-
-    let sid = height_recheck_schedule_id();
-    let recheck_at = schedule_id_at(HEIGHT_RECHECK_INTERVAL).time();
-    let advanced_tip = Tip::new(header.point(), header.block_height());
-
-    let (running, _guards, mut logs) =
-        setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
-            let mut n = 0u8;
-            running.override_external_effect::<VolatileTipEffect>(usize::MAX, move |_| {
-                n += 1;
-                // First call (defer decision) still at origin; recheck sees advanced height.
-                if n == 1 {
-                    OverrideResult::handled(Tip::origin())
-                } else {
-                    OverrideResult::handled(advanced_tip)
-                }
 
 #[test]
 fn test_pipelined_headers_after_slot_near_future_defer() {
