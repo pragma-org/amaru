@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, fmt::Display};
+use std::{borrow::Cow, fmt, fmt::Display};
 
-use amaru_kernel::{Block, Certificate, GovernanceAction, Proposal, TransactionBody};
+use amaru_kernel::{Block, Certificate, GovernanceAction, Proposal, TransactionBody, expect_stake_credential};
 use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
@@ -74,7 +74,7 @@ fn prepare_withdrawals<'a>(context: &mut impl PreparationContext<'a>, transactio
         return;
     };
     for (reward_account, _) in withdrawals.iter() {
-        context.require_withdrawal(reward_account);
+        context.require_account(Cow::Owned(expect_stake_credential(reward_account)))
     }
 }
 
@@ -92,7 +92,9 @@ fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a
 
 fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, proposal: &'a Proposal) {
     if let GovernanceAction::TreasuryWithdrawals(withdrawals, _) = &proposal.gov_action {
-        withdrawals.iter().for_each(|withdrawal| context.require_withdrawal(&withdrawal.0));
+        withdrawals
+            .iter()
+            .for_each(|withdrawal| context.require_account(Cow::Owned(expect_stake_credential(&withdrawal.0))));
     }
 }
 /// Collect and require values from a single certificate.
@@ -100,7 +102,7 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
     match certificate {
         Certificate::StakeDelegation(credential, pool_key_hash)
         | Certificate::StakeRegDeleg(credential, pool_key_hash, _) => {
-            context.require_account(credential);
+            context.require_account(Cow::Borrowed(credential));
             context.require_pool(pool_key_hash);
         }
 
@@ -109,13 +111,13 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
 
         Certificate::StakeVoteDeleg(credential, pool_key_hash, drep)
         | Certificate::StakeVoteRegDeleg(credential, pool_key_hash, drep, _) => {
-            context.require_account(credential);
+            context.require_account(Cow::Borrowed(credential));
             context.require_pool(pool_key_hash);
             context.require_drep_delegation(drep);
         }
 
         Certificate::VoteRegDeleg(credential, drep, _) | Certificate::VoteDeleg(credential, drep) => {
-            context.require_account(credential);
+            context.require_account(Cow::Borrowed(credential));
             context.require_drep_delegation(drep);
         }
         Certificate::AuthCommitteeHot(cold_credential, _) | Certificate::ResignCommitteeCold(cold_credential, _) => {
@@ -129,7 +131,7 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
         Certificate::StakeRegistration(credential)
         | Certificate::Reg(credential, _)
         | Certificate::UnReg(credential, _)
-        | Certificate::StakeDeregistration(credential) => context.require_account(credential),
+        | Certificate::StakeDeregistration(credential) => context.require_account(Cow::Borrowed(credential)),
     };
 }
 

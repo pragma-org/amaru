@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     mem,
 };
@@ -20,8 +21,8 @@ use std::{
 use amaru_kernel::{
     Anchor, AsHash, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, ProposalsRoots, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind,
-    TransactionInput, Value, Vote, Voter, VoterKind,
+    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, StakeCredentialKind, TransactionInput, Value,
+    Vote, Voter, VoterKind,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
     utils::serde::deserialize_map_proxy,
@@ -79,11 +80,7 @@ impl PreparePoolsSlice<'_> for AssertPreparationContext {
 }
 
 impl PrepareAccountsSlice<'_> for AssertPreparationContext {
-    fn require_account(&mut self, _credential: &StakeCredential) {
-        unimplemented!();
-    }
-
-    fn require_withdrawal(&mut self, _reward_account: &RewardAccount) {
+    fn require_account(&mut self, _credential: Cow<'_, StakeCredential>) {
         unimplemented!();
     }
 }
