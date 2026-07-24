@@ -31,7 +31,6 @@ use thiserror::Error;
 
 use crate::{state::volatile, store::StoreError};
 
-pub(crate) mod assert;
 mod default;
 pub use default::*;
 

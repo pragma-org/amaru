@@ -24,7 +24,6 @@ append-only-vec = "0.1.8"
 async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 async-trait = "0.1.91"
 axum = "0.8.9"
-assert-json-diff = "2.0.2"
 bech32 = "0.12.0"
 binrw = "0.15.0"
 blst = "0.3.16"
@@ -135,7 +134,6 @@ amaru-protocols = { path = "crates/amaru-protocols", version = "0.1.2" }
 amaru-pure-stage = { path = "crates/amaru-pure-stage", version = "0.1.2" }
 amaru-sim = { path = "crates/amaru-sim", version = "0.1.2" }
 amaru-stores = { path = "crates/amaru-stores", version = "0.1.2" }
-amaru-tracing-json = { path = "crates/amaru-tracing-json", version = "0.1.2" }
 amaru-uplc = { path = "crates/amaru-uplc", version = "0.4.0" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
