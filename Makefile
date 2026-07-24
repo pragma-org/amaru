@@ -84,8 +84,8 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/topology.json"
 
 sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
-	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) mithril
-	@cargo run --profile $(BUILD_PROFILE) --bin amaru-ledger $(COMMON_ARGS) sync
+	@cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) dev ledger mithril
+	@cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) dev ledger sync
 
 refresh: ## &start Refresh chain and ledger databases from the latest Mithril snapshot, moving the current ones to *.backup
 	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(BUILD_PROFILE)" INSTALL=true REPLACE_EXISTING=true ./scripts/refresh-from-mithril

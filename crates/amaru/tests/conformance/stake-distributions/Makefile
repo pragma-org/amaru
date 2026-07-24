@@ -1,4 +1,4 @@
-.PHONY: help xz unxz tar untar list download upload check-aws-env check-network-dir
+.PHONY: help zst unzst list download upload check-aws-env check-network-dir
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 
@@ -6,8 +6,6 @@ NETWORKS := preview preprod mainnet
 NETWORK := $(notdir $(CURDIR))
 IS_NETWORK_DIR := $(filter $(NETWORK),$(NETWORKS))
 BUCKET := cardano-stake-distributions/$(NETWORK)
-ARCHIVE := all.tar.zst
-WHAT ?= tar
 
 help:
 	@if [ -z "$(IS_NETWORK_DIR)" ]; then \
@@ -23,8 +21,6 @@ help:
 		echo "\033[1;4mCommands:\033[00m"; \
 		grep -E '^[a-z]+[^:]+:.*## ' "$(THIS_MAKEFILE)" | while read -r l; do printf "  \033[1;32m%s\033[00m:%s\n" "$$(echo $$l | cut -f 1 -d':')" "$$(echo $$l | cut -f 3- -d'#')"; done; \
 		echo ""; \
-		echo "\033[1;4mConfiguration:\033[00m"; \
-		grep -E '^[a-zA-Z0-9_]+ \?= ' "$(THIS_MAKEFILE)" | sort | while read -r l; do printf "  \033[36m%s\033[00m=%s\n" "$$(echo $$l | cut -f 1 -d'=')" "$$(echo $$l | cut -f 2- -d'=')"; done; \
 	fi
 
 check-network-dir:
@@ -34,33 +30,23 @@ check-network-dir:
 		exit 1; \
 	}
 
-xz: check-network-dir ## Compress individual .json files using xz compression
+zst: check-network-dir ## Compress individual .json files using zstd compression
 	@set -- *.json; \
 	if [ ! -e "$$1" ]; then \
 		exit 0; \
 	fi; \
 	for file in "$$@"; do \
-		xz -f "$$file"; \
+		zstd -f -q --rm "$$file"; \
 	done
 
-unxz: check-network-dir ## Uncompress individual .json.xz files using xz compression
-	@set -- *.json.xz; \
+unzst: check-network-dir ## Uncompress individual .json.zst files using zstd compression
+	@set -- *.json.zst; \
 	if [ ! -e "$$1" ]; then \
 		exit 0; \
 	fi; \
 	for file in "$$@"; do \
-		xz -d -f "$$file"; \
+		zstd -d -f -q --rm "$$file"; \
 	done
-
-tar: check-network-dir ## Create a single space-optimised archive with all files
-	@set -- *.json; \
-	if [ ! -e "$$1" ]; then \
-		exit 0; \
-	fi; \
-	tar --zstd -cf "$(ARCHIVE)" "$$@"
-
-untar: check-network-dir ## Unpack a single space-optimised archive with all files
-	@tar --zstd -xf "$(ARCHIVE)"
 
 check-aws-env:
 	@test -n "$(ENDPOINT)" || { echo "Missing ENDPOINT"; exit 1; }
@@ -70,36 +56,40 @@ check-aws-env:
 list: check-network-dir check-aws-env ## List all objects in the network-specific S3 bucket
 	@aws s3 ls --recursive --human-readable --summarize --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/"
 
-download: check-aws-env ## Download an global archive (WHAT=tar) or individual .xz (WHAT=xz) from an S3 bucket
-	@case "$(WHAT)" in \
-	tar) \
-		aws s3 cp --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/$(ARCHIVE)" "$(ARCHIVE)" \
-		;; \
-	xz) \
-		aws s3 cp --recursive --endpoint-url "$(ENDPOINT)" --exclude "*" --include "epoch_*.json.xz" "s3://$(BUCKET)/" . \
-		;; \
-	*) \
-		echo "WHAT must be one of: tar, xz"; \
-		exit 1; \
-		;; \
-	esac
-
-upload: check-aws-env ## Upload a global archive (WHAT=tar) or individual .xz (WHAT=xz) to an S3 bucket
-	@case "$(WHAT)" in \
-	tar) \
-		test -e "$(ARCHIVE)" || { echo "Missing $(ARCHIVE)"; exit 1; }; \
-		aws s3 cp --endpoint-url "$(ENDPOINT)" "$(ARCHIVE)" "s3://$(BUCKET)/$(ARCHIVE)" \
-		;; \
-	xz) \
-		set -- epoch_*.json.xz; \
-		if [ ! -e "$$1" ]; then \
-			echo "No epoch_*.json.xz files found"; \
-			exit 1; \
+download: check-network-dir check-aws-env ## Download missing 'epoch_*.json.zst' fixtures from the network-specific S3 bucket
+	@remote_files=$$(aws s3 ls --recursive --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/" | awk '{print $$4}' | sed 's@^[^/]*/@@' | grep '^epoch_.*\.json\.zst$$' || true); \
+	if [ -z "$$remote_files" ]; then \
+		echo "No epoch_*.json.zst files found in s3://$(BUCKET)/"; \
+		exit 0; \
+	fi; \
+	downloaded=0; \
+	skipped=0; \
+	for file in $$remote_files; do \
+		json_file=$${file%.zst}; \
+		if [ -e "$$file" ] || [ -e "$$json_file" ]; then \
+			skipped=$$((skipped + 1)); \
+			continue; \
 		fi; \
-		aws s3 cp --recursive --endpoint-url "$(ENDPOINT)" --exclude "*" --include "epoch_*.json.xz" . "s3://$(BUCKET)/" \
-		;; \
-	*) \
-		echo "WHAT must be one of: tar, xz"; \
-		exit 1; \
-		;; \
-	esac
+		aws s3 cp --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/$$file" "$$file"; \
+		downloaded=$$((downloaded + 1)); \
+	done; \
+	echo "Downloaded $$downloaded file(s); skipped $$skipped already present locally."
+
+upload: check-network-dir check-aws-env ## Upload missing local 'epoch_*.json.zst' fixtures to the network-specific S3 bucket
+	@set -- epoch_*.json.zst; \
+	if [ ! -e "$$1" ]; then \
+		echo "No epoch_*.json.zst files found"; \
+		exit 0; \
+	fi; \
+	remote_files=$$(aws s3 ls --recursive --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/" | awk '{print $$4}' | sed 's@^[^/]*/@@' | grep '^epoch_.*\.json\.zst$$' || true); \
+	uploaded=0; \
+	skipped=0; \
+	for file in "$$@"; do \
+		if printf '%s\n' "$$remote_files" | grep -qx "$$file"; then \
+			skipped=$$((skipped + 1)); \
+			continue; \
+		fi; \
+		aws s3 cp --endpoint-url "$(ENDPOINT)" "$$file" "s3://$(BUCKET)/$$file"; \
+		uploaded=$$((uploaded + 1)); \
+	done; \
+	echo "Uploaded $$uploaded file(s); skipped $$skipped already present in the bucket."

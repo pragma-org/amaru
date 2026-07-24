@@ -109,7 +109,7 @@ tracing-subscriber = { version = "0.3.23", features = [
 ] }
 typetag = "0.2.23"
 xz = "0.4.6-rc.0"
-zstd = "0.13"
+zstd = "0.13.3"
 zeroize = "1.9.0"
 
 # Internal dependencies

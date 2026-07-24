@@ -17,7 +17,7 @@ If you already have a local cardano-node database, you can also run `db-analyser
 
 ## Extracting stake distributions
 
-The reference JSON payloads are produced by the Haskell extractor in [haskell-node-extractor](/Users/ktorz/Documents/Projects/PRAGMA/amaru/crates/amaru/tests/stake-distributions/haskell-node-extractor). It writes one file per epoch as `epoch_<N>.json`, which can then be compressed to `epoch_<N>.json.xz`.
+The reference JSON payloads are produced by the Haskell extractor in [haskell-node-extractor](/Users/ktorz/Documents/Projects/PRAGMA/amaru/crates/amaru/tests/stake-distributions/haskell-node-extractor). It writes one file per epoch as `epoch_<N>.json`, which can then be compressed to `epoch_<N>.json.zst`.
 
 The extractor needs two consecutive cardano-node snapshots:
 
@@ -30,7 +30,7 @@ The extractor README documents the exact command-line usage and validation flow.
 
 ## Generated Rust tests
 
-[build.rs](/Users/ktorz/Documents/Projects/PRAGMA/amaru/crates/amaru/build.rs) scans `tests/stake-distributions/$AMARU_NETWORK/` for `epoch_*.json` and `epoch_*.json.xz` files and generates the matching `test_case` entries automatically. There is no manually-maintained test list anymore.
+[build.rs](/Users/ktorz/Documents/Projects/PRAGMA/amaru/crates/amaru/build.rs) scans `tests/stake-distributions/$AMARU_NETWORK/` for `epoch_*.json` and `epoch_*.json.zst` files and generates the matching `test_case` entries automatically. There is no manually-maintained test list anymore.
 
 To list or run the generated comparison tests for a given network:
 
@@ -45,4 +45,4 @@ Those tests compare the extracted JSON fixtures against stake distributions comp
 
 Each network directory such as [preview](/Users/ktorz/Documents/Projects/PRAGMA/amaru/crates/amaru/tests/stake-distributions/preview), [preprod](/Users/ktorz/Documents/Projects/PRAGMA/amaru/crates/amaru/tests/stake-distributions/preprod), and [mainnet](/Users/ktorz/Documents/Projects/PRAGMA/amaru/crates/amaru/tests/stake-distributions/mainnet) contains a tiny `Makefile` that includes the shared one in this directory.
 
-Use `make help` from one of those network directories to see the available utilities. They cover local fixture compression and archive management, plus listing, downloading, and uploading the corresponding S3 bucket contents.
+Use `make help` from one of those network directories to see the available utilities. They cover local fixture compression/decompression, listing, downloading, and uploading the corresponding S3 bucket contents. The S3 helpers work on individual `epoch_*.json.zst` objects and only transfer files that are missing locally or remotely.

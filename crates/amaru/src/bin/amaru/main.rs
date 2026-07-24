@@ -69,6 +69,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cmd::dev::DevCommand::Ledger(ledger_cmd) => match ledger_cmd {
                 cmd::dev::ledger::LedgerCommand::Reset(args) => cmd::dev::ledger::reset::run(args).await,
                 cmd::dev::ledger::LedgerCommand::Convert(args) => cmd::dev::ledger::convert::run(args).await,
+                #[cfg(feature = "mithril")]
+                cmd::dev::ledger::LedgerCommand::Mithril(args) => cmd::dev::ledger::mithril::run(args).await,
                 cmd::dev::ledger::LedgerCommand::Nonces(nonces_cmd) => match nonces_cmd {
                     cmd::dev::ledger::nonces::NoncesCommand::Get(args) => {
                         cmd::dev::ledger::nonces::get::run(args).await
@@ -88,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         cmd::dev::ledger::states::remove::run(args).await
                     }
                 },
+                cmd::dev::ledger::LedgerCommand::Sync(args) => cmd::dev::ledger::sync::run(args).await,
             },
             cmd::dev::DevCommand::Traces(traces_cmd) => match traces_cmd {
                 cmd::dev::traces::TracesCommand::Dump(args) => cmd::dev::traces::dump::run(args).await,

@@ -28,7 +28,6 @@
 "conway/fail-gov-committee-member-mixed-with-other-voters-can-not-vote-on-updatecommittee-action/0" = "Expected failure, got success"
 "conway/fail-gov-empty-prevgovid-after-the-first-constitution-was-enacted/0" = "Expected failure, got success"
 "conway/fail-gov-expired-gov-actions/0" = "Expected failure, got success"
-"conway/fail-gov-fails-predicate-when-treasury-withdrawal-has-nonexistent-return-address/0" = "Expected failure, got success"
 "conway/fail-gov-invalid-index-in-govpurposeid/0" = "Expected failure, got success"
 "conway/fail-gov-non-existent-gov-actions/0" = "Expected failure, got success"
 "conway/fail-gov-policy-is-respected-by-proposals/0" = "Expected failure, got success"

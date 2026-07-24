@@ -42,10 +42,20 @@ Other guiding principles:
 
 - **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
 
+### Added
+
+- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
+- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
+
+### Changed
+
+- **amaru**: use `zst` compression for all individual stake distribution snapshots.
+
 ### Fixed
 
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
 - **amaru-ledger**: validate stake pool exists when attempting to unregister ([#912][], [#1034][])
+- **amaru-consensus**: fix the recheck deferred headers loop ([#1078][], [#1082][])
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
@@ -62,6 +72,8 @@ Other guiding principles:
 ### Removed
 
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
+- **amaru**: no more separate `amaru-ledger` binary; associated commands have been moved into the main `amaru` binary under `amaru dev ledger`. ([#1064](https://github.com/pragma-org/amaru/pull/1064))
+
 
 ### Fixed
 
@@ -190,8 +202,10 @@ Other guiding principles:
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
+[#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#929]: https://github.com/pragma-org/amaru/issues/929
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
@@ -217,9 +231,11 @@ Other guiding principles:
 [#1029]: https://github.com/pragma-org/amaru/pull/1029
 [#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
+[#1032]: https://github.com/pragma-org/amaru/pull/1032
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
 [#1034]: https://github.com/pragma-org/amaru/pull/1034
 [#1036]: https://github.com/pragma-org/amaru/pull/1036
+[#1037]: https://github.com/pragma-org/amaru/pull/1037
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
 [#1041]: https://github.com/pragma-org/amaru/pull/1041
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
@@ -228,3 +244,5 @@ Other guiding principles:
 [#1055]: https://github.com/pragma-org/amaru/pull/1055
 [#1056]: https://github.com/pragma-org/amaru/pull/1056
 [#1060]: https://github.com/pragma-org/amaru/issues/1060
+[#1078]: https://github.com/pragma-org/amaru/issues/1078
+[#1082]: https://github.com/pragma-org/amaru/pull/1082

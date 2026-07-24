@@ -111,7 +111,8 @@ pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
 /// `TrackPeers::recheck_deferred` walks `deferred` in order. A peer stays blocked while any
 /// earlier deferred item for that peer is still blocked (so FollowUps wait on prior
 /// LedgerHeight / stake / clock items). When an item is ready, it is re-run through
-/// `TrackPeers::try_roll_forward`.
+/// `TrackPeers::try_roll_forward`. If re-running an item fails validation (adversarial), the
+/// connection is purged and its remaining deferred items are dropped.
 ///
 /// # Effects and sends
 ///
@@ -165,7 +166,7 @@ impl PerPeer {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum DeferReason {
     /// Wait until the ledger has reached at least this applied block height before asking the peer for more.
     LedgerHeight { min_height: BlockHeight, header: BlockHeader, tip: Tip, variant: EraName },
@@ -177,8 +178,6 @@ enum DeferReason {
     ClockSkew { min_time: Instant, header: BlockHeader, tip: Tip, variant: EraName, rn_sent: bool },
     /// A follow-up header that was received after a previous header was deferred.
     FollowUp { header: BlockHeader, tip: Tip, variant: EraName },
-    #[default]
-    Placeholder,
 }
 
 /// A header (or request) that was deferred. The reason indicates what is blocking and what data
@@ -190,17 +189,6 @@ struct DeferredHeader {
     handler: StageRef<chainsync::InitiatorMessage>,
     reason: DeferReason,
     trace_context: TraceContext,
-}
-impl Default for DeferredHeader {
-    fn default() -> Self {
-        Self {
-            peer: Peer::new(""),
-            conn_id: ConnectionId::initial(),
-            handler: StageRef::blackhole(),
-            reason: DeferReason::default(),
-            trace_context: Default::default(),
-        }
-    }
 }
 
 struct RollForwardArgs {
@@ -217,7 +205,6 @@ struct RollForwardArgs {
 impl From<DeferredHeader> for RollForwardArgs {
     fn from(dh: DeferredHeader) -> RollForwardArgs {
         let DeferredHeader { peer, conn_id, handler, reason, trace_context } = dh;
-        #[expect(clippy::panic)]
         match reason {
             DeferReason::LedgerHeight { header, tip, variant, .. } => RollForwardArgs {
                 peer,
@@ -259,7 +246,6 @@ impl From<DeferredHeader> for RollForwardArgs {
                 tip,
                 trace_context,
             },
-            DeferReason::Placeholder => panic!("cannot convert Placeholder to RollForwardArgs"),
         }
     }
 }
@@ -533,7 +519,7 @@ impl TrackPeers {
             .filter_map(|d| match &d.reason {
                 DeferReason::LedgerHeight { .. } => Some(now + HEIGHT_RECHECK_INTERVAL),
                 DeferReason::ClockSkew { min_time, .. } => Some(*min_time),
-                DeferReason::StakeDistribution { .. } | DeferReason::FollowUp { .. } | DeferReason::Placeholder => None,
+                DeferReason::StakeDistribution { .. } | DeferReason::FollowUp { .. } => None,
             })
             .min()
     }
@@ -791,32 +777,35 @@ impl TrackPeers {
 
         let current_time = eff.clock().await;
 
+        // try_roll_forward may purge a connection, which removes its entries from
+        // self.deferred. Iterating over a taken copy keeps that reentrant mutation
+        // from invalidating the iteration; entries already taken out are beyond the
+        // purge's reach, so they are skipped explicitly.
         let mut blocked = BTreeSet::new();
-        let mut pos = 0;
-        for idx in 0..self.deferred.len() {
-            let d = take(&mut self.deferred[idx]);
+        for d in take(&mut self.deferred) {
             let conn_id = d.conn_id;
+            if !self.upstream.contains_key(&conn_id) {
+                continue;
+            }
             let defer = blocked.contains(&conn_id)
                 || match &d.reason {
                     DeferReason::LedgerHeight { min_height, .. } => curr_height < *min_height,
                     DeferReason::StakeDistribution { epoch, .. } => self.max_epoch < *epoch,
                     DeferReason::ClockSkew { min_time, .. } => current_time < *min_time,
                     DeferReason::FollowUp { .. } => false,
-                    DeferReason::Placeholder => false,
                 };
             if defer {
                 blocked.insert(conn_id);
-                self.deferred[pos] = d;
-                pos += 1;
+                self.deferred.push(d);
                 continue;
             }
 
             if let Err(dh) = self.try_roll_forward(d.into(), eff, current_time).await {
-                self.deferred[pos] = dh;
-                pos += 1;
+                // the connection must still be marked as blocked
+                blocked.insert(conn_id);
+                self.deferred.push(dh);
             }
         }
-        self.deferred.truncate(pos);
         self.ensure_recheck_armed(eff).await;
     }
 }
