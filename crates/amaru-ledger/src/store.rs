@@ -400,6 +400,17 @@ pub trait ReadStore {
         ))
     }
 
+    /// Get details about all recently unregistered accounts
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn iter_recently_unregistered_accounts(&self) -> Result<impl Iterator<Item = recently_unregistered_accounts::Key>>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn iter_recently_unregistered_accounts(&self) -> Result<impl Iterator<Item = recently_unregistered_accounts::Key>> {
+        Err::<std::iter::Empty<recently_unregistered_accounts::Key>, _>(default_read_store_error(
+            "ReadStore.iter_recently_unregistered_accounts()",
+        ))
+    }
+
     /// Get details about all dreps
     #[cfg(not(any(test, feature = "test-utils")))]
     fn iter_dreps(&self) -> Result<impl Iterator<Item = (dreps::Key, dreps::Row)>>;
@@ -712,6 +723,16 @@ pub trait TransactionalContext<'a>: ReadStore {
         Id: Deref<Target = ProposalId> + std::fmt::Debug + 'iter,
     {
         unimplemented!("TransactionalContext.remove_proposals({:?})", proposals.collect::<Vec<_>>());
+    }
+
+    /// Prune all recently unregistered accounts from the database that are no longer required to
+    /// keep around.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<()>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<()> {
+        unimplemented!("TransactionalContext.prune_recently_unregistered_accounts({epoch})");
     }
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.

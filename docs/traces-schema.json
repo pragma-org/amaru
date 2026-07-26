@@ -244,6 +244,29 @@
       "description": "Detect locally-created snapshots from create-snapshots",
       "public": true
     },
+    "amaru::bootstrap::local_snapshots::FAIL_TO_READ": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "hint": {
+          "type": "string",
+          "description": "Custom type: anyhow::Error"
+        }
+      },
+      "required": [
+        "file",
+        "hint"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fail_to_read",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::local_snapshots",
+      "description": "Failed to read or parse a local snapshot",
+      "public": true
+    },
     "amaru::bootstrap::nonces::IMPORT": {
       "type": "object",
       "properties": {
@@ -4002,6 +4025,49 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::recently_pruned_proposals",
       "description": "Inserting recently pruned proposals",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::INSERT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "insert",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Insert a recently unregistered account",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::PRUNE": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "string",
+          "description": "Custom type: Epoch"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "prune",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Prune recently unregistered accounts",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::REMOVE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Remove a recently unregistered account",
       "public": true
     },
     "amaru::stores::ledger::slots::GET": {

@@ -557,6 +557,11 @@ impl RewardsSummary {
 
 impl From<RewardsSummary> for Rewards<Computed> {
     fn from(summary: RewardsSummary) -> Self {
-        Rewards::<Computed>::new(summary.delta_reserves(), summary.delta_treasury(), summary.accounts)
+        Rewards::<Computed>::new(
+            summary.delta_reserves(),
+            summary.delta_treasury(),
+            summary.effective_rewards,
+            summary.accounts,
+        )
     }
 }

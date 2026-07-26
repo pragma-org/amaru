@@ -16,18 +16,16 @@ use std::{collections::BTreeSet, mem};
 
 use amaru_kernel::StakeCredential;
 
-use crate::store::columns::accounts::Row as Account;
-
-/// Similar to [`crate::state::volatile::IterPools`], but for accounts; It provides an
-/// unordered iterator over accounts that patches a read-only stable store with pending updates
-/// such as registrations or de-registrations.
-pub(crate) struct IterAccounts<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> {
+/// Similar to [`crate::state::volatile::IterPools`], but for accounts; It provides an unordered
+/// iterator over recently unregistered accounts in an epoch that patches a read-only stable store
+/// with pending updates such as registrations or de-registrations.
+pub(crate) struct IterUnregisteredAccounts<'volatile, DBIter: Iterator<Item = StakeCredential>> {
     db_iterator: DBIter,
     registrations: BTreeSet<&'volatile StakeCredential>,
     deregistrations: BTreeSet<&'volatile StakeCredential>,
 }
 
-impl<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> IterAccounts<'volatile, DBIter> {
+impl<'volatile, DBIter: Iterator<Item = StakeCredential>> IterUnregisteredAccounts<'volatile, DBIter> {
     pub fn new(
         db_iterator: DBIter,
         registrations: &mut BTreeSet<&'volatile StakeCredential>,
@@ -37,19 +35,19 @@ impl<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> IterAccount
     }
 }
 
-impl<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> Iterator for IterAccounts<'volatile, DBIter> {
+impl<'volatile, DBIter: Iterator<Item = StakeCredential>> Iterator for IterUnregisteredAccounts<'volatile, DBIter> {
     type Item = StakeCredential;
 
     fn next(&mut self) -> Option<Self::Item> {
-        for (credential, _) in &mut self.db_iterator {
-            if self.deregistrations.contains(&credential) {
+        for credential in &mut self.db_iterator {
+            if self.registrations.contains(&credential) {
                 continue;
             }
 
             return Some(credential);
         }
 
-        if let Some(credential) = self.registrations.pop_first() {
+        if let Some(credential) = self.deregistrations.pop_first() {
             return Some(credential.clone());
         }
 

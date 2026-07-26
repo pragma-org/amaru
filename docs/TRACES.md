@@ -157,12 +157,22 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `detect` | `TRACE` | public | Detect locally-created snapshots from create-snapshots | count |  |
+| `fail_to_read` | `TRACE` | public | Failed to read or parse a local snapshot | file, hint |  |
 
 <details><summary>span: `detect`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `count` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `fail_to_read`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `file` | `string` | ✓ |
+| `hint` | `string` | ✓ |
 
 </details>
 
@@ -1886,6 +1896,22 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `replace_all` | `TRACE` | public | Inserting recently pruned proposals |  |  |
+
+## target: `amaru::stores::ledger::recently_unregistered_accounts`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `insert` | `TRACE` | public | Insert a recently unregistered account |  |  |
+| `prune` | `TRACE` | public | Prune recently unregistered accounts | epoch |  |
+| `remove` | `TRACE` | public | Remove a recently unregistered account |  |  |
+
+<details><summary>span: `prune`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `string` | ✓ |
+
+</details>
 
 ## target: `amaru::stores::ledger::slots`
 

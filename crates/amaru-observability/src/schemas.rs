@@ -735,6 +735,11 @@ define_schemas! {
                 public DETECT {
                     required count: usize
                 }
+                /// Failed to read or parse a local snapshot
+                public FAIL_TO_READ {
+                    required file: String,
+                    required hint: anyhow::Error,
+                }
             }
             nonces {
                 /// Import initial nonces into the chain store
@@ -1055,6 +1060,16 @@ define_schemas! {
                     public RESET_MANY {
                         optional credential: amaru_kernel::StakeCredential
                         optional reason: String
+                    }
+                }
+                recently_unregistered_accounts {
+                    /// Insert a recently unregistered account
+                    public INSERT {}
+                    /// Remove a recently unregistered account
+                    public REMOVE {}
+                    /// Prune recently unregistered accounts
+                    public PRUNE {
+                        required epoch: Epoch
                     }
                 }
                 dreps {
