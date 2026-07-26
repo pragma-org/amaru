@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{mem, sync::Arc};
+use std::{iter, mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
@@ -139,7 +139,7 @@ impl VolatileState for VolatileDB {
         // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, an
         // anchor-only update layers over the registration it finds below.
-        self.current.resolve_drep(credential).or_else_bind(|| self.draining.resolve_drep(credential))
+        self.current.resolve_drep(credential).or_else(|| self.draining.resolve_drep(credential))
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
@@ -148,10 +148,11 @@ impl VolatileState for VolatileDB {
         // Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
         // draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
         // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
-        self.current
-            .resolve_cc_member(credential)
-            .or_else_bind(|| self.overlay.committee_verdict(credential))
-            .or_else_bind(|| self.draining.resolve_cc_member(credential))
+        Self::CCMember::fold(
+            iter::once(self.current.resolve_cc_member(credential))
+                .chain(iter::once_with(|| self.overlay.committee_verdict(credential)))
+                .chain(iter::once_with(|| self.draining.resolve_cc_member(credential))),
+        )
     }
 
     // ----------------------------------------------------------------------------------- Proposals

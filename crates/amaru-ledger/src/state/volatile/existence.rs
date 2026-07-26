@@ -34,6 +34,16 @@ impl<T: Copy> Existence<&T> {
     }
 }
 
+impl<L, R, V> Existence<Bind<L, R, V>> {
+    pub fn as_borrowed(&self) -> Existence<Bind<&L, &R, &V>> {
+        match self {
+            Self::Exists(bind) => Existence::Exists(bind.as_borrowed()),
+            Self::Gone => Existence::Gone,
+            Self::Unknown => Existence::Unknown,
+        }
+    }
+}
+
 impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Existence<Bind<&L, &R, &V>> {
     pub fn to_owned(self) -> Existence<Bind<L, R, V>> {
         match self {
@@ -44,45 +54,54 @@ impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Existe
     }
 }
 
-impl<T> Existence<T> {
-    /// Layer this verdict over an `older` one, evaluated lazily
-    pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
-        match self {
-            Self::Exists(..) | Self::Gone => self,
-            Self::Unknown => older(),
-        }
-    }
-}
-
 impl<L, R, V> Existence<Bind<L, R, V>> {
-    /// Layer this verdict over an `older` one, evaluated lazily
-    pub fn or_else_bind(self, older: impl FnOnce() -> Self) -> Self {
-        match self {
-            Existence::Unknown => older(),
+    pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
+        Self::fold(std::iter::once(self).chain(std::iter::once_with(older)))
+    }
 
-            // If this is rebinding (i.e. value is None), then we must still take into
-            // account the previous value, if any.
-            //
-            // NOTE: superfluous 'is_none()' check actually not superfluous
-            //
-            // The `value.is_none()` guard may seem redundant with the implementation of `then`.
-            // But it allows to only lazily get the `older` state when we truly have to. Indeed, if
-            // there already exists a newer value, that means the object was entirely re-recreated
-            // and there's no need to fetch the previous state for any left or right binds. It's
-            // just been overidden.
-            //
-            // Hence, the guard doesn't fundamentally changes the logic since `older.then(newer)`
-            // would simply override `older` with `newer` when the value exists; but it saves us
-            // from fetching the `older` to begin with.
-            Existence::Exists(newer)
-                if newer.value.is_none()
-                    && let Existence::Exists(mut older) = older() =>
-            {
-                older.then(newer);
-                Existence::Exists(older)
-            }
+    /// Fold a sequence of existence entries, from the most recent to least recent. Short-circuit as
+    /// soon as a conclusive result is reached.
+    pub fn fold(mut iterator: impl Iterator<Item = Self>) -> Self {
+        let mut fold: Self = Self::Unknown;
+        loop {
+            return match fold {
+                gone @ Self::Gone => gone,
 
-            Existence::Gone | Existence::Exists(..) => self,
+                // If this is rebinding (i.e. value is None), then we must still take into
+                // account the previous value, if any.
+                //
+                // NOTE: superfluous 'is_none()' check actually not superfluous
+                //
+                // The `value.is_none()` guard may seem redundant with the implementation of `then`.
+                // But it allows to only lazily get the `older` state when we truly have to. Indeed, if
+                // there already exists a newer value, that means the object was entirely re-recreated
+                // and there's no need to fetch the previous state for any left or right binds. It's
+                // just been overidden.
+                //
+                // Hence, the guard doesn't fundamentally changes the logic since `older.then(newer)`
+                // would simply override `older` with `newer` when the value exists; but it saves us
+                // from fetching the `older` to begin with.
+                Self::Exists(newer) => {
+                    if newer.value.is_none()
+                        && let Some(Self::Exists(mut older)) = iterator.next()
+                    {
+                        older.then(newer);
+                        fold = Self::Exists(older);
+                        continue;
+                    }
+
+                    Self::Exists(newer)
+                }
+
+                unknown @ Self::Unknown => {
+                    if let Some(older) = iterator.next() {
+                        fold = older;
+                        continue;
+                    }
+
+                    unknown
+                }
+            };
         }
     }
 }

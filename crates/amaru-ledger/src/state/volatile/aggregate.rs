@@ -127,14 +127,14 @@ impl VolatileAggregate {
     /// contributions oldest to newest. Deregistration is immediate, so an `unregistered` entry is a
     /// live tombstone.
     pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        self.accounts.resolve(credential)
+        self.accounts.get(credential).to_owned()
     }
 
     /// This aggregate's verdict on a DRep, folding the credential's per-fragment contributions
     /// oldest to newest. Deregistration is immediate, so a tombstone is live; an anchor-only update
     /// is a bind-only change that defers the registration to the layer below.
     pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        self.dreps.resolve(credential)
+        self.dreps.get(credential).to_owned()
     }
 
     /// This aggregate's verdict on a CC member. Resignation is immediate, so a resignation entry is a
@@ -180,9 +180,9 @@ impl VolatileAggregate {
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.keys().cloned());
-        self.dreps.extend(dreps);
+        self.dreps.extend(dreps.as_borrowed());
         self.committee.extend(committee);
-        self.accounts.extend(accounts);
+        self.accounts.extend(accounts.as_borrowed());
 
         self.fees += *fees;
         self.donations += *donations;
@@ -243,9 +243,15 @@ impl VolatileAggregate {
             self.proposals.remove(proposal_id);
         }
 
-        self.accounts.cleanup(accounts);
+        assert!(
+            !self.accounts.cleanup(accounts),
+            "retracted a fragment touching one or more key(s) absent from the account aggregate ?!"
+        );
 
-        self.dreps.cleanup(dreps);
+        assert!(
+            !self.dreps.cleanup(dreps),
+            "retracted a fragment touching one or more key(s) absent from the dreps aggregate ?!"
+        );
 
         self.fees -= *fees;
         self.donations -= *donations;
