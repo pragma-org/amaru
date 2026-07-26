@@ -169,12 +169,12 @@ jobs:
         with:
           submodules: true
 
+      - uses: ./.github/actions/stage-peer-snapshots
+
       - name: cargo build
         shell: bash
         env:
           BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
-          # Authenticate GitHub API for peer-snapshot fetch (higher rate limits; 304s free).
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [[ -n "${{ matrix.environments.setup }}" ]]; then

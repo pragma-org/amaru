@@ -70,3 +70,19 @@ missing or stale snapshot files.
 |----------|--------|
 | `AMARU_SKIP_PEER_SNAPSHOT_FETCH=1` | Do not contact GitHub; use staged files only |
 | `GITHUB_TOKEN` / `GH_TOKEN` | Authenticate GitHub API (higher rate limits; 304s do not count against the primary limit) |
+
+## CI staging
+
+GitHub Actions that compile Amaru use the composite action
+[`.github/actions/stage-peer-snapshots`](../../../../.github/actions/stage-peer-snapshots)
+(wrapping [`scripts/stage-peer-snapshots`](../../../../scripts/stage-peer-snapshots)):
+authenticated curl fetch first, then cargo with `AMARU_SKIP_PEER_SNAPSHOT_FETCH=1`
+and blank `GITHUB_TOKEN` / `GH_TOKEN` so build scripts never see credentials.
+
+You can run the same script locally:
+
+```bash
+# optional: export GITHUB_TOKEN=…
+./scripts/stage-peer-snapshots
+AMARU_SKIP_PEER_SNAPSHOT_FETCH=1 cargo build -p amaru-node
+```

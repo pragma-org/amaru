@@ -115,6 +115,8 @@ jobs:
           rm "$tmp/$asset" "$tmp/sums.txt"
           echo "$tmp/bin" >> "$GITHUB_PATH"
 
+      - uses: ./.github/actions/stage-peer-snapshots
+
       - name: Build amaru
         shell: bash
         run: |

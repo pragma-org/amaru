@@ -264,8 +264,20 @@ fn resolve_configs_commit(
             Ok(ResolveResult::Updated { cache: ConfigsCommitCache { sha: commit.sha, etag, last_modified } })
         }
         Err(ureq::Error::Status(304, _response)) => not_modified(existing),
-        Err(err) => Err(err).with_context(|| format!("GET {url}")),
+        Err(ureq::Error::Status(statue, response)) => {
+            bail!("GET {url} returned HTTP {statue} with headers {}", response_headers(&response))
+        }
+        Err(ureq::Error::Transport(err)) => Err(err).with_context(|| format!("GET {url}")),
     }
+}
+
+fn response_headers(response: &ureq::Response) -> String {
+    response
+        .headers_names()
+        .into_iter()
+        .map(|name| format!("{}: {}", name, response.header(&name).unwrap_or_default()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn not_modified(existing: Option<&ConfigsCommitCache>) -> Result<ResolveResult> {

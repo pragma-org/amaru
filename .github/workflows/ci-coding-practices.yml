@@ -132,6 +132,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - run: cargo clippy-amaru
 
@@ -147,6 +148,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: true
+      - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - name: Check documentation
         run: |
