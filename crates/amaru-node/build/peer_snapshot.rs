@@ -20,16 +20,22 @@
 //! `cardano-foundation/cardano-configurations` at the youngest commit at or
 //! before the Amaru HEAD committer timestamp.
 //!
-//! Set `AMARU_PEER_SNAPSHOT_REQUIRED=1` to fail the build if any known network is
-//! still missing after the fetch attempt (used by release CI). Optional
-//! `GITHUB_TOKEN` / `GH_TOKEN` raises GitHub API rate limits.
+//! The commits API request is conditional when a previous response left an
+//! `ETag` / `Last-Modified` in `CONFIGS_COMMIT_CACHE`. A `304 Not Modified`
+//! reuses the cached SHA and only re-downloads missing or stale snapshot files
+//! (mtime not strictly newer than the cache file).
+//!
+//! Every network in [`PEER_SNAPSHOT_NETWORKS`] must have a staged file after the
+//! fetch attempt (empty placeholders are allowed offline; see
+//! `config/peer-snapshots/README.md`). Optional `GITHUB_TOKEN` / `GH_TOKEN`
+//! raises GitHub API rate limits.
 
 use std::{
     env, fs,
     io::Read,
     path::{Path, PathBuf},
     process::Command,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use amaru_kernel::PEER_SNAPSHOT_NETWORKS;
@@ -41,19 +47,21 @@ use crate::{emit_rerun_if_exists, write_if_changed};
 const CONFIGS_REPO: &str = "cardano-foundation/cardano-configurations";
 const USER_AGENT: &str = "amaru-build (https://github.com/pragma-org/amaru)";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+const CACHE_FILE_NAME: &str = "CONFIGS_COMMIT_CACHE";
 
 fn peer_snapshot_network_names() -> impl Iterator<Item = &'static str> {
     PEER_SNAPSHOT_NETWORKS.iter().map(|n| n.as_str())
 }
 
-/// Stage peer snapshots, embed available ones into `OUT_DIR`, and optionally
-/// fail when required files are missing.
+/// Stage peer snapshots and embed them into `OUT_DIR`.
+///
+/// Fails if any network in [`PEER_SNAPSHOT_NETWORKS`] still lacks a staged file
+/// after the fetch attempt.
 pub fn prepare_peer_snapshots() -> Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env::var("OUT_DIR").context("OUT_DIR")?);
     let staging_root = manifest_dir.join("config").join("peer-snapshots");
 
-    println!("cargo:rerun-if-env-changed=AMARU_PEER_SNAPSHOT_REQUIRED");
     println!("cargo:rerun-if-env-changed=AMARU_SKIP_PEER_SNAPSHOT_FETCH");
     println!("cargo:rerun-if-env-changed=GITHUB_TOKEN");
     println!("cargo:rerun-if-env-changed=GH_TOKEN");
@@ -61,17 +69,15 @@ pub fn prepare_peer_snapshots() -> Result<()> {
     for network in peer_snapshot_network_names() {
         emit_rerun_if_exists(&staging_path(&staging_root, network));
     }
-    emit_rerun_if_exists(&configs_commit_path(&staging_root));
+    emit_rerun_if_exists(&configs_commit_cache_path(&staging_root));
 
-    let required = env_flag("AMARU_PEER_SNAPSHOT_REQUIRED");
     let skip_fetch = env_flag("AMARU_SKIP_PEER_SNAPSHOT_FETCH");
 
-    let mut configs_sha: Option<String> = read_staged_configs_commit(&staging_root);
+    let mut configs_sha: Option<String> = read_configs_commit_cache(&staging_root).map(|c| c.sha);
     if !skip_fetch {
         match fetch_all(&staging_root) {
             Ok(sha) => {
-                configs_sha = Some(sha.clone());
-                write_staged_configs_commit(&staging_root, &sha)?;
+                configs_sha = Some(sha);
             }
             Err(err) => {
                 println!("cargo:warning=peer snapshot fetch failed (continuing with staged files if any): {err:#}");
@@ -90,16 +96,18 @@ pub fn prepare_peer_snapshots() -> Result<()> {
             fs::copy(&path, &dest).with_context(|| format!("copy {} -> {}", path.display(), dest.display()))?;
             present.push(network);
         } else {
-            println!(
-                "cargo:warning=peer snapshot missing for {network}; place a file at {} or allow network fetch",
-                path.display()
-            );
             missing.push(network);
         }
     }
 
-    if required && !missing.is_empty() {
-        bail!("AMARU_PEER_SNAPSHOT_REQUIRED=1 but peer snapshots missing for: {}", missing.join(", "));
+    if !missing.is_empty() {
+        bail!(
+            "no embeddable peer snapshot(s) for network(s): {}. \
+             Stage files under config/peer-snapshots/<network>/peer-snapshot.json \
+             (empty placeholders work offline). \
+             See crates/amaru-node/config/peer-snapshots/README.md",
+            missing.join(", ")
+        );
     }
 
     write_embed_module(&out_dir, &present, configs_sha.as_deref())?;
@@ -109,10 +117,26 @@ pub fn prepare_peer_snapshots() -> Result<()> {
 fn fetch_all(staging_root: &Path) -> Result<String> {
     let amaru_time = amaru_head_committer_date().context("determine Amaru HEAD committer date")?;
     let agent = http_agent()?;
-    let sha = resolve_configs_commit(&agent, &amaru_time)
+    let existing = read_configs_commit_cache(staging_root);
+
+    let resolved = resolve_configs_commit(&agent, &amaru_time, existing.as_ref())
         .with_context(|| format!("resolve {CONFIGS_REPO} commit at or before {amaru_time}"))?;
 
+    let sha = match resolved {
+        ResolveResult::NotModified { sha } => sha,
+        ResolveResult::Updated { cache } => {
+            // Write cache before downloads so successful snapshot mtimes will be newer.
+            write_configs_commit_cache(staging_root, &cache)?;
+            cache.sha
+        }
+    };
+
+    let cache_mtime = fs::metadata(configs_commit_cache_path(staging_root)).and_then(|m| m.modified()).ok();
+
     for network in peer_snapshot_network_names() {
+        if !snapshot_needs_download(staging_root, network, cache_mtime) {
+            continue;
+        }
         match download_snapshot(&agent, &sha, network) {
             Ok(bytes) => {
                 let path = staging_path(staging_root, network);
@@ -132,6 +156,26 @@ fn fetch_all(staging_root: &Path) -> Result<String> {
     }
 
     Ok(sha)
+}
+
+/// True when the staged snapshot is missing or not strictly newer than the cache file.
+fn snapshot_needs_download(staging_root: &Path, network: &str, cache_mtime: Option<SystemTime>) -> bool {
+    let path = staging_path(staging_root, network);
+    let Ok(meta) = fs::metadata(&path) else {
+        return true;
+    };
+    #[expect(clippy::panic)]
+    if !meta.is_file() {
+        panic!("peer snapshot file path `{}` exists but is not a file", path.display());
+    }
+    let Some(cache_mtime) = cache_mtime else {
+        // No cache mtime to compare against; treat existing files as usable.
+        return false;
+    };
+    match meta.modified() {
+        Ok(mtime) => mtime <= cache_mtime,
+        Err(_) => true,
+    }
 }
 
 fn amaru_head_committer_date() -> Result<String> {
@@ -176,18 +220,59 @@ struct GithubCommit {
     sha: String,
 }
 
-fn resolve_configs_commit(agent: &ureq::Agent, until_iso: &str) -> Result<String> {
+#[derive(Debug, Clone)]
+struct ConfigsCommitCache {
+    sha: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+}
+
+enum ResolveResult {
+    NotModified { sha: String },
+    Updated { cache: ConfigsCommitCache },
+}
+
+fn resolve_configs_commit(
+    agent: &ureq::Agent,
+    until_iso: &str,
+    existing: Option<&ConfigsCommitCache>,
+) -> Result<ResolveResult> {
     let url = format!(
         "https://api.github.com/repos/{CONFIGS_REPO}/commits?until={until}&per_page=1",
         until = urlencoding_until(until_iso)
     );
-    let req = apply_auth(agent.get(&url).set("Accept", "application/vnd.github+json"));
-    let response = req.call().with_context(|| format!("GET {url}"))?;
-    let commits: Vec<GithubCommit> = response.into_json().context("decode commits JSON")?;
-    let Some(commit) = commits.into_iter().next() else {
-        bail!("no {CONFIGS_REPO} commit at or before {until_iso}");
+    let mut req = apply_auth(agent.get(&url).set("Accept", "application/vnd.github+json"));
+    if let Some(cache) = existing {
+        if let Some(etag) = &cache.etag {
+            req = req.set("If-None-Match", etag);
+        }
+        if let Some(last_modified) = &cache.last_modified {
+            req = req.set("If-Modified-Since", last_modified);
+        }
+    }
+
+    // ureq returns Ok for 304 (empty body); also handle Error::Status(304) defensively.
+    match req.call() {
+        Ok(response) if response.status() == 304 => not_modified(existing),
+        Ok(response) => {
+            let etag = response.header("etag").map(str::to_string);
+            let last_modified = response.header("last-modified").map(str::to_string);
+            let commits: Vec<GithubCommit> = response.into_json().context("decode commits JSON")?;
+            let Some(commit) = commits.into_iter().next() else {
+                bail!("no {CONFIGS_REPO} commit at or before {until_iso}");
+            };
+            Ok(ResolveResult::Updated { cache: ConfigsCommitCache { sha: commit.sha, etag, last_modified } })
+        }
+        Err(ureq::Error::Status(304, _response)) => not_modified(existing),
+        Err(err) => Err(err).with_context(|| format!("GET {url}")),
+    }
+}
+
+fn not_modified(existing: Option<&ConfigsCommitCache>) -> Result<ResolveResult> {
+    let Some(cache) = existing else {
+        bail!("received HTTP 304 without a staged configs commit cache");
     };
-    Ok(commit.sha)
+    Ok(ResolveResult::NotModified { sha: cache.sha.clone() })
 }
 
 /// Percent-encode only what GitHub's `until` query needs (ISO-8601 is mostly safe).
@@ -217,17 +302,57 @@ fn staging_path(staging_root: &Path, network: &str) -> PathBuf {
     staging_root.join(network).join("peer-snapshot.json")
 }
 
-fn configs_commit_path(staging_root: &Path) -> PathBuf {
-    staging_root.join("CONFIGS_COMMIT")
+fn configs_commit_cache_path(staging_root: &Path) -> PathBuf {
+    staging_root.join(CACHE_FILE_NAME)
 }
 
-fn read_staged_configs_commit(staging_root: &Path) -> Option<String> {
-    fs::read_to_string(configs_commit_path(staging_root)).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+fn read_configs_commit_cache(staging_root: &Path) -> Option<ConfigsCommitCache> {
+    let content = fs::read_to_string(configs_commit_cache_path(staging_root)).ok()?;
+    parse_configs_commit_cache(&content)
 }
 
-fn write_staged_configs_commit(staging_root: &Path, sha: &str) -> Result<()> {
+fn parse_configs_commit_cache(content: &str) -> Option<ConfigsCommitCache> {
+    if content.trim().is_empty() {
+        return None;
+    }
+
+    let mut sha = None;
+    let mut etag = None;
+    let mut last_modified = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        match key {
+            "sha" => sha = Some(value.to_string()),
+            "etag" => etag = Some(value.to_string()),
+            "last-modified" => last_modified = Some(value.to_string()),
+            _ => {}
+        }
+    }
+
+    Some(ConfigsCommitCache { sha: sha?, etag, last_modified })
+}
+
+fn write_configs_commit_cache(staging_root: &Path, cache: &ConfigsCommitCache) -> Result<()> {
     fs::create_dir_all(staging_root)?;
-    fs::write(configs_commit_path(staging_root), format!("{sha}\n"))?;
+    let mut body = format!("sha: {}\n", cache.sha);
+    if let Some(etag) = &cache.etag {
+        body.push_str(&format!("etag: {etag}\n"));
+    }
+    if let Some(last_modified) = &cache.last_modified {
+        body.push_str(&format!("last-modified: {last_modified}\n"));
+    }
+    fs::write(configs_commit_cache_path(staging_root), body)?;
     Ok(())
 }
 

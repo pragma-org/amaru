@@ -11,16 +11,62 @@ These files are **not** committed. The build script downloads them from
 [cardano-foundation/cardano-configurations](https://github.com/cardano-foundation/cardano-configurations)
 at the youngest commit at or before the Amaru `HEAD` committer timestamp.
 
-If GitHub is unreachable, you can place files manually using the layout above and rebuild.
-With `AMARU_PEER_SNAPSHOT_REQUIRED=1`, the build fails when any known network is still missing
-(used for release CI).
+The build **requires** a staged file for every known network. If GitHub is unreachable
+and no files are present yet, the build fails with a message pointing here.
 
-After a successful fetch, `CONFIGS_COMMIT` records the configs-repo SHA used (also not committed).
+File format: [peer-snapshot.schema.json](./peer-snapshot.schema.json)
+(compatible with cardano-node `peerSnapshotFile` / big-ledger peer snapshots).
 
-Optional env vars:
+## Offline / empty placeholders
+
+When you cannot download real snapshots (air-gapped build, rate limits, etc.), create
+minimal valid JSON files so the crate still builds. Empty `bigLedgerPools` is fine:
+the binary simply starts without embedded big-ledger peers (you can still pass
+`--peer-snapshot` at runtime).
+
+Example for **preprod** (`NetworkMagic` is `1`):
+
+```bash
+mkdir -p config/peer-snapshots/preprod
+cat > config/peer-snapshots/preprod/peer-snapshot.json <<'EOF'
+{
+  "NetworkMagic": 1,
+  "NodeToClientVersion": 23,
+  "Point": {
+    "blockPointHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "blockPointSlot": 0
+  },
+  "bigLedgerPools": []
+}
+EOF
+```
+
+Repeat for each required network, using the correct magic:
+
+| Network  | `NetworkMagic` |
+|----------|----------------|
+| mainnet  | `764824073`    |
+| preprod  | `1`            |
+| preview  | `2`            |
+
+Paths (from this crate root):
+
+```text
+config/peer-snapshots/mainnet/peer-snapshot.json
+config/peer-snapshots/preprod/peer-snapshot.json
+config/peer-snapshots/preview/peer-snapshot.json
+```
+
+## Conditional fetch cache
+
+After a successful commits-API response, `CONFIGS_COMMIT_CACHE` records the configs-repo
+SHA plus any `ETag` / `Last-Modified` headers (also not committed). Later builds send
+conditional requests; a `304 Not Modified` reuses the cached SHA and only re-downloads
+missing or stale snapshot files.
+
+## Optional env vars
 
 | Variable | Effect |
 |----------|--------|
 | `AMARU_SKIP_PEER_SNAPSHOT_FETCH=1` | Do not contact GitHub; use staged files only |
-| `AMARU_PEER_SNAPSHOT_REQUIRED=1` | Fail the build if any network file is missing |
-| `GITHUB_TOKEN` / `GH_TOKEN` | Authenticate GitHub API (higher rate limits) |
+| `GITHUB_TOKEN` / `GH_TOKEN` | Authenticate GitHub API (higher rate limits; 304s do not count against the primary limit) |
