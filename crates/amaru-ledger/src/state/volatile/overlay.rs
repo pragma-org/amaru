@@ -201,7 +201,7 @@ impl StateOverlay {
                 Span::current().record("should_begin_epoch", should_begin_epoch);
 
                 let updated = if should_begin_epoch {
-                    batch.clear_recently_unregistered_accounts()?;
+                    batch.prune_recently_unregistered_accounts(self.epoch)?;
                     reset_blocks_count(batch)?;
                     reset_fees_and_donations(batch)?;
 
@@ -391,8 +391,9 @@ mod test {
     /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during
     /// the epoch, so its rewards are unclaimed and returned to the treasury.
     fn effective_rewards() -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(1_000, 7, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
-        Rewards::<Effective>::new(computed, &BTreeSet::from([credential(2)]))
+        let computed =
+            Rewards::<Computed>::new(1_000, 7, 142, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
+        Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))
     }
 
     fn governance_updates() -> GovernanceUpdates {

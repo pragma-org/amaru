@@ -15,7 +15,7 @@
 mod chain_sync_client;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     error::Error,
     io,
     path::{Path, PathBuf},
@@ -24,7 +24,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor, num::CheckedSub, utils::path::relative_path,
+    StakeCredential, from_cbor, num::CheckedSub, utils::path::relative_path,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -545,14 +545,27 @@ pub async fn bootstrap(
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(&snapshots_dir, third_snapshot))
     })?;
 
-    import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir).await?;
-    import_snapshot(network, global_parameters, &second_snapshot_path, &ledger_dir).await?;
+    let mut recently_unregistered_accounts = BTreeSet::new();
+
+    import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir, &mut recently_unregistered_accounts)
+        .await?;
+
+    import_snapshot(
+        network,
+        global_parameters,
+        &second_snapshot_path,
+        &ledger_dir,
+        &mut recently_unregistered_accounts,
+    )
+    .await?;
+
     let imported_third_snapshot = import_snapshot_with_optional_nonces(
         network,
         global_parameters,
         &third_snapshot_path,
         &ledger_dir,
         Some(second_snapshot.point.hash()),
+        &mut recently_unregistered_accounts,
     )
     .await?;
 
@@ -685,8 +698,9 @@ pub async fn import_snapshots(
     ledger_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(bootstrap::snapshots::IMPORT, count = snapshots.len());
+    let mut recently_unregistered_accounts: BTreeSet<StakeCredential> = BTreeSet::new();
     for snapshot in snapshots {
-        import_snapshot(network, global_parameters, snapshot, ledger_dir).await?;
+        import_snapshot(network, global_parameters, snapshot, ledger_dir, &mut recently_unregistered_accounts).await?;
     }
     Ok(())
 }
@@ -713,8 +727,17 @@ async fn import_snapshot(
     global_parameters: &GlobalParameters,
     snapshot: &Path,
     ledger_dir: &Path,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None).await?;
+    import_snapshot_with_optional_nonces(
+        network,
+        global_parameters,
+        snapshot,
+        ledger_dir,
+        None,
+        recently_unregistered_accounts,
+    )
+    .await?;
     Ok(())
 }
 
@@ -724,13 +747,31 @@ async fn import_snapshot_with_optional_nonces(
     snapshot: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     if let Some(paths) = node_snapshot_paths(snapshot) {
-        return import_node_snapshot_dir(network, global_parameters, snapshot, &paths, ledger_dir, nonce_tail).await;
+        return import_node_snapshot_dir(
+            network,
+            global_parameters,
+            snapshot,
+            &paths,
+            ledger_dir,
+            nonce_tail,
+            recently_unregistered_accounts,
+        )
+        .await;
     }
 
     if is_cbor_snapshot_file(snapshot) {
-        return import_cbor_snapshot_file(network, global_parameters, snapshot, ledger_dir, nonce_tail).await;
+        return import_cbor_snapshot_file(
+            network,
+            global_parameters,
+            snapshot,
+            ledger_dir,
+            nonce_tail,
+            recently_unregistered_accounts,
+        )
+        .await;
     }
 
     Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf())))
@@ -743,6 +784,7 @@ async fn import_cbor_snapshot_file(
     snapshot: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     info!(bootstrap::snapshot::IMPORT_FILE, path = %relative_path(snapshot)?.display());
 
@@ -769,17 +811,22 @@ async fn import_cbor_snapshot_file(
     let mut file = std::fs::File::open(snapshot)?;
 
     let builder = std::thread::Builder::new().stack_size(10_000_000);
-    let (db, epoch) = builder
+
+    let mut accounts = recently_unregistered_accounts.clone();
+
+    let (db, epoch, accounts) = builder
         .spawn(move || {
-            import_initial_snapshot(&db, &mut file, &point, &era_history, network, |size, template| {
+            import_initial_snapshot(&db, &mut file, &mut accounts, &point, &era_history, network, |size, template| {
                 TerminalProgressBar::new(size as u64, template).boxed()
             })
             .map_err(|e| e.to_string())
-            .map(|epoch| (db, epoch))
+            .map(|epoch| (db, epoch, accounts))
         })
         .unwrap()
         .join()
         .unwrap()?;
+
+    *recently_unregistered_accounts = accounts;
 
     db.next_snapshot(epoch)?;
 
@@ -796,6 +843,7 @@ async fn import_node_snapshot_dir(
     paths: &NodeSnapshotPaths,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     info!(bootstrap::snapshot::IMPORT_DIR, path = %relative_path(snapshot_dir)?.display());
 
@@ -811,7 +859,9 @@ async fn import_node_snapshot_dir(
 
     let global_parameters = global_parameters.clone();
     let builder = std::thread::Builder::new().stack_size(10_000_000);
-    let (db, epoch, initial_nonces) = builder
+    let mut accounts = recently_unregistered_accounts.clone();
+
+    let (db, epoch, initial_nonces, accounts) = builder
         .spawn(move || {
             import_snapshot_from_tvar(
                 &db,
@@ -820,14 +870,17 @@ async fn import_node_snapshot_dir(
                 network,
                 &global_parameters,
                 nonce_tail,
+                &mut accounts,
                 |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
             )
             .map_err(|e| e.to_string())
-            .map(|(epoch, _point, initial_nonces)| (db, epoch, initial_nonces))
+            .map(|(epoch, _point, initial_nonces)| (db, epoch, initial_nonces, accounts))
         })
         .unwrap()
         .join()
         .unwrap()?;
+
+    *recently_unregistered_accounts = accounts;
 
     db.next_snapshot(epoch)?;
 

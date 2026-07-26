@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AsHash, Lovelace, StakeCredentialKind};
+use amaru_kernel::{AsHash, Epoch, Lovelace, StakeCredentialKind};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -132,10 +132,10 @@ pub fn set_rewards<DB>(
 }
 
 /// Clear a stake credential registration.
-pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
+pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>, epoch: Epoch) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::REMOVE).in_scope(|| {
         for credential in rows {
-            recently_unregistered_accounts::insert(db, &credential)?;
+            recently_unregistered_accounts::insert(db, &credential, epoch)?;
             db.delete(as_key(&PREFIX, &credential)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 

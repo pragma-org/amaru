@@ -20,14 +20,14 @@
 //! - <https://github.com/IntersectMBO/ouroboros-consensus/blob/main/ouroboros-consensus-cardano/src/unstable-snapshot-conversion/Ouroboros/Consensus/Cardano/StreamingLedgerTables.hs>
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{Read, Seek, SeekFrom},
     iter,
 };
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, MemoizedTransactionOutput, NetworkName, Point,
-    TransactionInput, cbor, cbor::lazy::LazyDecoder,
+    StakeCredential, TransactionInput, cbor, cbor::lazy::LazyDecoder,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
@@ -40,6 +40,7 @@ use amaru_progress_bar::ProgressBar;
 use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_nonces};
 use crate::bootstrap::InitialNonces;
 
+#[expect(clippy::too_many_arguments)]
 pub fn import_snapshot_from_tvar<S, F>(
     db: &S,
     state_file: &mut std::fs::File,
@@ -47,6 +48,7 @@ pub fn import_snapshot_from_tvar<S, F>(
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
     with_progress: F,
 ) -> Result<(Epoch, Point, Option<InitialNonces>), Box<dyn std::error::Error>>
 where
@@ -69,7 +71,15 @@ where
 
     state_file.seek(SeekFrom::Start(new_epoch_state_offset as u64))?;
 
-    let epoch = import_initial_snapshot(db, state_file, &point, &parsed_snapshot.era_history, network, with_progress)?;
+    let epoch = import_initial_snapshot(
+        db,
+        state_file,
+        recently_unregistered_accounts,
+        &point,
+        &parsed_snapshot.era_history,
+        network,
+        with_progress,
+    )?;
 
     import_utxo_from_tvar(utxo_file, db, with_progress, &point, &parsed_snapshot.era_history, network)?;
 

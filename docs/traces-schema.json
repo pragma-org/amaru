@@ -4027,18 +4027,6 @@
       "description": "Inserting recently pruned proposals",
       "public": true
     },
-    "amaru::stores::ledger::recently_unregistered_accounts::CLEAR": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "clear",
-      "level": "TRACE",
-      "target": "amaru::stores::ledger::recently_unregistered_accounts",
-      "description": "Clear all recently unregistered accounts",
-      "public": true
-    },
     "amaru::stores::ledger::recently_unregistered_accounts::INSERT": {
       "type": "object",
       "properties": {},
@@ -4049,6 +4037,25 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::recently_unregistered_accounts",
       "description": "Insert a recently unregistered account",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::PRUNE": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "string",
+          "description": "Custom type: Epoch"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "prune",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Prune recently unregistered accounts",
       "public": true
     },
     "amaru::stores::ledger::recently_unregistered_accounts::REMOVE": {

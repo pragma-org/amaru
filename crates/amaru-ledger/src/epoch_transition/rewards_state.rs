@@ -143,6 +143,9 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
     /// Amount to be paid to the treasury
     delta_treasury: Lovelace,
 
+    /// Total rewards across all accounts, including potentially unclaimed ones.
+    total_rewards: Lovelace,
+
     /// Per-account rewards, determined from their relative stake and their delegatee. This holds
     /// *every* account with a reward, whether or not it is still registered; the `Effective` step
     /// carves out the unclaimed ones through `unclaimed`. It is behind an `Arc` so that converting
@@ -162,9 +165,17 @@ impl Rewards<Computed> {
     pub fn new(
         delta_reserves: Lovelace,
         delta_treasury: Lovelace,
+        total_rewards: Lovelace,
         accounts: BTreeMap<StakeCredential, Lovelace>,
     ) -> Self {
-        Self { delta_reserves, delta_treasury, accounts: Arc::new(accounts), unclaimed: (), step: PhantomData }
+        Self {
+            delta_reserves,
+            delta_treasury,
+            total_rewards,
+            accounts: Arc::new(accounts),
+            unclaimed: (),
+            step: PhantomData,
+        }
     }
 }
 
@@ -175,16 +186,14 @@ impl Rewards<Effective> {
     /// have a reward but were no longer registered at the epoch boundary. Their amounts stay in the
     /// shared map (they are folded back into the treasury via [`Self::delta_treasury`]) but they are
     /// never paid out to the account.
-    pub fn new(computed_rewards: Rewards<Computed>, unregistered: &BTreeSet<StakeCredential>) -> Self {
-        let unclaimed: BTreeSet<StakeCredential> =
-            computed_rewards.accounts.keys().filter(|account| unregistered.contains(account)).cloned().collect();
-
+    pub fn new(computed_rewards: Rewards<Computed>, unregistered: BTreeSet<StakeCredential>) -> Self {
         Self {
             step: PhantomData,
             delta_reserves: computed_rewards.delta_reserves,
             delta_treasury: computed_rewards.delta_treasury,
+            total_rewards: computed_rewards.total_rewards,
             accounts: computed_rewards.accounts,
-            unclaimed: Arc::new(unclaimed),
+            unclaimed: Arc::new(unregistered),
         }
     }
 
@@ -194,11 +203,15 @@ impl Rewards<Effective> {
         if self.unclaimed.contains(account) { 0 } else { self.accounts.get(account).copied().unwrap_or(0) }
     }
 
-    /// The number of accounts that should receive a (non-zero) reward payout. Every account in the
-    /// map earns a reward, so the payable ones are simply those not flagged as unclaimed (`unclaimed`
-    /// is always a subset of the map's keys).
-    pub fn payable_accounts(&self) -> usize {
-        self.accounts.len() - self.unclaimed.len()
+    /// Total amount of rewards that couldn't be paid to accounts because they unregistered between
+    /// the moment the rewards were calculated and the moment they needed to be paid out.
+    pub fn unclaimed_rewards(&self) -> Lovelace {
+        self.unclaimed.iter().filter_map(|account| self.accounts.get(account)).sum()
+    }
+
+    /// Total rewards of ALL accounts, including unclaimed ones.
+    pub fn total_rewards(&self) -> Lovelace {
+        self.total_rewards
     }
 
     /// Amount to be paid to the reserves
@@ -209,8 +222,7 @@ impl Rewards<Effective> {
     /// Amount to be paid to the treasury, including the rewards left unclaimed by accounts that
     /// unregistered during the epoch.
     pub fn delta_treasury(&self) -> Lovelace {
-        let unclaimed: Lovelace = self.unclaimed.iter().filter_map(|account| self.accounts.get(account)).sum();
-        self.delta_treasury + unclaimed
+        self.delta_treasury + self.unclaimed_rewards()
     }
 
     /// Roll an effective rewards summary back to a computed one by dropping the unclaimed markers.
@@ -220,6 +232,7 @@ impl Rewards<Effective> {
             step: PhantomData,
             delta_reserves: self.delta_reserves,
             delta_treasury: self.delta_treasury,
+            total_rewards: self.total_rewards,
             accounts: self.accounts,
             unclaimed: (),
         }
@@ -249,15 +262,15 @@ mod test {
 
         let delta_reserves = 1_000;
         let delta_treasury = 7;
-        let computed_rewards = Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts);
+        let computed_rewards =
+            Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts.values().sum(), accounts);
         let effective_rewards =
-            Rewards::<Effective>::new(computed_rewards.clone(), &BTreeSet::from([unregistered.clone()]));
+            Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered.clone()]));
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
         // is folded back into the treasury instead).
         assert_eq!(effective_rewards.reward_of(&registered), 100);
         assert_eq!(effective_rewards.reward_of(&unregistered), 0);
-        assert_eq!(effective_rewards.payable_accounts(), 1);
         assert_eq!(effective_rewards.delta_reserves(), delta_reserves);
         assert_eq!(effective_rewards.delta_treasury(), delta_treasury + 42);
 

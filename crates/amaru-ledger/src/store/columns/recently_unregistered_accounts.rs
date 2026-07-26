@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use amaru_kernel::StakeCredential;
+use amaru_kernel::{Epoch, StakeCredential};
 
 pub type Key = StakeCredential;
-pub type Value = ();
+pub type Value = Epoch;

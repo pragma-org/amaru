@@ -1067,8 +1067,10 @@ define_schemas! {
                     public INSERT {}
                     /// Remove a recently unregistered account
                     public REMOVE {}
-                    /// Clear all recently unregistered accounts
-                    public CLEAR {}
+                    /// Prune recently unregistered accounts
+                    public PRUNE {
+                        required epoch: Epoch
+                    }
                 }
                 dreps {
                     /// Point-read a DRep entry

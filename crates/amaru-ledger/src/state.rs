@@ -440,7 +440,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                     // have some rewards summary being available. There's no way to continue progressing
                     // the ledger if we don't.
                     computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
-                    &volatile_view.iter_unregistered_accounts()?.collect(),
+                    volatile_view.iter_unregistered_accounts()?.collect(),
                 );
 
                 (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))

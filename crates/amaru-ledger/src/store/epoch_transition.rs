@@ -41,18 +41,16 @@ pub fn pay_rewards<'store>(
     effective_rewards: &Rewards<Effective>,
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::overlay::PAY_REWARDS).in_scope(|| {
+
         // Pay rewards out to every account
-        let mut seen_reward_accounts: usize = 0;
         db.with_accounts(|iterator| {
             let mut rewards_paid: u64 = 0;
             let mut accounts_paid: u64 = 0;
 
-            for (account, mut row) in iterator {
-                let rewards = effective_rewards.reward_of(&account);
+            for (credential, mut row) in iterator {
+                let rewards = effective_rewards.reward_of(&credential);
 
                 if rewards > 0 {
-                    seen_reward_accounts += 1;
-
                     // The condition avoids the mutable borrow when not needed,
                     // which will incur a db operation.
                     if let Some(account) = row.borrow_mut() {
@@ -63,20 +61,21 @@ pub fn pay_rewards<'store>(
                 }
             }
 
+            let expected_total_rewards = effective_rewards.total_rewards();
+            let actual_total_rewards = rewards_paid + effective_rewards.unclaimed_rewards();
+
+            // Technically, if we did everything *right*, there should be no accounts with rewards that
+            // cannot be paid out (i.e. accounts that no longer exists). This has been taken care of during
+            // the epoch transition calculations already. So at this point, this invariant must hold: every
+            // payable reward account was found while iterating the stored accounts.
+            assert!(
+                actual_total_rewards == expected_total_rewards,
+                "discrepancy between expected total rewards (={expected_total_rewards}) and actual total rewards (={actual_total_rewards})",
+            );
+
             Span::current().record("accounts_paid", accounts_paid);
             Span::current().record("rewards_paid", rewards_paid);
         })?;
-        let seen = seen_reward_accounts;
-
-        // Technically, if we did everything *right*, there should be no accounts with rewards that
-        // cannot be paid out (i.e. accounts that no longer exists). This has been taken care of during
-        // the epoch transition calculations already. So at this point, this invariant must hold: every
-        // payable reward account was found while iterating the stored accounts.
-        assert!(
-            seen == effective_rewards.payable_accounts(),
-            "unclaimed rewards when applying overlay: saw {seen} of {} payable reward accounts",
-            effective_rewards.payable_accounts(),
-        );
 
         // Adjust treasury and reserves accordingly.
         db.with_pots(|mut row| {

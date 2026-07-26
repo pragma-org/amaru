@@ -725,13 +725,14 @@ pub trait TransactionalContext<'a>: ReadStore {
         unimplemented!("TransactionalContext.remove_proposals({:?})", proposals.collect::<Vec<_>>());
     }
 
-    /// Clear all recently unregistered accounts from the database
+    /// Prune all recently unregistered accounts from the database that are no longer required to
+    /// keep around.
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn clear_recently_unregistered_accounts(&self) -> Result<()>;
+    fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn clear_recently_unregistered_accounts(&self) -> Result<()> {
-        unimplemented!("TransactionalContext.clear_recently_unregistered_accounts()");
+    fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<()> {
+        unimplemented!("TransactionalContext.prune_recently_unregistered_accounts({epoch})");
     }
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
