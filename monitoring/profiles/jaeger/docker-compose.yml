@@ -9,7 +9,7 @@ services:
       - "16686:16686"
 
   otlp-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.133.0
     volumes:
       - "./otlp-collector.yml:/etc/otlp-collector.yml"
     command: ["--config", "/etc/otlp-collector.yml"]

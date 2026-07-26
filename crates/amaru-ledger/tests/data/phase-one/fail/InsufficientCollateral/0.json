@@ -1,12 +1,12 @@
 {
-  "title": "InsufficientCollateral",
+  "title": "plutus spend, collateral return exceeds collateral input",
   "description": "A Plutus V3 spend whose collateral return (6 ADA) exceeds its collateral input (5 ADA), leaving a negative collateral balance.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

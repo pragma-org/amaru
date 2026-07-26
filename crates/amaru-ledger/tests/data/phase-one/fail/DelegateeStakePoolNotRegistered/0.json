@@ -1,12 +1,12 @@
 {
-  "title": "DelegateeStakePoolNotRegistered",
+  "title": "stake delegation to unregistered pool",
   "description": "StakeDelegation to a pool not in the pools set.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

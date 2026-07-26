@@ -151,6 +151,37 @@ define_schemas! {
                     required peer: amaru_kernel::Peer
                 }
             }
+            perf {
+                header {
+                    /// Event recorded once per header, when its processing reaches a terminal state.
+                    /// It covers the four network-health processing points of a header's lifecycle:
+                    /// reception of the header, request of its block, reception of its block and
+                    /// local adoption of the block. `outcome` describes the terminal state (including
+                    /// headers rejected on reception, which carry no durations). The optional
+                    /// durations are the intervals between those points:
+                    /// - `block_fetch_wait_micros`: reception of the header to the request of its block
+                    /// - `block_fetch_micros`: request of the block to its reception
+                    /// - `forward_micros`: reception of the header to the adoption of its block
+                    public LIFECYCLE {
+                        optional peer: amaru_kernel::Peer
+                        optional header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                        optional error: String
+                        optional block_fetch_wait_micros: u64
+                        optional block_fetch_micros: u64
+                        optional forward_micros: u64
+                    }
+                }
+                fork {
+                    /// Event recorded when a fork switch ends. `duration_micros` measures the time
+                    /// from the detection of the fork to its application (or abandonment).
+                    public SWITCH {
+                        required header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                        optional duration_micros: u64
+                    }
+                }
+            }
         }
         ledger {
             tags: cpu
@@ -158,8 +189,11 @@ define_schemas! {
                 /// Roll forward with a new block
                 public ROLL_FORWARD {}
                 /// Roll backward to a specific point
-                public ROLL_BACKWARD {
-                    required rollback_point: amaru_kernel::Point
+                public ROLL_BACKWARD {}
+                /// Switching to an alternative chain fork
+                public SWITCH_TO_FORK {
+                    required fork_point: amaru_kernel::Point
+                    required fork_length: usize
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}
@@ -404,10 +438,6 @@ define_schemas! {
                     optional skipped: bool
                     optional resuming_from: String
                 }
-                /// Perform end-of-epoch epoch boundary computations
-                public END_EPOCH {}
-                /// Perform start-of-epoch epoch boundary computations
-                public BEGIN_EPOCH {}
                 /// Create pools updates
                 public NEW_POOLS_UPDATES {}
                 /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
@@ -494,14 +524,6 @@ define_schemas! {
             volatile {
                 /// Recompute the volatile aggregate
                 public AGGREGATE {}
-                /// Rollback the volatile state to a specific point
-                public ROLLBACK_TO {
-                    required target_slot: amaru_kernel::Slot
-                    optional last_slot: amaru_kernel::Slot
-                    optional first_slot: amaru_kernel::Slot
-                    optional warning: String
-                    optional error: String
-                }
                 /// The volatile db is still warming up and hasn't reached a stable point yet
                 public WARM_UP {
                     required size: usize
@@ -819,10 +841,6 @@ define_schemas! {
                 }
             }
             chain_db {
-                /// Forcefully remove an existing chain database
-                public FORCEFULLY_REMOVE {
-                    required dir: String
-                }
                 /// Chain database already exists
                 public EXIST {
                     required dir: String
@@ -873,10 +891,6 @@ define_schemas! {
                 }
             }
             ledger_db {
-                /// Forcefully remove an existing ledger database
-                public FORCEFULLY_REMOVE {
-                    required dir: String
-                }
                 /// Ledger database already exists
                 public EXIST {
                     required dir: String
@@ -900,7 +914,6 @@ define_schemas! {
             node {
                 /// Bootstrap a node from published snapshots
                 public BOOTSTRAP {
-                    required force: bool
                     required chain_dir: String
                     required ledger_dir: String
                     required network: amaru_kernel::NetworkName

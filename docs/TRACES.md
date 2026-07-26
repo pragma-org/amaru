@@ -387,7 +387,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `exist` | `TRACE` | public | Chain database already exists | dir, hint |  |
-| `forcefully_remove` | `TRACE` | public | Forcefully remove an existing chain database | dir |  |
 
 <details><summary>span: `exist`</summary>
 
@@ -395,14 +394,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `dir` | `string` | ✓ |
 | `hint` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `forcefully_remove`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `dir` | `string` | ✓ |
 
 </details>
 
@@ -501,7 +492,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `exist` | `TRACE` | public | Ledger database already exists | dir, hint |  |
-| `forcefully_remove` | `TRACE` | public | Forcefully remove an existing ledger database | dir |  |
 
 <details><summary>span: `exist`</summary>
 
@@ -509,14 +499,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `dir` | `string` | ✓ |
 | `hint` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `forcefully_remove`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `dir` | `string` | ✓ |
 
 </details>
 
@@ -551,13 +533,12 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | force, chain_dir, ledger_dir, network | epoch |
+| `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
 
 <details><summary>span: `bootstrap`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `force` | `boolean` | ✓ |
 | `chain_dir` | `string` | ✓ |
 | `ledger_dir` | `string` | ✓ |
 | `network` | `string` | ✓ |
@@ -622,6 +603,42 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
 | `reason` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::perf::fork`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `switch` | `TRACE` | public | Event recorded when a fork switch ends. \`duration_micros\` measures the time from the detection of the fork to its application (or abandonment). | header_hash | outcome, duration_micros |
+
+<details><summary>span: `switch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+| `outcome` | `string` |  |
+| `duration_micros` | `integer` |  |
+
+</details>
+
+## target: `amaru::consensus::perf::header`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block | peer, header_hash, outcome, error, block_fetch_wait_micros, block_fetch_micros, forward_micros |  |
+
+<details><summary>span: `lifecycle`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` |  |
+| `header_hash` | `string` |  |
+| `outcome` | `string` |  |
+| `error` | `string` |  |
+| `block_fetch_wait_micros` | `integer` |  |
+| `block_fetch_micros` | `integer` |  |
+| `forward_micros` | `integer` |  |
 
 </details>
 
@@ -709,9 +726,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `apply` | `TRACE` | public | Flushing the epoch transition overlay to disk | epoch | should_end_epoch, should_snapshot, should_begin_epoch |
-| `begin_epoch` | `TRACE` | public | Perform start-of-epoch epoch boundary computations |  |  |
 | `compute` | `TRACE` | public | Epoch transition processing | from, into | skipped, resuming_from |
-| `end_epoch` | `TRACE` | public | Perform end-of-epoch epoch boundary computations |  |  |
 | `new_governance_updates` | `TRACE` | public | Create governance updates (i.e. ratify proposals) at an epoch boundary. | proposals_count |  |
 | `new_pools_updates` | `TRACE` | public | Create pools updates |  |  |
 | `record` | `TRACE` | public | Record an in-flight epoch transition | from, to |  |
@@ -1157,14 +1172,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `push` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
-| `roll_backward` | `TRACE` | public | Roll backward to a specific point | rollback_point |  |
+| `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
 | `roll_forward` | `TRACE` | public | Roll forward with a new block |  |  |
+| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length |  |
 
-<details><summary>span: `roll_backward`</summary>
+<details><summary>span: `switch_to_fork`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `rollback_point` | `string` | ✓ |
+| `fork_point` | `string` | ✓ |
+| `fork_length` | `integer` | ✓ |
 
 </details>
 
@@ -1411,20 +1428,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `aggregate` | `TRACE` | public | Recompute the volatile aggregate |  |  |
-| `rollback_to` | `TRACE` | public | Rollback the volatile state to a specific point | target_slot | last_slot, first_slot, warning, error |
 | `warm_up` | `TRACE` | public | The volatile db is still warming up and hasn't reached a stable point yet | size |  |
-
-<details><summary>span: `rollback_to`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `target_slot` | `string` | ✓ |
-| `last_slot` | `string` |  |
-| `first_slot` | `string` |  |
-| `warning` | `string` |  |
-| `error` | `string` |  |
-
-</details>
 
 <details><summary>span: `warm_up`</summary>
 

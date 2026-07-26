@@ -1,12 +1,12 @@
 {
-  "title": "BabbageNonDisjointRefInputs",
+  "title": "input appears as both spent and reference",
   "description": "The same input appears in both the spent inputs and the reference inputs; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

@@ -30,6 +30,7 @@ use crate::{
             InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
             InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
+            proposals::InvalidProposals,
         },
     },
 };
@@ -149,6 +150,7 @@ where
 
 pub(super) enum Expected {
     Pass,
+    DecodingFailure,
     Fail(Predicate),
 }
 
@@ -157,10 +159,11 @@ impl<'de> Deserialize<'de> for Expected {
         let value = json::Value::deserialize(d)?;
         match value {
             json::Value::String(s) if s == "Pass" => Ok(Expected::Pass),
+            json::Value::Object(ref map) if map.contains_key("decodingFailure") => Ok(Expected::DecodingFailure),
             json::Value::Object(_) => json::from_value(value).map(Expected::Fail).map_err(serde::de::Error::custom),
             json::Value::String(s) => Err(serde::de::Error::custom(format!("expected \"Pass\", got {s:?}"))),
             json::Value::Null | json::Value::Bool(_) | json::Value::Number(_) | json::Value::Array(_) => {
-                Err(serde::de::Error::custom("expected \"Pass\" or { predicate: ..., ... }"))
+                Err(serde::de::Error::custom("expected \"Pass\", { decodingFailure: ... } or { predicate: ..., ... }"))
             }
         }
     }
@@ -186,6 +189,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    TreasuryWithdrawalReturnAccountsDoNotExist,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
     DRepAlreadyRegistered,
@@ -193,6 +197,9 @@ pub(super) enum Predicate {
     StakeCredentialInvalidVoteDelegation,
     StakeKeyHasNonZeroAccountBalance,
     StakeKeyRegistered,
+    StakePoolRetirementWrongEpochPOOL,
+    StakePoolNotRegisteredOnKeyPOOL,
+    StakePoolCostTooLowPOOL,
     ValueNotConservedUTxO,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -238,6 +245,9 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
+            PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
+                Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
+            }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
@@ -255,6 +265,15 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
                 Predicate::DRepAlreadyRegistered
+            }
+            PhaseOneError::Certificates(InvalidCertificates::PoolRetirementWrongEpoch { .. }) => {
+                Predicate::StakePoolRetirementWrongEpochPOOL
+            }
+            PhaseOneError::Certificates(InvalidCertificates::StakePoolUnknown(_)) => {
+                Predicate::StakePoolNotRegisteredOnKeyPOOL
+            }
+            PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
+                Predicate::StakePoolCostTooLowPOOL
             }
             PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
             PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {

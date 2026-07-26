@@ -14,6 +14,7 @@
 
 #![deny(clippy::future_not_send)]
 
+pub mod block_validator;
 pub mod effects;
 pub mod errors;
 pub mod events;

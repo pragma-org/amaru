@@ -28,6 +28,7 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 pub struct Epoch(u64);
 
 impl Epoch {
+    pub const ZERO: &'static Self = &Self(0);
     pub const ONE: &'static Self = &Self(1);
     pub const TWO: &'static Self = &Self(2);
     pub const THREE: &'static Self = &Self(3);

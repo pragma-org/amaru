@@ -1,12 +1,12 @@
 {
-  "title": "FeeTooSmallUTxO",
+  "title": "plutus spend, fee short of the ex-units cost",
   "description": "A Plutus V3 script spend; the declared fee is one lovelace below the minimum, which includes the redeemer's execution-unit cost.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

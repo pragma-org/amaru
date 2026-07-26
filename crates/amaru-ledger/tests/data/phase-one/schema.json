@@ -53,7 +53,7 @@
       "properties": {
         "$ref": {
           "type": "string",
-          "description": "Path to a shared canonical document, relative to the fixture data root (e.g. \"common/protocolParameters/preprod-conway-v9.json\")."
+          "description": "Path to a shared canonical document, relative to the fixture data root (e.g. \"common/protocolParameters/preprod-conway-v10.json\")."
         },
         "$override": {
           "type": "object",

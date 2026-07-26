@@ -81,7 +81,7 @@ form.
 Reference form:
 
 ```json
-"protocolParameters": { "$ref": "common/protocolParameters/preprod-conway-v9.json" }
+"protocolParameters": { "$ref": "common/protocolParameters/preprod-conway-v10.json" }
 ```
 
 The path is relative to the fixture data root. The harness reads the file and
@@ -92,7 +92,7 @@ shallow-merged over the referenced document before deserialization:
 
 ```json
 "protocolParameters": {
-  "$ref": "common/protocolParameters/preprod-conway-v9.json",
+  "$ref": "common/protocolParameters/preprod-conway-v10.json",
   "$override": { "maxTransactionSize": 100 }
 }
 ```

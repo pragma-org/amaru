@@ -20,23 +20,27 @@ use std::{
 };
 
 use amaru::{
-    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_LISTEN_ADDRESS, DEFAULT_UPSTREAM_PEERS, default_chain_dir, default_ledger_dir,
-    default_peer_for_network,
+    DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
     metrics::track_system_metrics,
-    peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
-    stages::{
-        build_node::build_and_run_node,
-        config::{Config, MaxExtraLedgerSnapshots, StoreType},
-    },
 };
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
 use amaru_mempool::MempoolConfig;
+use amaru_metrics::METRICS_METER_NAME;
+use amaru_node::{
+    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
+    peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
+    stages::{
+        build_node::build_and_run_node,
+        config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
+    },
+};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::anyhow;
 use clap::{self, ArgAction, Parser};
+use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use thiserror::Error;
@@ -185,7 +189,7 @@ pub struct Args {
         long,
         value_name = amaru::value_names::UINT,
         env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-        default_value_t = amaru::DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+        default_value_t = DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
         display_order = 0,
         help_heading = "Advanced Options",
     )]
@@ -263,9 +267,10 @@ pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result
         pre_flight_checks()?;
 
         let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
-        let running = build_and_run_node(config, meter_provider)?;
+        let meter = meter_provider.map(|mp| mp.meter(METRICS_METER_NAME));
+        let running = build_and_run_node(config, meter)?;
 
-        let exit = amaru::exit::hook_exit_token();
+        let exit = amaru_node::exit::hook_exit_token();
         let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
             Ok(handle) => handle,
             Err(err) => {
@@ -321,7 +326,7 @@ async fn start_submit_api(
         return Ok(None);
     };
     let shutdown = exit.child_token();
-    let (handle, _) = amaru::submit_api::start(addr, mempool_sender, shutdown).await?;
+    let (handle, _) = amaru_node::submit_api::start(addr, mempool_sender, shutdown).await?;
     Ok(Some(handle))
 }
 
@@ -456,18 +461,21 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     );
 
     Ok(Config {
-        ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+        ledger_config: LedgerConfig {
+            ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+            network: args.network,
+            global_parameters,
+            era_history,
+            max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+            ..LedgerConfig::default()
+        },
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: peer_address,
         peer_snapshot_peers,
         target_upstream_peers: args.upstream_peers,
         target_downstream_peers: args.downstream_peers,
-        network: args.network,
-        network_magic,
-        era_history,
-        global_parameters,
+        network_magic: args.network.to_network_magic(),
         listen_address: args.listen_address,
-        max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
         submit_api_address: args.submit_api_address,
         trace_buffer_min_entries,
@@ -487,7 +495,7 @@ fn load_era_history(path: Option<&Path>) -> Result<EraHistory, Box<dyn std::erro
     }
 }
 
-fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru::peer_snapshot::PeerSnapshot) {
+fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru_node::peer_snapshot::PeerSnapshot) {
     if snapshot.peers.is_empty() {
         warn!(
             path = %path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),

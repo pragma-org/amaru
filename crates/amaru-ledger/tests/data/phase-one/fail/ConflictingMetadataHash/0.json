@@ -1,12 +1,12 @@
 {
-  "title": "ConflictingMetadataHash",
+  "title": "auxiliary data hash mismatch",
   "description": "The auxiliary_data_hash declared in the body does not match the hash of the attached auxiliary data; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

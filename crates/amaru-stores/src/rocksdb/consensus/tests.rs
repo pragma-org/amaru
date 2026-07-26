@@ -1165,6 +1165,30 @@ fn creates_a_database_with_current_version_given_directory_is_empty() {
     assert_eq!(version, CHAIN_DB_VERSION);
 }
 
+#[test]
+fn open_and_migrate_creates_current_version_given_directory_is_empty() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let basedir = init_dir(tempdir.path());
+    let config = RocksDbConfig::new(basedir);
+
+    let store = RocksDBStore::open_and_migrate(&config).expect("should create DB successfully");
+    let version = get_version(&store).expect("should read version successfully");
+
+    assert_eq!(version, CHAIN_DB_VERSION);
+}
+
+#[test]
+fn open_and_migrate_creates_current_version_given_directory_is_absent() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let basedir = tempdir.path().join("new-chain-db");
+    let config = RocksDbConfig::new(basedir);
+
+    let store = RocksDBStore::open_and_migrate(&config).expect("should create DB successfully");
+    let version = get_version(&store).expect("should read version successfully");
+
+    assert_eq!(version, CHAIN_DB_VERSION);
+}
+
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn can_convert_v0_sample_db_to_v1() {

@@ -534,10 +534,12 @@ impl RewardsSummary {
 
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
-        accounts
-            .entry(expect_stake_credential(&pool.parameters.reward_account))
-            .and_modify(|rewards| *rewards += rewards_leader)
-            .or_insert(rewards_leader);
+        if rewards_leader > 0 {
+            accounts
+                .entry(expect_stake_credential(&pool.parameters.reward_account))
+                .and_modify(|rewards| *rewards += rewards_leader)
+                .or_insert(rewards_leader);
+        }
 
         PoolRewards { leader: rewards_leader, pot: rewards_pot }
     }

@@ -19,6 +19,7 @@ use std::{
     mem::replace,
     sync::Arc,
     task::{Context, Poll, Waker},
+    time::Duration,
 };
 
 use either::Either::{Left, Right};
@@ -75,10 +76,12 @@ pub struct SimulationRunning {
     inputs: Inputs,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
+    global_epoch_offset: Duration,
     resources: Resources,
     runnable: VecDeque<(Name, StageResponse)>,
     scheduled: ScheduledRunnables,
     mailbox_size: usize,
+    priority_mailbox_size: usize,
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
     schedule_ids: ScheduleIds,
@@ -104,9 +107,11 @@ impl SimulationRunning {
         clock: Arc<dyn Clock + Send + Sync>,
         resources: Resources,
         mailbox_size: usize,
+        priority_mailbox_size: usize,
         schedule_ids: ScheduleIds,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
         eval_strategy: Box<dyn EvalStrategy>,
+        global_epoch_offset: Duration,
     ) -> Self {
         let (terminate, termination) = watch::channel(false);
         Self {
@@ -115,10 +120,12 @@ impl SimulationRunning {
             inputs,
             effect,
             clock,
+            global_epoch_offset,
             resources,
             runnable: VecDeque::new(),
             scheduled: ScheduledRunnables::new(),
             mailbox_size,
+            priority_mailbox_size,
             overrides: Vec::new(),
             breakpoints: Vec::new(),
             schedule_ids,
@@ -230,9 +237,16 @@ impl SimulationRunning {
         self.virtual_child_stages = enabled;
     }
 
-    /// Get the current simulation time.
+    /// Get the current simulation time (with any configured global epoch offset baked in,
+    /// so that `.duration_since_global_epoch()` is meaningful).
     pub fn now(&self) -> Instant {
-        self.clock.now()
+        self.clock.now(self.global_epoch_offset)
+    }
+
+    #[cfg(test)]
+    pub fn advance_clock_to(&mut self, t: Instant) {
+        self.clock.advance_to(t);
+        // do not push trace here; the time change will be observed on next clock() sample
     }
 
     /// Advance the clock to the next wakeup time.
@@ -245,7 +259,7 @@ impl SimulationRunning {
         // The last wakeup time becomes the new simulation time.
         let mut tasks_run = false;
         while let Some((t, r)) = self.scheduled.wakeup(max_time) {
-            if self.clock.now() < t {
+            if self.clock.now(self.global_epoch_offset) < t {
                 self.clock.advance_to(t);
                 self.trace_buffer.lock().push_clock(t);
             }
@@ -343,8 +357,15 @@ impl SimulationRunning {
 
         let data = self.stages.get_mut(&name).assert_stage("which is not runnable");
 
-        let effect =
-            poll_stage(&self.trace_buffer, &self.schedule_ids, data, name, response, &self.effect, self.clock.now());
+        let effect = poll_stage(
+            &self.trace_buffer,
+            &self.schedule_ids,
+            data,
+            name,
+            response,
+            &self.effect,
+            self.clock.now(self.global_epoch_offset),
+        );
 
         if !matches!(effect, Effect::Receive { .. }) {
             self.trace_buffer.lock().push_suspend(&effect);
@@ -698,10 +719,11 @@ impl SimulationRunning {
                     .get_mut(&at_stage)
                     .log_termination(&at_stage)?
                     .assert_stage("which cannot ask for the clock");
-                resume_clock_internal(data, run, self.clock.now()).expect("clock effect is always runnable");
+                let now = self.clock.now(self.global_epoch_offset);
+                resume_clock_internal(data, run, now).expect("clock effect is always runnable");
             }
             Effect::Wait { at_stage, duration } => {
-                let now = self.clock.now();
+                let now = self.clock.now(self.global_epoch_offset);
                 let id = self.schedule_ids.next_at(now + duration);
                 self.schedule_wakeup(id, move |sim| {
                     let Some(data) = sim.stages.get_mut(&at_stage) else {
@@ -714,7 +736,7 @@ impl SimulationRunning {
                             tracing::debug!(%name, ?response, "enqueuing stage");
                             sim.runnable.push_back((name, response));
                         },
-                        sim.clock.now(),
+                        sim.clock.now(sim.global_epoch_offset),
                     )
                     .expect("wait effect is always runnable");
                 });
@@ -722,19 +744,24 @@ impl SimulationRunning {
             Effect::Schedule { at_stage, msg, id } => {
                 let data =
                     self.stages.get_mut(&at_stage).log_termination(&at_stage)?.assert_stage("which cannot schedule");
+                let limit = self.priority_mailbox_size;
+                if data.scheduled_pending >= limit {
+                    panic!(
+                        "stage `{}` exceeded priority mailbox size ({limit}): too many outstanding scheduled messages",
+                        data.name
+                    );
+                }
+                data.scheduled_pending += 1;
                 resume_schedule_internal(data, run, id).expect("schedule effect is always runnable");
-                // Now schedule the wakeup (after run is dropped)
-                let now = self.clock.now();
+                let now = self.clock.now(self.global_epoch_offset);
                 if id.time() > now {
-                    // Schedule wakeup
                     self.schedule_wakeup(id, {
                         move |sim| {
-                            let _ = deliver_message(&mut sim.stages, sim.mailbox_size, at_stage, msg);
+                            deliver_priority(sim, at_stage, msg);
                         }
                     });
                 } else {
-                    // Send immediately
-                    let _ = deliver_message(&mut self.stages, self.mailbox_size, at_stage, msg);
+                    deliver_priority(self, at_stage, msg);
                 }
             }
             Effect::CancelSchedule { at_stage, id } => {
@@ -744,6 +771,9 @@ impl SimulationRunning {
                     .get_mut(&at_stage)
                     .log_termination(&at_stage)?
                     .assert_stage("which cannot cancel schedule");
+                if cancelled {
+                    data.scheduled_pending = data.scheduled_pending.saturating_sub(1);
+                }
                 resume_cancel_schedule_internal(data, run, cancelled)
                     .expect("cancel_schedule effect is always runnable");
             }
@@ -834,11 +864,13 @@ impl SimulationRunning {
                         StageOrAdapter::Stage(StageData {
                             name,
                             mailbox: VecDeque::new(),
+                            priority: VecDeque::new(),
                             tombstones: VecDeque::new(),
                             state: StageState::Idle(initial_state),
                             transition: (transition)(self.effect.clone()),
                             waiting: Some(StageEffect::Receive),
                             senders: VecDeque::new(),
+                            scheduled_pending: 0,
                             supervised_by: at_stage,
                             tombstone,
                         }),
@@ -1024,6 +1056,7 @@ impl SimulationRunning {
     /// Panics if the stage name does not exist (which may also happen due to termination).
     pub fn resume_clock<Msg>(&mut self, at_stage: impl AsRef<StageRef<Msg>>, time: Instant) -> anyhow::Result<()> {
         let data = self.stages.get_mut(at_stage.as_ref().name()).assert_stage("which cannot ask for the clock");
+        let time = Instant { inner: time.inner, global_epoch_offset: self.global_epoch_offset };
         resume_clock_internal(
             data,
             &mut |name, response| {
@@ -1043,6 +1076,7 @@ impl SimulationRunning {
     /// Panics if the stage name does not exist (which may also happen due to termination).
     pub fn resume_wait<Msg>(&mut self, at_stage: impl AsRef<StageRef<Msg>>, time: Instant) -> anyhow::Result<()> {
         let data = self.stages.get_mut(at_stage.as_ref().name()).assert_stage("which cannot wait");
+        let time = Instant { inner: time.inner, global_epoch_offset: self.global_epoch_offset };
         resume_wait_internal(
             data,
             &mut |name, response| {
@@ -1169,11 +1203,13 @@ impl SimulationRunning {
                 StageOrAdapter::Stage(StageData {
                     name,
                     mailbox: VecDeque::new(),
+                    priority: VecDeque::new(),
                     tombstones: VecDeque::new(),
                     state: StageState::Idle(initial_state),
                     transition: (transition)(self.effect.clone()),
                     waiting: Some(StageEffect::Receive),
                     senders: VecDeque::new(),
+                    scheduled_pending: 0,
                     supervised_by: at_stage.name().clone(),
                     tombstone,
                 }),
@@ -1483,6 +1519,26 @@ fn post_message(data: &mut StageData, mailbox_size: usize, msg: Box<dyn SendData
     }
     data.mailbox.push_back(msg);
     DeliverMessageResult::Delivered(data)
+}
+
+/// Deliver a due self-scheduled message into the stage's priority ingress.
+///
+/// Priority messages never compete with the bulk mailbox. The outstanding budget was
+/// already reserved when the schedule effect ran (`scheduled_pending`).
+fn deliver_priority(sim: &mut SimulationRunning, at_stage: Name, msg: Box<dyn SendData>) {
+    let limit = sim.priority_mailbox_size;
+    let Some(data) = sim.stages.get_mut(&at_stage) else {
+        tracing::warn!(name = %at_stage, "stage was terminated, skipping scheduled message delivery");
+        return;
+    };
+    let data = data.assert_stage("which cannot receive scheduled messages");
+    if data.priority.len() >= limit {
+        panic!("stage `{}` exceeded priority mailbox size ({limit}): too many due scheduled messages", data.name);
+    }
+    data.priority.push_back(msg);
+    let name = data.name.clone();
+    // Stage may already be waiting on Receive; wake it so the priority message is not stuck.
+    let _ = resume_receive_internal(sim, &name);
 }
 
 #[test]

@@ -1,12 +1,12 @@
 {
-  "title": "tx-size-just-above-limit",
+  "title": "transaction size just above maxTransactionSize",
   "description": "simple-transfer with maxTransactionSize set to exactly one byte less than the (computed) tx size.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json",
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
     "$override": {
       "maxTransactionSize": 199
     }

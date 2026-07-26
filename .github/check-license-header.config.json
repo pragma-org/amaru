@@ -14,5 +14,8 @@
 	        "data/**/*.mjs"
         ],
         "license": ".github/license-Apache-2.0.template.mjs"
+    },
+    {
+        "include": ["**/*"]
     }
 ]

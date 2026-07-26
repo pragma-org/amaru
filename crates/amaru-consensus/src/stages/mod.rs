@@ -21,5 +21,5 @@ pub mod select_chain;
 pub mod track_peers;
 pub mod validate_block;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

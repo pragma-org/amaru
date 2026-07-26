@@ -12,15 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{cmp::Ordering, collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tip};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_protocols::store_effects::Store;
-use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
+use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 use tracing::Instrument;
 
 use crate::effects::FindBestCandidate;
+
+mod headers_performance;
+use headers_performance::HeadersPerformance;
+pub use headers_performance::PerfHeaderForwardOutcome;
 
 /// Chain selection / fork choice stage.
 ///
@@ -98,32 +102,47 @@ pub struct SelectChain {
     best_tip: Option<BlockHeader>,
     /// Whether the downstream stage has sent a FetchNextFrom message that has not yet been responded to.
     may_fetch_blocks: bool,
+    /// Performance tracking for headers. It emits one `perf.header.lifecycle` event per header and
+    /// records the matching metrics when a header reaches a terminal state.
+    headers_performance: HeadersPerformance,
 }
 
 impl SelectChain {
     pub fn new(downstream: StageRef<NewBestTip>) -> Self {
-        Self { downstream, best_tip: None, tips: BTreeMap::new(), may_fetch_blocks: false }
+        Self {
+            downstream,
+            best_tip: None,
+            tips: BTreeMap::new(),
+            may_fetch_blocks: false,
+            headers_performance: HeadersPerformance::new(),
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SelectChainMsg {
     Initialize(HeaderHash),
-    TipFromUpstream {
-        tip: Tip,
-        parent: Point,
-        #[serde(skip, default)]
-        trace_context: TraceContext,
-    },
+    TipFromUpstream { tip: Tip, parent: Point, trace_context: TraceContext, received_at: Instant },
     BlockValidationResult(Tip, bool),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
     FetchNextFrom(Point, TraceContext),
+    // Sent by the fetch_blocks stage at the moment it requests the blocks for these headers, with
+    // the request time. Used to record the block_fetch_wait point of the header lifecycle.
+    BlocksRequested(Vec<HeaderHash>, Instant),
+    // Sent by the fetch_blocks stage when it receives the block for a header, with the reception
+    // time. Used to record the block_downloaded point of the header lifecycle.
+    BlockDownloaded(HeaderHash, Instant),
 }
 
 impl SelectChainMsg {
     pub fn tip_from_upstream(tip: Tip, parent: Point) -> Self {
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context: Default::default() }
+        SelectChainMsg::TipFromUpstream {
+            tip,
+            parent,
+            trace_context: Default::default(),
+            received_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
+        }
     }
 
     pub fn fetch_next_from(point: Point) -> Self {
@@ -142,7 +161,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 state.tips.insert(best_hash, to_validate);
             }
         }
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context } => {
+        SelectChainMsg::TipFromUpstream { tip, parent, trace_context, received_at } => {
             let span = debug_span!(
                 parent_context: &trace_context,
                 consensus::chain::SELECT_FROM_TIP,
@@ -150,7 +169,10 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 header_hash = tip.hash(),
             );
             let child_trace_context = (&span).into();
-            state.handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context).instrument(span).await;
+            state
+                .handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context, received_at)
+                .instrument(span)
+                .await;
         }
         SelectChainMsg::BlockValidationResult(point, valid) => {
             let span = debug_span!(
@@ -166,6 +188,12 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             let span = debug_span!(parent_context: trace_context, consensus::chain::FETCH_NEXT, point = point, header_hash = point.hash(),);
             let trace_context = (&span).into();
             state.handle_fetch_next_from(point, eff, trace_context).instrument(span).await;
+        }
+        SelectChainMsg::BlocksRequested(hashes, requested_at) => {
+            state.headers_performance.blocks_requested(&hashes, requested_at);
+        }
+        SelectChainMsg::BlockDownloaded(hash, downloaded_at) => {
+            state.headers_performance.block_downloaded(&hash, downloaded_at);
         }
     }
     state
@@ -183,7 +211,10 @@ impl SelectChain {
         eff: Effects<SelectChainMsg>,
         parent_context: TraceContext,
         stage_context: TraceContext,
+        received_at: Instant,
     ) {
+        self.headers_performance.header_received(tip, received_at);
+
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
 
         let Some((header, valid)) = store.load_header_with_validity(&tip.hash()).await else {
@@ -219,12 +250,20 @@ impl SelectChain {
                 self.tips.insert(tip.hash(), ancestors);
             } else {
                 tracing::info!(%parent, %tip, "upstream tip depends on invalid block");
+                let now = eff.clock().await;
+                self.headers_performance.header_abandoned(&eff.erase(), &tip.hash(), now).await;
             }
         }
 
         if self.tips.contains_key(&tip.hash()) && cmp_tip(Some(&header), self.best_tip.as_ref()) == Ordering::Greater {
             let best_tip = self.best_tip.take().map(|h| h.point()).unwrap_or(Point::Origin);
             tracing::debug!(tip = %tip.point(), height = %tip.block_height(), previous = %best_tip, "new best tip candidate");
+
+            // if we have a real fork, start recording the time it takes to switch to that fork
+            if parent.hash() != best_tip.hash() {
+                self.headers_performance.fork_started(&eff.erase(), tip, received_at).await;
+            }
+
             if self.may_fetch_blocks {
                 self.may_fetch_blocks = false;
                 eff.send(&self.downstream, NewBestTip { tip, parent, trace_context: parent_context }).await;
@@ -260,6 +299,8 @@ impl SelectChain {
                     v.drain(0..=idx);
                 }
             });
+            let now = eff.clock().await;
+            self.headers_performance.block_valid(&eff.erase(), &h, now).await;
             return;
         }
         // INVALID CASE
@@ -267,9 +308,11 @@ impl SelectChain {
         // remove all tips depending on the invalid block
         // (if a peer sends further headers on this chain, we will ignore them)
         let prev_tips = self.tips.len();
-        self.tips.extract_if(.., |_k, v| v.first() == Some(&tip.hash())).for_each(drop);
+        let pruned: Vec<HeaderHash> =
+            self.tips.extract_if(.., |_k, v| v.first() == Some(&tip.hash())).flat_map(|(_, v)| v).collect();
         let removed = prev_tips - self.tips.len();
 
+        let mut switched_to = None;
         if let Some(best_tip) = &self.best_tip
             && !self.tips.contains_key(&best_tip.hash())
         {
@@ -291,6 +334,7 @@ impl SelectChain {
                     }
                     let (to_validate, _) = store.unvalidated_ancestor_hashes(new_best_tip.hash()).await;
                     self.tips.insert(new_best_tip.hash(), to_validate);
+                    switched_to = Some(new_best_tip.tip());
                     self.best_tip = Some(new_best_tip);
                 }
                 Ok(_) => {
@@ -304,6 +348,18 @@ impl SelectChain {
             }
         } else if removed > 0 {
             tracing::warn!(%removed, "chain fork(s) removed due to invalid block");
+        }
+
+        // end the performance tracking for blocks that could not be successfully validated and that
+        // we dropped because a better chain is available
+        let now = eff.clock().await;
+        for hash in &pruned {
+            self.headers_performance.block_pruned(&eff.erase(), hash, hash == &tip.hash(), now).await;
+        }
+
+        // switching away from the invalidated best tip to another candidate is a fork switch
+        if let Some(new_tip) = switched_to {
+            self.headers_performance.fork_started(&eff.erase(), new_tip, now).await;
         }
     }
 

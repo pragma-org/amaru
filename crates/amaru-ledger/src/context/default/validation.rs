@@ -143,14 +143,19 @@ impl PoolsSlice for DefaultValidationContext {
         self.state.pools.register(params.id, Arc::new((params, pointer, deposit)))
     }
 
-    fn retire(&mut self, pool: PoolId, epoch: Epoch) {
+    fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>> {
         let _span = trace_span!(
             ledger::transaction::CERTIFICATE_POOL_RETIREMENT,
             pool_id = %pool,
             epoch = epoch
         );
         let _guard = _span.enter();
-        self.state.pools.unregister(pool, epoch)
+        if !PoolsSlice::exists(self, pool) {
+            return Err(UnregisterError::Unknown(PhantomData {}, pool));
+        }
+        self.state.pools.unregister(pool, epoch);
+
+        Ok(())
     }
 }
 

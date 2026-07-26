@@ -132,8 +132,7 @@ bootstrap_refresh() {
     --network "$NETWORK" \
     --chain-dir "$chain_dir" \
     --ledger-dir "$ledger_dir" \
-    --epoch "$((BOOTSTRAP_START_EPOCH + 3))" \
-    --force
+    --epoch "$((BOOTSTRAP_START_EPOCH + 3))"
 }
 
 prepare_latest_bootstrap_config() {
@@ -149,8 +148,7 @@ prepare_latest_bootstrap_config() {
   if ! latest_bootstrap_metadata_available "$metadata_dir" "$BOOTSTRAP_START_EPOCH"; then
     cargo run --profile "$BUILD_PROFILE" -- create-snapshots \
       --network "$NETWORK" \
-      --epoch "$((BOOTSTRAP_START_EPOCH + 3))" \
-      --force
+      --epoch "$((BOOTSTRAP_START_EPOCH + 3))"
   fi
 
   bootstrap_network_dir="$BOOTSTRAP_CONFIG_DIR/$NETWORK"
@@ -158,9 +156,9 @@ prepare_latest_bootstrap_config() {
   jq -s '
     map({
       epoch,
-      point: ((.slot | tostring) + "." + .hash),
-      url: ((.archive_path // "") | tostring),
-      parent_point: (.parent_point.Specific | ((.[0] | tostring) + "." + .[1]))
+      point,
+      parent_point,
+      url: ((.archive_path // "") | tostring)
     })
   ' \
     "$metadata_dir/$BOOTSTRAP_START_EPOCH.json" \
@@ -185,13 +183,13 @@ sync_refresh() {
   local chain_dir="$1" ledger_dir="$2"
 
   echo "[mithril-refresh] downloading missing Mithril immutable chunks and packaging blocks"
-  cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- mithril \
+  cargo run --profile "$BUILD_PROFILE" --bin amaru -- dev ledger mithril \
     --network "$NETWORK" \
     --ledger-dir "$ledger_dir" \
     --snapshots-dir "$SNAPSHOTS_DIR"
 
   echo "[mithril-refresh] syncing Amaru chain and ledger databases from packaged blocks"
-  cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- sync \
+  cargo run --profile "$BUILD_PROFILE" --bin amaru -- dev ledger sync \
     --network "$NETWORK" \
     --chain-dir "$chain_dir" \
     --ledger-dir "$ledger_dir"

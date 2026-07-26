@@ -1,12 +1,12 @@
 {
-  "title": "OutsideValidityIntervalUTxO",
+  "title": "current slot before invalid_before",
   "description": "The transaction body's invalid_before is slot 100 while point.slot is 0, so the current slot is outside the validity interval; phase-one must reject.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

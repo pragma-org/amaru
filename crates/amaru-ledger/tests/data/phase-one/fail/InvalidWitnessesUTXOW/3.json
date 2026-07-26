@@ -1,12 +1,12 @@
 {
-  "title": "InvalidWitnessesUTXOW",
+  "title": "bootstrap witness with mismatched signature",
   "description": "Body spends a Byron (bootstrap) input. The witness set provides a structurally well-formed bootstrap witness whose public-key + chain-code + attributes hash to the input's bootstrap root (taken verbatim from a real preprod tx), so the required-keys check passes. The signature, however, was produced for a different tx_id and so Ed25519 verification rejects it.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

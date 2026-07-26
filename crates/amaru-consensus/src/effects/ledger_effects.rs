@@ -14,33 +14,34 @@
 
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
-use amaru_kernel::{BlockHeader, EraHistory, Peer, Point, Tip, Transaction};
+use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateHeaders, CanValidateTxs, HasStakePools, HeaderValidationError,
-    TransactionValidationError,
+    BlockValidationError, CanValidateBlocks, CanValidateTxs, HasStakePools, PoolSummaries, TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
 use opentelemetry::trace::FutureExt;
+
+use crate::validate_header::ValidateHeaderError;
 
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps: Send + Sync {
     fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>>;
 
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), HeaderValidationError>>;
+    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), ValidateHeaderError>>;
 
     fn validate_block(
         &self,
-        peer: &Peer,
         point: &Point,
     ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
-    fn rollback(&self, peer: &Peer, point: &Point) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>>;
-
-    fn contains_volatile_point(&self, point: &Point) -> BoxFuture<'static, bool>;
+    fn switch_to_fork(
+        &self,
+        point: &Point,
+    ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
     fn immutable_tip(&self) -> BoxFuture<'static, Tip>;
 
@@ -77,24 +78,22 @@ impl LedgerOps for Ledger {
         self.effects.external(ValidateTxEffect::new(tx))
     }
 
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), HeaderValidationError>> {
+    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), ValidateHeaderError>> {
         self.effects.external(ValidateHeaderEffect::new(header).with_trace_context(&self.trace_context))
     }
 
     fn validate_block(
         &self,
-        peer: &Peer,
         point: &Point,
     ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
-        self.effects.external(ValidateBlockEffect::new(peer, point).with_trace_context(&self.trace_context))
+        self.effects.external(ValidateBlockEffect::new(point).with_trace_context(&self.trace_context))
     }
 
-    fn rollback(&self, peer: &Peer, point: &Point) -> BoxFuture<'static, anyhow::Result<(), BlockValidationError>> {
-        self.effects.external(RollbackBlockEffect::new(peer, point).with_trace_context(&self.trace_context))
-    }
-
-    fn contains_volatile_point(&self, point: &Point) -> BoxFuture<'static, bool> {
-        self.effects.external(ContainsPointEffect::new(point))
+    fn switch_to_fork(
+        &self,
+        point: &Point,
+    ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
+        self.effects.external(SwitchToForkEffect::new(point).with_trace_context(&self.trace_context))
     }
 
     fn immutable_tip(&self) -> BoxFuture<'static, Tip> {
@@ -114,10 +113,11 @@ impl LedgerOps for Ledger {
 
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
-pub type ResourceHeaderValidation = Arc<dyn CanValidateHeaders + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 pub type ResourceEraHistory = EraHistory;
+pub type ResourceConsensusParameters = Arc<ConsensusParameters>;
+pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
@@ -155,14 +155,13 @@ impl ExternalEffectAPI for ValidateTxEffect {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockEffect {
-    peer: Peer,
     point: Point,
     trace_context: TraceContext,
 }
 
 impl ValidateBlockEffect {
-    pub fn new(peer: &Peer, point: &Point) -> Self {
-        Self { peer: peer.clone(), point: *point, trace_context: Default::default() }
+    pub fn new(point: &Point) -> Self {
+        Self { point: *point, trace_context: Default::default() }
     }
 
     pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
@@ -174,7 +173,7 @@ impl ValidateBlockEffect {
 impl ExternalEffect for ValidateBlockEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let Self { peer: _peer, point, trace_context } = *self;
+        let Self { point, trace_context } = *self;
         Self::wrap(
             async move {
                 let store = resources
@@ -224,29 +223,48 @@ impl ExternalEffect for ValidateHeaderEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let _guard = self.trace_context.attach();
-            let validator = resources
-                .get::<ResourceHeaderValidation>()
-                .expect("ValidateHeaderEffect requires a ResourceHeaderValidation resource")
+
+            let consensus_parameters = resources
+                .get::<ResourceConsensusParameters>()
+                .expect("ValidateHeaderEffect requires a ResourceConsensusParameters resource")
                 .clone();
-            validator.validate_header(&self.header)
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("ValidateHeaderEffect requires a ResourceHeaderStore resource")
+                .clone();
+            let pool_summaries = resources
+                .get::<ResourcePoolSummaries>()
+                .expect("ValidateHeaderEffect requires a ResourcePoolSummaries resource")
+                .clone();
+            let era_history = resources
+                .get::<ResourceEraHistory>()
+                .expect("ValidateHeaderEffect requires a ResourceEraHistory resource")
+                .clone();
+
+            crate::validate_header::validate_header(
+                &self.header,
+                consensus_parameters,
+                store,
+                pool_summaries,
+                Arc::new(era_history),
+            )
         })
     }
 }
 
 impl ExternalEffectAPI for ValidateHeaderEffect {
-    type Response = Result<(), HeaderValidationError>;
+    type Response = Result<(), ValidateHeaderError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RollbackBlockEffect {
-    peer: Peer,
+pub struct SwitchToForkEffect {
     point: Point,
     trace_context: TraceContext,
 }
 
-impl RollbackBlockEffect {
-    pub fn new(peer: &Peer, point: &Point) -> Self {
-        Self { peer: peer.clone(), point: *point, trace_context: Default::default() }
+impl SwitchToForkEffect {
+    pub fn new(point: &Point) -> Self {
+        Self { point: *point, trace_context: Default::default() }
     }
 
     pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
@@ -255,50 +273,22 @@ impl RollbackBlockEffect {
     }
 }
 
-impl ExternalEffect for RollbackBlockEffect {
+impl ExternalEffect for SwitchToForkEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let _guard = self.trace_context.attach();
             let validator = resources
                 .get::<ResourceBlockValidation>()
-                .expect("RollbackBlockEffect requires a ResourceBlockValidation resource")
+                .expect("SwitchToForkEffect requires a ResourceBlockValidation resource")
                 .clone();
-            validator.rollback_block(&self.point)
+            validator.switch_to_fork(&self.point)
         })
     }
 }
 
-impl ExternalEffectAPI for RollbackBlockEffect {
-    type Response = anyhow::Result<(), BlockValidationError>;
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ContainsPointEffect {
-    point: Point,
-}
-
-impl ContainsPointEffect {
-    pub fn new(point: &Point) -> Self {
-        Self { point: *point }
-    }
-}
-
-impl ExternalEffect for ContainsPointEffect {
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        #[expect(clippy::expect_used)]
-        Self::wrap_sync({
-            let ledger = resources
-                .get::<ResourceBlockValidation>()
-                .expect("ContainsPointEffect requires a ResourceBlockValidation resource")
-                .clone();
-            ledger.contains_point(&self.point)
-        })
-    }
-}
-
-impl ExternalEffectAPI for ContainsPointEffect {
-    type Response = bool;
+impl ExternalEffectAPI for SwitchToForkEffect {
+    type Response = anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -367,12 +357,12 @@ pub struct RegisteredRelaySocketAddrsEffect;
 impl ExternalEffect for RegisteredRelaySocketAddrsEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        Self::wrap_sync({
             let stake_pools = resources
                 .get::<ResourceHasStakePools>()
                 .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasStakePools resource")
                 .clone();
-            stake_pools.registered_relay_socket_addrs().await
+            stake_pools.registered_relay_socket_addrs()
         })
     }
 }

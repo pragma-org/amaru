@@ -37,7 +37,7 @@
 #### Docker Image
 
 ```console
-docker pull ghcr.io/pragma-org/amaru:v10.11.20260716
+docker pull ghcr.io/pragma-org/amaru:v10.11.20260723
 ```
 
 > [!IMPORTANT]
@@ -59,8 +59,8 @@ nix profile install --no-write-lock-file github:pragma-org/amaru#amaru
 #### Debian
 
 ```console
-VERSION=10.11.20260716 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
-VERSION=10.11.20260716 ARCH=x86_64; sudo apt install amaru-$VERSION-linux-$ARCH.deb
+VERSION=10.11.20260723 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
+VERSION=10.11.20260723 ARCH=x86_64; sudo apt install amaru-$VERSION-linux-$ARCH.deb
 ```
 
 Also available for `ARCH=aarch64`.
@@ -69,8 +69,8 @@ The Debian package installs a systemd unit and reads overrides from `/etc/defaul
 #### RPM
 
 ```console
-VERSION=10.11.20260716 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
-VERSION=10.11.20260716 ARCH=x86_64; sudo dnf install amaru-$VERSION-linux-$ARCH.rpm
+VERSION=10.11.20260723 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
+VERSION=10.11.20260723 ARCH=x86_64; sudo dnf install amaru-$VERSION-linux-$ARCH.rpm
 ```
 
 Also available for `ARCH=aarch64`.
@@ -92,7 +92,7 @@ See either:
 #### Building from sources
 
 ```console
-make build
+cargo build --release
 ```
 
 > [!TIP]
@@ -110,7 +110,7 @@ on the selected network (e.g. [preprod](https://book.world.dev.cardano.org/env-p
 1. Bootstrap the node:
 
 ```bash
-make AMARU_NETWORK=preprod bootstrap
+amaru node bootstrap --network=preprod
 ```
 
 2. _(Optional)_ Setup observability backends:
@@ -122,14 +122,14 @@ docker compose -f monitoring/profiles/jaeger/docker-compose.yml up
 3. Run Amaru:
 
 ```console
-make AMARU_NETWORK=preprod start
+amaru node run --network=preprod
 ```
 
 > [!TIP]
 > To ensure logs are forwarded to an OpenTelemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=true`:
 >
 > ```console
-> make AMARU_NETWORK=preprod AMARU_WITH_OPEN_TELEMETRY=true start
+> amaru --with-open-telemetry node run --network=preprod
 > ```
 
 ### Monitoring

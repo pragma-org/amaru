@@ -13,7 +13,6 @@
 // limitations under the License.
 
 mod git;
-mod peer_snapshot;
 mod stake_distribution;
 mod type_aliases;
 
@@ -37,13 +36,9 @@ fn main() -> Result<()> {
         })?;
     }
 
-    peer_snapshot::prepare_peer_snapshots().context("Failed to prepare embedded peer snapshots")?;
-
     Ok(())
 }
 
-/// Ask cargo to rerun this build script when `path` changes, but only if the path
-/// currently exists, so that a missing optional input does not trigger reruns.
 fn emit_rerun_if_exists(path: &Path) {
     if path.exists() {
         println!("cargo:rerun-if-changed={}", path.display());

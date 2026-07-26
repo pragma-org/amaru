@@ -64,7 +64,7 @@ Note that this requires a trace severity of at least INFO since the detection of
 
 The previous command will run Amaru and preserve ledger snapshots. Those snapshots can then be used to produce epoch test snapshots which can be compared with golden test vectors, generated from the Haskell node. This ensure a bit-by-bit comparison of the ledger states between the two nodes:
 
-`make test-e2e`
+`cargo test -p amaru -- --ignored`
 
 Note that the test are network-specific and dependent on the `AMARU_NETWORK` environment variable.
 
