@@ -19,6 +19,7 @@ pub mod effects;
 pub mod errors;
 pub mod events;
 pub mod headers_tree;
+pub mod performance;
 pub mod span;
 pub mod stages;
 pub mod store;

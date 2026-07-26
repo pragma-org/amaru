@@ -53,9 +53,11 @@ Run `make help` for all targets.
 - When creating new component: look at existing ones for framework, naming, typing
 - When editing: look at surrounding context (imports) to match choices of libs/frameworks
 - Follow security best practices: never expose/log secrets/keys, never commit them
-- NO comments in code unless explicitly asked (use descriptive names instead)
+- Prefer descriptive names over narrative or redundant comments. Do **not** add noisy inline comments that restate the code.
+- **Doc comments (`///`, `//!`) are always allowed** and are **encouraged** where the role of a type, field, function, or module is non-trivial (invariants, units, outcomes, side effects, when to call). Match the style of neighboring documented APIs.
 - Never reference the implementation plan, step numbers, ticket IDs, or in-progress refactor names in commit messages or code comments.
-- Describe what the code does and why it exists, not where it sits in the current work.- All code must compile and pass clippy/fmt
+- Describe what the code does and why it exists, not where it sits in the current work.
+- All code must compile and pass clippy/fmt
 - main branch must always be working (compiles + tests pass)
 
 ### Formatting (rustfmt.toml)
