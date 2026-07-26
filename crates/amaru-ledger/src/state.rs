@@ -15,7 +15,7 @@
 use std::{
     borrow::Cow,
     cmp::max,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     net::SocketAddr,
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
@@ -28,7 +28,7 @@ use amaru_kernel::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, info, info_span, trace, warn};
-use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
+use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
@@ -36,7 +36,7 @@ use tracing::Span;
 
 use crate::{
     context::{ContextHydratationError, DefaultPreparationContext, DefaultValidationContext, UnresolvedInputPolicy},
-    epoch_transition::{self, GovernanceActivity},
+    epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
     governance::ratification::RatificationContext,
     rules::{
         self,
@@ -113,6 +113,10 @@ where
     /// Which network are we connected to. This is mostly helpful for distinguishing between
     /// behavious that are network specifics (e.g. address discriminant).
     network: NetworkName,
+
+    /// Optional callback invoked whenever a new stake distribution snapshot is added.
+    /// Used to update resources and notify stages (e.g. track_peers) about fresh PoolSummaries.
+    on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
@@ -219,13 +223,34 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             era_history: Arc::new(era_history),
 
             network,
+
+            on_stake_dist_updated: None,
         }
     }
 
-    /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
-    /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
-        StakeDistributionObserver { view: self.stake_distributions.clone(), era_history: self.era_history.clone() }
+    /// Set a callback to be invoked when a new stake distribution snapshot becomes available.
+    /// The callback receives the projected PoolSummaries.
+    pub fn set_on_stake_dist_updated(&mut self, cb: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        self.on_stake_dist_updated = Some(cb);
+    }
+
+    /// Project the small pool summaries needed for header validation (and leader schedule)
+    /// from the held stake distributions. Only the `.pools` data is included.
+    pub fn pool_summaries(&self) -> PoolSummaries {
+        #[expect(clippy::unwrap_used)]
+        let guard = self.stake_distributions.lock().unwrap();
+        let mut by_epoch = BTreeMap::new();
+        for distr in guard.iter() {
+            let mut pools: BTreeMap<PoolId, PoolSummary> = BTreeMap::new();
+            for (pid, pst) in &distr.pools {
+                pools.insert(
+                    *pid,
+                    PoolSummary { vrf: pst.parameters.vrf, stake: pst.stake, active_stake: distr.active_stake },
+                );
+            }
+            by_epoch.insert(distr.epoch, pools);
+        }
+        PoolSummaries { by_epoch }
     }
 
     pub fn network(&self) -> NetworkName {
@@ -408,15 +433,15 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
             // pool updates, etc...) but not the end (rewards).
             let (treasury, effective_rewards) = if progress.is_none() {
-                // FIXME: asynchronous rewards calculations
-                //
-                // This should eventually be a '.await', as we always expect to *eventually*
-                // have some rewards summary being available. There's no way to continue progressing
-                // the ledger if we don't.
-                let effective_rewards = epoch_transition::end_epoch(
-                    &mut volatile_view,
+                let effective_rewards = Rewards::<Effective>::new(
+                    // FIXME: asynchronous rewards calculations
+                    //
+                    // This should eventually be a '.await', as we always expect to *eventually*
+                    // have some rewards summary being available. There's no way to continue progressing
+                    // the ledger if we don't.
                     computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
-                )?;
+                    volatile_view.iter_accounts()?,
+                );
 
                 (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
             } else {
@@ -424,6 +449,11 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             };
 
             let protocol_parameters = self.protocol_parameters();
+
+            // Compute the updates to perform on pools at the epoch boundary. This uses information
+            // from both the immutable store and the volatile database, since we compute the updates
+            // before they are "stable" and safe to store.
+            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
 
             let ratification_context = RatificationContext::new(
                 // Ratification happens with one epoch of delay, and at the next epoch transition. So,
@@ -442,9 +472,13 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 treasury,
             )?;
 
-            let (pools_updates, governance_updates) = epoch_transition::begin_epoch(
-                &mut volatile_view,
-                next_epoch,
+            // Ratify and enact proposals at the epoch boundary. Note that this does not modify the
+            // immutable store in any fashion (db is read-only here) but produces a series of
+            // governance updates to be applied to the database once stable; and use in-memory in the
+            // meantime.
+            let governance_updates = GovernanceUpdates::new(
+                volatile_view.proposals_roots()?,
+                volatile_view.iter_proposals()?,
                 &self.era_history,
                 protocol_parameters,
                 ratification_context,
@@ -473,15 +507,18 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             && self.most_recent_snapshot() == current_epoch - 1
             && is_previous_epoch_stable
         {
-            let rewards = self.compute_rewards(current_epoch)?;
-            self.volatile.set_computed_rewards(rewards);
+            let (computed, pushed_new) = self.compute_rewards(current_epoch)?;
+            self.volatile.set_computed_rewards(computed);
+            if pushed_new && let Some(cb) = &self.on_stake_dist_updated {
+                cb(self.pool_summaries());
+            }
         }
 
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn compute_rewards(&mut self, for_epoch: Epoch) -> Result<RewardsSummary, StateError> {
+    fn compute_rewards(&mut self, for_epoch: Epoch) -> Result<(RewardsSummary, bool), StateError> {
         let span = info_span!(ledger::rewards::COMPUTE, for_epoch = for_epoch);
 
         // NOTE: Explicit span guard handling
@@ -502,24 +539,25 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         assert_eq!(stake_distribution.epoch + 3, for_epoch, "unexpected stake distribution for epoch");
 
         span.record("using_stake_distribution_from", u64::from(stake_distribution.epoch));
-
         let snapshot = self.snapshots.for_epoch(for_epoch - 1)?;
 
         let rewards_summary =
             RewardsSummary::new(&snapshot, stake_distribution, &self.global_parameters, self.protocol_parameters())
                 .map_err(StateError::Storage)?;
-
         drop(span_guard);
+
+        let mut pushed_new = false;
 
         if stake_distributions.front().map(|distr| distr.epoch < snapshot.epoch()).unwrap_or(true) {
             stake_distributions.push_front(compute_stake_distribution(&snapshot, &self.era_history)?);
+            pushed_new = true;
             info!(
                 ledger::stake_distribution::ROTATE,
                 available_stake_distributions = display_collection(stake_distributions.iter().map(|distr| distr.epoch)),
             );
         }
 
-        Ok(rewards_summary)
+        Ok((rewards_summary, pushed_new))
     }
 
     /// Push a next state into the ledger volatile storage. Once the volatile is full (i.e. filled
@@ -819,8 +857,101 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         }
     }
 
-    pub fn rollback_to(&mut self, to: &Point) -> Result<(), BackwardError> {
-        info_span!(ledger::state::ROLL_BACKWARD, rollback_point = to).in_scope(|| {
+    /// Try to rollback the volatile state to a given point and roll forward a number of block by applying
+    /// them after the fork point. Recover the initial state in case of errors.
+    pub fn switch_to_fork<I>(
+        &mut self,
+        fork_point: &Point,
+        blocks: I,
+        arena_pool: &ArenaPool,
+    ) -> BlockValidation<LedgerMetrics, anyhow::Error>
+    where
+        I: IntoIterator<Item = anyhow::Result<(Point, Block)>>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let blocks = blocks.into_iter();
+        let count = blocks.len();
+
+        info_span!(ledger::state::SWITCH_TO_FORK, fork_point = *fork_point, fork_length = count).in_scope(|| {
+            let recover = match self.rollback_to(fork_point) {
+                Ok(state_recovery) => move |st: &mut Self| {
+                    let immutable_tip = st.immutable_tip();
+
+                    assert_eq!(
+                        immutable_tip, state_recovery.immutable_tip,
+                        "cannot recover: immutable tip moved from {} to {} during the replay",
+                        state_recovery.immutable_tip, immutable_tip,
+                    );
+
+                    match state_recovery.kind {
+                        StateRecovery::RecoverWholeVolatileDB { volatile } => {
+                            st.volatile = *volatile;
+                        }
+                        StateRecovery::RecoverVolatileDBPart { recovery } => {
+                            st.volatile.undo_rollback(*recovery);
+                        }
+                    }
+                },
+
+                Err(error) => return BlockValidation::Err(error.into()),
+            };
+
+            self.assert_replay_stays_volatile(count);
+
+            let mut metrics = LedgerMetrics::default();
+
+            for block in blocks {
+                let (point, block) = match block {
+                    Ok(block) => block,
+                    Err(error) => {
+                        recover(self);
+                        return BlockValidation::Err(error);
+                    }
+                };
+                match self.roll_forward(&point, block, arena_pool) {
+                    BlockValidation::Valid(new_metrics) => metrics = new_metrics,
+                    BlockValidation::Invalid(slot, hash, details) => {
+                        recover(self);
+                        return BlockValidation::Invalid(slot, hash, details);
+                    }
+                    BlockValidation::Err(error) => {
+                        recover(self);
+                        return BlockValidation::Err(error);
+                    }
+                }
+            }
+
+            BlockValidation::Valid(metrics)
+        })
+    }
+
+    /// Assert, before replaying a fork, that the replay cannot flush anything to the stable store.
+    ///
+    /// Called with the number of blocks about to be replayed, right after the rollback. Replaying
+    /// evicts a block to the stable store only once the volatile window is full (see
+    /// [`Self::push_fragment`]); with `blocks` blocks to apply, the earliest such eviction can only
+    /// land on the *last* block as long as `volatile.len() + blocks - 1 <= k`. That is exactly the
+    /// case where the new chain is at most one block longer than the one it replaces. The committing
+    /// block may then legitimately become stable, but every earlier block stays fully volatile. So
+    /// if a later block turns out to be invalid, [`Self::recover`] can always undo the switch without
+    /// having to un-persist immutable data.
+    fn assert_replay_stays_volatile(&self, blocks: usize) {
+        let capacity = self.global_parameters.consensus_security_param;
+        let non_committing = self.volatile.len() as u64 + blocks.saturating_sub(1) as u64;
+        assert!(
+            non_committing <= capacity,
+            "fork-switch replay would flush a still-rollback-able block to the stable store: after \
+             rollback the volatile holds {} block(s) and replaying {} would push {} past the \
+             security parameter k={} before reaching the committing block",
+            self.volatile.len(),
+            blocks,
+            non_committing,
+            capacity,
+        );
+    }
+
+    fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
+        info_span!(ledger::state::ROLL_BACKWARD).in_scope(|| {
             let immutable_tip = self.immutable_tip();
             let volatile_tip = self.volatile_tip().map(|t| t.point()).unwrap_or(immutable_tip);
 
@@ -829,28 +960,30 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // All rollback points within the volatile part are handled by `VolatileDB`, but there is one more
             // legal rollback target, which is the `immutable_tip()`, in which case the VolatileDB is cleared.
             if *to == immutable_tip {
-                self.volatile.clear();
+                // Snapshot the whole VolatileDB fragment but leave the metadata initialized
+                // for the upcoming roll forwards.
+                Ok(RollbackGuard {
+                    immutable_tip,
+                    kind: StateRecovery::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.clear()) },
+                })
             } else if *to < immutable_tip {
-                return Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip));
+                Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip))
             } else if *to > volatile_tip {
-                return Err(BackwardError::in_the_future(*to, volatile_tip, immutable_tip));
+                Err(BackwardError::in_the_future(*to, volatile_tip, immutable_tip))
             } else {
-                self.volatile
+                // Rollback to the fork point and keep the recovery instance in case
+                // a subsequent roll forward fails to apply and we need to recover the previous
+                // ledger state.
+                let recovery = self
+                    .volatile
                     .rollback_to(to)
-                    .map_err(|rollback_point| BackwardError::unknown(*rollback_point, volatile_tip, immutable_tip))?;
+                    .map_err(|_| BackwardError::unknown(*to, volatile_tip, immutable_tip))?;
+                Ok(RollbackGuard {
+                    immutable_tip,
+                    kind: StateRecovery::RecoverVolatileDBPart { recovery: Box::new(recovery) },
+                })
             }
-
-            Ok(())
         })
-    }
-
-    // TODO: awkward `contains_volatile_point`
-    //
-    // This is a bit weird; but it seems that what this accessor is used for is to determine
-    // whether a rollback is possible to a given point (without throwing away the entire ledger by
-    // trying to rollback). So this should likely be the API `can_rollback_to` instead.
-    pub fn contains_volatile_point(&self, point: &Point) -> bool {
-        self.volatile.has_point(point)
     }
 
     /// Calculate chain density over the last `k` blocks (or oldest block in the volatileDB) given some `Point`.
@@ -941,47 +1074,6 @@ impl<'a> Deref for StakeDistributionView<'a> {
     }
 }
 
-// HasStakeDistribution
-// ----------------------------------------------------------------------------
-
-// The 'LedgerState' trait materializes the interface required of the consensus layer in order to
-// validate block headers. It allows to keep the ledger implementation rather abstract to the
-// consensus in order to decouple both components.
-pub struct StakeDistributionObserver {
-    view: Arc<Mutex<VecDeque<StakeDistribution>>>,
-    era_history: Arc<EraHistory>,
-}
-
-impl HasStakeDistribution for StakeDistributionObserver {
-    #[expect(clippy::unwrap_used)]
-    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        let epoch = self
-            .era_history
-            // NOTE: This function is called by the consensus when validating block headers. So in
-            // theory, the slot is either within the current epoch or the next since blocks must
-            // form a chain. Either the previous block is well within the current epoch, or it was
-            // the last block of the previous epoch.
-            //
-            // Either way, we do know at this point how to forecast this slot.
-            .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(GetPoolError::SlotToEpochConversionFailure)?
-            .checked_sub(Epoch::TWO);
-
-        let view = self.view.lock().unwrap();
-
-        let stake_distribution = view
-            .iter()
-            .find(|s| Some(s.epoch) == epoch)
-            .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, epoch))?;
-
-        Ok(stake_distribution.pools.get(pool).map(|st| PoolSummary {
-            vrf: st.parameters.vrf,
-            stake: st.stake,
-            active_stake: stake_distribution.active_stake,
-        }))
-    }
-}
-
 fn trace_block_transactions(point: &Point, block_height: u64, block: &Block) {
     let tx_count = block.transaction_bodies.len();
 
@@ -1007,6 +1099,30 @@ fn unsafe_slot_to_epoch(era_history: &EraHistory, slot: Slot) -> Epoch {
     era_history
         .slot_to_epoch_unchecked_horizon(slot)
         .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from tip ({slot:?}): {e:?}"))
+}
+
+// Rollback
+// ----------------------------------------------------------------------------
+
+/// Captures what a rollback discards, so a failed fork switch can be undone.
+/// If the fork point is inside the volatile window, we keep only the fragments above that point (moved, not copied)
+/// plus a snapshot of the volatile overlay.
+///
+/// The immutable tip observed at rollback time is retained so recovery can assert it has not moved:
+/// restoring the pre-rollback volatile is only sound while no replayed block has reached the stable store.
+#[derive(Debug)]
+struct RollbackGuard<'a> {
+    immutable_tip: Point,
+    kind: StateRecovery<'a>,
+}
+
+#[derive(Debug)]
+enum StateRecovery<'a> {
+    /// A rollback to the immutable tip cleared the whole window; the entire pre-rollback volatile
+    /// is moved out (via [`VolatileDB::take`]) and restored wholesale.
+    RecoverWholeVolatileDB { volatile: Box<VolatileDB> },
+    /// A rollback within the volatile window; only the discarded parts are captured.
+    RecoverVolatileDBPart { recovery: Box<volatile::RollbackGuard<'a>> },
 }
 
 // Errors

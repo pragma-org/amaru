@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, fmt::Display};
+use std::{borrow::Cow, fmt, fmt::Display};
 
-use amaru_kernel::{Block, Certificate, TransactionBody};
+use amaru_kernel::{Block, Certificate, GovernanceAction, Proposal, TransactionBody, parse_reward_account};
 use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
@@ -55,6 +55,9 @@ pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transa
     certificates.for_each(|certificate| prepare_certificate(context, certificate));
 
     prepare_votes(context, transaction);
+
+    let gov_actions = transaction.proposals.as_deref().unwrap_or(&[]).iter();
+    gov_actions.for_each(|action| prepare_governance_action(context, action));
 }
 
 /// Collect and require the inputs from a single transaction.
@@ -70,9 +73,10 @@ fn prepare_withdrawals<'a>(context: &mut impl PreparationContext<'a>, transactio
     let Some(withdrawals) = transaction.withdrawals.as_ref() else {
         return;
     };
-    for (reward_account, _) in withdrawals.iter() {
-        context.require_withdrawal(reward_account);
-    }
+    withdrawals
+        .iter()
+        .filter_map(|(bytes, _)| parse_reward_account(bytes))
+        .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
 }
 
 /// Collect and require the proposals a transaction votes on.
@@ -87,12 +91,20 @@ fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a
     }
 }
 
+fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, proposal: &'a Proposal) {
+    if let GovernanceAction::TreasuryWithdrawals(withdrawals, _) = &proposal.gov_action {
+        withdrawals
+            .iter()
+            .filter_map(|withdrawal| parse_reward_account(&withdrawal.0))
+            .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
+    }
+}
 /// Collect and require values from a single certificate.
 fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificate: &'a Certificate) {
     match certificate {
         Certificate::StakeDelegation(credential, pool_key_hash)
         | Certificate::StakeRegDeleg(credential, pool_key_hash, _) => {
-            context.require_account(credential);
+            context.require_account(Cow::Borrowed(credential));
             context.require_pool(pool_key_hash);
         }
 
@@ -101,13 +113,13 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
 
         Certificate::StakeVoteDeleg(credential, pool_key_hash, drep)
         | Certificate::StakeVoteRegDeleg(credential, pool_key_hash, drep, _) => {
-            context.require_account(credential);
+            context.require_account(Cow::Borrowed(credential));
             context.require_pool(pool_key_hash);
             context.require_drep_delegation(drep);
         }
 
         Certificate::VoteRegDeleg(credential, drep, _) | Certificate::VoteDeleg(credential, drep) => {
-            context.require_account(credential);
+            context.require_account(Cow::Borrowed(credential));
             context.require_drep_delegation(drep);
         }
         Certificate::AuthCommitteeHot(cold_credential, _) | Certificate::ResignCommitteeCold(cold_credential, _) => {
@@ -121,7 +133,7 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
         Certificate::StakeRegistration(credential)
         | Certificate::Reg(credential, _)
         | Certificate::UnReg(credential, _)
-        | Certificate::StakeDeregistration(credential) => context.require_account(credential),
+        | Certificate::StakeDeregistration(credential) => context.require_account(Cow::Borrowed(credential)),
     };
 }
 

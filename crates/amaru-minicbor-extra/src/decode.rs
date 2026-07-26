@@ -14,7 +14,12 @@
 
 use std::fmt::Display;
 
-use minicbor::{data::Type, decode};
+use minicbor::{
+    data::{IanaTag, Type},
+    decode,
+};
+use num::One;
+use num_bigint::BigInt;
 
 use crate::cbor;
 
@@ -22,6 +27,29 @@ pub mod lazy;
 
 mod with_size;
 pub use with_size::*;
+
+/// Decode an arbitrary-precision integer, accepting both CBOR native integers and the tagged
+/// bignum forms (tag 2 for positive, tag 3 for negative).
+pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, cbor::decode::Error> {
+    if d.datatype()? == Type::Tag {
+        let tag = d.tag()?;
+        return match tag.try_into() {
+            Ok(iana @ (IanaTag::PosBignum | IanaTag::NegBignum)) => {
+                let mut bytes = Vec::new();
+                for chunk in d.bytes_iter()? {
+                    bytes.extend_from_slice(chunk?);
+                }
+
+                let magnitude = BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
+                Ok(if iana == IanaTag::PosBignum { magnitude } else { -magnitude - BigInt::one() })
+            }
+            _ => Err(cbor::decode::Error::message(format!("unexpected tag for bignum: {tag}"))),
+        };
+    }
+
+    let i: i128 = d.int()?.into();
+    Ok(BigInt::from(i))
+}
 
 // Misc
 // ----------------------------------------------------------------------------

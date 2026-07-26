@@ -126,7 +126,6 @@ jobs:
           set -euo pipefail
           ./target/release/amaru create-snapshots \
             --network "$AMARU_NETWORK" \
-            --force \
             ${INPUT_EPOCH:+--epoch "$INPUT_EPOCH"}
 
       - name: Publish snapshots to R2 and update manifest

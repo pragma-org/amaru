@@ -35,27 +35,60 @@ Other guiding principles:
   ```
 -->
 
-## v10.11.20260723 _[unreleased; planned for 2026-07-23]_
 
-### Fixed
+## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
-- **amaru**: process lifecycle no longer depends on the Tokio runtime to observe SIGINT/SIGTERM; first signal requests graceful shutdown (including main-thread stage abort), second signal force-exits (exit 130). Fixes hang during catch-up roll-forward ([#1061](https://github.com/pragma-org/amaru/pull/1061)).
+### Added
+
+- **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
+- **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
+- **amaru-consensus**: add events and metrics to track the performance of headers processing. ([#1005][])
+- **amaru-ledger**: benchmarks for key volatile db operations (roll forward, switch to fork and context preparation).
 
 ### Changed
 
+- **amaru**: use `zst` compression for all individual stake distribution snapshots.
 - **amaru**: removed `#[tokio::main]`; each subcommand builds its own Tokio runtime; signals are handled via `signal-hook` on the main thread (EDR 019). Unexpected consensus stage-graph death now exits non-zero. OpenTelemetry teardown is time-bounded.
+
+### Fixed
+
+- **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
+- **amaru-ledger**: validate stake pool exists when attempting to unregister ([#912][], [#1034][])
+- **amaru-consensus**: fix the recheck deferred headers loop ([#1078][], [#1082][])
+- **amaru**: process lifecycle no longer depends on the Tokio runtime to observe SIGINT/SIGTERM; first signal requests graceful shutdown (including main-thread stage abort), second signal force-exits (exit 130). Fixes hang during catch-up roll-forward ([#1061](https://github.com/pragma-org/amaru/pull/1061)).
+
+## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
 ### Added
 
 - **amaru-ledger**: trace spans for the ledger rules (phase-one and phase-two). ([#1056][])
 - **amaru-ledger**: run scripts in parallel within the same transaction. ([#1056][])
+- **amaru / amaru-node**: break out the `amaru-node` crate which can then be used as a library to embed Amaru into other applications. ([#1054](https://github.com/pragma-org/amaru/pull/1054))
+
+### Changed
+
+- **amaru**: move the `node reset` command under `dev ledger`, where it belongs. ([#1055][])
+
+### Removed
+
+- **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
+- **amaru**: no more separate `amaru-ledger` binary; associated commands have been moved into the main `amaru` binary under `amaru dev ledger`. ([#1064](https://github.com/pragma-org/amaru/pull/1064))
+
 
 ### Fixed
 
 - **amaru-ledger**: use effective collateral when collecting epoch fees for phase-2-invalid transactions. ([#1048][])
+- **amaru-consensus**: gracefully handle header validation deferral due to missing stake distribution, clock skew, or exceeding lead over block application; also switch back to block height for the latter. ([#1041][])
 - **amaru-consensus / amaru-protocols**: do not log an ERROR when block-fetch is paused because no upstream peers are connected yet; keep ERROR for real fetch timeouts after peers were contacted. ([#1050](https://github.com/pragma-org/amaru/issues/1050))
 - **amaru-plutus**: encoding divergence between rational number present in governance actions and those present in protocol parameters. ([#1053][])
 - **amaru-ledger**: restore some spans in the ledger at the debug level. ([#1056][])
+- **amaru**: make sure that switching to a new fork is atomic and recovers in case a block on the fork fails to validate ([#1009][])
+- **amaru**: bootstrap creates the chain DB at the current schema version instead of replaying migrations on an empty store (avoids a spurious migration warning). ([#1060](https://github.com/pragma-org/amaru/pull/1062))
+- **amaru-protocols**: delegate connection attempts to connector stage to avoid blocking the manager and allow up to 10 concurrent connections. ([#1058](https://github.com/pragma-org/amaru/pull/1058))
+- **amaru-consensus**: fix chainsync mini-protocol lifecycle handling in `track_peers` stage to properly clean up resources when stopping to sync from a peer. ([#1059](https://github.com/pragma-org/amaru/pull/1059))
+- **amaru-pure-stage**: simulation runtime now also guarantees delivery of scheduled messages; both runtimes enforce limit on priority messages in flight. ([#1066](https://github.com/pragma-org/amaru/pull/1066))
+- **amaru-uplc**: fixed the CBOR encoding of `-2^64`.
+- **amaru-ledger**: unbind accounts from deregistered pools. ([#1030][])
 
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
@@ -169,7 +202,10 @@ Other guiding principles:
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
+[#909]: https://github.com/pragma-org/amaru/issues/909
+[#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#929]: https://github.com/pragma-org/amaru/issues/929
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
@@ -184,6 +220,8 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1005]: https://github.com/pragma-org/amaru/pull/1005
+[#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
@@ -191,10 +229,20 @@ Other guiding principles:
 [#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
 [#1029]: https://github.com/pragma-org/amaru/pull/1029
+[#1030]: https://github.com/pragma-org/amaru/pull/1030
 [#1031]: https://github.com/pragma-org/amaru/pull/1031
+[#1032]: https://github.com/pragma-org/amaru/pull/1032
 [#1033]: https://github.com/pragma-org/amaru/pull/1033
+[#1034]: https://github.com/pragma-org/amaru/pull/1034
+[#1036]: https://github.com/pragma-org/amaru/pull/1036
+[#1037]: https://github.com/pragma-org/amaru/pull/1037
 [#1039]: https://github.com/pragma-org/amaru/pull/1039
+[#1041]: https://github.com/pragma-org/amaru/pull/1041
 [#1043]: https://github.com/pragma-org/amaru/pull/1043
 [#1048]: https://github.com/pragma-org/amaru/pull/1048
 [#1053]: https://github.com/pragma-org/amaru/pull/1053
+[#1055]: https://github.com/pragma-org/amaru/pull/1055
 [#1056]: https://github.com/pragma-org/amaru/pull/1056
+[#1060]: https://github.com/pragma-org/amaru/issues/1060
+[#1078]: https://github.com/pragma-org/amaru/issues/1078
+[#1082]: https://github.com/pragma-org/amaru/pull/1082

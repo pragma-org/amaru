@@ -23,23 +23,27 @@ use std::{
 };
 
 use amaru::{
-    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_LISTEN_ADDRESS, DEFAULT_UPSTREAM_PEERS, default_chain_dir, default_ledger_dir,
-    default_peer_for_network,
+    DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
     lifecycle::{Runnable, RuntimeKind, ShutdownHandle},
     metrics::track_system_metrics,
-    stages::{
-        build_node::build_and_run_node,
-        config::{Config, MaxExtraLedgerSnapshots, StoreType},
-    },
 };
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
 use amaru_mempool::MempoolConfig;
+use amaru_metrics::METRICS_METER_NAME;
+use amaru_node::{
+    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
+    stages::{
+        build_node::build_and_run_node,
+        config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
+    },
+};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::anyhow;
 use clap::{self, ArgAction, Parser};
+use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use thiserror::Error;
@@ -173,7 +177,7 @@ pub struct Args {
         long,
         value_name = amaru::value_names::UINT,
         env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-        default_value_t = amaru::DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+        default_value_t = DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
         display_order = 0,
         help_heading = "Advanced Options",
     )]
@@ -262,7 +266,8 @@ async fn run(
     pre_flight_checks()?;
 
     let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
-    let running = build_and_run_node(config, meter_provider)?;
+    let meter = meter_provider.map(|mp| mp.meter(METRICS_METER_NAME));
+    let running = build_and_run_node(config, meter)?;
 
     // Main-thread signal path can abort stages without scheduling this future.
     let running_for_abort = running.clone();
@@ -337,7 +342,7 @@ async fn start_submit_api(
         return Ok(None);
     };
     let shutdown = exit.child_token();
-    let (handle, _) = amaru::submit_api::start(addr, mempool_sender, shutdown).await?;
+    let (handle, _) = amaru_node::submit_api::start(addr, mempool_sender, shutdown).await?;
     Ok(Some(handle))
 }
 
@@ -431,17 +436,20 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     );
 
     Ok(Config {
-        ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+        ledger_config: LedgerConfig {
+            ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+            network: args.network,
+            global_parameters,
+            era_history,
+            max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+            ..LedgerConfig::default()
+        },
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: peer_address,
         target_upstream_peers: args.upstream_peers,
         target_downstream_peers: args.downstream_peers,
-        network: args.network,
         network_magic: args.network.to_network_magic(),
-        era_history,
-        global_parameters,
         listen_address: args.listen_address,
-        max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
         submit_api_address: args.submit_api_address,
         trace_buffer_min_entries,

@@ -14,12 +14,12 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{Hash, Lovelace, PoolId, Slot, size::VRF_KEY};
+use amaru_kernel::{Epoch, Hash, Lovelace, PoolId, size::VRF_KEY};
 
-use crate::{HasStakeDistribution, PoolSummary, has_stake_distribution::GetPoolError};
+use crate::{PoolSummaries, PoolSummary};
 
-/// A mock implementing the HasStakeDistribution trait, suitable to validate a single block header
-/// with default parameters.
+/// Helper for tests. Use `to_pool_summaries` (with the pool id of the header issuer) to
+/// obtain a `PoolSummaries` that will answer for the given pool.
 pub struct MockLedgerState {
     pub vrf_vkey_hash: Hash<VRF_KEY>,
     pub stake: Lovelace,
@@ -32,10 +32,15 @@ impl MockLedgerState {
     pub fn new(vrf_vkey_hash: &str, stake: Lovelace, active_stake: Lovelace) -> Self {
         Self { vrf_vkey_hash: vrf_vkey_hash.parse().unwrap(), stake, active_stake, op_certs: Default::default() }
     }
-}
 
-impl HasStakeDistribution for MockLedgerState {
-    fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Result<Option<PoolSummary>, GetPoolError> {
-        Ok(Some(PoolSummary { vrf: self.vrf_vkey_hash, stake: self.stake, active_stake: self.active_stake }))
+    /// Build a PoolSummaries that will return the mocked data for the specified pool at epoch 0.
+    /// Tests that validate headers should ensure the era_history used with get_pool maps the
+    /// header's slot such that (slot_epoch - 2) == 0, or populate additional epochs.
+    pub fn to_pool_summaries(&self, pool: PoolId, epoch: Epoch) -> PoolSummaries {
+        let mut pools = BTreeMap::new();
+        pools.insert(pool, PoolSummary { vrf: self.vrf_vkey_hash, stake: self.stake, active_stake: self.active_stake });
+        let mut by_epoch = BTreeMap::new();
+        by_epoch.insert(epoch, pools);
+        PoolSummaries { by_epoch }
     }
 }

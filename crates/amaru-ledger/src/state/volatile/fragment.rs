@@ -31,23 +31,22 @@ use crate::{
     },
     store::{self, columns::*},
 };
-
 // ----------------------------------------------------------------------------------- VolatileFragment
 
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
 pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
 
 /// A DRep's accumulated binding: metadata anchor, and the DRep registration data.
-pub type DRepBind = Bind<Anchor, Empty, Arc<DRepRegistration>>;
+pub type DRepBind = Bind<Anchor, Empty, DRepRegistration>;
 
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.
-pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Empty>;
+pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Epoch>;
 
 /// A volatile layer's verdict on an entity.
 /// - `T` is the resolved record.
 /// - `Gone` is a tombstone, so don't fall back to the stable store.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Existence<T> {
     Exists(T),
     Gone,
@@ -88,12 +87,12 @@ impl<L, R, V> Existence<Bind<L, R, V>> {
 }
 
 /// Resulting state change coming from processing a block.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, Arc<DRepRegistration>>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
@@ -138,7 +137,7 @@ impl VolatileFragment {
     /// entry is a live tombstone.
     pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
         if let Some(bind) = self.dreps.registered.get(credential) {
-            Existence::Exists(bind.clone())
+            Existence::Exists(bind.to_owned())
         } else if self.dreps.unregistered.contains(credential) {
             Existence::Gone
         } else {
@@ -157,7 +156,7 @@ impl VolatileFragment {
                 value: None,
             })
         } else if self.committee.consumed.contains(credential) {
-            Existence::Gone
+            Existence::Exists(Bind { left: Resettable::Reset, right: Resettable::Unchanged, value: None })
         } else {
             Existence::Unknown
         }
@@ -257,7 +256,7 @@ impl VolatileFragment {
 // --------------------------------------------------------------------------- AnchoredVolatileFragment
 
 /// A [`VolatileFragment`] anchored to a specific point and block issuer.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AnchoredVolatileFragment {
     pub anchor: (Tip, PoolId),
     pub fragment: VolatileFragment,
@@ -410,17 +409,24 @@ pub(crate) fn add_accounts(
         Item = (StakeCredential, Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>),
     >,
 ) -> impl Iterator<Item = (accounts::Key, accounts::Value)> {
-    iterator
-        .map(|(credential, Bind { left: pool, right: drep, value: deposit })| (credential, (pool, drep, deposit, 0)))
+    iterator.map(|(credential, Bind { left: pool, right: drep, value: deposit })| {
+        // A bound deposit denotes a (re-)registration within the window (see DiffBind::register);
+        // without one, only delegations changed and the account is known to exist already.
+        let value = match deposit {
+            Some(deposit) => accounts::Value::Create { pool, drep, deposit, rewards: 0 },
+            None => accounts::Value::Update { pool, drep },
+        };
+        (credential, value)
+    })
 }
 
 // ------------------------------------------------------------------------------------------- DReps
 
 pub(crate) fn add_dreps(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, Arc<DRepRegistration>>)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(move |(credential, Bind { left: anchor, right: _, value: registration }): (_, Bind<_, Empty, _>)| {
-        (credential, (anchor, registration.map(Arc::unwrap_or_clone)))
+        (credential, (anchor, registration))
     })
 }
 

@@ -24,7 +24,9 @@ use crate::{
     blockfetch::{
         self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator, register_blockfetch_responder,
     },
-    chainsync::{self, ChainSyncInitiatorMsg, register_chainsync_initiator, register_chainsync_responder},
+    chainsync::{
+        self, ChainSyncInitiatorMsg, InitiatorResult, register_chainsync_initiator, register_chainsync_responder,
+    },
     handshake,
     keepalive::register_keepalive,
     manager::{ManagerConfig, ManagerMessage},
@@ -107,14 +109,31 @@ struct StateResponder {
     blockfetch_responder: StageRef<StreamBlocks>,
 }
 
+/// Identity of a supervised child stage of a connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ChildId {
+    Mux,
+    Handshake,
+    KeepAlive,
+    TxSubmission,
+    ChainSync,
+    BlockFetch,
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConnectionMessage {
     Initialize,
     Disconnect,
     Handshake(HandshakeResult),
-    FetchBlocks { from: Point, through: Point, id: u64, cr: StageRef<Blocks> },
+    FetchBlocks {
+        from: Point,
+        through: Point,
+        id: u64,
+        cr: StageRef<Blocks>,
+    },
     NewTip(Tip, TraceContext),
-    // LATER: make full duplex, etc.
+    /// A supervised mini-protocol or mux stage terminated.
+    ChildDied(ChildId),
 }
 
 impl ConnectionMessage {
@@ -125,6 +144,7 @@ impl ConnectionMessage {
             ConnectionMessage::Handshake(_) => "Handshake",
             ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
             ConnectionMessage::NewTip(_, _) => "NewTip",
+            ConnectionMessage::ChildDied(_) => "ChildDied",
         }
     }
 
@@ -145,7 +165,13 @@ pub async fn stage(
 
     async move {
         let state = match (state, msg) {
-            (_, ConnectionMessage::Disconnect) => return eff.terminate().await,
+            (state, ConnectionMessage::Disconnect) => {
+                return teardown(state, &params, &eff).await;
+            }
+            (state, ConnectionMessage::ChildDied(child)) => {
+                tracing::info!(?child, peer = %params.peer, conn_id = %params.conn_id, "connection child died");
+                return teardown(state, &params, &eff).await;
+            }
             (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
             (State::Handshake { muxer, handshake }, ConnectionMessage::Handshake(handshake_result)) => {
                 do_handshake(&params, muxer, params.pipeline.clone(), handshake, handshake_result, eff).await
@@ -189,16 +215,46 @@ pub async fn stage(
     .await
 }
 
+/// Notify track_peers that the initiator chainsync session ended, then terminate this connection.
+///
+/// Parent termination aborts children without delivering their tombstones, so the chainsync
+/// purge signal must be sent explicitly here whenever an initiator session may have been started.
+async fn teardown(state: State, params: &Params, eff: &Effects<ConnectionMessage>) -> Connection {
+    match state {
+        State::Initiator(..) => {
+            notify_chainsync_terminated(params, eff).await;
+        }
+        State::Initial | State::Handshake { .. } | State::Responder(_) => {}
+    }
+    eff.terminate().await
+}
+
+async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMessage>) {
+    eff.send(
+        &params.pipeline,
+        ChainSyncInitiatorMsg {
+            peer: params.peer.clone(),
+            conn_id: params.conn_id,
+            handler: StageRef::blackhole(),
+            msg: InitiatorResult::Terminated,
+        },
+    )
+    .await;
+}
+
 async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effects<ConnectionMessage>) -> State {
     let muxer = eff.stage("mux", mux::stage).await;
+    let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
     let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role)).await;
 
     let handshake_result = eff.contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake).await;
 
     let handshake = match role {
         Role::Initiator => {
+            let hs = eff.stage("handshake", handshake::initiator()).await;
+            let hs = eff.supervise(hs, ConnectionMessage::ChildDied(ChildId::Handshake));
             eff.wire_up(
-                eff.stage("handshake", handshake::initiator()).await,
+                hs,
                 handshake::HandshakeInitiator::new(
                     muxer.clone(),
                     handshake_result,
@@ -208,8 +264,10 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
             .await
         }
         Role::Responder => {
+            let hs = eff.stage("handshake", handshake::responder()).await;
+            let hs = eff.supervise(hs, ConnectionMessage::ChildDied(ChildId::Handshake));
             eff.wire_up(
-                eff.stage("handshake", handshake::responder()).await,
+                hs,
                 handshake::HandshakeResponder::new(
                     muxer.clone(),
                     handshake_result,
@@ -237,7 +295,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
 async fn do_handshake(
     Params { role, peer, conn_id, manager, era_history, mempool_stage, config, .. }: &Params,
     muxer: StageRef<MuxMessage>,
-    pipeline: StageRef<ChainSyncInitiatorMsg>,
+    pipeline_ref: StageRef<ChainSyncInitiatorMsg>,
     handshake: StageRef<Inputs<Void>>,
     handshake_result: HandshakeResult,
     eff: Effects<ConnectionMessage>,
@@ -271,7 +329,8 @@ async fn do_handshake(
     )
     .await;
 
-    let keepalive = register_keepalive(*role, muxer.clone(), &eff).await;
+    let keepalive =
+        register_keepalive(*role, muxer.clone(), &eff, ConnectionMessage::ChildDied(ChildId::KeepAlive)).await;
     let tx_submission = register_tx_submission(
         *role,
         muxer.clone(),
@@ -280,12 +339,28 @@ async fn do_handshake(
         mempool_stage.clone(),
         config.tx_submission_params,
         era_history.clone(),
+        ConnectionMessage::ChildDied(ChildId::TxSubmission),
     )
     .await;
 
     if *role == Role::Initiator {
-        let chainsync_initiator = register_chainsync_initiator(&muxer, peer.clone(), *conn_id, pipeline, &eff).await;
-        let blockfetch_initiator = register_blockfetch_initiator(&muxer, peer.clone(), *conn_id, &eff).await;
+        let chainsync_initiator = register_chainsync_initiator(
+            &muxer,
+            peer.clone(),
+            *conn_id,
+            pipeline_ref,
+            &eff,
+            ConnectionMessage::ChildDied(ChildId::ChainSync),
+        )
+        .await;
+        let blockfetch_initiator = register_blockfetch_initiator(
+            &muxer,
+            peer.clone(),
+            *conn_id,
+            &eff,
+            ConnectionMessage::ChildDied(ChildId::BlockFetch),
+        )
+        .await;
         State::Initiator(StateInitiator {
             chainsync_initiator,
             blockfetch_initiator,
@@ -299,8 +374,17 @@ async fn do_handshake(
     } else {
         let store = Store::new(eff.clone());
         let upstream = store.get_best_chain_tip().await;
-        let chainsync_responder = register_chainsync_responder(&muxer, upstream, peer.clone(), *conn_id, &eff).await;
-        let blockfetch_responder = register_blockfetch_responder(&muxer, &eff).await;
+        let chainsync_responder = register_chainsync_responder(
+            &muxer,
+            upstream,
+            peer.clone(),
+            *conn_id,
+            &eff,
+            ConnectionMessage::ChildDied(ChildId::ChainSync),
+        )
+        .await;
+        let blockfetch_responder =
+            register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
 
         State::Responder(StateResponder {
             chainsync_responder,

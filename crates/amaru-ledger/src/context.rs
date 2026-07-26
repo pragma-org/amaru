@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt,
     marker::PhantomData,
@@ -21,14 +22,14 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Value, Vote, Voter,
+    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
 use thiserror::Error;
 
-use crate::{governance::ratification::ProposalsRoots, state::diff_bind, store::StoreError};
+use crate::{state::diff_bind, store::StoreError};
 
 pub(crate) mod assert;
 mod default;
@@ -185,8 +186,7 @@ pub trait PoolsSlice {
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
 
-    // FIXME: Should yield an error when pool doesn't exists.
-    fn retire(&mut self, pool: PoolId, epoch: Epoch);
+    fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
 }
 
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
@@ -241,11 +241,7 @@ pub trait AccountsSlice {
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.
 pub trait PrepareAccountsSlice<'a> {
-    fn require_account(&mut self, credential: &'a StakeCredential);
-
-    /// Require the account behind a withdrawal. The reward account is parsed to a credential at
-    /// resolution, so the borrowed bytes are collected rather than a credential.
-    fn require_withdrawal(&mut self, reward_account: &'a RewardAccount);
+    fn require_account(&mut self, credential: Cow<'a, StakeCredential>);
 }
 
 // DRep

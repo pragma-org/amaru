@@ -108,6 +108,11 @@ jobs:
       - name: benches headers_tree
         shell: bash
         run: cargo bench --bench headers_tree --features="test-utils profiling"
+      - name: benches volatile_db
+        shell: bash
+        run: cargo bench --bench volatile_db
+        env:
+          AMARU_BENCH_BLOCK_SIZE: 4096
 
   trace-schemas:
     name: Test trace schemas & documentation

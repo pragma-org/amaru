@@ -23,7 +23,11 @@ use std::{
 };
 
 use amaru::{default_data_dir, default_snapshots_dir};
-use amaru_kernel::{Epoch, NetworkName, Point, Slot, utils, utils::path::relative_path};
+use amaru_kernel::{
+    Epoch, NetworkName, Point, Slot,
+    num::{CheckedAdd, CheckedSub},
+    utils::{self, path::relative_path},
+};
 use amaru_mithril::{
     chunk_for_slot, download_from_mithril, extract_block_header_cbor, first_missing_immutable_chunk,
     parse_header_slot_and_hash,
@@ -31,7 +35,6 @@ use amaru_mithril::{
 use amaru_observability::info;
 use anyhow::anyhow;
 use clap::{ArgAction, Parser};
-use num::{CheckedAdd, CheckedSub};
 use serde::{Deserialize, Serialize};
 
 mod archive;

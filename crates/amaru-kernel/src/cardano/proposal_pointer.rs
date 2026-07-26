@@ -14,7 +14,7 @@
 
 use crate::{Slot, TransactionPointer, cbor};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct ProposalPointer {
     pub transaction: TransactionPointer,
     pub proposal_index: usize,

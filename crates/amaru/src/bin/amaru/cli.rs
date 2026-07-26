@@ -50,7 +50,7 @@ pub(crate) enum Command {
     LegacyBootstrap(cmd::node::bootstrap::Args),
 
     #[command(hide = true, name = "reset-to-epoch")]
-    LegacyResetToEpoch(cmd::node::reset::Args),
+    LegacyResetToEpoch(cmd::dev::ledger::reset::Args),
 
     #[command(hide = true, name = "create-snapshots")]
     LegacyCreateSnapshots(cmd::snapshot::create::Args),
@@ -85,7 +85,7 @@ impl Command {
             // Legacy top-level aliases: same behaviour as their modern counterparts.
             Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::runnable(args, metrics),
             Command::LegacyBootstrap(args) => cmd::node::bootstrap::runnable(args),
-            Command::LegacyResetToEpoch(args) => cmd::node::reset::runnable(args),
+            Command::LegacyResetToEpoch(args) => cmd::dev::ledger::reset::runnable(args),
             Command::LegacyCreateSnapshots(args) => cmd::snapshot::create::runnable(args),
             Command::LegacyDumpChainDB(args) => cmd::dev::chain::dump::runnable(args),
             Command::LegacyRemoveValidationStatus(args) => cmd::dev::chain::clear_invalid::runnable(args),

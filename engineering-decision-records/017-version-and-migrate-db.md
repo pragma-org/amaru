@@ -19,7 +19,7 @@ status: accepted
 * The current version is a constant `CHAIN_DB_VERSION` in the code
 * When Amaru starts from an existing database it will check its version and if the binary and stored versions don't match, will refuse to start with a message
 * We provide a `migrate-chain-db` command that gives user the possibility to migrate an existing database up to the currently supported version
-* When bootstrapping Amaru from scratch, we make sure to migrate the (empty) database being bootstrapped
+* When bootstrapping Amaru from scratch, we create a fresh database already at the current `CHAIN_DB_VERSION` (no migration of an empty DB)
 * When migrating a database, we record the execution of each _migration step_ in the database with some metadata (timestamp, git commit, name of step)
 
 ## Consequences

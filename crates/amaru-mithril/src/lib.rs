@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use flate2::{Compression, GzBuilder};
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 use mithril_client::{
-    ClientBuilder, MessageBuilder,
+    ClientBuilder, GenesisVerificationKey, MessageBuilder,
     cardano_database_client::{DownloadUnpackOptions, ImmutableFileRange},
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
@@ -150,7 +150,8 @@ pub async fn download_from_mithril(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let progress_bar = MultiProgress::new();
     let AggregatorDetails { endpoint, verification_key } = aggregator_details(network)?;
-    let client = ClientBuilder::aggregator(endpoint, verification_key)
+    let client = ClientBuilder::new(mithril_client::AggregatorDiscoveryType::Url(endpoint.to_string()))
+        .set_genesis_verification_key(GenesisVerificationKey::JsonHex(verification_key.into()))
         .with_origin_tag(Some("AMARU".to_string()))
         .add_feedback_receiver(Arc::new(IndicatifFeedbackReceiver::new(&progress_bar)))
         .build()?;

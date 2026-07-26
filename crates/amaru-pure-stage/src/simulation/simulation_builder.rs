@@ -41,6 +41,7 @@ use std::{
     future::Future,
     marker::PhantomData,
     sync::{Arc, atomic::AtomicU64},
+    time::Duration,
 };
 
 use parking_lot::Mutex;
@@ -48,7 +49,8 @@ use rand::{SeedableRng, prelude::StdRng};
 use tokio::runtime::Builder;
 
 use crate::{
-    BLACKHOLE_NAME, Clock, Name, Resources, ScheduleIds, SendData, Sender, StageBuildRef, StageGraph, StageRef,
+    BLACKHOLE_NAME, Clock, EPOCH, Instant, Name, PRIORITY_MAILBOX_SIZE, Resources, ScheduleIds, SendData, Sender,
+    StageBuildRef, StageGraph, StageRef,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::{Effects, StageEffect},
     effect_box::EffectBox,
@@ -117,9 +119,11 @@ pub struct SimulationBuilder {
     stage_counter: usize,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
+    global_epoch_offset: Duration,
     resources: Resources,
     schedule_ids: ScheduleIds,
     mailbox_size: usize,
+    priority_mailbox_size: usize,
     inputs: Inputs,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     eval_strategy: Box<dyn EvalStrategy>,
@@ -131,6 +135,15 @@ impl SimulationBuilder {
         self
     }
 
+    /// Set the maximum number of undelivered self-scheduled messages allowed per stage.
+    ///
+    /// Defaults to [`PRIORITY_MAILBOX_SIZE`]. Exceeding the limit
+    /// panics so schedule storms fail loudly.
+    pub fn with_priority_mailbox_size(mut self, size: usize) -> Self {
+        self.priority_mailbox_size = size;
+        self
+    }
+
     pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
         self.trace_buffer = trace_buffer;
         self
@@ -138,6 +151,21 @@ impl SimulationBuilder {
 
     pub fn with_epoch_clock(mut self) -> Self {
         self.clock = Arc::new(AtomicU64::new(0));
+        self
+    }
+
+    /// Set the global epoch offset for this simulation.
+    /// Instants produced by this simulation's clock will have `duration_since_global_epoch`
+    /// return sim_elapsed + this offset. This is used for Cardano slot arithmetic relative to
+    /// `GlobalParameters::system_start`.
+    pub fn with_global_epoch_offset(mut self, offset: Duration) -> Self {
+        self.global_epoch_offset = offset;
+        self
+    }
+
+    pub fn with_initial_clock(mut self, t: Instant) -> Self {
+        let nanos = t.inner.saturating_duration_since(*EPOCH).as_nanos() as u64;
+        self.clock = Arc::new(AtomicU64::new(nanos));
         self
     }
 
@@ -172,11 +200,13 @@ impl SimulationBuilder {
                     StageData {
                         name,
                         mailbox: data.mailbox,
+                        priority: VecDeque::new(),
                         tombstones: VecDeque::new(),
                         state,
                         transition: data.transition,
                         waiting: Some(StageEffect::Receive),
                         senders: VecDeque::new(),
+                        scheduled_pending: 0,
                         supervised_by: BLACKHOLE_NAME.clone(),
                         tombstone: None,
                     },
@@ -192,8 +222,10 @@ impl SimulationBuilder {
             stage_counter,
             effect,
             clock,
+            global_epoch_offset,
             resources,
             mailbox_size,
+            priority_mailbox_size,
             inputs,
             schedule_ids,
             trace_buffer,
@@ -223,11 +255,13 @@ impl SimulationBuilder {
             let data = StageOrAdapter::Stage(StageData {
                 name: name.clone(),
                 mailbox,
+                priority: VecDeque::new(),
                 tombstones: VecDeque::new(),
                 state,
                 transition,
                 waiting: Some(StageEffect::Receive),
                 senders: VecDeque::new(),
+                scheduled_pending: 0,
                 supervised_by: BLACKHOLE_NAME.clone(),
                 tombstone: None,
             });
@@ -240,9 +274,11 @@ impl SimulationBuilder {
             clock,
             resources,
             mailbox_size,
+            priority_mailbox_size,
             schedule_ids,
             trace_buffer,
             eval_strategy,
+            global_epoch_offset,
         )
     }
 }
@@ -256,8 +292,10 @@ impl Default for SimulationBuilder {
             stage_counter: 0,
             effect: Default::default(),
             clock,
+            global_epoch_offset: Duration::ZERO,
             resources: Resources::default(),
             mailbox_size: 10,
+            priority_mailbox_size: PRIORITY_MAILBOX_SIZE,
             inputs: Inputs::new(10),
             schedule_ids: ScheduleIds::new(),
             // default is a TraceBuffer that drops all messages
@@ -282,6 +320,7 @@ impl StageGraph for SimulationBuilder {
             me,
             self.effect.clone(),
             self.clock.clone(),
+            self.global_epoch_offset,
             self.resources.clone(),
             self.schedule_ids.clone(),
             self.trace_buffer.clone(),

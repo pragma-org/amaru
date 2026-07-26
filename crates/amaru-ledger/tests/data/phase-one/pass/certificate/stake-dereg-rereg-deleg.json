@@ -1,12 +1,12 @@
 {
-  "title": "stake-dereg-rereg-deleg",
+  "title": "deregister re-register then delegate succeeds",
   "description": "Deregister, re-register, then delegate in the same transaction.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [
@@ -32,6 +32,6 @@
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "83bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a00493e00ff021a00030d4004d901028382018200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec83078200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec1a001e848083028200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd0800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840ea64e6e05584f3d588f574196daad734cfc20863d552c6442b0bbb312596409e65226af6666e3e2cd8be38213248228dc3c82926dd6bc022fdeb6ef570d2dd00f5",
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a00493e00ff021a00030d4004d901028382018200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec83078200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec1a001e848083028200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd0800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840ea64e6e05584f3d588f574196daad734cfc20863d552c6442b0bbb312596409e65226af6666e3e2cd8be38213248228dc3c82926dd6bc022fdeb6ef570d2dd00f5f6",
   "expected": "Pass"
 }

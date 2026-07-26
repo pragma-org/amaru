@@ -18,14 +18,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru::{
-    lifecycle::{Runnable, RuntimeKind},
-    version,
-};
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use clap::Parser;
 use clap_complete::{Shell, generate};
 
-use crate::cli;
+use crate::{cli, version};
 
 #[derive(Debug, Parser)]
 pub struct Args {

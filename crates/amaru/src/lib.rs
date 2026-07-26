@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,12 +28,7 @@ pub mod lifecycle;
 pub mod metrics;
 pub mod observability;
 pub mod panic;
-pub mod stages;
-pub mod submit_api;
 pub mod version;
-
-#[cfg(any(test, feature = "test-utils"))]
-pub mod tests;
 
 pub const SNAPSHOTS_DIR: &str = "snapshots";
 
@@ -52,10 +47,6 @@ pub const PREVIEW_DEFAULT_PEER_ADDRESS: &str = "preview-node.play.dev.cardano.or
 pub const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 
 pub const DEFAULT_CONFIG_DIR: &str = "data";
-
-pub const DEFAULT_PEER_REMOVAL_COOLDOWN_SECS: u64 = 600; // 10 minutes
-pub const DEFAULT_UPSTREAM_PEERS: usize = 3;
-pub const DEFAULT_DOWNSTREAM_PEERS: usize = 10;
 
 const SNAPSHOTS_PATH: &str = "snapshots";
 const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";

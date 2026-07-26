@@ -27,9 +27,7 @@ pub trait CanValidateBlocks: Send + Sync {
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
-    fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;
-
-    fn contains_point(&self, point: &Point) -> bool;
+    fn switch_to_fork(&self, to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn tip(&self) -> Point;
 

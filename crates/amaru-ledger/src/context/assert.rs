@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     mem,
 };
@@ -20,7 +21,7 @@ use std::{
 use amaru_kernel::{
     Anchor, AsHash, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, StakeCredentialKind, TransactionInput, Value,
+    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, StakeCredentialKind, TransactionInput, Value,
     Vote, Voter, VoterKind,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
@@ -28,14 +29,11 @@ use amaru_kernel::{
 };
 use tracing::instrument;
 
-use crate::{
-    context::{
-        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice,
-        PreparePoolsSlice, PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
-        UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
-    },
-    governance::ratification::ProposalsRoots,
+use crate::context::{
+    AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
+    PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice,
+    PrepareProposalsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
+    ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
 };
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -82,11 +80,7 @@ impl PreparePoolsSlice<'_> for AssertPreparationContext {
 }
 
 impl PrepareAccountsSlice<'_> for AssertPreparationContext {
-    fn require_account(&mut self, _credential: &StakeCredential) {
-        unimplemented!();
-    }
-
-    fn require_withdrawal(&mut self, _reward_account: &RewardAccount) {
+    fn require_account(&mut self, _credential: Cow<'_, StakeCredential>) {
         unimplemented!();
     }
 }
@@ -175,7 +169,7 @@ impl PoolsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn retire(&mut self, _pool: PoolId, _epoch: Epoch) {
+    fn retire(&mut self, _pool: PoolId, _epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>> {
         unimplemented!()
     }
 }

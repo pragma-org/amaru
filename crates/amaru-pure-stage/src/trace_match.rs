@@ -18,9 +18,12 @@
 //! predicate, along with ergonomic assertion helpers and `tm_*` constructors
 //! (the matching counterparts to the `te_*` effect constructors).
 
-use std::fmt;
+use std::{fmt, time::Duration};
 
-use crate::{Effect, Name, SendData, serde::SendDataValue, simulation::SimulationRunning, trace_buffer::TraceEntry};
+use crate::{
+    EPOCH, Effect, ExternalEffect, Name, SendData, serde::SendDataValue, simulation::SimulationRunning,
+    trace_buffer::TraceEntry,
+};
 
 /// A matcher for a [`TraceEntry`].
 ///
@@ -82,6 +85,26 @@ pub fn tm_state<T: SendData + Clone>(stage: impl AsRef<str>, state: &T) -> Trace
     TraceEntry::State { stage: Name::from(stage.as_ref()), state: Box::new(state.clone()) }.into()
 }
 
+/// Creates a `TraceMatch` for a state entry.
+pub fn tm_state_match<'a, T: SendData>(stage: &'a str, predicate: impl Fn(&T) -> bool + Send + 'a) -> TraceMatch<'a> {
+    let description = format!("State(stage: {:?}, state matching {})", stage, std::any::type_name::<T>());
+    TraceMatch::Property(
+        Box::new(move |entry| {
+            let TraceEntry::State { stage: s, state } = entry else {
+                return false;
+            };
+            if s.as_str() != stage {
+                return false;
+            }
+            let Ok(typed) = state.as_ref().cast_ref::<T>() else {
+                return false;
+            };
+            predicate(typed)
+        }),
+        description,
+    )
+}
+
 /// Creates a `TraceMatch` for an input entry.
 pub fn tm_input<T: SendData + Clone>(stage: impl AsRef<str>, input: &T) -> TraceMatch<'static> {
     TraceEntry::Input { stage: Name::from(stage.as_ref()), input: Box::new(input.clone()) }.into()
@@ -92,11 +115,10 @@ pub fn tm_send<'a>(from: &'a str, to: &'a str, msg: impl SendData) -> TraceMatch
     let description = format!("Send(from: {:?}, to: {:?}, msg: {:?})", from, to, &msg);
     TraceMatch::Property(
         Box::new(move |entry| {
-            if let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg: m }) = entry {
-                f.as_str() == from && t.as_str().contains(to) && msg.test_eq(&**m)
-            } else {
-                false
-            }
+            let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg: m }) = entry else {
+                return false;
+            };
+            f.as_str() == from && t.as_str().contains(to) && msg.test_eq(&**m)
         }),
         description,
     )
@@ -106,11 +128,10 @@ pub fn tm_send_type<'a, T: SendData>(from: &'a str, to: &'a str) -> TraceMatch<'
     let description = format!("Send(from: {:?}, to: {:?}, msg of type {})", from, to, std::any::type_name::<T>());
     TraceMatch::Property(
         Box::new(move |entry| {
-            if let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg }) = entry {
-                f.as_str() == from && t.as_str().contains(to) && msg.as_ref().type_id() == std::any::TypeId::of::<T>()
-            } else {
-                false
-            }
+            let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg }) = entry else {
+                return false;
+            };
+            f.as_str() == from && t.as_str().contains(to) && msg.as_ref().type_id() == std::any::TypeId::of::<T>()
         }),
         description,
     )
@@ -129,14 +150,16 @@ pub fn tm_send_match<'a, T: SendData>(
     let description = format!("Send(from: {:?}, to: {:?}, msg matching {})", from, to, std::any::type_name::<T>());
     TraceMatch::Property(
         Box::new(move |entry| {
-            if let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg }) = entry {
-                if f.as_str() != from || !t.as_str().contains(to) {
-                    return false;
-                }
-                if let Ok(typed) = msg.as_ref().cast_ref::<T>() { predicate(typed) } else { false }
-            } else {
-                false
+            let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg }) = entry else {
+                return false;
+            };
+            if f.as_str() != from || !t.as_str().contains(to) {
+                return false;
             }
+            let Ok(typed) = msg.as_ref().cast_ref::<T>() else {
+                return false;
+            };
+            predicate(typed)
         }),
         description,
     )
@@ -162,11 +185,10 @@ pub fn tm_wire_stage<'a>(parent: &'a str, child: &'a str) -> TraceMatch<'a> {
     let description = format!("WireStage(at_stage: {:?}, name: {:?})", parent, child);
     TraceMatch::Property(
         Box::new(move |entry| {
-            if let TraceEntry::Suspend(Effect::WireStage { at_stage, name, .. }) = entry {
-                parent == at_stage.as_str() && name.as_str().contains(child)
-            } else {
-                false
-            }
+            let TraceEntry::Suspend(Effect::WireStage { at_stage, name, .. }) = entry else {
+                return false;
+            };
+            parent == at_stage.as_str() && name.as_str().contains(child)
         }),
         description,
     )
@@ -176,16 +198,15 @@ pub fn tm_wire_stage_state<'a, T: SendData>(parent: &'a str, child: &'a str, sta
     let description = format!("WireStage(at_stage: {:?}, name: {:?}, state: {:?})", parent, child, state);
     TraceMatch::Property(
         Box::new(move |entry| {
-            if let TraceEntry::Suspend(Effect::WireStage { at_stage, name, initial_state, tombstone }) = entry {
-                parent == at_stage.as_str()
-                    && name.as_str().contains(child)
-                    && state.test_eq(&**initial_state)
-                    && tombstone
-                        .cast_ref::<SendDataValue>()
-                        .is_ok_and(|v| v.typetag == "amaru_pure_stage::effect::CanSupervise")
-            } else {
-                false
-            }
+            let TraceEntry::Suspend(Effect::WireStage { at_stage, name, initial_state, tombstone }) = entry else {
+                return false;
+            };
+            parent == at_stage.as_str()
+                && name.as_str().contains(child)
+                && state.test_eq(&**initial_state)
+                && tombstone
+                    .cast_ref::<SendDataValue>()
+                    .is_ok_and(|v| v.typetag == "amaru_pure_stage::effect::CanSupervise")
         }),
         description,
     )
@@ -203,14 +224,62 @@ pub fn tm_wire_stage_state_supervised<'a, T: SendData, U: SendData>(
     );
     TraceMatch::Property(
         Box::new(move |entry| {
-            if let TraceEntry::Suspend(Effect::WireStage { at_stage, name, initial_state, tombstone }) = entry {
-                parent == at_stage.as_str()
-                    && name.as_str().contains(child)
-                    && state.test_eq(&**initial_state)
-                    && supervision.test_eq(tombstone)
-            } else {
-                false
+            let TraceEntry::Suspend(Effect::WireStage { at_stage, name, initial_state, tombstone }) = entry else {
+                return false;
+            };
+            parent == at_stage.as_str()
+                && name.as_str().contains(child)
+                && state.test_eq(&**initial_state)
+                && supervision.test_eq(tombstone)
+        }),
+        description,
+    )
+}
+
+/// Creates a `TraceMatch` that matches any `Suspend(External { .., effect })`
+/// whose effect downcasts to the given `T`.
+///
+/// This is the generic form for "I expect this external effect to have been
+/// performed, but I don't care about (or can't easily name) its exact payload".
+pub fn tm_external_effect<T: ExternalEffect>(at_stage: impl AsRef<str>) -> TraceMatch<'static> {
+    tm_external_effect_match::<T>(at_stage, |_| true)
+}
+
+/// Creates a `TraceMatch` that matches `Suspend(External { at_stage, effect })`
+/// where the effect casts to `T` **and** the provided predicate holds on it.
+///
+/// Use the simple `tm_external_effect::<T>(at_stage)` when only presence/type matters.
+pub fn tm_external_effect_match<'a, T: ExternalEffect>(
+    at_stage: impl AsRef<str>,
+    predicate: impl Fn(&T) -> bool + Send + 'a,
+) -> TraceMatch<'a> {
+    let stage_name = Name::from(at_stage.as_ref());
+    let description = format!("ExternalEffect<{}>(at_stage: {:?})", std::any::type_name::<T>(), stage_name);
+    TraceMatch::Property(
+        Box::new(move |entry| {
+            let TraceEntry::Suspend(Effect::External { at_stage, effect }) = entry else {
+                return false;
+            };
+            if at_stage != &stage_name {
+                return false;
             }
+            let Some(typed) = effect.cast_ref::<T>() else {
+                return false;
+            };
+            predicate(typed)
+        }),
+        description,
+    )
+}
+
+pub fn tm_clock(instant: Duration) -> TraceMatch<'static> {
+    let description = format!("Clock({:?})", instant);
+    TraceMatch::Property(
+        Box::new(move |entry| {
+            let TraceEntry::Clock(i) = entry else {
+                return false;
+            };
+            i.inner.saturating_duration_since(*EPOCH) == instant
         }),
         description,
     )

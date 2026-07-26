@@ -11,14 +11,14 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - `cargo fmt-amaru`: `fmt --all -- --check`
 - Use nightly toolchain: `nightly-2026-04-17` (see rust-toolchain.toml)
 
-### Makefile Targets (preferred for consistency)
+### Common Commands
 
-- `make build`: Build in release profile
-- `make start`: Build and run with defaults (uses AMARU_NETWORK=preprod)
+- `cargo build --release`: Build in release profile
+- `cargo run --release -- run`: Build and run with defaults
 - `make all-ci-checks`: Runs fmt, clippy, tests, examples, coverage
-- `make test-e2e`: End-to-end snapshot tests (`cargo test -p amaru -- --ignored`)
-- `make coverage-html`: Generate HTML coverage report (requires cargo-llvm-cov)
-- `make coverage-lconv`: LCOV for Codecov
+- `cargo test --release -p amaru -- --ignored`: End-to-end snapshot tests
+- `make coverage-html`: Generate HTML coverage (requires cargo-llvm-cov)
+- `make coverage-lconv`: Generate LCOV for Codecov
 
 ### Testing Commands
 
@@ -54,7 +54,8 @@ Run `make help` for all targets.
 - When editing: look at surrounding context (imports) to match choices of libs/frameworks
 - Follow security best practices: never expose/log secrets/keys, never commit them
 - NO comments in code unless explicitly asked (use descriptive names instead)
-- All code must compile and pass clippy/fmt
+- Never reference the implementation plan, step numbers, ticket IDs, or in-progress refactor names in commit messages or code comments.
+- Describe what the code does and why it exists, not where it sits in the current work.- All code must compile and pass clippy/fmt
 - main branch must always be working (compiles + tests pass)
 
 ### Formatting (rustfmt.toml)

@@ -17,7 +17,11 @@ require_runtime_processes_stopped() {
 }
 
 validate_up() {
-  validate_config
+  if declare -F validate_startup_config >/dev/null; then
+    validate_startup_config
+  else
+    validate_config
+  fi
   case "$REFRESH_FROM_MITHRIL" in
     auto | true | TRUE | 1 | yes | YES | on | ON) ;;
     false | FALSE | 0 | no | NO | off | OFF) validate_amaru_source_databases ;;
@@ -72,7 +76,6 @@ up() {
   validate_up
   local compose_file
   compose_file="$(process_compose_file)"
-  telemetry_up
   cd "$SCRIPT_DIR" || return
   exec process-compose -f "$compose_file" up --ordered-shutdown
 }

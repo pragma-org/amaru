@@ -296,6 +296,10 @@ impl FetchBlocks {
                 self.req_id += 1;
                 self.no_peers_pause = false;
                 self.trace_context = Some(parent_context);
+
+                let now = eff.clock().await;
+                let requested: Vec<HeaderHash> =
+                    missing.missing_points().into_iter().map(|point| point.hash()).collect();
                 eff.send(
                     &self.manager,
                     ManagerMessage::FetchBlocks {
@@ -306,6 +310,9 @@ impl FetchBlocks {
                     },
                 )
                 .await;
+                // Tell the select_chain stage when this block was received so it can record the
+                // block_fetch_wait point of its lifecycle.
+                eff.send(&self.upstream, SelectChainMsg::BlocksRequested(requested, now)).await;
                 let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
                 self.timeout = Some(timeout);
             }
@@ -327,9 +334,8 @@ impl FetchBlocks {
 
         // check that body belongs to header
         if header.header().header_body.block_body_hash != block.body_hash() {
-            let trace_context =
-                debug_span!(consensus::block::MISMATCHED_HASH, peer = peer.clone(), header_hash = point.hash()).into();
-            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
+            let span = debug_span!(consensus::block::MISMATCHED_HASH, peer = peer.clone(), header_hash = point.hash());
+            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, (&span).into())).await;
             tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
@@ -347,6 +353,11 @@ impl FetchBlocks {
             tracing::warn!(%expected, actual = ?point, "block point mismatch");
             return;
         }
+
+        // Tell the select_chain stage when this block was received so it can record the
+        // block_downloaded point of its lifecycle.
+        let now = eff.clock().await;
+        eff.send(&self.upstream, SelectChainMsg::BlockDownloaded(point.hash(), now)).await;
 
         store
             .store_block(&point.hash(), &network_block.raw_block())

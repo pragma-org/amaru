@@ -16,8 +16,12 @@ use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod convert;
+#[cfg(feature = "mithril")]
+pub(crate) mod mithril;
 pub(crate) mod nonces;
+pub(crate) mod reset;
 pub(crate) mod states;
+pub(crate) mod sync;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum LedgerCommand {
@@ -31,6 +35,17 @@ pub(crate) enum LedgerCommand {
     /// Manage ledger state snapshots.
     #[command(subcommand)]
     States(states::StatesCommand),
+
+    /// Reset the ledger database to the beginning of a specific epoch.
+    Reset(reset::Args),
+
+    /// Sync the ledger with local blocks.
+    ///
+    /// The ledger state must be in an already bootstrapped state (e.g. via Amaru snapshots).
+    Sync(sync::Args),
+
+    #[cfg(feature = "mithril")]
+    Mithril(mithril::Args),
 }
 
 impl LedgerCommand {
@@ -39,6 +54,10 @@ impl LedgerCommand {
             Self::Convert(args) => convert::runnable(args),
             Self::Nonces(cmd) => cmd.into_runnable(),
             Self::States(cmd) => cmd.into_runnable(),
+            Self::Reset(args) => reset::runnable(args),
+            Self::Sync(args) => sync::runnable(args),
+            #[cfg(feature = "mithril")]
+            Self::Mithril(args) => mithril::runnable(args),
         }
     }
 }

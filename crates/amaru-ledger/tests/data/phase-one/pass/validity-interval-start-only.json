@@ -1,12 +1,12 @@
 {
-  "title": "validity-interval-start-only",
+  "title": "slot above start with no upper bound",
   "description": "validity_interval = [50, None) and point.slot = 100; the slot is above the lower bound with no upper bound, so phase-one must accept. Rounds out ValidityInterval::includes to all four (start, end) arms on the pass side.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [

@@ -1,0 +1,33 @@
+{
+  "title": "treasury withdrawal with a missing target reward account",
+  "description": "A proposal with TreasuryWithdrawals governance action where the withdrawal target reward account is not registered in the accounts state.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011b0000001748c33340ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a00493e00ff021a00030d40080014d9010281841b000000174876e800581de0e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec8302a1581de0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1a000f4240f6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b58584096ee37e29ed88572050d5bdfffc8dc1eafbb1ae514e8e1175df9273ecc89be1d2d5951581435df5756c78c1ee3a24449a23a8777059f337408c2b7dba435880bf5f6",
+  "expected": {
+    "predicate": "TreasuryWithdrawalReturnAccountsDoNotExist"
+  }
+}

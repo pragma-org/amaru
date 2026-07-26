@@ -14,9 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::tests::{configuration::NodeTestConfig, setup::create_nodes};
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{Peer, any_headers_chain, utils::tests::run_strategy};
+use amaru_node::tests::{configuration::NodeTestConfig, setup::create_nodes};
 use amaru_pure_stage::simulation::RandStdRng;
 use amaru_tracing_json::{TraceCollectConfig, assert_spans_trees};
 use serde_json::json;

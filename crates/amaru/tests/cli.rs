@@ -126,7 +126,6 @@ fn node_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
     let help = amaru_help(&["node"])?;
     assert!(help.contains("run"), "node help should show 'run'");
     assert!(help.contains("bootstrap"), "node help should show 'bootstrap'");
-    assert!(help.contains("reset"), "node help should show 'reset'");
     Ok(())
 }
 

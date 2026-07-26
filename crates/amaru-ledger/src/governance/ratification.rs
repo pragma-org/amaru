@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, rc::Rc};
 
 use amaru_kernel::{
     Ballot, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
-    PoolId, ProtocolParameters, RatificationStatus, StakeCredential, Vote, Voter,
+    PoolId, ProposalsRootsRc, ProtocolParameters, RatificationStatus, StakeCredential, Vote, Voter,
 };
 use amaru_observability::info_span;
 use num::Zero;
@@ -40,9 +40,6 @@ pub use proposal_enum::*;
 
 mod proposals_forest;
 pub use proposals_forest::*;
-
-mod proposals_roots;
-pub use proposals_roots::*;
 
 mod proposals_tree;
 

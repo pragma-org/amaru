@@ -90,6 +90,19 @@ the selected snapshot changed.
 | `MITHRIL_REFRESH_DIR`            | `$RUNDIR/mithril-refresh`                       | Directory containing refreshed Amaru databases                                                                          |
 | `AMARU_MITHRIL_SNAPSHOTS_DIR`    | `mithril-snapshots`                             | Directory holding downloaded Mithril immutable chunks                                                                   |
 
+A refresh uses `db-analyser` from `$CARDANO_NODE_HOME/bin` to create the epoch snapshots, and first
+probes that it honours `--analyse-from`: the db-analyser bundled with cardano-node releases up to
+11.0.1 silently ignores the option
+([ouroboros-consensus#2061](https://github.com/IntersectMBO/ouroboros-consensus/pull/2061)) and
+replays every epoch snapshot from genesis, ~25 minutes per epoch instead of about a minute. When the
+probe fails, the refresh aborts with instructions; until a cardano-node release ships the fix, build
+a fixed db-analyser and drop it into place:
+
+```bash
+nix build "github:IntersectMBO/ouroboros-consensus/aa96807e6891071c3553d19c07be2d39ab5c0a78#db-analyser"
+install -m 755 result/bin/db-analyser "$CARDANO_NODE_HOME/bin/db-analyser"
+```
+
 
 ### Wallet preparation
 
@@ -145,13 +158,14 @@ the `monitoring` directory, first removing the previous volumes so every run sta
 and metrics. The Amaru nodes export their traces and metrics to the collector using the OpenTelemetry
 settings below, and `telemetry-open` opens preconfigured Grafana Explore tabs on the collected data.
 
-| Variable                   | Default                                                                                                                                    | Description                                                              |
-|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| `START_TELEMETRY`          | `true`                                                                                                                                     | Start Grafana, Tempo, Prometheus, and the OTLP collector before the demo |
-| `TELEMETRY_DIR`            | `$AMARU_DIR/monitoring`                                                                                                                    | Directory containing the telemetry Docker Compose files                  |
-| `TELEMETRY_PROFILES`       | `prometheus grafana tempo`                                                                                                                 | Docker Compose profiles started for telemetry; each profile's `profiles/<name>/docker-compose.yml` is included automatically when present |
-| `TELEMETRY_GRAFANA_URL`    | `http://localhost`                                                                                                                         | Grafana URL opened by `telemetry-open`                                   |
-| `TELEMETRY_PROMETHEUS_URL` | `http://localhost:9090`                                                                                                                    | Prometheus URL opened by `telemetry-open`                                |
+| Variable                          | Default                                   | Description                                                                                                                               |
+|-----------------------------------|-------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `START_TELEMETRY`                 | `true`                                    | Start Grafana, Tempo, Prometheus, and the OTLP collector before the demo                                                                  |
+| `TELEMETRY_DIR`                   | `$AMARU_DIR/monitoring`                   | Directory containing the telemetry Docker Compose files                                                                                   |
+| `TELEMETRY_PROFILES`              | `prometheus grafana tempo`                | Docker Compose profiles started for telemetry; each profile's `profiles/<name>/docker-compose.yml` is included automatically when present |
+| `TELEMETRY_GRAFANA_URL`           | `http://localhost`                        | Grafana URL opened by `telemetry-open`                                                                                                    |
+| `TELEMETRY_PROMETHEUS_URL`        | `http://localhost:9090`                   | Prometheus URL opened by `telemetry-open`                                                                                                 |
+| `TELEMETRY_COMPOSE_OVERRIDE_FILE` | `<demo dir>/telemetry/docker-compose.yml` | Extra Docker Compose file layered onto the shared stack, e.g. to provision demo-owned Grafana dashboards                                  |
 
 ### OpenTelemetry export
 

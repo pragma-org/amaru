@@ -24,12 +24,11 @@ use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoi
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, RatificationStatus, StakeCredential,
-    TransactionInput, cbor,
+    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
+    StakeCredential, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
-    governance::ratification::ProposalsRoots,
     state::diff_bind::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
@@ -635,10 +634,9 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         })
     }
 
-    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
-    /// deposit.
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded deposit.
     fn refund(&self, credential: &scolumns::accounts::Key, deposit: Lovelace) -> Result<Lovelace, StoreError> {
-        accounts::set(&self.db, credential, |balance| balance + deposit)
+        accounts::set_rewards(&self.db, credential, |balance| balance + deposit)
     }
 
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<(), StoreError> {

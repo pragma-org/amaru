@@ -16,7 +16,14 @@ use std::{collections::BTreeSet, net::SocketAddr};
 
 use crate::BlockValidationError;
 
-#[async_trait::async_trait]
 pub trait HasStakePools: Send + Sync {
-    async fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError>;
+    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError>;
+}
+
+pub struct MockHasStakePools;
+
+impl HasStakePools for MockHasStakePools {
+    fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
+        Ok(Default::default())
+    }
 }

@@ -14,19 +14,22 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point};
-use amaru_ouroboros_traits::{HeaderValidationError, StoreError};
+use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point, Slot};
+use amaru_ouroboros_traits::StoreError;
 use serde::ser::SerializeStruct;
 use thiserror::Error;
 
+use crate::validate_header::ValidateHeaderError;
+
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[allow(clippy::result_large_err)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
     #[error("Failed to fetch block at {0}")]
     FetchBlockFailed(Point),
     #[error("Failed to validate header at {0}: {1}")]
-    InvalidHeader(Point, HeaderValidationError),
+    InvalidHeader(Point, Box<ValidateHeaderError>),
     #[error("Failed to store header at {0}: {1}")]
     StoreHeaderFailed(HeaderHash, StoreError),
     #[error("Failed to remove header at {0}: {1}")]
@@ -63,6 +66,8 @@ pub enum ConsensusError {
     InvalidHeaderPoint(Box<InvalidHeaderPoint>),
     #[error("Invalid header variant {0}")]
     InvalidHeaderVariant(EraName),
+    #[error("header slot {0} is in the near future (permissible clock skew)")]
+    HeaderSlotInNearFuture(Slot),
     #[error("Failed to roll forward chain from {0}: {1}")]
     RollForwardChainFailed(amaru_kernel::Hash<32>, StoreError),
     #[error("Failed to rollback chain at {0}: {1}")]
@@ -71,6 +76,18 @@ pub enum ConsensusError {
     EraHistoryError(#[from] amaru_kernel::EraHistoryError),
     #[error("Era name mismatch: from raw_header {from_raw_header}, from slot={from_slot}")]
     EraNameMismatch { from_raw_header: EraName, from_slot: EraName },
+}
+
+impl ConsensusError {
+    pub fn as_invalid_header(&self) -> Option<&ValidateHeaderError> {
+        if let ConsensusError::InvalidHeader(_, err) = self { Some(err) } else { None }
+    }
+    pub fn as_invalid_header_parent(&self) -> Option<&InvalidHeaderParentData> {
+        if let ConsensusError::InvalidHeaderParent(err) = self { Some(err) } else { None }
+    }
+    pub fn as_invalid_header_point(&self) -> Option<&InvalidHeaderPoint> {
+        if let ConsensusError::InvalidHeaderPoint(err) = self { Some(err) } else { None }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

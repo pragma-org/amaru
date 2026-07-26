@@ -638,24 +638,6 @@
       "description": "Chain database already exists",
       "public": true
     },
-    "amaru::cli::chain_db::FORCEFULLY_REMOVE": {
-      "type": "object",
-      "properties": {
-        "dir": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "dir"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forcefully_remove",
-      "level": "TRACE",
-      "target": "amaru::cli::chain_db",
-      "description": "Forcefully remove an existing chain database",
-      "public": true
-    },
     "amaru::cli::current_epoch::RESOLVE": {
       "type": "object",
       "properties": {
@@ -841,24 +823,6 @@
       "description": "Ledger database already exists",
       "public": true
     },
-    "amaru::cli::ledger_db::FORCEFULLY_REMOVE": {
-      "type": "object",
-      "properties": {
-        "dir": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "dir"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "forcefully_remove",
-      "level": "TRACE",
-      "target": "amaru::cli::ledger_db",
-      "description": "Forcefully remove an existing ledger database",
-      "public": true
-    },
     "amaru::cli::mithril::DOWNLOAD": {
       "type": "object",
       "properties": {
@@ -914,9 +878,6 @@
     "amaru::cli::node::BOOTSTRAP": {
       "type": "object",
       "properties": {
-        "force": {
-          "type": "boolean"
-        },
         "chain_dir": {
           "type": "string"
         },
@@ -933,7 +894,6 @@
         }
       },
       "required": [
-        "force",
         "chain_dir",
         "ledger_dir",
         "network"
@@ -1083,6 +1043,78 @@
       "level": "TRACE",
       "target": "amaru::cli::snapshot",
       "description": "Snapshot archive already packaged; skipping",
+      "public": true
+    },
+    "amaru::consensus::perf::fork::SWITCH": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "duration_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [
+        "outcome",
+        "duration_micros"
+      ],
+      "additionalProperties": false,
+      "name": "switch",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::fork",
+      "description": "Event recorded when a fork switch ends. `duration_micros` measures the time from the detection of the fork to its application (or abandonment).",
+      "public": true
+    },
+    "amaru::consensus::perf::header::LIFECYCLE": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "block_fetch_wait_micros": {
+          "type": "integer"
+        },
+        "block_fetch_micros": {
+          "type": "integer"
+        },
+        "forward_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "peer",
+        "header_hash",
+        "outcome",
+        "error",
+        "block_fetch_wait_micros",
+        "block_fetch_micros",
+        "forward_micros"
+      ],
+      "additionalProperties": false,
+      "name": "lifecycle",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::header",
+      "description": "Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. `outcome` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
       "public": true
     },
     "amaru::ledger::account::PAY_OR_REFUND": {
@@ -1256,18 +1288,6 @@
       "description": "Flushing the epoch transition overlay to disk",
       "public": true
     },
-    "amaru::ledger::epoch_transition::BEGIN_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "begin_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform start-of-epoch epoch boundary computations",
-      "public": true
-    },
     "amaru::ledger::epoch_transition::COMPUTE": {
       "type": "object",
       "properties": {
@@ -1299,18 +1319,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::epoch_transition",
       "description": "Epoch transition processing",
-      "public": true
-    },
-    "amaru::ledger::epoch_transition::END_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "end_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform end-of-epoch epoch boundary computations",
       "public": true
     },
     "amaru::ledger::epoch_transition::NEW_GOVERNANCE_UPDATES": {
@@ -2466,15 +2474,8 @@
     },
     "amaru::ledger::state::ROLL_BACKWARD": {
       "type": "object",
-      "properties": {
-        "rollback_point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
-        }
-      },
-      "required": [
-        "rollback_point"
-      ],
+      "properties": {},
+      "required": [],
       "optional": [],
       "additionalProperties": false,
       "name": "roll_backward",
@@ -2493,6 +2494,29 @@
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Roll forward with a new block",
+      "public": true
+    },
+    "amaru::ledger::state::SWITCH_TO_FORK": {
+      "type": "object",
+      "properties": {
+        "fork_point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "fork_length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fork_point",
+        "fork_length"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch_to_fork",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Switching to an alternative chain fork",
       "public": true
     },
     "amaru::ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE": {
@@ -2949,44 +2973,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::volatile",
       "description": "Recompute the volatile aggregate",
-      "public": true
-    },
-    "amaru::ledger::volatile::ROLLBACK_TO": {
-      "type": "object",
-      "properties": {
-        "target_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "last_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "first_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "warning": {
-          "type": "string"
-        },
-        "error": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "target_slot"
-      ],
-      "optional": [
-        "last_slot",
-        "first_slot",
-        "warning",
-        "error"
-      ],
-      "additionalProperties": false,
-      "name": "rollback_to",
-      "level": "TRACE",
-      "target": "amaru::ledger::volatile",
-      "description": "Rollback the volatile state to a specific point",
       "public": true
     },
     "amaru::ledger::volatile::WARM_UP": {

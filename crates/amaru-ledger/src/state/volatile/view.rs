@@ -20,11 +20,10 @@ use std::{
 
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer,
-    StakeCredential,
+    ProposalsRootsRc, StakeCredential,
 };
 
 use crate::{
-    governance::ratification::ProposalsRootsRc,
     state::{
         VolatileDB,
         diff_bind::DiffBind,
@@ -74,8 +73,18 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         }
 
         let accounts = AccountVolatileView {
-            registered: accounts.registered.into_keys().collect(),
             unregistered: accounts.unregistered,
+            registered: accounts
+                .registered
+                .into_iter()
+                .filter_map(|(credential, bind)| {
+                    // NOTE: only accounts that are newly registered (i.e. .value is some)
+                    //
+                    // Delegations only needs not to appear here as they'll be available from the
+                    // stable store.
+                    bind.value.map(|_| credential)
+                })
+                .collect(),
         };
 
         Self {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
 use amaru_observability::debug_span;
@@ -52,8 +52,10 @@ use crate::state::{
 /// it is highly likely that *at least one* would lead to an observable rollback. Finally, when
 /// syncing, the impact should be negligible as only one block every 1080 would cause an aggregate
 /// recompute.
-const DEFAULT_FORCED_RECOMPUTE_IN: usize = 1080;
+const DEFAULT_FORCED_RECOMPUTE_IN: usize = 4096;
 
+#[derive(Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileSeries {
     forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
@@ -103,7 +105,7 @@ impl VolatileState for VolatileSeries {
 
     // ----------------------------------------------------------------------------------- CCMembers
     type CCMember = Existence<CommitteeMemberBind>;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
         self.aggregate.resolve_cc_member(credential)
     }
 
@@ -162,21 +164,6 @@ impl VolatileSequence for VolatileSeries {
         self.aggregate.compose(&item.fragment);
         self.sequence.push_back(item);
     }
-
-    fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
-        let ix = self.sequence.binary_search_by_key(point, |anchored| anchored.point()).map_err(|_| point)?;
-
-        self.sequence.truncate(ix + 1);
-        self.recompute_aggregate();
-
-        Ok(())
-    }
-
-    fn clear(&mut self) {
-        self.sequence.clear();
-        self.aggregate = Default::default();
-        self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
-    }
 }
 
 impl VolatileSeries {
@@ -197,6 +184,31 @@ impl VolatileSeries {
 
             self.aggregate = aggregate;
         });
+    }
+
+    pub fn rollback_to(&mut self, point: &Point) -> Result<VecDeque<AnchoredVolatileFragment>, String> {
+        let ix = self.sequence.binary_search_by_key(point, |anchored| anchored.point()).map_err(|e| e.to_string())?;
+        let recovery = self.sequence.split_off(ix + 1);
+        self.recompute_aggregate();
+        Ok(recovery)
+    }
+
+    pub fn undo_rollback(&mut self, point: &Point, fragments: VecDeque<AnchoredVolatileFragment>) {
+        let ix = self
+            .sequence
+            .binary_search_by_key(point, |anchored| anchored.point())
+            .unwrap_or_else(|e| unreachable!("failed to undo_rollback, fork point {point} is gone: {e}"));
+        self.sequence.truncate(ix + 1);
+        self.sequence.extend(fragments);
+        self.recompute_aggregate();
+    }
+
+    pub fn clear(&mut self) -> Self {
+        Self {
+            sequence: mem::take(&mut self.sequence),
+            aggregate: mem::take(&mut self.aggregate),
+            forced_recompute_in: self.forced_recompute_in,
+        }
     }
 }
 

@@ -1,0 +1,127 @@
+name: Test Bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Network to test bootstrap for"
+        required: false
+        type: choice
+        options:
+          - preprod
+          - preview
+          - mainnet
+        default: preprod
+      start_epoch:
+        description: "First epoch to test (required)"
+        required: true
+        type: string
+      end_epoch:
+        description: "Last epoch to test (defaults to last finished epoch)"
+        required: false
+        type: string
+        default: ""
+      force:
+        description: "Re-run epochs already recorded in bootstrap.json"
+        required: false
+        type: boolean
+        default: false
+      cardano_node_version:
+        description: "cardano-node release tag to download db-analyser from"
+        required: false
+        type: string
+        default: "11.0.1"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  AMARU_NETWORK: ${{ inputs.network }}
+
+jobs:
+  test-bootstrap:
+    name: Test Bootstrap (${{ inputs.network }})
+    runs-on: [self-hosted, linux]
+    env:
+      # NOTE: Necessary for cache
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/cache
+
+      - name: Install db-analyser
+        env:
+          CARDANO_NODE_VERSION: ${{ inputs.cardano_node_version }}
+        run: |
+          set -euo pipefail
+          case "$(uname -s)" in
+            Linux)  os=linux  ;;
+            Darwin) os=macos  ;;
+            *) echo "::error::unsupported operating system: $(uname -s)" >&2; exit 1 ;;
+          esac
+          case "$(uname -m)" in
+            x86_64 | amd64)    arch=amd64 ;;
+            arm64  | aarch64)  arch=arm64 ;;
+            *) echo "::error::unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          asset="cardano-node-${CARDANO_NODE_VERSION}-${os}-${arch}.tar.gz"
+          base_url="https://github.com/IntersectMBO/cardano-node/releases/download/${CARDANO_NODE_VERSION}"
+          tmp="$(mktemp -d)"
+          curl -fsSL -o "$tmp/$asset" "$base_url/$asset"
+          curl -fsSL -o "$tmp/sums.txt" "$base_url/cardano-node-${CARDANO_NODE_VERSION}-sha256sums.txt"
+          (cd "$tmp" && grep " $asset\$" sums.txt | (sha256sum -c - 2>/dev/null || shasum -a 256 -c -))
+          tar -xzf "$tmp/$asset" -C "$tmp" --strip-components 1
+          rm "$tmp/$asset" "$tmp/sums.txt"
+          echo "$tmp/bin" >> "$GITHUB_PATH"
+
+      - name: Run test-bootstrap
+        env:
+          AMARU_NETWORK: ${{ inputs.network }}
+          BUILD_PROFILE: test
+          INPUT_FORCE: ${{ inputs.force }}
+          INPUT_START_EPOCH: ${{ inputs.start_epoch }}
+          INPUT_END_EPOCH: ${{ inputs.end_epoch }}
+        run: |
+          args=""
+          if [ "$INPUT_FORCE" = "true" ]; then args="$args --force"; fi
+          args="$args $INPUT_START_EPOCH"
+          if [ -n "$INPUT_END_EPOCH" ]; then args="$args $INPUT_END_EPOCH"; fi
+          ./scripts/test-bootstrap $args
+
+      - name: Write job summary
+        if: always()
+        env:
+          AMARU_NETWORK: ${{ inputs.network }}
+        run: |
+          output_file="data/${AMARU_NETWORK}/bootstrap.json"
+          if [ ! -f "$output_file" ]; then
+            echo "No bootstrap.json found." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "## Bootstrap Test Results (${AMARU_NETWORK})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Epoch | Snapshot Create | Bootstrap | Timestamp |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------:|:---------------:|:---------:|-----------|" >> "$GITHUB_STEP_SUMMARY"
+
+          jq -r '.[] | [
+            .epoch,
+            (if .create_snapshots.success then "✅" else "❌" end),
+            (if .bootstrap.success then "✅" else "❌" end),
+            .timestamp,
+            (.create_snapshots.error // "" | gsub("\n"; " ")),
+            (.bootstrap.error // "" | gsub("\n"; " "))
+          ] | @tsv' "$output_file" | while IFS=$'\t' read -r epoch create boot ts cerr berr; do
+            echo "| $epoch | $create | $boot | $ts |" >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$cerr" ]; then
+              echo "<details><summary>Epoch $epoch — snapshot error</summary><pre>$cerr</pre></details>" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ -n "$berr" ]; then
+              echo "<details><summary>Epoch $epoch — bootstrap error</summary><pre>$berr</pre></details>" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done

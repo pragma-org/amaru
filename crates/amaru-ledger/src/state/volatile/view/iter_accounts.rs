@@ -41,16 +41,16 @@ impl<'volatile, DBIter: Iterator<Item = (StakeCredential, Account)>> Iterator fo
     type Item = StakeCredential;
 
     fn next(&mut self) -> Option<Self::Item> {
-        for (account, _) in &mut self.db_iterator {
-            if self.deregistrations.contains(&account) {
+        for (credential, _) in &mut self.db_iterator {
+            if self.deregistrations.contains(&credential) {
                 continue;
             }
 
-            return Some(account);
+            return Some(credential);
         }
 
-        if let Some(account) = self.registrations.pop_first() {
-            return Some(account.clone());
+        if let Some(credential) = self.registrations.pop_first() {
+            return Some(credential.clone());
         }
 
         None

@@ -30,9 +30,9 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru = { workspace = true, features = ["test-utils"] }
 amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-kernel = { workspace = true, features = ["test-utils"] }
+amaru-node = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros.workspace = true
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true

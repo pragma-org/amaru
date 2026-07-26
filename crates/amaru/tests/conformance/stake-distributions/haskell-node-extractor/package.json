@@ -1,0 +1,23 @@
+{
+  "amaru": {
+    "stakeDistributions": {
+      "startFrom": {
+        "mainnet": {
+          "slot": 193276767,
+          "id": "a2d99f003c7bc316d0e3c95abe1529fa2180cf0f835875cdf9b5b636e64e0e2d"
+        },
+        "preprod": {
+          "slot": 128390395,
+          "id": "e1f9edd65644c09894c8600fc2939ab955a9effd17c7918058b3fd9ea3980186"
+        },
+        "preview": {
+          "slot": 113702372,
+          "id": "e8575930c2b0f7553b7b87c25d37b429d22ccf63954ed882a132ea6423de79c3"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@cardano-ogmios/mdk": "^1.0.1"
+  }
+}

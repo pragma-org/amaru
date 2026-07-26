@@ -17,7 +17,6 @@ use clap::Subcommand;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 
 pub(crate) mod bootstrap;
-pub(crate) mod reset;
 pub(crate) mod run;
 
 #[derive(Debug, Subcommand)]
@@ -37,9 +36,6 @@ pub(crate) enum NodeCommand {
     /// It imports snapshots, bootstrap headers and bootstrap nonces in one step.
     #[clap(verbatim_doc_comment)]
     Bootstrap(bootstrap::Args),
-
-    /// Reset the ledger database to the beginning of a specific epoch.
-    Reset(reset::Args),
 }
 
 impl NodeCommand {
@@ -47,7 +43,6 @@ impl NodeCommand {
         match self {
             Self::Run(args) => run::runnable(args, metrics),
             Self::Bootstrap(args) => bootstrap::runnable(args),
-            Self::Reset(args) => reset::runnable(args),
         }
     }
 }

@@ -15,12 +15,8 @@
 use std::{hint::black_box, time::Duration};
 
 use amaru_consensus::stages::{
-    adopt_chain::AdoptChainMsg,
-    block_source::BlockSourceMsg,
-    fetch_blocks::FetchBlocksMsg,
-    select_chain::SelectChainMsg,
-    track_peers::{DeferReqNextMsg, TrackPeersMsg},
-    validate_block::ValidateBlockMsg,
+    adopt_chain::AdoptChainMsg, block_source::BlockSourceMsg, fetch_blocks::FetchBlocksMsg,
+    select_chain::SelectChainMsg, track_peers::TrackPeersMsg, validate_block::ValidateBlockMsg,
 };
 use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, EraName, Peer, Point, Tip, any_header_hash,
@@ -82,10 +78,6 @@ fn stage_msgs(c: &mut Criterion) {
     let nb = NetworkBlock::new(&EraHistory::default(), &block).expect("minimal network block");
     let header = BlockHeader::from(make_header(1234, 12345, None));
     let header_content = HeaderContent::new(&header, EraName::Conway);
-
-    let msg = DeferReqNextMsg::Poll;
-    let msg: Box<dyn SendData> = Box::new(msg);
-    group.bench_function("DeferReqNextMsg::Poll", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
     let msg = FetchBlocksMsg::Block(Peer::new("bench"), nb.clone());
     let msg: Box<dyn SendData> = Box::new(msg);

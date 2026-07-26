@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_minicbor_extra::{decode_bigint, encode_bigint, encode_bytestring};
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
 
@@ -97,18 +98,8 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
                 }
 
                 match tag.try_into() {
-                    Ok(x @ IanaTag::PosBignum | x @ IanaTag::NegBignum) => {
-                        let _ = decoder.tag()?;
-                        let mut bytes = BumpVec::new_in(ctx.arena.as_bump());
-
-                        for chunk in decoder.bytes_iter()? {
-                            let chunk = chunk?;
-
-                            bytes.extend_from_slice(chunk);
-                        }
-
-                        let n = num::BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
-                        let integer = ctx.arena.alloc_integer(if x == IanaTag::PosBignum { n } else { -n - 1 });
+                    Ok(IanaTag::PosBignum | IanaTag::NegBignum) => {
+                        let integer = ctx.arena.alloc_integer(decode_bigint(decoder)?);
 
                         Ok(PlutusData::integer(ctx.arena, integer))
                     }
@@ -166,9 +157,9 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
             | minicbor::data::Type::I32
             | minicbor::data::Type::I64
             | minicbor::data::Type::Int => {
-                let i: i128 = decoder.int()?.into();
+                let integer = ctx.arena.alloc_integer(decode_bigint(decoder)?);
 
-                Ok(PlutusData::integer_from(ctx.arena, i))
+                Ok(PlutusData::integer(ctx.arena, integer))
             }
             any => {
                 let e = minicbor::decode::Error::message(format!("bad cbor data type ({any:?}) for plutus data"));
@@ -177,26 +168,6 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
             }
         }
     }
-}
-
-fn encode_bytestring<'a, W: minicbor::encode::Write>(
-    e: &'a mut minicbor::Encoder<W>,
-    bs: &[u8],
-) -> Result<&'a mut minicbor::Encoder<W>, minicbor::encode::Error<W::Error>> {
-    const CHUNK_SIZE: usize = 64;
-
-    if bs.len() <= 64 {
-        e.bytes(bs)?;
-    } else {
-        e.begin_bytes()?;
-
-        for b in bs.chunks(CHUNK_SIZE) {
-            e.bytes(b)?;
-        }
-
-        e.end()?;
-    }
-    Ok(e)
 }
 
 impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
@@ -247,32 +218,7 @@ impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
                 }
             }
             PlutusData::Integer(n) => {
-                let (sign, digits) = n.to_u64_digits();
-                match sign {
-                    num_bigint::Sign::Plus => {
-                        if digits.len() == 1 {
-                            e.u64(digits[0])?;
-                        } else {
-                            e.tag(Tag::new(2))?;
-                            let (_sign, bytes) = n.to_bytes_be();
-                            encode_bytestring(e, &bytes)?;
-                        }
-                    }
-                    num_bigint::Sign::Minus => {
-                        if digits.len() == 1 {
-                            let integer = minicbor::data::Int::try_from(-(digits[0] as i128)).unwrap();
-                            e.int(integer)?;
-                        } else {
-                            e.tag(Tag::new(3))?;
-                            let abs_minus_one = (-*n) - num::BigInt::from(1);
-                            let (_sign, bytes) = abs_minus_one.to_bytes_be();
-                            encode_bytestring(e, &bytes)?;
-                        }
-                    }
-                    num_bigint::Sign::NoSign => {
-                        e.u8(0)?;
-                    }
-                }
+                encode_bigint(e, n)?;
             }
             // we match the haskell implementation by encoding bytestrings longer than 64
             // bytes as indefinite lists of bytes
@@ -369,6 +315,35 @@ mod tests {
         assert_eq!(decoded, &PlutusData::Integer(&n));
     }
 
+    /// Test that the encoding is correct at both 2^64 - 1 and -2^64
+    #[test]
+    fn encode_integer_word_boundaries() {
+        let one = num::BigInt::from(1);
+        let two_64: num::BigInt = num::BigInt::from(1) << 64;
+        let two_64_minus_one: num::BigInt = &two_64 - &one;
+
+        // Largest values still encoded as native CBOR integers.
+        assert_eq!(encode_integer_hex(&two_64_minus_one), "1bffffffffffffffff");
+        assert_eq!(encode_integer_hex(&-two_64_minus_one.clone()), "3bfffffffffffffffe");
+
+        // -2^64 is the smallest native negative integer (arg = 2^64 - 1 fits a word).
+        assert_eq!(encode_integer_hex(&-two_64.clone()), "3bffffffffffffffff");
+
+        // Just past the boundary, both directions switch to a bignum.
+        assert_eq!(encode_integer_hex(&two_64), "c249010000000000000000");
+        assert_eq!(encode_integer_hex(&(-two_64.clone() - &one)), "c349010000000000000000");
+    }
+
+    #[test]
+    fn roundtrip_integer_min_native() {
+        let two_64: num::BigInt = num::BigInt::from(1) << 64;
+        let n = -two_64;
+        let encoded = minicbor::to_vec(PlutusData::Integer(&n)).expect("encode failed");
+        let arena = Arena::new();
+        let decoded = PlutusData::from_cbor(&arena, &encoded).expect("decode failed");
+        assert_eq!(decoded, &PlutusData::Integer(&n));
+    }
+
     #[test]
     fn encode_cbor_data_list() {
         let zero = num::BigInt::from(0);
@@ -378,5 +353,14 @@ mod tests {
         let mut v = vec![];
         minicbor::encode(d, &mut v).expect("invalid PlutusData");
         assert_eq!(hex::encode(v), "d8799f9f0001ffff");
+    }
+
+    // HELPERS
+
+    /// Encode a BigInt as hex-encoded CBOR
+    fn encode_integer_hex(n: &num::BigInt) -> String {
+        let mut v = vec![];
+        minicbor::encode(PlutusData::Integer(n), &mut v).expect("invalid PlutusData");
+        hex::encode(v)
     }
 }
