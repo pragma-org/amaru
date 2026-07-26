@@ -244,6 +244,29 @@
       "description": "Detect locally-created snapshots from create-snapshots",
       "public": true
     },
+    "amaru::bootstrap::local_snapshots::FAIL_TO_READ": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "hint": {
+          "type": "string",
+          "description": "Custom type: anyhow::Error"
+        }
+      },
+      "required": [
+        "file",
+        "hint"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fail_to_read",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::local_snapshots",
+      "description": "Failed to read or parse a local snapshot",
+      "public": true
+    },
     "amaru::bootstrap::nonces::IMPORT": {
       "type": "object",
       "properties": {

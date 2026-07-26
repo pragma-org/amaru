@@ -30,7 +30,7 @@ use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
-use amaru_observability::{error, info};
+use amaru_observability::{error, info, warn};
 use amaru_ouroboros::{ChainStore, Nonces, WriteChainStore};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
@@ -67,7 +67,6 @@ struct Snapshot {
     parent_point: Point,
 
     /// The URL to retrieve snapshot from.
-    #[serde(default)]
     url: String,
 }
 
@@ -149,8 +148,25 @@ fn load_local_epoch_snapshots(network: NetworkName) -> Vec<Snapshot> {
     entries
         .flatten()
         .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
-        .filter_map(|entry| std::fs::read(entry.path()).ok())
-        .filter_map(|bytes| serde_json::from_slice::<Snapshot>(&bytes).ok())
+        .filter_map(|entry| {
+            let bytes = std::fs::read(entry.path()).map_err(|e| anyhow!("failed to read file: {e}"));
+            let json = bytes.and_then(|bytes| {
+                serde_json::from_slice::<Snapshot>(&bytes).map_err(|e| anyhow!("failed to decode from JSON: {e}"))
+            });
+            match json {
+                Err(hint) => {
+                    warn!(
+                        bootstrap::local_snapshots::FAIL_TO_READ,
+                        file = relative_path(&entry.path())
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|_| entry.path().display().to_string()),
+                        hint,
+                    );
+                    None
+                }
+                Ok(snapshot) => Some(snapshot),
+            }
+        })
         .collect()
 }
 

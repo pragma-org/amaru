@@ -735,6 +735,11 @@ define_schemas! {
                 public DETECT {
                     required count: usize
                 }
+                /// Failed to read or parse a local snapshot
+                public FAIL_TO_READ {
+                    required file: String,
+                    required hint: anyhow::Error,
+                }
             }
             nonces {
                 /// Import initial nonces into the chain store
