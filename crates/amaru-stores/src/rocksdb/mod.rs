@@ -24,12 +24,11 @@ use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoi
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, RatificationStatus, StakeCredential,
-    TransactionInput, cbor,
+    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
+    StakeCredential, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
-    governance::ratification::ProposalsRoots,
     state::diff_bind::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,

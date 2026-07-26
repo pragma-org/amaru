@@ -316,30 +316,33 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
     }
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use proptest::{option, prelude::*};
 
     use super::*;
+    #[cfg(test)]
     use crate::{
-        Hash, any_hash32, any_shelley_address,
+        Hash,
         cbor::{self, Encode},
     };
+    use crate::{any_hash32, any_shelley_address};
 
+    #[expect(clippy::expect_used)]
     fn any_value() -> impl Strategy<Value = MemoizedValue> {
         any::<u64>().prop_map(|coin| MemoizedValue::new(Value::Coin(coin)).expect("Value encoding should never fail"))
     }
 
-    fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
+    pub fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
         prop_oneof![Just(MemoizedDatum::None), any_hash32().prop_map(MemoizedDatum::Hash)]
     }
 
-    fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
+    pub fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
         (any_shelley_address(), any_value(), any_datum())
             .prop_map(|(address, value, datum)| MemoizedTransactionOutput::new(false, address, value, datum, None))
     }
 
-    fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
+    pub fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
         (any_shelley_address(), any_value(), option::of(any_hash32().prop_map(MemoizedDatum::Hash))).prop_map(
             |(address, value, datum_opt)| {
                 MemoizedTransactionOutput::new(true, address, value, datum_opt.unwrap_or(MemoizedDatum::None), None)

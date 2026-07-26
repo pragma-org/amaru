@@ -23,8 +23,8 @@ use amaru_kernel::{
     Account, Ballot, BallotId, Bytes, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
-    ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount, Set,
-    Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward,
+    RewardAccount, Set, Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
     new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
@@ -33,7 +33,6 @@ use amaru_progress_bar::ProgressBar;
 
 use crate::{
     epoch_transition::GovernanceActivity,
-    governance::ratification::ProposalsRoots,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{
         self, Store, StoreError, TransactionalContext,

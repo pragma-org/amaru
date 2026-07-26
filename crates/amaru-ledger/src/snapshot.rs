@@ -17,13 +17,11 @@ use std::collections::BTreeMap;
 use amaru_kernel::{
     Account, CertificatePointer, ComparableProposalId, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
     DRep, EraHistory, EraHistoryError, Lovelace, Point, PoolId, ProposalPointer,
-    ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, StrictMaybe, TransactionPointer,
+    ProposalState as NewEpochProposalState, ProposalsRoots, ProtocolParameters, Slot, StakeCredential, StrictMaybe,
+    TransactionPointer,
 };
 
-use crate::{
-    context::{AccountState, CCMember, ProposalState},
-    governance::ratification::ProposalsRoots,
-};
+use crate::context::{AccountState, CCMember, ProposalState};
 
 /// An account's block-start state from a snapshot. The delegation pointers are synthesized, since a
 /// NewEpochState records balances and delegations but not the certificates that set them.

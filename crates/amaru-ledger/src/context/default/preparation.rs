@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use amaru_kernel::{
-    ComparableProposalId, DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, RewardAccount,
-    StakeCredential, TermLimit, TransactionInput, drep, parse_reward_account,
+    ComparableProposalId, DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalsRoots,
+    StakeCredential, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
 
@@ -26,7 +29,6 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, UnresolvedInputPolicy,
     },
-    governance::ratification::ProposalsRoots,
     state::{
         diff_bind::Bind,
         volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
@@ -44,8 +46,7 @@ use crate::{
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
-    pub accounts: BTreeSet<&'a StakeCredential>,
-    pub withdrawals: BTreeSet<&'a RewardAccount>,
+    pub accounts: BTreeSet<Cow<'a, StakeCredential>>,
     pub dreps: BTreeSet<&'a StakeCredential>,
     pub drep_delegations: BTreeSet<&'a DRep>,
     pub committee: BTreeSet<&'a StakeCredential>,
@@ -58,7 +59,6 @@ impl DefaultPreparationContext<'_> {
             utxo: BTreeSet::new(),
             pools: BTreeSet::new(),
             accounts: BTreeSet::new(),
-            withdrawals: BTreeSet::new(),
             dreps: BTreeSet::new(),
             drep_delegations: BTreeSet::new(),
             committee: BTreeSet::new(),
@@ -82,12 +82,8 @@ impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_account(&mut self, credential: &'a StakeCredential) {
+    fn require_account(&mut self, credential: Cow<'a, StakeCredential>) {
         self.accounts.insert(credential);
-    }
-
-    fn require_withdrawal(&mut self, reward_account: &'a RewardAccount) {
-        self.withdrawals.insert(reward_account);
     }
 }
 
@@ -126,7 +122,7 @@ impl<'a> DefaultPreparationContext<'a> {
             Pool = Existence<()>,
             Account = (Existence<AccountBind>, RewardsAtTip),
             DRep = Existence<DRepBind>,
-            CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>),
+            CCMember = Existence<CommitteeMemberBind>,
             Proposal = Existence<()>,
         >,
         db: &impl ReadStore,
@@ -134,17 +130,7 @@ impl<'a> DefaultPreparationContext<'a> {
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
-            resolve_accounts(
-                volatile,
-                db,
-                self.accounts.into_iter().cloned().chain(
-                    self.withdrawals
-                        .into_iter()
-                        .map(|bytes| bytes.as_ref())
-                        .filter_map(parse_reward_account)
-                        .map(|(credential, _network)| credential),
-                ),
-            )?,
+            resolve_accounts(volatile, db, self.accounts.into_iter())?,
             resolve_dreps(
                 volatile,
                 db,
@@ -259,10 +245,10 @@ fn resolve_pools(
 /// Structural fields resolve `volatile -> stable` (a `Gone` tombstone skips the stale stable
 /// entry); the reward balance folds in the overlay credit and volatile withdrawals via
 /// [`VolatileDB::resolve_reward_balance`].
-fn resolve_accounts(
+fn resolve_accounts<'iter>(
     volatile: &impl VolatileState<Account = (Existence<AccountBind>, RewardsAtTip)>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = StakeCredential>,
+    mut keys: impl Iterator<Item = Cow<'iter, StakeCredential>>,
 ) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydratationError> {
     debug_span!(ledger::validation_context::accounts::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
@@ -282,7 +268,7 @@ fn resolve_accounts(
                         rewards: rewards_at_tip.into_balance(0),
                     };
 
-                    accounts.insert(credential, state);
+                    accounts.insert(credential.into_owned(), state);
 
                     Ok(accounts)
                 }
@@ -298,7 +284,7 @@ fn resolve_accounts(
                             rewards: rewards_at_tip.into_balance(row.rewards),
                         };
 
-                        accounts.insert(credential, state);
+                        accounts.insert(credential.into_owned(), state);
                     }
 
                     Ok(accounts)
@@ -315,7 +301,7 @@ fn resolve_accounts(
                             rewards: rewards_at_tip.into_balance(row.rewards),
                         };
 
-                        accounts.insert(credential, state);
+                        accounts.insert(credential.into_owned(), state);
                     }
 
                     Ok(accounts)
@@ -349,7 +335,7 @@ fn resolve_dreps(
 
                 Existence::Exists(Bind { value: Some(registration), .. }) => {
                     from_volatile += 1;
-                    dreps.insert(credential, *registration);
+                    dreps.insert(credential, registration);
                     Ok(dreps)
                 }
 
@@ -391,7 +377,7 @@ fn resolve_dreps(
 // its hot key. That source needs the proposals read-path, so it is deferred until proposals are
 // exposed.
 fn resolve_committee<'a>(
-    volatile: &impl VolatileState<CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>)>,
+    volatile: &impl VolatileState<CCMember = Existence<CommitteeMemberBind>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = &'a StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
@@ -400,50 +386,41 @@ fn resolve_committee<'a>(
         let mut from_db = 0;
 
         let cc_members = keys.try_fold(BTreeMap::new(), |mut cc_members, credential| {
-            match volatile.resolve_cc_member(credential) {
-                (Existence::Gone, _) => Ok(cc_members),
-                (Existence::Exists(Bind { value: Some(..), left, .. }), valid_until) => {
+            let member_opt = match volatile.resolve_cc_member(credential) {
+                Existence::Gone => {
                     from_volatile += 1;
-
-                    let member = CCMember {
-                        hot_credential: left.as_borrowed().to_option(None),
-                        valid_until: valid_until.unwrap_or_default(),
-                    };
-
-                    cc_members.insert(credential.clone(), member);
-
-                    Ok(cc_members)
+                    None
                 }
 
-                (Existence::Exists(Bind { value: None, left, .. }), valid_until) => {
-                    if let Some(row) = db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)? {
-                        from_db += 1;
-
-                        let member = CCMember {
-                            hot_credential: left.as_borrowed().to_option(row.hot_credential.as_ref()),
-                            valid_until: valid_until.unwrap_or(row.valid_until),
-                        };
-                        cc_members.insert(credential.clone(), member);
-                    };
-
-                    Ok(cc_members)
-                }
-
-                (Existence::Unknown, valid_until) => {
-                    if let Some(row) = db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)? {
-                        from_db += 1;
-
-                        let member = CCMember {
-                            hot_credential: row.hot_credential,
-                            valid_until: valid_until.unwrap_or(row.valid_until),
-                        };
-
-                        cc_members.insert(credential.clone(), member);
+                Existence::Exists(Bind { value, left: hot_credential, .. }) => {
+                    if let Some(valid_until) = value {
+                        from_volatile += 1;
+                        Some(CCMember {
+                            hot_credential: hot_credential.into_option(None),
+                            valid_until: Some(valid_until),
+                        })
+                    } else {
+                        db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|mut row| {
+                            from_db += 1;
+                            hot_credential.set_or_reset(&mut row.hot_credential);
+                            CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
+                        })
                     }
-
-                    Ok(cc_members)
                 }
+
+                Existence::Unknown => {
+                    db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|row| {
+                        from_db += 1;
+                        CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
+                    })
+                }
+            };
+
+            if let Some(member) = member_opt {
+                cc_members.insert(credential.clone(), member);
             }
+
+            Ok(cc_members)
         })?;
 
         let span = tracing::Span::current();

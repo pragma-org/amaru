@@ -56,7 +56,15 @@ use amaru_kernel::{Lovelace, StakeCredential};
 ///
 /// Thus, we don't apply rewards immediately on epoch boundary, but we keep them around for k more
 /// blocks and perform an extra lookup when assessing the balance of an account.
-#[derive(Debug, Default)]
+//
+// NOTE: non-expensive clone of rewards
+//
+// The `Rewards<T>` object wraps maps inside `Arc` internally, making `snapshot` relatively
+// cheap here. Most of the time, there should be only a single reference to that `Arc`, but in
+// case where we are attempting to switch to a new fork, there will be two: the one now being
+// taken due to an epoch transition, and the one we stashed away to restore the state in case
+// the new candidate chain is invalid and we have to switch back.
+#[derive(Debug, Default, Clone)]
 pub enum RewardsState {
     /// No rewards computed yet, and no pending rewards to apply.
     #[default]
@@ -81,44 +89,27 @@ pub trait KnownRewardState {
     type UnclaimedRewards;
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Computed;
 impl KnownRewardState for Computed {
     type UnclaimedRewards = ();
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Effective;
 impl KnownRewardState for Effective {
     /// The accounts whose rewards are unclaimed (they unregistered during the epoch). Only the keys
     /// are kept: the amounts live in the shared `accounts` map, so an `Effective` differs from a
     /// `Computed` by nothing more than this small set of markers.
-    type UnclaimedRewards = BTreeSet<StakeCredential>;
+    type UnclaimedRewards = Arc<BTreeSet<StakeCredential>>;
 }
 
 impl RewardsState {
-    /// Snapshot the rewards state for rollback recovery. The rewards are held behind an `Arc`, so
-    /// this only bumps the reference count rather than deep-copying the per-account map.
-    pub fn snapshot(&self) -> RewardsState {
-        match self {
-            RewardsState::NotReady => RewardsState::NotReady,
-            RewardsState::Computed(rewards) => RewardsState::Computed(Arc::clone(rewards)),
-            RewardsState::Effective(rewards) => RewardsState::Effective(Arc::clone(rewards)),
-        }
-    }
-
     /// Consume computed rewards from the state, if available.
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
         match std::mem::replace(self, Self::NotReady) {
             Self::NotReady | Self::Effective(_) => None,
-            // NOTE: non-expensive clone of rewards
-            //
-            // The `Rewards<T>` object wraps maps inside `Arc` internally, making `snapshot` relatively
-            // cheap here. Most of the time, there should be only a single reference to that `Arc`, but in
-            // case where we are attempting to switch to a new fork, there will be two: the one now being
-            // taken due to an epoch transition, and the one we stashed away to restore the state in case
-            // the new candidate chain is invalid and we have to switch back.
-            Self::Computed(computed) => Some(Arc::try_unwrap(computed).unwrap_or_else(|rewards| rewards.snapshot())),
+            Self::Computed(computed) => Some(Arc::unwrap_or_clone(computed)),
         }
     }
 
@@ -127,7 +118,7 @@ impl RewardsState {
         match self {
             st @ (RewardsState::NotReady | RewardsState::Computed(..)) => st,
             RewardsState::Effective(effective) => {
-                let effective = Arc::try_unwrap(effective).unwrap_or_else(|rewards| rewards.snapshot());
+                let effective = Arc::unwrap_or_clone(effective);
                 RewardsState::Computed(Arc::new(effective.to_computed()))
             }
         }
@@ -141,8 +132,8 @@ impl RewardsState {
 /// computed and effective rewards that occur at the epoch boundary. It ensures that we don't
 /// misuse computed rewards too early, and it reduces the amount of boilerplate in having to create
 /// multiple types.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Rewards<STEP: KnownRewardState> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rewards<STEP: KnownRewardState + Clone> {
     /// A type-level marker for 'STEP'
     step: PhantomData<STEP>,
 
@@ -165,25 +156,6 @@ pub struct Rewards<STEP: KnownRewardState> {
     /// `Effective` back to a `Computed` is therefore just dropping this set, and the reverse is
     /// re-attaching it. Neither touches `accounts`.
     unclaimed: STEP::UnclaimedRewards,
-}
-
-impl<STEP: KnownRewardState> Rewards<STEP>
-where
-    STEP::UnclaimedRewards: Clone,
-{
-    /// Snapshot of the rewards summary, used when snapshotting the overlay for rollback recovery.
-    /// This is deliberately a named method rather than a `Clone` implementation, but it is cheap:
-    /// the per-account map is shared through `Arc` (a reference-count bump), and only the small
-    /// `unclaimed` marker set is copied.
-    pub fn snapshot(&self) -> Rewards<STEP> {
-        Rewards {
-            step: PhantomData,
-            delta_reserves: self.delta_reserves,
-            delta_treasury: self.delta_treasury,
-            accounts: Arc::clone(&self.accounts),
-            unclaimed: self.unclaimed.clone(),
-        }
-    }
 }
 
 impl Rewards<Computed> {
@@ -234,7 +206,7 @@ impl Rewards<Effective> {
             delta_reserves: computed_rewards.delta_reserves,
             delta_treasury: computed_rewards.delta_treasury,
             accounts: computed_rewards.accounts,
-            unclaimed,
+            unclaimed: Arc::new(unclaimed),
         }
     }
 
@@ -302,8 +274,7 @@ mod test {
         let computed_rewards = Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts);
 
         // `unregistered` unregistered during the epoch, so its rewards can no longer be paid out.
-        let effective_rewards =
-            Rewards::<Effective>::new(computed_rewards.snapshot(), [registered.clone()].into_iter());
+        let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), [registered.clone()].into_iter());
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
         // is folded back into the treasury instead).
@@ -314,7 +285,7 @@ mod test {
         assert_eq!(effective_rewards.delta_treasury(), delta_treasury + 42);
 
         // Rolling back drops the unclaimed markers, restoring the original computed rewards.
-        let rolled_back = effective_rewards.snapshot().to_computed();
+        let rolled_back = effective_rewards.clone().to_computed();
         assert_eq!(rolled_back, computed_rewards, "rollback");
     }
 }
