@@ -14,7 +14,7 @@
 
 use std::rc::Rc;
 
-use amaru_kernel::{ComparableProposalId, cbor};
+use crate::{ComparableProposalId, cbor};
 
 pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;
 
@@ -102,10 +102,10 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use amaru_kernel::{any_comparable_proposal_id, prop_cbor_roundtrip};
     use proptest::{option, prop_compose};
 
     use super::ProposalsRoots;
+    use crate::{any_comparable_proposal_id, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(ProposalsRoots, any_proposals_roots());
 

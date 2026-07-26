@@ -52,9 +52,10 @@ use crate::state::{
 /// it is highly likely that *at least one* would lead to an observable rollback. Finally, when
 /// syncing, the impact should be negligible as only one block every 1080 would cause an aggregate
 /// recompute.
-const DEFAULT_FORCED_RECOMPUTE_IN: usize = 1080;
+const DEFAULT_FORCED_RECOMPUTE_IN: usize = 4096;
 
 #[derive(Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileSeries {
     forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
@@ -104,7 +105,7 @@ impl VolatileState for VolatileSeries {
 
     // ----------------------------------------------------------------------------------- CCMembers
     type CCMember = Existence<CommitteeMemberBind>;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
         self.aggregate.resolve_cc_member(credential)
     }
 

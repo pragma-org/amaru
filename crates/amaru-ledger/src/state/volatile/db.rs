@@ -16,7 +16,7 @@ use std::{mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProtocolParameters, StakeCredential, TermLimit,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProposalsRoots, ProtocolParameters, StakeCredential,
     TransactionInput,
 };
 
@@ -24,7 +24,6 @@ use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    governance::ratification::ProposalsRoots,
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
@@ -36,6 +35,7 @@ use crate::{
 };
 
 #[derive(Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileDB {
     /// The always active underlying volatiles series. New blocks are always added to the
     /// `current`. It represents the *most* recent part of the syncing window, but always contains
@@ -139,18 +139,15 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember = (Existence<CommitteeMemberBind>, Option<TermLimit>);
+    type CCMember = Existence<CommitteeMemberBind>;
     fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
         // Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
         // draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
         // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
-        let member = self.current.resolve_cc_member(credential).or_else(|| {
-            self.overlay.committee_verdict(credential).or_else(|| self.draining.resolve_cc_member(credential))
-        });
-
-        let term_limit = self.overlay.pending_committee_term(credential);
-
-        (member, term_limit)
+        self.current
+            .resolve_cc_member(credential)
+            .or_else(|| self.overlay.committee_verdict(credential))
+            .or_else(|| self.draining.resolve_cc_member(credential))
     }
 
     // ----------------------------------------------------------------------------------- Proposals
@@ -496,7 +493,9 @@ mod tests {
         sync::Arc,
     };
 
-    use amaru_kernel::{Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Slot, StakeCredential};
+    use amaru_kernel::{
+        Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, ProposalsRoots, Slot, StakeCredential,
+    };
     use num::Zero;
     use proptest::prelude::*;
     use test_case::test_case;
@@ -504,8 +503,11 @@ mod tests {
     use super::*;
     use crate::{
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
-        governance::ratification::{CommitteeUpdate, ProposalsRoots},
-        state::volatile::test_support::*,
+        governance::ratification::CommitteeUpdate,
+        state::{
+            diff_bind::{Bind, Resettable},
+            volatile::test_support::*,
+        },
         summary::SafeRatio,
     };
 
@@ -1150,13 +1152,13 @@ mod tests {
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
 
-    #[test_case(None, Some(CommitteeAct::Auth) => Expect::Registered ; "hot-auth in current")]
-    #[test_case(None, Some(CommitteeAct::Resign) => Expect::Gone ; "resigned in current")]
-    #[test_case(Some(CommitteeAct::Auth), None => Expect::Registered ; "hot-auth in draining, untouched in current")]
-    #[test_case(Some(CommitteeAct::Resign), None => Expect::Gone ; "resigned in draining shadows the stable store")]
-    #[test_case(Some(CommitteeAct::Auth), Some(CommitteeAct::Resign) => Expect::Gone ; "current resignation overrides draining")]
-    #[test_case(None, None => Expect::Unknown ; "untouched everywhere defers to the stable store")]
-    fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Expect {
+    #[test_case(None, Some(CommitteeAct::Auth) => Existence::Exists(true); "hot-auth in current")]
+    #[test_case(None, Some(CommitteeAct::Resign) => Existence::Exists(false); "resigned in current")]
+    #[test_case(Some(CommitteeAct::Auth), None => Existence::Exists(true); "hot-auth in draining, untouched in current")]
+    #[test_case(Some(CommitteeAct::Resign), None => Existence::Exists(false); "resigned in draining shadows the stable store")]
+    #[test_case(Some(CommitteeAct::Auth), Some(CommitteeAct::Resign) => Existence::Exists(false); "current resignation overrides draining")]
+    #[test_case(None, None => Existence::Unknown; "untouched everywhere defers to the stable store")]
+    fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Existence<bool> {
         let mut db = VolatileDB::default();
         let computed = Rewards::<Computed>::new(0, 0, BTreeMap::new());
         let effective = Rewards::<Effective>::new(computed, std::iter::empty());
@@ -1168,10 +1170,10 @@ mod tests {
             db.push_back(committee_block(20, act));
         }
 
-        match db.resolve_cc_member(&cred(1)).0 {
-            Existence::Exists(_) => Expect::Registered,
-            Existence::Gone => Expect::Gone,
-            Existence::Unknown => Expect::Unknown,
+        match db.resolve_cc_member(&cred(1)) {
+            Existence::Exists(Bind { left, .. }) => Existence::Exists(matches!(left, Resettable::Set { .. })),
+            Existence::Gone => Existence::Gone,
+            Existence::Unknown => Existence::Unknown,
         }
     }
 
@@ -1179,20 +1181,20 @@ mod tests {
     fn resolve_committee_reflects_the_pending_boundary() {
         // Added at the boundary: a fresh member with the pending term, no stable row needed.
         let mut db = VolatileDB::default();
-        let valid_until = Epoch::from(99);
+        let expected_term_limit = Epoch::from(99);
         db.transition(
             None,
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::ChangeMembers {
-                added: BTreeMap::from([(cred(1), valid_until)]),
+                added: BTreeMap::from([(cred(1), expected_term_limit)]),
                 removed: BTreeSet::new(),
                 threshold: SafeRatio::zero(),
             })),
         );
-        let expected_term_limit = Some(valid_until);
-        assert!(
-            matches!(db.resolve_cc_member(&cred(1)), (Existence::Exists(_), Some(term_limit)) if term_limit == expected_term_limit)
-        );
+        assert!(matches!(
+            db.resolve_cc_member(&cred(1)),
+            Existence::Exists(Bind { value: Some(term_limit),.. }) if term_limit == expected_term_limit
+        ));
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
         let mut db = VolatileDB::default();
@@ -1205,7 +1207,7 @@ mod tests {
                 threshold: SafeRatio::zero(),
             })),
         );
-        assert!(matches!(db.resolve_cc_member(&cred(1)).0, Existence::Gone));
+        assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Gone));
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
@@ -1214,7 +1216,7 @@ mod tests {
             PoolsEpochTransitionUpdates::default(),
             committee_update(Some(CommitteeUpdate::NoConfidence)),
         );
-        assert!(matches!(db.resolve_cc_member(&cred(1)), (Existence::Unknown, Some(None))));
+        assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Unknown));
     }
 
     // HELPERS

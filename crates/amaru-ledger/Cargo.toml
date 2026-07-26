@@ -20,6 +20,17 @@ build = "build.rs"
 default = []
 test-utils = ["proptest", "amaru-kernel/test-utils"]
 
+[[test]]
+name = "state_rollback"
+path = "tests/state_rollback.rs"
+required-features = ["test-utils"]
+
+[[bench]]
+name = "volatile_db"
+path = "benches/state/volatile_db/main.rs"
+harness = false
+required-features = ["test-utils"]
+
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
@@ -46,10 +57,13 @@ amaru-deps.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+divan.workspace = true
 proptest.workspace = true
+rand.workspace = true
+sysinfo.workspace = true
 test-case.workspace = true
-toml.workspace = true
 tempfile.workspace = true
+toml.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }

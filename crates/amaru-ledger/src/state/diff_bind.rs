@@ -89,6 +89,16 @@ impl<A> Resettable<A> {
             Self::Unchanged => Resettable::Unchanged,
         }
     }
+
+    /// Transform into an `Option`, using the default value `when_unchanged` for the `Unchanged`
+    /// case.
+    pub fn into_option(self, when_unchanged: Option<A>) -> Option<A> {
+        match self {
+            Resettable::Set(value) => Some(value),
+            Resettable::Reset => None,
+            Resettable::Unchanged => when_unchanged,
+        }
+    }
 }
 
 impl<A: ToOwned<Owned = A>> Resettable<&A> {

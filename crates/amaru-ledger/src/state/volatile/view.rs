@@ -20,11 +20,10 @@ use std::{
 
 use amaru_kernel::{
     CertificatePointer, ComparableProposalId, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer,
-    StakeCredential,
+    ProposalsRootsRc, StakeCredential,
 };
 
 use crate::{
-    governance::ratification::ProposalsRootsRc,
     state::{
         VolatileDB,
         diff_bind::DiffBind,
