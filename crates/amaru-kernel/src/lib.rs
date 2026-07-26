@@ -91,7 +91,7 @@ pub use cardano::{
     network::Network,
     network_id::NetworkId,
     network_magic::NetworkMagic,
-    network_name::NetworkName,
+    network_name::{NetworkName, PEER_SNAPSHOT_NETWORKS},
     non_zero_int::NonZeroInt,
     nonce::{Nonce, parse_nonce},
     output_reference::OutputReference,

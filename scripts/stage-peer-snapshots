@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# Stage Cardano peer snapshots for amaru-node embedding (CI / offline prep).
+#
+# Resolves cardano-foundation/cardano-configurations at the youngest commit at or
+# before Amaru HEAD's committer timestamp, downloads peer-snapshot.json for each
+# known network, and writes CONFIGS_COMMIT_CACHE.
+#
+# Auth: set GITHUB_TOKEN or GH_TOKEN for higher GitHub API rate limits.
+# On HTTP status >= 400 or curl failure, prints response headers and body.
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONFIGS_REPO="cardano-foundation/cardano-configurations"
+USER_AGENT="amaru-ci (https://github.com/pragma-org/amaru)"
+NETWORKS=(mainnet preprod preview)
+STAGING_ROOT="${STAGING_ROOT:-$ROOT_DIR/crates/amaru-node/config/peer-snapshots}"
+
+token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+
+auth_headers=()
+if [[ -n "$token" ]]; then
+  auth_headers+=(-H "Authorization: Bearer ${token}")
+fi
+
+# Perform GET; write body and headers to the given paths.
+# Prints diagnostics and returns non-zero on curl failure or HTTP status >= 400.
+# Echoes the HTTP status code on stdout (last line of function output for callers
+# that capture it via the status path file instead).
+curl_get() {
+  local url=$1
+  local body_file=$2
+  local headers_file=$3
+  local status_file=$4
+  local curl_exit=0
+  local http_code
+
+  http_code="$(
+    curl -sS \
+      -D "$headers_file" \
+      -o "$body_file" \
+      -w "%{http_code}" \
+      -A "$USER_AGENT" \
+      -H "Accept: application/vnd.github+json" \
+      "${auth_headers[@]+"${auth_headers[@]}"}" \
+      --connect-timeout 30 \
+      --max-time 120 \
+      "$url"
+  )" || curl_exit=$?
+
+  printf '%s' "$http_code" >"$status_file"
+
+  if [[ $curl_exit -ne 0 ]]; then
+    echo "curl failed (exit ${curl_exit}) for ${url}" >&2
+    echo "--- response headers ---" >&2
+    if [[ -f "$headers_file" ]]; then
+      cat "$headers_file" >&2 || true
+    else
+      echo "(no headers file)" >&2
+    fi
+    echo "--- response body ---" >&2
+    if [[ -f "$body_file" ]]; then
+      cat "$body_file" >&2 || true
+    else
+      echo "(no body file)" >&2
+    fi
+    return "$curl_exit"
+  fi
+
+  if [[ -z "$http_code" || "$http_code" == "000" ]]; then
+    echo "curl returned empty/zero HTTP status for ${url}" >&2
+    echo "--- response headers ---" >&2
+    cat "$headers_file" >&2 || true
+    echo "--- response body ---" >&2
+    cat "$body_file" >&2 || true
+    return 1
+  fi
+
+  if ((http_code >= 400)); then
+    echo "HTTP ${http_code} for ${url}" >&2
+    echo "--- response headers ---" >&2
+    cat "$headers_file" >&2 || true
+    echo "--- response body ---" >&2
+    cat "$body_file" >&2 || true
+    return 1
+  fi
+
+  return 0
+}
+
+header_value() {
+  local headers_file=$1
+  local name=$2
+  # Case-insensitive header name; first match; strip CR.
+  awk -v key="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" '
+    BEGIN { FS = ": " }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      split(line, parts, ": ")
+      name = parts[1]
+      # rebuild value after first ": "
+      idx = index(line, ": ")
+      if (idx == 0) next
+      hname = tolower(substr(line, 1, idx - 1))
+      hval = substr(line, idx + 2)
+      if (hname == key) {
+        print hval
+        exit
+      }
+    }
+  ' "$headers_file"
+}
+
+tmpdir=
+cleanup() {
+  if [[ -n "${tmpdir:-}" && -d "$tmpdir" ]]; then
+    rm -rf "$tmpdir"
+  fi
+}
+trap cleanup EXIT
+
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/amaru-stage-peer-snapshots.XXXXXX")"
+
+until_iso="$(git -C "$ROOT_DIR" show -s --format=%cI HEAD)"
+if [[ -z "$until_iso" ]]; then
+  echo "git show HEAD returned empty committer date" >&2
+  exit 1
+fi
+
+# Percent-encode '+' in ISO-8601 offsets for the query string.
+until_enc="${until_iso//+/%2B}"
+commits_url="https://api.github.com/repos/${CONFIGS_REPO}/commits?until=${until_enc}&per_page=1"
+
+echo "Resolving ${CONFIGS_REPO} commit at or before ${until_iso}…"
+curl_get "$commits_url" "$tmpdir/commits.json" "$tmpdir/commits.hdr" "$tmpdir/commits.status"
+
+sha="$(
+  python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+if not data:
+    sys.exit(0)
+print(data[0].get("sha") or "")
+' <"$tmpdir/commits.json"
+)"
+if [[ -z "$sha" ]]; then
+  echo "no ${CONFIGS_REPO} commit at or before ${until_iso}" >&2
+  echo "--- response headers ---" >&2
+  cat "$tmpdir/commits.hdr" >&2 || true
+  echo "--- response body ---" >&2
+  cat "$tmpdir/commits.json" >&2 || true
+  exit 1
+fi
+
+etag="$(header_value "$tmpdir/commits.hdr" "etag" || true)"
+last_modified="$(header_value "$tmpdir/commits.hdr" "last-modified" || true)"
+
+mkdir -p "$STAGING_ROOT"
+{
+  printf 'sha: %s\n' "$sha"
+  if [[ -n "$etag" ]]; then
+    printf 'etag: %s\n' "$etag"
+  fi
+  if [[ -n "$last_modified" ]]; then
+    printf 'last-modified: %s\n' "$last_modified"
+  fi
+} >"$STAGING_ROOT/CONFIGS_COMMIT_CACHE"
+
+echo "Using ${CONFIGS_REPO}@${sha}"
+
+for network in "${NETWORKS[@]}"; do
+  url="https://raw.githubusercontent.com/${CONFIGS_REPO}/${sha}/network/${network}/cardano-node/peer-snapshot.json"
+  dest_dir="$STAGING_ROOT/$network"
+  mkdir -p "$dest_dir"
+  body="$tmpdir/${network}.json"
+  hdr="$tmpdir/${network}.hdr"
+  status="$tmpdir/${network}.status"
+
+  echo "Downloading peer snapshot for ${network}…"
+  curl_get "$url" "$body" "$hdr" "$status"
+
+  if [[ ! -s "$body" ]]; then
+    echo "empty peer snapshot body for ${network} from ${url}" >&2
+    echo "--- response headers ---" >&2
+    cat "$hdr" >&2 || true
+    exit 1
+  fi
+  if ! grep -q '{' "$body"; then
+    echo "peer snapshot for ${network} does not look like JSON" >&2
+    echo "--- response headers ---" >&2
+    cat "$hdr" >&2 || true
+    echo "--- response body ---" >&2
+    cat "$body" >&2 || true
+    exit 1
+  fi
+
+  tmp_out="${dest_dir}/peer-snapshot.json.tmp"
+  cp "$body" "$tmp_out"
+  mv "$tmp_out" "${dest_dir}/peer-snapshot.json"
+done
+
+echo "Staged peer snapshots under ${STAGING_ROOT}"

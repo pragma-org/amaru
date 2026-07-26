@@ -12,33 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod git;
-mod stake_distribution;
-mod type_aliases;
+mod peer_snapshot;
 
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
 
-/// Generate:
-///  1. build-time information (via `built`)
-///  2. The type aliases embedded in the `dump_schemas` command
-///  3. The stake distribution test cases for each supported network.
-///  4. Peer snapshots for known networks (best-effort fetch; embed if present).
 fn main() -> Result<()> {
     built::write_built_file().context("Failed to acquire build-time information")?;
-    type_aliases::write_type_aliases_file().context("Failed to generate embedded type aliases for dump_schemas")?;
-    println!("cargo:rerun-if-env-changed=BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH");
-
-    for network in ["mainnet", "preprod", "preview"] {
-        stake_distribution::write_stake_distribution_test_cases_file(network).with_context(|| {
-            format!("Failed to generate embedded stake distribution test cases for network={network}")
-        })?;
-    }
-
+    peer_snapshot::prepare_peer_snapshots().context("Failed to prepare embedded peer snapshots")?;
     Ok(())
 }
 
+/// Ask cargo to rerun this build script when `path` changes, but only if the path
+/// currently exists, so that a missing optional input does not trigger reruns.
 fn emit_rerun_if_exists(path: &Path) {
     if path.exists() {
         println!("cargo:rerun-if-changed={}", path.display());
