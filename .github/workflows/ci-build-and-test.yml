@@ -104,6 +104,7 @@ jobs:
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - name: benches headers_tree
         shell: bash
@@ -124,9 +125,11 @@ jobs:
       BUILD_PROFILE: test
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
       - name: Validate trace schemas
         run: make validate-trace-schemas
+
       - name: Upload schema diff
         if: failure()
         uses: actions/upload-artifact@v7

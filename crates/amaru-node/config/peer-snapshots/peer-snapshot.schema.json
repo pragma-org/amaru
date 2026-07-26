@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pragma-org/amaru/blob/main/crates/amaru-node/config/peer-snapshots/peer-snapshot.schema.json",
+  "title": "Cardano ledger peer snapshot",
+  "description": "JSON peer snapshot used by cardano-node (`peerSnapshotFile` / big-ledger peers) and embedded by Amaru at build time. Compatible with files under cardano-foundation/cardano-configurations (`network/<name>/cardano-node/peer-snapshot.json`).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["NetworkMagic", "NodeToClientVersion", "Point", "bigLedgerPools"],
+  "properties": {
+    "NetworkMagic": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Cardano network magic (protocol magic). Common values: mainnet 764824073, preprod 1, preview 2."
+    },
+    "NodeToClientVersion": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Node-to-client protocol version recorded when the snapshot was produced."
+    },
+    "Point": {
+      "$ref": "#/$defs/point"
+    },
+    "bigLedgerPools": {
+      "type": "array",
+      "description": "Big-ledger stake pools and their public relays. May be empty for offline placeholder files.",
+      "items": {
+        "$ref": "#/$defs/bigLedgerPool"
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockPointHash", "blockPointSlot"],
+      "properties": {
+        "blockPointHash": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "Header hash of the snapshot tip as 32-byte hex (64 hex characters)."
+        },
+        "blockPointSlot": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Slot of the snapshot tip."
+        }
+      }
+    },
+    "bigLedgerPool": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["relays"],
+      "properties": {
+        "relays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/relay"
+          }
+        },
+        "accumulatedStake": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Optional cumulative relative stake (present in cardano-node exports; ignored by Amaru)."
+        },
+        "relativeStake": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Optional pool relative stake (present in cardano-node exports; ignored by Amaru)."
+        }
+      }
+    },
+    "relay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address"],
+      "properties": {
+        "address": {
+          "type": "string",
+          "minLength": 1,
+          "description": "DNS name or IP address of the relay."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "TCP port (must be non-zero). When omitted, Amaru defaults to 3001."
+        }
+      }
+    }
+  }
+}

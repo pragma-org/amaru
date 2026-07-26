@@ -107,6 +107,7 @@ tracing-subscriber = { version = "0.3.23", features = [
   "json",
 ] }
 typetag = "0.2.23"
+ureq = { version = "2.12.1", default-features = false, features = ["tls", "json"] }
 zstd = "0.13.3"
 xz = "0.4.6-rc.0"
 zeroize = "1.9.0"
