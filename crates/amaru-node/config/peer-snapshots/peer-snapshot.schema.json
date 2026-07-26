@@ -83,9 +83,9 @@
         },
         "port": {
           "type": "integer",
-          "minimum": 0,
+          "minimum": 1,
           "maximum": 65535,
-          "description": "TCP port. When omitted, Amaru defaults to 3001."
+          "description": "TCP port (must be non-zero). When omitted, Amaru defaults to 3001."
         }
       }
     }

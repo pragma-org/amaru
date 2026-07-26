@@ -20,6 +20,7 @@
 use std::{
     collections::BTreeSet,
     fs,
+    num::NonZeroU16,
     path::{Path, PathBuf},
 };
 
@@ -32,7 +33,7 @@ mod embedded {
 }
 
 /// Default N2N relay port when a snapshot relay omits `port`.
-pub const DEFAULT_RELAY_PORT: u16 = 3001;
+pub const DEFAULT_RELAY_PORT: NonZeroU16 = NonZeroU16::new(3001).unwrap();
 
 /// Loaded peer snapshot after validation, ready for peer selection.
 #[derive(Debug, Clone, PartialEq)]
@@ -101,7 +102,7 @@ struct BigLedgerPool {
 #[derive(Debug, Deserialize)]
 struct SnapshotRelay {
     address: String,
-    port: Option<u16>,
+    port: Option<NonZeroU16>,
 }
 
 /// Load and validate a peer snapshot file against the expected network magic.
@@ -153,7 +154,7 @@ pub fn parse_peer_snapshot_bytes(
     let mut peers = BTreeSet::new();
     for pool in &file.big_ledger_pools {
         for relay in &pool.relays {
-            let port = relay.port.unwrap_or(DEFAULT_RELAY_PORT);
+            let port = relay.port.unwrap_or(DEFAULT_RELAY_PORT).get();
             peers.insert(Peer::new(&format!("{}:{}", relay.address, port)));
         }
     }
@@ -264,6 +265,21 @@ mod tests {
             parse_peer_snapshot_bytes(json.as_bytes(), Path::new("empty.json"), NetworkMagic::PREPROD).expect("parse");
         assert!(snap.peers.is_empty());
         assert_eq!(snap.pool_count, 0);
+    }
+
+    #[test]
+    fn rejects_zero_port() {
+        let json = r#"{
+              "NetworkMagic": 764824073,
+              "NodeToClientVersion": 23,
+              "Point": {"blockPointHash": "1a7f1af3e52ba8810247f7c82431113a61c2efc5435a8fe6f76c5ae6618cc92a", "blockPointSlot": 1},
+              "bigLedgerPools": [
+                {"relays": [{"address": "relay.example", "port": 0}]}
+              ]
+            }"#;
+        let err = parse_peer_snapshot_bytes(json.as_bytes(), Path::new("zero-port.json"), NetworkMagic::MAINNET)
+            .expect_err("port");
+        assert!(matches!(err, PeerSnapshotError::Json { .. }));
     }
 
     #[test]

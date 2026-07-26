@@ -18,16 +18,9 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
 
-/// Generate:
-///  1. build-time information (via `built`)
-///  2. The type aliases embedded in the `dump_schemas` command
-///  3. The stake distribution test cases for each supported network.
-///  4. Peer snapshots for known networks (best-effort fetch; embed if present).
 fn main() -> Result<()> {
     built::write_built_file().context("Failed to acquire build-time information")?;
-
     peer_snapshot::prepare_peer_snapshots().context("Failed to prepare embedded peer snapshots")?;
-
     Ok(())
 }
 
