@@ -28,8 +28,7 @@ use crate::{
     governance::ratification::CommitteeUpdate,
     state::{
         StateError,
-        diff_bind::{Bind, Resettable},
-        volatile::{CommitteeMemberBind, Existence},
+        volatile::{Bind, CommitteeMemberBind, Existence, Resettable},
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
@@ -272,7 +271,7 @@ impl StateOverlay {
     /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
     /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
     /// so it defers to the layers below. `Unknown` outside the straddle window.
-    pub fn committee_verdict(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    pub fn committee_verdict<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
             Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
                 if removed.contains(credential) {
@@ -282,7 +281,7 @@ impl StateOverlay {
                     Existence::Exists(Bind {
                         left: Resettable::Reset,
                         right: Resettable::Unchanged,
-                        value: Some(*epoch),
+                        value: Some(epoch),
                     })
                 } else {
                     Existence::Unknown

@@ -33,7 +33,7 @@ use amaru_progress_bar::ProgressBar;
 
 use crate::{
     epoch_transition::GovernanceActivity,
-    state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
+    state::volatile::{DiffEpochReg, Resettable},
     store::{
         self, Store, StoreError, TransactionalContext,
         columns::{accounts, pots::Row as Pots, proposals},

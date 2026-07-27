@@ -18,8 +18,7 @@
 "alonzo/fail-utxow-plutusv3-not-validating-spend-script/0" = "Expected failure, got success"
 "alonzo/fail-utxow-plutusv3-not-validating-withdrawal-script/0" = "Expected failure, got success"
 "alonzo/fail-utxow-plutusv3-unspendableutxonodatumhash/0" = "Expected failure, got success"
-"conway/fail-certs-withdrawing-from-an-unregistered-reward-account/0" = "Expected failure, got success"
-"conway/fail-certs-withdrawing-the-wrong-amount/0" = "Expected failure, got success"
+"conway/fail-certs-withdrawing-from-an-unregistered-reward-account/0" = "Expected success, got failure: value not preserved: balance = (-20, [])"
 "conway/fail-deleg-delegate-unregistered-stake-credentials/0" = "Expected failure, got success"
 "conway/fail-deleg-delegate-vote-of-unregistered-stake-credentials/0" = "Expected failure, got success"
 "conway/fail-deleg-with-non-zero-reward-balance/0" = "Expected failure, got success"
@@ -60,6 +59,7 @@
 "conway/fail-utxos-votingprocedures-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-votingprocedures-v2/0" = "Expected failure, got success"
 "conway/pass-deleg-delegate-retire-and-re-register-pool/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 901, must satisfy 44 < epoch <= 62"
+"conway/pass-deleg-deregistering-returns-the-deposit/0" = "Expected success, got failure: invalid withdrawals: attempted to withdraw a different amount than the full account balance: balance 0 withdrawal: 3"
 "conway/pass-enact-cc-re-election/0" = 'Expected success, got failure: invalid certificates: invalid cc member hot credential delegation: unknown source entity: AddrKeyhash(Hash<28>("8ed8575d4f9cc0a89bc1616ab75923ae07b19d23e8bd69586f3b76b1"))'
 "conway/pass-gov-fails-for-empty-withdrawals/0" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [5e7d655d8036173ee03b3548d5b7b023f21366eabc4045653d4c3efd]"
 "conway/pass-gov-hardfork-is-the-second-one-has-a-govpurposeid-hardfork-minorfollow/0" = "Expected success, got failure: invalid proposals: hardfork version (10, 2) cannot follow current version (10, 0)"

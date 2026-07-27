@@ -14,6 +14,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::state::volatile::Existence;
+
 /// A compact data-structure tracking changes in a DAG. A composition relation exists, allowing to reduce
 /// two `DiffSet` into one that is equivalent to applying both `DiffSet` in sequence.
 ///
@@ -21,7 +23,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// the processing of each transaction in sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffSet<K: Ord, V> {
+    /// Keys consumed by this diff.
     pub consumed: BTreeSet<K>,
+    /// Keys produced by this diff together with their resulting values.
     pub produced: BTreeMap<K, V>,
 }
 
@@ -32,22 +36,51 @@ impl<K: Ord, V> Default for DiffSet<K, V> {
 }
 
 impl<K: Ord, V> DiffSet<K, V> {
+    /// Borrow all keys and values in this diff.
+    pub fn as_refs(&self) -> DiffSet<&K, &V> {
+        DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
+    }
+
+    /// Lookup the state associated to a key, if any. Returns `Existence::Unknown` if the state
+    /// cannot be determined from the available data.
+    pub fn get<'a>(&'a self, k: &K) -> Existence<&'a V> {
+        if let Some(v) = self.produced.get(k) {
+            Existence::Exists(v)
+        } else if self.consumed.contains(k) {
+            Existence::Gone
+        } else {
+            Existence::Unknown
+        }
+    }
+
+    /// Record that this diff produces `k` with value `v`.
+    pub fn produce(&mut self, k: K, v: V) {
+        self.produced.insert(k, v);
+    }
+
+    /// Record that this diff consumes `k`, cancelling any prior production in the same diff.
+    pub fn consume(&mut self, k: K) {
+        self.produced.remove(&k);
+        self.consumed.insert(k);
+    }
+
+    /// Merge another diff into this one, assuming `other` happened later.
     pub fn extend(&mut self, other: &DiffSet<K, V>)
     where
         // TODO: lower requirement to 'Copy' for DiffSet keys
         //
         // This needs to be clone because `TransactionInput` isn't `Copy` at the moment. But
         // it's reasonable to ask keys to be always Copy in this scenario.
-        K: Clone,
-        V: Clone,
+        K: ToOwned<Owned = K>,
+        V: ToOwned<Owned = V>,
     {
         for k in &other.consumed {
             self.produced.remove(k);
-            self.consumed.insert(k.clone());
+            self.consumed.insert(k.to_owned());
         }
 
         for (k, v) in &other.produced {
-            self.produced.insert(k.clone(), v.clone());
+            self.produced.insert(k.to_owned(), v.to_owned());
         }
     }
 
@@ -58,7 +91,7 @@ impl<K: Ord, V> DiffSet<K, V> {
     /// An important consideration is also that this function's goal is not to exactly revert a
     /// `DiffSet`, but rather, to cleanup memory as much as we can in a cheap way; this ensures
     /// that one can use a `DiffSet` as a cache, while keeping the memory under control.
-    pub fn cleanup(&mut self, other: &DiffSet<K, V>) {
+    pub fn remove(&mut self, other: &DiffSet<K, V>) {
         for k in other.produced.keys() {
             self.produced.remove(k);
         }
@@ -67,22 +100,12 @@ impl<K: Ord, V> DiffSet<K, V> {
             self.consumed.remove(k);
         }
     }
-
-    pub fn produce(&mut self, k: K, v: V) {
-        self.produced.insert(k, v);
-    }
-
-    pub fn consume(&mut self, k: K) {
-        self.produced.remove(&k);
-        self.consumed.insert(k);
-    }
-
-    pub fn as_ref(&self) -> DiffSet<&K, &V> {
-        DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
-    }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -91,7 +114,7 @@ mod tests {
     use super::*;
 
     prop_compose! {
-        fn any_diff()(
+        pub fn any_diff_set()(
             consumed in
                 any::<BTreeSet<u8>>(),
             mut produced in
@@ -107,7 +130,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_extend_itself(st in any_diff()) {
+        fn prop_extend_itself(st in any_diff_set()) {
             let mut original = st.clone();
             original.extend(&st);
             prop_assert_eq!(st, original);
@@ -116,7 +139,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_merge_no_overlap(mut st in any_diff(), mut diff in any_diff()) {
+        fn prop_merge_no_overlap(mut st in any_diff_set(), mut diff in any_diff_set()) {
             // Extra assumptions that must hold for this property:
             //
             // - We cannot produce an item produced or consumed before
@@ -160,8 +183,8 @@ mod tests {
     proptest! {
         #[test]
         fn prop_composition(
-            st0 in any_diff().prop_map(|st| st.produced),
-            diffs in prop::collection::vec(any_diff(), 1..5),
+            st0 in any_diff_set().prop_map(|st| st.produced),
+            diffs in prop::collection::vec(any_diff_set(), 1..5),
         ) {
             // NOTE: The order in which we apply transformation here doesn't matter, because we
             // know that DiffSet consumed and produced do not overlap _by construction_ (cf the
@@ -194,5 +217,18 @@ mod tests {
 
             assert_eq!(st_seq, st_compose);
         }
+    }
+
+    #[test]
+    fn lookup_resolves_existence() {
+        use crate::state::volatile::Existence;
+
+        let mut diff = DiffSet::<u8, u8>::default();
+        diff.produce(1, 100);
+        diff.consume(2);
+
+        assert!(matches!(diff.get(&1), Existence::Exists(&100)));
+        assert!(matches!(diff.get(&2), Existence::Gone));
+        assert!(matches!(diff.get(&3), Existence::Unknown));
     }
 }

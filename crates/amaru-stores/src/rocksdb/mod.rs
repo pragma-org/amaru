@@ -29,7 +29,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
-    state::diff_bind::Resettable,
+    state::volatile::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext, columns as scolumns, columns::pots::Row as Pots,

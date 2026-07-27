@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, mem};
 use amaru_kernel::{CertificatePointer, Epoch, Lovelace, PoolId, PoolParams};
 
 use crate::{
-    state::{diff_epoch_reg::Registrations, volatile::view::DiffEpochReg},
+    state::volatile::{DiffEpochReg, Registrations},
     store::columns::pools::Row as Pool,
 };
 
@@ -94,7 +94,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
             // Pool is already registered, and has some updates.
             if let Some(update) = self.registrations.remove(&pool_id) {
                 let mut future_params =
-                    update.into_iter().map(|(pool_params, _, _)| (Some(pool_params.clone()), self.epoch + 1)).collect();
+                    update.iter().map(|(pool_params, _, _)| (Some(pool_params.clone()), self.epoch + 1)).collect();
                 pool.future_params.append(&mut future_params);
             }
 

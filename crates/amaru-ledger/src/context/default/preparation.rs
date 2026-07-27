@@ -29,10 +29,7 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, UnresolvedInputPolicy,
     },
-    state::{
-        diff_bind::Bind,
-        volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
-    },
+    state::volatile::{AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
     store::ReadStore,
 };
 
@@ -113,16 +110,17 @@ impl<'a> PrepareProposalsSlice<'a> for DefaultPreparationContext<'a> {
 // Context hydratation
 // -------------------------------------------------------------------------------------------------
 
-impl<'a> DefaultPreparationContext<'a> {
-    pub fn into_validation_context(
+impl<'block> DefaultPreparationContext<'block> {
+    pub fn into_validation_context<'volatile>(
         self,
         policy: UnresolvedInputPolicy,
         proposal_roots: ProposalsRoots,
-        volatile: &impl VolatileState<
+        volatile: &'volatile impl VolatileState<
+            TransactionOutput<'volatile> = Existence<&'volatile MemoizedTransactionOutput>,
             Pool = Existence<()>,
-            Account = (Existence<AccountBind>, RewardsAtTip),
-            DRep = Existence<DRepBind>,
-            CCMember = Existence<CommitteeMemberBind>,
+            Account<'volatile> = (Existence<AccountBind<'volatile>>, RewardsAtTip),
+            DRep<'volatile> = Existence<DRepBind<'volatile>>,
+            CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>,
             Proposal = Existence<()>,
         >,
         db: &impl ReadStore,
@@ -154,30 +152,27 @@ impl<'a> DefaultPreparationContext<'a> {
 /// Resolve inputs/UTxO necessary for the validation context using what was marked during
 /// preparation. This search in the volatile first and reaches for the stable store if
 /// necessary.
-fn resolve_inputs<'a>(
-    volatile: &impl VolatileState,
+fn resolve_inputs<'block, 'volatile>(
+    volatile: &'volatile impl VolatileState<TransactionOutput<'volatile> = Existence<&'volatile MemoizedTransactionOutput>>,
     db: &impl ReadStore,
     policy: UnresolvedInputPolicy,
-    mut keys: impl Iterator<Item = &'a TransactionInput>,
+    mut keys: impl Iterator<Item = &'block TransactionInput>,
 ) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, ContextHydratationError> {
     debug_span!(ledger::validation_context::inputs::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
         let utxos = keys.try_fold(BTreeMap::new(), |mut acc, input| -> Result<_, ContextHydratationError> {
-            let output = if volatile.has_consumed_input(input) {
-                Ok(None)
-            } else {
-                match volatile.resolve_input(input) {
-                    Some(output) => {
-                        from_volatile += 1;
-                        Ok(Some(output.clone()))
-                    }
-                    None => {
-                        Ok(db.utxo(input).map_err(ContextHydratationError::ResolveInputs)?.inspect(|_| from_db += 1))
-                    }
+            let output = match volatile.resolve_input(input) {
+                Existence::Gone => None,
+                Existence::Exists(output) => {
+                    from_volatile += 1;
+                    Some(output.to_owned())
                 }
-            }?;
+                Existence::Unknown => {
+                    db.utxo(input).map_err(ContextHydratationError::ResolveInputs)?.inspect(|_| from_db += 1)
+                }
+            };
 
             match (output, &policy) {
                 (None, UnresolvedInputPolicy::Defer) => Ok(acc),
@@ -245,10 +240,10 @@ fn resolve_pools(
 /// Structural fields resolve `volatile -> stable` (a `Gone` tombstone skips the stale stable
 /// entry); the reward balance folds in the overlay credit and volatile withdrawals via
 /// [`VolatileDB::resolve_reward_balance`].
-fn resolve_accounts<'iter>(
-    volatile: &impl VolatileState<Account = (Existence<AccountBind>, RewardsAtTip)>,
+fn resolve_accounts<'block, 'volatile>(
+    volatile: &'volatile impl VolatileState<Account<'volatile> = (Existence<AccountBind<'volatile>>, RewardsAtTip)>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = Cow<'iter, StakeCredential>>,
+    mut keys: impl Iterator<Item = Cow<'block, StakeCredential>>,
 ) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydratationError> {
     debug_span!(ledger::validation_context::accounts::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
@@ -262,9 +257,9 @@ fn resolve_accounts<'iter>(
                     from_volatile += 1;
 
                     let state = AccountState {
-                        deposit,
-                        pool: left.as_borrowed().to_option(None),
-                        drep: right.as_borrowed().to_option(None),
+                        deposit: *deposit,
+                        pool: left.to_option(None),
+                        drep: right.to_option(None),
                         rewards: rewards_at_tip.into_balance(0),
                     };
 
@@ -279,8 +274,8 @@ fn resolve_accounts<'iter>(
 
                         let state = AccountState {
                             deposit: row.deposit,
-                            pool: left.as_borrowed().to_option(row.pool.as_ref()),
-                            drep: right.as_borrowed().to_option(row.drep.as_ref()),
+                            pool: left.owned().into_option(row.pool),
+                            drep: right.owned().into_option(row.drep),
                             rewards: rewards_at_tip.into_balance(row.rewards),
                         };
 
@@ -320,8 +315,8 @@ fn resolve_accounts<'iter>(
 /// over the volatile DB over the stable store; a `Gone` tombstone skips the stale stable entry.
 /// DReps carry no balance, so there is no reward dimension; the anchor is metadata outside the
 /// registration record, so a bind-only (anchor) update reads the registration from below.
-fn resolve_dreps(
-    volatile: &impl VolatileState<DRep = Existence<DRepBind>>,
+fn resolve_dreps<'volatile>(
+    volatile: &'volatile impl VolatileState<DRep<'volatile> = Existence<DRepBind<'volatile>>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydratationError> {
@@ -335,10 +330,12 @@ fn resolve_dreps(
 
                 Existence::Exists(Bind { value: Some(registration), .. }) => {
                     from_volatile += 1;
-                    dreps.insert(credential, registration);
+                    dreps.insert(credential, registration.to_owned());
                     Ok(dreps)
                 }
 
+                // An anchor-only update carries no registration, so the record still lives below;
+                // the anchor itself is metadata outside `DRepRegistration` and isn't materialized here.
                 Existence::Exists(Bind { value: None, .. }) | Existence::Unknown => {
                     if let Some(row) = db.drep(&credential).map_err(ContextHydratationError::ResolveDReps)? {
                         from_db += 1;
@@ -376,10 +373,10 @@ fn resolve_dreps(
 // member (Haskell's `cgceCommitteeProposals`), which lets a not-yet-elected member pre-declare
 // its hot key. That source needs the proposals read-path, so it is deferred until proposals are
 // exposed.
-fn resolve_committee<'a>(
-    volatile: &impl VolatileState<CCMember = Existence<CommitteeMemberBind>>,
+fn resolve_committee<'block, 'volatile>(
+    volatile: &'volatile impl VolatileState<CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = &'a StakeCredential>,
+    mut keys: impl Iterator<Item = &'block StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
     debug_span!(ledger::validation_context::committee::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
@@ -396,13 +393,13 @@ fn resolve_committee<'a>(
                     if let Some(valid_until) = value {
                         from_volatile += 1;
                         Some(CCMember {
-                            hot_credential: hot_credential.into_option(None),
-                            valid_until: Some(valid_until),
+                            hot_credential: hot_credential.to_option(None),
+                            valid_until: Some(*valid_until),
                         })
                     } else {
                         db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|mut row| {
                             from_db += 1;
-                            hot_credential.set_or_reset(&mut row.hot_credential);
+                            hot_credential.owned().set_or_reset(&mut row.hot_credential);
                             CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
                         })
                     }

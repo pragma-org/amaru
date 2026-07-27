@@ -177,6 +177,7 @@ pub(super) enum Predicate {
     BadInputsUTxO,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
+    ConwayWdrlNotDelegatedToDRep,
     FeeTooSmallUTxO,
     IncorrectDepositDELEG,
     InputSetEmptyUTxO,
@@ -201,6 +202,7 @@ pub(super) enum Predicate {
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
     ValueNotConservedUTxO,
+    WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
     WrongNetworkWithdrawal,
@@ -216,6 +218,13 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::MissingVKeyWitnessesUTXOW
             }
             PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
+            PhaseOneError::Withdrawals(InvalidWithdrawals::MissingAccountDRepDelegation(_)) => {
+                Predicate::ConwayWdrlNotDelegatedToDRep
+            }
+            PhaseOneError::Withdrawals(InvalidWithdrawals::AccountNotRegistered(_))
+            | PhaseOneError::Withdrawals(InvalidWithdrawals::IncompleteWithdrawal { .. }) => {
+                Predicate::WithdrawalsNotInRewardsCERTS
+            }
             PhaseOneError::Metadata(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(_)) => {
                 Predicate::MissingTxBodyMetadataHash
             }

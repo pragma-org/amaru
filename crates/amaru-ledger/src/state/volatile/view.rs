@@ -26,9 +26,7 @@ use amaru_kernel::{
 use crate::{
     state::{
         VolatileDB,
-        diff_bind::DiffBind,
-        diff_epoch_reg::DiffEpochReg,
-        volatile::{VolatileSequence, fragment::add_proposals},
+        volatile::{DiffBind, DiffEpochReg, VolatileSequence, fragment::add_proposals},
     },
     store::{
         ReadStore, StoreError,
@@ -63,9 +61,9 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         let mut accounts = DiffBind::default();
 
         for anchored in volatile.iter() {
-            accounts.append(anchored.fragment.accounts.as_borrowed());
+            accounts.extend_refs(&anchored.fragment.accounts);
 
-            pools.append(anchored.fragment.pools.as_borrowed());
+            pools.extend_derefs(&anchored.fragment.pools);
 
             for (k, v) in anchored.fragment.proposals.iter() {
                 proposals.insert(k, v);
@@ -80,7 +78,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
                 .filter_map(|(credential, bind)| {
                     // NOTE: only accounts that are newly registered (i.e. .value is some)
                     //
-                    // Delegations only needs not to appear here as they'll be available from the
+                    // Delegations-only needs not to appear here as they'll be available from the
                     // stable store.
                     bind.value.map(|_| credential)
                 })
