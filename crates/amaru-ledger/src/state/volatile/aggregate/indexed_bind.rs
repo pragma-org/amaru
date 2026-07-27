@@ -51,7 +51,7 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
     /// Append a fragment's bindings, treating them as applied *after* everything already recorded.
     /// Each registered key gains an `Exists` verdict at the back of its deque; each unregistered
     /// key gains a `Gone` tombstone.
-    pub fn extend(&mut self, diff: DiffBind<&K, &L, &R, &V>)
+    pub fn extend(&mut self, diff: &DiffBind<K, L, R, V>)
     where
         K: ToOwned<Owned = K>,
         L: ToOwned<Owned = L>,
@@ -59,7 +59,7 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
         V: ToOwned<Owned = V>,
     {
         for (key, bind) in &diff.registered {
-            push_front_or_insert(&mut self.index, key, Existence::Exists(bind.owned()));
+            push_front_or_insert(&mut self.index, key, Existence::Exists(bind.to_owned()));
         }
 
         for key in &diff.unregistered {
@@ -140,8 +140,8 @@ mod tests {
         delegate.bind_left(1, Some(20)).unwrap();
 
         let mut register_then_delegate = IndexedBind::default();
-        register_then_delegate.extend(register.as_refs());
-        register_then_delegate.extend(delegate.as_refs());
+        register_then_delegate.extend(&register);
+        register_then_delegate.extend(&delegate);
 
         match register_then_delegate.get(&1) {
             Existence::Exists(bind) => {
@@ -152,8 +152,8 @@ mod tests {
         }
 
         let mut delegate_then_register = IndexedBind::default();
-        delegate_then_register.extend(delegate.as_refs());
-        delegate_then_register.extend(register.as_refs());
+        delegate_then_register.extend(&delegate);
+        delegate_then_register.extend(&register);
 
         match delegate_then_register.get(&1) {
             Existence::Exists(bind) => {
@@ -175,7 +175,7 @@ mod tests {
         ) {
             let mut indexed = IndexedBind::default();
             for diff in &window {
-                indexed.extend(diff.as_refs());
+                indexed.extend(diff);
             }
 
             let folded = if do_cleanup {
@@ -186,8 +186,8 @@ mod tests {
                 DiffBind::fold(window.iter()).owned()
             };
 
-            for key in 0u8..8 {
-                prop_assert_eq!(indexed.get(&key), folded.lookup(&key));
+            for key in 0..u8::MAX {
+                prop_assert_eq!(indexed.get(&key), folded.get(&key));
             }
         }
 
@@ -198,7 +198,7 @@ mod tests {
             let mut indexed = IndexedBind::default();
 
             for diff in &window {
-                indexed.extend(diff.as_refs());
+                indexed.extend(diff);
             }
 
             for diff in &window {

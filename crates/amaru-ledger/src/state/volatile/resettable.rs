@@ -69,6 +69,18 @@ impl<A> Resettable<A> {
             Resettable::Unchanged => when_unchanged,
         }
     }
+
+    /// Materialize a borrowed reset instruction back into an owned one.
+    pub fn to_owned(&self) -> Self
+    where
+        A: ToOwned<Owned = A>,
+    {
+        match self {
+            Self::Set(a) => Self::Set((*a).to_owned()),
+            Self::Reset => Self::Reset,
+            Self::Unchanged => Self::Unchanged,
+        }
+    }
 }
 
 impl<A> Resettable<&A> {

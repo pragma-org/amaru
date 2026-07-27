@@ -146,7 +146,7 @@ impl VolatileAggregate {
         use Existence::*;
         use Resettable::*;
 
-        match self.committee.resolve(credential) {
+        match self.committee.get(credential) {
             Unknown => Unknown,
             Gone => Exists(Bind { left: Reset, ..Bind::default() }),
             Exists(hot) => Exists(Bind { left: Set(hot.to_owned()), ..Bind::default() }),
@@ -182,9 +182,9 @@ impl VolatileAggregate {
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.keys().cloned());
-        self.dreps.extend(dreps.as_refs());
+        self.dreps.extend(dreps);
         self.committee.extend(committee);
-        self.accounts.extend(accounts.as_refs());
+        self.accounts.extend(accounts);
 
         self.fees += *fees;
         self.donations += *donations;

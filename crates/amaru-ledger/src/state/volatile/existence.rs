@@ -38,6 +38,17 @@ impl<T: Copy> Existence<&T> {
     }
 }
 
+impl<T> Existence<T> {
+    /// Borrow the payload carried by an existence verdict.
+    pub fn as_ref(&self) -> Existence<&T> {
+        match self {
+            Self::Exists(v) => Existence::Exists(v),
+            Self::Gone => Existence::Gone,
+            Self::Unknown => Existence::Unknown,
+        }
+    }
+}
+
 impl<L, R, V> Existence<Bind<L, R, V>> {
     /// Borrow the payload carried by an existence verdict.
     pub fn as_refs(&self) -> Existence<Bind<&L, &R, &V>> {

@@ -65,6 +65,20 @@ impl<L, R, V> Bind<L, R, V> {
         self.then(newer);
         self
     }
+
+    /// General clone operation for a Bind.
+    pub fn to_owned(&self) -> Self
+    where
+        L: ToOwned<Owned = L>,
+        R: ToOwned<Owned = R>,
+        V: ToOwned<Owned = V>,
+    {
+        Self {
+            left: self.left.to_owned(),
+            right: self.right.to_owned(),
+            value: self.value.as_ref().map(|v| v.to_owned()),
+        }
+    }
 }
 
 impl<L, R, V> Bind<&L, &R, &V> {

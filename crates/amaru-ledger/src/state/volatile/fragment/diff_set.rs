@@ -58,7 +58,7 @@ impl<K: Ord, V> DiffSet<K, V> {
 
     /// Lookup the state associated to a key, if any. Returns `Existence::Unknown` if the state
     /// cannot be determined from the available data.
-    pub fn lookup<'a>(&'a self, k: &K) -> Existence<&'a V> {
+    pub fn get<'a>(&'a self, k: &K) -> Existence<&'a V> {
         if let Some(v) = self.produced.get(k) {
             Existence::Exists(v)
         } else if self.consumed.contains(k) {
@@ -227,8 +227,8 @@ mod tests {
         diff.produce(1, 100);
         diff.consume(2);
 
-        assert!(matches!(diff.lookup(&1), Existence::Exists(&100)));
-        assert!(matches!(diff.lookup(&2), Existence::Gone));
-        assert!(matches!(diff.lookup(&3), Existence::Unknown));
+        assert!(matches!(diff.get(&1), Existence::Exists(&100)));
+        assert!(matches!(diff.get(&2), Existence::Gone));
+        assert!(matches!(diff.get(&3), Existence::Unknown));
     }
 }

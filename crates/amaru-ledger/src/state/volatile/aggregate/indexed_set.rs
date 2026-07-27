@@ -54,41 +54,43 @@ impl<K: Ord, V> IndexedSet<K, V> {
     /// [`DiffSet::lookup`].
     pub fn extend(&mut self, diff: &DiffSet<K, V>)
     where
-        K: Clone,
-        V: Clone,
+        K: ToOwned<Owned = K>,
+        V: ToOwned<Owned = V>,
     {
-        for key in &diff.consumed {
-            self.index.entry(key.clone()).or_default().push_back(Existence::Gone);
-        }
         for (key, value) in &diff.produced {
-            self.index.entry(key.clone()).or_default().push_back(Existence::Exists(value.clone()));
+            push_front_or_insert(&mut self.index, key, Existence::Exists(value.to_owned()));
+        }
+
+        for key in &diff.consumed {
+            push_front_or_insert(&mut self.index, key, Existence::Gone);
         }
     }
 
     /// Retract the oldest fragment's contribution for every key it touched, popping the front of
     /// each deque and dropping the key once its history empties.
-    pub fn cleanup(&mut self, diff: &DiffSet<K, V>) {
+    pub fn cleanup(&mut self, diff: &DiffSet<K, V>) -> bool {
+        let mut any_missing = false;
+
         for key in diff.consumed.iter().chain(diff.produced.keys()) {
             match self.index.get_mut(key) {
                 Some(contributions) => {
-                    contributions.pop_front();
+                    contributions.pop_back();
                     if contributions.is_empty() {
                         self.index.remove(key);
                     }
                 }
-                None => unreachable!("retracted a fragment touching a key absent from the aggregate"),
+                None => any_missing = true,
             }
         }
+
+        any_missing
     }
 
     /// This index's verdict on a key: its newest per-fragment contribution, or `Unknown` when no
     /// recorded fragment touched it.
-    pub fn resolve(&self, key: &K) -> Existence<V>
-    where
-        V: Clone,
-    {
-        match self.index.get(key).and_then(|contributions| contributions.back()) {
-            Some(verdict) => verdict.clone(),
+    pub fn get(&self, key: &K) -> Existence<&V> {
+        match self.index.get(key).and_then(|contributions| contributions.front()) {
+            Some(verdict) => verdict.as_ref(),
             None => Existence::Unknown,
         }
     }
@@ -96,6 +98,20 @@ impl<K: Ord, V> IndexedSet<K, V> {
     fn is_empty(&self) -> bool {
         self.index.is_empty()
     }
+}
+
+fn push_front_or_insert<K, V>(index: &mut BTreeMap<K, VecDeque<Existence<V>>>, key: &K, value: Existence<V>)
+where
+    K: Ord + ToOwned<Owned = K>,
+{
+    match index.get_mut(key) {
+        Some(seq) => {
+            seq.push_front(value);
+        }
+        None => {
+            index.insert((*key).to_owned(), VecDeque::from([value]));
+        }
+    };
 }
 
 #[cfg(test)]
@@ -113,102 +129,47 @@ mod tests {
         acc
     }
 
-    fn as_parts(verdict: Existence<u8>) -> Option<Option<u8>> {
-        match verdict {
-            Existence::Exists(value) => Some(Some(value)),
-            Existence::Gone => Some(None),
-            Existence::Unknown => None,
-        }
-    }
-
     proptest! {
         /// Resolving a key from its indexed history must equal collapsing the same fragments into a
         /// single `DiffSet` and looking the key up. This ties the per-key structure to the flat
         /// collapse it stands in for.
         #[test]
-        fn resolve_matches_diff_set_lookup(window in prop::collection::vec(any_diff_set(), 0..6)) {
-            let mut indexed = IndexedSet::default();
-            for diff in &window {
-                indexed.extend(diff);
-            }
-
-            let folded = fold(&window);
-
-            for key in 0u8..8 {
-                prop_assert_eq!(as_parts(indexed.resolve(&key)), as_parts(folded.lookup(&key).copied()));
-            }
-        }
-
-        /// Retracting the oldest fragment must leave reads equal to collapsing only the fragments
-        /// that remain. This is the exactness a blind collapse loses when a key repeats.
-        #[test]
-        fn resolve_after_retracting_oldest_matches_remaining(
+        fn resolve_matches_diff_set_lookup(
             window in prop::collection::vec(any_diff_set(), 1..6),
+            do_cleanup in any::<bool>(),
         ) {
             let mut indexed = IndexedSet::default();
             for diff in &window {
                 indexed.extend(diff);
             }
 
-            indexed.cleanup(&window[0]);
+            let folded = if do_cleanup {
+                indexed.cleanup(&window[0]);
+                fold(&window[1..])
+            } else {
+                fold(&window)
+            };
 
-            let folded = fold(&window[1..]);
-
-            for key in 0u8..8 {
-                prop_assert_eq!(as_parts(indexed.resolve(&key)), as_parts(folded.lookup(&key).copied()));
+            for key in 0..u8::MAX {
+                prop_assert_eq!(indexed.get(&key), folded.get(&key));
             }
         }
-
-        //        /// Retracting the newest fragment must leave reads equal to collapsing only the fragments
-        //        /// that remain. This is the rollback-side mirror of retracting the oldest, and the
-        //        /// exactness a blind collapse loses when a key repeats.
-        //        #[test]
-        //        fn resolve_after_retracting_newest_matches_remaining(
-        //            window in prop::collection::vec(any_diff_set(), 1..6),
-        //        ) {
-        //            let mut indexed = IndexedSet::default();
-        //            for diff in &window {
-        //                indexed.extend(diff);
-        //            }
-        //
-        //            let (last, rest) = window.split_last().expect("non-empty window");
-        //            indexed.pop_back(last);
-        //
-        //            let folded = fold(rest);
-        //
-        //            for key in 0u8..8 {
-        //                prop_assert_eq!(as_parts(indexed.resolve(&key)), as_parts(folded.lookup(&key).copied()));
-        //            }
-        //        }
 
         /// Extending a window of fragments then retracting them oldest-first must leave the index
         /// empty.
         #[test]
         fn extend_then_cleanup_is_empty(window in prop::collection::vec(any_diff_set(), 0..6)) {
             let mut indexed = IndexedSet::default();
+
             for diff in &window {
                 indexed.extend(diff);
             }
+
             for diff in &window {
                 indexed.cleanup(diff);
             }
 
             prop_assert!(indexed.is_empty());
         }
-
-        //        /// Extending a window of fragments then retracting them newest-first must leave the index
-        //        /// empty. This is what rolling the whole window back relies on.
-        //        #[test]
-        //        fn extend_then_pop_back_is_empty(window in prop::collection::vec(any_diff_set(), 0..6)) {
-        //            let mut indexed = IndexedSet::default();
-        //            for diff in &window {
-        //                indexed.extend(diff);
-        //            }
-        //            for diff in window.iter().rev() {
-        //                indexed.pop_back(diff);
-        //            }
-        //
-        //            prop_assert!(indexed.is_empty());
-        //        }
     }
 }
