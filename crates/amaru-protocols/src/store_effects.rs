@@ -140,6 +140,10 @@ impl Store {
         self.effects.external(UnvalidatedAncestorHashesEffect::new(start))
     }
 
+    pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Tip>>> {
+        self.effects.external(AncestorsBetweenEffect::new(from, to).with_trace_context(&self.trace_context))
+    }
+
     pub fn find_ancestor_on_best_chain(
         &self,
         start: HeaderHash,
@@ -206,6 +210,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<RollForwardChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindCommonAncestorEffect>().boxed(),
@@ -819,6 +824,40 @@ impl ExternalEffect for UnvalidatedAncestorHashesEffect {
 
 impl ExternalEffectAPI for UnvalidatedAncestorHashesEffect {
     type Response = (Vec<HeaderHash>, bool);
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AncestorsBetweenEffect {
+    from: Point,
+    to: HeaderHash,
+    trace_context: TraceContext,
+}
+
+impl AncestorsBetweenEffect {
+    pub fn new(from: Point, to: HeaderHash) -> Self {
+        Self { from, to, trace_context: Default::default() }
+    }
+
+    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+        self.trace_context = trace_context.clone();
+        self
+    }
+}
+
+impl ExternalEffect for AncestorsBetweenEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let _guard = self.trace_context.attach();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("AncestorsBetweenEffect requires a chain store").clone();
+            store.ancestors_between(&self.from, self.to)
+        })
+    }
+}
+
+impl ExternalEffectAPI for AncestorsBetweenEffect {
+    type Response = Option<Vec<Tip>>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
