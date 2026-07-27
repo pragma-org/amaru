@@ -61,7 +61,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         let mut accounts = DiffBind::default();
 
         for anchored in volatile.iter() {
-            accounts.append(anchored.fragment.accounts.as_refs());
+            accounts.append_refs(&anchored.fragment.accounts);
 
             pools.append_derefs(&anchored.fragment.pools);
 
@@ -78,7 +78,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
                 .filter_map(|(credential, bind)| {
                     // NOTE: only accounts that are newly registered (i.e. .value is some)
                     //
-                    // Delegations only needs not to appear here as they'll be available from the
+                    // Delegations-only needs not to appear here as they'll be available from the
                     // stable store.
                     bind.value.map(|_| credential)
                 })

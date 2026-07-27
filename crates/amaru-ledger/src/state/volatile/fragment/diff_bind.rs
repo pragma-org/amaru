@@ -33,23 +33,46 @@ impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
     }
 }
 
+/// Merge two states together, assuming that the other is a more recent update.
+///
+/// Importantly, this composes two already-validated `DiffBind`s, it does not re-validate them.
+///
+/// In particular, a `value: Some(...)` in `most_recent` denotes a re-registration of the key;
+/// it fully supersedes any prior registration or bindings accumulated for that key.
+/// This could happen when a single block deregisters and re-registers a credential.
+impl<'a, K: Ord, L, R, V> DiffBind<&'a K, &'a L, &'a R, &'a V> {
+    pub fn append_refs(&mut self, newer: &'a DiffBind<K, L, R, V>) -> &mut Self {
+        for key in &newer.unregistered {
+            self.unregister(key);
+        }
+
+        for (key, newer) in &newer.registered {
+            self.unregistered.remove(key);
+
+            match self.registered.entry(key) {
+                Entry::Vacant(e) => {
+                    e.insert(newer.as_refs());
+                }
+
+                Entry::Occupied(mut e) => {
+                    e.get_mut().then(newer.as_refs());
+                }
+            };
+        }
+
+        self
+    }
+}
+
 impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     /// Return whether this diff contains no registrations, bindings, or removals.
     pub fn is_empty(&self) -> bool {
         self.registered.is_empty() && self.unregistered.is_empty()
     }
 
-    /// Borrow all keys, bindings, and values in this diff.
-    pub fn as_refs(&self) -> DiffBind<&K, &L, &R, &V> {
-        DiffBind {
-            unregistered: self.unregistered.iter().collect(),
-            registered: self.registered.iter().map(|(k, bind)| (k, bind.as_refs())).collect(),
-        }
-    }
-
     /// Lookup the state of a Bind, if resolvable. `Existence::Unknown` means that we cannot
     /// conclude to anything without access to historical information.
-    pub fn lookup(&self, k: &K) -> Existence<Bind<&L, &R, &V>> {
+    pub fn get(&self, k: &K) -> Existence<Bind<&L, &R, &V>> {
         if let Some(bind) = self.registered.get(k) {
             Existence::Exists(bind.as_refs())
         } else if self.unregistered.contains(k) {
@@ -71,38 +94,9 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     {
         let mut fold = DiffBind::default();
         for diff in diffs {
-            fold.append(diff.as_refs());
+            fold.append_refs(diff);
         }
         fold
-    }
-
-    /// Merge two states together, assuming that the other is a more recent update.
-    ///
-    /// Importantly, this composes two already-validated `DiffBind`s, it does not re-validate them.
-    ///
-    /// In particular, a `value: Some(...)` in `most_recent` denotes a re-registration of the key;
-    /// it fully supersedes any prior registration or bindings accumulated for that key.
-    /// This could happen when a single block deregisters and re-registers a credential.
-    pub fn append(&mut self, newer: Self) -> &mut Self {
-        for key in newer.unregistered {
-            self.unregister(key);
-        }
-
-        for (key, newer) in newer.registered {
-            self.unregistered.remove(&key);
-
-            match self.registered.entry(key) {
-                Entry::Vacant(e) => {
-                    e.insert(newer);
-                }
-
-                Entry::Occupied(mut e) => {
-                    e.get_mut().then(newer);
-                }
-            };
-        }
-
-        self
     }
 
     /// Register a key together with its value and optional left/right bindings.
@@ -407,39 +401,46 @@ mod tests {
 
     #[test]
     fn append_reregistration_supersedes_prior_binding() {
+        let key = 1;
+        let right = "abstain".to_string();
+
         // Accumulated window state: key 1 was only re-bound (e.g. a pure vote delegation), not
         // registered within the window: { left: Unchanged, right: Set, value: None }.
         let mut current = DiffBind::default();
-        current.bind_right(1, Some("abstain")).unwrap();
+        current.bind_right(&key, Some(&right)).unwrap();
 
         // A later fragment deregisters then re-registers key 1 within a single block, which
         // collapses to a plain registration: { left: Reset, right: Reset, value: Some }.
         let mut next = DiffBind::default();
-        next.register(1, "deposit", None::<&str>, None).unwrap();
+        next.register(1, 42, None::<String>, None).unwrap();
 
-        current.append(next);
+        current.append_refs(&next);
 
         assert!(current.unregistered.is_empty());
         assert_eq!(
-            Some(&Bind { left: Resettable::Reset, right: Resettable::Reset, value: Some("deposit") }),
-            current.registered.get(&1)
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Reset, value: Some(&42) }),
+            current.registered.get(&key)
         );
     }
 
     #[test]
     fn append_binding_update_preserves_existing_registration() {
+        let key = 1;
+        let value = 42;
+        let right = "abstain".to_string();
+
         let mut current = DiffBind::default();
-        current.register(1, "deposit", None::<&str>, None::<&str>).unwrap();
+        current.register(&key, &value, None::<&String>, None::<&String>).unwrap();
 
         // A later fragment only re-binds the right: the existing deposit and
         // the untouched left must be preserved.
         let mut next = DiffBind::default();
-        next.bind_right(1, Some("abstain")).unwrap();
+        next.bind_right(1, Some(right.clone())).unwrap();
 
-        current.append(next);
+        current.append_refs(&next);
 
         assert_eq!(
-            Some(&Bind { left: Resettable::Reset, right: Resettable::Set("abstain"), value: Some("deposit") }),
+            Some(&Bind { left: Resettable::Reset, right: Resettable::Set(&right), value: Some(&value) }),
             current.registered.get(&1)
         );
     }
@@ -457,13 +458,13 @@ mod tests {
     }
 
     #[test]
-    fn lookup_resolves_existence() {
+    fn get_resolves_existence() {
         let mut diff = DiffBind::<u8, u8, u8, u8>::default();
         diff.register(1, 100, Some(10), None).unwrap();
         diff.bind_left(2, Some(10)).unwrap(); // bind-only: registered without a value
         diff.unregister(3);
 
-        match diff.lookup(&1) {
+        match diff.get(&1) {
             Existence::Exists(bind) => {
                 assert_eq!(bind.value, Some(&100));
                 assert!(matches!(bind.left, Resettable::Set(&10)));
@@ -471,13 +472,13 @@ mod tests {
             other @ (Existence::Gone | Existence::Unknown) => panic!("expected Exists, got {other:?}"),
         }
 
-        match diff.lookup(&2) {
+        match diff.get(&2) {
             Existence::Exists(bind) => assert_eq!(bind.value, None),
             other @ (Existence::Gone | Existence::Unknown) => panic!("expected bind-only Exists, got {other:?}"),
         }
 
-        assert!(matches!(diff.lookup(&3), Existence::Gone));
-        assert!(matches!(diff.lookup(&4), Existence::Unknown));
+        assert!(matches!(diff.get(&3), Existence::Gone));
+        assert!(matches!(diff.get(&4), Existence::Unknown));
     }
 
     #[test]
@@ -495,7 +496,7 @@ mod tests {
             let folded = DiffBind::fold(diffs.iter());
 
             let sequential = diffs.iter().fold(DiffBind::default(), |mut acc, diff| {
-                acc.append(diff.as_refs());
+                acc.append_refs(diff);
                 acc
             });
 

@@ -88,10 +88,9 @@ impl<L, R, V> Existence<Bind<L, R, V>> {
                 // from fetching the `older` to begin with.
                 Self::Exists(newer) => {
                     if newer.value.is_none()
-                        && let Some(Self::Exists(mut older)) = iterator.next()
+                        && let Some(Self::Exists(older)) = iterator.next()
                     {
-                        older.then(newer);
-                        fold = Self::Exists(older);
+                        fold = Self::Exists(older.and_then(newer));
                         continue;
                     }
 
