@@ -11,7 +11,6 @@
 "conway/fail-gov-empty-prevgovid-after-the-first-constitution-was-enacted/0" = "Expected failure, got success"
 "conway/fail-gov-expired-gov-actions/0" = "Expected failure, got success"
 "conway/fail-gov-policy-is-respected-by-proposals/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided Some(Hash<28>("232fdf92265c01c8869aec72869c35d83eedd0ff1d139f2c680a0f37")), expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
-"conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
 "conway/fail-govcert-resigning-a-non-cc-key/0" = "Expected failure, got success"
 # Every vector in the gov-policy family enacts a new constitution mid-sequence, through a proposal,
 # votes and two epoch transitions. The harness skips PassTick/PassEpoch and does not ratify, so the

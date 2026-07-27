@@ -274,7 +274,9 @@ pub trait DRepsSlice {
 
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
 pub trait PrepareDRepsSlice<'a> {
-    fn require_drep(&'_ mut self, credential: &'a StakeCredential);
+    /// Require a DRep registration. Borrowed when a certificate names the credential directly, owned
+    /// when it has to be built from a `Voter`, which carries a bare hash rather than a credential.
+    fn require_drep(&'_ mut self, credential: Cow<'a, StakeCredential>);
 
     /// Require the DRep targeted by a vote delegation. The credential is constructed from the `DRep`
     /// at resolution (and `Abstain`/`NoConfidence` drop out), so the borrowed `DRep` is collected.
@@ -284,11 +286,14 @@ pub trait PrepareDRepsSlice<'a> {
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
+/// What a cold credential currently holds. Existence is not membership: a credential named in an
+/// in-flight `UpdateCommittee` may authorize a hot credential before that proposal is enacted, and
+/// holds no term until it is.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CCMember {
     /// The authorized hot credential, if the member has declared one.
     pub hot_credential: Option<StakeCredential>,
-    /// The term expiry; `None` once the member is inactive (no-confidence).
+    /// The term expiry; `None` for a credential holding no seat.
     pub valid_until: Option<Epoch>,
 }
 
@@ -297,6 +302,13 @@ pub trait CommitteeSlice {
     /// The committee member at this point in the block: the block-start record with the in-block
     /// hot-key change folded in, or `None` once it has resigned.
     fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember>;
+
+    /// Every member currently authorizing this hot credential, which is the identity a vote carries.
+    /// Empty when none does, including when one authorized it earlier but has since rotated to
+    /// another hot key or resigned.
+    ///
+    /// Set-valued because a hot credential is not unique to a member.
+    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> BTreeSet<CCMember>;
 
     fn delegate_cold_key(
         &mut self,
@@ -314,6 +326,12 @@ pub trait CommitteeSlice {
 /// An interface to help constructing the concrete CommitteeSlice ahead of time.
 pub trait PrepareCommitteeSlice<'a> {
     fn require_committee_member(&'_ mut self, cc_member: &'a StakeCredential);
+
+    /// Require the member authorizing the hot credential a vote was cast with. Unlike
+    /// [`Self::require_committee_member`] this isn't a store key, so it can only be resolved by
+    /// scanning the members reachable at block start; the credential is collected here and matched at
+    /// resolution.
+    fn require_committee_voter(&'_ mut self, hot_credential: StakeCredential);
 }
 
 // Governance Proposals

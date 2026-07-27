@@ -17,21 +17,22 @@ use std::fmt;
 use crate::{Hash, cbor, size::TRANSACTION_BODY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProposalId {
     pub transaction_id: Hash<{ TRANSACTION_BODY }>,
-    pub action_index: u32,
+    pub proposal_index: u32,
 }
 
 impl fmt::Display for ProposalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}#{}", self.transaction_id, self.action_index)
+        write!(f, "{}#{}", self.transaction_id, self.proposal_index)
     }
 }
 
 impl ProposalId {
     /// Like `Display`, but more compact
     pub fn to_compact_string(&self) -> String {
-        format!("{}#{}", self.action_index, self.transaction_id.to_string().chars().take(8).collect::<String>())
+        format!("{}#{}", self.proposal_index, self.transaction_id.to_string().chars().take(8).collect::<String>())
     }
 }
 
@@ -43,7 +44,7 @@ impl<C> cbor::Encode<C> for ProposalId {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.encode_with(self.transaction_id, ctx)?;
-        e.encode_with(self.action_index, ctx)?;
+        e.encode_with(self.proposal_index, ctx)?;
         Ok(())
     }
 }
@@ -52,7 +53,7 @@ impl<'b, C> cbor::Decode<'b, C> for ProposalId {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            Ok(Self { transaction_id: d.decode_with(ctx)?, action_index: d.decode_with(ctx)? })
+            Ok(Self { transaction_id: d.decode_with(ctx)?, proposal_index: d.decode_with(ctx)? })
         })
     }
 }
@@ -72,11 +73,11 @@ mod tests {
     prop_compose! {
         pub fn any_proposal_id()(
             transaction_id in any::<[u8; 32]>(),
-            action_index in any::<u32>(),
+            proposal_index in any::<u32>(),
         ) -> ProposalId {
             ProposalId {
                 transaction_id: Hash::new(transaction_id),
-                action_index,
+                proposal_index,
             }
         }
     }

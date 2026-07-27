@@ -29,8 +29,10 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, UnresolvedInputPolicy,
     },
-    state::volatile::{AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
-    store::ReadStore,
+    state::volatile::{
+        AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, Resettable, RewardsAtTip, VolatileState,
+    },
+    store::{ReadStore, columns::cc_members},
 };
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
@@ -44,9 +46,10 @@ pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
     pub accounts: BTreeSet<Cow<'a, StakeCredential>>,
-    pub dreps: BTreeSet<&'a StakeCredential>,
+    pub dreps: BTreeSet<Cow<'a, StakeCredential>>,
     pub drep_delegations: BTreeSet<&'a DRep>,
     pub committee: BTreeSet<&'a StakeCredential>,
+    pub committee_voters: BTreeSet<StakeCredential>,
     pub proposals: BTreeSet<ProposalId>,
 }
 
@@ -59,6 +62,7 @@ impl DefaultPreparationContext<'_> {
             dreps: BTreeSet::new(),
             drep_delegations: BTreeSet::new(),
             committee: BTreeSet::new(),
+            committee_voters: BTreeSet::new(),
             proposals: BTreeSet::new(),
         }
     }
@@ -85,7 +89,7 @@ impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_drep(&mut self, drep: &'a StakeCredential) {
+    fn require_drep(&mut self, drep: Cow<'a, StakeCredential>) {
         self.dreps.insert(drep);
     }
 
@@ -97,6 +101,10 @@ impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
 impl<'a> PrepareCommitteeSlice<'a> for DefaultPreparationContext<'a> {
     fn require_committee_member(&mut self, cc_member: &'a StakeCredential) {
         self.committee.insert(cc_member);
+    }
+
+    fn require_committee_voter(&mut self, hot_credential: StakeCredential) {
+        self.committee_voters.insert(hot_credential);
     }
 }
 
@@ -136,10 +144,10 @@ impl<'block> DefaultPreparationContext<'block> {
                 db,
                 self.dreps
                     .into_iter()
-                    .cloned()
+                    .map(Cow::into_owned)
                     .chain(self.drep_delegations.into_iter().filter_map(drep::to_stake_credential)),
             )?,
-            resolve_committee(volatile, db, self.committee.into_iter())?,
+            resolve_committee(volatile, db, self.committee.into_iter().cloned(), &self.committee_voters)?,
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
             treasury,
@@ -364,64 +372,52 @@ fn resolve_dreps<'volatile>(
     })
 }
 
-/// The materialized [`CCMember`] for each existing credential, layering the ongoing block over
-/// the volatile DB over the stable store; a `Gone` tombstone skips the stale stable entry. The
-/// hot key resolves through the layers, but the term is set only at the boundary or in the
-/// stable store, so it folds in the overlay's pending value via
-/// [`VolatileDB::resolve_committee_term`].
+/// The materialized [`CCMember`] for each existing credential, layering the volatile window over the
+/// stable store; a `Gone` tombstone skips the stale stable entry.
 ///
-// FIXME: resolve committee member credentials from pending updates
-//
-// a cold credential present in a pending UpdateCommittee proposal also counts as a known
-// member (Haskell's `cgceCommitteeProposals`), which lets a not-yet-elected member pre-declare
-// its hot key. That source needs the proposals read-path, so it is deferred until proposals are
-// exposed.
-fn resolve_committee<'block, 'volatile>(
+/// A certificate names its member by the store's own key, so `cold_credentials` are resolved
+/// directly. A vote names it by hot credential, which is indexed nowhere, so the whole committee has
+/// to be materialized and matched.
+fn resolve_committee<'volatile>(
     volatile: &'volatile impl VolatileState<CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = &'block StakeCredential>,
+    cold_credentials: impl Iterator<Item = StakeCredential>,
+    voters: &BTreeSet<StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
     debug_span!(ledger::validation_context::committee::HYDRATE).in_scope(|| {
+        let required = cold_credentials.collect::<BTreeSet<_>>();
+
+        let mut voter_candidates = BTreeSet::new();
+        if !voters.is_empty() {
+            // A member changed inside the volatile window may have no store row yet, so the store's
+            // keys alone do not name the whole committee.
+            voter_candidates.extend(volatile.cc_members().copied());
+            voter_candidates.extend(
+                db.iter_cc_members()
+                    .map_err(ContextHydratationError::ResolveCommittee)?
+                    .map(|(credential, _)| credential),
+            );
+        }
+
+        let wanted = |credential: &StakeCredential, member: &CCMember| {
+            required.contains(credential) || member.hot_credential.as_ref().is_some_and(|hot| voters.contains(hot))
+        };
+
         let mut from_volatile = 0;
         let mut from_db = 0;
+        let mut cc_members = BTreeMap::new();
 
-        let cc_members = keys.try_fold(BTreeMap::new(), |mut cc_members, credential| {
-            let member_opt = match volatile.resolve_cc_member(credential) {
-                Existence::Gone => {
-                    from_volatile += 1;
-                    None
-                }
-
-                Existence::Exists(Bind { value, left: hot_credential, .. }) => {
-                    if let Some(valid_until) = value {
-                        from_volatile += 1;
-                        Some(CCMember {
-                            hot_credential: hot_credential.to_option(None),
-                            valid_until: Some(*valid_until),
-                        })
-                    } else {
-                        db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|mut row| {
-                            from_db += 1;
-                            hot_credential.owned().set_or_reset(&mut row.hot_credential);
-                            CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
-                        })
-                    }
-                }
-
-                Existence::Unknown => {
-                    db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|row| {
-                        from_db += 1;
-                        CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
-                    })
-                }
-            };
-
-            if let Some(member) = member_opt {
-                cc_members.insert(*credential, member);
+        for credential in required.iter().chain(voter_candidates.difference(&required)).copied() {
+            if let Some(member) = overlay_committee_member(
+                volatile.resolve_cc_member(&credential),
+                || db.cc_member(&credential).map_err(ContextHydratationError::ResolveCommittee),
+                &mut from_volatile,
+                &mut from_db,
+            )? && wanted(&credential, &member)
+            {
+                cc_members.insert(credential, member);
             }
-
-            Ok(cc_members)
-        })?;
+        }
 
         let span = tracing::Span::current();
         span.record("from_volatile", from_volatile);
@@ -429,6 +425,44 @@ fn resolve_committee<'block, 'volatile>(
 
         Ok(cc_members)
     })
+}
+
+/// Apply the volatile layers' verdict to the stable row, the way
+/// [`crate::store::columns::cc_members`] applies the same change when the window is flushed. `row` is
+/// read only for the halves the layers leave `Unchanged`. `None` when neither half is set.
+fn overlay_committee_member(
+    verdict: Existence<CommitteeMemberBind<'_>>,
+    row: impl FnOnce() -> Result<Option<cc_members::Row>, ContextHydratationError>,
+    from_volatile: &mut usize,
+    from_db: &mut usize,
+) -> Result<Option<CCMember>, ContextHydratationError> {
+    let bind = match verdict {
+        // Removed at the pending boundary; the stale stable row must not resurface.
+        Existence::Gone => {
+            *from_volatile += 1;
+            return Ok(None);
+        }
+        Existence::Exists(bind) => {
+            *from_volatile += 1;
+            bind
+        }
+        Existence::Unknown => Bind::default(),
+    };
+
+    let Bind { left: hot_credential, right: valid_until, .. } = bind;
+
+    let mut member = if matches!(hot_credential, Resettable::Unchanged) || matches!(valid_until, Resettable::Unchanged)
+    {
+        row()?.inspect(|_| *from_db += 1).unwrap_or_default()
+    } else {
+        cc_members::Row::default()
+    };
+
+    hot_credential.owned().set_or_reset(&mut member.hot_credential);
+    valid_until.owned().set_or_reset(&mut member.valid_until);
+
+    Ok((member.hot_credential.is_some() || member.valid_until.is_some())
+        .then_some(CCMember { hot_credential: member.hot_credential, valid_until: member.valid_until }))
 }
 
 /// The materialized [`ProposalState`] for each existing id, layering the ongoing block over the

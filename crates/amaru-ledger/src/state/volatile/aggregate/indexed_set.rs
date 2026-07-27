@@ -57,6 +57,11 @@ impl<K: Ord, V> IndexedSet<K, V> {
         }
     }
 
+    /// Every key some recorded fragment touched, in ascending order.
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.index.keys()
+    }
+
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.index.is_empty()

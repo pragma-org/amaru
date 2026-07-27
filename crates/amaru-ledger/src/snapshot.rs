@@ -85,7 +85,7 @@ pub fn proposal_state(
 
     let proposed_in_pointer = ProposalPointer {
         transaction: TransactionPointer { slot: era_history.epoch_bounds(proposed_in)?.start, transaction_index: 0 },
-        proposal_index: id.action_index as usize,
+        proposal_index: id.proposal_index as usize,
     };
 
     Ok((

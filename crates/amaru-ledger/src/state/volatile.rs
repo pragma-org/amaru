@@ -59,9 +59,10 @@ pub use tests::*;
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
 pub type AccountBind<'a> = Bind<&'a (PoolId, CertificatePointer), &'a (DRep, CertificatePointer), &'a Lovelace>;
 
-/// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
-/// since no in-block cert establishes them.
-pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Empty, &'a Epoch>;
+/// A CC member's accumulated binding: the authorized hot credential on the left, the term an election
+/// granted on the right. The empty `value` stops a layer superseding the one below it, since either
+/// half can be set without the other.
+pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Epoch, Empty>;
 
 /// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
 /// is the queryable value; the anchor is updated independently of registration, so an anchor-only
@@ -98,6 +99,10 @@ pub trait VolatileState {
     where
         Self: 'a;
     fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a>;
+
+    /// Every cold credential these layers can resolve to a member for. A hot key authorized or a seat
+    /// granted inside the window has no stable row yet, so iterating the store cannot enumerate these.
+    fn cc_members(&self) -> impl Iterator<Item = &StakeCredential>;
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;

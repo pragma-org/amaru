@@ -17,15 +17,18 @@ pub mod rocksdb;
 
 #[cfg(test)]
 pub mod tests {
-    use std::{collections::BTreeMap, str::FromStr};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        str::FromStr,
+    };
 
     #[cfg(not(target_os = "windows"))]
     use amaru_kernel::any_proposal_id;
     use amaru_kernel::{
-        Anchor, Constitution, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MaxString128,
-        MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams,
-        Slot, StakeCredential, TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params,
-        any_stake_credential,
+        Anchor, Constitution, ConstitutionalCommitteeStatus, DRepRegistration, Epoch, EraHistory, Hash, Lovelace,
+        MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point,
+        PoolId, PoolParams, RationalNumber, Slot, StakeCredential, TransactionInput, any_certificate_pointer,
+        any_hash28, any_lovelace, any_pool_params, any_stake_credential,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -440,6 +443,53 @@ pub mod tests {
         let maybe_drep_row = store.iter_dreps()?.find(|(key, _)| *key == fixture.drep_key);
 
         assert!(maybe_drep_row.is_none(), "DRep row should have been deleted after deregistration");
+
+        Ok(())
+    }
+
+    /// Enacting an `UpdateCommittee` that removes a member drops that cold credential's row, and with
+    /// it the hot-key authorization. Haskell does this by intersecting `csCommitteeCreds` with the
+    /// members of the newly enacted committee, on every epoch transition:
+    ///
+    /// ```haskell
+    /// updateCommitteeState committee (CommitteeState creds) =
+    ///   CommitteeState $ Map.intersection creds members
+    ///   where
+    ///     members = foldMap' committeeMembers committee
+    /// ```
+    ///
+    /// A surviving authorization still satisfies the `VotersDoNotExist` check, which deliberately
+    /// filters on neither the term nor election, so the removed member could keep voting.
+    pub fn test_remove_cc_member_at_epoch_boundary(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
+        let committee =
+            ConstitutionalCommitteeStatus::Trusted { threshold: RationalNumber { numerator: 1, denominator: 2 } };
+
+        let hot_credential = fixture.cc_member_row.hot_credential.expect("fixture seeds a hot credential");
+        let term = Epoch::from(100);
+
+        let context = store.create_transaction();
+        context.update_constitutional_committee(
+            &committee,
+            BTreeMap::from([(fixture.cc_member_key, term)]),
+            BTreeSet::new(),
+        )?;
+        context.commit()?;
+
+        assert_eq!(
+            store.cc_member(&fixture.cc_member_key)?,
+            Some(cc_members::Row { hot_credential: Some(hot_credential), valid_until: Some(term) }),
+            "an elected member holds both a term and its authorization"
+        );
+
+        let context = store.create_transaction();
+        context.update_constitutional_committee(
+            &committee,
+            BTreeMap::new(),
+            BTreeSet::from([fixture.cc_member_key]),
+        )?;
+        context.commit()?;
+
+        assert_eq!(store.cc_member(&fixture.cc_member_key)?, None, "a removed member keeps no authorization");
 
         Ok(())
     }

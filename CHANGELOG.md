@@ -67,6 +67,10 @@ Other guiding principles:
 - **amaru-ledger**: validate the governance actions a transaction votes on actually exist, counting proposals submitted earlier in the same block. ([#1139][], [#924][])
 - **amaru-ledger**: reject a governance proposal whose policy is not the enacted constitution's guardrails script. ([#931][])
 
+### Changed
+
+- **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
+
 ### Fixed
 
 - **amaru-observability**: restore wrapping-span identity on every product tracing stack (console, JSON, OTEL, TUI) and stop double-quoting CBOR string scalars such as header hashes. Each event inlines only its wrapping span's fields; `parents` is a name array; child lines refer to the parent by id. Console uses a Java-style abbreviated path (`e.t:g.r`). Encoding is specified in EDR-033. ([#1208](https://github.com/pragma-org/amaru/issues/1208))
@@ -308,6 +312,7 @@ Other guiding principles:
 [#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#923]: https://github.com/pragma-org/amaru/issues/923
 [#924]: https://github.com/pragma-org/amaru/issues/924
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
@@ -364,4 +369,5 @@ Other guiding principles:
 [#1101]: https://github.com/pragma-org/amaru/pull/1101
 [#1109]: https://github.com/pragma-org/amaru/pull/1109
 [#1118]: https://github.com/pragma-org/amaru/pull/1118
+[#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139

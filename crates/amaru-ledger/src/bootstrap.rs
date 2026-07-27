@@ -641,7 +641,7 @@ fn import_proposals(
             proposals: proposals
                 .iter()
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
-                    let proposal_index = proposal.id.action_index as usize;
+                    let proposal_index = proposal.id.proposal_index as usize;
                     Ok((
                         proposal.id,
                         proposals::Value {
