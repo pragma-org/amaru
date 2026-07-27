@@ -122,12 +122,6 @@ impl RocksDBStore<DB> {
         self.db.write(batch).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    pub fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.db
-            .delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat())
-            .map_err(|e| StoreError::WriteError { error: e.to_string() })
-    }
-
     pub fn remove_block(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.with_batch(|batch| {
             batch.delete([&BLOCK_PREFIX[..], &hash[..]].concat());

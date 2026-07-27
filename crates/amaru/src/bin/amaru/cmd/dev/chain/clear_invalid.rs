@@ -16,6 +16,7 @@ use std::path::PathBuf;
 
 use amaru::default_chain_dir;
 use amaru_kernel::NetworkName;
+use amaru_ouroboros::WriteChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
 use crate::cmd::PointOrHash;
