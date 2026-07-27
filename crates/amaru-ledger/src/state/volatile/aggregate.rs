@@ -112,9 +112,8 @@ impl VolatileAggregate {
         self.dreps.get(credential)
     }
 
-    /// This aggregate's verdict on a CC member. Resignation is immediate, so a resignation entry is a
-    /// live tombstone. A delegation resolves as a bind-only update (`value: None`): no in-block cert
-    /// establishes membership, so existence still defers to the layer below.
+    /// This aggregate's verdict on a CC member. A block only ever moves the hot credential, so the
+    /// term is left `Unchanged` for the layer below to supply.
     pub fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
         use Existence::*;
         use Resettable::*;
@@ -124,6 +123,11 @@ impl VolatileAggregate {
             Gone => Exists(Bind { left: Reset, ..Bind::default() }),
             Exists(hot) => Exists(Bind { left: Set(hot), ..Bind::default() }),
         }
+    }
+
+    /// The cold credentials whose hot key some folded fragment changed.
+    pub fn cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
+        self.committee.keys()
     }
 
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is

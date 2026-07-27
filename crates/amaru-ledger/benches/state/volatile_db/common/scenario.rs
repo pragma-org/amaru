@@ -259,7 +259,7 @@ impl Scenario {
                 std::iter::empty()
                     .chain(fragment.dreps.registered.keys())
                     .chain(fragment.dreps.unregistered.iter())
-                    .for_each(|drep| ctx.require_drep(drep));
+                    .for_each(|drep| ctx.require_drep(Cow::Borrowed(drep)));
             }
             Self::Proposals => { /* Nothing to do, because we generate Information proposals */ }
             Self::Votes => {

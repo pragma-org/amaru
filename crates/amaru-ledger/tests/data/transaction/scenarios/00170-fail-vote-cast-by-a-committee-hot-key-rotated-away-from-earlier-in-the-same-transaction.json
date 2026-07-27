@@ -1,0 +1,37 @@
+{
+  "title": "vote cast by a committee hot key rotated away from earlier in the same transaction",
+  "description": "A member holding a term and an authorized hot credential authorizes a different one, then votes with the credential it held at block start, in the same transaction.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820ea414be118fc4ac8f8a7d1a56d7dc6dd83b063be0360c8d699d521d65a0157da00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "hotCredential": "8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Orphan"]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a600d9010281825820ea414be118fc4ac8f8a7d1a56d7dc6dd83b063be0360c8d699d521d65a0157da000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d9010281830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea60f0013a18200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253ceca18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102828258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b79280618d4ab3890b68f9eb63ec95435a6b70739bff25656e0c90bf942003e727767421749e0594f743afb132e7e2265a0f99d926d9898b66508e5aab56dc0b825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840a9942ef4e0cffa1581c19ed78e548681791d277322ab7bd70e5263b2abab497497290ac3dc198499b56fd9d39c639ebfc9c08f48be902ff6f0f1c69a690d190ef5f6",
+  "expected": {
+    "predicate": "VotersDoNotExist"
+  }
+}

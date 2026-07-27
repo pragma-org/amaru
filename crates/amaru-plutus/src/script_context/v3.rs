@@ -275,7 +275,7 @@ impl ToPlutusData<3> for Constitution {
 
 impl ToPlutusData<3> for ProposalId {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(0, [self.transaction_id, self.action_index])
+        constr_v3!(0, [self.transaction_id, self.proposal_index])
     }
 }
 

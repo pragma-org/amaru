@@ -28,7 +28,7 @@ impl<C> cbor::encode::Encode<C> for BallotId {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.encode_with(self.proposal, ctx)?;
-        e.encode_with(&self.voter, ctx)?;
+        e.encode_with(self.voter, ctx)?;
         Ok(())
     }
 }

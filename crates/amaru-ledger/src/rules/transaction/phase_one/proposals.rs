@@ -103,7 +103,7 @@ where
         context.produce_lovelace(proposal.deposit);
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
-        let id = ProposalId { transaction_id: *transaction.0, action_index: proposal_index as u32 };
+        let id = ProposalId { transaction_id: *transaction.0, proposal_index: proposal_index as u32 };
         context.acknowledge(id, pointer, proposal)
     }
 

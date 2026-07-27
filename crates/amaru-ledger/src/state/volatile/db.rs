@@ -154,6 +154,11 @@ impl VolatileState for VolatileDB {
         )
     }
 
+    /// The same credential may come up more than once; callers gather these into a set.
+    fn cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
+        self.current.cc_members().chain(self.overlay.cc_members()).chain(self.draining.cc_members())
+    }
+
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal = Existence<ProposalKind>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
@@ -1318,7 +1323,7 @@ mod tests {
 
         assert!(matches!(
             db.resolve_cc_member(&cred(1)),
-            Existence::Exists(Bind { value: Some(term_limit),.. }) if *term_limit == expected_term_limit
+            Existence::Exists(Bind { right: Resettable::Set(term_limit), .. }) if *term_limit == expected_term_limit
         ));
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
@@ -1334,6 +1339,47 @@ mod tests {
         let mut db = VolatileDB::default();
         db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::NoConfidence)));
         assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Unknown));
+    }
+
+    /// A credential named in a pending `UpdateCommittee` may authorize a hot key before enactment.
+    #[test]
+    fn resolve_committee_keeps_a_hot_key_declared_before_the_electing_boundary() {
+        let mut db = VolatileDB::default();
+        let expected_term_limit = Epoch::from(99);
+
+        db.push_back(committee_block(10, CommitteeAct::Auth));
+        db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::ChangeMembers {
+            added: BTreeMap::from([(cred(1), expected_term_limit)]),
+            removed: BTreeSet::new(),
+            threshold: SafeRatio::zero(),
+        })));
+
+        let Existence::Exists(Bind { left, right, .. }) = db.resolve_cc_member(&cred(1)) else {
+            panic!("elected member resolved to nothing");
+        };
+
+        assert_eq!(left, Resettable::Set(&cred(2)), "the hot key declared while the proposal was pending");
+        assert_eq!(right, Resettable::Set(&expected_term_limit), "the term the boundary granted");
+    }
+
+    #[test]
+    fn resolve_committee_lets_a_resignation_clear_a_hot_key_across_the_boundary() {
+        let mut db = VolatileDB::default();
+
+        db.push_back(committee_block(10, CommitteeAct::Auth));
+        db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::ChangeMembers {
+            added: BTreeMap::from([(cred(1), Epoch::from(99))]),
+            removed: BTreeSet::new(),
+            threshold: SafeRatio::zero(),
+        })));
+        db.push_back(committee_block(20, CommitteeAct::Resign));
+
+        let Existence::Exists(Bind { left, right, .. }) = db.resolve_cc_member(&cred(1)) else {
+            panic!("resigned member resolved to nothing; the seat outlives the authorization");
+        };
+
+        assert_eq!(left, Resettable::Reset);
+        assert_eq!(right, Resettable::Set(&Epoch::from(99)));
     }
 
     // HELPERS

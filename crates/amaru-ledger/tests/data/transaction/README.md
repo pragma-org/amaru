@@ -84,9 +84,19 @@ it is made up of the following fields:
 - `dreps`: `[{ credential, deposit, registeredAt, validUntil }]`, with the same
   `credential` encoding, a `registeredAt` certificate pointer, and a `validUntil`
   epoch.
-- `proposals`: `[{ id, govAction }]`, the in-flight governance proposals seeding
-  the block-start proposal set. `id` is a governance action id (see below) and
-  `govAction` is hex-encoded CBOR of a `GovAction`. Use `[]` when none are seeded.
+- `committee`: `[{ coldCredential, hotCredential?, validUntil? }]`, the constitutional
+  committee keyed by cold credential, both credentials hex-encoded CBOR of a
+  `StakeCredential`. `hotCredential` is absent for a member that has never authorized
+  one or has resigned; `validUntil` is absent for a member holding no term, which is
+  still a state a member can authorize a hot credential from. Note that a vote
+  identifies its committee member by *hot* credential.
+- `proposals`: `[[id, kind]]`, the in-flight governance proposals seeding the
+  block-start proposal set. `id` is a governance action id (see below); `kind` is
+  the lineage the proposal belongs to, one of `ProtocolParameters`, `HardFork`,
+  `ConstitutionalCommittee`, `Constitution` or `Orphan` — the last for the actions
+  that chain to nothing, `Information` and `TreasuryWithdrawals`. Only the lineage
+  matters here, so the action itself is not spelled out. Use `[]` when none are
+  seeded.
 - `proposalsRoots`: `{ protocolParameters?, hardFork?, constitutionalCommittee?, constitution? }`,
   the latest enacted governance action id per purpose, each a governance action id
   (see below). Use `{}` when none are enacted; absent purposes default to none.

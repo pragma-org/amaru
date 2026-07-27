@@ -368,6 +368,7 @@ dependencies = [
  "anyhow",
  "divan",
  "hex",
+ "itertools 0.15.0",
  "num",
  "proptest",
  "rand 0.9.5",

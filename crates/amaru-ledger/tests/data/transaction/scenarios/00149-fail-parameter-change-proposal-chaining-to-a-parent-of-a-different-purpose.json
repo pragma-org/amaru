@@ -15,22 +15,15 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c33340ff"
       }
     ],
-    "pools": [],
-    "accounts": [],
-    "dreps": [],
-    "proposals": [
+    "accounts": [
       {
-        "id": {
-          "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3",
-          "proposalIndex": 0
-        },
-        "govAction": "8305f682827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000f6"
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000
       }
     ],
-    "proposalsRoots": {},
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
-    }
+    "proposals": [
+      [{ "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3", "proposalIndex": 0 }, "Constitution"]
+    ]
   },
   "point": {
     "slot": 0,
