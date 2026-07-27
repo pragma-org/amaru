@@ -12,141 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet, btree_map::Entry},
-    mem,
-};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
-use crate::state::volatile::Existence;
+use crate::state::volatile::{Bind, Existence, Resettable};
 
 /// A compact data-structure tracking changes in a DAG which supports optional linking of values with
 /// another data-structure. Items can only be linked if they have been registered first. Yet, they
 /// can be unlinked without being unregistered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffBind<K: Ord, L, R, V> {
+    /// Keys registered or updated by this diff, together with their pending bindings.
     pub registered: BTreeMap<K, Bind<L, R, V>>,
+    /// Keys explicitly removed by this diff.
     pub unregistered: BTreeSet<K>,
 }
-
-impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
-    pub fn is_empty(&self) -> bool {
-        self.registered.is_empty() && self.unregistered.is_empty()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Bind<L, R, V> {
-    pub left: Resettable<L>,
-    pub right: Resettable<R>,
-    pub value: Option<V>,
-}
-
-impl<L, R, V> Default for Bind<L, R, V> {
-    fn default() -> Self {
-        Self { left: Resettable::default(), right: Resettable::default(), value: None }
-    }
-}
-
-impl<L, R, V> Bind<L, R, V> {
-    pub fn as_borrowed(&self) -> Bind<&L, &R, &V> {
-        Bind { left: self.left.as_borrowed(), right: self.right.as_borrowed(), value: self.value.as_ref() }
-    }
-
-    /// Absorb a more recent update in place.
-    /// A `Set`/`Reset` overrides, `Unchanged` keeps what's here,
-    /// and a `value: Some(...)` supersedes wholesale.
-    pub fn then(&mut self, newer: Self) {
-        if newer.value.is_some() {
-            *self = newer;
-        } else {
-            if !matches!(newer.left, Resettable::Unchanged) {
-                self.left = newer.left;
-            }
-            if !matches!(newer.right, Resettable::Unchanged) {
-                self.right = newer.right;
-            }
-        }
-    }
-}
-
-impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Bind<&L, &R, &V> {
-    pub fn to_owned(&self) -> Bind<L, R, V> {
-        Bind { left: self.left.to_owned(), right: self.right.to_owned(), value: self.value.map(|v| v.to_owned()) }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum Resettable<A> {
-    Set(A),
-    Reset,
-    #[default]
-    Unchanged,
-}
-
-impl<A> Resettable<A> {
-    /// Apply this change to `value`, returning the previous content when a change occurred.
-    ///
-    /// - `Unchanged` => returns `None` and leaves `value` as-is
-    /// - `Set(new)`  => replaces `value` with `Some(new)` and returns the old `Option<A>`
-    /// - `Reset`     => sets `value` to `None` and returns the old `Option<A>`
-    pub fn set_or_reset(self, value: &mut Option<A>) -> Option<A> {
-        match self {
-            Resettable::Unchanged => None,
-            Resettable::Set(new) => Option::replace(value, new),
-            Resettable::Reset => mem::take(value),
-        }
-    }
-
-    pub fn as_borrowed(&self) -> Resettable<&A> {
-        match self {
-            Self::Set(value) => Resettable::Set(value),
-            Self::Reset => Resettable::Reset,
-            Self::Unchanged => Resettable::Unchanged,
-        }
-    }
-
-    /// Transform into an `Option`, using the default value `when_unchanged` for the `Unchanged`
-    /// case.
-    pub fn into_option(self, when_unchanged: Option<A>) -> Option<A> {
-        match self {
-            Resettable::Set(value) => Some(value),
-            Resettable::Reset => None,
-            Resettable::Unchanged => when_unchanged,
-        }
-    }
-}
-
-impl<A: ToOwned<Owned = A>> Resettable<&A> {
-    pub fn to_owned(&self) -> Resettable<A> {
-        match self {
-            Self::Set(a) => Resettable::Set((*a).to_owned()),
-            Self::Reset => Resettable::Reset,
-            Self::Unchanged => Resettable::Unchanged,
-        }
-    }
-
-    /// Transform into an `Option`, using the default value `when_unchanged` for the `Unchanged`
-    /// case.
-    pub fn to_option(&self, when_unchanged: Option<&A>) -> Option<A> {
-        match self {
-            Resettable::Set(value) => Some((*value).to_owned()),
-            Resettable::Reset => None,
-            Resettable::Unchanged => when_unchanged.map(|value| value.to_owned()),
-        }
-    }
-}
-
-impl<A> From<Option<A>> for Resettable<A> {
-    fn from(opt: Option<A>) -> Self {
-        match opt {
-            None => Resettable::Reset,
-            Some(r) => Resettable::Set(r),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Empty;
 
 impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
     fn default() -> Self {
@@ -154,36 +33,25 @@ impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum RegisterError<K> {
-    #[error("key is already registered")]
-    AlreadyRegistered(K),
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum BindError<K> {
-    #[error("key is already unregistered")]
-    AlreadyUnregistered(K),
-}
-
 impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
-    pub fn as_borrowed(&self) -> DiffBind<&K, &L, &R, &V> {
+    /// Return whether this diff contains no registrations, bindings, or removals.
+    pub fn is_empty(&self) -> bool {
+        self.registered.is_empty() && self.unregistered.is_empty()
+    }
+
+    /// Borrow all keys, bindings, and values in this diff.
+    pub fn as_refs(&self) -> DiffBind<&K, &L, &R, &V> {
         DiffBind {
             unregistered: self.unregistered.iter().collect(),
-            registered: self.registered.iter().map(|(k, bind)| (k, bind.as_borrowed())).collect(),
+            registered: self.registered.iter().map(|(k, bind)| (k, bind.as_refs())).collect(),
         }
     }
 
     /// Lookup the state of a Bind, if resolvable. `Existence::Unknown` means that we cannot
     /// conclude to anything without access to historical information.
-    pub fn lookup(&self, k: &K) -> Existence<Bind<&L, &R, &V>>
-    where
-        L: ToOwned<Owned = L>,
-        R: ToOwned<Owned = R>,
-        V: ToOwned<Owned = V>,
-    {
+    pub fn lookup(&self, k: &K) -> Existence<Bind<&L, &R, &V>> {
         if let Some(bind) = self.registered.get(k) {
-            Existence::Exists(bind.as_borrowed())
+            Existence::Exists(bind.as_refs())
         } else if self.unregistered.contains(k) {
             Existence::Gone
         } else {
@@ -203,7 +71,7 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     {
         let mut fold = DiffBind::default();
         for diff in diffs {
-            fold.append(diff.as_borrowed());
+            fold.append(diff.as_refs());
         }
         fold
     }
@@ -237,6 +105,9 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         self
     }
 
+    /// Register a key together with its value and optional left/right bindings.
+    ///
+    /// Returns an error if the key already has a pending registration in this diff.
     pub fn register(&mut self, key: K, value: V, left: Option<L>, right: Option<R>) -> Result<(), RegisterError<K>> {
         if self.registered.contains_key(&key) {
             return Err(RegisterError::AlreadyRegistered(key));
@@ -249,6 +120,15 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         Ok(())
     }
 
+    /// Mark a key as unregistered, removing any pending registration or binding first.
+    pub fn unregister(&mut self, key: K) {
+        self.registered.remove(&key);
+        self.unregistered.insert(key);
+    }
+
+    /// Update or create the pending left binding for a key.
+    ///
+    /// Returns an error if the key has already been marked as unregistered in this diff.
     pub fn bind_left(&mut self, key: K, left: Option<L>) -> Result<(), BindError<K>> {
         if self.unregistered.contains(&key) {
             return Err(BindError::AlreadyUnregistered(key));
@@ -266,6 +146,9 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         Ok(())
     }
 
+    /// Update or create the pending right binding for a key.
+    ///
+    /// Returns an error if the key has already been marked as unregistered in this diff.
     pub fn bind_right(&mut self, key: K, right: Option<R>) -> Result<(), BindError<K>> {
         if self.unregistered.contains(&key) {
             return Err(BindError::AlreadyUnregistered(key));
@@ -282,33 +165,52 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
 
         Ok(())
     }
-
-    pub fn unregister(&mut self, key: K) {
-        self.registered.remove(&key);
-        self.unregistered.insert(key);
-    }
 }
 
-impl<K, L, R, V> DiffBind<&K, &L, &R, &V>
-where
-    K: Ord + ToOwned<Owned = K>,
-    L: ToOwned<Owned = L>,
-    R: ToOwned<Owned = R>,
-    V: ToOwned<Owned = V>,
-{
-    pub fn to_owned(&self) -> DiffBind<K, L, R, V> {
+impl<K: Ord, L, R, V> DiffBind<&K, &L, &R, &V> {
+    /// Materialize a borrowed diff back into an owned one.
+    pub fn owned(&self) -> DiffBind<K, L, R, V>
+    where
+        K: ToOwned<Owned = K>,
+        L: ToOwned<Owned = L>,
+        R: ToOwned<Owned = R>,
+        V: ToOwned<Owned = V>,
+    {
         DiffBind {
             unregistered: self.unregistered.iter().map(|k| (*k).to_owned()).collect(),
-            registered: self.registered.iter().map(|(k, bind)| ((*k).to_owned(), bind.to_owned())).collect(),
+            registered: self.registered.iter().map(|(k, bind)| ((*k).to_owned(), bind.owned())).collect(),
         }
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test_support {
+/// Error returned when attempting to register the same key twice in a single diff.
+#[derive(thiserror::Error, Debug)]
+pub enum RegisterError<K> {
+    /// The key already has a pending registration in this diff.
+    #[error("key is already registered")]
+    AlreadyRegistered(K),
+}
+
+/// Error returned when attempting to bind a key that has already been removed.
+#[derive(thiserror::Error, Debug)]
+pub enum BindError<K> {
+    /// The key has already been marked as unregistered in this diff.
+    #[error("key is already unregistered")]
+    AlreadyUnregistered(K),
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
     use proptest::prelude::*;
 
     use super::DiffBind;
+    #[cfg(test)]
+    use crate::state::volatile::RegisterError;
+    #[cfg(test)]
+    use crate::state::volatile::{Bind, Existence, Resettable};
 
     #[derive(Debug)]
     enum Operation {
@@ -333,7 +235,8 @@ pub(crate) mod test_support {
         /// An arbitrary [`DiffBind`] produced by replaying a sequence of registrations,
         /// bindings/unbindings and unregistrations over a small key space. The result is always
         /// a state reachable through the public API.
-        pub(crate) fn arbitrary_diff_bind()(
+        #[expect(clippy::expect_used)]
+        pub fn any_diff_bind()(
             ops in prop::collection::vec(any_op(), 0..24),
         ) -> DiffBind<u8, u8, u8, u8> {
             let mut diff = DiffBind::default();
@@ -356,14 +259,6 @@ pub(crate) mod test_support {
             diff
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use proptest::prelude::*;
-
-    use super::{test_support::arbitrary_diff_bind, *};
-    use crate::state::volatile::Existence;
 
     #[test]
     fn register_some_left_then_bind_left() {
@@ -587,7 +482,7 @@ mod tests {
 
     #[test]
     fn fold_empty_is_default() {
-        let folded = DiffBind::fold(std::iter::empty::<&DiffBind<u8, u8, u8, u8>>()).to_owned();
+        let folded = DiffBind::fold(std::iter::empty::<&DiffBind<u8, u8, u8, u8>>());
         assert_eq!(folded, DiffBind::default());
     }
 
@@ -596,11 +491,11 @@ mod tests {
         /// the property the volatile aggregate relies on to resolve an account by folding its
         /// windowed per-fragment contributions on read.
         #[test]
-        fn fold_matches_sequential_append(diffs in prop::collection::vec(arbitrary_diff_bind(), 0..6)) {
-            let folded = DiffBind::fold(diffs.iter()).to_owned();
+        fn fold_matches_sequential_append(diffs in prop::collection::vec(any_diff_bind(), 0..6)) {
+            let folded = DiffBind::fold(diffs.iter());
 
             let sequential = diffs.iter().fold(DiffBind::default(), |mut acc, diff| {
-                acc.append(diff.clone());
+                acc.append(diff.as_refs());
                 acc
             });
 

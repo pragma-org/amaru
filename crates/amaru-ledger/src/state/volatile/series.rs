@@ -132,7 +132,7 @@ impl VolatileSeries {
     ///
     /// Rollback *could* be incremental too, peel the discarded tail newest-first, the mirror of
     /// stabilization, but that would need an exact back-removal on every field, and `utxo` doesn't
-    /// have one. It is a collapsed [`crate::state::diff_set::DiffSet`]: when a later fragment
+    /// have one. It is a collapsed [`crate::state::volatile::DiffSet`]: when a later fragment
     /// consumes an input an earlier one produced, the collapse discards that produced value
     /// outright. Retracting the oldest fragment never needs it back (nothing earlier remains), but
     /// retracting the newest would have to restore it, and it is gone. A rollback discards a whole
@@ -177,7 +177,9 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::state::{diff_set::DiffSet, volatile::test_support::*};
+    use crate::{state::volatile::DiffSet, tests::fake_output};
+
+    const VOLATILE_WINDOW: usize = 6;
 
     fn series_from(diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>]) -> VolatileSeries {
         let mut series = VolatileSeries::default();
@@ -189,9 +191,68 @@ mod tests {
         series
     }
 
+    fn test_input(tag: u8) -> TransactionInput {
+        TransactionInput { transaction_id: Hash::new([tag; 32]), index: 0 }
+    }
+
+    fn fixed_output() -> MemoizedTransactionOutput {
+        fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335")
+    }
+
+    prop_compose! {
+        /// A window of [`DiffSet`]s where each tagged UTxO has a unique lifecycle: produced once and
+        /// optionally consumed at a strictly later index. Mirrors UTxO uniqueness, so a newest-first
+        /// walk has a well-defined answer for every key.
+        fn any_utxo_diffset(volatile_window: usize)(
+            plan in prop::collection::vec(
+                (0usize..volatile_window, prop::option::of(0usize..volatile_window)),
+                0..16,
+            )
+        ) -> Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> {
+            let mut diffs: Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> =
+                (0..volatile_window).map(|_| DiffSet::default()).collect();
+
+            for (tag, (produced_at, consume_offset)) in plan.into_iter().enumerate() {
+                diffs[produced_at].produce(test_input(tag as u8), Arc::new(fixed_output()));
+                if let Some(offset) = consume_offset {
+                    let consumed_at = produced_at + 1 + offset;
+                    if consumed_at < volatile_window {
+                        diffs[consumed_at].consume(test_input(tag as u8));
+                    }
+                }
+            }
+
+            diffs
+        }
+    }
+
+    /// Brute-force oracle: resolve `input` by walking `diffs` newest -> oldest. First consumed -> `None`,
+    /// first produce -> `Some`. The reference the maintained aggregate is checked against.
+    fn naive_resolve<'a>(
+        diffs: &'a [DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
+        input: &TransactionInput,
+    ) -> Option<&'a Arc<MemoizedTransactionOutput>> {
+        for diff in diffs.iter().rev() {
+            if diff.consumed.contains(input) {
+                return None;
+            }
+            if let Some(output) = diff.produced.get(input) {
+                return Some(output);
+            }
+        }
+        None
+    }
+
+    fn naive_has_consumed(
+        diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
+        input: &TransactionInput,
+    ) -> bool {
+        diffs.iter().any(|diff| diff.consumed.contains(input))
+    }
+
     proptest! {
         #[test]
-        fn aggregated_lookups_match_naive_walk(diffs in unique_lifecycle_diffs(VOLATILE_WINDOW)) {
+        fn aggregated_lookups_match_naive_walk(diffs in any_utxo_diffset(VOLATILE_WINDOW)) {
             let series = series_from(&diffs);
             for tag in 0u8..16 {
                 let input = test_input(tag);
@@ -203,7 +264,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn aggregated_lookups_match_naive_walk_after_stabilization(diffs in unique_lifecycle_diffs(VOLATILE_WINDOW)) {
+        fn aggregated_lookups_match_naive_walk_after_stabilization(diffs in any_utxo_diffset(VOLATILE_WINDOW)) {
             let mut series = series_from(&diffs);
             series.pop_front();
             let remaining = &diffs[1..];
@@ -219,7 +280,7 @@ mod tests {
     proptest! {
         #[test]
         fn aggregated_lookups_match_naive_walk_after_rollback(
-            diffs in unique_lifecycle_diffs(VOLATILE_WINDOW),
+            diffs in any_utxo_diffset(VOLATILE_WINDOW),
             rollback_ix in 0usize..VOLATILE_WINDOW,
         ) {
             let mut series = series_from(&diffs);

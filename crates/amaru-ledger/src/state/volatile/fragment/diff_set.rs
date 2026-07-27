@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::state::{diff_bind::DiffBind, volatile::Existence};
+use crate::state::volatile::Existence;
 
 /// A compact data-structure tracking changes in a DAG. A composition relation exists, allowing to reduce
 /// two `DiffSet` into one that is equivalent to applying both `DiffSet` in sequence.
@@ -23,7 +23,9 @@ use crate::state::{diff_bind::DiffBind, volatile::Existence};
 /// the processing of each transaction in sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffSet<K: Ord, V> {
+    /// Keys consumed by this diff.
     pub consumed: BTreeSet<K>,
+    /// Keys produced by this diff together with their resulting values.
     pub produced: BTreeMap<K, V>,
 }
 
@@ -34,6 +36,7 @@ impl<K: Ord, V> Default for DiffSet<K, V> {
 }
 
 impl<K: Ord, V> DiffSet<K, V> {
+    /// Merge another diff into this one, assuming `other` happened later.
     pub fn extend(&mut self, other: &DiffSet<K, V>)
     where
         // TODO: lower requirement to 'Copy' for DiffSet keys
@@ -50,28 +53,6 @@ impl<K: Ord, V> DiffSet<K, V> {
 
         for (k, v) in &other.produced {
             self.produced.insert(k.to_owned(), v.to_owned());
-        }
-    }
-
-    /// Like `Self::extend`, but ignores bind left and right.
-    pub fn extend_bind<L, R>(&mut self, other: &DiffBind<K, L, R, V>)
-    where
-        // TODO: lower requirement to 'Copy' for DiffSet keys
-        //
-        // This needs to be clone because `TransactionInput` isn't `Copy` at the moment. But
-        // it's reasonable to ask keys to be always Copy in this scenario.
-        K: ToOwned<Owned = K>,
-        V: ToOwned<Owned = V>,
-    {
-        for k in &other.unregistered {
-            self.produced.remove(k);
-            self.consumed.insert(k.to_owned());
-        }
-
-        for (k, bind) in &other.registered {
-            if let Some(v) = bind.value.as_ref() {
-                self.produced.insert(k.to_owned(), v.to_owned());
-            }
         }
     }
 
@@ -104,48 +85,36 @@ impl<K: Ord, V> DiffSet<K, V> {
         }
     }
 
-    /// Like `Self::cleanup`, but from a `DiffBind` interpreted as a `DiffSet`. The left and right
-    /// binds are ignored, and we only treat registered event with a value as having an effect.
-    pub fn cleanup_bind<L, R>(&mut self, other: &DiffBind<K, L, R, V>) {
-        for (k, bind) in &other.registered {
-            if bind.value.is_some() {
-                self.produced.remove(k);
-            }
-        }
-
-        for k in &other.unregistered {
-            self.consumed.remove(k);
-        }
-    }
-
+    /// Record that this diff produces `k` with value `v`.
     pub fn produce(&mut self, k: K, v: V) {
         self.produced.insert(k, v);
     }
 
+    /// Record that this diff consumes `k`, cancelling any prior production in the same diff.
     pub fn consume(&mut self, k: K) {
         self.produced.remove(&k);
         self.consumed.insert(k);
     }
 
-    pub fn as_ref(&self) -> DiffSet<&K, &V> {
+    /// Borrow all keys and values in this diff.
+    pub fn as_refs(&self) -> DiffSet<&K, &V> {
         DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use proptest::prelude::*;
 
     use super::*;
-    use crate::state::{
-        diff_bind::{DiffBind, test_support::arbitrary_diff_bind},
-        volatile::Existence,
-    };
 
     prop_compose! {
-        fn any_diff()(
+        pub fn any_diff_set()(
             consumed in
                 any::<BTreeSet<u8>>(),
             mut produced in
@@ -161,7 +130,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_extend_itself(st in any_diff()) {
+        fn prop_extend_itself(st in any_diff_set()) {
             let mut original = st.clone();
             original.extend(&st);
             prop_assert_eq!(st, original);
@@ -170,7 +139,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_merge_no_overlap(mut st in any_diff(), mut diff in any_diff()) {
+        fn prop_merge_no_overlap(mut st in any_diff_set(), mut diff in any_diff_set()) {
             // Extra assumptions that must hold for this property:
             //
             // - We cannot produce an item produced or consumed before
@@ -214,8 +183,8 @@ mod tests {
     proptest! {
         #[test]
         fn prop_composition(
-            st0 in any_diff().prop_map(|st| st.produced),
-            diffs in prop::collection::vec(any_diff(), 1..5),
+            st0 in any_diff_set().prop_map(|st| st.produced),
+            diffs in prop::collection::vec(any_diff_set(), 1..5),
         ) {
             // NOTE: The order in which we apply transformation here doesn't matter, because we
             // know that DiffSet consumed and produced do not overlap _by construction_ (cf the
@@ -252,6 +221,8 @@ mod tests {
 
     #[test]
     fn lookup_resolves_existence() {
+        use crate::state::volatile::Existence;
+
         let mut diff = DiffSet::<u8, u8>::default();
         diff.produce(1, 100);
         diff.consume(2);
@@ -259,55 +230,5 @@ mod tests {
         assert!(matches!(diff.lookup(&1), Existence::Exists(&100)));
         assert!(matches!(diff.lookup(&2), Existence::Gone));
         assert!(matches!(diff.lookup(&3), Existence::Unknown));
-    }
-
-    #[test]
-    fn extend_bind_projects_registrations_and_unregistrations() {
-        let mut set = DiffSet::<u8, u8>::default();
-        set.produce(3, 30);
-
-        let mut bind = DiffBind::<u8, (), (), u8>::default();
-        bind.register(1, 100, None, None).unwrap();
-        bind.unregister(3);
-
-        set.extend_bind(&bind);
-
-        assert_eq!(set.produced.get(&1), Some(&100));
-        assert!(!set.produced.contains_key(&3));
-        assert!(set.consumed.contains(&3));
-    }
-
-    #[test]
-    fn extend_bind_ignores_bind_only_updates() {
-        let mut bind = DiffBind::<u8, u8, u8, u8>::default();
-        bind.bind_left(1, Some(10)).unwrap();
-        bind.bind_right(2, Some(20)).unwrap();
-
-        let mut set = DiffSet::<u8, u8>::default();
-        set.extend_bind(&bind);
-
-        assert!(set.produced.is_empty());
-        assert!(set.consumed.is_empty());
-    }
-
-    proptest! {
-        /// `extend_bind` folds a fragment's bindings into the aggregate DiffSet; `cleanup_bind`
-        /// retracts them. Applied in sequence over keys disjoint from the base, they must cancel
-        /// out. This is exactly what `VolatileAggregate::{add_fragment, remove_fragment}` rely on.
-        #[test]
-        fn extend_bind_then_cleanup_bind_is_identity(base in any_diff(), bind in arbitrary_diff_bind()) {
-            // Precondition: the bind's keys must be disjoint from the base's, otherwise extend/cleanup would clobber pre-existing base entries.
-            let bind_keys: BTreeSet<u8> =
-                bind.registered.keys().chain(bind.unregistered.iter()).copied().collect();
-            let mut base = base;
-            base.produced.retain(|k, _| !bind_keys.contains(k));
-            base.consumed.retain(|k| !bind_keys.contains(k));
-
-            let mut roundtrip = base.clone();
-            roundtrip.extend_bind(&bind);
-            roundtrip.cleanup_bind(&bind);
-
-            prop_assert_eq!(roundtrip, base);
-        }
     }
 }

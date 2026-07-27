@@ -26,9 +26,7 @@ use amaru_kernel::{
 use crate::{
     state::{
         VolatileDB,
-        diff_bind::DiffBind,
-        diff_epoch_reg::DiffEpochReg,
-        volatile::{VolatileSequence, fragment::add_proposals},
+        volatile::{DiffBind, DiffEpochReg, VolatileSequence, fragment::add_proposals},
     },
     store::{
         ReadStore, StoreError,
@@ -63,9 +61,9 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         let mut accounts = DiffBind::default();
 
         for anchored in volatile.iter() {
-            accounts.append(anchored.fragment.accounts.as_borrowed());
+            accounts.append(anchored.fragment.accounts.as_refs());
 
-            pools.append(anchored.fragment.pools.as_borrowed());
+            pools.append_derefs(&anchored.fragment.pools);
 
             for (k, v) in anchored.fragment.proposals.iter() {
                 proposals.insert(k, v);

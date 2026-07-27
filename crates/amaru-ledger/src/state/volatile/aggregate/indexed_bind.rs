@@ -14,10 +14,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::state::{
-    diff_bind::{Bind, DiffBind},
-    volatile::Existence,
-};
+use crate::state::volatile::{Bind, DiffBind, Existence};
 
 /// A per-key log of `Bind` verdicts, indexed so that folding one key's history is cheap and
 /// retracting the oldest contribution is exact.
@@ -62,7 +59,7 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
         V: ToOwned<Owned = V>,
     {
         for (key, bind) in &diff.registered {
-            push_front_or_insert(&mut self.index, key, Existence::Exists(bind.to_owned()));
+            push_front_or_insert(&mut self.index, key, Existence::Exists(bind.owned()));
         }
 
         for key in &diff.unregistered {
@@ -100,7 +97,7 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
     pub fn get(&self, key: &K) -> Existence<Bind<&L, &R, &V>> {
         match self.index.get(key) {
             None => Existence::Unknown,
-            Some(seq) => Existence::fold(seq.iter().map(|existence| existence.as_borrowed())),
+            Some(seq) => Existence::fold(seq.iter().map(|existence| existence.as_refs())),
         }
     }
 
@@ -116,9 +113,6 @@ fn push_front_or_insert<K, L, R, V>(
     value: Existence<Bind<L, R, V>>,
 ) where
     K: Ord + ToOwned<Owned = K>,
-    L: ToOwned<Owned = L>,
-    R: ToOwned<Owned = R>,
-    V: ToOwned<Owned = V>,
 {
     match index.get_mut(key) {
         Some(seq) => {
@@ -135,7 +129,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::state::diff_bind::{Resettable, test_support::arbitrary_diff_bind};
+    use crate::state::volatile::{Resettable, any_diff_bind};
 
     #[test]
     fn get_composes_diff_bind_in_the_right_order() {
@@ -146,8 +140,8 @@ mod tests {
         delegate.bind_left(1, Some(20)).unwrap();
 
         let mut register_then_delegate = IndexedBind::default();
-        register_then_delegate.extend(register.as_borrowed());
-        register_then_delegate.extend(delegate.as_borrowed());
+        register_then_delegate.extend(register.as_refs());
+        register_then_delegate.extend(delegate.as_refs());
 
         match register_then_delegate.get(&1) {
             Existence::Exists(bind) => {
@@ -158,8 +152,8 @@ mod tests {
         }
 
         let mut delegate_then_register = IndexedBind::default();
-        delegate_then_register.extend(delegate.as_borrowed());
-        delegate_then_register.extend(register.as_borrowed());
+        delegate_then_register.extend(delegate.as_refs());
+        delegate_then_register.extend(register.as_refs());
 
         match delegate_then_register.get(&1) {
             Existence::Exists(bind) => {
@@ -176,20 +170,20 @@ mod tests {
         /// the flat fold it stands in for.
         #[test]
         fn resolve_matches_diff_bind_fold(
-            window in prop::collection::vec(arbitrary_diff_bind(), 1..6),
+            window in prop::collection::vec(any_diff_bind(), 1..6),
             do_cleanup in any::<bool>(),
         ) {
             let mut indexed = IndexedBind::default();
             for diff in &window {
-                indexed.extend(diff.as_borrowed());
+                indexed.extend(diff.as_refs());
             }
 
             let folded = if do_cleanup {
                 let (first, rest) = window.split_first().expect("non-empty window");
                 assert!(!indexed.cleanup(first));
-                DiffBind::fold(rest.iter()).to_owned()
+                DiffBind::fold(rest.iter()).owned()
             } else {
-                DiffBind::fold(window.iter()).to_owned()
+                DiffBind::fold(window.iter()).owned()
             };
 
             for key in 0u8..8 {
@@ -200,11 +194,11 @@ mod tests {
         /// Extending a window of fragments then retracting them oldest-first must leave the index
         /// empty.
         #[test]
-        fn extend_then_cleanup_is_empty(window in prop::collection::vec(arbitrary_diff_bind(), 0..6)) {
+        fn extend_then_cleanup_is_empty(window in prop::collection::vec(any_diff_bind(), 0..6)) {
             let mut indexed = IndexedBind::default();
 
             for diff in &window {
-                indexed.extend(diff.as_borrowed());
+                indexed.extend(diff.as_refs());
             }
 
             for diff in &window {

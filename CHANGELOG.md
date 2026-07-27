@@ -35,7 +35,6 @@ Other guiding principles:
   ```
 -->
 
-
 ## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
 ### Added
@@ -44,15 +43,11 @@ Other guiding principles:
 - **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
 - **amaru-consensus**: add events and metrics to track the performance of headers processing. ([#1005][])
 - **amaru-ledger**: benchmarks for key volatile db operations (roll forward, switch to fork and context preparation).
+- **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][] [#895][])
 
 ### Changed
 
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
-
-### Added
-
-- **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][] [#895][])
-
 
 ### Fixed
 

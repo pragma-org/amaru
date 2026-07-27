@@ -19,12 +19,16 @@ use crate::state::volatile::Bind;
 /// - `Gone` is a tombstone, so don't fall back to the stable store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Existence<T> {
+    /// The volatile layer resolves the entity to a concrete value.
     Exists(T),
+    /// The volatile layer knows the entity has been removed.
     Gone,
+    /// The volatile layer has no conclusive information and may need historical state.
     Unknown,
 }
 
 impl<T: Copy> Existence<&T> {
+    /// Copy a borrowed payload out of an existence verdict.
     pub fn copied(self) -> Existence<T> {
         match self {
             Self::Exists(t) => Existence::Exists(*t),
@@ -35,26 +39,16 @@ impl<T: Copy> Existence<&T> {
 }
 
 impl<L, R, V> Existence<Bind<L, R, V>> {
-    pub fn as_borrowed(&self) -> Existence<Bind<&L, &R, &V>> {
+    /// Borrow the payload carried by an existence verdict.
+    pub fn as_refs(&self) -> Existence<Bind<&L, &R, &V>> {
         match self {
-            Self::Exists(bind) => Existence::Exists(bind.as_borrowed()),
+            Self::Exists(bind) => Existence::Exists(bind.as_refs()),
             Self::Gone => Existence::Gone,
             Self::Unknown => Existence::Unknown,
         }
     }
-}
 
-impl<L: ToOwned<Owned = L>, R: ToOwned<Owned = R>, V: ToOwned<Owned = V>> Existence<Bind<&L, &R, &V>> {
-    pub fn to_owned(self) -> Existence<Bind<L, R, V>> {
-        match self {
-            Self::Exists(bind) => Existence::Exists(bind.to_owned()),
-            Self::Gone => Existence::Gone,
-            Self::Unknown => Existence::Unknown,
-        }
-    }
-}
-
-impl<L, R, V> Existence<Bind<L, R, V>> {
+    /// Return this verdict when it is conclusive, otherwise lazily fall back to an older one.
     pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
         Self::fold(std::iter::once(self).chain(std::iter::once_with(older)))
     }
@@ -102,6 +96,22 @@ impl<L, R, V> Existence<Bind<L, R, V>> {
                     unknown
                 }
             };
+        }
+    }
+}
+
+impl<L, R, V> Existence<Bind<&L, &R, &V>> {
+    /// Materialize a borrowed existence verdict back into an owned one.
+    pub fn owned(&self) -> Existence<Bind<L, R, V>>
+    where
+        L: ToOwned<Owned = L>,
+        R: ToOwned<Owned = R>,
+        V: ToOwned<Owned = V>,
+    {
+        match self {
+            Self::Exists(bind) => Existence::Exists(bind.owned()),
+            Self::Gone => Existence::Gone,
+            Self::Unknown => Existence::Unknown,
         }
     }
 }

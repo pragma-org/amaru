@@ -29,10 +29,7 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, UnresolvedInputPolicy,
     },
-    state::{
-        diff_bind::Bind,
-        volatile::{AccountBind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
-    },
+    state::volatile::{AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
     store::ReadStore,
 };
 
@@ -263,8 +260,8 @@ fn resolve_accounts<'iter>(
 
                     let state = AccountState {
                         deposit,
-                        pool: left.as_borrowed().to_option(None),
-                        drep: right.as_borrowed().to_option(None),
+                        pool: left.as_refs().to_option(None),
+                        drep: right.as_refs().to_option(None),
                         rewards: rewards_at_tip.into_balance(0),
                     };
 
@@ -279,8 +276,8 @@ fn resolve_accounts<'iter>(
 
                         let state = AccountState {
                             deposit: row.deposit,
-                            pool: left.as_borrowed().to_option(row.pool.as_ref()),
-                            drep: right.as_borrowed().to_option(row.drep.as_ref()),
+                            pool: left.as_refs().to_option(row.pool.as_ref()),
+                            drep: right.as_refs().to_option(row.drep.as_ref()),
                             rewards: rewards_at_tip.into_balance(row.rewards),
                         };
 

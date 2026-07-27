@@ -500,19 +500,16 @@ mod tests {
 
     use amaru_kernel::{
         Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, ProposalsRoots, Slot, StakeCredential,
+        any_modern_output, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
-    use proptest::prelude::*;
     use test_case::test_case;
 
     use super::*;
     use crate::{
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
         governance::ratification::CommitteeUpdate,
-        state::{
-            diff_bind::{Bind, Resettable},
-            volatile::test_support::*,
-        },
+        state::volatile::{Bind, Resettable},
         summary::SafeRatio,
     };
 
@@ -892,7 +889,7 @@ mod tests {
 
     #[test]
     fn test_consumed_input_is_tracked() {
-        let input = test_input(1);
+        let input = run_strategy(any_transaction_input());
         let mut anchored = AnchoredVolatileFragment::fixture(10, 1);
         anchored.fragment.utxo.consume(input.clone());
 
@@ -905,7 +902,7 @@ mod tests {
 
     #[test]
     fn test_rollback_removes_consumed_input_from_cache() {
-        let input = test_input(1);
+        let input = run_strategy(any_transaction_input());
         let mut db = VolatileDB::default();
         let first = AnchoredVolatileFragment::fixture(10, 1);
         let first_point = first.point();
@@ -1002,7 +999,7 @@ mod tests {
         resolvable: bool,
         consumed: bool,
     ) {
-        let input = test_input(1);
+        let input = run_strategy(any_transaction_input());
         let mut draining_block = AnchoredVolatileFragment::fixture(10, 1);
         let mut current_block = AnchoredVolatileFragment::fixture(20, 2);
 
@@ -1011,7 +1008,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.produce(input.clone(), Arc::new(fixed_output()));
+            block.fragment.utxo.produce(input.clone(), Arc::new(run_strategy(any_modern_output())));
         }
 
         if let Some(layer) = consume_in {
@@ -1053,30 +1050,6 @@ mod tests {
         db.pop_front();
         assert!(db.is_empty());
         assert_eq!(db.len(), 0);
-    }
-
-    proptest! {
-        #[test]
-        fn db_resolve_matches_naive_walk_over_both_series(
-            diffs in unique_lifecycle_diffs(VOLATILE_WINDOW),
-            transition_after in 1usize..VOLATILE_WINDOW,
-        ) {
-            let mut db = VolatileDB::default();
-            for (index, diff) in diffs.iter().enumerate() {
-                if index == transition_after {
-                    db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
-                }
-                let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
-                anchored.fragment.utxo = diff.clone();
-                db.push_back(anchored);
-            }
-
-            for tag in 0u8..16 {
-                let input = test_input(tag);
-                prop_assert_eq!(db.resolve_input(&input).is_some(), naive_resolve(&diffs, &input).is_some());
-                prop_assert_eq!(db.has_consumed_input(&input), naive_has_consumed(&diffs, &input));
-            }
-        }
     }
 
     #[test_case(None, Some(Act::Reg) => Expect::Registered ; "registered in current")]

@@ -15,7 +15,7 @@
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor};
 
-use crate::state::diff_bind::Resettable;
+use crate::state::volatile::Resettable;
 
 /// Iterator used to browse rows from the DRep column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;

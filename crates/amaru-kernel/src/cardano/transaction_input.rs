@@ -17,3 +17,23 @@ pub use pallas_primitives::TransactionInput;
 pub fn transaction_input_to_string(input: &TransactionInput) -> String {
     format!("{}#{}", input.transaction_id, input.index)
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::TransactionInput;
+    use crate::any_hash32;
+
+    prop_compose! {
+        pub fn any_transaction_input()(
+            id in any_hash32(),
+            ix in any::<u64>(),
+        ) -> TransactionInput {
+            TransactionInput { transaction_id: id, index: ix }
+        }
+    }
+}

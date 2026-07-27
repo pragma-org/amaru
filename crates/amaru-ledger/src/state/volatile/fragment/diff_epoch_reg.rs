@@ -16,6 +16,8 @@ use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::Epoch;
 
+use crate::state::volatile::Registrations;
+
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value
 /// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
 /// occurs only after a certain epoch (specified when unregistering). Similarly, re-registering is
@@ -39,52 +41,6 @@ pub struct DiffEpochReg<K, V> {
 impl<K, V> Default for DiffEpochReg<K, V> {
     fn default() -> Self {
         Self { registered: Default::default(), unregistered: Default::default() }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Registrations<V>((V, Option<V>));
-
-impl<V> Registrations<V> {
-    pub fn new(v: V) -> Self {
-        Self((v, None))
-    }
-
-    pub fn into_inner(self) -> (V, Option<V>) {
-        (self.0.0, self.0.1)
-    }
-
-    pub fn next(&mut self, v: V) {
-        let inner = &mut self.0;
-        inner.1 = Some(v);
-    }
-
-    pub fn last(&self) -> &V {
-        let inner = &self.0;
-        inner.1.as_ref().unwrap_or(&inner.0)
-    }
-
-    pub fn into_last(self) -> V {
-        let inner = self.0;
-        inner.1.unwrap_or(inner.0)
-    }
-
-    pub fn as_borrowed<T>(&self) -> Registrations<&T>
-    where
-        V: Deref<Target = T>,
-    {
-        Registrations((self.0.0.deref(), self.0.1.as_deref()))
-    }
-}
-
-impl<V> IntoIterator for Registrations<V> {
-    type Item = V;
-    type IntoIter = <std::vec::Vec<V> as IntoIterator>::IntoIter;
-    fn into_iter(self) -> Self::IntoIter {
-        match self.0 {
-            (current, None) => vec![current].into_iter(),
-            (current, Some(next)) => vec![current, next].into_iter(),
-        }
     }
 }
 
@@ -122,24 +78,6 @@ impl<K: Ord, V> DiffEpochReg<K, V> {
 }
 
 impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
-    /// Create a structure of borrowed keys and values from an initial borrowed structure.
-    pub fn as_borrowed<T>(&self) -> DiffEpochReg<K, &T>
-    where
-        V: Deref<Target = T>,
-    {
-        let mut borrowed = DiffEpochReg::default();
-
-        for (k, v) in self.registered.iter() {
-            borrowed.registered.insert(*k, v.as_borrowed());
-        }
-
-        for (k, v) in self.unregistered.iter() {
-            borrowed.unregistered.insert(*k, *v);
-        }
-
-        borrowed
-    }
-
     /// Merge two states together, assuming that the other state is the most recent.
     ///
     /// # Warning
@@ -147,33 +85,40 @@ impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
     /// Both states MUST belong to the same epoch. This isn't suitable for combining states across
     /// epoch boundaries.
     pub fn append(&mut self, most_recent: Self) {
-        for (k, v) in most_recent.registered {
-            self.register(k, v.0.0);
-            if let Some(re_registration) = v.0.1 {
-                self.register(k, re_registration);
-            }
-        }
-
-        for (k, v) in most_recent.unregistered {
-            self.unregister(k, v)
-        }
+        self.append_with(most_recent.registered, most_recent.unregistered, std::convert::identity);
     }
 
-    /// Like `append`, but for Clonable values.
-    pub fn extend(&mut self, most_recent: &DiffEpochReg<K, V>)
-    where
-        V: Clone,
-    {
-        for (k, v) in &most_recent.registered {
-            self.register(*k, v.0.0.clone());
-            if let Some(re_registration) = v.0.1.as_ref() {
-                self.register(*k, re_registration.clone());
+    /// Internal helper for merging two `DiffEpochReg` with different ownership strategy for `V`
+    /// (a.k.a `U`).
+    fn append_with<U>(
+        &mut self,
+        registered: impl IntoIterator<Item = (K, Registrations<U>)>,
+        unregistered: impl IntoIterator<Item = (K, Epoch)>,
+        mut with_ownership_strategy: impl FnMut(U) -> V,
+    ) {
+        for (k, registrations) in registered {
+            for value in registrations {
+                self.register(k, with_ownership_strategy(value));
             }
         }
 
-        for (k, v) in &most_recent.unregistered {
-            self.unregister(*k, *v)
+        for (k, epoch) in unregistered {
+            self.unregister(k, epoch);
         }
+    }
+}
+
+impl<'a, K: Ord + Copy, T> DiffEpochReg<K, &'a T> {
+    /// Like [`DiffEpochReg::append`], but only requires derefs of values.
+    pub fn append_derefs<V>(&mut self, most_recent: &'a DiffEpochReg<K, V>)
+    where
+        V: Deref<Target = T>,
+    {
+        self.append_with(
+            most_recent.registered.iter().map(|(k, v)| (*k, v.as_derefs())),
+            most_recent.unregistered.iter().map(|(k, v)| (*k, *v)),
+            std::convert::identity,
+        );
     }
 }
 

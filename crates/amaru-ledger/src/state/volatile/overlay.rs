@@ -28,8 +28,7 @@ use crate::{
     governance::ratification::CommitteeUpdate,
     state::{
         StateError,
-        diff_bind::{Bind, Resettable},
-        volatile::{CommitteeMemberBind, Existence},
+        volatile::{Bind, CommitteeMemberBind, Existence, Resettable},
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,

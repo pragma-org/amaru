@@ -22,14 +22,16 @@ use amaru_kernel::{
     PoolId, StakeCredential, TransactionInput,
 };
 
-use crate::state::{
-    diff_bind::{Empty, Resettable},
-    diff_epoch_reg::DiffEpochReg,
-    diff_set::DiffSet,
-    indexed_bind::IndexedBind,
-    indexed_set::IndexedSet,
-    volatile::{AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, VolatileFragment},
+use crate::state::volatile::{
+    AccountBind, Bind, CommitteeMemberBind, DRepBind, DiffEpochReg, DiffSet, Empty, Existence, Resettable,
+    VolatileFragment,
 };
+
+mod indexed_bind;
+pub use indexed_bind::IndexedBind;
+
+mod indexed_set;
+pub use indexed_set::IndexedSet;
 
 /// The window's accounts, indexed by credential so each one's per-fragment history is retracted
 /// exactly on stabilization and folded on read. See [`IndexedBind`].
@@ -127,14 +129,14 @@ impl VolatileAggregate {
     /// contributions oldest to newest. Deregistration is immediate, so an `unregistered` entry is a
     /// live tombstone.
     pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        self.accounts.get(credential).to_owned()
+        self.accounts.get(credential).owned()
     }
 
     /// This aggregate's verdict on a DRep, folding the credential's per-fragment contributions
     /// oldest to newest. Deregistration is immediate, so a tombstone is live; an anchor-only update
     /// is a bind-only change that defers the registration to the layer below.
     pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        self.dreps.get(credential).to_owned()
+        self.dreps.get(credential).owned()
     }
 
     /// This aggregate's verdict on a CC member. Resignation is immediate, so a resignation entry is a
@@ -180,9 +182,9 @@ impl VolatileAggregate {
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.keys().cloned());
-        self.dreps.extend(dreps.as_borrowed());
+        self.dreps.extend(dreps.as_refs());
         self.committee.extend(committee);
-        self.accounts.extend(accounts.as_borrowed());
+        self.accounts.extend(accounts.as_refs());
 
         self.fees += *fees;
         self.donations += *donations;

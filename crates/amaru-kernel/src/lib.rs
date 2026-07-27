@@ -197,6 +197,7 @@ pub use cardano::{
     reward_account::any_reward_account,
     stake_credential::any_stake_credential,
     tip::any_tip,
+    transaction_input::any_transaction_input,
     transaction_pointer::any_transaction_pointer,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
 };

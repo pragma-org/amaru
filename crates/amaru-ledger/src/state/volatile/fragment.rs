@@ -24,13 +24,30 @@ use amaru_kernel::{
 };
 
 use crate::{
-    state::{
-        diff_bind::{Bind, DiffBind, Empty, Resettable},
-        diff_epoch_reg::{DiffEpochReg, Registrations},
-        diff_set::DiffSet,
-    },
+    state::volatile::{Bind, Empty, Resettable},
     store::{self, columns::*},
 };
+
+mod diff_bind;
+pub use diff_bind::{BindError, DiffBind, RegisterError};
+
+mod diff_epoch_reg;
+pub use diff_epoch_reg::DiffEpochReg;
+
+mod diff_set;
+pub use diff_set::DiffSet;
+
+mod registrations;
+pub use registrations::Registrations;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    pub use super::{diff_bind::any_diff_bind, diff_set::any_diff_set};
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
 // ----------------------------------------------------------------------------------- VolatileFragment
 
 /// Resulting state change coming from processing a block.

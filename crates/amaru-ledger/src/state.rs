@@ -54,11 +54,6 @@ use crate::{
     tracing_enabled,
 };
 
-pub mod diff_bind;
-pub mod diff_epoch_reg;
-pub mod diff_set;
-pub mod indexed_bind;
-pub mod indexed_set;
 pub mod volatile;
 
 /// The minimum number of past (from the current epoch) snapshots required for the ledger to
