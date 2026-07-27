@@ -41,7 +41,7 @@ impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
 /// it fully supersedes any prior registration or bindings accumulated for that key.
 /// This could happen when a single block deregisters and re-registers a credential.
 impl<'a, K: Ord, L, R, V> DiffBind<&'a K, &'a L, &'a R, &'a V> {
-    pub fn append_refs(&mut self, newer: &'a DiffBind<K, L, R, V>) -> &mut Self {
+    pub fn extend_refs(&mut self, newer: &'a DiffBind<K, L, R, V>) -> &mut Self {
         for key in &newer.unregistered {
             self.unregister(key);
         }
@@ -65,11 +65,6 @@ impl<'a, K: Ord, L, R, V> DiffBind<&'a K, &'a L, &'a R, &'a V> {
 }
 
 impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
-    /// Return whether this diff contains no registrations, bindings, or removals.
-    pub fn is_empty(&self) -> bool {
-        self.registered.is_empty() && self.unregistered.is_empty()
-    }
-
     /// Lookup the state of a Bind, if resolvable. `Existence::Unknown` means that we cannot
     /// conclude to anything without access to historical information.
     pub fn get(&self, k: &K) -> Existence<Bind<&L, &R, &V>> {
@@ -80,6 +75,11 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         } else {
             Existence::Unknown
         }
+    }
+
+    /// Return whether this diff contains no registrations, bindings, or removals.
+    pub fn is_empty(&self) -> bool {
+        self.registered.is_empty() && self.unregistered.is_empty()
     }
 
     /// Efficiently fold a borrowed sequence of `DiffBind` into a single aggregate.
@@ -94,7 +94,7 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
     {
         let mut fold = DiffBind::default();
         for diff in diffs {
-            fold.append_refs(diff);
+            fold.extend_refs(diff);
         }
         fold
     }
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn append_reregistration_supersedes_prior_binding() {
+    fn extend_reregistration_supersedes_prior_binding() {
         let key = 1;
         let right = "abstain".to_string();
 
@@ -414,7 +414,7 @@ mod tests {
         let mut next = DiffBind::default();
         next.register(1, 42, None::<String>, None).unwrap();
 
-        current.append_refs(&next);
+        current.extend_refs(&next);
 
         assert!(current.unregistered.is_empty());
         assert_eq!(
@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn append_binding_update_preserves_existing_registration() {
+    fn extend_binding_update_preserves_existing_registration() {
         let key = 1;
         let value = 42;
         let right = "abstain".to_string();
@@ -437,7 +437,7 @@ mod tests {
         let mut next = DiffBind::default();
         next.bind_right(1, Some(right.clone())).unwrap();
 
-        current.append_refs(&next);
+        current.extend_refs(&next);
 
         assert_eq!(
             Some(&Bind { left: Resettable::Reset, right: Resettable::Set(&right), value: Some(&value) }),
@@ -488,15 +488,15 @@ mod tests {
     }
 
     proptest! {
-        /// Folding a borrowed sequence must equal applying each diff in order via `append`. This is
+        /// Folding a borrowed sequence must equal applying each diff in order via `extend`. This is
         /// the property the volatile aggregate relies on to resolve an account by folding its
         /// windowed per-fragment contributions on read.
         #[test]
-        fn fold_matches_sequential_append(diffs in prop::collection::vec(any_diff_bind(), 0..6)) {
+        fn fold_matches_sequential_extend(diffs in prop::collection::vec(any_diff_bind(), 0..6)) {
             let folded = DiffBind::fold(diffs.iter());
 
             let sequential = diffs.iter().fold(DiffBind::default(), |mut acc, diff| {
-                acc.append_refs(diff);
+                acc.extend_refs(diff);
                 acc
             });
 

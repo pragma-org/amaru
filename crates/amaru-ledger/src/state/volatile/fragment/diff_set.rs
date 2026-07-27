@@ -36,6 +36,34 @@ impl<K: Ord, V> Default for DiffSet<K, V> {
 }
 
 impl<K: Ord, V> DiffSet<K, V> {
+    /// Borrow all keys and values in this diff.
+    pub fn as_refs(&self) -> DiffSet<&K, &V> {
+        DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
+    }
+
+    /// Lookup the state associated to a key, if any. Returns `Existence::Unknown` if the state
+    /// cannot be determined from the available data.
+    pub fn get<'a>(&'a self, k: &K) -> Existence<&'a V> {
+        if let Some(v) = self.produced.get(k) {
+            Existence::Exists(v)
+        } else if self.consumed.contains(k) {
+            Existence::Gone
+        } else {
+            Existence::Unknown
+        }
+    }
+
+    /// Record that this diff produces `k` with value `v`.
+    pub fn produce(&mut self, k: K, v: V) {
+        self.produced.insert(k, v);
+    }
+
+    /// Record that this diff consumes `k`, cancelling any prior production in the same diff.
+    pub fn consume(&mut self, k: K) {
+        self.produced.remove(&k);
+        self.consumed.insert(k);
+    }
+
     /// Merge another diff into this one, assuming `other` happened later.
     pub fn extend(&mut self, other: &DiffSet<K, V>)
     where
@@ -56,18 +84,6 @@ impl<K: Ord, V> DiffSet<K, V> {
         }
     }
 
-    /// Lookup the state associated to a key, if any. Returns `Existence::Unknown` if the state
-    /// cannot be determined from the available data.
-    pub fn get<'a>(&'a self, k: &K) -> Existence<&'a V> {
-        if let Some(v) = self.produced.get(k) {
-            Existence::Exists(v)
-        } else if self.consumed.contains(k) {
-            Existence::Gone
-        } else {
-            Existence::Unknown
-        }
-    }
-
     /// Remove the effect of a previous `DiffSet` on the current `DiffSet`. This is technically an
     /// `undo` operation, but with the extra assumption that something consumed is never produced
     /// again.
@@ -75,7 +91,7 @@ impl<K: Ord, V> DiffSet<K, V> {
     /// An important consideration is also that this function's goal is not to exactly revert a
     /// `DiffSet`, but rather, to cleanup memory as much as we can in a cheap way; this ensures
     /// that one can use a `DiffSet` as a cache, while keeping the memory under control.
-    pub fn cleanup(&mut self, other: &DiffSet<K, V>) {
+    pub fn remove(&mut self, other: &DiffSet<K, V>) {
         for k in other.produced.keys() {
             self.produced.remove(k);
         }
@@ -83,22 +99,6 @@ impl<K: Ord, V> DiffSet<K, V> {
         for k in &other.consumed {
             self.consumed.remove(k);
         }
-    }
-
-    /// Record that this diff produces `k` with value `v`.
-    pub fn produce(&mut self, k: K, v: V) {
-        self.produced.insert(k, v);
-    }
-
-    /// Record that this diff consumes `k`, cancelling any prior production in the same diff.
-    pub fn consume(&mut self, k: K) {
-        self.produced.remove(&k);
-        self.consumed.insert(k);
-    }
-
-    /// Borrow all keys and values in this diff.
-    pub fn as_refs(&self) -> DiffSet<&K, &V> {
-        DiffSet { consumed: self.consumed.iter().collect(), produced: self.produced.iter().collect() }
     }
 }
 

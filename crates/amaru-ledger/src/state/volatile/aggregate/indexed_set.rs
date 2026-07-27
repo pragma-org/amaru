@@ -26,14 +26,14 @@ use crate::state::volatile::{DiffSet, Existence};
 /// - `Exists(value)`: the fragment produced the key with that value;
 /// - `Gone`: the fragment consumed the key.
 ///
-/// A fragment that doesn't touch a key adds nothing to its deque, so `Unknown` is never stored.
+/// A fragment that doesn't touch a key extends nothing to its deque, so `Unknown` is never stored.
 ///
 /// This is to [`DiffSet`] what [`crate::state::indexed_bind::IndexedBind`] is to
 /// [`crate::state::diff_bind::DiffBind`]: unlike a bind, a set has no partial updates, so every
 /// verdict is absolute and [`resolve`](Self::resolve) reads the newest one directly rather than
 /// folding a history.
 ///
-/// Collapsing the changes down into a single `DiffSet` would still answer reads, but blind cleanup
+/// Collapsing the changes down into a single `DiffSet` would still answer reads, but blind remove
 /// only stays exact when a consumed key is never produced again (as for UTxOs); keeping the verdicts
 /// separate per key is what makes retracting the oldest fragment exact even when a key repeats.
 #[derive(Debug, Clone)]
@@ -48,6 +48,20 @@ impl<K: Ord, V> Default for IndexedSet<K, V> {
 }
 
 impl<K: Ord, V> IndexedSet<K, V> {
+    /// This index's verdict on a key: its newest per-fragment contribution, or `Unknown` when no
+    /// recorded fragment touched it.
+    pub fn get(&self, key: &K) -> Existence<&V> {
+        match self.index.get(key).and_then(|contributions| contributions.front()) {
+            Some(verdict) => verdict.as_ref(),
+            None => Existence::Unknown,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.index.is_empty()
+    }
+
     /// Append a fragment's changes, treating them as applied *after* everything already recorded.
     /// Each consumed key gains a `Gone` tombstone and each produced key gains an `Exists` verdict at
     /// the back of its deque; produced is applied last so it wins the newest slot, mirroring
@@ -68,8 +82,8 @@ impl<K: Ord, V> IndexedSet<K, V> {
 
     /// Retract the oldest fragment's contribution for every key it touched, popping the front of
     /// each deque and dropping the key once its history empties.
-    pub fn cleanup(&mut self, diff: &DiffSet<K, V>) -> bool {
-        let mut any_missing = false;
+    pub fn remove(&mut self, diff: &DiffSet<K, V>) -> bool {
+        let mut all_present = true;
 
         for key in diff.consumed.iter().chain(diff.produced.keys()) {
             match self.index.get_mut(key) {
@@ -79,24 +93,11 @@ impl<K: Ord, V> IndexedSet<K, V> {
                         self.index.remove(key);
                     }
                 }
-                None => any_missing = true,
+                None => all_present = false,
             }
         }
 
-        any_missing
-    }
-
-    /// This index's verdict on a key: its newest per-fragment contribution, or `Unknown` when no
-    /// recorded fragment touched it.
-    pub fn get(&self, key: &K) -> Existence<&V> {
-        match self.index.get(key).and_then(|contributions| contributions.front()) {
-            Some(verdict) => verdict.as_ref(),
-            None => Existence::Unknown,
-        }
-    }
-    #[cfg(test)]
-    fn is_empty(&self) -> bool {
-        self.index.is_empty()
+        all_present
     }
 }
 
@@ -136,15 +137,15 @@ mod tests {
         #[test]
         fn resolve_matches_diff_set_lookup(
             window in prop::collection::vec(any_diff_set(), 1..6),
-            do_cleanup in any::<bool>(),
+            do_remove in any::<bool>(),
         ) {
             let mut indexed = IndexedSet::default();
             for diff in &window {
                 indexed.extend(diff);
             }
 
-            let folded = if do_cleanup {
-                indexed.cleanup(&window[0]);
+            let folded = if do_remove {
+                assert!(indexed.remove(&window[0]));
                 fold(&window[1..])
             } else {
                 fold(&window)
@@ -158,7 +159,7 @@ mod tests {
         /// Extending a window of fragments then retracting them oldest-first must leave the index
         /// empty.
         #[test]
-        fn extend_then_cleanup_is_empty(window in prop::collection::vec(any_diff_set(), 0..6)) {
+        fn extend_then_remove_all_is_empty(window in prop::collection::vec(any_diff_set(), 0..6)) {
             let mut indexed = IndexedSet::default();
 
             for diff in &window {
@@ -166,7 +167,7 @@ mod tests {
             }
 
             for diff in &window {
-                indexed.cleanup(diff);
+                assert!(indexed.remove(diff));
             }
 
             prop_assert!(indexed.is_empty());

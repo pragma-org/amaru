@@ -32,7 +32,7 @@ use crate::state::volatile::{Bind, DiffBind, Existence};
 /// the sequence into one flat state and forgets which fragment contributed what; keeping them
 /// separate per key is what makes retracting the oldest fragment exact.
 ///
-/// This buys exact incremental cleanup: retracting the oldest fragment pops the back of
+/// This buys exact incremental remove: retracting the oldest fragment pops the back of
 /// each touched key's deque, meaning there is no need to recompute an aggregate.
 ///
 /// The cost is paid on read, where [`get`](Self::get) folds a key's history back into a single verdict.
@@ -69,8 +69,8 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
 
     /// Retract the oldest fragment's contribution for every key it touched, popping the front of
     /// each deque and dropping the key once its history empties.
-    pub fn cleanup(&mut self, diff: &DiffBind<K, L, R, V>) -> bool {
-        let mut any_missing = false;
+    pub fn remove(&mut self, diff: &DiffBind<K, L, R, V>) -> bool {
+        let mut all_present = true;
 
         for key in diff.registered.keys().chain(diff.unregistered.iter()) {
             match self.index.get_mut(key) {
@@ -80,11 +80,11 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
                         self.index.remove(key);
                     }
                 }
-                None => any_missing = true,
+                None => all_present = false,
             }
         }
 
-        any_missing
+        all_present
     }
 
     /// Fold a key's per-fragment history into a single verdict.
@@ -165,22 +165,22 @@ mod tests {
     }
 
     proptest! {
-        /// Resolving a key from its indexed history must equal folding the same fragments into a
-        /// single `DiffBind` and looking the key up. This ties the per-key incremental structure to
-        /// the flat fold it stands in for.
+        // Resolving a key from its indexed history must equal folding the same fragments into a
+        // single `DiffBind` and looking the key up. This ties the per-key incremental structure to
+        // the flat fold it stands in for.
         #[test]
         fn resolve_matches_diff_bind_fold(
             window in prop::collection::vec(any_diff_bind(), 1..6),
-            do_cleanup in any::<bool>(),
+            do_remove in any::<bool>(),
         ) {
             let mut indexed = IndexedBind::default();
             for diff in &window {
                 indexed.extend(diff);
             }
 
-            let folded = if do_cleanup {
+            let folded = if do_remove {
                 let (first, rest) = window.split_first().expect("non-empty window");
-                assert!(!indexed.cleanup(first));
+                assert!(indexed.remove(first));
                 DiffBind::fold(rest.iter()).owned()
             } else {
                 DiffBind::fold(window.iter()).owned()
@@ -194,7 +194,7 @@ mod tests {
         /// Extending a window of fragments then retracting them oldest-first must leave the index
         /// empty.
         #[test]
-        fn extend_then_cleanup_is_empty(window in prop::collection::vec(any_diff_bind(), 0..6)) {
+        fn extend_then_remove_is_empty(window in prop::collection::vec(any_diff_bind(), 0..6)) {
             let mut indexed = IndexedBind::default();
 
             for diff in &window {
@@ -202,7 +202,7 @@ mod tests {
             }
 
             for diff in &window {
-                assert!(!indexed.cleanup(diff));
+                assert!(indexed.remove(diff));
             }
 
             prop_assert!(indexed.is_empty());

@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_kernel::{
     Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput,
@@ -23,12 +20,14 @@ use amaru_kernel::{
 };
 
 use crate::state::volatile::{
-    AccountBind, Bind, CommitteeMemberBind, DRepBind, DiffEpochReg, DiffSet, Empty, Existence, Resettable,
-    VolatileFragment,
+    AccountBind, Bind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, Resettable, VolatileFragment,
 };
 
 mod indexed_bind;
 pub use indexed_bind::IndexedBind;
+
+mod indexed_epoch_reg;
+pub use indexed_epoch_reg::IndexedEpochReg;
 
 mod indexed_set;
 pub use indexed_set::IndexedSet;
@@ -47,44 +46,14 @@ type DReps = IndexedBind<StakeCredential, Anchor, Empty, DRepRegistration>;
 /// [`IndexedSet`].
 type Committee = IndexedSet<StakeCredential, StakeCredential>;
 
-/// The window's pools, counted by id: how many fragments in the window registered each one. Pool
-/// existence is monotonic-additive here; `register` adds a pool, and an `unregister` is a deferred
-/// retirement resolved at the epoch boundary (by the overlay), never in this aggregate. Retracting
-/// the oldest fragment (stabilization) and the newest (rollback) are therefore the same decrement.
-#[derive(Debug, Default, Clone)]
-struct PoolRegistrations {
-    counts: BTreeMap<PoolId, usize>,
-}
-
-impl PoolRegistrations {
-    /// Record a fragment's registrations, one increment per pool it registered.
-    fn extend<V>(&mut self, diff: &DiffEpochReg<PoolId, V>) {
-        for pool_id in diff.registered.keys() {
-            *self.counts.entry(*pool_id).or_default() += 1;
-        }
-    }
-
-    /// Retract a fragment's registrations, one decrement per pool it registered, dropping a pool
-    /// once no fragment in the window registers it.
-    fn retract<V>(&mut self, diff: &DiffEpochReg<PoolId, V>) {
-        for pool_id in diff.registered.keys() {
-            match self.counts.get_mut(pool_id) {
-                Some(count) => {
-                    *count -= 1;
-                    if *count == 0 {
-                        self.counts.remove(pool_id);
-                    }
-                }
-                None => unreachable!("retracted a fragment registering a pool absent from the aggregate"),
-            }
-        }
-    }
-
-    /// Whether any fragment in the window registered this pool.
-    fn resolve(&self, pool_id: &PoolId) -> bool {
-        self.counts.contains_key(pool_id)
-    }
-}
+/// For Pools, it is sufficient to count registrations or de-registrations. This is because, we only
+/// need the aggregate to know whether a pool was registered or not. Since both registrations and
+/// de-registrations are deferred by *at least* one epoch, and because the aggregate is single-epoch
+/// by design, then necessary a registration or de-registration is an indication that the pool
+/// exists.
+///
+/// When cleaning up fragments, we can simply decrement and remove once we reach 0.
+type Pools = IndexedEpochReg<PoolId>;
 
 /// A collapse/folded sequence of `crate::volatile::VolatileFragment` which can be cleaned up
 /// incrementally.
@@ -92,7 +61,7 @@ impl PoolRegistrations {
 #[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileAggregate {
     utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
-    pools: PoolRegistrations,
+    pools: Pools,
     accounts: Accounts,
     dreps: DReps,
     committee: Committee,
@@ -122,7 +91,7 @@ impl VolatileAggregate {
     /// Whether this aggregate registered the given pool. Unregistrations
     /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
     pub fn resolve_pool(&self, pool_id: PoolId) -> bool {
-        self.pools.resolve(&pool_id)
+        self.pools.get(&pool_id)
     }
 
     /// This aggregate's verdict on a stake account, folding the credential's per-fragment
@@ -231,11 +200,14 @@ impl VolatileAggregate {
             votes: _,
         } = fragment;
 
-        self.utxo.cleanup(utxo);
+        self.utxo.remove(utxo);
 
-        self.pools.retract(pools);
+        assert!(
+            self.pools.remove(pools),
+            "removed a fragment touching onr or more key(s) abstent from the pool aggregate ?!"
+        );
 
-        self.committee.cleanup(committee);
+        self.committee.remove(committee);
 
         for credential in withdrawals {
             self.withdrawals.remove(credential);
@@ -246,47 +218,16 @@ impl VolatileAggregate {
         }
 
         assert!(
-            !self.accounts.cleanup(accounts),
-            "retracted a fragment touching one or more key(s) absent from the account aggregate ?!"
+            self.accounts.remove(accounts),
+            "removed a fragment touching one or more key(s) absent from the account aggregate ?!"
         );
 
         assert!(
-            !self.dreps.cleanup(dreps),
-            "retracted a fragment touching one or more key(s) absent from the dreps aggregate ?!"
+            self.dreps.remove(dreps),
+            "removed a fragment touching one or more key(s) absent from the dreps aggregate ?!"
         );
 
         self.fees -= *fees;
         self.donations -= *donations;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use amaru_kernel::Hash;
-
-    use super::*;
-
-    fn pool(tag: u8) -> PoolId {
-        Hash::new([tag; 28])
-    }
-
-    fn registers(tag: u8) -> DiffEpochReg<PoolId, ()> {
-        let mut diff = DiffEpochReg::default();
-        diff.register(pool(tag), ());
-        diff
-    }
-
-    #[test]
-    fn pool_stays_registered_until_every_registering_fragment_is_retracted() {
-        let mut pools = PoolRegistrations::default();
-        pools.extend(&registers(1));
-        pools.extend(&registers(1));
-        assert!(pools.resolve(&pool(1)));
-
-        pools.retract(&registers(1));
-        assert!(pools.resolve(&pool(1)), "a second registration keeps the pool live");
-
-        pools.retract(&registers(1));
-        assert!(!pools.resolve(&pool(1)), "retracting the last registration drops the pool");
     }
 }

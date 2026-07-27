@@ -75,27 +75,30 @@ impl<K: Ord, V> DiffEpochReg<K, V> {
     pub fn unregister(&mut self, k: K, epoch: Epoch) {
         self.unregistered.insert(k, epoch);
     }
-}
 
-impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
     /// Merge two states together, assuming that the other state is the most recent.
     ///
     /// # Warning
     ///
     /// Both states MUST belong to the same epoch. This isn't suitable for combining states across
     /// epoch boundaries.
-    pub fn append(&mut self, most_recent: Self) {
-        self.append_with(most_recent.registered, most_recent.unregistered, std::convert::identity);
+    pub fn extend(&mut self, most_recent: Self)
+    where
+        K: Copy,
+    {
+        self.extend_with(most_recent.registered, most_recent.unregistered, std::convert::identity);
     }
 
     /// Internal helper for merging two `DiffEpochReg` with different ownership strategy for `V`
     /// (a.k.a `U`).
-    fn append_with<U>(
+    fn extend_with<U>(
         &mut self,
         registered: impl IntoIterator<Item = (K, Registrations<U>)>,
         unregistered: impl IntoIterator<Item = (K, Epoch)>,
         mut with_ownership_strategy: impl FnMut(U) -> V,
-    ) {
+    ) where
+        K: Copy,
+    {
         for (k, registrations) in registered {
             for value in registrations {
                 self.register(k, with_ownership_strategy(value));
@@ -109,12 +112,12 @@ impl<K: Ord + Copy, V> DiffEpochReg<K, V> {
 }
 
 impl<'a, K: Ord + Copy, T> DiffEpochReg<K, &'a T> {
-    /// Like [`DiffEpochReg::append`], but only requires derefs of values.
-    pub fn append_derefs<V>(&mut self, most_recent: &'a DiffEpochReg<K, V>)
+    /// Like [`DiffEpochReg::extend`], but only requires derefs of values.
+    pub fn extend_derefs<V>(&mut self, most_recent: &'a DiffEpochReg<K, V>)
     where
         V: Deref<Target = T>,
     {
-        self.append_with(
+        self.extend_with(
             most_recent.registered.iter().map(|(k, v)| (*k, v.as_derefs())),
             most_recent.unregistered.iter().map(|(k, v)| (*k, *v)),
             std::convert::identity,
