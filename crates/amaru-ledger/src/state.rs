@@ -404,6 +404,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 // may or may not need to perform the transition again (depending where we interrupted).
                 None if self.most_recent_snapshot() == next_epoch - 1 => {
                     Span::current().record("skipped", true);
+                    self.volatile.transition_already_persisted(next_epoch);
                     return Ok(());
                 }
                 None => (),

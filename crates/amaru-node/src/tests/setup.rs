@@ -17,7 +17,7 @@ use std::sync::Arc;
 use amaru_consensus::{
     effects::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourcePoolSummaries, ResourceTxValidation,
+        ResourcePoolSummaries, ResourceTxValidation, ValidateHeaderEffect,
     },
     headers_tree::data_generation::Action,
     stages::test_utils::start_in_era,
@@ -33,7 +33,7 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{
     Effects, OrTerminateWith, StageGraph, StageRef,
-    simulation::{RandStdRng, SimulationBuilder},
+    simulation::{RandStdRng, SimulationBuilder, running::OverrideResult},
 };
 use anyhow::anyhow;
 use tracing_subscriber::EnvFilter;
@@ -64,7 +64,12 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 
         let config = config.with_connections(connections.clone());
         let test_node_stages = create_node(&config, &mut stage_graph)?;
-        nodes.push(Node::new(config, stage_graph.run(), test_node_stages));
+
+        let mut running = stage_graph.run();
+        // Don't validate the generated headers, we just want to check the mini-protocols communication.
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+
+        nodes.push(Node::new(config, running, test_node_stages));
     }
 
     // Initialize the nodes by running until the chainsync protocol is registered

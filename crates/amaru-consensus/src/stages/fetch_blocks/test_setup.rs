@@ -20,8 +20,8 @@ use amaru_kernel::{
 };
 use amaru_ouroboros_traits::{MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
-    FindMissingBlocksEffect, GetAnchorHashEffect, GetChildrenEffect, HasBlockEffect, LoadHeaderEffect,
-    LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, StoreBlockEffect,
+    AncestorsBetweenEffect, FindMissingBlocksEffect, GetAnchorHashEffect, GetChildrenEffect, HasBlockEffect,
+    LoadHeaderEffect, LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, StoreBlockEffect,
     UnvalidatedAncestorHashesEffect,
 };
 use amaru_pure_stage::{
@@ -140,7 +140,9 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
     ]
 }
@@ -195,6 +197,10 @@ pub fn te_has_block(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(HasBlockEffect::new(hash))))
 }
 
+pub fn te_ancestors_between(at_stage: &str, from: amaru_kernel::Point, to: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(AncestorsBetweenEffect::new(from, to))))
+}
+
 pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
@@ -204,14 +210,6 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash, with_validity: bool) -> 
             Box::new(LoadHeaderEffect::new(hash))
         },
     ))
-}
-
-pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
-}
-
-pub fn te_unvalidated_ancestor_hashes(at_stage: &str, start: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(UnvalidatedAncestorHashesEffect::new(start))))
 }
 
 pub fn te_store_block(at_stage: &str, hash: HeaderHash, block: amaru_kernel::RawBlock) -> TraceEntry {
