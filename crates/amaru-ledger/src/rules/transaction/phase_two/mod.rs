@@ -296,7 +296,7 @@ mod tests {
     use amaru_plutus::arena_pool::ArenaPool;
     use anyhow::Result;
 
-    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
+    use crate::context::DefaultValidationContext;
 
     static ARENA_POOL: LazyLock<ArenaPool> = LazyLock::new(|| ArenaPool::new(1, 1_024_000));
 
@@ -324,7 +324,15 @@ mod tests {
                 utxo
             });
 
-        let mut context = AssertValidationContext::from(AssertPreparationContext { utxo });
+        let mut context = DefaultValidationContext::new(
+            utxo,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
 
         let protocol_parameters = network.as_protocol_parameters().expect("missing network defaults");
         let protocol_parameters = ProtocolParameters {

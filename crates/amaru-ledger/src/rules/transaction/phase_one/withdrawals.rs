@@ -118,3 +118,35 @@ where
 
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use amaru_kernel::{Network, RewardAccount};
+
+    use super::InvalidWithdrawals;
+    use crate::{context::DefaultValidationContext, rules::TransactionField};
+
+    /// Reward accounts too short to carry a header byte plus a 28-byte hash are rejected before the
+    /// network check. Haskell cannot represent this state, such bytes fail deserialization, so
+    /// there is no conformance predicate for it and it stays a unit test.
+    #[test]
+    fn rejects_a_reward_account_that_is_not_a_credential() {
+        let mut context = DefaultValidationContext::new(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+
+        let withdrawals = vec![(RewardAccount::from(vec![0x00, 0x00]), 1_000_000)];
+
+        assert!(matches!(
+            super::execute(&mut context, Some(withdrawals), Network::Testnet, true),
+            Err(InvalidWithdrawals::MalformedRewardAccount { position: 0, ref bytes, context: TransactionField::Withdrawals })
+                if bytes == &vec![0x00, 0x00]
+        ));
+    }
+}

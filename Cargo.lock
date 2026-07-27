@@ -338,7 +338,6 @@ dependencies = [
  "amaru-plutus",
  "amaru-progress-bar",
  "amaru-stores",
- "amaru-tracing-json",
  "amaru-uplc",
  "anyhow",
  "divan",
@@ -640,7 +639,6 @@ dependencies = [
  "amaru-ouroboros",
  "amaru-protocols",
  "amaru-pure-stage",
- "amaru-tracing-json",
  "anyhow",
  "cbor4ii",
  "clap",
@@ -673,21 +671,6 @@ dependencies = [
  "rocksdb",
  "tempfile",
  "tracing",
-]
-
-[[package]]
-name = "amaru-tracing-json"
-version = "0.1.2"
-dependencies = [
- "amaru-deps",
- "assert-json-diff",
- "hex",
- "opentelemetry",
- "pretty_assertions",
- "serde_json",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -832,16 +815,6 @@ name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
-
-[[package]]
-name = "assert-json-diff"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "assert_cmd"

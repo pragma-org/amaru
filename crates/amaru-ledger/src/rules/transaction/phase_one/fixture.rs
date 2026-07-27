@@ -180,6 +180,7 @@ pub(super) enum Predicate {
     ConwayWdrlNotDelegatedToDRep,
     FeeTooSmallUTxO,
     IncorrectDepositDELEG,
+    IncorrectTotalCollateralField,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
@@ -190,6 +191,8 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    ScriptsNotPaidUTxO,
+    TooManyCollateralInputs,
     TreasuryWithdrawalReturnAccountsDoNotExist,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
@@ -289,6 +292,11 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::InsufficientCollateral
             }
             PhaseOneError::Collateral(InvalidCollateral::ValueNotConserved(..)) => Predicate::ValueNotConservedUTxO,
+            PhaseOneError::Collateral(InvalidCollateral::TooManyInputs { .. }) => Predicate::TooManyCollateralInputs,
+            PhaseOneError::Collateral(InvalidCollateral::LockedAtScriptAddress(..)) => Predicate::ScriptsNotPaidUTxO,
+            PhaseOneError::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. }) => {
+                Predicate::IncorrectTotalCollateralField
+            }
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
