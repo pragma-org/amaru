@@ -47,8 +47,8 @@ impl VolatileState for VolatileSeries {
     }
 
     // ------------------------------------------------------------------------------------ Accounts
-    type Account = Existence<AccountBind>;
-    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
+    type Account<'a> = Existence<AccountBind<'a>>;
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
         self.aggregate.resolve_account(credential)
     }
 
@@ -57,14 +57,14 @@ impl VolatileState for VolatileSeries {
     }
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepBind>;
-    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
+    type DRep<'a> = Existence<DRepBind<'a>>;
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
         self.aggregate.resolve_drep(credential)
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember = Existence<CommitteeMemberBind>;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
+    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
+    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
         self.aggregate.resolve_cc_member(credential)
     }
 

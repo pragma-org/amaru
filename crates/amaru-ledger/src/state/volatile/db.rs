@@ -98,8 +98,8 @@ impl VolatileState for VolatileDB {
     }
 
     // ------------------------------------------------------------------------------------ Accounts
-    type Account = (Existence<AccountBind>, RewardsAtTip);
-    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
+    type Account<'a> = (Existence<AccountBind<'a>>, RewardsAtTip);
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
         // Resolve a stake account across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
         // bind-only update layers over it.
@@ -127,8 +127,8 @@ impl VolatileState for VolatileDB {
     }
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepBind>;
-    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
+    type DRep<'a> = Existence<DRepBind<'a>>;
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
         // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, an
         // anchor-only update layers over the registration it finds below.
@@ -136,8 +136,8 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember = Existence<CommitteeMemberBind>;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
+    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
+    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
         // Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
         // draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
         // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
@@ -1167,7 +1167,7 @@ mod tests {
         );
         assert!(matches!(
             db.resolve_cc_member(&cred(1)),
-            Existence::Exists(Bind { value: Some(term_limit),.. }) if term_limit == expected_term_limit
+            Existence::Exists(Bind { value: Some(term_limit),.. }) if *term_limit == expected_term_limit
         ));
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.

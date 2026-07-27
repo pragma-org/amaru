@@ -57,16 +57,16 @@ mod tests {
 pub use tests::*;
 
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
-pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
+pub type AccountBind<'a> = Bind<&'a (PoolId, CertificatePointer), &'a (DRep, CertificatePointer), &'a Lovelace>;
 
 /// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
 /// since no in-block cert establishes them.
-pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Epoch>;
+pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Empty, &'a Epoch>;
 
 /// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
 /// is the queryable value; the anchor is updated independently of registration, so an anchor-only
 /// update is a bind-only (`value: None`) change that composes onto the registration from below.
-pub type DRepBind = Bind<Anchor, Empty, DRepRegistration>;
+pub type DRepBind<'a> = Bind<&'a Anchor, &'a Empty, &'a DRepRegistration>;
 
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {
@@ -81,17 +81,23 @@ pub trait VolatileState {
     fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool;
 
     // ------------------------------------------------------------------------------------ Accounts
-    type Account;
-    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account;
+    type Account<'a>
+    where
+        Self: 'a;
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a>;
     fn has_withdrawal(&self, credential: &StakeCredential) -> bool;
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep;
-    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep;
+    type DRep<'a>
+    where
+        Self: 'a;
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a>;
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember;
+    type CCMember<'a>
+    where
+        Self: 'a;
+    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a>;
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;

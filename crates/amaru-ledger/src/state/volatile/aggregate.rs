@@ -92,28 +92,28 @@ impl VolatileAggregate {
     /// This aggregate's verdict on a stake account, folding the credential's per-fragment
     /// contributions oldest to newest. Deregistration is immediate, so an `unregistered` entry is a
     /// live tombstone.
-    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        self.accounts.get(credential).owned()
+    pub fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Existence<AccountBind<'a>> {
+        self.accounts.get(credential)
     }
 
     /// This aggregate's verdict on a DRep, folding the credential's per-fragment contributions
     /// oldest to newest. Deregistration is immediate, so a tombstone is live; an anchor-only update
     /// is a bind-only change that defers the registration to the layer below.
-    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        self.dreps.get(credential).owned()
+    pub fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Existence<DRepBind<'a>> {
+        self.dreps.get(credential)
     }
 
     /// This aggregate's verdict on a CC member. Resignation is immediate, so a resignation entry is a
     /// live tombstone. A delegation resolves as a bind-only update (`value: None`): no in-block cert
     /// establishes membership, so existence still defers to the layer below.
-    pub fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    pub fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
         use Existence::*;
         use Resettable::*;
 
         match self.committee.get(credential) {
             Unknown => Unknown,
             Gone => Exists(Bind { left: Reset, ..Bind::default() }),
-            Exists(hot) => Exists(Bind { left: Set(hot.to_owned()), ..Bind::default() }),
+            Exists(hot) => Exists(Bind { left: Set(hot), ..Bind::default() }),
         }
     }
 
