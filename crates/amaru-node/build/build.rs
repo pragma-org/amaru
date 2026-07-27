@@ -26,9 +26,15 @@ fn main() -> Result<()> {
 
 /// Ask cargo to rerun this build script when `path` changes, but only if the path
 /// currently exists, so that a missing optional input does not trigger reruns.
+fn emit_rerun_if_changed(path: &Path) {
+    println!("cargo:rerun-if-changed={}", path.display());
+}
+
+/// Ask cargo to rerun this build script when `path` changes, but only if the path
+/// currently exists, so that a missing optional input does not trigger reruns.
 fn emit_rerun_if_exists(path: &Path) {
     if path.exists() {
-        println!("cargo:rerun-if-changed={}", path.display());
+        emit_rerun_if_changed(path)
     }
 }
 
