@@ -44,9 +44,10 @@ pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
     pub accounts: BTreeSet<Cow<'a, StakeCredential>>,
-    pub dreps: BTreeSet<&'a StakeCredential>,
+    pub dreps: BTreeSet<Cow<'a, StakeCredential>>,
     pub drep_delegations: BTreeSet<&'a DRep>,
     pub committee: BTreeSet<&'a StakeCredential>,
+    pub committee_voters: BTreeSet<StakeCredential>,
     pub proposals: BTreeSet<ProposalId>,
 }
 
@@ -59,6 +60,7 @@ impl DefaultPreparationContext<'_> {
             dreps: BTreeSet::new(),
             drep_delegations: BTreeSet::new(),
             committee: BTreeSet::new(),
+            committee_voters: BTreeSet::new(),
             proposals: BTreeSet::new(),
         }
     }
@@ -85,7 +87,7 @@ impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_drep(&mut self, drep: &'a StakeCredential) {
+    fn require_drep(&mut self, drep: Cow<'a, StakeCredential>) {
         self.dreps.insert(drep);
     }
 
@@ -97,6 +99,10 @@ impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
 impl<'a> PrepareCommitteeSlice<'a> for DefaultPreparationContext<'a> {
     fn require_committee_member(&mut self, cc_member: &'a StakeCredential) {
         self.committee.insert(cc_member);
+    }
+
+    fn require_committee_voter(&mut self, hot_credential: StakeCredential) {
+        self.committee_voters.insert(hot_credential);
     }
 }
 
@@ -136,10 +142,10 @@ impl<'block> DefaultPreparationContext<'block> {
                 db,
                 self.dreps
                     .into_iter()
-                    .cloned()
+                    .map(Cow::into_owned)
                     .chain(self.drep_delegations.into_iter().filter_map(drep::to_stake_credential)),
             )?,
-            resolve_committee(volatile, db, self.committee.into_iter())?,
+            resolve_committee(volatile, db, self.committee.into_iter().cloned(), &self.committee_voters)?,
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
             treasury,
@@ -376,58 +382,94 @@ fn resolve_dreps<'volatile>(
 // member (Haskell's `cgceCommitteeProposals`), which lets a not-yet-elected member pre-declare
 // its hot key. That source needs the proposals read-path, so it is deferred until proposals are
 // exposed.
-fn resolve_committee<'block, 'volatile>(
+fn resolve_committee<'volatile>(
     volatile: &'volatile impl VolatileState<CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = &'block StakeCredential>,
+    cold_credentials: impl Iterator<Item = StakeCredential>,
+    hot_credentials: &BTreeSet<StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
     debug_span!(ledger::validation_context::committee::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
+        let mut scanned = 0;
+        let mut cc_members = BTreeMap::new();
 
-        let cc_members = keys.try_fold(BTreeMap::new(), |mut cc_members, credential| {
-            let member_opt = match volatile.resolve_cc_member(credential) {
-                Existence::Gone => {
-                    from_volatile += 1;
-                    None
-                }
-
-                Existence::Exists(Bind { value, left: hot_credential, .. }) => {
-                    if let Some(valid_until) = value {
-                        from_volatile += 1;
-                        Some(CCMember {
-                            hot_credential: hot_credential.to_option(None),
-                            valid_until: Some(*valid_until),
-                        })
-                    } else {
-                        db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|mut row| {
-                            from_db += 1;
-                            hot_credential.owned().set_or_reset(&mut row.hot_credential);
-                            CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
-                        })
-                    }
-                }
-
-                Existence::Unknown => {
-                    db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|row| {
-                        from_db += 1;
-                        CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
-                    })
-                }
-            };
-
-            if let Some(member) = member_opt {
-                cc_members.insert(*credential, member);
+        for credential in cold_credentials {
+            if let Some(member) = resolve_committee_member(volatile, db, &credential, &mut from_volatile, &mut from_db)?
+            {
+                cc_members.insert(credential, member);
             }
+        }
 
-            Ok(cc_members)
-        })?;
+        // A vote names its member by hot credential, which no layer is indexed by. Scan the members
+        // reachable at block start -- the stable rows, plus any the volatile window touched -- and keep
+        // the ones a vote refers to. A member whose hot key is authorized by the *ongoing* block is
+        // reached through its cold credential instead, which that certificate already required.
+        if !hot_credentials.is_empty() {
+            let candidates = db
+                .iter_cc_members()
+                .map_err(ContextHydratationError::ResolveCommittee)?
+                .map(|(cold_credential, _)| cold_credential)
+                .chain(volatile.touched_cc_members().cloned())
+                .collect::<BTreeSet<_>>();
+
+            for credential in candidates {
+                if cc_members.contains_key(&credential) {
+                    continue;
+                }
+
+                scanned += 1;
+
+                if let Some(member) =
+                    resolve_committee_member(volatile, db, &credential, &mut from_volatile, &mut from_db)?
+                    && member.hot_credential.as_ref().is_some_and(|hot| hot_credentials.contains(hot))
+                {
+                    cc_members.insert(credential, member);
+                }
+            }
+        }
 
         let span = tracing::Span::current();
         span.record("from_volatile", from_volatile);
         span.record("from_db", from_db);
+        span.record("scanned", scanned);
 
         Ok(cc_members)
+    })
+}
+
+/// Materialize one committee member, layering the volatile window over the stable store. `None` when
+/// the credential belongs to no member, or to one that resigned.
+fn resolve_committee_member<'volatile>(
+    volatile: &'volatile impl VolatileState<CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>>,
+    db: &impl ReadStore,
+    credential: &StakeCredential,
+    from_volatile: &mut usize,
+    from_db: &mut usize,
+) -> Result<Option<CCMember>, ContextHydratationError> {
+    Ok(match volatile.resolve_cc_member(credential) {
+        Existence::Gone => {
+            *from_volatile += 1;
+            None
+        }
+
+        Existence::Exists(Bind { value, left: hot_credential, .. }) => {
+            if let Some(valid_until) = value {
+                *from_volatile += 1;
+                Some(CCMember { hot_credential: hot_credential.to_option(None), valid_until: Some(*valid_until) })
+            } else {
+                db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|mut row| {
+                    *from_db += 1;
+                    hot_credential.owned().set_or_reset(&mut row.hot_credential);
+                    CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
+                })
+            }
+        }
+
+        Existence::Unknown => db.cc_member(credential).map_err(ContextHydratationError::ResolveCommittee)?.map(|row| {
+            *from_db += 1;
+            CCMember { hot_credential: row.hot_credential, valid_until: row.valid_until }
+        }),
     })
 }
 

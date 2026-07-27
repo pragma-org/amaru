@@ -68,6 +68,10 @@ impl VolatileState for VolatileSeries {
         self.aggregate.resolve_cc_member(credential)
     }
 
+    fn touched_cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
+        self.aggregate.cc_members()
+    }
+
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal = Existence<()>;
     fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {

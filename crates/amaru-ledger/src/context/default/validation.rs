@@ -340,6 +340,17 @@ impl CommitteeSlice for DefaultValidationContext {
         }
     }
 
+    /// Only the members hydration resolved are candidates, which is enough: one authorized before this
+    /// block was matched by hot credential at hydration, and one authorized *during* it is here via
+    /// the cold credential its certificate required. Each candidate is re-read through
+    /// [`Self::lookup`], so a rotation or resignation in this block invalidates the stale entry.
+    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> Option<CCMember> {
+        self.committee.keys().find_map(|cc_member| {
+            let member = CommitteeSlice::lookup(self, cc_member)?;
+            (member.hot_credential.as_ref() == Some(hot_credential)).then_some(member)
+        })
+    }
+
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -474,6 +485,7 @@ impl BalanceSlice for DefaultValidationContext {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{Slot, TransactionPointer};
+    use test_case::test_case;
 
     use super::*;
 
@@ -565,5 +577,32 @@ mod tests {
         let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
         ctx.resign(cred(1), None).unwrap();
         assert!(CommitteeSlice::lookup(&ctx, &cred(1)).is_none());
+    }
+
+    enum InBlock {
+        Nothing,
+        Authorize(u8),
+        Resign,
+    }
+
+    /// A vote identifies its member by hot credential, so the reverse direction has to agree with
+    /// `lookup` on everything the ongoing block changes. In particular, a rotation must retire the
+    /// previous hot credential rather than leave both live.
+    #[test_case(cc_member(Some(2)), InBlock::Nothing, 2 => Some(cred(2)) ; "authorized at block start")]
+    #[test_case(cc_member(Some(2)), InBlock::Nothing, 3 => None ; "not authorized by anyone")]
+    #[test_case(cc_member(None), InBlock::Authorize(2), 2 => Some(cred(2)) ; "authorized by this block")]
+    #[test_case(cc_member(Some(2)), InBlock::Authorize(3), 3 => Some(cred(3)) ; "rotated to in this block")]
+    #[test_case(cc_member(Some(2)), InBlock::Authorize(3), 2 => None ; "rotated away from in this block")]
+    #[test_case(cc_member(Some(2)), InBlock::Resign, 2 => None ; "resigned in this block")]
+    fn committee_lookup_by_hot_credential(member: CCMember, in_block: InBlock, queried: u8) -> Option<StakeCredential> {
+        let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), member)]));
+
+        match in_block {
+            InBlock::Nothing => {}
+            InBlock::Authorize(hot) => ctx.delegate_cold_key(cred(1), cred(hot)).unwrap(),
+            InBlock::Resign => ctx.resign(cred(1), None).unwrap(),
+        }
+
+        CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(queried)).and_then(|m| m.hot_credential)
     }
 }

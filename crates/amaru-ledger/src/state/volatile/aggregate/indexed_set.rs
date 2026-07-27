@@ -57,6 +57,12 @@ impl<K: Ord, V> IndexedSet<K, V> {
         }
     }
 
+    /// Every key this index holds a verdict for, tombstones included. A key's presence says only that
+    /// some recorded fragment touched it, so callers still need [`get`](Self::get) for its verdict.
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.index.keys()
+    }
+
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.index.is_empty()
