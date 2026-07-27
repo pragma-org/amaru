@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::PlutusData;
-pub use amaru_kernel::{
-    BorrowedScript, OutputReference, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusStakeAddress, PlutusVotes,
-    PlutusWithdrawals, RedeemerEntry, RequiredSigners, ScriptContext, ScriptInfo, ScriptPurpose, TimeRange, TxInfo,
-    TxInfoTranslationError, Utxos, WithdrawalError,
+use amaru_kernel::{
+    LegacyKeyValuePairs, OutputReference, PlutusData, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusStakeAddress,
+    PlutusVotes, PlutusWithdrawals, ScriptContext, ScriptInfo, ScriptPurpose, TxInfo,
 };
 
 pub mod v1;
@@ -98,7 +96,7 @@ where
             })
             .collect();
 
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(converted?)))
+        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(converted?)))
     }
 }
 
@@ -297,8 +295,7 @@ pub mod test_vectors {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Bytes, Hash, PositiveCoin};
-    use pallas_codec::utils::NonEmptyKeyValuePairs;
+    use amaru_kernel::{Bytes, Hash, NonEmptyKeyValuePairs, PositiveCoin};
     use proptest::{
         prelude::{any, prop},
         prop_assert, proptest,
@@ -319,13 +316,13 @@ mod tests {
                         PositiveCoin::try_from(100u64).unwrap(),
                     )])
                     .unwrap();
-                    (Hash::from(*policy), assets)
+                    (Hash::from(*policy), assets.as_pallas())
                 })
                 .collect::<Vec<_>>(),
         )
         .unwrap();
 
-        amaru_kernel::Value::Multiasset(coin, multiasset)
+        amaru_kernel::Value::Multiasset(coin, multiasset.as_pallas())
     }
 
     #[test]
@@ -337,7 +334,7 @@ mod tests {
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {
-                PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pairs)) => {
+                PlutusData::Map(pairs) => {
                     let has_ada = pairs.iter().any(|(key, _)| {
                         matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
                     });
@@ -367,7 +364,7 @@ mod tests {
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {
-                PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pairs)) => {
+                PlutusData::Map(pairs) => {
                     let ada_entry = pairs.iter().find(|(key, _)| {
                         matches!(key, PlutusData::BoundedBytes(b) if b.is_empty())
                     });

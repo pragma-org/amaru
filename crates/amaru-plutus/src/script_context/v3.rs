@@ -16,9 +16,9 @@ use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
     Address, Certificate as PallasCertificate, ComparableProposalId, Constitution, CostModels, DRep,
-    DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, MemoizedTransactionOutput, PlutusData,
-    PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate, RationalNumber, StakeCredential, StakePayload,
-    TransactionInput, Vote, Voter,
+    DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, LegacyKeyValuePairs, MemoizedTransactionOutput,
+    PlutusData, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate, RationalNumber, StakeCredential,
+    StakePayload, TransactionInput, Vote, Voter,
 };
 use num::Integer;
 
@@ -248,7 +248,7 @@ impl ToPlutusData<3> for GovernanceAction {
                     })
                     .collect::<Result<Vec<(_, _)>, _>>()?;
 
-                constr_v3!(2, [pallas_codec::utils::KeyValuePairs::from(withdrawals), guardrail])
+                constr_v3!(2, [LegacyKeyValuePairs::Def(withdrawals), guardrail])
             }
             GovernanceAction::NoConfidence(previous_action) => {
                 constr_v3!(3, [previous_action])
@@ -285,7 +285,7 @@ impl ToPlutusData<3> for ComparableProposalId {
 
 impl ToPlutusData<3> for ProtocolParamUpdate {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let mut pparams = Vec::with_capacity(30);
+        let mut pparams = Vec::with_capacity(33);
 
         let mut push = |ix: usize, p: Result<PlutusData, PlutusDataError>| -> Result<(), PlutusDataError> {
             pparams.push((<usize as ToPlutusData<3>>::to_plutus_data(&ix)?, p?));
@@ -413,7 +413,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
             push(33, protocol_parameter_ratio(p))?;
         }
 
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pparams)))
+        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(pparams)))
     }
 }
 
@@ -609,7 +609,7 @@ mod tests {
         let action = GovernanceAction::UpdateCommittee(
             Nullable::Null,
             Set::from(vec![]),
-            pallas_codec::utils::KeyValuePairs::Def(vec![]),
+            LegacyKeyValuePairs::Def(vec![]),
             RationalNumber { numerator: 2, denominator: 4 },
         );
 
