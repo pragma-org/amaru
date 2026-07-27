@@ -110,12 +110,13 @@ impl<'a> PrepareProposalsSlice<'a> for DefaultPreparationContext<'a> {
 // Context hydratation
 // -------------------------------------------------------------------------------------------------
 
-impl<'a> DefaultPreparationContext<'a> {
-    pub fn into_validation_context(
+impl<'block> DefaultPreparationContext<'block> {
+    pub fn into_validation_context<'volatile>(
         self,
         policy: UnresolvedInputPolicy,
         proposal_roots: ProposalsRoots,
-        volatile: &impl VolatileState<
+        volatile: &'volatile impl VolatileState<
+            TransactionOutput<'volatile> = Existence<&'volatile MemoizedTransactionOutput>,
             Pool = Existence<()>,
             Account = (Existence<AccountBind>, RewardsAtTip),
             DRep = Existence<DRepBind>,
@@ -151,30 +152,27 @@ impl<'a> DefaultPreparationContext<'a> {
 /// Resolve inputs/UTxO necessary for the validation context using what was marked during
 /// preparation. This search in the volatile first and reaches for the stable store if
 /// necessary.
-fn resolve_inputs<'a>(
-    volatile: &impl VolatileState,
+fn resolve_inputs<'block, 'volatile>(
+    volatile: &'volatile impl VolatileState<TransactionOutput<'volatile> = Existence<&'volatile MemoizedTransactionOutput>>,
     db: &impl ReadStore,
     policy: UnresolvedInputPolicy,
-    mut keys: impl Iterator<Item = &'a TransactionInput>,
+    mut keys: impl Iterator<Item = &'block TransactionInput>,
 ) -> Result<BTreeMap<TransactionInput, MemoizedTransactionOutput>, ContextHydratationError> {
     debug_span!(ledger::validation_context::inputs::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
         let utxos = keys.try_fold(BTreeMap::new(), |mut acc, input| -> Result<_, ContextHydratationError> {
-            let output = if volatile.has_consumed_input(input) {
-                Ok(None)
-            } else {
-                match volatile.resolve_input(input) {
-                    Some(output) => {
-                        from_volatile += 1;
-                        Ok(Some(output.clone()))
-                    }
-                    None => {
-                        Ok(db.utxo(input).map_err(ContextHydratationError::ResolveInputs)?.inspect(|_| from_db += 1))
-                    }
+            let output = match volatile.resolve_input(input) {
+                Existence::Gone => None,
+                Existence::Exists(output) => {
+                    from_volatile += 1;
+                    Some(output.to_owned())
                 }
-            }?;
+                Existence::Unknown => {
+                    db.utxo(input).map_err(ContextHydratationError::ResolveInputs)?.inspect(|_| from_db += 1)
+                }
+            };
 
             match (output, &policy) {
                 (None, UnresolvedInputPolicy::Defer) => Ok(acc),

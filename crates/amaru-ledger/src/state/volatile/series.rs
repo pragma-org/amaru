@@ -33,12 +33,9 @@ pub struct VolatileSeries {
 
 impl VolatileState for VolatileSeries {
     // --------------------------------------------------------------------------------------- UTxOs
-    fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
+    type TransactionOutput<'a> = Existence<&'a MemoizedTransactionOutput>;
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
         self.aggregate.resolve_input(input)
-    }
-
-    fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.aggregate.has_consumed_input(input)
     }
 
     // --------------------------------------------------------------------------------------- Pools
@@ -231,33 +228,27 @@ mod tests {
     fn naive_resolve<'a>(
         diffs: &'a [DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
         input: &TransactionInput,
-    ) -> Option<&'a Arc<MemoizedTransactionOutput>> {
+    ) -> Existence<&'a MemoizedTransactionOutput> {
         for diff in diffs.iter().rev() {
             if diff.consumed.contains(input) {
-                return None;
+                return Existence::Gone;
             }
+
             if let Some(output) = diff.produced.get(input) {
-                return Some(output);
+                return Existence::Exists(output.as_ref());
             }
         }
-        None
-    }
 
-    fn naive_has_consumed(
-        diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
-        input: &TransactionInput,
-    ) -> bool {
-        diffs.iter().any(|diff| diff.consumed.contains(input))
+        Existence::Unknown
     }
 
     proptest! {
         #[test]
         fn aggregated_lookups_match_naive_walk(diffs in any_utxo_diffset(VOLATILE_WINDOW)) {
             let series = series_from(&diffs);
-            for tag in 0u8..16 {
+            for tag in 0..u8::MAX {
                 let input = test_input(tag);
-                prop_assert_eq!(series.resolve_input(&input).is_some(), naive_resolve(&diffs, &input).is_some());
-                prop_assert_eq!(series.has_consumed_input(&input), naive_has_consumed(&diffs, &input));
+                prop_assert_eq!(series.resolve_input(&input), naive_resolve(&diffs, &input));
             }
         }
     }
@@ -269,10 +260,9 @@ mod tests {
             series.pop_front();
             let remaining = &diffs[1..];
 
-            for tag in 0u8..16 {
+            for tag in 0..u8::MAX {
                 let input = test_input(tag);
-                prop_assert_eq!(series.resolve_input(&input).is_some(), naive_resolve(remaining, &input).is_some());
-                prop_assert_eq!(series.has_consumed_input(&input), naive_has_consumed(remaining, &input));
+                prop_assert_eq!(series.resolve_input(&input), naive_resolve(remaining, &input));
             }
         }
     }
@@ -290,10 +280,9 @@ mod tests {
 
             let remaining = &diffs[..=rollback_ix];
 
-            for tag in 0u8..16 {
+            for tag in 0..u8::MAX {
                 let input = test_input(tag);
-                prop_assert_eq!(series.resolve_input(&input).is_some(), naive_resolve(remaining, &input).is_some());
-                prop_assert_eq!(series.has_consumed_input(&input), naive_has_consumed(remaining, &input));
+                prop_assert_eq!(series.resolve_input(&input), naive_resolve(remaining, &input));
             }
         }
     }

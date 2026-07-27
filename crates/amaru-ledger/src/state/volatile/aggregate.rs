@@ -72,11 +72,6 @@ pub struct VolatileAggregate {
 }
 
 impl VolatileAggregate {
-    /// Whether this aggregate has seen an input been consumed.
-    pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.utxo.consumed.contains(input)
-    }
-
     /// Whether this aggregate has seen an account withdrew rewards
     pub fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
         self.withdrawals.contains(credential)
@@ -84,8 +79,8 @@ impl VolatileAggregate {
 }
 
 impl VolatileAggregate {
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.produced.get(input).map(|output| output.as_ref())
+    pub fn resolve_input(&self, input: &'_ TransactionInput) -> Existence<&MemoizedTransactionOutput> {
+        self.utxo.get(input).as_deref()
     }
 
     /// Whether this aggregate registered the given pool. Unregistrations

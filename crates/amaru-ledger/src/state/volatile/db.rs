@@ -75,16 +75,9 @@ impl Default for VolatileDB {
 
 impl VolatileState for VolatileDB {
     // --------------------------------------------------------------------------------------- UTxOs
-    fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        if self.has_consumed_input(input) {
-            return None;
-        }
-
-        self.current.resolve_input(input).or(self.draining.resolve_input(input))
-    }
-
-    fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.current.has_consumed_input(input) || self.draining.has_consumed_input(input)
+    type TransactionOutput<'a> = Existence<&'a MemoizedTransactionOutput>;
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
+        self.current.resolve_input(input).or_else(|| self.draining.resolve_input(input))
     }
 
     // --------------------------------------------------------------------------------------- Pools
@@ -110,7 +103,7 @@ impl VolatileState for VolatileDB {
         // Resolve a stake account across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
         // bind-only update layers over it.
-        let account = self.current.resolve_account(credential).or_else(|| self.draining.resolve_account(credential));
+        let account = self.current.resolve_account(credential).chain(|| self.draining.resolve_account(credential));
 
         let rewards_at_tip = if self.current.has_withdrawal(credential) {
             // rewards withdrawn after the boundary credit
@@ -139,7 +132,7 @@ impl VolatileState for VolatileDB {
         // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, an
         // anchor-only update layers over the registration it finds below.
-        self.current.resolve_drep(credential).or_else(|| self.draining.resolve_drep(credential))
+        self.current.resolve_drep(credential).chain(|| self.draining.resolve_drep(credential))
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
@@ -894,10 +887,9 @@ mod tests {
         anchored.fragment.utxo.consume(input.clone());
 
         let mut db = VolatileDB::default();
-        db.push_back(anchored);
 
-        assert!(db.has_consumed_input(&input));
-        assert!(db.resolve_input(&input).is_none());
+        db.push_back(anchored);
+        assert_eq!(db.resolve_input(&input), Existence::Gone);
     }
 
     #[test]
@@ -910,13 +902,12 @@ mod tests {
 
         let mut second = AnchoredVolatileFragment::fixture(20, 2);
         second.fragment.utxo.consume(input.clone());
-        db.push_back(second);
 
-        assert!(db.has_consumed_input(&input));
+        db.push_back(second);
+        assert_eq!(db.resolve_input(&input), Existence::Gone);
 
         db.rollback_to(&first_point).unwrap();
-
-        assert!(!db.has_consumed_input(&input));
+        assert_eq!(db.resolve_input(&input), Existence::Unknown);
     }
 
     #[test]
@@ -1024,8 +1015,13 @@ mod tests {
         db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(current_block);
 
-        assert_eq!(db.resolve_input(&input).is_some(), resolvable);
-        assert_eq!(db.has_consumed_input(&input), consumed);
+        if resolvable {
+            assert!(matches!(dbg!(db.resolve_input(&input)), Existence::Exists(..)))
+        } else if consumed {
+            assert_eq!(db.resolve_input(&input), Existence::Gone)
+        } else {
+            assert_eq!(db.resolve_input(&input), Existence::Unknown)
+        }
     }
 
     #[test]

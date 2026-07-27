@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Deref;
+
 use crate::state::volatile::Bind;
 
 /// A volatile layer's verdict on an entity.
@@ -47,6 +49,28 @@ impl<T> Existence<T> {
             Self::Unknown => Existence::Unknown,
         }
     }
+
+    /// Return this verdict when it is conclusive, otherwise lazily fall back to an older one.
+    pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
+        match self {
+            Self::Gone | Self::Exists(..) => self,
+            Self::Unknown => older(),
+        }
+    }
+}
+
+impl<'a, T> Existence<&'a T> {
+    /// Deref the payload carried by an existence verdict.
+    pub fn as_deref<D>(&self) -> Existence<&'a D>
+    where
+        T: Deref<Target = D>,
+    {
+        match self {
+            Self::Exists(v) => Existence::Exists((*v).deref()),
+            Self::Gone => Existence::Gone,
+            Self::Unknown => Existence::Unknown,
+        }
+    }
 }
 
 impl<L, R, V> Existence<Bind<L, R, V>> {
@@ -59,8 +83,8 @@ impl<L, R, V> Existence<Bind<L, R, V>> {
         }
     }
 
-    /// Return this verdict when it is conclusive, otherwise lazily fall back to an older one.
-    pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
+    /// Return this bind verdict when it is conclusive, otherwise lazily fall back to an older one.
+    pub fn chain(self, older: impl FnOnce() -> Self) -> Self {
         Self::fold(std::iter::once(self).chain(std::iter::once_with(older)))
     }
 

@@ -15,8 +15,8 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
+    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId,
+    StakeCredential, TransactionInput,
 };
 
 mod db;
@@ -71,9 +71,10 @@ pub type DRepBind = Bind<Anchor, Empty, DRepRegistration>;
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {
     // --------------------------------------------------------------------------------------- UTxOs
-    // TODO: unify this API with the others; we could simply return an 'Existence'
-    fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput>;
-    fn has_consumed_input(&self, input: &TransactionInput) -> bool;
+    type TransactionOutput<'a>
+    where
+        Self: 'a;
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a>;
 
     // --------------------------------------------------------------------------------------- Pools
     type Pool;
