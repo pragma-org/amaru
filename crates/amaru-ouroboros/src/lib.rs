@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Hasher, PoolId, size::POOL_COLD_KEY};
-pub use pallas_crypto::key::ed25519;
-pub use pallas_math::math;
-pub use pallas_primitives::{VrfCert, conway::OperationalCert};
+use ed25519_dalek as ed25519;
 
 pub mod kes;
 pub mod mempool;
@@ -27,16 +25,16 @@ pub use amaru_ouroboros_traits::*;
 pub use mempool::*;
 
 /// The node's cold vkey is hashed with blake2b224 to create the pool id
-pub fn issuer_to_pool_id(issuer: &ed25519::PublicKey) -> PoolId {
+pub fn issuer_to_pool_id(issuer: &ed25519::VerifyingKey) -> PoolId {
     Hasher::<{ 8 * POOL_COLD_KEY }>::hash(issuer.as_ref())
 }
 
 #[cfg(test)]
 mod test {
-    use pallas_codec::utils::Bytes;
+    use amaru_kernel::Bytes;
+    use ed25519_dalek as ed25519;
 
     use super::issuer_to_pool_id;
-    use crate::ed25519;
 
     #[test]
     fn test_issuer_to_pool_id() {
@@ -47,7 +45,7 @@ mod test {
 
         for (issuer_vkey_str, expected_pool_id_str) in test_vector {
             let issuer_vkey: Bytes = issuer_vkey_str.parse().unwrap();
-            let pool_id = issuer_to_pool_id(&ed25519::PublicKey::try_from(&issuer_vkey[..]).unwrap());
+            let pool_id = issuer_to_pool_id(&ed25519::VerifyingKey::try_from(&issuer_vkey[..]).unwrap());
             assert_eq!(pool_id.to_string(), expected_pool_id_str);
         }
     }

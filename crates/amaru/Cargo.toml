@@ -78,7 +78,6 @@ amaru-ledger.workspace = true
 amaru-mempool.workspace = true
 amaru-metrics.workspace = true
 amaru-mithril = { workspace = true, optional = true }
-amaru-network.workspace = true
 amaru-node.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true

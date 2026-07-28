@@ -14,6 +14,8 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
+pub use pallas_codec::utils::KeyValuePairs as LegacyKeyValuePairs;
+
 use crate::cbor;
 
 /// A key-value map with no duplicate keys.

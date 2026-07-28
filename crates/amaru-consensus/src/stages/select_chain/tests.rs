@@ -832,11 +832,8 @@ mod best_tip_from_store_tests {
 mod cmp_tip_unit_tests {
     use std::cmp::Ordering;
 
-    use amaru_kernel::{BlockHeader, Bytes, Hasher, HeaderHash, size::BLOCK_BODY};
-    use amaru_ouroboros::OperationalCert;
-    use pallas_primitives::{
-        VrfCert,
-        babbage::{HeaderBody, PseudoHeader},
+    use amaru_kernel::{
+        BlockHeader, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, VrfCert, size::BLOCK_BODY,
     };
 
     fn make_test_header(
@@ -848,7 +845,7 @@ mod cmp_tip_unit_tests {
     ) -> BlockHeader {
         let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash_cbor(&vec![block_number, slot]);
 
-        let header = PseudoHeader {
+        let header = Header {
             header_body: HeaderBody {
                 block_number,
                 slot,

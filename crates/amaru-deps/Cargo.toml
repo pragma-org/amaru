@@ -25,7 +25,8 @@ ignored = [
   "clap_builder",
   "console",
   "criterion",
-  "digest",
+  "digest-93f6ce9d446188ac",
+  "digest-a6292c17cd707f01",
   "ed25519",
   "ed25519-dalek",
   "either",
@@ -47,7 +48,6 @@ ignored = [
   "libc",
   "log",
   "memchr",
-  "num-bigint",
   "num-integer",
   "num-traits",
   "percent-encoding",
@@ -71,7 +71,6 @@ ignored = [
   "smallvec",
   "socket2",
   "subtle",
-  "syn",
   "syn-7b89eefb6aaa9bf3",
   "thiserror",
   "tokio",
@@ -81,7 +80,6 @@ ignored = [
   "tracing-core",
   "tracing-log",
   "tracing-subscriber",
-  "typenum",
   "zerocopy",
   "zeroize",
 ]
@@ -98,7 +96,8 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "std", "suggestions", "usage", "wrap_help"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
 criterion = { version = "0.8", features = ["html_reports"] }
-digest = { version = "0.10", features = ["mac", "std"] }
+digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "oid"] }
 ed25519 = { version = "2", default-features = false, features = ["alloc", "serde", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core", "serde"] }
 either = { version = "1", features = ["use_std"] }
@@ -131,8 +130,8 @@ rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", defau
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
 rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
-regex = { version = "1" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
@@ -142,7 +141,7 @@ sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
 socket2 = { version = "0.6", default-features = false, features = ["all"] }
-subtle = { version = "2" }
+subtle = { version = "2", features = ["const-generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["full", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
@@ -152,7 +151,6 @@ tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -165,7 +163,8 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "std", "suggestions", "usage", "wrap_help"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
 criterion = { version = "0.8", features = ["html_reports"] }
-digest = { version = "0.10", features = ["mac", "std"] }
+digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "oid"] }
 ed25519 = { version = "2", default-features = false, features = ["alloc", "serde", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core", "serde"] }
 either = { version = "1", features = ["use_std"] }
@@ -198,8 +197,8 @@ rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", defau
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
 rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
-regex = { version = "1" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
@@ -209,7 +208,7 @@ sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
 socket2 = { version = "0.6", default-features = false, features = ["all"] }
-subtle = { version = "2" }
+subtle = { version = "2", features = ["const-generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["full", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
@@ -220,7 +219,6 @@ tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
