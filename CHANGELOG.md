@@ -222,8 +222,8 @@ Other guiding principles:
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
-[#1012]: https://github.com/pragma-org/amaru/pull/1012
 [#1011]: https://github.com/pragma-org/amaru/pull/1011
+[#1012]: https://github.com/pragma-org/amaru/pull/1012
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1024]: https://github.com/pragma-org/amaru/pull/1024

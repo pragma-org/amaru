@@ -407,7 +407,6 @@ dependencies = [
  "mithril-client",
  "tar",
  "tokio",
- "tracing",
 ]
 
 [[package]]

@@ -70,6 +70,8 @@ ignored = [
   "serde_core",
   "serde_json",
   "sha2",
+  "sha2-93f6ce9d446188ac",
+  "sha2-a6292c17cd707f01",
   "slab",
   "smallvec",
   "socket2",

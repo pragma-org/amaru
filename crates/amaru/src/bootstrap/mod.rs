@@ -733,6 +733,7 @@ fn import_node_snapshot_archive_data(
 #[cfg(test)]
 mod tests {
     use std::{
+        fs,
         io::Cursor,
         path::{Path, PathBuf},
         time::Duration,
