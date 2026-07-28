@@ -21,12 +21,20 @@ use amaru_mithril::{
     BLOCKS_PER_ARCHIVE, archive_name_for_blocks, download_from_mithril, from_chunk_for_resume_point, get_latest_chunk,
     latest_archive, list_existing_archives, package_blocks, parse_header_slot_and_hash, resume_point_for_archives,
 };
-use amaru_network::point::to_network_point;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
 use clap::Parser;
 use pallas_hardano::storage::immutable::read_blocks_from_point;
+use pallas_network::miniprotocols::Point as PallasPoint;
 use tracing::{info, warn};
+
+// TODO: Avoid Pallas points here and use our own chain sync client.
+fn to_pallas_point(point: Point) -> PallasPoint {
+    match point {
+        Point::Origin => PallasPoint::Origin,
+        Point::Specific(slot, hash) => PallasPoint::Specific(slot.as_u64(), hash.to_vec()),
+    }
+}
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -108,8 +116,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     info!("Packaging blocks into .tar.gz files");
 
     // Read blocks from the immutable storage and package them into .tar.gz files.
-    let mut iter =
-        read_blocks_from_point(&immutable_dir, to_network_point(resume_point))?.map_while(Result::ok).skip(1); // Exclude the resume point itself
+    let mut iter = read_blocks_from_point(&immutable_dir, to_pallas_point(resume_point))?.map_while(Result::ok).skip(1); // Exclude the resume point itself
     loop {
         let chunk: Vec<_> = iter.by_ref().take(BLOCKS_PER_ARCHIVE).collect();
         if chunk.is_empty() {

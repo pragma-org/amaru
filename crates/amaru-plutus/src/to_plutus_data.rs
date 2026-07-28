@@ -15,16 +15,13 @@
 use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
 
 use amaru_kernel::{
-    Address, BigInt, Bytes, ComputeHash, CurrencySymbol, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedScript,
-    NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData, ShelleyDelegationPart, ShelleyPaymentPart,
-    StakeCredential, TransactionId, Value, size,
+    Address, BigInt, BorrowedScript, Bytes, ComputeHash, CurrencySymbol, Hash, Int, LegacyKeyValuePairs,
+    MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData,
+    RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, size,
 };
 use thiserror::Error;
 
-use crate::{
-    constr,
-    script_context::{BorrowedScript, IsPrePlutusVersion3, RequiredSigners, TimeRange},
-};
+use crate::{constr, script_context::IsPrePlutusVersion3};
 
 /// Represents an error that occured during serialization to `PlutusData`.
 #[derive(Debug, Error)]
@@ -391,14 +388,14 @@ where
     }
 }
 
-impl<const VER: u8, K, V> ToPlutusData<VER> for pallas_codec::utils::KeyValuePairs<K, V>
+impl<const VER: u8, K, V> ToPlutusData<VER> for LegacyKeyValuePairs<K, V>
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
     K: ToPlutusData<VER> + Clone,
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
+        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(
             self.iter()
                 .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
@@ -409,11 +406,11 @@ where
 impl<const VER: u8, K, V> ToPlutusData<VER> for NonEmptyKeyValuePairs<K, V>
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
-    K: ToPlutusData<VER> + Clone + Eq,
+    K: ToPlutusData<VER> + Eq + Clone,
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(
+        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(
             self.iter()
                 .map(|(key, value): &(K, V)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,

@@ -136,20 +136,20 @@ rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", defau
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
 rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
-regex = { version = "1" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
 regex-lite = { version = "0.1" }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
-socket2-3b31131e45eafb45 = { package = "socket2", version = "0.6", default-features = false, features = ["all"] }
-socket2-d8f496e17d97b5cb = { package = "socket2", version = "0.5", default-features = false, features = ["all"] }
-subtle = { version = "2" }
+socket2 = { version = "0.6", default-features = false, features = ["all"] }
+subtle = { version = "2", features = ["const-generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["full", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
@@ -205,20 +205,20 @@ rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", defau
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
 rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
-regex = { version = "1" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
+regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
 regex-lite = { version = "0.1" }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
-socket2-3b31131e45eafb45 = { package = "socket2", version = "0.6", default-features = false, features = ["all"] }
-socket2-d8f496e17d97b5cb = { package = "socket2", version = "0.5", default-features = false, features = ["all"] }
-subtle = { version = "2" }
+socket2 = { version = "0.6", default-features = false, features = ["all"] }
+subtle = { version = "2", features = ["const-generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["full", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }

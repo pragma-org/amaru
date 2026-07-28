@@ -12,11 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Peer, Point};
-use amaru_network::point::{from_network_point, to_network_point};
+use amaru_kernel::{Peer, Point, Slot};
 use amaru_observability::debug_span;
-use pallas_network::miniprotocols::chainsync::{Client, ClientError, HeaderContent, NextResponse};
+use pallas_network::miniprotocols::{
+    Point as PallasPoint,
+    chainsync::{Client, ClientError, HeaderContent, NextResponse},
+};
 use tracing::Instrument;
+
+// TODO: Avoid Pallas points here and use our own chain sync client.
+fn to_pallas_point(point: Point) -> PallasPoint {
+    match point {
+        Point::Origin => PallasPoint::Origin,
+        Point::Specific(slot, hash) => PallasPoint::Specific(slot.as_u64(), hash.to_vec()),
+    }
+}
+
+fn from_pallas_point(point: &PallasPoint) -> Point {
+    match point {
+        PallasPoint::Origin => Point::Origin,
+        PallasPoint::Specific(slot, hash) => Point::Specific(Slot::from(*slot), From::from(hash.as_slice())),
+    }
+}
 
 /// Handles chain synchronization network operations
 pub struct ChainSyncClient {
@@ -34,13 +51,13 @@ impl ChainSyncClient {
         async {
             let client = &mut self.chain_sync;
             let (point, _) = client
-                .find_intersect(self.intersection.iter().cloned().map(to_network_point).collect())
+                .find_intersect(self.intersection.iter().cloned().map(to_pallas_point).collect())
                 .await
                 .map_err(ChainSyncClientError::NetworkError)?;
 
             let intersection =
                 point.ok_or(ChainSyncClientError::NoIntersectionFound { points: self.intersection.clone() })?;
-            Ok(from_network_point(&intersection))
+            Ok(from_pallas_point(&intersection))
         }
         .instrument(debug_span!(
             amaru::consensus::chain::FIND_INTERSECTION,

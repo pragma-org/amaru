@@ -14,9 +14,8 @@
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
-use amaru_kernel::{BlockHeader, Header, IsHeader, Point, cbor};
+use amaru_kernel::{BlockHeader, IsHeader, Point, cbor};
 use amaru_pure_stage::{Effects, StageRef};
-use pallas_primitives::babbage::MintedHeader;
 use tokio::sync::Notify;
 
 use crate::{
@@ -199,9 +198,7 @@ pub(super) async fn test_chainsync_stage(
             eff.send(&msg.handler, chainsync::InitiatorMessage::Done).await;
         }
         RollForward(header_content, tip) => {
-            let minted_header: MintedHeader<'_> = cbor::decode(header_content.cbor.as_slice()).unwrap();
-            let header = Header::from(minted_header);
-            let block_header = BlockHeader::from(header);
+            let block_header: BlockHeader = cbor::from_cbor(header_content.cbor.as_slice()).unwrap();
             let header_hash = block_header.hash();
             let point = block_header.point();
             let store = Store::new(eff.clone());

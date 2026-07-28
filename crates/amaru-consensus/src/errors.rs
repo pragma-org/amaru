@@ -22,7 +22,6 @@ use thiserror::Error;
 use crate::validate_header::ValidateHeaderError;
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[allow(clippy::result_large_err)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,

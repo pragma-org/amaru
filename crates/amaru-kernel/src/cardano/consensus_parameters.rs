@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 
-use pallas_math::math::{FixedDecimal, FixedPrecision};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{EraHistory, GlobalParameters, PoolId, Slot};
+use crate::{EraHistory, GlobalParameters, PoolId, Slot, maths::FixedDecimal};
 
 /// This data type encapsulates the parameters needed by the consensus layer to operate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,7 +55,7 @@ impl ConsensusParameters {
         era_history: &EraHistory,
         ocert_counters: BTreeMap<PoolId, u64>,
     ) -> ConsensusParameters {
-        let active_slot_coeff = FixedDecimal::from((active_slot_coeff * 100.0) as u64) / FixedDecimal::from(100u64);
+        let active_slot_coeff = &FixedDecimal::from((active_slot_coeff * 100.0) as u64) / &FixedDecimal::from(100u64);
         Self {
             randomness_stabilization_window,
             slots_per_kes_period,
@@ -110,6 +109,6 @@ impl<'a> Deserialize<'a> for SerializedFixedDecimal {
         D: Deserializer<'a>,
     {
         let s = String::deserialize(deserializer)?;
-        FixedDecimal::from_str(&s, s.len() as u64).map(SerializedFixedDecimal).map_err(serde::de::Error::custom)
+        FixedDecimal::from_str(&s).map(SerializedFixedDecimal).map_err(serde::de::Error::custom)
     }
 }
