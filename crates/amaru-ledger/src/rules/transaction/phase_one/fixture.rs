@@ -177,8 +177,10 @@ pub(super) enum Predicate {
     BadInputsUTxO,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
+    ConwayWdrlNotDelegatedToDRep,
     FeeTooSmallUTxO,
     IncorrectDepositDELEG,
+    IncorrectTotalCollateralField,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
@@ -189,6 +191,8 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    ScriptsNotPaidUTxO,
+    TooManyCollateralInputs,
     TreasuryWithdrawalReturnAccountsDoNotExist,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
@@ -201,6 +205,7 @@ pub(super) enum Predicate {
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
     ValueNotConservedUTxO,
+    WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
     WrongNetworkWithdrawal,
@@ -216,6 +221,13 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::MissingVKeyWitnessesUTXOW
             }
             PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
+            PhaseOneError::Withdrawals(InvalidWithdrawals::MissingAccountDRepDelegation(_)) => {
+                Predicate::ConwayWdrlNotDelegatedToDRep
+            }
+            PhaseOneError::Withdrawals(InvalidWithdrawals::AccountNotRegistered(_))
+            | PhaseOneError::Withdrawals(InvalidWithdrawals::IncompleteWithdrawal { .. }) => {
+                Predicate::WithdrawalsNotInRewardsCERTS
+            }
             PhaseOneError::Metadata(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(_)) => {
                 Predicate::MissingTxBodyMetadataHash
             }
@@ -280,6 +292,11 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::InsufficientCollateral
             }
             PhaseOneError::Collateral(InvalidCollateral::ValueNotConserved(..)) => Predicate::ValueNotConservedUTxO,
+            PhaseOneError::Collateral(InvalidCollateral::TooManyInputs { .. }) => Predicate::TooManyCollateralInputs,
+            PhaseOneError::Collateral(InvalidCollateral::LockedAtScriptAddress(..)) => Predicate::ScriptsNotPaidUTxO,
+            PhaseOneError::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. }) => {
+                Predicate::IncorrectTotalCollateralField
+            }
             PhaseOneError::Inputs(_)
             | PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)

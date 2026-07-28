@@ -20,7 +20,6 @@ exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
     add_metric_suffixes: false
-    without_scope_info: true
 
 service:
   pipelines:

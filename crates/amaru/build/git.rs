@@ -20,7 +20,7 @@ use std::{
 
 use anyhow::{Result, bail};
 
-use crate::emit_rerun_if_exists;
+use crate::{emit_rerun_if_changed, emit_rerun_if_exists};
 
 /// Return the workspace-relative paths of the rust files under `crates/`, whether they are
 /// tracked or untracked by git, but excluding ignored files.
@@ -41,7 +41,7 @@ pub(crate) fn get_workspace_rust_files(workspace_dir: &Path) -> Result<Vec<PathB
 /// Ask cargo to rerun this build script when the files driving git's tracked/ignored
 /// decisions change: the root `.gitignore`, the git index, and the exclusion files.
 fn emit_git_exclusion_rerun_paths(workspace_dir: &Path) {
-    emit_rerun_if_exists(&workspace_dir.join(".gitignore"));
+    emit_rerun_if_changed(&workspace_dir.join(".gitignore"));
 
     for name in ["index", "info/exclude"] {
         if let Some(path) = git_stdout(workspace_dir, &["rev-parse", "--git-path", name]) {
@@ -52,7 +52,7 @@ fn emit_git_exclusion_rerun_paths(workspace_dir: &Path) {
     }
 
     if let Some(path) = git_stdout(workspace_dir, &["config", "--get", "core.excludesFile"]) {
-        emit_rerun_if_exists(&expand_home(&path));
+        emit_rerun_if_changed(&expand_home(&path));
     }
 }
 

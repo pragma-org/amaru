@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt,
     marker::PhantomData,
@@ -21,16 +22,15 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Value, Vote, Voter,
+    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
     transaction_input_to_string,
 };
 use thiserror::Error;
 
-use crate::{governance::ratification::ProposalsRoots, state::diff_bind, store::StoreError};
+use crate::{state::volatile, store::StoreError};
 
-pub(crate) mod assert;
 mod default;
 pub use default::*;
 
@@ -107,8 +107,8 @@ pub enum RegisterError<ROLE, K> {
     AlreadyRegistered(PhantomData<ROLE>, K),
 }
 
-impl<ROLE, K: fmt::Debug> From<diff_bind::RegisterError<K>> for RegisterError<ROLE, K> {
-    fn from(diff_bind::RegisterError::AlreadyRegistered(source): diff_bind::RegisterError<K>) -> Self {
+impl<ROLE, K: fmt::Debug> From<volatile::RegisterError<K>> for RegisterError<ROLE, K> {
+    fn from(volatile::RegisterError::AlreadyRegistered(source): volatile::RegisterError<K>) -> Self {
         Self::AlreadyRegistered(PhantomData {}, source)
     }
 }
@@ -119,8 +119,8 @@ pub enum UnregisterError<ROLE, K> {
     Unknown(PhantomData<ROLE>, K),
 }
 
-impl<ROLE, K: fmt::Debug> From<diff_bind::BindError<K>> for UnregisterError<ROLE, K> {
-    fn from(diff_bind::BindError::AlreadyUnregistered(source): diff_bind::BindError<K>) -> Self {
+impl<ROLE, K: fmt::Debug> From<volatile::BindError<K>> for UnregisterError<ROLE, K> {
+    fn from(volatile::BindError::AlreadyUnregistered(source): volatile::BindError<K>) -> Self {
         Self::Unknown(PhantomData {}, source)
     }
 }
@@ -134,8 +134,8 @@ pub enum DelegateError<S, T> {
     UnknownTarget(T),
 }
 
-impl<S: fmt::Debug, T: fmt::Debug> From<diff_bind::BindError<S>> for DelegateError<S, T> {
-    fn from(diff_bind::BindError::AlreadyUnregistered(source): diff_bind::BindError<S>) -> Self {
+impl<S: fmt::Debug, T: fmt::Debug> From<volatile::BindError<S>> for DelegateError<S, T> {
+    fn from(volatile::BindError::AlreadyUnregistered(source): volatile::BindError<S>) -> Self {
         Self::UnknownSource(source)
     }
 }
@@ -146,8 +146,8 @@ pub enum UpdateError<S> {
     UnknownSource(S),
 }
 
-impl<S: fmt::Debug> From<diff_bind::BindError<S>> for UpdateError<S> {
-    fn from(diff_bind::BindError::AlreadyUnregistered(source): diff_bind::BindError<S>) -> Self {
+impl<S: fmt::Debug> From<volatile::BindError<S>> for UpdateError<S> {
+    fn from(volatile::BindError::AlreadyUnregistered(source): volatile::BindError<S>) -> Self {
         Self::UnknownSource(source)
     }
 }
@@ -240,11 +240,7 @@ pub trait AccountsSlice {
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.
 pub trait PrepareAccountsSlice<'a> {
-    fn require_account(&mut self, credential: &'a StakeCredential);
-
-    /// Require the account behind a withdrawal. The reward account is parsed to a credential at
-    /// resolution, so the borrowed bytes are collected rather than a credential.
-    fn require_withdrawal(&mut self, reward_account: &'a RewardAccount);
+    fn require_account(&mut self, credential: Cow<'a, StakeCredential>);
 }
 
 // DRep

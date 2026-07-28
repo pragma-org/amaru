@@ -15,6 +15,8 @@
 // Many tests in this file were simplified to only check logs; the variables for
 // trace assertions are intentionally left for future use or documentation.
 
+use std::collections::BTreeSet;
+
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::trace_match::{assert_trace_contains, tm_send_match};
@@ -24,7 +26,7 @@ use super::*;
 use crate::stages::{
     peer_selection::test_setup::{
         TestPrep, cooldown_instant, first_schedule_id, second_schedule_id, setup, setup_preload, te_cancel_schedule,
-        te_clock, te_random_seed, te_schedule, te_send, test_prep, tm_add_stage_starts_with,
+        te_clock, te_random_seed, te_schedule, te_send, test_prep, test_prep_with_snapshot, tm_add_stage_starts_with,
     },
     test_utils::{assert_trace, te_input, te_state, tm_state},
 };
@@ -49,10 +51,12 @@ fn test_initialize_empty_static() {
     // The Initialize path creates the ledger-check child and sends it its first message.
     // We assert the observable parent state transitions and let a dedicated wiring test
     // cover the AddStage/WireStage details using TraceMatch helpers.
+    // With no candidates, regulate_peers still draws a random seed to attempt a refill.
     assert_trace_contains(
         &running,
         &[
             te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
             tm_add_stage_starts_with("peer-selection/ledger-check"),
             te_state("ps-1", &state).into(), // final parent state after child creation (child state not asserted in detail)
         ],
@@ -79,18 +83,116 @@ fn test_initialize_adds_static_peers() {
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
-    // We assert the creation of the ledger-check child (including its exact initial state)
-    // and the final state of the parent with both static peers recorded as Connecting.
+    // target_upstream_peers is 3 and only 2 static peers exist, so regulate draws a seed
+    // but finds no further candidates.
     assert_trace_contains(
         &running,
         &[
             te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
             tm_add_stage_starts_with("peer-selection/ledger-check"),
             te_state("ps-1", &state).into(), // final parent state after child creation
         ],
     );
 
     logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_initialize_fills_from_snapshot() {
+    let prep = test_prep_with_snapshot(&[], &["snap1:1", "snap2:2", "snap3:3"]);
+    let msg = PeerSelectionMsg::Initialize;
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_add_stage_starts_with("peer-selection/ledger-check"),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| s.outbound_peers.len() == 3,
+                "final state filled from snapshot candidates",
+            ),
+        ],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_regulate_prefers_static_before_snapshot_before_ledger() {
+    let mut prep = test_prep_with_snapshot(&["static1:1"], &["snap1:1", "snap2:2"]);
+    let l1 = TestPrep::peer("ledger1:1");
+    prep.state.ledger_candidates.insert(l1.clone());
+    // Start with empty outbound and trigger regulate via CooldownEnded.
+    let dummy = TestPrep::peer("dummy:9");
+    let sid = first_schedule_id();
+    prep.state.cooldown_timers.insert(dummy.clone(), sid);
+
+    let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CooldownEnded(dummy.clone())]);
+
+    // target is 3: static first, then one snapshot, then one ledger (or two snapshots).
+    // With seed [0x42; 32], choose_multiple is deterministic; we only assert counts and that
+    // static is included.
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &PeerSelectionMsg::CooldownEnded(dummy)).into(),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| {
+                    s.outbound_peers.contains_key(&TestPrep::peer("static1:1")) && s.outbound_peers.len() == 3
+                },
+                "static preferred and target filled",
+            ),
+        ],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_ledger_candidates_replace_does_not_clear_snapshot() {
+    let prep = test_prep_with_snapshot(&[], &["snap1:1"]);
+    let ledger = TestPrep::peer("ledger1:1");
+    let msg = PeerSelectionMsg::LedgerCheckCandidates(BTreeSet::from([ledger.clone()]));
+
+    // After ledger update, snapshot pool is still present; regulate may pick either.
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| {
+                    s.snapshot_candidates.contains(&TestPrep::peer("snap1:1")) && s.ledger_candidates.contains(&ledger)
+                },
+                "snapshot pool retained after ledger replace",
+            ),
+        ],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
         .assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }
 

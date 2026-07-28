@@ -21,7 +21,7 @@ use std::{
 
 use amaru_kernel::{
     AsHash, ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, Nullable, ProposalId,
-    ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus,
+    ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus,
     display_protocol_parameters_update, expect_stake_credential, utils::string::display_collection,
 };
 use amaru_observability::{debug, info};
@@ -29,7 +29,6 @@ use amaru_observability::{debug, info};
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 use super::{
     CommitteeUpdate, OrphanProposal, ProposalEnum,
-    proposals_roots::ProposalsRootsRc,
     proposals_tree::{ProposalsTree, Sibling},
 };
 use crate::summary::into_safe_ratio;

@@ -107,59 +107,7 @@ fn tier_ref_script_fee(size: u64, stride: u64, base_rate: &RationalNumber, multi
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, WitnessSet, json};
-    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
-
-    use super::InvalidFees;
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::tests::fixture_context,
-    };
-
-    /// Protocol params where the min-fee floor is zero, so collateral tests can
-    /// keep using arbitrary `tx.fee` without tripping `FeeTooSmall`.
-    fn zero_min_fee_pp() -> ProtocolParameters {
-        ProtocolParameters {
-            min_fee_a: 0,
-            min_fee_b: 0,
-            min_fee_ref_script_lovelace_per_byte: amaru_kernel::RationalNumber { numerator: 0, denominator: 1 },
-            ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
-        }
-    }
-
-    macro_rules! fixture {
-        ($hash:literal) => {
-            (
-                fixture_context!($hash),
-                amaru_kernel::include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                amaru_kernel::include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
-            )
-        };
-    }
-
-    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f"); "Valid transaction")]
-    fn fees(
-        (ctx, tx, expected_traces): (AssertPreparationContext, TransactionBody, Vec<json::Value>),
-    ) -> Result<(), InvalidFees> {
-        let pp = zero_min_fee_pp();
-        let witness_set = WitnessSet::default();
-        assert_trace(
-            || {
-                let mut validation_context = AssertValidationContext::from(ctx.clone());
-                super::execute(
-                    &mut validation_context,
-                    tx.fee,
-                    /* tx_size */ 0,
-                    &witness_set,
-                    /* ref_scripts_size */ 0,
-                    &pp,
-                )?;
-                Ok(())
-            },
-            expected_traces,
-        )
-    }
 
     #[test_case(1_000, 25_600, 15, 1, 12, 10 => 15_000; "tier: within first tier (1000 bytes * 15)")]
     #[test_case(250, 100, 10, 1, 2, 1 => 5_000; "tier: spans 3 tiers (100*10 + 100*20 + 50*40)")]

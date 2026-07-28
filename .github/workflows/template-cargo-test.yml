@@ -53,6 +53,8 @@ jobs:
         with:
           submodules: true
 
+      - uses: ./.github/actions/stage-peer-snapshots
+
       - uses: ./.github/actions/cache
         with:
           mode: ${{ inputs.cache-mode }}

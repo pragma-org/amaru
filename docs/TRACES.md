@@ -234,7 +234,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `download` | `TRACE` | public | Download a snapshot archive | epoch, point, key |  |
+| `download` | `TRACE` | public | Download a snapshot archive | epoch, point |  |
 | `extract` | `TRACE` | public | Extract a snapshot archive | snapshot |  |
 | `import_dir` | `TRACE` | public | Import a snapshot directory | path |  |
 | `import_file` | `TRACE` | public | Import a single snapshot | path |  |
@@ -248,7 +248,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
 | `point` | `string` | ✓ |
-| `key` | `string` | ✓ |
 
 </details>
 
@@ -572,6 +571,42 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `slot` | `string` | ✓ |
 | `archive` | `string` | ✓ |
 | `reason` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::perf::fork`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `switch` | `TRACE` | public | Event recorded when a fork switch ends. \`duration_micros\` measures the time from the detection of the fork to its application (or abandonment). | header_hash | outcome, duration_micros |
+
+<details><summary>span: `switch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+| `outcome` | `string` |  |
+| `duration_micros` | `integer` |  |
+
+</details>
+
+## target: `amaru::consensus::perf::header`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block | peer, header_hash, outcome, error, block_fetch_wait_micros, block_fetch_micros, forward_micros |  |
+
+<details><summary>span: `lifecycle`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` |  |
+| `header_hash` | `string` |  |
+| `outcome` | `string` |  |
+| `error` | `string` |  |
+| `block_fetch_wait_micros` | `integer` |  |
+| `block_fetch_micros` | `integer` |  |
+| `forward_micros` | `integer` |  |
 
 </details>
 
@@ -1819,6 +1854,22 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `replace_all` | `TRACE` | public | Inserting recently pruned proposals |  |  |
+
+## target: `amaru::stores::ledger::recently_unregistered_accounts`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `insert` | `TRACE` | public | Insert a recently unregistered account |  |  |
+| `prune` | `TRACE` | public | Prune recently unregistered accounts | epoch |  |
+| `remove` | `TRACE` | public | Remove a recently unregistered account |  |  |
+
+<details><summary>span: `prune`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `string` | ✓ |
+
+</details>
 
 ## target: `amaru::stores::ledger::slots`
 

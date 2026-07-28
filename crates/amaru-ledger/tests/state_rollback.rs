@@ -25,7 +25,7 @@ use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     rules::block::BlockValidation,
     state::{BackwardError, State, volatile::VolatileFragment},
-    store::{EpochTransitionProgress, HistoricalStores, ReadStore, Store, StoreError},
+    store::{HistoricalStores, ReadStore, Store},
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
@@ -227,157 +227,9 @@ fn point(slot: u64, tag: u8) -> Point {
 
 struct MockStore(RocksDB);
 
-#[expect(unused_variables)]
 impl ReadStore for MockStore {
     fn tip(&self) -> amaru_ledger::store::Result<Point> {
         Ok(Point::Origin)
-    }
-
-    fn epoch_transition_progress(&self) -> amaru_ledger::store::Result<Option<EpochTransitionProgress>> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn protocol_parameters(&self) -> amaru_ledger::store::Result<ProtocolParameters> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn pool(
-        &self,
-        pool: &amaru_kernel::PoolId,
-    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::pools::Row>> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn account(
-        &self,
-        credential: &amaru_kernel::StakeCredential,
-    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::accounts::Row>> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn drep(
-        &self,
-        credential: &amaru_kernel::StakeCredential,
-    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::dreps::Row>> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn cc_member(
-        &self,
-        credential: &amaru_kernel::StakeCredential,
-    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::cc_members::Row>> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn proposal(
-        &self,
-        id: &amaru_kernel::ComparableProposalId,
-    ) -> amaru_ledger::store::Result<Option<amaru_ledger::store::columns::proposals::Row>> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn utxo(
-        &self,
-        input: &amaru_kernel::TransactionInput,
-    ) -> amaru_ledger::store::Result<Option<amaru_kernel::MemoizedTransactionOutput>> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn pots(&self) -> amaru_ledger::store::Result<amaru_ledger::store::columns::pots::Row> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn constitutional_committee(&self) -> amaru_ledger::store::Result<amaru_kernel::ConstitutionalCommitteeStatus> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn constitution(&self) -> amaru_ledger::store::Result<amaru_kernel::Constitution> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn proposals_roots(&self) -> amaru_ledger::store::Result<amaru_ledger::governance::ratification::ProposalsRoots> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn governance_activity(&self) -> amaru_ledger::store::Result<GovernanceActivity> {
-        Err(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_utxos(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::utxo::Key, amaru_ledger::store::columns::utxo::Value)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_block_issuers(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::slots::Key, amaru_ledger::store::columns::slots::Value)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_pools(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, amaru_ledger::store::columns::pools::Row)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_accounts(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::accounts::Key, amaru_ledger::store::columns::accounts::Row)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_dreps(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::dreps::Key, amaru_ledger::store::columns::dreps::Row)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_proposals(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::proposals::Key, amaru_ledger::store::columns::proposals::Row)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_recently_pruned_proposals(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<
-            Item = (
-                amaru_ledger::store::columns::recently_pruned_proposals::Key,
-                amaru_ledger::store::columns::recently_pruned_proposals::Value,
-            ),
-        >,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_cc_members(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::cc_members::Key, amaru_ledger::store::columns::cc_members::Row)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
-    }
-
-    fn iter_votes(
-        &self,
-    ) -> amaru_ledger::store::Result<
-        impl Iterator<Item = (amaru_ledger::store::columns::votes::Key, amaru_ledger::store::columns::votes::Row)>,
-    > {
-        Err::<std::iter::Empty<_>, _>(StoreError::Internal(anyhow::anyhow!("mock").into()))
     }
 }
 

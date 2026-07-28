@@ -1,9 +1,0 @@
-{
-  "utxo": [],
-  "required_signers": [
-    "82e016828989cd9d809b50d6976d9efa9bc5b2c1a78d4b3bfa1bb83b",
-    "112909208360fb65678272a1d6ff45cf5cccbcbb52bcb0c59bb74862"
-  ],
-  "required_scripts": [],
-  "required_bootstrap_roots": []
-}

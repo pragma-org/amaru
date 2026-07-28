@@ -49,6 +49,11 @@ coverage/
 # Cardano node support files
 /cardano-node-config/
 
+# Peer snapshots staged by crates/amaru/build (not committed; see config/peer-snapshots/README.md)
+crates/amaru-node/config/peer-snapshots/**/peer-snapshot.json
+crates/amaru-node/config/peer-snapshots/**/*.json.tmp
+crates/amaru-node/config/peer-snapshots/CONFIGS_COMMIT_CACHE
+
 # llvm-cov generated file
 lcov.info
 .aider*
