@@ -12,7 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::BootstrapWitness;
+use crate::{Bytes, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct BootstrapWitness {
+    #[n(0)]
+    pub public_key: Bytes,
+
+    #[n(1)]
+    pub signature: Bytes,
+
+    #[n(2)]
+    pub chain_code: Bytes,
+
+    #[n(3)]
+    pub attributes: Bytes,
+}
 
 #[cfg(test)]
 mod tests {
