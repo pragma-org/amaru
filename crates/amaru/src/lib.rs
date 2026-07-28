@@ -65,6 +65,9 @@ pub fn default_data_dir(network: NetworkName) -> String {
 /// - Uppercase for types
 /// - Lowercase for enums / verbatim values
 pub mod value_names {
+    /// For S3-compatible bucket names.
+    pub const BUCKET_NAME: &str = "BUCKET_NAME";
+
     /// For directories / folders on the filesystem.
     pub const DIRECTORY: &str = "DIR";
 
@@ -87,11 +90,17 @@ pub mod value_names {
     /// A snapshot point identifying the last point of an epoch and its parent.
     pub const SNAPSHOT: &str = "SLOT.HEADER_HASH::PARENT_SLOT.PARENT_HEADER_HASH";
 
+    /// For S3-compatible regions, including Cloudflare R2's `auto` region.
+    pub const S3_REGION: &str = "auto|REGION";
+
     /// A non-negative integer value.
     pub const UINT: &str = "UINT";
 
     /// A non-negative integer value, or the keyword 'all'
     pub const UINT_ALL: &str = "UINT|all";
+
+    /// For HTTP or HTTPS URLs.
+    pub const URL: &str = "URL";
 }
 
 /// Get the default peer address for a given network.

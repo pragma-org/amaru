@@ -75,23 +75,47 @@ pub struct Args {
     /// S3 bucket containing the bootstrap snapshots.
     ///
     /// Defaults to the official Amaru snapshot bucket.
-    #[arg(long, env = "AMARU_S3_BUCKET", default_value = DEFAULT_BUCKET)]
+    #[arg(
+        long,
+        value_name = amaru::value_names::BUCKET_NAME,
+        env = "AMARU_S3_BUCKET",
+        default_value = DEFAULT_BUCKET,
+        help_heading = "S3 Snapshot Options",
+    )]
     s3_bucket: String,
 
-    /// S3-compatible endpoint URL (e.g. https://<id>.r2.cloudflarestorage.com).
+    /// S3-compatible endpoint URL.
     ///
     /// Defaults to the official Amaru R2 endpoint.
-    #[arg(long, env = "AMARU_S3_ENDPOINT", default_value = DEFAULT_ENDPOINT)]
+    #[arg(
+        long,
+        value_name = amaru::value_names::URL,
+        env = "AMARU_S3_ENDPOINT",
+        default_value = DEFAULT_ENDPOINT,
+        help_heading = "S3 Snapshot Options",
+    )]
     s3_endpoint: String,
 
-    /// S3 region (use "auto" for Cloudflare R2).
-    #[arg(long, env = "AMARU_S3_REGION", default_value = DEFAULT_REGION)]
+    /// S3-compatible region.
+    #[arg(
+        long,
+        value_name = amaru::value_names::S3_REGION,
+        env = "AMARU_S3_REGION",
+        default_value = DEFAULT_REGION,
+        help_heading = "S3 Snapshot Options",
+    )]
     s3_region: String,
 
-    /// Public CDN base URL for anonymous snapshot downloads (e.g. https://pub-xxx.r2.dev).
+    /// Public CDN base URL for anonymous snapshot downloads.
     ///
     /// Defaults to the official Amaru public R2 URL.
-    #[arg(long, env = "AMARU_S3_PUBLIC_URL", default_value = DEFAULT_PUBLIC_URL)]
+    #[arg(
+        long,
+        value_name = amaru::value_names::URL,
+        env = "AMARU_S3_PUBLIC_URL",
+        default_value = DEFAULT_PUBLIC_URL,
+        help_heading = "S3 Snapshot Options",
+    )]
     s3_public_url: String,
 }
 

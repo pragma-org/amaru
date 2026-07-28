@@ -257,8 +257,6 @@ async fn fetch_headers_from_point(
         }
     }
 
-    tracing::info!(requested_point = %point, total = headers.len(), "fetched bootstrap headers from peer");
-
     Ok(headers)
 }
 
@@ -308,7 +306,6 @@ async fn download_snapshots(
         }
 
         fs::remove_file(&archive_path).await?;
-        tracing::info!(snapshot = %snapshot_dir.display(), "downloaded snapshot");
     }
 
     Ok(())
@@ -426,7 +423,7 @@ pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> 
             from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
         let hash = block_header.hash();
 
-        tracing::info!(hash = hash.to_string().chars().take(8).collect::<String>(), "inserting block and header");
+        info!(bootstrap::header::IMPORT, header = %hash);
 
         db.store_header(&block_header)?;
         db.store_block(&hash, &RawBlock::from(block.as_slice()))?;
@@ -569,7 +566,6 @@ pub async fn import_snapshots(
     for snapshot in snapshots {
         import_snapshot(network, global_parameters, snapshot, ledger_dir, &mut recently_unregistered_accounts).await?;
     }
-    tracing::info!("Imported snapshots");
     Ok(())
 }
 
@@ -700,7 +696,6 @@ async fn import_cbor_snapshot_file(
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    tracing::info!(epoch=%epoch, snapshot=%snapshot.display(), "Imported CBOR snapshot");
     Ok(ImportedSnapshot { epoch, initial_nonces })
 }
 
@@ -755,7 +750,6 @@ async fn import_node_snapshot_dir(
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    tracing::info!(epoch=%epoch, snapshot=%snapshot_dir.display(), "Imported node snapshot directory");
     Ok(ImportedSnapshot { epoch, initial_nonces })
 }
 

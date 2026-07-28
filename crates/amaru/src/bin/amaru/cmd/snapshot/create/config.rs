@@ -18,7 +18,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::NetworkName;
+use amaru_kernel::{NetworkName, utils::path::relative_path};
 use amaru_observability::info;
 use serde::Deserialize;
 
@@ -79,11 +79,11 @@ pub(super) async fn resolve_config_dir(
     if let Some(config_dir) = bundled_config_dir(network) {
         match validate_config_dir(&config_dir) {
             Ok(()) => {
-                info!(cli::cardano_node_config::USE, config_dir = %config_dir.display(), network = %network);
+                info!(cli::cardano_node_config::USE, config_dir = %relative_path(&config_dir)?.display(), network = %network);
                 return Ok(config_dir);
             }
             Err(_) => {
-                info!(cli::cardano_node_config::DOWNLOAD, config_dir = %config_dir.display(), network = %network);
+                info!(cli::cardano_node_config::DOWNLOAD, config_dir = %relative_path(&config_dir)?.display(), network = %network);
                 return download_official_config_bundle(client, network, &config_dir).await;
             }
         }

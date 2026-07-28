@@ -27,6 +27,7 @@ tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
+amaru-observability.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]

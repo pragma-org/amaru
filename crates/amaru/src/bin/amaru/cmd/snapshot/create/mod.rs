@@ -24,7 +24,7 @@ use amaru::default_snapshots_dir;
 use amaru_kernel::{
     Epoch, HeaderHash, NetworkName, Point, Slot,
     num::{CheckedAdd, CheckedSub},
-    utils,
+    utils::{self, path::relative_path},
 };
 use amaru_mithril::{chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks};
 use amaru_observability::info;
@@ -256,13 +256,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     info!(
         cli::snapshot::CREATE,
-        snapshot_output_dir = %snapshot_output_dir.display(),
-        config_dir = %config_dir.display(),
-        cardano_node_db = %cardano_node_db.display(),
+        snapshot_output_dir = %relative_path(&snapshot_output_dir)?.display(),
+        config_dir = %relative_path(&config_dir)?.display(),
+        cardano_node_db = %relative_path(&cardano_node_db)?.display(),
         network = %network,
-        dist_dir = %dist_dir.display(),
+        dist_dir = %relative_path(&dist_dir)?.display(),
         epoch = @epoch.map(|e| e.to_string()),
-        snapshots = snapshots_str,
+        snapshots = @(!snapshots_str.is_empty()).then_some(snapshots_str),
     );
 
     let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
@@ -278,11 +278,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             cli::mithril::SKIP_DOWNLOAD,
             from_chunk,
             required_chunk,
-            target_dir = %cardano_node_db.display(),
+            target_dir = %relative_path(&cardano_node_db)?.display(),
             reason = "cardano-node db already covers all target slots",
         );
     } else {
-        info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = %cardano_node_db.display());
+        info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = %relative_path(&cardano_node_db)?.display());
         download_from_mithril(network, cardano_node_db.clone(), from_chunk, progress_factory.clone()).await?;
     }
 
@@ -329,7 +329,7 @@ fn process_target(
             cli::snapshot::SKIP_PACKAGE,
             epoch = %target.epoch,
             slot = %target.slot,
-            archive = %prepared_archive_path.display(),
+            archive = %relative_path(&prepared_archive_path)?.display(),
             reason = "already exists",
         );
         return Ok(target.slot);
@@ -343,7 +343,7 @@ fn process_target(
             cli::snapshot::MATERIALIZE,
             epoch = %target.epoch,
             slot = %target.slot,
-            snapshot = %prepared_snapshot_path.display(),
+            snapshot = %relative_path(&prepared_snapshot_path)?.display(),
         );
         materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
         write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
@@ -352,7 +352,7 @@ fn process_target(
             cli::snapshot::SKIP_MATERIALIZE,
             epoch = %target.epoch,
             slot = %target.slot,
-            snapshot = %prepared_snapshot_path.display(),
+            snapshot = %relative_path(&prepared_snapshot_path)?.display(),
             reason = "already exists",
         );
     }
@@ -361,11 +361,16 @@ fn process_target(
         cli::snapshot::PACKAGE,
         epoch = %target.epoch,
         slot = %target.slot,
-        archive = %prepared_archive_path.display(),
+        archive = %relative_path(&prepared_archive_path)?.display(),
     );
     write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
 
-    tracing::info!(epoch = %target.epoch, slot = %target.slot, snapshot = %prepared_snapshot_path.display(), archive = %prepared_archive_path.display(), "finished epoch snapshot");
+    info!(
+        cli::snapshot::CREATED,
+        epoch = %target.epoch,
+        slot = %target.slot,
+        archive = %relative_path(&prepared_archive_path)?.display(),
+    );
 
     Ok(target.slot)
 }
@@ -381,7 +386,7 @@ fn resolve_or_create_snapshot_dir(
             cli::db_analyser::REUSE_LEDGER_SNAPSHOT,
             epoch = %target.epoch,
             slot = %target.slot,
-            snapshot = %snapshot_dir.display(),
+            snapshot = %relative_path(&snapshot_dir)?.display(),
         );
         return Ok(snapshot_dir);
     }

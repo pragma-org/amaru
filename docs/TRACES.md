@@ -513,10 +513,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `create` | `TRACE` | public | Create snapshots for the given network | network, snapshot_output_dir, config_dir, cardano_node_db, dist_dir | epoch, snapshots |
+| `created` | `TRACE` | public | Finished creating a snapshot archive | epoch, slot, archive |  |
 | `materialize` | `TRACE` | public | Materialize a bootstrap snapshot directory | epoch, slot, snapshot |  |
 | `package` | `TRACE` | public | Package a snapshot archive | epoch, slot, archive |  |
+| `publish` | `TRACE` | public | Publish snapshot archives | network, local, remote |  |
 | `skip_materialize` | `TRACE` | public | Snapshot already materialized; skipping | epoch, slot, snapshot, reason |  |
 | `skip_package` | `TRACE` | public | Snapshot archive already packaged; skipping | epoch, slot, archive, reason |  |
+| `skip_upload` | `TRACE` | public | Snapshot archive already uploaded; skipping | archive |  |
+| `update_index` | `TRACE` | public | Update the published snapshot index | network, snapshots |  |
+| `upload` | `TRACE` | public | Upload a snapshot archive | archive |  |
+| `uploaded` | `TRACE` | public | Finished uploading a snapshot archive | archive |  |
 
 <details><summary>span: `create`</summary>
 
@@ -529,6 +535,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `dist_dir` | `string` | ✓ |
 | `epoch` | `string` |  |
 | `snapshots` | `string` |  |
+
+</details>
+
+<details><summary>span: `created`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `string` | ✓ |
+| `slot` | `string` | ✓ |
+| `archive` | `string` | ✓ |
 
 </details>
 
@@ -552,6 +568,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `publish`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `network` | `string` | ✓ |
+| `local` | `integer` | ✓ |
+| `remote` | `integer` | ✓ |
+
+</details>
+
 <details><summary>span: `skip_materialize`</summary>
 
 | field | type | required |
@@ -571,6 +597,39 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `slot` | `string` | ✓ |
 | `archive` | `string` | ✓ |
 | `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `skip_upload`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `archive` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `update_index`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `network` | `string` | ✓ |
+| `snapshots` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `upload`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `archive` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `uploaded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `archive` | `string` | ✓ |
 
 </details>
 
@@ -1450,6 +1509,58 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `tx_id` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 | `validation_error` | `string` |  |
+
+</details>
+
+## target: `amaru::mithril::snapshot`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `download` | `TRACE` | public | Download and unpack immutable files from a Mithril snapshot | target_dir, from_chunk |  |
+| `fetch` | `TRACE` | public | Fetch and verify a Mithril snapshot | hash, from_chunk |  |
+| `ready` | `TRACE` | public | Mithril cardano-node database is ready | target_dir |  |
+| `verify_database` | `TRACE` | public | Verify the local cardano-node database against a Mithril certificate | target_dir |  |
+| `verify_digests` | `TRACE` | public | Download and verify the digests for a Mithril snapshot | target_dir |  |
+
+<details><summary>span: `download`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
+| `from_chunk` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `from_chunk` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `ready`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `verify_database`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `verify_digests`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
 
 </details>
 

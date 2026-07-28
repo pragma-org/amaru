@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, fs, path::PathBuf};
+use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 use amaru::aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config};
-use amaru_kernel::NetworkName;
+use amaru_kernel::{NetworkName, utils::path::relative_path};
+use amaru_observability::info;
 use clap::Parser;
-use tracing::info;
 
 use super::create::default_snapshot_output_dir;
 
 const ARCHIVE_EXTENSION: &str = ".tar.zst";
+const AWS_ACCESS_KEY_ID_ENV: &str = "AWS_ACCESS_KEY_ID";
+const AWS_SECRET_ACCESS_KEY_ENV: &str = "AWS_SECRET_ACCESS_KEY";
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -44,37 +46,51 @@ pub struct Args {
     snapshot_dir: Option<PathBuf>,
 
     /// S3-compatible bucket name.
-    #[arg(long, env = "AMARU_S3_BUCKET", default_value = DEFAULT_BUCKET)]
-    bucket: String,
+    #[arg(
+        long,
+        value_name = amaru::value_names::BUCKET_NAME,
+        env = "AMARU_S3_BUCKET",
+        default_value = DEFAULT_BUCKET,
+    )]
+    s3_bucket: String,
 
-    /// S3-compatible endpoint URL (e.g. https://<id>.r2.cloudflarestorage.com).
-    #[arg(long, env = "AMARU_S3_ENDPOINT", default_value = DEFAULT_ENDPOINT)]
-    endpoint: String,
+    /// S3-compatible endpoint URL.
+    #[arg(
+        long,
+        value_name = amaru::value_names::URL,
+        env = "AMARU_S3_ENDPOINT",
+        default_value = DEFAULT_ENDPOINT,
+    )]
+    s3_endpoint: String,
 
-    /// S3 region (use "auto" for Cloudflare R2).
-    #[arg(long, env = "AMARU_S3_REGION", default_value = DEFAULT_REGION)]
-    region: String,
+    /// S3-compatible region.
+    #[arg(
+        long,
+        value_name = amaru::value_names::S3_REGION,
+        env = "AMARU_S3_REGION",
+        default_value = DEFAULT_REGION,
+    )]
+    s3_region: String,
 
-    /// AWS / R2 access key ID for upload authentication.
-    #[arg(long, env = "AWS_ACCESS_KEY_ID")]
-    aws_access_key_id: String,
-
-    /// AWS / R2 secret access key for upload authentication.
-    #[arg(long, env = "AWS_SECRET_ACCESS_KEY")]
-    aws_secret_access_key: String,
-
-    /// Public base URL at which uploaded objects are reachable (e.g. https://pub-xxx.r2.dev).
-    #[arg(long, env = "AMARU_S3_PUBLIC_URL", default_value = DEFAULT_PUBLIC_URL)]
-    public_url: String,
+    /// Public base URL at which uploaded objects are reachable.
+    #[arg(
+        long,
+        value_name = amaru::value_names::URL,
+        env = "AMARU_S3_PUBLIC_URL",
+        default_value = DEFAULT_PUBLIC_URL,
+    )]
+    s3_public_url: String,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let Args { network, snapshot_dir, bucket, endpoint, region, aws_access_key_id, aws_secret_access_key, public_url } =
-        args;
+    let Args { network, snapshot_dir, s3_bucket, s3_endpoint, s3_region, s3_public_url } = args;
+
+    let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
+    let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;
 
     let snapshot_root = snapshot_dir.unwrap_or_else(|| default_snapshot_output_dir(network));
 
-    let s3_config = S3Config { bucket, endpoint, region, public_url };
+    let s3_config = S3Config { bucket: s3_bucket, endpoint: s3_endpoint, region: s3_region, public_url: s3_public_url };
     let s3 = S3Client::new_with_credentials(s3_config, &aws_access_key_id, &aws_secret_access_key);
 
     // Collect all .tar.zst archives present locally (if the directory exists).
@@ -97,18 +113,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         return Err("no archives found locally or in S3; run `amaru snapshot create` first".into());
     }
 
-    info!(%network, local = local_archives.len(), remote = remote_keys.len(), "publishing bootstrap snapshots");
+    info!(cli::snapshot::PUBLISH, %network, local = local_archives.len(), remote = remote_keys.len());
 
     for archive_name in &local_archives {
         let object_key = format!("{network_prefix}/{archive_name}");
         let archive_path = snapshot_root.join(archive_name);
 
         if remote_keys.contains(archive_name.as_str()) {
-            info!(key = %object_key, "already in S3, skipping");
+            info!(cli::snapshot::SKIP_UPLOAD, archive = archive_name);
         } else {
-            info!(archive = %archive_path.display(), key = %object_key, "uploading");
+            info!(cli::snapshot::UPLOAD, archive = %relative_path(&archive_path)?.display());
             s3.upload_object(&archive_path, &object_key).await?;
-            info!(key = %object_key, "uploaded");
+            info!(cli::snapshot::UPLOADED, archive = %relative_path(&archive_path)?.display());
         }
     }
 
@@ -122,7 +138,23 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     };
     let index_json = serde_json::to_vec_pretty(&all_points)?;
     s3.upload_bytes(index_json, &format!("{network_prefix}/index.json")).await?;
-    info!(%network, snapshots = all_points.len(), "updated S3 index");
+    info!(cli::snapshot::UPDATE_INDEX, %network, snapshots = all_points.len());
 
     Ok(())
+}
+
+fn required_env(name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    match env::var(name) {
+        Ok(value) if value.is_empty() => {
+            Err(format!("environment variable {name} is empty; set it before running `amaru snapshot publish`").into())
+        }
+        Ok(value) => Ok(value),
+        Err(env::VarError::NotPresent) => {
+            Err(format!("missing required environment variable {name}; set it before running `amaru snapshot publish`")
+                .into())
+        }
+        Err(env::VarError::NotUnicode(_)) => {
+            Err(format!("environment variable {name} must contain valid UTF-8").into())
+        }
+    }
 }

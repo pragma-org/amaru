@@ -12,15 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use amaru_kernel::NetworkName;
+use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
 use aws_sdk_s3::{
     Client,
     config::{BehaviorVersion, Builder, Region, RequestChecksumCalculation},
-    primitives::ByteStream,
+    primitives::{ByteStream, SdkBody},
 };
+use http_body_util::BodyExt as _;
 
 /// Default S3 bucket name for Amaru bootstrap snapshots.
 pub const DEFAULT_BUCKET: &str = "cardano-ledger-snapshots";
@@ -138,11 +146,40 @@ impl S3Client {
 
     /// Upload a local file to S3 at the given key.
     pub async fn upload_object(&self, src: &Path, key: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let body = ByteStream::read_from().path(src).build().await?;
+        let size = tokio::fs::metadata(src).await?.len();
+        let progress = Arc::new(transfer_progress_bar("Uploading", size));
+        let maximum_progress = Arc::new(AtomicU64::new(0));
+        let body = ByteStream::read_from().path(src).build().await?.into_inner().map_preserve_contents({
+            let progress = Arc::clone(&progress);
+            move |body| {
+                let progress = Arc::clone(&progress);
+                let maximum_progress = Arc::clone(&maximum_progress);
+                let mut attempt_progress = 0;
+                SdkBody::from_body_1_x(body.map_frame(move |frame| {
+                    if let Some(bytes) = frame.data_ref() {
+                        attempt_progress += bytes.len() as u64;
+                        let previous = maximum_progress.fetch_max(attempt_progress, Ordering::Relaxed);
+                        if attempt_progress > previous {
+                            progress.tick((attempt_progress - previous) as usize);
+                        }
+                    }
+                    frame
+                }))
+            }
+        });
 
-        self.inner.put_object().bucket(&self.config.bucket).key(key).body(body).send().await?;
-
-        Ok(())
+        let result = self
+            .inner
+            .put_object()
+            .bucket(&self.config.bucket)
+            .key(key)
+            .body(ByteStream::new(body))
+            .send()
+            .await
+            .map(|_| ())
+            .map_err(Into::into);
+        progress.clear();
+        result
     }
 
     /// Upload raw bytes to S3 at the given key.
@@ -209,23 +246,35 @@ impl AnonymousS3Client {
         use tokio::{fs::File, io::AsyncWriteExt as _};
 
         let url = format!("{}/{key}", self.base_url);
-        let mut stream = self
-            .http
-            .get(&url)
-            .send()
-            .await?
-            .error_for_status()
-            .map_err(|e| format!("download failed: {e}"))?
-            .bytes_stream();
+        let response =
+            self.http.get(&url).send().await?.error_for_status().map_err(|e| format!("download failed: {e}"))?;
+        let progress = transfer_progress_bar("Downloading", response.content_length().unwrap_or(0));
+        let mut stream = response.bytes_stream();
 
-        let mut file = File::create(dest).await?;
-        while let Some(chunk) = stream.try_next().await? {
-            file.write_all(&chunk).await?;
+        let result: Result<(), Box<dyn std::error::Error>> = async {
+            let mut file = File::create(dest).await?;
+            while let Some(chunk) = stream.try_next().await? {
+                file.write_all(&chunk).await?;
+                progress.tick(chunk.len());
+            }
+            file.sync_all().await?;
+            Ok(())
         }
-        file.sync_all().await?;
-
-        Ok(())
+        .await;
+        progress.clear();
+        result
     }
+}
+
+fn transfer_progress_bar(action: &str, size: u64) -> TerminalProgressBar {
+    let progress = TerminalProgressBar::new(
+        size,
+        format!(
+            "{action} [{{bytes:>10}}/{{total_bytes:<10}}] {{bar:40.green}} {{bytes_per_sec:>12}} ({{eta}} remaining)"
+        ),
+    );
+    progress.tick(0);
+    progress
 }
 
 #[cfg(test)]

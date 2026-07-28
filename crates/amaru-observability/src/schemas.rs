@@ -914,6 +914,12 @@ define_schemas! {
                     required dist_dir: String
                     optional snapshots: String
                 }
+                /// Finished creating a snapshot archive
+                public CREATED {
+                    required epoch: amaru_kernel::Epoch
+                    required slot: amaru_kernel::Slot
+                    required archive: String
+                }
                 /// Materialize a bootstrap snapshot directory
                 public MATERIALIZE {
                     required epoch: amaru_kernel::Epoch
@@ -939,6 +945,55 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required archive: String
                     required reason: String
+                }
+                /// Publish snapshot archives
+                public PUBLISH {
+                    required network: amaru_kernel::NetworkName
+                    required local: usize
+                    required remote: usize
+                }
+                /// Upload a snapshot archive
+                public UPLOAD {
+                    required archive: String
+                }
+                /// Finished uploading a snapshot archive
+                public UPLOADED {
+                    required archive: String
+                }
+                /// Snapshot archive already uploaded; skipping
+                public SKIP_UPLOAD {
+                    required archive: String
+                }
+                /// Update the published snapshot index
+                public UPDATE_INDEX {
+                    required network: amaru_kernel::NetworkName
+                    required snapshots: usize
+                }
+            }
+        }
+        mithril {
+            snapshot {
+                /// Fetch and verify a Mithril snapshot
+                public FETCH {
+                    required hash: String
+                    required from_chunk: u64
+                }
+                /// Download and unpack immutable files from a Mithril snapshot
+                public DOWNLOAD {
+                    required target_dir: String
+                    required from_chunk: u64
+                }
+                /// Download and verify the digests for a Mithril snapshot
+                public VERIFY_DIGESTS {
+                    required target_dir: String
+                }
+                /// Verify the local cardano-node database against a Mithril certificate
+                public VERIFY_DATABASE {
+                    required target_dir: String
+                }
+                /// Mithril cardano-node database is ready
+                public READY {
+                    required target_dir: String
                 }
             }
         }

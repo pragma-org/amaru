@@ -15,6 +15,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use amaru_kernel::NetworkName;
+use amaru_observability::info;
 use amaru_progress_bar::ProgressBar;
 use async_trait::async_trait;
 use mithril_client::{
@@ -23,7 +24,6 @@ use mithril_client::{
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
 use tokio::sync::Mutex;
-use tracing::info;
 
 type ProgressFactory = Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>;
 
@@ -128,7 +128,7 @@ pub async fn download_from_mithril(
     let snapshots = database_client.list().await?;
     let snapshot_list_item = snapshots.first().ok_or("no Mithril cardano-db snapshot found")?;
 
-    info!(hash = %snapshot_list_item.hash, from_chunk, "downloading and verifying Mithril snapshot");
+    info!(mithril::snapshot::FETCH, hash = %snapshot_list_item.hash, from_chunk);
 
     let snapshot = database_client
         .get(&snapshot_list_item.hash)
@@ -139,12 +139,12 @@ pub async fn download_from_mithril(
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
     let download_unpack_options =
         DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
-    info!(target_dir = %target_dir.display(), from_chunk, "certificate chain validated; downloading and unpacking immutable files");
+    info!(mithril::snapshot::DOWNLOAD, target_dir = %target_dir.display(), from_chunk);
     database_client.download_unpack(&snapshot, &immutable_file_range, &target_dir, download_unpack_options).await?;
 
-    info!(target_dir = %target_dir.display(), "immutable files unpacked; downloading and verifying Mithril digests");
+    info!(mithril::snapshot::VERIFY_DIGESTS, target_dir = %target_dir.display());
     let verified_digests = client.cardano_database_v2().download_and_verify_digests(&certificate, &snapshot).await?;
-    info!(target_dir = %target_dir.display(), "Mithril digests verified; validating local cardano-db against certificate");
+    info!(mithril::snapshot::VERIFY_DATABASE, target_dir = %target_dir.display());
     let merkle_proof = client
         .cardano_database_v2()
         .verify_cardano_database(&certificate, &snapshot, &immutable_file_range, false, &target_dir, &verified_digests)
@@ -155,7 +155,7 @@ pub async fn download_from_mithril(
         return Err("Mithril certificate verification failed".into());
     }
 
-    info!(target_dir = %target_dir.display(), "Mithril cardano-db is ready");
+    info!(mithril::snapshot::READY, target_dir = %target_dir.display());
 
     Ok(())
 }
