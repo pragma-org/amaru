@@ -92,6 +92,7 @@ pub mod raw_block;
 pub mod redeemer;
 pub mod redeemer_key;
 pub mod redeemer_tag;
+pub mod redeemer_value;
 pub mod redeemers;
 pub mod relay;
 pub mod required_script;

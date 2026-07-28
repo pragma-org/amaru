@@ -123,7 +123,8 @@ pub use cardano::{
     redeemer::Redeemer,
     redeemer_key::RedeemerKey,
     redeemer_tag::{RedeemerTag, redeemer_tag_to_string},
-    redeemers::{PallasRedeemers, PlutusRedeemers, RedeemerEntry, Redeemers},
+    redeemer_value::RedeemerValue,
+    redeemers::{PlutusRedeemers, RedeemerEntry, Redeemers},
     relay::{self, Relay},
     required_script::RequiredScript,
     required_signers::RequiredSigners,
@@ -244,10 +245,9 @@ pub mod macros;
 
 mod traits;
 pub use traits::{
-    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasNetwork, HasOwnership, HasRedeemers,
-    HasScriptHash, HasTransactionId, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace,
-    has_major_version, has_network, has_ownership, has_redeemers, has_script_hash, has_transaction_id, is_header,
-    to_bytes,
+    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasNetwork, HasOwnership, HasScriptHash,
+    HasTransactionId, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_major_version,
+    has_network, has_ownership, has_script_hash, has_transaction_id, is_header, to_bytes,
 };
 
 pub mod utils;

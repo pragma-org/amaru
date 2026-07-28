@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Block, ExUnits, HasRedeemers, WitnessSet, sum_ex_units};
+use crate::{Block, ExUnits, WitnessSet, sum_ex_units};
 
 pub trait HasExUnits {
     fn ex_units(&self) -> impl Iterator<Item = &ExUnits>;

@@ -19,9 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript,
-    PlutusScript, PlutusVersion, ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript,
-    ScriptIntegrityData, ValidityInterval, WitnessSet, redeemer_tag_to_string,
+    ExUnits, HasExUnits, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
+    PlutusVersion, ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
+    ValidityInterval, WitnessSet, redeemer_tag_to_string,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
@@ -209,8 +209,8 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(provided_redemeers) = witness_set.redeemer.as_ref().map(HasRedeemers::redeemers) {
-        provided_redemeers.keys().for_each(|provided| {
+    if let Some(provided_redemeers) = witness_set.redeemer.as_ref() {
+        provided_redemeers.iter_unique().for_each(|(provided, _, _)| {
             if let Some(index) = required_redeemers.iter().position(|required| required == provided.deref()) {
                 required_redeemers.remove(index);
             } else {

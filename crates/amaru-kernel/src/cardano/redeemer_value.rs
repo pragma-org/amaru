@@ -12,38 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod as_hash;
-pub use as_hash::*;
+use crate::{ExUnits, PlutusData, cbor};
 
-pub mod as_index;
-pub use as_index::*;
-
-pub mod as_shelley;
-pub use as_shelley::*;
-
-pub mod is_header;
-pub use is_header::*;
-
-pub mod has_lovelace;
-pub use has_lovelace::*;
-
-pub mod has_network;
-pub use has_network::*;
-
-pub mod has_major_version;
-pub use has_major_version::*;
-
-pub mod has_ownership;
-pub use has_ownership::*;
-
-pub mod has_script_hash;
-pub use has_script_hash::*;
-
-pub mod has_ex_units;
-pub use has_ex_units::*;
-
-pub mod has_transaction_id;
-pub use has_transaction_id::*;
-
-pub mod to_bytes;
-pub use to_bytes::*;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct RedeemerValue {
+    #[n(0)]
+    pub data: PlutusData,
+    #[n(1)]
+    pub ex_units: ExUnits,
+}

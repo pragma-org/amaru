@@ -144,7 +144,7 @@ impl<'a> TxInfo<'a> {
 
         let mut redeemers_map: BTreeMap<RedeemerKey, RedeemerEntry<'a>> = BTreeMap::new();
         if let Some(redeemers) = witness_set.redeemer.as_ref() {
-            for (ix, (key, data, ex_units)) in PlutusRedeemers::iter_from(redeemers.as_ref()).enumerate() {
+            for (ix, (key, data, ex_units)) in PlutusRedeemers::iter_from(redeemers).enumerate() {
                 let (purpose, script) = ScriptPurpose::builder(
                     &key,
                     &inputs[..],
