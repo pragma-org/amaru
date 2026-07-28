@@ -15,8 +15,8 @@
 use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
-    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, ex_units_prices,
-    pool_voting_thresholds, protocol_version,
+    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, pool_voting_thresholds,
+    protocol_version,
 };
 use amaru_kernel::{
     ComparableProposalId,
@@ -355,7 +355,7 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
             @opt_field_with(&old.treasury_expansion_rate, treasury_expansion_rate, rational_number::fmt),
         min_pool_cost = @opt_field(&old.min_pool_cost, min_pool_cost),
         lovelace_per_utxo_byte = @opt_field(&old.lovelace_per_utxo_byte, lovelace_per_utxo_byte),
-        prices = @opt_field_with(&old.prices, prices, ex_units_prices::fmt),
+        prices = @opt_field(&old.prices, prices),
         min_fee_ref_script_lovelace_per_byte = @opt_field_with(
             &old.min_fee_ref_script_lovelace_per_byte,
             min_fee_ref_script_lovelace_per_byte,
