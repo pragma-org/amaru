@@ -87,7 +87,7 @@ The stack includes:
 
 Open [Grafana](http://localhost) and use **Explore** to query Tempo, Prometheus, or Loki. The backend endpoints are also available directly:
 
-The provisioned [Amaru Overview dashboard](http://localhost/d/amaru-overview/amaru-overview) is the Grafana home page. It refreshes every second and combines node metrics, live logs, and recent traces. Use the `service` field at the top when Amaru is started with a different `OTEL_SERVICE_NAME`.
+The provisioned [Amaru Overview dashboard](http://localhost/d/amaru-overview/amaru-overview) is the Grafana home page. It refreshes every five seconds and combines node metrics, live logs, and recent traces containing at least ten spans. Click a trace ID to open its complete span waterfall. Use the `service` field at the top when Amaru is started with a different `OTEL_SERVICE_NAME`.
 
 - `http://localhost:3200` - Tempo
 - `http://localhost:9090` - Prometheus

@@ -539,6 +539,7 @@
         "type": "tempo",
         "uid": "tempo"
       },
+      "description": "Shows recent traces containing at least 10 spans. Click a trace ID to open the complete span waterfall.",
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -560,18 +561,18 @@
             "type": "tempo",
             "uid": "tempo"
           },
-          "limit": 20,
-          "query": "{ resource.service.name = \"$service\" } with (most_recent=true)",
+          "limit": 50,
+          "query": "{ resource.service.name = \"$service\" } | count() >= 10",
           "queryType": "traceql",
           "refId": "A",
           "tableType": "traces"
         }
       ],
-      "title": "Recent Traces",
+      "title": "Recent Traces (10+ spans)",
       "type": "table"
     }
   ],
-  "refresh": "1s",
+  "refresh": "5s",
   "schemaVersion": 41,
   "tags": [
     "amaru",
@@ -609,7 +610,6 @@
   },
   "timepicker": {
     "refresh_intervals": [
-      "1s",
       "5s",
       "10s",
       "30s",
@@ -623,6 +623,6 @@
   "timezone": "browser",
   "title": "Amaru Overview",
   "uid": "amaru-overview",
-  "version": 9,
+  "version": 10,
   "weekStart": ""
 }
