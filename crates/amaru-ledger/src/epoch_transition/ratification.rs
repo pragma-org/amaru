@@ -32,7 +32,6 @@ use amaru_kernel::{
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
-    cost_models,
     expect_stake_credential,
     protocol_version,
     rational_number,
@@ -372,7 +371,7 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         optimal_stake_pools_count = @opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
         pledge_influence = @opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
         collateral_percentage = @opt_field(&old.collateral_percentage, collateral_percentage),
-        cost_models = @opt_field_with(&old.cost_models, cost_models, cost_models::fmt),
+        cost_models = @opt_field(&old.cost_models, cost_models),
         pool_voting_thresholds = @opt_field(&old.pool_voting_thresholds, pool_voting_thresholds),
         drep_voting_thresholds = @opt_field(&old.drep_voting_thresholds, drep_voting_thresholds),
         min_committee_size = @opt_field(&old.min_committee_size, min_committee_size),
