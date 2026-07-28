@@ -16,7 +16,10 @@ use pallas_crypto::key::ed25519::PublicKey;
 use proptest::prelude::*;
 
 use super::*;
-use crate::{Hash, any_hash28, cardano::network_block::make_block_with_header, size::BLOCK_BODY};
+use crate::{
+    Bytes, Hash, Header, OperationalCert, VrfCert, any_hash28, cardano::network_block::make_block_with_header,
+    size::BLOCK_BODY,
+};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
@@ -31,13 +34,9 @@ pub fn make_header_with_op_cert_seq(
     prev_hash: Option<HeaderHash>,
     op_cert_seq: u64,
 ) -> Header {
-    use pallas_primitives::{VrfCert, babbage::PseudoHeader, conway::OperationalCert};
-
-    use crate::Bytes;
-
     let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash_cbor(&vec![block_number, slot]);
 
-    PseudoHeader {
+    Header {
         header_body: HeaderBody {
             block_number,
             slot,

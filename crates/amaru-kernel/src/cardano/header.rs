@@ -12,4 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::Header;
+use crate::{Bytes, HeaderBody, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct Header {
+    #[n(0)]
+    pub header_body: HeaderBody,
+
+    #[n(1)]
+    pub body_signature: Bytes,
+}

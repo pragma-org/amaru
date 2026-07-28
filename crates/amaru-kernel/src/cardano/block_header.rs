@@ -126,8 +126,8 @@ impl BlockHeader {
         self.header.header_body.prev_hash
     }
 
-    pub fn vrf_leader(&self) -> Vec<u8> {
-        self.header.header_body.leader_vrf_output()
+    pub fn vrf_output(&self) -> &[u8] {
+        &self.header.header_body.vrf_result.0
     }
 
     pub fn issuer_vkey(&self) -> &Bytes {
@@ -212,7 +212,7 @@ impl IsHeader for BlockHeader {
         self.header.header_body.slot.into()
     }
 
-    fn extended_vrf_nonce_output(&self) -> Vec<u8> {
-        self.header.header_body.nonce_vrf_output()
+    fn vrf_output(&self) -> &[u8] {
+        &self.header.header_body.vrf_result.0
     }
 }

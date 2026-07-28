@@ -211,6 +211,7 @@ impl From<&Proof> for Hash<{ Proof::HASH_SIZE }> {
         Hash::from(proof.0.proof_to_hash())
     }
 }
+
 // --------------------------------------------------------------- VrfDerivation
 
 pub enum Derivation {
