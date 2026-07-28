@@ -145,7 +145,7 @@ pub use cardano::{
     transaction::Transaction,
     transaction_body::TransactionBody,
     transaction_id::TransactionId,
-    transaction_input::{TransactionInput, transaction_input_to_string},
+    transaction_input::{self, TransactionInput},
     transaction_pointer::TransactionPointer,
     tx_info::{TxInfo, TxInfoTranslationError},
     utxos::Utxos,

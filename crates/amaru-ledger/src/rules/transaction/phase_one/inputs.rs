@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     AddrType, Address, AddressError, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript,
-    TransactionInput, cbor, transaction_input_to_string,
+    TransactionInput, cbor, utils::string::display_collection,
 };
 use thiserror::Error;
 
@@ -22,20 +22,16 @@ use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
-    #[error("Unknown input: {}", transaction_input_to_string(.0))]
+    #[error("Unknown input: {0}")]
     UnknownInput(TransactionInput),
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
-        intersection
-            .iter()
-            .map(transaction_input_to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
+        display_collection(.intersection),
     )]
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
     #[error("input set empty")]
     EmptyInputSet,
-    #[error("invalid Byron address payload at input {}: {error}", transaction_input_to_string(input))]
+    #[error("invalid Byron address payload at input {input}: {error}")]
     InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
     #[error("reference scripts total bytes exceeds per-tx limit: (provided {provided}, allowed {allowed})")]
     RefScriptSizeTooBig { provided: u64, allowed: u64 },
@@ -61,17 +57,17 @@ where
         for reference_input in reference_inputs {
             // Non-disjoint reference inputs
             if inputs.contains(reference_input) {
-                intersection.push(reference_input.clone());
+                intersection.push(*reference_input);
                 continue;
             }
 
             let output =
-                context.lookup(reference_input).ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+                context.lookup(reference_input).ok_or_else(|| InvalidInputs::UnknownInput(*reference_input))?;
 
             let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
             match &output.datum {
-                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), reference_input.clone()),
+                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), *reference_input),
                 MemoizedDatum::Hash(hash) => {
                     context.allow_supplemental_datum(*hash);
                 }
@@ -80,7 +76,7 @@ where
 
             if let Some((script_hash, script_size)) = script_ref {
                 ref_scripts_size += script_size;
-                context.acknowledge_script(script_hash, reference_input.clone());
+                context.acknowledge_script(script_hash, *reference_input);
             }
         }
     }
@@ -103,7 +99,7 @@ where
     for (input_index, original_index) in indices.iter().enumerate() {
         let input = &inputs[*original_index];
 
-        let output = context.lookup(input).ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
+        let output = context.lookup(input).ok_or_else(|| InvalidInputs::UnknownInput(*input))?;
 
         let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
@@ -121,7 +117,7 @@ where
                     #[allow(clippy::wildcard_enum_match_arm)]
                     match e {
                         AddressError::InvalidByronCbor(error) => {
-                            InvalidInputs::InvalidByronAddressPayload { input: input.clone(), error: Box::new(error) }
+                            InvalidInputs::InvalidByronAddressPayload { input: *input, error: Box::new(error) }
                         }
                         _ => unreachable!("byron_address.decode() only returns InvalidByronCbor"),
                     }
@@ -148,7 +144,7 @@ where
 
         if let Some((script_hash, script_size)) = script_ref {
             ref_scripts_size += script_size;
-            context.acknowledge_script(script_hash, input.clone());
+            context.acknowledge_script(script_hash, *input);
         }
 
         context.consume_value(&consumed_value);
@@ -184,7 +180,7 @@ mod tests {
         let input = fake_input("47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab", 2);
 
         let mut context = DefaultValidationContext::new(
-            BTreeMap::from([(input.clone(), fake_output(UNDECODABLE_BYRON_ADDRESS))]),
+            BTreeMap::from([(input, fake_output(UNDECODABLE_BYRON_ADDRESS))]),
             Default::default(),
             Default::default(),
             Default::default(),

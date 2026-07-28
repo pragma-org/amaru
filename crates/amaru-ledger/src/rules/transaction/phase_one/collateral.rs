@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     AddrType, Address, AddressError, HasOwnership, Hash, Lovelace, MemoizedTransactionOutput, ProtocolParameters,
-    StakeCredential, TransactionInput, cardano::value::Balance, cbor, is_locked_by_script, transaction_input_to_string,
+    StakeCredential, TransactionInput, cardano::value::Balance, cbor, is_locked_by_script,
 };
 use thiserror::Error;
 
@@ -27,11 +27,11 @@ enum CollateralWitness {
 
 #[derive(Debug, Error)]
 pub enum InvalidCollateral {
-    #[error("Unknown input: {}", transaction_input_to_string(.0))]
+    #[error("Unknown input: {0}")]
     UnknownInput(TransactionInput),
     #[error("too many collateral inputs: provided: {provided} allowed: {allowed}")]
     TooManyInputs { provided: usize, allowed: usize },
-    #[error("a collateral input is locked at a script address: {}", transaction_input_to_string(.0))]
+    #[error("a collateral input is locked at a script address: {0}")]
     LockedAtScriptAddress(TransactionInput),
     #[error("effective collateral value (={effective}) is insufficient; at least {required} is required")]
     InsufficientBalance { effective: Lovelace, required: Lovelace },
@@ -41,7 +41,7 @@ pub enum InvalidCollateral {
     NoCollateral,
     #[error("collateral has non-zero delta: {0}")]
     ValueNotConserved(Balance),
-    #[error("invalid Byron address payload at collateral input {}: {error}", transaction_input_to_string(input))]
+    #[error("invalid Byron address payload at collateral input {input}: {error}")]
     InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
 }
 
@@ -73,14 +73,14 @@ where
 
     for collateral in collaterals.iter() {
         let collateral_input =
-            context.lookup(collateral).ok_or_else(|| InvalidCollateral::UnknownInput(collateral.clone()))?;
+            context.lookup(collateral).ok_or_else(|| InvalidCollateral::UnknownInput(*collateral))?;
 
         if !has_redeemers {
             continue;
         }
 
         if is_locked_by_script(&collateral_input.address) {
-            return Err(InvalidCollateral::LockedAtScriptAddress(collateral.clone()));
+            return Err(InvalidCollateral::LockedAtScriptAddress(*collateral));
         }
 
         let witness = match &collateral_input.address {
@@ -92,10 +92,9 @@ where
                 let payload = byron_address.decode().map_err(|e| {
                     #[allow(clippy::wildcard_enum_match_arm)]
                     match e {
-                        AddressError::InvalidByronCbor(error) => InvalidCollateral::InvalidByronAddressPayload {
-                            input: collateral.clone(),
-                            error: Box::new(error),
-                        },
+                        AddressError::InvalidByronCbor(error) => {
+                            InvalidCollateral::InvalidByronAddressPayload { input: *collateral, error: Box::new(error) }
+                        }
                         // FIXME: Not unreachable at all?
                         _ => unreachable!("byron_address.decode() only returns InvalidByronCbor"),
                     }

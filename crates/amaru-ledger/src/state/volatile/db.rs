@@ -884,7 +884,7 @@ mod tests {
     fn test_consumed_input_is_tracked() {
         let input = run_strategy(any_transaction_input());
         let mut anchored = AnchoredVolatileFragment::fixture(10, 1);
-        anchored.fragment.utxo.consume(input.clone());
+        anchored.fragment.utxo.consume(input);
 
         let mut db = VolatileDB::default();
 
@@ -901,7 +901,7 @@ mod tests {
         db.push_back(first);
 
         let mut second = AnchoredVolatileFragment::fixture(20, 2);
-        second.fragment.utxo.consume(input.clone());
+        second.fragment.utxo.consume(input);
 
         db.push_back(second);
         assert_eq!(db.resolve_input(&input), Existence::Gone);
@@ -999,7 +999,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.produce(input.clone(), Arc::new(run_strategy(any_modern_output())));
+            block.fragment.utxo.produce(input, Arc::new(run_strategy(any_modern_output())));
         }
 
         if let Some(layer) = consume_in {
@@ -1007,7 +1007,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.consume(input.clone());
+            block.fragment.utxo.consume(input);
         }
 
         let mut db = VolatileDB::default();

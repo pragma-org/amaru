@@ -25,7 +25,6 @@ use amaru_kernel::{
     ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
-    transaction_input_to_string,
 };
 use thiserror::Error;
 
@@ -79,7 +78,7 @@ pub enum ContextHydratationError {
     #[error("failed to hydrate inputs")]
     ResolveInputs(#[source] StoreError),
 
-    #[error("unknown (but required) transaction input or reference input: {}", transaction_input_to_string(.0))]
+    #[error("unknown (but required) transaction input or reference input: {0}")]
     UnknownInput(TransactionInput),
 
     #[error("failed to hydrate pools")]

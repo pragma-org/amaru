@@ -81,7 +81,7 @@ pub mod tests {
         // utxos
         let txin = any_txin().new_tree(runner).unwrap().current();
         let output = any_memoized_transaction_output().new_tree(runner).unwrap().current();
-        let utxos_iter = std::iter::once((txin.clone(), output.clone()));
+        let utxos_iter = std::iter::once((txin, output.clone()));
 
         // accounts
         let account_key = any_stake_credential().new_tree(runner).unwrap().current();
@@ -294,7 +294,7 @@ pub mod tests {
         let point = Point::Origin;
 
         let remove = Columns {
-            utxo: std::iter::once(fixture.txin.clone()),
+            utxo: std::iter::once(fixture.txin),
             pools: std::iter::empty(),
             accounts: std::iter::empty(),
             dreps: std::iter::empty(),

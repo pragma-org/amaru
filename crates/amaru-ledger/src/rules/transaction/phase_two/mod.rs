@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, fmt};
 use amaru_kernel::{
     BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, RedeemerKey,
     TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    redeemer_tag_to_string, to_cbor, transaction_input_to_string,
+    redeemer_tag_to_string, to_cbor,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::{
@@ -41,7 +41,7 @@ use crate::context::UtxoSlice;
 
 #[derive(Debug, Error)]
 pub enum PhaseTwoError {
-    #[error("missing input: {}", transaction_input_to_string(.0))]
+    #[error("missing input: {0}")]
     MissingInput(TransactionInput),
     #[error("failed to translate transaction to TxInfo: {0}")]
     TransactionTranslationError(#[from] TxInfoTranslationError),
@@ -103,9 +103,7 @@ where
     let mut resolved_inputs = transaction_body
         .inputs
         .into_iter()
-        .map(|input| {
-            Ok((input.clone(), context.lookup(input).ok_or(PhaseTwoError::MissingInput(input.clone()))?.clone()))
-        })
+        .map(|input| Ok((*input, context.lookup(input).ok_or(PhaseTwoError::MissingInput(*input))?.clone())))
         .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()?;
 
     let mut resolved_reference_inputs = transaction_body
@@ -114,12 +112,7 @@ where
         .map(|reference_inputs| {
             reference_inputs
                 .iter()
-                .map(|input| {
-                    Ok((
-                        input.clone(),
-                        context.lookup(input).ok_or(PhaseTwoError::MissingInput(input.clone()))?.clone(),
-                    ))
-                })
+                .map(|input| Ok((*input, context.lookup(input).ok_or(PhaseTwoError::MissingInput(*input))?.clone())))
                 .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()
         })
         .transpose()?
@@ -151,7 +144,7 @@ where
                 parent: &span_execute_scripts,
                 ledger::rules::phase_two::EXECUTE_ONE_SCRIPT,
                 purpose = redeemer_tag_to_string(purpose),
-                index = *index
+                index = index
             )
             .in_scope(|| {
                 let arena = debug_span!(ledger::rules::phase_two::ACQUIRE_ARENA).in_scope(|| arena_pool.acquire());

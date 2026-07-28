@@ -176,9 +176,9 @@ fn resolve_inputs<'block, 'volatile>(
 
             match (output, &policy) {
                 (None, UnresolvedInputPolicy::Defer) => Ok(acc),
-                (None, UnresolvedInputPolicy::Reject) => Err(ContextHydratationError::UnknownInput(input.clone())),
+                (None, UnresolvedInputPolicy::Reject) => Err(ContextHydratationError::UnknownInput(*input)),
                 (Some(output), _) => {
-                    acc.insert(input.clone(), output);
+                    acc.insert(*input, output);
                     Ok(acc)
                 }
             }
