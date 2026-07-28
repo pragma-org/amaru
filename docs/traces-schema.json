@@ -399,42 +399,6 @@
       "description": "Import a compressed snapshot archive",
       "public": true
     },
-    "amaru::bootstrap::snapshot::IMPORT_DIR": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "import_dir",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::snapshot",
-      "description": "Import a snapshot directory",
-      "public": true
-    },
-    "amaru::bootstrap::snapshot::IMPORT_FILE": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "import_file",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::snapshot",
-      "description": "Import a single snapshot",
-      "public": true
-    },
     "amaru::bootstrap::snapshot::IMPORT_TVAR": {
       "type": "object",
       "properties": {
@@ -456,24 +420,6 @@
       "level": "TRACE",
       "target": "amaru::bootstrap::snapshot",
       "description": "Import from the tvar data",
-      "public": true
-    },
-    "amaru::bootstrap::snapshot::INVALID": {
-      "type": "object",
-      "properties": {
-        "snapshot": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "snapshot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "invalid",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::snapshot",
-      "description": "Existing snapshot files are invalid and will be removed",
       "public": true
     },
     "amaru::bootstrap::snapshot::SKIP_DOWNLOAD": {

@@ -779,18 +779,6 @@ define_schemas! {
                 public SKIP_DOWNLOAD {
                     required snapshot: String
                 }
-                /// Existing snapshot files are invalid and will be removed
-                public INVALID {
-                    required snapshot: String
-                }
-                /// Import a single snapshot
-                public IMPORT_FILE {
-                    required path: String
-                }
-                /// Import a snapshot directory
-                public IMPORT_DIR {
-                    required path: String
-                }
                 /// Import a compressed snapshot archive
                 public IMPORT_ARCHIVE {
                     required path: String

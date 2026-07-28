@@ -236,10 +236,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `download` | `TRACE` | public | Download a snapshot archive | epoch, point |  |
 | `import_archive` | `TRACE` | public | Import a compressed snapshot archive | path |  |
-| `import_dir` | `TRACE` | public | Import a snapshot directory | path |  |
-| `import_file` | `TRACE` | public | Import a single snapshot | path |  |
 | `import_tvar` | `TRACE` | public | Import from the tvar data | point, new_epoch_state_offset |  |
-| `invalid` | `TRACE` | public | Existing snapshot files are invalid and will be removed | snapshot |  |
 | `skip_download` | `TRACE` | public | Snapshot already downloaded; skipping download | snapshot |  |
 
 <details><summary>span: `download`</summary>
@@ -259,36 +256,12 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `import_dir`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `path` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `import_file`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `path` | `string` | ✓ |
-
-</details>
-
 <details><summary>span: `import_tvar`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `point` | `string` | ✓ |
 | `new_epoch_state_offset` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `invalid`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `snapshot` | `string` | ✓ |
 
 </details>
 
