@@ -12,37 +12,82 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::PoolVotingThresholds;
-#[cfg(any(test, feature = "test-utils"))]
-pub use proxy::*;
+use std::fmt;
 
-use crate::rational_number;
+use crate::{RationalNumber, cbor, rational_number};
 
-pub fn fmt(thresholds: &PoolVotingThresholds) -> String {
-    // NOTE: destructuring for completeness static checks
-    let PoolVotingThresholds {
-        motion_no_confidence,
-        committee_normal,
-        committee_no_confidence,
-        hard_fork_initiation,
-        security_voting_threshold,
-    } = thresholds;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PoolVotingThresholds {
+    pub motion_no_confidence: RationalNumber,
+    pub committee_normal: RationalNumber,
+    pub committee_no_confidence: RationalNumber,
+    pub hard_fork_initiation: RationalNumber,
+    pub security_voting_threshold: RationalNumber,
+}
 
-    format!(
-        "{{\
+impl fmt::Display for PoolVotingThresholds {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // NOTE: destructuring for completeness static checks
+        let PoolVotingThresholds {
+            motion_no_confidence,
+            committee_normal,
+            committee_no_confidence,
+            hard_fork_initiation,
+            security_voting_threshold,
+        } = self;
+
+        write!(
+            f,
+            "{{\
             committee_normal={}, \
             committee_no_confidence={}, \
             motion_no_confidence={}, \
             hard_fork_initiation={}, \
             security_voting_threshold={}\
         }}",
-        rational_number::fmt(committee_normal),
-        rational_number::fmt(committee_no_confidence),
-        rational_number::fmt(motion_no_confidence),
-        rational_number::fmt(hard_fork_initiation),
-        rational_number::fmt(security_voting_threshold),
-    )
+            rational_number::fmt(committee_normal),
+            rational_number::fmt(committee_no_confidence),
+            rational_number::fmt(motion_no_confidence),
+            rational_number::fmt(hard_fork_initiation),
+            rational_number::fmt(security_voting_threshold),
+        )
+    }
 }
+
+impl<'b, C> cbor::Decode<'b, C> for PoolVotingThresholds {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+
+        Ok(Self {
+            motion_no_confidence: d.decode_with(ctx)?,
+            committee_normal: d.decode_with(ctx)?,
+            committee_no_confidence: d.decode_with(ctx)?,
+            hard_fork_initiation: d.decode_with(ctx)?,
+            security_voting_threshold: d.decode_with(ctx)?,
+        })
+    }
+}
+
+impl<C> cbor::Encode<C> for PoolVotingThresholds {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(5)?;
+
+        e.encode_with(&self.motion_no_confidence, ctx)?;
+        e.encode_with(&self.committee_normal, ctx)?;
+        e.encode_with(&self.committee_no_confidence, ctx)?;
+        e.encode_with(&self.hard_fork_initiation, ctx)?;
+        e.encode_with(&self.security_voting_threshold, ctx)?;
+
+        Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use proxy::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod proxy {

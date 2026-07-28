@@ -15,10 +15,7 @@
 use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
-    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, pool_voting_thresholds,
-    protocol_version,
-};
-use amaru_kernel::{
+    AsHash,
     ComparableProposalId,
     Constitution,
     Epoch,
@@ -27,13 +24,17 @@ use amaru_kernel::{
     ProposalsRoots,
     ProposalsRootsRc,
     ProtocolParameters,
+    RatificationStatus,
     StakeCredential,
+    StakeCredentialKind,
     cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
+    cost_models,
     expect_stake_credential,
+    protocol_version,
     rational_number,
 };
 use amaru_observability::{debug, info, info_span};
@@ -372,10 +373,8 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         pledge_influence = @opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
         collateral_percentage = @opt_field(&old.collateral_percentage, collateral_percentage),
         cost_models = @opt_field_with(&old.cost_models, cost_models, cost_models::fmt),
-        pool_voting_thresholds =
-            @opt_field_with(&old.pool_voting_thresholds, pool_voting_thresholds, pool_voting_thresholds::fmt),
-        drep_voting_thresholds =
-            @opt_field_with(&old.drep_voting_thresholds, drep_voting_thresholds, drep_voting_thresholds::fmt,),
+        pool_voting_thresholds = @opt_field(&old.pool_voting_thresholds, pool_voting_thresholds),
+        drep_voting_thresholds = @opt_field(&old.drep_voting_thresholds, drep_voting_thresholds),
         min_committee_size = @opt_field(&old.min_committee_size, min_committee_size),
         max_committee_term_length = @opt_field(&old.max_committee_term_length, max_committee_term_length),
         gov_action_lifetime = @opt_field(&old.gov_action_lifetime, gov_action_lifetime),
