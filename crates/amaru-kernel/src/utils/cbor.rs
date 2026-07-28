@@ -15,7 +15,9 @@
 mod serialised_as_cbor;
 mod serialised_as_millis;
 mod serialised_as_pico;
+mod serialised_as_set;
 
 pub use serialised_as_cbor::SerialisedAsCbor;
 pub use serialised_as_millis::SerialisedAsMillis;
 pub use serialised_as_pico::SerialisedAsPico;
+pub use serialised_as_set::SerialisedAsSet;

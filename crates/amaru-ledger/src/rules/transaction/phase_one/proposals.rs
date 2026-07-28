@@ -172,8 +172,8 @@ fn validate_proposal(
             // (see certificates.rs PoolRetirement comment for details)
             let current = era_history.slot_to_epoch(pointer.slot, pointer.slot)?;
             for (_, expiry) in added.iter() {
-                if Epoch::from(*expiry) <= current {
-                    return Err(InvalidProposals::ExpirationEpochTooSmall { expiry: Epoch::from(*expiry), current });
+                if expiry <= &current {
+                    return Err(InvalidProposals::ExpirationEpochTooSmall { expiry: *expiry, current });
                 }
             }
         }

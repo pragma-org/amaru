@@ -255,7 +255,7 @@ impl ToPlutusData<3> for GovernanceAction {
             }
             GovernanceAction::UpdateCommittee(previous_action, removed, added, quorum) => {
                 let quorum = governance_action_ratio(quorum)?;
-                constr_v3!(4, [previous_action, removed.deref(), added, quorum])
+                constr_v3!(4, [previous_action, removed, added, quorum])
             }
             GovernanceAction::NewConstitution(previous_action, constitution) => {
                 constr_v3!(5, [previous_action, constitution])
@@ -541,7 +541,9 @@ impl ToPlutusData<3> for PlutusStakeAddress {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Nullable, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Set, Transaction, cbor, to_cbor};
+    use amaru_kernel::{
+        KeyValuePairs, Nullable, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor,
+    };
     use test_case::test_case;
 
     use super::{
@@ -608,8 +610,8 @@ mod tests {
     fn governance_quorum_uses_constr_encoding() {
         let action = GovernanceAction::UpdateCommittee(
             Nullable::Null,
-            Set::from(vec![]),
-            LegacyKeyValuePairs::Def(vec![]),
+            vec![],
+            KeyValuePairs::default(),
             RationalNumber { numerator: 2, denominator: 4 },
         );
 

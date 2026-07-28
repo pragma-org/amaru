@@ -69,7 +69,7 @@ pub use cardano::{
     era_name::{EraName, EraNameError},
     era_params::EraParams,
     era_summary::EraSummary,
-    ex_units::{self, ExUnits, sum_ex_units},
+    ex_units::{self, ExUnits},
     ex_units_prices::{self, ExUnitPrices},
     global_parameters::{
         GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS,
@@ -115,7 +115,7 @@ pub use cardano::{
         self, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
     },
-    protocol_parameters_update::{ProtocolParamUpdate, display_protocol_parameters_update},
+    protocol_parameters_update::{self, ProtocolParamUpdate, display_protocol_parameters_update},
     protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
     ratification_status::{self, RatificationStatus},
     rational_number::{self, RationalNumber},

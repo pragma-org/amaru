@@ -14,16 +14,78 @@
 
 use std::fmt::{self, Write};
 
-pub use pallas_primitives::conway::ProtocolParamUpdate;
+use crate::{
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, cbor,
+    rational_number,
+};
 
-use crate::RationalNumber;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(map)]
+pub struct ProtocolParamUpdate {
+    #[n(0)]
+    pub minfee_a: Option<u64>,
+    #[n(1)]
+    pub minfee_b: Option<u64>,
+    #[n(2)]
+    pub max_block_body_size: Option<u64>,
+    #[n(3)]
+    pub max_transaction_size: Option<u64>,
+    #[n(4)]
+    pub max_block_header_size: Option<u64>,
+    #[n(5)]
+    pub key_deposit: Option<Lovelace>,
+    #[n(6)]
+    pub pool_deposit: Option<Lovelace>,
+    #[n(7)]
+    pub maximum_epoch: Option<u64>,
+    #[n(8)]
+    pub desired_number_of_stake_pools: Option<u64>,
+    #[n(9)]
+    pub pool_pledge_influence: Option<RationalNumber>,
+    #[n(10)]
+    pub expansion_rate: Option<RationalNumber>,
+    #[n(11)]
+    pub treasury_growth_rate: Option<RationalNumber>,
+    #[n(16)]
+    pub min_pool_cost: Option<Lovelace>,
+    #[n(17)]
+    pub ada_per_utxo_byte: Option<Lovelace>,
+    #[n(18)]
+    pub cost_models_for_script_languages: Option<CostModels>,
+    #[n(19)]
+    pub execution_costs: Option<ExUnitPrices>,
+    #[n(20)]
+    pub max_tx_ex_units: Option<ExUnits>,
+    #[n(21)]
+    pub max_block_ex_units: Option<ExUnits>,
+    #[n(22)]
+    pub max_value_size: Option<u64>,
+    #[n(23)]
+    pub collateral_percentage: Option<u64>,
+    #[n(24)]
+    pub max_collateral_inputs: Option<u64>,
+    #[n(25)]
+    pub pool_voting_thresholds: Option<PoolVotingThresholds>,
+    #[n(26)]
+    pub drep_voting_thresholds: Option<DRepVotingThresholds>,
+    #[n(27)]
+    pub min_committee_size: Option<u64>,
+    #[n(28)]
+    pub committee_term_limit: Option<u64>,
+    #[n(29)]
+    pub governance_action_validity_period: Option<u64>,
+    #[n(30)]
+    pub governance_action_deposit: Option<Lovelace>,
+    #[n(31)]
+    pub drep_deposit: Option<Lovelace>,
+    #[n(32)]
+    pub drep_inactivity_period: Option<u64>,
+    #[n(33)]
+    pub minfee_refscript_cost_per_byte: Option<RationalNumber>,
+}
 
 pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: &str) -> Result<String, fmt::Error> {
     let mut s = String::new();
-
-    fn display_rational(r: &RationalNumber) -> String {
-        format!("{}/{}", r.numerator, r.denominator)
-    }
 
     fn push_opt<T: fmt::Display>(
         out: &mut String,
@@ -63,13 +125,13 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
 
     push_opt(&mut s, &mut is_first, prefix, "desired_number_of_stake_pools", &update.desired_number_of_stake_pools)?;
 
-    let pool_pledge_influence = update.pool_pledge_influence.as_ref().map(display_rational);
+    let pool_pledge_influence = update.pool_pledge_influence.as_ref().map(rational_number::fmt);
     push_opt(&mut s, &mut is_first, prefix, "pool_pledge_influence", &pool_pledge_influence)?;
 
-    let expansion_rate = update.expansion_rate.as_ref().map(display_rational);
+    let expansion_rate = update.expansion_rate.as_ref().map(rational_number::fmt);
     push_opt(&mut s, &mut is_first, prefix, "expansion_rate", &expansion_rate)?;
 
-    let treasury_growth_rate = update.treasury_growth_rate.as_ref().map(display_rational);
+    let treasury_growth_rate = update.treasury_growth_rate.as_ref().map(rational_number::fmt);
     push_opt(&mut s, &mut is_first, prefix, "treasury_growth_rate", &treasury_growth_rate)?;
 
     push_opt(&mut s, &mut is_first, prefix, "min_pool_cost", &update.min_pool_cost)?;
@@ -92,17 +154,14 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
     });
     push_opt(&mut s, &mut is_first, prefix, "cost_models", &cost_models)?;
 
-    let execution_costs = update
-        .execution_costs
-        .as_ref()
-        .map(|p| format!("{{mem={}, cpu={}}}", display_rational(&p.mem_price), display_rational(&p.step_price)));
+    let execution_costs = update.execution_costs.as_ref().map(|p| {
+        format!("{{mem={}, cpu={}}}", rational_number::fmt(&p.mem_price), rational_number::fmt(&p.step_price))
+    });
     push_opt(&mut s, &mut is_first, prefix, "execution_costs", &execution_costs)?;
 
-    let max_tx_ex_units = update.max_tx_ex_units.as_ref().map(|u| format!("{{mem={}, cpu={}}}", u.mem, u.steps));
-    push_opt(&mut s, &mut is_first, prefix, "max_tx_ex_units", &max_tx_ex_units)?;
+    push_opt(&mut s, &mut is_first, prefix, "max_tx_ex_units", &update.max_tx_ex_units)?;
 
-    let max_block_ex_units = update.max_block_ex_units.as_ref().map(|u| format!("{{mem={}, cpu={}}}", u.mem, u.steps));
-    push_opt(&mut s, &mut is_first, prefix, "max_block_ex_units", &max_block_ex_units)?;
+    push_opt(&mut s, &mut is_first, prefix, "max_block_ex_units", &update.max_block_ex_units)?;
 
     push_opt(&mut s, &mut is_first, prefix, "max_value_size", &update.max_value_size)?;
 
@@ -118,11 +177,11 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
              \n{p}  ├─ hard fork                  {hfi}\
              \n{p}  └─ protocol params (security) {svt}",
             p = prefix,
-            cn = display_rational(&v.committee_normal),
-            cc = display_rational(&v.committee_no_confidence),
-            mnc = display_rational(&v.motion_no_confidence),
-            hfi = display_rational(&v.hard_fork_initiation),
-            svt = display_rational(&v.security_voting_threshold),
+            cn = rational_number::fmt(&v.committee_normal),
+            cc = rational_number::fmt(&v.committee_no_confidence),
+            mnc = rational_number::fmt(&v.motion_no_confidence),
+            hfi = rational_number::fmt(&v.hard_fork_initiation),
+            svt = rational_number::fmt(&v.security_voting_threshold),
         )
     });
     push_opt(&mut s, &mut is_first, prefix, "pool_voting_thresholds", &pool_voting)?;
@@ -140,16 +199,16 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
              \n{p}  ├─ protocol params (governance) {ppg}\
              \n{p}  └─ hard fork                    {hfi}",
             p = prefix,
-            cn = display_rational(&v.committee_normal),
-            cc = display_rational(&v.committee_no_confidence),
-            mnc = display_rational(&v.motion_no_confidence),
-            tw = display_rational(&v.treasury_withdrawal),
-            uc = display_rational(&v.update_constitution),
-            ppn = display_rational(&v.pp_network_group),
-            ppe = display_rational(&v.pp_economic_group),
-            ppt = display_rational(&v.pp_technical_group),
-            ppg = display_rational(&v.pp_governance_group),
-            hfi = display_rational(&v.hard_fork_initiation),
+            cn = rational_number::fmt(&v.committee_normal),
+            cc = rational_number::fmt(&v.committee_no_confidence),
+            mnc = rational_number::fmt(&v.motion_no_confidence),
+            tw = rational_number::fmt(&v.treasury_withdrawal),
+            uc = rational_number::fmt(&v.update_constitution),
+            ppn = rational_number::fmt(&v.pp_network_group),
+            ppe = rational_number::fmt(&v.pp_economic_group),
+            ppt = rational_number::fmt(&v.pp_technical_group),
+            ppg = rational_number::fmt(&v.pp_governance_group),
+            hfi = rational_number::fmt(&v.hard_fork_initiation),
         )
     });
 
@@ -173,7 +232,7 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
 
     push_opt(&mut s, &mut is_first, prefix, "drep_inactivity_period", &update.drep_inactivity_period)?;
 
-    let minfee_refscript_cost_per_byte = update.minfee_refscript_cost_per_byte.as_ref().map(display_rational);
+    let minfee_refscript_cost_per_byte = update.minfee_refscript_cost_per_byte.as_ref().map(rational_number::fmt);
     push_opt(&mut s, &mut is_first, prefix, "minfee_refscript_cost_per_byte", &minfee_refscript_cost_per_byte)?;
 
     Ok(s)

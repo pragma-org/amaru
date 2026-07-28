@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
-    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, ex_units, ex_units_prices,
+    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, ex_units_prices,
     pool_voting_thresholds, protocol_version,
 };
 use amaru_kernel::{
@@ -341,8 +341,8 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         max_block_body_size = @opt_field(&old.max_block_body_size, max_block_body_size),
         max_transaction_size = @opt_field(&old.max_transaction_size, max_transaction_size),
         max_block_header_size = @opt_field(&old.max_block_header_size, max_block_header_size),
-        max_tx_ex_units = @opt_field_with(&old.max_tx_ex_units, max_tx_ex_units, ex_units::fmt),
-        max_block_ex_units = @opt_field_with(&old.max_block_ex_units, max_block_ex_units, ex_units::fmt),
+        max_tx_ex_units = @opt_field(&old.max_tx_ex_units, max_tx_ex_units),
+        max_block_ex_units = @opt_field(&old.max_block_ex_units, max_block_ex_units),
         max_value_size = @opt_field(&old.max_value_size, max_value_size),
         max_collateral_inputs = @opt_field(&old.max_collateral_inputs, max_collateral_inputs),
         min_fee_a = @opt_field(&old.min_fee_a, min_fee_a),

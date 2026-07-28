@@ -177,7 +177,7 @@ impl ProposalsForest {
 
             TreasuryWithdrawals(withdrawals, _guardrails_script) => {
                 let withdrawals =
-                    withdrawals.to_vec().into_iter().fold(BTreeMap::new(), |mut accum, (reward_account, amount)| {
+                    withdrawals.into_iter().fold(BTreeMap::new(), |mut accum, (reward_account, amount)| {
                         accum.insert(expect_stake_credential(&reward_account), amount);
                         accum
                     });
@@ -192,8 +192,8 @@ impl ProposalsForest {
 
                 insert(ProposalEnum::ConstitutionalCommittee(
                     CommitteeUpdate::ChangeMembers {
-                        removed: removed.to_vec().into_iter().collect(),
-                        added: added.to_vec().into_iter().map(|(k, v)| (k, Epoch::from(v))).collect(),
+                        removed: removed.into_iter().collect(),
+                        added: added.into_iter().collect(),
                         threshold: into_safe_ratio(&threshold),
                     },
                     parent,
@@ -774,9 +774,9 @@ mod tests {
     use amaru_kernel::{
         Anchor, ComparableProposalId, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, Nullable,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer,
-        ProtocolParameters, RationalNumber, Set, Slot, TransactionPointer, any_comparable_proposal_id,
-        any_constitution, any_gov_action, any_proposal_pointer, any_protocol_params_update, any_protocol_version,
-        any_reward_account, empty_bytes,
+        ProtocolParameters, RationalNumber, Slot, TransactionPointer, any_comparable_proposal_id, any_constitution,
+        any_gov_action, any_proposal_pointer, any_protocol_params_update, any_protocol_version, any_reward_account,
+        empty_bytes,
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
 
@@ -1169,11 +1169,8 @@ mod tests {
                     CommitteeUpdate::NoConfidence => GovernanceAction::NoConfidence(parent),
                     CommitteeUpdate::ChangeMembers { threshold, added, removed } => GovernanceAction::UpdateCommittee(
                         parent,
-                        Set::from(removed.into_iter().collect::<Vec<_>>()),
-                        KeyValuePairs::from(
-                            added.into_iter().map(|(k, v)| (k, u64::from(v))).collect::<BTreeMap<_, _>>(),
-                        )
-                        .as_pallas(),
+                        removed.into_iter().collect::<Vec<_>>(),
+                        KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
                         #[expect(clippy::unwrap_used)]
                         RationalNumber {
                             numerator: threshold.numer().try_into().unwrap(),
@@ -1311,7 +1308,7 @@ mod tests {
                     1..3
                 ).prop_map(|kvs|
                     GovernanceAction::TreasuryWithdrawals(
-                        KeyValuePairs::from(kvs).as_pallas(),
+                        KeyValuePairs::from(kvs),
                         Nullable::Null
                     )
                 ),

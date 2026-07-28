@@ -505,10 +505,10 @@ mod tests {
 
     use super::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
     use crate::{
-        CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, Hash, KeyValuePairs,
-        Lovelace, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion,
-        RewardAccount, Set, StakeCredential, any_constitution, any_hash28, any_nullable, any_proposal_id,
-        any_rational_number, any_reward_account, any_stake_credential, size::SCRIPT,
+        CostModel, CostModels, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
+        KeyValuePairs, Lovelace, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
+        ProtocolVersion, RewardAccount, StakeCredential, any_constitution, any_epoch, any_hash28, any_nullable,
+        any_proposal_id, any_rational_number, any_reward_account, any_stake_credential, size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -739,7 +739,7 @@ mod tests {
                 guardrails in any_guardrails_script(),
             ) -> GovernanceAction {
                 GovernanceAction::TreasuryWithdrawals(
-                    KeyValuePairs::try_from(withdrawals).unwrap().as_pallas(),
+                    KeyValuePairs::try_from(withdrawals).unwrap(),
                     guardrails
                 )
             }
@@ -756,8 +756,8 @@ mod tests {
         prop_compose! {
             fn any_committee_registration()(
                 credential in any_stake_credential(),
-                epoch in any::<u64>(),
-            ) -> (StakeCredential, u64) {
+                epoch in any_epoch(),
+            ) -> (StakeCredential, Epoch) {
                 (credential, epoch)
             }
         }
@@ -772,8 +772,8 @@ mod tests {
             ) -> GovernanceAction {
                 GovernanceAction::UpdateCommittee(
                     parent_proposal_id,
-                    Set::from(to_remove.into_iter().collect::<Vec<_>>()),
-                    KeyValuePairs::try_from(to_add).unwrap().as_pallas(),
+                    to_remove.into_iter().collect::<Vec<_>>(),
+                    KeyValuePairs::try_from(to_add).unwrap(),
                     quorum
                 )
             }
