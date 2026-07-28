@@ -86,9 +86,14 @@ impl TestPrep {
 }
 
 pub fn test_prep(static_names: &[&str]) -> TestPrep {
+    test_prep_with_snapshot(static_names, &[])
+}
+
+pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -> TestPrep {
     let manager = StageRef::named_for_tests("manager");
     let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| Peer::new(n)).collect();
-    let state = PeerSelection::new(manager, static_peers, 3, 10, COOLDOWN_SECS);
+    let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| Peer::new(n)).collect();
+    let state = PeerSelection::new(manager, static_peers, snapshot_candidates, 3, 10, COOLDOWN_SECS);
     TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
 }
 

@@ -18,8 +18,6 @@ jobs:
   run-turbo-benchmarks:
     name: benchmarks-turbo
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
     steps:
       - uses: actions/checkout@v6
 

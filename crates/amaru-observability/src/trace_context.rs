@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Display, str::FromStr};
+use std::str::FromStr;
 
 use opentelemetry::{
     Context, ContextGuard,
@@ -21,18 +21,13 @@ use opentelemetry::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-/// Parent context for spans that must cross stage boundaries.
-/// It encapsulates an OpenTelemetry `SpanContext` to provide a few helper functions.
+/// Parent context for spans that must cross stage boundaries:
 ///
-/// Serialization carries the `SpanContext` and whether a live span was attached: the
-/// `tracing::Span` handle itself cannot be serialized, so deserialization substitutes a
-/// disabled placeholder span (`tracing::Span::none()`). A deserialized `TraceContext` thus
-/// keeps the same shape and can still parent new spans, but `record` and `close` have no
-/// observable effect.
+/// - It can be created from a regular `tracing::Span` (with `(&span).into()`)
+/// - It can be used as a parent via [`context`](Self::context) / [`attach`](Self::attach),
+///   or with the `parent_context:` argument of the span macros.
 #[derive(Clone, Debug)]
 pub struct TraceContext {
-    /// We keep the span as an option in order to drop it when it's closed
-    span: Option<tracing::Span>,
     span_context: SpanContext,
 }
 
@@ -46,7 +41,7 @@ impl Eq for TraceContext {}
 
 impl TraceContext {
     pub fn none() -> Self {
-        Self { span: None, span_context: SpanContext::empty_context() }
+        Self { span_context: SpanContext::empty_context() }
     }
 
     pub fn context(&self) -> Context {
@@ -60,33 +55,11 @@ impl TraceContext {
     pub fn attach(&self) -> ContextGuard {
         self.context().attach()
     }
-
-    /// Close the corresponding span
-    pub fn close(&mut self) {
-        if let Some(span) = self.span.take() {
-            drop(span)
-        }
-    }
-
-    /// Append a field to the corresponding span
-    pub fn record(&self, name: &'static str, value: &dyn Display) {
-        if let Some(span) = &self.span {
-            span.record(name, tracing::field::display(value));
-        }
-    }
-}
-
-impl From<tracing::Span> for TraceContext {
-    fn from(span: tracing::Span) -> Self {
-        let span_context = span.context().span().span_context().clone();
-        Self { span: Some(span), span_context }
-    }
 }
 
 impl From<&tracing::Span> for TraceContext {
     fn from(span: &tracing::Span) -> Self {
-        let span_context = span.context().span().span_context().clone();
-        Self { span: None, span_context }
+        Self { span_context: span.context().span().span_context().clone() }
     }
 }
 
@@ -96,11 +69,9 @@ impl Default for TraceContext {
     }
 }
 
-/// Serializable representation of a `TraceContext`: the OpenTelemetry `SpanContext` fields
-/// plus whether a live span was attached.
+/// Serializable representation of a `TraceContext`.
 #[derive(Serialize, Deserialize)]
 struct SerializedTraceContext {
-    has_span: bool,
     trace_id: String,
     span_id: String,
     trace_flags: u8,
@@ -112,7 +83,6 @@ impl From<&TraceContext> for SerializedTraceContext {
     fn from(trace_context: &TraceContext) -> Self {
         let span_context = &trace_context.span_context;
         Self {
-            has_span: trace_context.span.is_some(),
             trace_id: span_context.trace_id().to_string(),
             span_id: span_context.span_id().to_string(),
             trace_flags: span_context.trace_flags().to_u8(),
@@ -133,7 +103,7 @@ impl TryFrom<SerializedTraceContext> for TraceContext {
             serialized.is_remote,
             TraceState::from_str(&serialized.trace_state).map_err(|e| format!("invalid trace state: {e}"))?,
         );
-        Ok(Self { span: serialized.has_span.then(tracing::Span::none), span_context })
+        Ok(Self { span_context })
     }
 }
 
@@ -163,25 +133,12 @@ mod tests {
             true,
             TraceState::from_key_value(vec![("foo", "bar")]).unwrap(),
         );
-        let trace_context = TraceContext { span: None, span_context };
+        let trace_context = TraceContext { span_context };
 
         let serialized = serde_json::to_string(&trace_context).unwrap();
         let deserialized: TraceContext = serde_json::from_str(&serialized).unwrap();
 
         assert_eq!(deserialized, trace_context);
-        assert!(deserialized.span.is_none());
-    }
-
-    #[test]
-    fn serialization_round_trip_preserves_the_presence_of_a_span() {
-        let trace_context =
-            TraceContext { span: Some(tracing::Span::none()), span_context: SpanContext::empty_context() };
-
-        let serialized = serde_json::to_string(&trace_context).unwrap();
-        let deserialized: TraceContext = serde_json::from_str(&serialized).unwrap();
-
-        assert_eq!(deserialized, trace_context);
-        assert!(deserialized.span.is_some());
     }
 
     #[test]

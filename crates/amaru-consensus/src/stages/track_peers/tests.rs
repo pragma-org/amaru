@@ -15,6 +15,7 @@
 use std::{self, slice, time::Duration};
 
 use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, Tip, num::CheckedSub};
+use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_ouroboros::{ConnectionId, praos::header::AssertHeaderError};
 use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
 use amaru_protocols::chainsync::{
@@ -22,7 +23,7 @@ use amaru_protocols::chainsync::{
 };
 use amaru_pure_stage::{
     assert_trace_contains, assert_trace_does_not_contain, assert_trace_match, simulation::running::OverrideResult,
-    tm_send,
+    tm_send, trace_buffer::TraceEntry,
 };
 use tracing::Level;
 
@@ -30,7 +31,7 @@ use crate::{
     effects::{ValidateHeaderEffect, VolatileTipEffect},
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{assert_trace, te_input, te_send, te_state, tm_state},
+        test_utils::{assert_trace, te_input, te_record_consensus_metrics, te_send, te_state, tm_state},
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
@@ -44,6 +45,19 @@ use crate::{
     store::NoncesError,
     validate_header::ValidateHeaderError,
 };
+
+/// The metric recorded for a header rejected on reception: only its terminal outcome, no durations.
+fn te_header_rejected(outcome: &str) -> TraceEntry {
+    te_record_consensus_metrics(
+        "tp-1",
+        ConsensusMetrics::HeaderLifecycle {
+            outcome: outcome.into(),
+            block_fetch_wait_micros: None,
+            block_fetch_micros: None,
+            forward_micros: None,
+        },
+    )
+}
 
 #[test]
 fn test_new_peer() {
@@ -300,12 +314,16 @@ fn test_roll_forward_unknown_peer_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Unknown peer"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Unknown peer"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -338,6 +356,7 @@ fn test_roll_forward_known_peer_header_already_stored() {
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_validate_header("tp-1", header.clone()).into(),
             te_has_header("tp-1", header.hash()).into(),
+            te_header_rejected("duplicate header").into(),
             te_state("tp-1", &expected).into(),
         ],
     );
@@ -411,11 +430,12 @@ fn test_roll_forward_invalid_variant_removes_peer() {
         &[
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
+            te_header_rejected("undecodable header"),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.decode_header.failed", "Invalid header variant"])
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header variant"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -444,11 +464,12 @@ fn test_roll_forward_invalid_cbor_removes_peer() {
         &[
             te_state("tp-1", &state),
             te_input("tp-1", &msg),
+            te_header_rejected("undecodable header"),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)),
             te_state("tp-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.decode_header.failed", "Failed to decode header"])
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Failed to decode header"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -478,12 +499,16 @@ fn test_roll_forward_invalid_parent_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header parent"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header parent"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -511,12 +536,16 @@ fn test_roll_forward_invalid_height_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header height"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header height"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -544,12 +573,16 @@ fn test_roll_forward_invalid_point_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed", "Invalid header point"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header point"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
 
 #[test]
@@ -579,7 +612,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             });
         });
 
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -592,6 +625,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_validate_header("tp-1", header.clone()).into(),
+            te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
@@ -621,7 +655,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
 
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -633,6 +667,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
@@ -712,7 +747,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
             });
         });
 
-    logs.assert_and_remove(Level::ERROR, &["chain_sync.validate_header.failed"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -725,6 +760,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_validate_header("tp-1", header.clone()).into(),
+            te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
         ],
@@ -942,6 +978,7 @@ fn test_pipelined_headers_after_height_defer() {
             te_schedule("tp-1", TrackPeersMsg::RecheckLedgerHeight, sid).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first ledger-height deferred"),
             te_input("tp-1", &msg2).into(),
+            te_clock_suspend("tp-1").into(),
             tm_state::<TrackPeers>(
                 "tp-1",
                 |s| s.deferred.len() == 2 && s.recheck_timer == Some(sid),
@@ -1134,6 +1171,7 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             te_validate_header("tp-1", h1.clone()).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first stake deferred"),
             te_input("tp-1", &msg2).into(),
+            te_clock_suspend("tp-1").into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "follow-up queued"),
             te_input("tp-1", &wake).into(),
             tm_volatile_tip("tp-1"),
@@ -1160,4 +1198,115 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             ),
         ],
     );
+}
+
+/// Two headers deferred for the same connection; on recheck the first fails validation and
+/// purges the connection, which also drops the second entry from the deferred list.
+/// Regression: the recheck loop used to index past the shrunk list and panic.
+#[test]
+fn test_recheck_deferred_survives_purge_shrinking_the_list() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let wrong_parent = HeaderHash::from([9u8; 32]);
+    let h1 = make_block_header(2, 2, Some(wrong_parent));
+    let h2 = make_block_header(3, 3, Some(h1.hash()));
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
+    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), h1.clone(), h1.tip());
+    state.push_deferred_for_tests(peer.clone(), prep.conn_id, prep.handler.clone(), h2.clone(), h2.tip());
+
+    let msg = TrackPeersMsg::RecheckLedgerHeight;
+
+    let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
+    assert_trace_match(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            tm_volatile_tip("tp-1"),
+            te_clock_suspend("tp-1").into(),
+            te_header_rejected("invalid header").into(),
+            te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.is_empty() && s.upstream.is_empty(),
+                "connection purged with all its deferred entries",
+            ),
+        ],
+    );
+    logs.assert_and_remove(Level::ERROR, &["perf.header.lifecycle", "Invalid header parent"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+/// A deferred header that is still deferred on recheck must keep blocking its follow-ups.
+/// The peer tip has not advanced, so validating a follow-up would wrongly flag the peer as adversarial.
+#[test]
+fn test_redeferred_header_keeps_blocking_follow_ups() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let h1 = prep.headers[1].clone();
+    let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
+
+    let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.tip()),
+    });
+    let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.tip()),
+    });
+    // One epoch ahead of known max_epoch (start-2). We defer the header.
+    let first_target = prep.start_times.epoch.checked_sub(Epoch::ONE).unwrap();
+    // The stake distribution is updated but the header stays deferred.
+    let stake_distribution_update = TrackPeersMsg::StakeDistUpdated(first_target);
+    let second_target = prep.start_times.epoch;
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), h2.tip());
+
+    let slot1 = h1.slot();
+    let (running, _guards, mut logs) = setup_base(
+        &prep.rt_handle(),
+        state.clone(),
+        [msg1.clone(), msg2.clone(), stake_distribution_update.clone()],
+        build_store(&[]),
+        |running| {
+            let mut n = 0u8;
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
+                n += 1;
+                let target = if n == 1 { first_target } else { second_target };
+                OverrideResult::handled(Err(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
+                    GetPoolError::StakeDistributionNotAvailable(slot1, Some(target)),
+                ))))
+            });
+        },
+    );
+
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &msg1).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first header deferred"),
+            te_input("tp-1", &msg2).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 2, "its follow-up is queued"),
+            te_input("tp-1", &stake_distribution_update).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.len() == 2 && !s.upstream.is_empty(),
+                "both headers are still deferred after recheck. The connection is active",
+            ),
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
 }

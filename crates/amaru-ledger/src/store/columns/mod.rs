@@ -21,6 +21,7 @@ pub mod pools;
 pub mod pots;
 pub mod proposals;
 pub mod recently_pruned_proposals;
+pub mod recently_unregistered_accounts;
 pub mod slots;
 pub mod utxo;
 pub mod votes;

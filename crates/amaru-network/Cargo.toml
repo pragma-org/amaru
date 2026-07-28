@@ -17,7 +17,6 @@ categories.workspace = true
 
 [dependencies]
 bytes = { workspace = true, features = ["serde"] }
-pallas-network.workspace = true
 parking_lot.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["net"] }

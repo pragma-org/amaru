@@ -22,7 +22,7 @@ use anyhow::Result;
 use quote::ToTokens;
 use syn::Item;
 
-use crate::{emit_rerun_if_exists, git, write_if_changed};
+use crate::{emit_rerun_if_changed, git, write_if_changed};
 
 /// Generate `dump_schemas_type_aliases.rs` in `OUT_DIR`, containing a `TYPE_ALIASES` constant
 /// that maps every top-level type alias of the workspace to its underlying type.
@@ -52,7 +52,7 @@ fn collect_workspace_type_aliases(crates_dir: &Path, aliases: &mut BTreeMap<Stri
         return Ok(());
     }
 
-    emit_rerun_if_exists(crates_dir);
+    emit_rerun_if_changed(crates_dir);
 
     let entries = fs::read_dir(crates_dir)?;
 

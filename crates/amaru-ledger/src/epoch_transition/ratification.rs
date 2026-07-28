@@ -24,6 +24,8 @@ use amaru_kernel::{
     Epoch,
     EraHistory,
     Lovelace,
+    ProposalsRoots,
+    ProposalsRootsRc,
     ProtocolParameters,
     StakeCredential,
     cbor,
@@ -37,9 +39,7 @@ use amaru_kernel::{
 use amaru_observability::{debug, info, info_span};
 
 use crate::{
-    governance::ratification::{
-        CandidateProposal, CommitteeUpdate, ProposalsRoots, ProposalsRootsRc, RatificationContext,
-    },
+    governance::ratification::{CandidateProposal, CommitteeUpdate, RatificationContext},
     state::StateError,
     store::columns::proposals::Row as Proposal,
 };

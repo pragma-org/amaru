@@ -1,3 +1,0 @@
-[{"hash":"ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e","name":"require_vkey_witness","level":"INFO","type":"span"}
-,{"credential_type":"verification_key","credential_hash":"ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e","name":"vote","level":"INFO","voter_type":"committee","type":"span"}
-]

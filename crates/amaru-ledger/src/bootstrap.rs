@@ -23,8 +23,8 @@ use amaru_kernel::{
     Account, Ballot, BallotId, Bytes, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
-    ProposalId, ProposalPointer, ProposalState, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount, Set,
-    Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward,
+    RewardAccount, Set, Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
     new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
@@ -33,8 +33,7 @@ use amaru_progress_bar::ProgressBar;
 
 use crate::{
     epoch_transition::GovernanceActivity,
-    governance::ratification::ProposalsRoots,
-    state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
+    state::volatile::{DiffEpochReg, Resettable},
     store::{
         self, Store, StoreError, TransactionalContext,
         columns::{accounts, pots::Row as Pots, proposals},
@@ -109,6 +108,7 @@ fn decode_initial_snapshot_prefix(
 pub fn import_initial_snapshot(
     db: &impl Store,
     reader: &mut dyn Read,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
@@ -240,7 +240,7 @@ pub fn import_initial_snapshot(
         d.array()?;
         Ok(())
     })?;
-    decoder.skip()?; // Epoch State / Snapshots / Mark
+    let mark_snapshot = decoder.with_decoder(|d| Ok(decode_stake_snapshot(d)?))?;
     decoder.skip()?; // Epoch State / Snapshots / Set
     decoder.skip()?; // Epoch State / Snapshots / Go
     decoder.skip()?; // Epoch State / Snapshots / Fee
@@ -278,7 +278,17 @@ pub fn import_initial_snapshot(
         (0_i64, 0_i64, BTreeMap::new(), 0_i64)
     };
 
-    import_accounts(db, &with_progress, point, era_history, &protocol_parameters, accounts, &mut rewards)?;
+    import_accounts(
+        db,
+        &with_progress,
+        point,
+        era_history,
+        &protocol_parameters,
+        accounts,
+        &mut rewards,
+        recently_unregistered_accounts,
+        mark_snapshot,
+    )?;
 
     let unclaimed_rewards = rewards
         .into_iter()
@@ -603,6 +613,7 @@ fn import_pots(db: &impl Store, pots: Pots) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+#[expect(clippy::too_many_arguments)]
 fn import_accounts(
     db: &impl Store,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
@@ -611,6 +622,8 @@ fn import_accounts(
     protocol_parameters: &ProtocolParameters,
     accounts: BTreeMap<StakeCredential, Account>,
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    mut mark_snapshot: BTreeSet<StakeCredential>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if db.iter_accounts()?.next().is_some() {
         warn!(bootstrap::accounts::IS_NOT_EMPTY);
@@ -621,6 +634,13 @@ fn import_accounts(
     let mut credentials = accounts
         .into_iter()
         .map(|(credential, Account { rewards_and_deposit, pool, drep, .. })| {
+            // Remove from the mark snapshot any account that is seen, to only keep those that are
+            // not present anymore.
+            mark_snapshot.remove(&credential);
+            // Prune the recently unregistered set from account we see, which indicates they have
+            // re-registered.
+            recently_unregistered_accounts.remove(&credential);
+
             let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
                 .unwrap_or((0, protocol_parameters.stake_credential_deposit));
 
@@ -688,6 +708,30 @@ fn import_accounts(
         )?;
 
         progress.tick(n);
+    }
+
+    // Retain accounts that have unregistered recently, i.e. those that were present in the mark
+    // snapshots but not present in the account set anymore.
+    recently_unregistered_accounts.append(&mut mark_snapshot);
+    if !recently_unregistered_accounts.is_empty() {
+        transaction.save(
+            era_history,
+            protocol_parameters,
+            GovernanceActivity::default(),
+            point,
+            None,
+            Default::default(),
+            store::Columns {
+                utxo: iter::empty(),
+                pools: iter::empty(),
+                accounts: recently_unregistered_accounts.iter().cloned(),
+                dreps: iter::empty(),
+                cc_members: iter::empty(),
+                proposals: iter::empty(),
+                votes: iter::empty(),
+            },
+            iter::empty(),
+        )?;
     }
 
     transaction.commit()?;
@@ -895,6 +939,24 @@ fn import_votes(
     transaction.commit()?;
 
     Ok(())
+}
+
+pub fn decode_stake_snapshot(d: &mut cbor::Decoder<'_>) -> Result<BTreeSet<StakeCredential>, cbor::decode::Error> {
+    d.array()?;
+
+    struct Stake;
+    impl<'d, C> cbor::decode::Decode<'d, C> for Stake {
+        fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+            d.skip()?;
+            Ok(Stake)
+        }
+    }
+
+    let accounts: BTreeMap<StakeCredential, Stake> = d.decode()?;
+
+    d.skip()?;
+
+    Ok(accounts.into_keys().collect())
 }
 
 // TODO: Move to Pallas

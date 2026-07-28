@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
 use amaru_kernel::{
     Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal,
     ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
-    TransactionId, TransactionPointer, size::SCRIPT,
+    StakeCredential, TransactionId, TransactionPointer, parse_reward_account, size::SCRIPT,
 };
 use thiserror::Error;
 
-use crate::context::{BalanceSlice, ProposalsSlice, WitnessSlice};
+use crate::context::{AccountsSlice, BalanceSlice, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -37,6 +39,9 @@ pub enum InvalidProposals {
 
     #[error("treasury withdrawal address has wrong network: expected {expected:?}, actual {actual:?}")]
     TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
+
+    #[error("treasury withdrawal return accounts do not exist: {0:?}")]
+    TreasuryWithdrawalReturnAccountsDoNotExist(BTreeSet<StakeCredential>),
 
     #[error("conflicting committee update: members appear in both add and remove sets")]
     ConflictingCommitteeUpdate,
@@ -63,11 +68,23 @@ pub(crate) fn execute<C>(
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
-    C: ProposalsSlice + WitnessSlice + BalanceSlice,
+    C: ProposalsSlice + AccountsSlice + WitnessSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
         validate_proposal(&proposal, network, protocol_parameters, era_history, transaction.1)?;
 
+        if let GovernanceAction::TreasuryWithdrawals(ref wdrls, _) = proposal.gov_action {
+            let missing: BTreeSet<StakeCredential> = wdrls
+                .iter()
+                .filter_map(|(account, _)| {
+                    let (credential, _) = parse_reward_account(account)?;
+                    AccountsSlice::lookup(context, &credential).is_none().then_some(credential)
+                })
+                .collect();
+            if !missing.is_empty() {
+                return Err(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(missing));
+            }
+        }
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
                 hash: script_hash,
@@ -260,67 +277,5 @@ fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
         | UpdateCommittee(..)
         | NewConstitution(..)
         | Information => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::mem;
-
-    use amaru_kernel::{
-        HasTransactionId, PREPROD_ERA_HISTORY, Slot, TransactionBody, TransactionPointer, include_cbor, include_json,
-        json,
-    };
-    use amaru_tracing_json::assert_trace;
-    use test_case::test_case;
-
-    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-
-    macro_rules! fixture {
-        ($hash:literal, $pointer:expr) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                $pointer,
-                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
-            )
-        };
-        ($hash:literal, $variant:literal, $pointer:expr) => {
-            (
-                fixture_context!($hash, $variant),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                $pointer,
-                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
-            )
-        };
-    }
-
-    #[test_case(fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", TransactionPointer {
-        slot: Slot::from(74013957),
-        transaction_index: 0,
-    }); "happy path")]
-
-    fn test_proposals(
-        (mut ctx, mut tx, tx_pointer, expected_traces): (
-            AssertValidationContext,
-            TransactionBody,
-            TransactionPointer,
-            Vec<json::Value>,
-        ),
-    ) {
-        assert_trace(
-            || {
-                super::execute(
-                    &mut ctx,
-                    amaru_kernel::Network::Testnet,
-                    &amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                    &PREPROD_ERA_HISTORY,
-                    (tx.tx_id(), tx_pointer),
-                    mem::take(&mut tx.proposals).map(|xs| xs.to_vec()),
-                )
-                .expect("validation should not fail for this fixture")
-            },
-            expected_traces,
-        )
     }
 }

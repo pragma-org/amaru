@@ -67,6 +67,7 @@ pub fn build_stage_graph(
         PeerSelection::new(
             manager.sender(),
             static_peers,
+            config.peer_snapshot_peers.clone(),
             config.target_upstream_peers,
             config.target_downstream_peers,
             config.peer_removal_cooldown_secs,
@@ -159,8 +160,8 @@ pub fn build_stage_graph(
         .preload(&select_chain, [SelectChainMsg::Initialize(best_hash)])
         .expect("initialization message must be preloaded");
     let select_chain_input = stage_graph.contramap(select_chain, "select_chain_input", |msg| {
-        let track_peers::NewTip { tip, parent, trace_context } = msg;
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context }
+        let track_peers::NewTip { tip, parent, trace_context, received_at } = msg;
+        SelectChainMsg::TipFromUpstream { tip, parent, trace_context, received_at }
     });
 
     let track_peers_wired = stage_graph.wire_up(

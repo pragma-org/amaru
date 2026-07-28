@@ -22,7 +22,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -34,7 +34,6 @@ use crate::{
         PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
         WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
-    governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
 };
 
@@ -143,14 +142,19 @@ impl PoolsSlice for DefaultValidationContext {
         self.state.pools.register(params.id, Arc::new((params, pointer, deposit)))
     }
 
-    fn retire(&mut self, pool: PoolId, epoch: Epoch) {
+    fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>> {
         let _span = trace_span!(
             ledger::transaction::CERTIFICATE_POOL_RETIREMENT,
             pool_id = %pool,
             epoch = epoch
         );
         let _guard = _span.enter();
-        self.state.pools.unregister(pool, epoch)
+        if !PoolsSlice::exists(self, pool) {
+            return Err(UnregisterError::Unknown(PhantomData {}, pool));
+        }
+        self.state.pools.unregister(pool, epoch);
+
+        Ok(())
     }
 }
 
@@ -167,8 +171,8 @@ impl AccountsSlice for DefaultValidationContext {
                 // fresh in-block registration; supersedes the block start state
                 Some(deposit) => AccountState {
                     deposit,
-                    pool: bind.left.as_borrowed().to_option(None),
-                    drep: bind.right.as_borrowed().to_option(None),
+                    pool: bind.left.as_refs().to_option(None),
+                    drep: bind.right.as_refs().to_option(None),
                     rewards: 0,
                 },
                 // re-binding layered over the block start state
@@ -176,8 +180,8 @@ impl AccountsSlice for DefaultValidationContext {
                     let base = self.accounts.get(credential)?;
                     AccountState {
                         deposit: base.deposit,
-                        pool: bind.left.as_borrowed().to_option(base.pool.as_ref()),
-                        drep: bind.right.as_borrowed().to_option(base.drep.as_ref()),
+                        pool: bind.left.as_refs().to_option(base.pool.as_ref()),
+                        drep: bind.right.as_refs().to_option(base.drep.as_ref()),
                         rewards: base.rewards,
                     }
                 }
@@ -270,7 +274,7 @@ impl DRepsSlice for DefaultValidationContext {
         match self.state.dreps.registered.get(credential) {
             // a fresh in-block registration carries its own record; an anchor-only update has no
             // `value`, so fall through to the block-start registration.
-            Some(bind) => bind.value.as_deref().or_else(|| self.dreps.get(credential)),
+            Some(bind) => bind.value.as_ref().or_else(|| self.dreps.get(credential)),
             // deregistered in-block; gone
             None if self.state.dreps.unregistered.contains(credential) => None,
             // untouched in-block; the block-start state
@@ -296,7 +300,7 @@ impl DRepsSlice for DefaultValidationContext {
         if DRepsSlice::lookup(self, &drep).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
         }
-        self.state.dreps.register(drep, Arc::new(registration), anchor, None)?;
+        self.state.dreps.register(drep, registration, anchor, None)?;
         Ok(())
     }
 

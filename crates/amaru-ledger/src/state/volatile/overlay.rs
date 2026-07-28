@@ -15,7 +15,8 @@
 use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
+    ComparableProposalId, Epoch, Lovelace, PoolId, ProposalsRoots, ProtocolParameters, RatificationStatus,
+    StakeCredential,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -24,11 +25,10 @@ use crate::{
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    governance::ratification::{CommitteeUpdate, ProposalsRoots},
+    governance::ratification::CommitteeUpdate,
     state::{
         StateError,
-        diff_bind::{Bind, Empty, Resettable},
-        volatile::{CommitteeMemberBind, Existence},
+        volatile::{Bind, CommitteeMemberBind, Existence, Resettable},
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
@@ -45,6 +45,7 @@ use crate::{
 /// (it can be rolled back), and co-locating it with the two volatile series keeps reads and
 /// rollback cohesive.
 #[derive(Default, Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
@@ -104,7 +105,7 @@ impl StateOverlay {
         StateOverlay {
             epoch: self.epoch,
             most_recent_snapshot: RefCell::new(*self.most_recent_snapshot.borrow()),
-            rewards: self.rewards.snapshot(),
+            rewards: self.rewards.clone(),
             pools_updates: self.pools_updates.clone(),
             governance_updates: self.governance_updates.clone(),
         }
@@ -199,8 +200,8 @@ impl StateOverlay {
                 Span::current().record("should_begin_epoch", should_begin_epoch);
 
                 let updated = if should_begin_epoch {
+                    batch.prune_recently_unregistered_accounts(self.epoch)?;
                     reset_blocks_count(batch)?;
-
                     reset_fees_and_donations(batch)?;
 
                     if let Some(pools_updates) = mem::take(&mut self.pools_updates) {
@@ -270,33 +271,23 @@ impl StateOverlay {
     /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
     /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
     /// so it defers to the layers below. `Unknown` outside the straddle window.
-    pub fn committee_verdict(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    pub fn committee_verdict<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
             Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
                 if removed.contains(credential) {
                     Existence::Gone
-                } else if added.contains_key(credential) {
+                } else if let Some(epoch) = added.get(credential) {
                     // freshly elected; no hot key yet and no stable row to fall back to
                     Existence::Exists(Bind {
-                        left: Resettable::Unchanged,
+                        left: Resettable::Reset,
                         right: Resettable::Unchanged,
-                        value: Some(Empty),
+                        value: Some(epoch),
                     })
                 } else {
                     Existence::Unknown
                 }
             }
             Some(CommitteeUpdate::NoConfidence) | None => Existence::Unknown,
-        }
-    }
-
-    /// A CC member's term at the pending boundary, if the transition sets one: `Some(term)` for a
-    /// newly added member, `Some(None)` under no-confidence (members go inactive), `None` when the
-    /// boundary leaves this member's term untouched.
-    pub fn pending_committee_term(&self, credential: &StakeCredential) -> Option<TermLimit> {
-        match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref())? {
-            CommitteeUpdate::ChangeMembers { added, .. } => added.get(credential).map(|epoch| Some(*epoch)),
-            CommitteeUpdate::NoConfidence => Some(None),
         }
     }
 
@@ -351,12 +342,12 @@ impl StateOverlay {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
-    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS};
+    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalsRoots};
 
     use super::*;
-    use crate::{epoch_transition::Computed, governance::ratification::ProposalsRoots};
+    use crate::epoch_transition::Computed;
 
     #[test]
     fn test_rollback() {
@@ -399,8 +390,9 @@ mod test {
     /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during
     /// the epoch, so its rewards are unclaimed and returned to the treasury.
     fn effective_rewards() -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(1_000, 7, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
-        Rewards::<Effective>::new(computed, std::iter::once(credential(1)))
+        let computed =
+            Rewards::<Computed>::new(1_000, 7, 142, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
+        Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))
     }
 
     fn governance_updates() -> GovernanceUpdates {

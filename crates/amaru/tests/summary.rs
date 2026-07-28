@@ -27,7 +27,7 @@ use amaru_ledger::{
 };
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use anyhow::anyhow;
-use xz::read::XzDecoder;
+use zstd::stream::read::Decoder as ZstdDecoder;
 
 const DEFAULT_AMARU_MAX_DIFFS: usize = 10;
 
@@ -85,6 +85,7 @@ fn compare_stake_distribution_with_haskell_node(
 fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, Box<dyn std::error::Error>> {
     let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
+        .join("conformance")
         .join("stake-distributions")
         .join(network.to_string())
         .join(format!("epoch_{epoch}.json"));
@@ -93,7 +94,7 @@ fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, 
         return Ok(std::fs::read_to_string(base_path)?);
     }
 
-    let compressed_path = base_path.with_extension("json.xz");
+    let compressed_path = base_path.with_extension("json.zst");
     if !compressed_path.is_file() {
         return Err(format!(
             "missing stake distribution snapshot: expected {} or {}",
@@ -104,7 +105,7 @@ fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, 
     }
 
     let mut decompressed = String::new();
-    XzDecoder::new(File::open(compressed_path)?).read_to_string(&mut decompressed)?;
+    ZstdDecoder::new(File::open(compressed_path)?)?.read_to_string(&mut decompressed)?;
     Ok(decompressed)
 }
 

@@ -44,7 +44,6 @@ amaru-deps.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
 rand.workspace = true
-amaru-tracing-json.workspace = true
 
 [[bin]]
 name = "simulator"

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod exit;
+pub mod peer_snapshot;
 pub mod stages;
 pub mod submit_api;
 

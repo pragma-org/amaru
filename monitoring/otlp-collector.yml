@@ -14,6 +14,12 @@ processors:
         action: delete
       - key: service.instance.id
         action: delete
+  transform/drop_scope:
+    metric_statements:
+      - context: scope
+        statements:
+          - set(name, "")
+          - set(version, "")
 
 exporters:
   otlp_grpc/tempo:
@@ -26,13 +32,12 @@ exporters:
     endpoint: "0.0.0.0:8889"
     add_metric_suffixes: false
     metric_expiration: 5s
-    without_scope_info: true
 
 service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [resource/drop_prometheus_labels, batch]
+      processors: [resource/drop_prometheus_labels, transform/drop_scope, batch]
       exporters: [prometheus]
     traces:
       receivers: [otlp]

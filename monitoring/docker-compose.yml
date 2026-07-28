@@ -1,6 +1,9 @@
 services:
   otlp-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.133.0
+    environment:
+      - NO_PROXY=localhost,127.0.0.1
+      - no_proxy=localhost,127.0.0.1
     volumes:
       - "./otlp-collector.yml:/etc/otlp-collector.yml"
     command: ["--config", "/etc/otlp-collector.yml"]

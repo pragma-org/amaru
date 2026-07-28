@@ -15,10 +15,9 @@
 /// utilities for serializing and deserializing some types that aren’t immediately
 /// supported by serde, but should be.
 pub mod bytes {
-    use pallas_crypto::hash::Hash;
+    use amaru_kernel::Hash;
+    use ed25519_dalek as ed25519;
     use serde::Deserialize;
-
-    use crate::ed25519;
 
     pub fn serialize<S>(bytes: &impl Bytes, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -53,13 +52,14 @@ pub mod bytes {
         }
     }
 
-    impl Bytes for ed25519::PublicKey {
+    impl Bytes for ed25519::VerifyingKey {
         fn as_slice(&self) -> &[u8] {
             self.as_ref()
         }
 
         fn from_slice(slice: &[u8]) -> Result<Self, String> {
-            Self::try_from(slice).map_err(|_| format!("expected {} bytes, got {}", Self::SIZE, slice.len()))
+            Self::try_from(slice)
+                .map_err(|_| format!("expected {} bytes, got {}", ed25519::PUBLIC_KEY_LENGTH, slice.len()))
         }
     }
 

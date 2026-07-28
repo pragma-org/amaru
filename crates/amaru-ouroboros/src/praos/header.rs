@@ -14,32 +14,30 @@
 
 use std::{
     array::TryFromSliceError,
-    ops::Deref,
+    ops::{Deref, Neg},
+    str::FromStr,
     sync::{Arc, LazyLock},
 };
 
-use amaru_kernel::{ConsensusParameters, EraHistory, Hash, Hasher, Header, HeaderHash, Nonce, PoolId, Slot};
+use amaru_kernel::{
+    ConsensusParameters, EraHistory, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, PoolId, Slot, VrfCert,
+    maths::{ExpOrdering, FixedDecimal},
+};
 use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::GetPoolError};
+use ed25519_dalek as ed25519;
 use thiserror::Error;
 
-use crate::{
-    OperationalCert, VrfCert, ed25519, issuer_to_pool_id, kes,
-    math::{ExpOrdering, FixedDecimal, FixedPrecision},
-    vrf,
-};
+use crate::{issuer_to_pool_id, kes, vrf};
 
 /// The certified natural max value represents 2^256 in praos consensus
 ///
-/// TODO: Ideally, we should replace the use of dashu in pallas-math with num-bigint
-/// since it has become our weapong of choice within Amaru. Mixing maths libraries is
+/// TODO: Ideally, we should replace the use of dashu  with num-bigint
+/// since it has become our weapon of choice within Amaru. Mixing maths libraries is
 /// a recipe for mistakes.
 #[expect(clippy::expect_used)]
 static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
-    FixedDecimal::from_str(
-        "1157920892373161954235709850086879078532699846656405640394575840079131296399360000000000000000000000000000000000",
-        34,
-    )
-    .expect("Infallible")
+    FixedDecimal::from_str("115792089237316195423570985008687907853269984665640564039457584007913129639936")
+        .expect("Infallible")
 });
 
 // ------------------------------------------------------------------ assert_all
@@ -58,6 +56,8 @@ pub enum AssertHeaderError {
     OperationalCertificate(#[from] AssertOperationalCertificateError),
     #[error("could not convert slice to array")]
     TryFromSliceError,
+    #[error("cannot convert bytes into valid Ed25519 public key")]
+    InvalidEd25519PublicKey,
     #[error("Unknown pool: {}", hex::encode(&pool[0..7]))]
     UnknownPool { pool: PoolId },
     #[error("{0}")]
@@ -78,6 +78,7 @@ impl PartialEq for AssertHeaderError {
             (Self::LeaderStake(l0), Self::LeaderStake(r0)) => l0 == r0,
             (Self::KesSignature(l0), Self::KesSignature(r0)) => l0 == r0,
             (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
+            (Self::InvalidEd25519PublicKey, Self::InvalidEd25519PublicKey) => true,
             (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             (Self::UnknownPool { pool: l_pool }, Self::UnknownPool { pool: r_pool }) => l_pool == r_pool,
             _ => false,
@@ -87,6 +88,7 @@ impl PartialEq for AssertHeaderError {
 
 pub type Assertion<'a> = Box<dyn Fn() -> Result<(), AssertHeaderError> + Send + Sync + 'a>;
 
+#[expect(clippy::result_large_err)]
 pub fn assert_all<'a>(
     consensus_parameters: Arc<ConsensusParameters>,
     header: &'a Header,
@@ -97,8 +99,9 @@ pub fn assert_all<'a>(
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
     let absolute_slot = Slot::from(header.header_body.slot);
-    let issuer =
-        ed25519::PublicKey::from(<[u8; ed25519::PublicKey::SIZE]>::try_from(&header.header_body.issuer_vkey[..])?);
+    let issuer = ed25519::VerifyingKey::try_from(&header.header_body.issuer_vkey[..])
+        .map_err(|_| AssertHeaderError::InvalidEd25519PublicKey)?;
+
     let pool: PoolId = issuer_to_pool_id(&issuer);
 
     // TODO: Pallas should hold sized slices
@@ -109,9 +112,9 @@ pub fn assert_all<'a>(
             .get_pool(absolute_slot, &pool, era_history)?
             .map(|pool| {
                 let leader_relative_stake = if pool.active_stake == 0 {
-                    FixedDecimal::from(0u64)
+                    FixedDecimal::ZERO
                 } else {
-                    FixedDecimal::from(pool.stake) / FixedDecimal::from(pool.active_stake)
+                    &FixedDecimal::from(pool.stake) / &FixedDecimal::from(pool.active_stake)
                 };
                 (pool.vrf, leader_relative_stake)
             })
@@ -265,13 +268,13 @@ impl AssertVrfProofError {
         certificate: &VrfCert,
     ) -> Result<(), Self> {
         let input = &vrf::Input::new(absolute_slot, epoch_nonce);
-        // TODO: Pallas should have fixed size slices here.
+        // TODO: Should have fixed size slices here.
         let block_proof_hash: [u8; vrf::Proof::HASH_SIZE] = {
             let bytes: &[u8] = certificate.0.as_ref();
             bytes.try_into()
         }?;
 
-        // TODO: Pallas should have fixed size slices here.
+        // TODO: Should have fixed size slices here.
         let block_proof: [u8; vrf::Proof::SIZE] = {
             let bytes: &[u8] = certificate.1.as_ref();
             bytes.try_into()
@@ -287,11 +290,7 @@ impl AssertVrfProofError {
         }
 
         // The proof was valid. Make sure that the leader's output matches what was in the block
-        //
-        // TODO: 'derive_tagged_vrf_output' should return a sized output instead of a vec. It is, in
-        // fact, a 32-byte hash digest.
-        let calculated_leader_vrf_output =
-            vrf::derive_tagged_vrf_output(proof_hash.as_slice(), vrf::Derivation::Leader);
+        let calculated_leader_vrf_output = vrf::Derivation::Leader.derive_tagged_vrf_output(proof_hash.as_slice());
         if calculated_leader_vrf_output.as_slice() != output {
             return Err(Self::OutputMismatch { declared: output.to_vec(), computed: calculated_leader_vrf_output });
         }
@@ -315,13 +314,13 @@ impl AssertLeaderStakeError {
         leader_relative_stake: &FixedDecimal,
         certified_leader_vrf: &FixedDecimal,
     ) -> Result<(), Self> {
-        if active_slot_coeff >= &FixedDecimal::from(1u64) {
+        if active_slot_coeff >= FixedDecimal::one() {
             return Ok(());
         }
         let denominator = CERTIFIED_NATURAL_MAX.deref() - certified_leader_vrf;
         let recip_q = CERTIFIED_NATURAL_MAX.deref() / &denominator;
-        let c = (&FixedDecimal::from(1u64) - active_slot_coeff).ln();
-        let x = -(leader_relative_stake * &c);
+        let c = (FixedDecimal::one() - active_slot_coeff).ln();
+        let x = (leader_relative_stake * &c).neg();
         let ordering = x.exp_cmp(1000, 3, &recip_q);
         match ordering.estimation {
             ExpOrdering::LT => Ok(()),
@@ -399,14 +398,15 @@ pub enum AssertOperationalCertificateError {
     )]
     InvalidSignature {
         #[serde(with = "crate::serde_util::bytes")]
-        issuer: ed25519::PublicKey,
+        issuer: ed25519::VerifyingKey,
     },
 }
 
 impl AssertOperationalCertificateError {
+    #[expect(clippy::result_large_err)]
     pub fn new(
         certificate: &OperationalCert,
-        issuer: &ed25519::PublicKey,
+        issuer: &ed25519::VerifyingKey,
         latest_sequence_number: Option<u64>,
     ) -> Result<(), Self> {
         // Verify the Operational Certificate signature
@@ -438,11 +438,8 @@ impl AssertOperationalCertificateError {
         message.extend_from_slice(&certificate.operational_cert_hot_vkey[..]);
         message.extend_from_slice(&certificate.operational_cert_sequence_number.to_be_bytes());
         message.extend_from_slice(&certificate.operational_cert_kes_period.to_be_bytes());
-        if !issuer.verify(&message, &signature) {
-            return Err(Self::InvalidSignature { issuer: issuer.to_owned() });
-        }
 
-        Ok(())
+        issuer.verify_strict(&message, &signature).map_err(|_| Self::InvalidSignature { issuer: issuer.to_owned() })
     }
 }
 
@@ -543,7 +540,9 @@ mod tests {
                 declared_sequence_number: 25,
                 latest_sequence_number: 50,
             },
-            AssertOperationalCertificateError::InvalidSignature { issuer: ed25519::PublicKey::from([1; 32]) },
+            AssertOperationalCertificateError::InvalidSignature {
+                issuer: ed25519::VerifyingKey::try_from([1; 32].as_slice()).unwrap(),
+            },
         ];
 
         for error in errors {

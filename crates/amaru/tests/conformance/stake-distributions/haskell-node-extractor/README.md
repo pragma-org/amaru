@@ -36,7 +36,17 @@ Simply run:
 cabal run exe:haskell-node-extractor -- --help
 ```
 
-## Python Utilities
+## Utilities
+
+### Continuous Analyser
+
+To run db-analyser continuously and automatically on every epoch boundary, one can use `scripts/run-db-analyser.mjs`. This script requires a running instance of the (Haskell) cardano-node and Ogmios to resolve the last point of every epoch.
+
+```console
+./scripts/run-db-analyser.mjs <NETWORK>
+```
+
+### Schema Validator
 
 The JSON Schema validator is managed with `uv` from this directory.
 
@@ -101,7 +111,7 @@ make help
 
 ## Flox environment
 
-Some of the tools in this directory are managed with [Flox](https://flox.dev). 
+Some of the tools in this directory are managed with [Flox](https://flox.dev).
 Once you have Flox installed, you can materialize the local environment with:
 
 ```console

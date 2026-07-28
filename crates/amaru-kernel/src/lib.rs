@@ -30,6 +30,8 @@ pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
 // See above.
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
+pub mod maths;
+
 pub mod cardano;
 pub use cardano::{
     account::Account,
@@ -91,9 +93,10 @@ pub use cardano::{
     network::Network,
     network_id::NetworkId,
     network_magic::NetworkMagic,
-    network_name::NetworkName,
+    network_name::{NetworkName, PEER_SNAPSHOT_NETWORKS},
     non_zero_int::NonZeroInt,
     nonce::{Nonce, parse_nonce},
+    operational_cert::OperationalCert,
     output_reference::OutputReference,
     peer::Peer,
     plutus_data::{PlutusData, PlutusDataSet, PlutusDatums},
@@ -108,6 +111,7 @@ pub use cardano::{
     proposal_id::{ComparableProposalId, ProposalId},
     proposal_pointer::ProposalPointer,
     proposal_state::ProposalState,
+    proposals_roots::{self, ProposalsRoots, ProposalsRootsRc},
     protocol_parameters::{
         self, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
@@ -136,7 +140,6 @@ pub use cardano::{
     slot::{Slot, SlotArithmeticError},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
-    term_limit::TermLimit,
     time_range::TimeRange,
     tip::Tip,
     transaction::Transaction,
@@ -153,6 +156,7 @@ pub use cardano::{
     voter::Voter,
     voter_kind::VoterKind,
     voting_procedure::{PlutusVotes, VotingProcedure},
+    vrf_cert::VrfCert,
     witness_set::WitnessSet,
 };
 #[cfg(any(test, feature = "test-utils"))]
@@ -170,6 +174,7 @@ pub use cardano::{
     constitution::any_constitution,
     constitutional_committee_status::any_constitutional_committee_status,
     drep::any_drep,
+    drep_registration::any_drep_registration,
     epoch::any_epoch,
     era_bound::{any_era_bound, any_era_bound_for_epoch, any_era_bound_time},
     era_history::EraHistoryProxy,
@@ -177,6 +182,7 @@ pub use cardano::{
     era_params::any_era_params,
     hash::{any_hash28, any_hash32},
     lovelace::any_lovelace,
+    memoized::{any_datum, any_legacy_output, any_modern_output},
     network::any_network,
     network_magic::any_network_magic,
     network_name::any_network_name,
@@ -185,6 +191,7 @@ pub use cardano::{
     proposal::any_proposal,
     proposal_id::{any_comparable_proposal_id, any_proposal_id},
     proposal_pointer::any_proposal_pointer,
+    proposals_roots::any_proposals_roots,
     protocol_parameters::{
         any_cost_model, any_cost_models, any_drep_voting_thresholds, any_ex_unit_prices, any_ex_units,
         any_ex_units_prices, any_gov_action, any_guardrails_script, any_pool_voting_thresholds, any_protocol_parameter,
@@ -194,6 +201,7 @@ pub use cardano::{
     reward_account::any_reward_account,
     stake_credential::any_stake_credential,
     tip::any_tip,
+    transaction_input::any_transaction_input,
     transaction_pointer::any_transaction_pointer,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
 };
@@ -219,7 +227,7 @@ mod data_structures;
 pub use data_structures::nullable::any_nullable;
 pub use data_structures::{
     ignore_eq::IgnoreEq,
-    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs},
+    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs, LegacyKeyValuePairs},
     legacy::Legacy,
     non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
     non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},

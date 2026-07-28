@@ -29,7 +29,9 @@ use crate::stages::{
         TestPrep, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_has_block, te_load_header,
         te_load_tip, te_schedule, te_store_block, te_unvalidated_ancestor_hashes, test_peer, test_prep,
     },
-    test_utils::{assert_trace, start_in_era, te_input, te_send, te_state, te_terminate, te_terminated, tm_state},
+    test_utils::{
+        assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated, tm_state,
+    },
 };
 
 #[test]
@@ -155,6 +157,7 @@ fn test_new_tip_blocks_to_fetch() {
     );
     state_with_timeout.block_height = BlockHeight::from(3);
     state_with_timeout.trace_context = Some(Default::default());
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
         state.missing = None;
@@ -168,6 +171,7 @@ fn test_new_tip_blocks_to_fetch() {
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
             te_find_missing_blocks("fb-1", tip.hash(), 25),
+            te_clock_read("fb-1"),
             te_send(
                 "fb-1",
                 "manager",
@@ -177,6 +181,11 @@ fn test_new_tip_blocks_to_fetch() {
                     id: 1,
                     cr: prep.cleanup_replies.clone(),
                 },
+            ),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlocksRequested(vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at),
             ),
             te_schedule("fb-1", FetchBlocksMsg::Timeout(1), schedule_id),
             te_state("fb-1", &state_with_timeout),
@@ -215,6 +224,15 @@ fn test_block_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlockDownloaded(
+                    prep.headers.h1.hash(),
+                    Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
+                ),
+            ),
             te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
             te_send(
                 "fb-1",
@@ -257,6 +275,15 @@ fn test_block2_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlockDownloaded(
+                    prep.headers.h2.hash(),
+                    Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
+                ),
+            ),
             te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
             te_send(
                 "fb-1",
