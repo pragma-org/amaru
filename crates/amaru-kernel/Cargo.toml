@@ -28,6 +28,7 @@ bytes = { workspace = true, features = ["serde"] }
 clap = { workspace = true, optional = true }
 dashu-base.workspace = true
 dashu-int.workspace = true
+ed25519-dalek.workspace = true
 hex.workspace = true
 itertools.workspace = true
 minicbor.workspace = true
