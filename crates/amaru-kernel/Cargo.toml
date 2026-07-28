@@ -37,15 +37,10 @@ hex.workspace = true
 itertools.workspace = true
 minicbor.workspace = true
 num.workspace = true
-pallas-addresses.workspace = true
-pallas-codec.workspace = true
-pallas-crypto.workspace = true
-pallas-primitives.workspace = true
-pallas-traverse.workspace = true
 proptest = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
-serde_json.workspace = true
+serde_json = { workspace = true, features = [ "std" ] }
 sha3.workspace = true
 thiserror.workspace = true
 

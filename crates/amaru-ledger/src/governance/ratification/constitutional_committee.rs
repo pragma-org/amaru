@@ -90,18 +90,15 @@ impl ConstitutionalCommittee {
             return active_members.clone();
         }
 
-        let active_members = Rc::new(
-            self.members
-                .iter()
-                .filter_map(|(cold_cred, (hot_cred, valid_until))| {
-                    if valid_until >= &current_epoch {
-                        Some((*cold_cred, *hot_cred.as_ref()?))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<BTreeMap<_, _>>(),
-        );
+        let active_members =
+            Rc::new(
+                self.members
+                    .iter()
+                    .filter_map(|(cold_cred, (hot_cred, valid_until))| {
+                        if valid_until >= &current_epoch { Some((*cold_cred, *hot_cred.as_ref()?)) } else { None }
+                    })
+                    .collect::<BTreeMap<_, _>>(),
+            );
 
         *self.active_members.borrow_mut() = Some((current_epoch, active_members.clone()));
 

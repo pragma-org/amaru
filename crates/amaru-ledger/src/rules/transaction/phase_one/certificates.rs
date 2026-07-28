@@ -282,10 +282,7 @@ where
                 .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
             if account.rewards != 0 {
-                return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential,
-                    rewards: account.rewards,
-                });
+                return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
             AccountsSlice::unregister(context, credential);
@@ -308,10 +305,7 @@ where
             }
 
             if account.rewards != 0 {
-                return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential,
-                    rewards: account.rewards,
-                });
+                return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
             AccountsSlice::unregister(context, credential);

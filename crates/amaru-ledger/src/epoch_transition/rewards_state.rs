@@ -279,8 +279,7 @@ mod test {
         let delta_treasury = 7;
         let computed_rewards =
             Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts.values().sum(), accounts);
-        let effective_rewards =
-            Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered]));
+        let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered]));
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
         // is folded back into the treasury instead).
