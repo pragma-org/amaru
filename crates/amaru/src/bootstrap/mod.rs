@@ -769,9 +769,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, read_snapshot_archive_entry, select_bootstrap_snapshots,
-        should_download_snapshot, snapshot_archive_entry_matches, sort_snapshots_by_slot,
-        validate_publishable_snapshot_archive, validate_snapshot_archive,
+        Snapshot, read_snapshot_archive_entry, select_bootstrap_snapshots, should_download_snapshot,
+        snapshot_archive_entry_matches, sort_snapshots_by_slot, validate_publishable_snapshot_archive,
+        validate_snapshot_archive,
     };
     use crate::cardano_node::ParsedStateSnapshot;
 
