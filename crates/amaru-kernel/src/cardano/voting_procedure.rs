@@ -14,9 +14,33 @@
 
 use std::collections::BTreeMap;
 
-pub use pallas_primitives::conway::VotingProcedure;
+use crate::{Anchor, ComparableProposalId, NonEmptyKeyValuePairs, Nullable, ProposalId, Vote, Voter, cbor};
 
-use crate::{ComparableProposalId, NonEmptyKeyValuePairs, ProposalId, Vote, Voter};
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct VotingProcedure {
+    pub vote: Vote,
+    pub anchor: Nullable<Anchor>,
+}
+
+impl<'b, C> cbor::Decode<'b, C> for VotingProcedure {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        Ok(Self { vote: d.decode_with(ctx)?, anchor: d.decode_with(ctx)? })
+    }
+}
+
+impl<C> cbor::Encode<C> for VotingProcedure {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.encode_with(self.vote, ctx)?;
+        e.encode_with(&self.anchor, ctx)?;
+        Ok(())
+    }
+}
 
 /// The governance votes cast by a transaction.
 ///

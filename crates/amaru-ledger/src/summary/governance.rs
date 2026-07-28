@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{
     Anchor, CertificatePointer, ComparableProposalId, DRep, Epoch, EraHistory, EraHistoryError, Lovelace,
-    RatificationStatus, Slot, StakeCredential, TransactionPointer, anchor, expect_stake_credential,
+    RatificationStatus, Slot, StakeCredential, TransactionPointer, expect_stake_credential,
 };
 
 use crate::{
@@ -37,7 +37,6 @@ pub struct GovernanceSummary {
 #[derive(Debug, serde::Serialize)]
 #[cfg_attr(test, derive(Clone))]
 pub struct DRepState {
-    #[serde(serialize_with = "anchor::serialize")]
     pub metadata: Option<Anchor>,
     pub valid_until: Option<Epoch>,
     pub voting_stake: Lovelace,

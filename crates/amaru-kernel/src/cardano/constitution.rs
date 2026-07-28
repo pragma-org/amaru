@@ -12,7 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::Constitution;
+use crate::{Anchor, Hash, Nullable, cbor, size::SCRIPT};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Constitution {
+    pub anchor: Anchor,
+    pub guardrail_script: Nullable<Hash<SCRIPT>>,
+}
+
+impl<'b, C> cbor::Decode<'b, C> for Constitution {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        Ok(Self { anchor: d.decode_with(ctx)?, guardrail_script: d.decode_with(ctx)? })
+    }
+}
+
+impl<C> cbor::Encode<C> for Constitution {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.encode_with(&self.anchor, ctx)?;
+        e.encode_with(&self.guardrail_script, ctx)?;
+        Ok(())
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 

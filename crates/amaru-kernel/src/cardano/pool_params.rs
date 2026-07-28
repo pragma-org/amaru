@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use crate::{
-    Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, Set, cbor,
+    Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
+    utils::cbor::SerialisedAsSet,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +26,7 @@ pub struct PoolParams {
     pub cost: Lovelace,
     pub margin: RationalNumber,
     pub reward_account: RewardAccount,
-    pub owners: Set<Hash<KEY>>,
+    pub owners: Vec<Hash<KEY>>,
     pub relays: Vec<Relay>,
     pub metadata: Nullable<PoolMetadata>,
 }
@@ -43,7 +44,7 @@ impl<C> cbor::encode::Encode<C> for PoolParams {
         e.encode_with(self.cost, ctx)?;
         e.encode_with(&self.margin, ctx)?;
         e.encode_with(&self.reward_account, ctx)?;
-        e.encode_with(&self.owners, ctx)?;
+        e.encode_with(SerialisedAsSet(&self.owners), ctx)?;
         e.encode_with(&self.relays, ctx)?;
         e.encode_with(&self.metadata, ctx)?;
         Ok(())
@@ -60,7 +61,10 @@ impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
             cost: d.decode_with(ctx)?,
             margin: d.decode_with(ctx)?,
             reward_account: d.decode_with(ctx)?,
-            owners: d.decode_with(ctx)?,
+            owners: {
+                let SerialisedAsSet(owners) = d.decode_with(ctx)?;
+                owners
+            },
             relays: d.decode_with(ctx)?,
             metadata: d.decode_with(ctx)?,
         })
@@ -151,7 +155,7 @@ mod tests {
                 cost,
                 margin: RationalNumber { numerator: margin, denominator: 100 },
                 reward_account: [&[0xF0], &reward_account[..]].concat().into(),
-                owners: owners.into_iter().map(|h| h.into()).collect::<Vec<Hash<KEY>>>().into(),
+                owners: owners.into_iter().map(|h| h.into()).collect::<Vec<Hash<KEY>>>(),
                 relays,
                 metadata: Nullable::Null,
             }

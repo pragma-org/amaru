@@ -24,9 +24,10 @@ use amaru_kernel::{
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
     ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward,
-    RewardAccount, Set, Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    RewardAccount, Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
     new_stake_address, protocol_version, reward_account_to_stake_credential, size,
+    utils::cbor::SerialisedAsSet,
 };
 use amaru_observability::{info, warn};
 use amaru_progress_bar::ProgressBar;
@@ -270,10 +271,15 @@ pub fn import_initial_snapshot(
     let (delta_treasury, delta_reserves, mut rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
         let delta_reserves: i64 = decoder.decode()?;
-        let rewards: BTreeMap<StakeCredential, Set<Reward>> = decoder.decode()?;
+        let rewards: BTreeMap<StakeCredential, SerialisedAsSet<Vec<Reward>>> = decoder.decode()?;
         let delta_fees: i64 = decoder.decode()?;
         decoder.skip()?;
-        (delta_treasury, delta_reserves, rewards, delta_fees)
+        (
+            delta_treasury,
+            delta_reserves,
+            rewards.into_iter().map(|(k, SerialisedAsSet(v))| (k, v)).collect::<BTreeMap<_, _>>(),
+            delta_fees,
+        )
     } else {
         (0_i64, 0_i64, BTreeMap::new(), 0_i64)
     };
@@ -620,7 +626,7 @@ fn import_accounts(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     accounts: BTreeMap<StakeCredential, Account>,
-    rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
+    rewards_updates: &mut BTreeMap<StakeCredential, Vec<Reward>>,
     recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
     mut mark_snapshot: BTreeSet<StakeCredential>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1056,19 +1062,20 @@ pub fn decode_node_accounts(
 ) -> Result<BTreeMap<StakeCredential, Account>, cbor::decode::Error> {
     d.array()?;
     let accounts: BTreeMap<StakeCredential, NodeAccount> = d.decode()?;
-    let mut pointers: BTreeMap<StakeCredential, Set<(u64, u64, u64)>> = d.decode()?;
+    let mut pointers: BTreeMap<StakeCredential, SerialisedAsSet<Vec<(u64, u64, u64)>>> = d.decode()?;
     d.skip()?; // dsFutureGenDelegs
     d.skip()?; // dsGenDelegs
 
     Ok(accounts
         .into_iter()
         .map(|(credential, account)| {
-            let pointers = pointers.remove(&credential).unwrap_or_else(|| Vec::new().into());
+            let pointers = pointers.remove(&credential).map(|SerialisedAsSet(pointers)| pointers).unwrap_or_default();
             (credential, account.into_account(pointers))
         })
         .collect())
 }
 
+// TODO: Reduce duplication with existing `PoolParams`
 #[derive(Debug)]
 struct NodePoolParams {
     vrf: Hash<{ size::VRF_KEY }>,
@@ -1076,7 +1083,7 @@ struct NodePoolParams {
     cost: Lovelace,
     margin: RationalNumber,
     reward_account: RewardAccount,
-    owners: Set<Hash<{ size::KEY }>>,
+    owners: Vec<Hash<{ size::KEY }>>,
     relays: Vec<Relay>,
     metadata: StrictMaybe<PoolMetadata>,
 }
@@ -1206,7 +1213,8 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolParams {
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool reward account", err))?;
             reward_account.0
         };
-        let owners = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool owners", err))?;
+        let SerialisedAsSet(owners) =
+            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool owners", err))?;
         let relays = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool relays", err))?;
         let (metadata, consumed, break_consumed) = decode_optional_node_pool_metadata(d, len, 7, |d| {
             d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool metadata", err))
@@ -1235,7 +1243,8 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateParams {
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update reward account", err))?;
             reward_account.0
         };
-        let owners = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update owners", err))?;
+        let SerialisedAsSet(owners) =
+            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update owners", err))?;
         let relays = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update relays", err))?;
         let (metadata, consumed, break_consumed) = decode_optional_node_pool_metadata(d, len, 8, |d| {
             let metadata: NodePoolUpdateMetadata =
@@ -1263,7 +1272,8 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolStateParams {
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool reward account", err))?;
             reward_account.0
         };
-        let owners = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool owners", err))?;
+        let SerialisedAsSet(owners) =
+            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool owners", err))?;
         let relays = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool relays", err))?;
         let (metadata, consumed, _) = decode_optional_node_pool_metadata(d, len, 7, |d| {
             d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool metadata", err))
@@ -1324,6 +1334,7 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateMetadata {
     }
 }
 
+// TODO: reduce duplication with kernel's Account
 #[derive(Debug)]
 struct NodeAccount {
     rewards: Lovelace,
@@ -1333,7 +1344,7 @@ struct NodeAccount {
 }
 
 impl NodeAccount {
-    fn into_account(self, pointers: Set<(u64, u64, u64)>) -> Account {
+    fn into_account(self, pointers: Vec<(u64, u64, u64)>) -> Account {
         Account {
             rewards_and_deposit: if self.rewards == 0 && self.deposit == 0 {
                 StrictMaybe::Nothing

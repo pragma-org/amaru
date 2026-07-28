@@ -209,7 +209,7 @@ where
             Ok(())
         }
 
-        Certificate::PoolRetirement(id, epoch) => {
+        Certificate::PoolRetirement(id, retirement_epoch) => {
             context.require_vkey_witness(id);
 
             // NOTE: Some conformance tests fail this check because the Haskell imp tests run on
@@ -217,7 +217,6 @@ where
             // slot_to_epoch computes a different current epoch, making the range check reject
             // transactions that the Haskell node accepts.
             let current_epoch = era_history.slot_to_epoch_unchecked_horizon(pointer.slot())?;
-            let retirement_epoch = Epoch::from(epoch);
             let max_epoch = current_epoch + protocol_parameters.stake_pool_max_retirement_epoch;
             if retirement_epoch <= current_epoch || retirement_epoch > max_epoch {
                 return Err(InvalidCertificates::PoolRetirementWrongEpoch {
@@ -227,7 +226,7 @@ where
                 });
             }
 
-            PoolsSlice::retire(context, id, Epoch::from(epoch))?;
+            PoolsSlice::retire(context, id, retirement_epoch)?;
 
             Ok(())
         }
