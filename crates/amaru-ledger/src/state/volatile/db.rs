@@ -352,23 +352,6 @@ impl VolatileDB {
         self.overlay.transition(effective_rewards, pools_updates, governance_updates);
     }
 
-    /// Cross an epoch boundary whose transition has already been flushed to the stable store. This
-    /// happens when the node is interrupted right after flushing a boundary: the volatile is not
-    /// persisted, so on restart we rewind before the boundary and walk over it a second time.
-    ///
-    /// Like [`Self::transition`], this seals `current` into `draining` so that each series stays
-    /// homogeneous with respect to epochs. Unlike it, there are no boundary computations to carry:
-    /// rewards, pool updates and governance updates all made it to disk before the interruption and
-    /// must not be applied twice. The overlay's epoch must still move forward, otherwise later reads
-    /// (protocol parameters, governance activity) would be asked for an epoch the volatile claims
-    /// not to have reached.
-    pub fn transition_already_persisted(&mut self, next_epoch: Epoch) {
-        assert!(self.draining.is_empty(), "transitioning volatile series while a draining series is still present");
-
-        self.draining = mem::take(&mut self.current);
-        self.overlay.transition_already_persisted(next_epoch);
-    }
-
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
     pub fn is_epoch_transition_stable(&self, era_history: &EraHistory, global_parameters: &GlobalParameters) -> bool {
         !self.overlay.is_empty()

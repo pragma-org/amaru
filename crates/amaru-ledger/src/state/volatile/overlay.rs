@@ -151,24 +151,6 @@ impl StateOverlay {
         self.governance_updates = Some(Arc::new(governance_updates));
     }
 
-    /// Record that an epoch transition already persisted on disk has been crossed again while
-    /// rebuilding volatile state after restart.
-    pub fn transition_already_persisted(&mut self, next_epoch: Epoch) {
-        assert_eq!(
-            next_epoch,
-            self.epoch + 1,
-            "cannot recover persisted transition from epoch {} into epoch {}",
-            self.epoch,
-            next_epoch,
-        );
-
-        debug!(ledger::epoch_transition::RECORD, from = %self.epoch, to = %next_epoch);
-        self.epoch = next_epoch;
-        self.rewards = RewardsState::NotReady;
-        self.pools_updates = None;
-        self.governance_updates = None;
-    }
-
     /// Flush an overlay to disk.
     ///
     /// Returns the freshly-enacted `(protocol_parameters, governance_activity)` when a governance
