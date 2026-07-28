@@ -402,7 +402,7 @@ impl FetchBlocks {
         if self.no_peers_pause {
             tracing::debug!(%req_id, "retrying block fetch after no-peers pause");
         } else {
-            tracing::error!(%req_id, "timeout fetching blocks");
+            tracing::warn!(%req_id, "timeout fetching blocks");
         }
         match self.missing.as_ref().map(|m| m.boundary()) {
             None => (),

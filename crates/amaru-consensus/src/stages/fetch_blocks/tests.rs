@@ -196,7 +196,7 @@ fn test_new_tip_blocks_to_fetch() {
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
-        .assert_and_remove(Level::ERROR, &["timeout fetching blocks"])
+        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
