@@ -147,6 +147,7 @@ impl S3Client {
     /// Upload a local file to S3 at the given key.
     pub async fn upload_object(&self, src: &Path, key: &str) -> Result<(), Box<dyn std::error::Error>> {
         let size = tokio::fs::metadata(src).await?.len();
+        let content_length = i64::try_from(size)?;
         let progress = Arc::new(transfer_progress_bar("Uploading", size));
         let maximum_progress = Arc::new(AtomicU64::new(0));
         let body = ByteStream::read_from().path(src).build().await?.into_inner().map_preserve_contents({
@@ -173,6 +174,7 @@ impl S3Client {
             .put_object()
             .bucket(&self.config.bucket)
             .key(key)
+            .content_length(content_length)
             .body(ByteStream::new(body))
             .send()
             .await

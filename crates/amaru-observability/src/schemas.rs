@@ -783,16 +783,16 @@ define_schemas! {
                 public INVALID {
                     required snapshot: String
                 }
-                /// Extract a snapshot archive
-                public EXTRACT {
-                    required snapshot: String
-                }
                 /// Import a single snapshot
                 public IMPORT_FILE {
                     required path: String
                 }
                 /// Import a snapshot directory
                 public IMPORT_DIR {
+                    required path: String
+                }
+                /// Import a compressed snapshot archive
+                public IMPORT_ARCHIVE {
                     required path: String
                 }
                 /// Import from the tvar data

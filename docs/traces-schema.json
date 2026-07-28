@@ -381,22 +381,22 @@
       "description": "Download a snapshot archive",
       "public": true
     },
-    "amaru::bootstrap::snapshot::EXTRACT": {
+    "amaru::bootstrap::snapshot::IMPORT_ARCHIVE": {
       "type": "object",
       "properties": {
-        "snapshot": {
+        "path": {
           "type": "string"
         }
       },
       "required": [
-        "snapshot"
+        "path"
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "extract",
+      "name": "import_archive",
       "level": "TRACE",
       "target": "amaru::bootstrap::snapshot",
-      "description": "Extract a snapshot archive",
+      "description": "Import a compressed snapshot archive",
       "public": true
     },
     "amaru::bootstrap::snapshot::IMPORT_DIR": {

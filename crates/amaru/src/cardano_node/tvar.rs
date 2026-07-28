@@ -41,10 +41,10 @@ use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_nonces};
 use crate::bootstrap::InitialNonces;
 
 #[expect(clippy::too_many_arguments)]
-pub fn import_snapshot_from_tvar<S, F>(
+pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
     db: &S,
-    state_file: &mut std::fs::File,
-    utxo_file: &mut std::fs::File,
+    state_file: &mut State,
+    utxo_file: &mut Utxo,
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
@@ -54,6 +54,8 @@ pub fn import_snapshot_from_tvar<S, F>(
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
+    State: Read + Seek,
+    Utxo: Read,
 {
     let state_head = read_state_snapshot(state_file)?;
     let (parsed_snapshot, initial_nonces) = if let Some(tail) = nonce_tail {
@@ -86,7 +88,7 @@ where
     Ok((epoch, point, initial_nonces))
 }
 
-fn read_state_snapshot(file: &mut std::fs::File) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+fn read_state_snapshot(file: &mut impl Read) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     Ok(bytes)
@@ -101,8 +103,8 @@ fn default_utxo_size(network: NetworkName) -> usize {
     }
 }
 
-fn import_utxo_from_tvar<S, F>(
-    utxo_file: &mut std::fs::File,
+fn import_utxo_from_tvar<S, F, Utxo>(
+    utxo_file: &mut Utxo,
     db: &S,
     with_progress: F,
     point: &Point,
@@ -112,8 +114,9 @@ fn import_utxo_from_tvar<S, F>(
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
+    Utxo: Read,
 {
-    let mut decoder = LazyDecoder::from_file(utxo_file);
+    let mut decoder = LazyDecoder::new(utxo_file);
     import_tvar_utxo(&mut decoder, db, with_progress, point, era_history, network)
 }
 

@@ -235,7 +235,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `download` | `TRACE` | public | Download a snapshot archive | epoch, point |  |
-| `extract` | `TRACE` | public | Extract a snapshot archive | snapshot |  |
+| `import_archive` | `TRACE` | public | Import a compressed snapshot archive | path |  |
 | `import_dir` | `TRACE` | public | Import a snapshot directory | path |  |
 | `import_file` | `TRACE` | public | Import a single snapshot | path |  |
 | `import_tvar` | `TRACE` | public | Import from the tvar data | point, new_epoch_state_offset |  |
@@ -251,11 +251,11 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `extract`</summary>
+<details><summary>span: `import_archive`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `snapshot` | `string` | ✓ |
+| `path` | `string` | ✓ |
 
 </details>
 
