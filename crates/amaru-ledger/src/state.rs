@@ -401,6 +401,14 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // pre-conditions have been checked).
             let mut volatile_view = VolatileView::new(&self.volatile, &*db);
 
+            // Compute the updates to perform on pools at the epoch boundary. This uses information
+            // from both the immutable store and the volatile database, since we compute the updates
+            // before they are "stable" and safe to store.
+            //
+            // It also tells us the reward account of every pool, which the rewards below need to
+            // tell apart the leader rewards that can no longer be paid.
+            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
+
             // NOTE: No rewards during epoch transition?
             //
             // It is fine in some situation to compute an epoch transition and yet have no rewards.
@@ -412,15 +420,16 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
             // pool updates, etc...) but not the end (rewards).
             let (treasury, effective_rewards) = if progress.is_none() {
-                let effective_rewards = Rewards::<Effective>::new(
-                    // FIXME: asynchronous rewards calculations
-                    //
-                    // This should eventually be a '.await', as we always expect to *eventually*
-                    // have some rewards summary being available. There's no way to continue progressing
-                    // the ledger if we don't.
-                    computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
-                    volatile_view.iter_unregistered_accounts()?.collect(),
-                );
+                // FIXME: asynchronous rewards calculations
+                //
+                // This should eventually be a '.await', as we always expect to *eventually*
+                // have some rewards summary being available. There's no way to continue progressing
+                // the ledger if we don't.
+                let computed_rewards = computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?;
+
+                let unclaimed = volatile_view.unclaimed_reward_accounts(pools_updates.reward_accounts())?;
+
+                let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed);
 
                 (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
             } else {
@@ -428,11 +437,6 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             };
 
             let protocol_parameters = self.protocol_parameters();
-
-            // Compute the updates to perform on pools at the epoch boundary. This uses information
-            // from both the immutable store and the volatile database, since we compute the updates
-            // before they are "stable" and safe to store.
-            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
 
             let ratification_context = RatificationContext::new(
                 // Ratification happens with one epoch of delay, and at the next epoch transition. So,

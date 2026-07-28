@@ -68,6 +68,7 @@ Other guiding principles:
 - **amaru**: fix the start/restart of a node ([#1095][], [#1098][])
 - **amaru-node**: fix build script to avoid hitting the github API too frequently ([#1108](https://github.com/pragma-org/amaru/pull/1108))
 - **amaru-ledger**: fix the computation of pool updates ([#1109][])
+- **amaru-ledger**: fix the handling of leader accounts for unclaimed rewards ([#1101][])
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
@@ -265,3 +266,4 @@ Other guiding principles:
 [#1095]: https://github.com/pragma-org/amaru/issues/1095
 [#1098]: https://github.com/pragma-org/amaru/pull/1098
 [#1109]: https://github.com/pragma-org/amaru/pull/1109
+[#1101]: https://github.com/pragma-org/amaru/pull/1101
