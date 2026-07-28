@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod serialised_as_cbor;
 mod serialised_as_millis;
 mod serialised_as_pico;
 
+pub use serialised_as_cbor::SerialisedAsCbor;
 pub use serialised_as_millis::SerialisedAsMillis;
 pub use serialised_as_pico::SerialisedAsPico;

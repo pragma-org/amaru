@@ -15,7 +15,7 @@
 use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
 
 use amaru_kernel::{
-    Address, BigInt, BorrowedScript, Bytes, ComputeHash, CurrencySymbol, Hash, Int, LegacyKeyValuePairs,
+    Address, BigInt, BorrowedScript, Bytes, CurrencySymbol, HasScriptHash, Hash, Int, LegacyKeyValuePairs,
     MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData,
     RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, size,
 };
@@ -269,12 +269,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self {
-            BorrowedScript::Native(native) => native.compute_hash().to_plutus_data(),
-            BorrowedScript::PlutusV1(plutus) => plutus.compute_hash().to_plutus_data(),
-            BorrowedScript::PlutusV2(plutus) => plutus.compute_hash().to_plutus_data(),
-            BorrowedScript::PlutusV3(plutus) => plutus.compute_hash().to_plutus_data(),
-        }
+        self.script_hash().to_plutus_data()
     }
 }
 

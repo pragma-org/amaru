@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     AddrType, Address, AddressError, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript,
-    TransactionInput, cardano::memoized::script_size, cbor, transaction_input_to_string,
+    TransactionInput, cbor, transaction_input_to_string,
 };
 use thiserror::Error;
 
@@ -68,7 +68,7 @@ where
             let output =
                 context.lookup(reference_input).ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
 
-            let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
+            let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
             match &output.datum {
                 MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), reference_input.clone()),
@@ -105,7 +105,7 @@ where
 
         let output = context.lookup(input).ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
 
-        let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
+        let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
         // TODO: Avoid cloning here. Could probably be achieved by having 'RequiredScript'
         // always take a datum hash, and lookup its value when needed.

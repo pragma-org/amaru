@@ -16,8 +16,8 @@ use pallas_primitives::conway::Multiasset;
 
 use crate::{
     Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, PositiveCoin,
-    ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script, encode_script, serialize_memoized_script,
-    size::CREDENTIAL, to_cbor,
+    ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
+    utils::cbor::SerialisedAsCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -161,7 +161,10 @@ fn decode_modern_output<C>(
                 0 => state.0 = Some(decode_address(d.bytes()?)?),
                 1 => state.1 = Some(d.decode_with(ctx)?),
                 2 => state.2 = d.decode_with(ctx)?,
-                3 => state.3 = Some(decode_script(d, ctx)?),
+                3 => {
+                    let SerialisedAsCbor(script) = d.decode_with(ctx)?;
+                    state.3 = Some(script)
+                }
                 _ => return cbor::unexpected_field::<MemoizedTransactionOutput, _>(field),
             }
             Ok(())
@@ -218,7 +221,7 @@ impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
                 None => (),
                 Some(script) => {
                     e.u8(3)?;
-                    encode_script(script, e)?;
+                    e.encode_with(SerialisedAsCbor(script), ctx)?;
                 }
             }
 
