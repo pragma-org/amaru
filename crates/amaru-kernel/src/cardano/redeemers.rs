@@ -151,9 +151,7 @@ impl PlutusRedeemers<'_> {
             RedeemersInner::Array(array) => {
                 Box::new(array.iter().map(|r| (RedeemerKey { tag: r.tag, index: r.index }, &r.data, r.ex_units)))
             }
-            RedeemersInner::Map(map) => {
-                Box::new(map.iter().map(|(key, value)| (key.clone(), &value.data, value.ex_units)))
-            }
+            RedeemersInner::Map(map) => Box::new(map.iter().map(|(key, value)| (*key, &value.data, value.ex_units))),
         }
     }
 }

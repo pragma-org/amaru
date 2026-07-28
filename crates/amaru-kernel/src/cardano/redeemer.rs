@@ -12,4 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::Redeemer;
+use crate::{ExUnits, PlutusData, RedeemerTag, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct Redeemer {
+    #[n(0)]
+    pub tag: RedeemerTag,
+
+    #[n(1)]
+    pub index: u32,
+
+    #[n(2)]
+    pub data: PlutusData,
+
+    #[n(3)]
+    pub ex_units: ExUnits,
+}

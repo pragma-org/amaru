@@ -12,4 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::RedeemersKey as RedeemerKey;
+use crate::{RedeemerTag, cbor};
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode,
+)]
+pub struct RedeemerKey {
+    #[n(0)]
+    pub tag: RedeemerTag,
+    #[n(1)]
+    pub index: u32,
+}

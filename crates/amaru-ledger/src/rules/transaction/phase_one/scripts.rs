@@ -21,7 +21,7 @@ use std::{
 use amaru_kernel::{
     ExUnits, HasExUnits, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
     PlutusVersion, ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
-    ValidityInterval, WitnessSet, redeemer_tag_to_string,
+    ValidityInterval, WitnessSet,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
@@ -130,7 +130,7 @@ pub enum InvalidScripts {
         "extraneous redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
             "[{}, {}]",
-            redeemer_tag_to_string(&redeemer_key.tag),
+            &redeemer_key.tag,
             redeemer_key.index
         )).collect::<Vec<_>>().join(", ")
     )]
@@ -140,7 +140,7 @@ pub enum InvalidScripts {
         "missing redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
             "[{}, {}]",
-            redeemer_tag_to_string(&redeemer_key.tag),
+            &redeemer_key.tag,
             redeemer_key.index
         )).collect::<Vec<_>>().join(", ")
     )]
@@ -214,7 +214,7 @@ where
             if let Some(index) = required_redeemers.iter().position(|required| required == provided.deref()) {
                 required_redeemers.remove(index);
             } else {
-                extra_redeemers.push(provided.deref().clone());
+                extra_redeemers.push(*provided.deref());
             }
         })
     }

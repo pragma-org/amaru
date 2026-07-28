@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, fmt};
 use amaru_kernel::{
     BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, RedeemerKey,
     TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    redeemer_tag_to_string, to_cbor,
+    to_cbor,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::{
@@ -143,7 +143,7 @@ where
             debug_span!(
                 parent: &span_execute_scripts,
                 ledger::rules::phase_two::EXECUTE_ONE_SCRIPT,
-                purpose = redeemer_tag_to_string(purpose),
+                purpose = purpose.to_string(),
                 index = index
             )
             .in_scope(|| {
@@ -243,7 +243,7 @@ where
                         plutus_version,
                         info: result.info,
                         err,
-                        redeemer: redeemer.clone(),
+                        redeemer: *redeemer,
                         program: encode_program(program),
                     }))
                 };
