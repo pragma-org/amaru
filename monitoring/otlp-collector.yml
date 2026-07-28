@@ -22,11 +22,11 @@ processors:
           - set(version, "")
 
 exporters:
-  otlp_grpc/tempo:
+  otlp/tempo:
     endpoint: "tempo:4317"
     tls:
       insecure: true
-  otlp_http/loki:
+  otlphttp/loki:
     endpoint: "http://loki:3100/otlp"
   prometheus:
     endpoint: "0.0.0.0:8889"
@@ -42,8 +42,8 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp_grpc/tempo]
+      exporters: [otlp/tempo]
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp_http/loki]
+      exporters: [otlphttp/loki]
