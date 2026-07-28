@@ -22,11 +22,13 @@ use std::{
 
 use amaru::default_snapshots_dir;
 use amaru_kernel::{
-    Epoch, HeaderHash, NetworkName, Point, Slot,
+    BlockHeader, Epoch, HeaderHash, IsHeader, NetworkName, Point, Slot, from_cbor,
     num::{CheckedAdd, CheckedSub},
     utils::{self, path::relative_path},
 };
-use amaru_mithril::{chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks};
+use amaru_mithril::{
+    ImmutableBlock, chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks,
+};
 use amaru_observability::info;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use anyhow::anyhow;
@@ -242,13 +244,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     targets.sort_unstable_by_key(|target| target.slot);
 
-    // Fail fast: every target except the oldest must carry a parent_point, since
-    // bootstrap packages headers for the 2nd and 3rd snapshots from it. Without
-    // this, create-bootstrap-snapshots succeeds but bootstrap later fails for want of the
-    // packaged bootstrap.headers.json.
+    // Fail fast: every target except the oldest must carry a parent_point so its packaged block can
+    // be checked against the expected chain.
     if let Some(target) = targets.iter().skip(1).find(|target| target.parent_point.is_none()) {
         return Err(format!(
-            "target epoch {} (slot {}) is missing parent_point; required to package bootstrap headers",
+            "target epoch {} (slot {}) is missing parent_point; required to verify its packaged bootstrap block",
             target.epoch, target.slot
         )
         .into());
@@ -346,7 +346,6 @@ fn process_target(
             snapshot = %relative_path(&prepared_snapshot_path)?.display(),
         );
         materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
-        write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
     } else {
         info!(
             cli::snapshot::SKIP_MATERIALIZE,
@@ -356,6 +355,8 @@ fn process_target(
             reason = "already exists",
         );
     }
+
+    write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
 
     info!(
         cli::snapshot::PACKAGE,
@@ -424,7 +425,7 @@ fn write_packaged_blocks(
     immutable_dir: &Path,
     prepared_snapshot_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let blocks = packaged_blocks_for_target(immutable_dir, target.parent_point)?;
+    let blocks = packaged_blocks_for_target(immutable_dir, target)?;
     if blocks.is_empty() {
         return Ok(());
     }
@@ -474,64 +475,89 @@ pub(super) fn repo_root() -> PathBuf {
 
 fn packaged_blocks_for_target(
     immutable_dir: &Path,
-    parent_point: Option<Point>,
+    target: &EpochTarget,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let Some(parent_point) = parent_point else {
-        return Ok(Vec::new());
-    };
+    packaged_blocks_from_iter(iter_immutable_blocks(immutable_dir)?, target, immutable_dir)
+}
 
-    let parent_hash = parent_point.hash();
-    let mut found_parent = false;
-    let mut blocks = Vec::with_capacity(2);
-
-    for block in iter_immutable_blocks(immutable_dir)? {
+fn packaged_blocks_from_iter(
+    blocks: impl IntoIterator<Item = Result<ImmutableBlock, Box<dyn std::error::Error>>>,
+    target: &EpochTarget,
+    immutable_dir: &Path,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    for block in blocks {
         let block = block?;
-        if !found_parent {
-            if block.hash == parent_hash {
-                found_parent = true;
-            }
-        } else {
-            blocks.push(hex::encode(&block.raw_block));
-            if blocks.len() == 2 {
-                break;
+        if block.hash != target.hash {
+            continue;
+        }
+
+        let header: BlockHeader = from_cbor(&block.header_cbor)
+            .ok_or_else(|| format!("failed to decode target block header {} from immutable blocks", target.hash))?;
+        if header.hash() != target.hash {
+            return Err(
+                format!("target block header hash mismatch: expected {}, got {}", target.hash, header.hash()).into()
+            );
+        }
+        if header.slot() != target.slot {
+            return Err(format!("target block slot mismatch: expected {}, got {}", target.slot, header.slot()).into());
+        }
+        if let Some(parent_point) = target.parent_point {
+            let expected_parent = match parent_point {
+                Point::Origin => None,
+                Point::Specific(_, hash) => Some(hash),
+            };
+            if header.parent_hash() != expected_parent {
+                return Err(format!(
+                    "target block parent mismatch: expected {expected_parent:?}, got {:?}",
+                    header.parent_hash()
+                )
+                .into());
             }
         }
+
+        return Ok(vec![hex::encode(block.raw_block)]);
     }
 
-    if !found_parent {
-        return Err(format!(
-            "parent point {parent_point} not found in immutable blocks under {}",
-            immutable_dir.display()
-        )
-        .into());
-    }
-
-    if blocks.len() < 2 {
-        return Err(format!(
-            "could not package 2 bootstrap blocks after parent point {parent_point} (found {} blocks)",
-            blocks.len()
-        )
-        .into());
-    }
-
-    Ok(blocks)
+    Err(format!(
+        "target block {}.{} not found in immutable blocks under {}",
+        target.slot,
+        target.hash,
+        immutable_dir.display()
+    )
+    .into())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{error::Error, fs, path::Path};
 
-    use amaru_kernel::{Epoch, Slot};
+    use amaru_kernel::{BlockHeader, Epoch, HeaderHash, IsHeader, Point, Slot, make_header, to_cbor};
+    use amaru_mithril::ImmutableBlock;
     use tempfile::TempDir;
 
     use super::{
+        EpochTarget,
         archive::materialize_snapshot,
         bootstrap_target_epochs,
         db_analyser::{
             latest_snapshot_slot_at_or_before, parse_db_analyser_progress_line, parse_snapshot_slot_dir_name,
             select_analyse_from_slot,
         },
+        packaged_blocks_from_iter,
     };
+
+    fn immutable_block(header: &BlockHeader, raw_block: &[u8]) -> ImmutableBlock {
+        ImmutableBlock { hash: header.hash(), header_cbor: to_cbor(header), raw_block: raw_block.to_vec() }
+    }
+
+    fn target_for(header: &BlockHeader, parent_point: Point) -> EpochTarget {
+        EpochTarget {
+            epoch: Epoch::from(1),
+            slot: header.slot(),
+            hash: header.hash(),
+            parent_point: Some(parent_point),
+        }
+    }
 
     #[test]
     fn bootstrap_target_epochs_includes_three_consecutive_epochs() {
@@ -611,5 +637,55 @@ mod tests {
 
         assert!(target.join("state").is_file());
         assert!(target.join("tables").join("tvar").is_file());
+    }
+
+    #[test]
+    fn packages_only_the_exact_snapshot_block() {
+        let parent_hash = HeaderHash::from([1; 32]);
+        let parent_point = Point::Specific(Slot::from(41), parent_hash);
+        let target_header = BlockHeader::from(make_header(2, 42, Some(parent_hash)));
+        let child_header = BlockHeader::from(make_header(3, 43, Some(target_header.hash())));
+        let target = target_for(&target_header, parent_point);
+        let blocks = vec![
+            Ok::<_, Box<dyn Error>>(immutable_block(&target_header, b"target")),
+            Ok::<_, Box<dyn Error>>(immutable_block(&child_header, b"child")),
+        ];
+
+        assert_eq!(
+            packaged_blocks_from_iter(blocks, &target, Path::new("immutable")).unwrap(),
+            vec![hex::encode(b"target")]
+        );
+    }
+
+    #[test]
+    fn rejects_snapshot_block_with_inconsistent_metadata() {
+        let parent_hash = HeaderHash::from([1; 32]);
+        let header = BlockHeader::from(make_header(2, 42, Some(parent_hash)));
+        let block = immutable_block(&header, b"target");
+
+        let mut target = target_for(&header, Point::Specific(Slot::from(41), parent_hash));
+        target.slot = Slot::from(43);
+        assert!(
+            packaged_blocks_from_iter(vec![Ok::<_, Box<dyn Error>>(block)], &target, Path::new("immutable")).is_err()
+        );
+
+        target.slot = header.slot();
+        target.parent_point = Some(Point::Specific(Slot::from(41), HeaderHash::from([2; 32])));
+        assert!(
+            packaged_blocks_from_iter(
+                vec![Ok::<_, Box<dyn Error>>(immutable_block(&header, b"target"))],
+                &target,
+                Path::new("immutable")
+            )
+            .is_err()
+        );
+
+        target.parent_point = Some(Point::Specific(Slot::from(41), parent_hash));
+        let mismatched_header = BlockHeader::from(make_header(3, 42, Some(parent_hash)));
+        let mismatched = ImmutableBlock { hash: target.hash, ..immutable_block(&mismatched_header, b"other") };
+        assert!(
+            packaged_blocks_from_iter(vec![Ok::<_, Box<dyn Error>>(mismatched)], &target, Path::new("immutable"))
+                .is_err()
+        );
     }
 }

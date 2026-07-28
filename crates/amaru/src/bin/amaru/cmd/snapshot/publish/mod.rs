@@ -14,8 +14,11 @@
 
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
-use amaru::aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config};
-use amaru_kernel::{NetworkName, utils::path::relative_path};
+use amaru::{
+    aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config},
+    bootstrap::validate_publishable_snapshot_archive,
+};
+use amaru_kernel::{NetworkName, Point, utils::path::relative_path};
 use amaru_observability::info;
 use clap::Parser;
 
@@ -104,13 +107,25 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         })
         .unwrap_or_default();
 
-    // List what is already in S3 under this network prefix.
+    // List the actual objects in S3 under this network prefix, independently from index.json.
     let network_prefix = network.to_string().to_lowercase();
-    let remote_keys: BTreeSet<String> =
-        s3.list_snapshots(network).await?.into_iter().map(|s| format!("{}{ARCHIVE_EXTENSION}", s.point)).collect();
+    let remote_keys: BTreeSet<String> = s3
+        .list_snapshot_objects(network)
+        .await?
+        .into_iter()
+        .map(|s| format!("{}{ARCHIVE_EXTENSION}", s.point))
+        .collect();
 
     if local_archives.is_empty() && remote_keys.is_empty() {
         return Err("no archives found locally or in S3; run `amaru snapshot create` first".into());
+    }
+
+    let archives_to_upload: Vec<&String> = local_archives.difference(&remote_keys).collect();
+    for archive_name in &archives_to_upload {
+        let archive_path = snapshot_root.join(archive_name);
+        let point = snapshot_point_from_archive_name(archive_name)?;
+        validate_publishable_snapshot_archive(&archive_path, point)
+            .map_err(|err| format!("refusing to publish invalid snapshot archive {}: {err}", archive_path.display()))?;
     }
 
     info!(cli::snapshot::PUBLISH, %network, local = local_archives.len(), remote = remote_keys.len());
@@ -141,6 +156,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     info!(cli::snapshot::UPDATE_INDEX, %network, snapshots = all_points.len());
 
     Ok(())
+}
+
+fn snapshot_point_from_archive_name(archive_name: &str) -> Result<&str, Box<dyn std::error::Error>> {
+    let point = archive_name
+        .strip_suffix(ARCHIVE_EXTENSION)
+        .ok_or_else(|| format!("snapshot archive must end with {ARCHIVE_EXTENSION}: {archive_name}"))?;
+    if point.split('.').count() != 2 || !matches!(Point::try_from(point), Ok(Point::Specific(_, _))) {
+        return Err(format!("invalid snapshot archive point in filename: {archive_name}").into());
+    }
+    Ok(point)
 }
 
 fn required_env(name: &str) -> Result<String, Box<dyn std::error::Error>> {

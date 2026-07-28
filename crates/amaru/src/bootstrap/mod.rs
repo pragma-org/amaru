@@ -302,7 +302,7 @@ async fn download_snapshots(
     Ok(())
 }
 
-fn validate_snapshot_archive(archive_path: &Path) -> Result<(), Box<dyn Error>> {
+fn snapshot_archive_root(archive_path: &Path) -> Result<PathBuf, Box<dyn Error>> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
     let mut state_root = None;
@@ -313,16 +313,26 @@ fn validate_snapshot_archive(archive_path: &Path) -> Result<(), Box<dyn Error>> 
         let path = entry.path()?;
         state_root = state_root.or_else(|| snapshot_archive_entry_root(&path, Path::new(SNAPSHOT_STATE_FILE_NAME)));
         utxo_root = utxo_root.or_else(|| snapshot_archive_entry_root(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)));
-        if let (Some(state_root), Some(utxo_root)) = (&state_root, &utxo_root) {
-            return if state_root == utxo_root {
-                Ok(())
-            } else {
-                Err("snapshot archive state and tables/tvar must share the same root directory".into())
-            };
-        }
     }
 
-    Err(format!("archive must contain {SNAPSHOT_STATE_FILE_NAME} and {SNAPSHOT_UTXO_FILE_NAME}").into())
+    match (state_root, utxo_root) {
+        (Some(state_root), Some(utxo_root)) if state_root == utxo_root => Ok(state_root),
+        (Some(_), Some(_)) => Err("snapshot archive state and tables/tvar must share the same root directory".into()),
+        _ => Err(format!("archive must contain {SNAPSHOT_STATE_FILE_NAME} and {SNAPSHOT_UTXO_FILE_NAME}").into()),
+    }
+}
+
+fn validate_snapshot_archive(archive_path: &Path) -> Result<(), Box<dyn Error>> {
+    snapshot_archive_root(archive_path).map(|_| ())
+}
+
+pub fn validate_publishable_snapshot_archive(archive_path: &Path, expected_point: &str) -> Result<(), Box<dyn Error>> {
+    let root = snapshot_archive_root(archive_path)?;
+    if root != Path::new(expected_point) {
+        return Err(format!("snapshot archive root is {}, expected {expected_point}", root.display()).into());
+    }
+
+    load_packaged_block_from_snapshot(archive_path, expected_point).map(|_| ())
 }
 
 fn read_snapshot_archive_entry(archive_path: &Path, expected: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -427,7 +437,12 @@ pub async fn bootstrap(
     let initial_nonces =
         imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
     store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
-    let blocks = load_packaged_blocks_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
+    let blocks = load_packaged_blocks_for_bootstrap(
+        &second_snapshot_path,
+        second_snapshot,
+        &third_snapshot_path,
+        third_snapshot,
+    )?;
     import_packaged_blocks(&chain_db, blocks).await?;
 
     Ok(())
@@ -451,37 +466,47 @@ pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> 
 
 fn load_packaged_blocks_for_bootstrap(
     second_snapshot_path: &Path,
+    second_snapshot: &Snapshot,
     third_snapshot_path: &Path,
+    third_snapshot: &Snapshot,
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-    let mut blocks = load_packaged_blocks_from_snapshot(second_snapshot_path)?;
-    blocks.extend(load_packaged_blocks_from_snapshot(third_snapshot_path)?);
-    Ok(blocks)
+    Ok(vec![
+        load_packaged_block_from_snapshot(second_snapshot_path, &second_snapshot.point)?,
+        load_packaged_block_from_snapshot(third_snapshot_path, &third_snapshot.point)?,
+    ])
 }
 
-fn load_packaged_blocks_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str) -> Result<Vec<u8>, Box<dyn Error>> {
     if !is_snapshot_archive_file(snapshot_path) {
         return Err(format!("snapshot does not contain packaged bootstrap blocks: {}", snapshot_path.display()).into());
     }
 
     let bytes = read_snapshot_archive_entry(snapshot_path, Path::new(PACKAGED_BLOCKS_FILE_NAME))?;
-
     let hex_blocks: Vec<String> = serde_json::from_slice(&bytes)?;
-    if hex_blocks.len() < BOOTSTRAP_HEADERS_PER_POINT {
+    let hex_block = require_single_packaged_block(hex_blocks, snapshot_path)?;
+
+    let block = hex::decode(hex_block)?;
+    let header_cbor = extract_block_header_cbor(&block)?;
+    let header: BlockHeader = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+    let expected_point = Point::try_from(expected_point)?;
+    if header.point() != expected_point {
+        return Err(format!("packaged bootstrap block is {}, expected {expected_point}", header.point()).into());
+    }
+
+    Ok(block)
+}
+
+fn require_single_packaged_block(mut hex_blocks: Vec<String>, snapshot_path: &Path) -> Result<String, Box<dyn Error>> {
+    if hex_blocks.len() != 1 {
         return Err(format!(
-            "packaged bootstrap blocks at {} contain {} blocks; expected at least {}.",
+            "packaged bootstrap blocks at {} contain {} blocks; expected exactly 1",
             snapshot_path.display(),
-            hex_blocks.len(),
-            BOOTSTRAP_HEADERS_PER_POINT
+            hex_blocks.len()
         )
         .into());
     }
 
-    let mut blocks = Vec::with_capacity(hex_blocks.len());
-    for hex_block in hex_blocks {
-        blocks.push(hex::decode(hex_block)?);
-    }
-
-    Ok(blocks)
+    Ok(hex_blocks.remove(0))
 }
 
 fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
@@ -744,8 +769,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, load_packaged_blocks_from_snapshot, read_snapshot_archive_entry, select_bootstrap_snapshots,
-        should_download_snapshot, snapshot_archive_entry_matches, sort_snapshots_by_slot, validate_snapshot_archive,
+        Snapshot, read_snapshot_archive_entry, select_bootstrap_snapshots,
+        should_download_snapshot, snapshot_archive_entry_matches, sort_snapshots_by_slot,
+        validate_publishable_snapshot_archive, validate_snapshot_archive,
     };
     use crate::cardano_node::ParsedStateSnapshot;
 
@@ -846,19 +872,15 @@ mod tests {
     }
 
     #[test]
-    fn loads_packaged_blocks_from_snapshot_archive() {
+    fn publish_validation_rejects_archive_root_that_does_not_match_point() {
         let temp_dir = tempdir().unwrap();
         let archive_path = temp_dir.path().join("69206375.hash.tar.zst");
         write_snapshot_archive(
             &archive_path,
-            &[
-                ("69206375.hash/state", b"state"),
-                ("69206375.hash/tables/tvar", b"utxo"),
-                ("69206375.hash/bootstrap.blocks.json", br#"["00", "ff"]"#),
-            ],
+            &[("wrong/state", b"state"), ("wrong/tables/tvar", b"utxo"), ("wrong/bootstrap.blocks.json", br#"["00"]"#)],
         );
 
-        assert_eq!(load_packaged_blocks_from_snapshot(&archive_path).unwrap(), vec![vec![0], vec![255]]);
+        assert!(validate_publishable_snapshot_archive(&archive_path, "69206375.hash").is_err());
     }
 
     #[test]

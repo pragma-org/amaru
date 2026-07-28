@@ -20,7 +20,7 @@ use std::{
     },
 };
 
-use amaru_kernel::NetworkName;
+use amaru_kernel::{NetworkName, Point};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
 use aws_sdk_s3::{
@@ -130,6 +130,47 @@ impl S3Client {
             .collect())
     }
 
+    /// List snapshot archives stored under the network prefix, independently from `index.json`.
+    pub async fn list_snapshot_objects(
+        &self,
+        network: NetworkName,
+    ) -> Result<Vec<S3Snapshot>, Box<dyn std::error::Error>> {
+        let prefix = format!("{}/", network.to_string().to_lowercase());
+        let mut continuation_token = None;
+        let mut snapshots = Vec::new();
+
+        loop {
+            let response = self
+                .inner
+                .list_objects_v2()
+                .bucket(&self.config.bucket)
+                .prefix(&prefix)
+                .set_continuation_token(continuation_token)
+                .send()
+                .await?;
+
+            snapshots.extend(
+                response
+                    .contents()
+                    .iter()
+                    .filter_map(|object| object.key())
+                    .filter_map(|key| parse_snapshot_key(key, &prefix)),
+            );
+
+            if !response.is_truncated().unwrap_or(false) {
+                break;
+            }
+
+            continuation_token = response.next_continuation_token().map(str::to_owned);
+            if continuation_token.is_none() {
+                return Err("S3 returned a truncated object listing without a continuation token".into());
+            }
+        }
+
+        snapshots.sort_by(|left, right| left.point.cmp(&right.point));
+        Ok(snapshots)
+    }
+
     /// Download an S3 object and write it to `dest`.
     pub async fn download_object(&self, key: &str, dest: &Path) -> Result<(), Box<dyn std::error::Error>> {
         use tokio::{fs::File, io::AsyncWriteExt as _};
@@ -203,6 +244,17 @@ impl S3Client {
             }
         }
     }
+}
+
+fn parse_snapshot_key(key: &str, prefix: &str) -> Option<S3Snapshot> {
+    let filename = key.strip_prefix(prefix)?;
+    let point = filename.strip_suffix(ARCHIVE_EXTENSION)?;
+
+    if point.contains('/') || point.split('.').count() != 2 || matches!(Point::try_from(point).ok()?, Point::Origin) {
+        return None;
+    }
+
+    Some(S3Snapshot { point: point.to_owned(), key: key.to_owned() })
 }
 
 /// S3 client for unauthenticated (public-read) access via the public CDN URL.
@@ -283,20 +335,6 @@ fn transfer_progress_bar(action: &str, size: u64) -> TerminalProgressBar {
 mod tests {
     use super::*;
 
-    fn parse_snapshot_key(key: &str, prefix: &str) -> Option<S3Snapshot> {
-        let filename = key.strip_prefix(prefix)?;
-        let point = filename.strip_suffix(".tar.zst")?;
-
-        if point.contains('/') {
-            return None;
-        }
-
-        let (slot_str, _hash) = point.split_once('.')?;
-        slot_str.parse::<u64>().ok()?;
-
-        Some(S3Snapshot { point: point.to_owned(), key: key.to_owned() })
-    }
-
     #[test]
     fn parse_snapshot_key_valid() {
         let prefix = "preprod/";
@@ -319,5 +357,17 @@ mod tests {
     #[test]
     fn parse_snapshot_key_rejects_non_numeric_slot() {
         assert!(parse_snapshot_key("preprod/noslot.hash.tar.zst", "preprod/").is_none());
+    }
+
+    #[test]
+    fn parse_snapshot_key_rejects_invalid_hash() {
+        assert!(parse_snapshot_key("preprod/69206375.hash.tar.zst", "preprod/").is_none());
+        assert!(
+            parse_snapshot_key(
+                "preprod/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.extra.tar.zst",
+                "preprod/"
+            )
+            .is_none()
+        );
     }
 }

@@ -53,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Snapshot(snap_cmd) => match snap_cmd {
             cmd::snapshot::SnapshotCommand::Create(args) => cmd::snapshot::create::run(args).await,
             cmd::snapshot::SnapshotCommand::Publish(args) => cmd::snapshot::publish::run(args).await,
+            cmd::snapshot::SnapshotCommand::Reindex(args) => cmd::snapshot::reindex::run(args).await,
         },
         Command::Dev(dev_cmd) => match dev_cmd {
             cmd::dev::DevCommand::Chain(chain_cmd) => match chain_cmd {

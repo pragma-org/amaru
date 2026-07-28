@@ -16,12 +16,16 @@ use clap::Subcommand;
 
 pub(crate) mod create;
 pub(crate) mod publish;
+pub(crate) mod reindex;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SnapshotCommand {
     /// Create the three consecutive epoch snapshots needed for bootstrap.
     Create(create::Args),
 
-    /// Upload bootstrap snapshots to S3 and update the embedded manifest with their URLs.
+    /// Upload bootstrap snapshots to S3 and update the network index.
     Publish(publish::Args),
+
+    /// Rebuild the snapshot index from archives stored in S3.
+    Reindex(reindex::Args),
 }
