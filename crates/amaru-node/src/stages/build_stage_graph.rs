@@ -51,7 +51,7 @@ pub fn build_stage_graph(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     ledger_tip: Tip,
-    best_hash: HeaderHash,
+    recovery_best_hash: HeaderHash,
     max_epoch: Epoch,
     stage_graph: &mut impl StageGraph,
 ) -> NodeStages {
@@ -146,7 +146,10 @@ pub fn build_stage_graph(
     // Include main's useful RecoverStoredBlocks preload
     #[expect(clippy::expect_used)]
     stage_graph
-        .preload(&fetch_blocks, [FetchBlocksMsg::RecoverStoredBlocks(best_hash, trace_context)])
+        .preload(
+            &fetch_blocks,
+            [FetchBlocksMsg::RecoverStoredBlocks { from: ledger_tip.point(), to: recovery_best_hash, trace_context }],
+        )
         .expect("fetch blocks recovery message must be preloaded");
 
     let fetch_blocks_input = stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |msg| {
@@ -157,7 +160,7 @@ pub fn build_stage_graph(
     let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));
     #[expect(clippy::expect_used)]
     stage_graph
-        .preload(&select_chain, [SelectChainMsg::Initialize(best_hash)])
+        .preload(&select_chain, [SelectChainMsg::Initialize(recovery_best_hash)])
         .expect("initialization message must be preloaded");
     let select_chain_input = stage_graph.contramap(select_chain, "select_chain_input", |msg| {
         let track_peers::NewTip { tip, parent, trace_context, received_at } = msg;

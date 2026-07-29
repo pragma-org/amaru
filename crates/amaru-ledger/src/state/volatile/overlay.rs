@@ -159,6 +159,51 @@ impl StateOverlay {
         let updated = info_span!(ledger::epoch_transition::APPLY, epoch = self.epoch).in_scope(|| {
             use EpochTransitionProgress::*;
 
+            // NOTE: 3-step epoch transition
+            //
+            // Why are 3 db transactions needed here?
+            //
+            // Two transactions can be explained with a few points:
+            //
+            //  - Calculations that depend on historical data. A snapshot must be taken precisely
+            //    after paying out the rewards, but before ratifying governance actions or pruning
+            //    stake pools. So there's a precise split between these moment and it's nice
+            //    (albeit strictly unnecessary) to make it apparent.
+            //
+            //  - Another compelling reason for the split is the bootstrapping of Amaru. Snapshots
+            //    we produce from the Haskell node correspond precisely to our definition of
+            //    snapshot here (i.e. data at the end of the epoch, after rewards payments but
+            //    before next epoch start). Hence, we must be able to resume from a snapshot
+            //    mid-transaction, and instead of making a special case for the bootstrapping, we
+            //    make it our default behaviour.
+            //
+            // Why the third split then? Because while RocksDB allows for checkpointing in the
+            // middle of a transaction, it does not rollback checkpoints on failures.
+            //
+            // So if anything goes wrong during the transaction but after the checkpoint/snapshot
+            // was taken, we end up in an awkward spot where we need to re-apply the end of epoch,
+            // skip the snapshot, and re-apply the beginning.
+            //
+            // Yet, this puts us in an inconsistent state where a snapshot exists (and other logic
+            // may infer a bunch of decisions from it!), while the actual database state still lives
+            // in the past. So to prevent this, we introduce a third split between the moment the
+            // epoch ended (and was persisted to disk) and the moment the snapshot was taken.
+            //
+            // This way, if anything goes wrong:
+            //
+            // - before the epoch transition or during the epoch-ended transaction: the database
+            //   remains unmodified, and no snapshot was generated.
+            //
+            // - after the epoch-ended or during the snapshot being taken: then we may or may not
+            //   have a snapshot. If we do have a snapshot, we may still report a progress as
+            //   "EpochEnded", which would only cause the snapshot to be taken _again_. Since this
+            //   is an idempotent and rather quick operation, that's not a big problem. If we don't
+            //   have a snapshot, then the progress is also still at "EpochEnded" and the snapshot
+            //   will normally happen on restart.
+            //
+            // - during the epoch start: then we have a stable snapshot and the database is still in
+            //   a correct state because the epoch progress still indicates "SnapshotTaken".
+
             // ---------------------------------------------------------------------------- End of epoch
             db.with_transaction::<_, StateError>(|batch| {
                 let should_end_epoch = batch.try_epoch_transition(None, Some(EpochEnded))?;

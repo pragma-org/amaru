@@ -388,6 +388,91 @@ fn switch_to_fork_preserves_state_when_fork_point_is_not_on_best_chain() {
 }
 
 #[test]
+fn ancestors_between_returns_the_path_in_parent_to_child_order() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        append_best_chain(store.clone(), headers.main());
+
+        let path = store.ancestors_between(&headers.h0.point(), headers.h3.hash()).unwrap();
+
+        assert_eq!(path, vec![headers.h1.tip(), headers.h2.tip(), headers.h3.tip()]);
+    });
+}
+
+#[test]
+fn ancestors_between_is_empty_when_from_is_to() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        append_best_chain(store.clone(), headers.main());
+
+        assert_eq!(store.ancestors_between(&headers.h0.point(), headers.h0.hash()), Some(vec![]));
+    });
+}
+
+#[test]
+fn ancestors_between_reports_a_from_ahead_of_to() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        append_best_chain(store.clone(), headers.main());
+        for header in [&headers.h2a, &headers.h3a] {
+            store.store_header(header).unwrap();
+        }
+
+        assert_eq!(store.ancestors_between(&headers.h3a.point(), headers.h3.hash()), None);
+    });
+}
+
+#[test]
+fn ancestors_between_reports_a_missing_header() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        append_best_chain(store.clone(), headers.main());
+
+        let absent = run_strategy(any_header_hash());
+        assert_eq!(store.ancestors_between(&headers.h0.point(), absent), None);
+    });
+}
+
+#[test]
+fn ancestors_between_follows_a_fork_rather_than_the_best_chain() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        append_best_chain(store.clone(), headers.main());
+        for header in [&headers.h2a, &headers.h3a] {
+            store.store_header(header).unwrap();
+        }
+
+        let path = store.ancestors_between(&headers.h1.point(), headers.h3a.hash()).unwrap();
+
+        assert_eq!(path, vec![headers.h2a.tip(), headers.h3a.tip()]);
+    });
+}
+
+#[test]
+fn ancestors_between_reports_a_from_on_another_branch() {
+    // h0 -> h1 -> h2 -> h3      the best chain
+    //  \      \
+    //  \       -> h2a -> h3a
+    //   ------ -> sibling
+    // `sibling` shares h2's slot but hangs off h0, so it is not an ancestor of h3a. Walking up from
+    // h3a descends h3a and h2a before reaching h1, whose slot is below `sibling`'s.
+    // The search should stop there and return None.
+    with_db(|store| {
+        let headers = make_forked_headers();
+        append_best_chain(store.clone(), headers.main());
+        for header in [&headers.h2a, &headers.h3a] {
+            store.store_header(header).unwrap();
+        }
+        let sibling = BlockHeader::from(make_header(3, 3, Some(headers.h0.hash())));
+        store.store_header(&sibling).unwrap();
+        assert_ne!(sibling.hash(), headers.h2.hash());
+        assert!(sibling.slot() > headers.h1.slot() && sibling.slot() < headers.h3a.slot());
+
+        assert_eq!(store.ancestors_between(&sibling.point(), headers.h3a.hash()), None);
+    });
+}
+
+#[test]
 fn find_ancestor_on_best_chain_returns_none_when_start_header_is_not_in_store() {
     with_db(|store| {
         let headers = make_forked_headers();

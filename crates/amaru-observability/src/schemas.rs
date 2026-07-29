@@ -35,12 +35,22 @@ define_schemas! {
                     required from: u16
                     required to: u16
                 }
+                /// Initialize the store
+                INITIALIZE {
+                    required ledger_tip: amaru_kernel::Point
+                    optional best_chain_hash: amaru_kernel::HeaderHash
+                }
+                /// Remove the valid status of descendants of a given block to reapply those blocks.
+                CLEAR_VALID_DESCENDANTS {
+                    required count: usize
+                }
             }
             blocks {
                 /// Validate downloaded blocks that are not yet validated
                 RECOVER_STORED {
                     tags: setup
-                    required best_hash: amaru_kernel::HeaderHash
+                    required from: amaru_kernel::Point
+                    required to: amaru_kernel::HeaderHash
                 }
                 /// Fetch a range of blocks starting from the specified tip
                 FETCH {

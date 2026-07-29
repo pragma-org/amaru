@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use amaru::default_chain_dir;
 use amaru_kernel::{IsHeader, NetworkName, Point};
-use amaru_ouroboros::{ChainStore, ChildTipsMode};
+use amaru_ouroboros::{ChainStore, ChildTipsMode, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 
 #[derive(Debug, clap::Parser)]
