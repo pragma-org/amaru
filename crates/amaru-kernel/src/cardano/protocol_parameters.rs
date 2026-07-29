@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Language, Lovelace, PoolVotingThresholds,
+    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
     ProtocolParamUpdate, ProtocolVersion, RationalNumber, cbor,
 };
 
@@ -108,13 +108,13 @@ impl ProtocolParameters {
             // that language.
             //
             // Now, we'll get the following pattern-match to fail due to non exhaustivness.
-            match Language::PlutusV1 {
-                Language::PlutusV1 => {
+            match PlutusVersion::V1 {
+                PlutusVersion::V1 => {
                     if let Some(plutus_v1) = cost_models.plutus_v1 {
                         self.cost_models.plutus_v1 = Some(plutus_v1);
                     }
                 }
-                Language::PlutusV2 | Language::PlutusV3 => (),
+                PlutusVersion::V2 | PlutusVersion::V3 => (),
             }
             if let Some(plutus_v2) = cost_models.plutus_v2 {
                 self.cost_models.plutus_v2 = Some(plutus_v2);

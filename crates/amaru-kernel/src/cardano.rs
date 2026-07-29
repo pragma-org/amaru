@@ -52,7 +52,6 @@ pub mod hash;
 pub mod header;
 pub mod header_body;
 pub mod int;
-pub mod language;
 pub mod language_view;
 pub mod lovelace;
 pub mod memoized;

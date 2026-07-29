@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasExUnits, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript,
-    PlutusVersion, ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
+    ExUnits, HasExUnits, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript, PlutusVersion,
+    ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
     ValidityInterval, WitnessSet,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
@@ -65,24 +65,12 @@ impl TryFrom<&ProvidedScript<'_>> for PlutusVersion {
     }
 }
 
-impl TryFrom<&ProvidedScript<'_>> for Language {
-    type Error = ();
-    fn try_from(script: &ProvidedScript<'_>) -> Result<Self, Self::Error> {
-        match script {
-            ProvidedScript::Native(..) => Err(()),
-            ProvidedScript::PlutusV1 => Ok(Language::PlutusV1),
-            ProvidedScript::PlutusV2 => Ok(Language::PlutusV2),
-            ProvidedScript::PlutusV3 => Ok(Language::PlutusV3),
-        }
-    }
-}
-
 impl<'a> From<PlutusVersion> for ProvidedScript<'a> {
-    fn from(version: PlutusVersion) -> ProvidedScript<'a> {
+    fn from(version: PlutusVersion) -> Self {
         match version {
-            PlutusVersion::V1 => ProvidedScript::PlutusV1,
-            PlutusVersion::V2 => ProvidedScript::PlutusV2,
-            PlutusVersion::V3 => ProvidedScript::PlutusV3,
+            PlutusVersion::V1 => Self::PlutusV1,
+            PlutusVersion::V2 => Self::PlutusV2,
+            PlutusVersion::V3 => Self::PlutusV3,
         }
     }
 }
@@ -162,7 +150,7 @@ pub enum InvalidScripts {
     ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Box<ScriptIntegrityData>> },
 
     #[error("no cost model in protocol parameters for language used by transaction: {0:?}")]
-    MissingCostModel(Language),
+    MissingCostModel(PlutusVersion),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -200,8 +188,8 @@ where
 
     let witnessed_datums = datum_hashes(witness_set);
 
-    let languages: Vec<Language> =
-        provided_scripts.values().filter_map(|script| Language::try_from(script).ok()).collect();
+    let languages: Vec<PlutusVersion> =
+        provided_scripts.values().filter_map(|script| PlutusVersion::try_from(script).ok()).collect();
 
     fail_on_supplemental_datums(context, &required_datums, &witnessed_datums)?;
 
@@ -229,12 +217,12 @@ where
 
     for lang in &languages {
         let has_cost_model = match lang {
-            Language::PlutusV1 => protocol_parameters.cost_models.plutus_v1.is_some(),
-            Language::PlutusV2 => protocol_parameters.cost_models.plutus_v2.is_some(),
-            Language::PlutusV3 => protocol_parameters.cost_models.plutus_v3.is_some(),
+            PlutusVersion::V1 => protocol_parameters.cost_models.plutus_v1.is_some(),
+            PlutusVersion::V2 => protocol_parameters.cost_models.plutus_v2.is_some(),
+            PlutusVersion::V3 => protocol_parameters.cost_models.plutus_v3.is_some(),
         };
         if !has_cost_model {
-            return Err(InvalidScripts::MissingCostModel(lang.clone()));
+            return Err(InvalidScripts::MissingCostModel(*lang));
         }
     }
 
