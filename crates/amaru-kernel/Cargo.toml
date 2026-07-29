@@ -23,8 +23,11 @@ clap = ["dep:clap"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+base58.workspace = true
 bech32.workspace = true
 bytes = { workspace = true, features = ["serde"] }
+crc.workspace = true
+cryptoxide.workspace = true
 clap = { workspace = true, optional = true }
 dashu-base.workspace = true
 dashu-int.workspace = true

@@ -15,7 +15,7 @@
 use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, HasTransactionId, Network, NetworkId, NetworkName, ProtocolParameters, TransactionBody,
+    AuxiliaryData, EraHistory, HasTransactionId, Network, NetworkName, ProtocolParameters, TransactionBody,
     TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance,
 };
 use amaru_observability::debug_span;
@@ -100,8 +100,8 @@ pub enum PhaseOneError {
     #[error("invalid transaction metadata: {0}")]
     Metadata(#[from] InvalidTransactionMetadata),
 
-    #[error("invalid network ID in transaction body: expected {expected:?} provided {provided:?}")]
-    InvalidNetworkID { expected: Network, provided: Network },
+    #[error("invalid network in transaction body: expected {expected:?} provided {provided:?}")]
+    InvalidNetwork { expected: Network, provided: Network },
 
     #[error("transaction too large: provided {provided} bytes, maximum {maximum} bytes")]
     TooLarge { provided: u64, maximum: u64 },
@@ -135,7 +135,7 @@ where
 
     let network: Network = network_name.into();
 
-    fail_on_network_mismatch(transaction_body.network_id, network)?;
+    fail_on_network_mismatch(transaction_body.network, network)?;
 
     fail_on_tx_size_too_large(tx_size, protocol_parameters)?;
 
@@ -339,12 +339,11 @@ fn fail_on_tx_size_too_large(provided: u64, protocol_parameters: &ProtocolParame
     Ok(())
 }
 
-fn fail_on_network_mismatch(provided: Option<NetworkId>, network: Network) -> Result<(), PhaseOneError> {
-    if let Some(network_id) = provided {
-        let provided: Network = u8::from(network_id).into();
-        if network != provided {
-            return Err(PhaseOneError::InvalidNetworkID { expected: network, provided });
-        }
+fn fail_on_network_mismatch(provided: Option<Network>, expected: Network) -> Result<(), PhaseOneError> {
+    if let Some(provided) = provided
+        && expected != provided
+    {
+        return Err(PhaseOneError::InvalidNetwork { expected, provided });
     }
 
     Ok(())

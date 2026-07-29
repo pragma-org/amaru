@@ -27,6 +27,7 @@ assertables = "10.1.0"
 async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 async-trait = "0.1.91"
 axum = "0.8.9"
+base58 = "0.2.0"
 bech32 = "0.12.0"
 binrw = "0.15.0"
 blst = "0.3.16"
@@ -39,6 +40,7 @@ chumsky = "1.0.0-alpha.8"
 clap = { version = "4.6.2", features = ["derive", "env"] }
 clap_complete = "4.6.7"
 clap_mangen = "0.3.0"
+crc = "3.0.1"
 criterion = "0.8.2"
 cryptoxide = { version = "0.6.1", features = ["digest"]}
 ctor = "1.0.9"

@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_addresses::Network;
 pub use pallas_primitives::conway::StakeCredential;
 
 use crate::{
-    Address, HasOwnership, Hash,
+    Address, HasOwnership, Hash, Network,
     size::{KEY, SCRIPT},
 };
 
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
 // StakeCredential) out of the box instead of row bytes.
 pub fn parse_reward_account(bytes: &[u8]) -> Option<(StakeCredential, Network)> {
-    if let Ok(Address::Stake(address)) = Address::from_bytes(bytes) {
+    if let Some(Address::Stake(address)) = Address::from_bytes(bytes) {
         let network = address.network();
         Some((address.owner(), network))
     } else {

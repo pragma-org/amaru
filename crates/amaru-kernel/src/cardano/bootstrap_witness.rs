@@ -34,7 +34,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::{AsHash, Hash, hash, include_cbor};
+    use crate::{ByronAddress, Hash, hash, include_cbor};
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -48,6 +48,6 @@ mod tests {
     #[test_case(fixture!("65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8e"))]
     #[test_case(fixture!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"))]
     fn to_root_key_hash((bootstrap_witness, root): (BootstrapWitness, Hash<28>)) {
-        assert_eq!(bootstrap_witness.as_hash().as_slice(), root.as_slice())
+        assert_eq!(ByronAddress::root(&bootstrap_witness), root)
     }
 }

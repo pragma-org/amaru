@@ -37,7 +37,7 @@ pub enum InvalidWithdrawals {
     #[error("attempted to withdraw from an account ({0:?}) that has no drep delegation")]
     MissingAccountDRepDelegation(StakeCredential),
     #[error(
-        "network mismatch in reward account in {context:?} at position {position}: expected {expected:?}, received {received:?}"
+        "network mismatch in reward account in {context:?} at position {position}: expected {expected}, received {received}"
     )]
     NetworkMismatch { expected: Network, received: Network, context: TransactionField, position: usize },
 }

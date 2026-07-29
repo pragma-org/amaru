@@ -134,7 +134,7 @@ fn validate_proposal(
     }
 
     match Address::from_bytes(&proposal.reward_account[..]) {
-        Ok(Address::Stake(addr)) => {
+        Some(Address::Stake(addr)) => {
             let actual = addr.network();
             if actual != network {
                 return Err(InvalidProposals::ReturnAddressWrongNetwork { expected: network, actual });
@@ -147,7 +147,7 @@ fn validate_proposal(
         GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
             for (account, _) in wdrls.iter() {
                 match Address::from_bytes(&account[..]) {
-                    Ok(Address::Stake(addr)) => {
+                    Some(Address::Stake(addr)) => {
                         let actual = addr.network();
                         if actual != network {
                             return Err(InvalidProposals::TreasuryWithdrawalWrongNetwork { expected: network, actual });

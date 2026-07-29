@@ -15,10 +15,10 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    Address, Certificate as PallasCertificate, ComparableProposalId, Constitution, CostModels, DRep,
-    DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, LegacyKeyValuePairs, MemoizedTransactionOutput,
-    PlutusData, PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate, RationalNumber, StakeCredential,
-    StakePayload, TransactionInput, Vote, Voter,
+    Address, Certificate, ComparableProposalId, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices,
+    ExUnits, GovernanceAction, LegacyKeyValuePairs, MemoizedTransactionOutput, PlutusData, PoolVotingThresholds,
+    Proposal, ProposalId, ProtocolParamUpdate, RationalNumber, StakeAddress, StakeCredential, StakePayload,
+    TransactionInput, Vote, Voter,
 };
 use num::Integer;
 
@@ -125,45 +125,45 @@ impl ToPlutusData<3> for DRep {
     }
 }
 
-impl ToPlutusData<3> for PallasCertificate {
+impl ToPlutusData<3> for Certificate {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            PallasCertificate::StakeRegistration(stake_credential) => {
+            Certificate::StakeRegistration(stake_credential) => {
                 constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
-            PallasCertificate::Reg(stake_credential, coin) => constr_v3!(0, [stake_credential, Some(coin)]),
-            PallasCertificate::StakeDeregistration(stake_credential) => {
+            Certificate::Reg(stake_credential, coin) => constr_v3!(0, [stake_credential, Some(coin)]),
+            Certificate::StakeDeregistration(stake_credential) => {
                 constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
-            PallasCertificate::UnReg(stake_credential, coin) => constr_v3!(1, [stake_credential, Some(coin)]),
-            PallasCertificate::StakeDelegation(stake_credential, pool_id) => {
+            Certificate::UnReg(stake_credential, coin) => constr_v3!(1, [stake_credential, Some(coin)]),
+            Certificate::StakeDelegation(stake_credential, pool_id) => {
                 constr_v3!(2, [stake_credential, constr_v3!(0, [pool_id])?])
             }
-            PallasCertificate::VoteDeleg(stake_credential, drep) => {
+            Certificate::VoteDeleg(stake_credential, drep) => {
                 constr_v3!(2, [stake_credential, constr_v3!(1, [drep])?])
             }
-            PallasCertificate::StakeVoteDeleg(stake_credential, pool_id, drep) => {
+            Certificate::StakeVoteDeleg(stake_credential, pool_id, drep) => {
                 constr_v3!(2, [stake_credential, constr_v3!(2, [pool_id, drep])?])
             }
-            PallasCertificate::StakeRegDeleg(stake_credential, pool_id, deposit) => {
+            Certificate::StakeRegDeleg(stake_credential, pool_id, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(0, [pool_id])?, deposit])
             }
-            PallasCertificate::VoteRegDeleg(stake_credential, drep, deposit) => {
+            Certificate::VoteRegDeleg(stake_credential, drep, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(1, [drep])?, deposit])
             }
-            PallasCertificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
+            Certificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(2, [pool_id, drep])?, deposit])
             }
-            PallasCertificate::RegDRepCert(drep_credential, deposit, _anchor) => {
+            Certificate::RegDRepCert(drep_credential, deposit, _anchor) => {
                 constr_v3!(4, [drep_credential, deposit])
             }
-            PallasCertificate::UpdateDRepCert(drep_credential, _anchor) => {
+            Certificate::UpdateDRepCert(drep_credential, _anchor) => {
                 constr_v3!(5, [drep_credential])
             }
-            PallasCertificate::UnRegDRepCert(drep_credential, deposit) => {
+            Certificate::UnRegDRepCert(drep_credential, deposit) => {
                 constr_v3!(6, [drep_credential, deposit])
             }
-            PallasCertificate::PoolRegistration {
+            Certificate::PoolRegistration {
                 operator,
                 vrf_keyhash,
                 pledge: _,
@@ -174,13 +174,13 @@ impl ToPlutusData<3> for PallasCertificate {
                 relays: _,
                 pool_metadata: _,
             } => constr_v3!(7, [operator, vrf_keyhash]),
-            PallasCertificate::PoolRetirement(pool_keyhash, epoch) => {
+            Certificate::PoolRetirement(pool_keyhash, epoch) => {
                 constr_v3!(8, [pool_keyhash, epoch])
             }
-            PallasCertificate::AuthCommitteeHot(cold_credential, hot_credential) => {
+            Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
                 constr_v3!(9, [cold_credential, hot_credential])
             }
-            PallasCertificate::ResignCommitteeCold(cold_credential, _anchor) => {
+            Certificate::ResignCommitteeCold(cold_credential, _anchor) => {
                 constr_v3!(10, [cold_credential])
             }
         }
@@ -238,7 +238,7 @@ impl ToPlutusData<3> for GovernanceAction {
                     .iter()
                     .map(|(reward_account, amount)| {
                         let reward_address =
-                            if let Ok(Address::Stake(reward_address)) = Address::from_bytes(reward_account) {
+                            if let Some(Address::Stake(reward_address)) = Address::from_bytes(reward_account) {
                                 Ok(reward_address)
                             } else {
                                 Err(PlutusDataError::Custom("invalid stake address in treasury withdrawal?".into()))
@@ -524,10 +524,10 @@ impl ToPlutusData<3> for PlutusVotes<'_> {
     }
 }
 
-impl ToPlutusData<3> for amaru_kernel::StakeAddress {
+impl ToPlutusData<3> for StakeAddress {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self.payload() {
-            StakePayload::Stake(keyhash) => constr_v3!(0, [keyhash]),
+            StakePayload::Key(keyhash) => constr_v3!(0, [keyhash]),
             StakePayload::Script(script_hash) => constr_v3!(1, [script_hash]),
         }
     }

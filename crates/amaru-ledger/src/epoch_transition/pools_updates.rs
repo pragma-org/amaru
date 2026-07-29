@@ -211,8 +211,8 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeCredential, StakePayload, any_certificate_pointer,
-        any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential, new_stake_address,
+        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeAddress, StakeCredential, StakePayload,
+        any_certificate_pointer, any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential,
         utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
@@ -425,10 +425,10 @@ mod tests {
 
     fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {
         let payload = match credential {
-            StakeCredential::AddrKeyhash(hash) => StakePayload::Stake(*hash),
+            StakeCredential::AddrKeyhash(hash) => StakePayload::Key(*hash),
             StakeCredential::ScriptHash(hash) => StakePayload::Script(*hash),
         };
 
-        new_stake_address(Network::Testnet, payload).to_vec().into()
+        StakeAddress::new(Network::Testnet, payload).to_vec().into()
     }
 }

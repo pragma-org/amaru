@@ -27,7 +27,7 @@ pub trait HasOwnership {
 impl HasOwnership for StakeAddress {
     fn owner(&self) -> StakeCredential {
         match self.payload() {
-            StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
+            StakePayload::Key(hash) => StakeCredential::AddrKeyhash(*hash),
             StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
         }
     }

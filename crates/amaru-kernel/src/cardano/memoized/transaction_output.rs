@@ -182,7 +182,7 @@ fn decode_modern_output<C>(
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
-    Address::from_bytes(address_bytes).map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
+    Address::from_bytes(address_bytes).ok_or_else(|| cbor::decode::Error::message("invalid address"))
 }
 
 impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
@@ -240,7 +240,7 @@ fn serialize_address<S: serde::ser::Serializer>(addr: &Address, serializer: S) -
 
 fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Address, D::Error> {
     let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
-    Address::from_hex(bytes).map_err(serde::de::Error::custom)
+    Address::from_hex(bytes).ok_or_else(|| serde::de::Error::custom("invalid address"))
 }
 
 // TODO: Eventually allow serializing complete values, not just coins.

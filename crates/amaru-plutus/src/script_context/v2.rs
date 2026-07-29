@@ -90,7 +90,7 @@ impl ToPlutusData<2> for amaru_kernel::StakeAddress {
     /// It is actually not possible (by the ledger serialization) logic to construct a StakeAdress with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self.payload() {
-            StakePayload::Stake(keyhash) => constr_v2!(0, [constr_v2!(0, [keyhash])?]),
+            StakePayload::Key(keyhash) => constr_v2!(0, [constr_v2!(0, [keyhash])?]),
             StakePayload::Script(script_hash) => constr_v2!(0, [constr_v2!(1, [script_hash])?]),
         }
     }

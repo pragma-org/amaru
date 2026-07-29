@@ -18,17 +18,16 @@ pub use pallas_primitives::conway::RewardAccount;
 use thiserror::Error;
 
 use crate::{
-    Address, AddressError, Hash, Lovelace, Network, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs,
-    PlutusStakeAddress, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakeCredential,
+    Address, Lovelace, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, PlutusStakeAddress, StakeCredential,
     StakePayload,
 };
 
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
 // StakeCredential) out of the box instead of row bytes.
 pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<StakeCredential> {
-    if let Ok(Address::Stake(stake_addr)) = Address::from_bytes(&account[..]) {
+    if let Some(Address::Stake(stake_addr)) = Address::from_bytes(&account[..]) {
         match stake_addr.payload() {
-            StakePayload::Stake(key) => Some(StakeCredential::AddrKeyhash(*key)),
+            StakePayload::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
             StakePayload::Script(script) => Some(StakeCredential::ScriptHash(*script)),
         }
     } else {
@@ -42,21 +41,6 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
 pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
-}
-
-// TODO: Required because Pallas doesn't export any contructors for StakeAddress directly. Should
-// be fixed there.
-#[expect(clippy::expect_used)]
-pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddress {
-    let fake_payment_part = ShelleyPaymentPart::Key(Hash::new([
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ]));
-    let delegation_part = match payload {
-        StakePayload::Stake(hash) => ShelleyDelegationPart::Key(hash),
-        StakePayload::Script(hash) => ShelleyDelegationPart::Script(hash),
-    };
-    StakeAddress::try_from(ShelleyAddress::new(network, fake_payment_part, delegation_part))
-        .expect("has non-empty delegation part")
 }
 
 /// The reward withdrawals requested by a transaction.
@@ -84,8 +68,8 @@ impl PlutusWithdrawals {
 #[doc(hidden)]
 #[derive(Debug, Error)]
 pub enum WithdrawalError {
-    #[error("invalid reward account: {0}")]
-    InvalidRewardAccount(#[from] AddressError),
+    #[error("invalid reward account")]
+    InvalidRewardAccount,
     #[error("invalid address type: {0}")]
     InvalidAddressType(Address),
 }
@@ -97,7 +81,7 @@ impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for PlutusWi
         let withdrawals = value
             .iter()
             .map(|(reward_account, coin)| {
-                let address = Address::from_bytes(reward_account)?;
+                let address = Address::from_bytes(reward_account).ok_or(WithdrawalError::InvalidRewardAccount)?;
 
                 if let Address::Stake(reward_account) = address {
                     Ok((PlutusStakeAddress::from(reward_account), *coin))
@@ -118,8 +102,7 @@ pub use tests::*;
 mod tests {
     use proptest::{prelude::*, prop_compose};
 
-    use super::*;
-    use crate::{Bytes, Hash, RewardAccount, StakePayload, any_network};
+    use crate::{Bytes, Hash, RewardAccount, StakeAddress, StakePayload, any_network};
 
     prop_compose! {
         pub fn any_reward_account()(
@@ -130,10 +113,10 @@ mod tests {
             let payload = if is_script {
                 StakePayload::Script
             } else {
-                StakePayload::Stake
+                StakePayload::Key
             }(Hash::new(credential));
 
-            Bytes::from(new_stake_address(network, payload).to_vec())
+            Bytes::from(StakeAddress::new(network, payload).to_vec())
         }
     }
 }

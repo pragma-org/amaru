@@ -12,22 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TODO: Temporary re-exports until Pallas migrations
-//
-// Re-exports still needed in a few places; but that shall become redundant as soon as we have
-// properly reworked addresses.
-pub use pallas_addresses::{
-    ByronAddress, Error as AddressError, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress,
-    StakePayload,
-    byron::{AddrAttrProperty, AddrType, AddressPayload},
-};
-// TODO: Temporary re-exports until Pallas migrations
-//
-// See above.
 pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
-// TODO: Temporary re-exports until Pallas migrations
-//
-// See above.
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
 pub mod maths;
@@ -35,7 +20,10 @@ pub mod maths;
 pub mod cardano;
 pub use cardano::{
     account::Account,
-    address::{Address, PlutusStakeAddress, is_locked_by_script},
+    address::{
+        self, Address, AddressPointer, ByronAddress, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
+        StakePayload,
+    },
     anchor::{self, Anchor},
     asset_name::AssetName,
     auxiliary_data::AuxiliaryData,
@@ -88,10 +76,9 @@ pub use cardano::{
     metadatum::Metadatum,
     multiasset::Multiasset,
     native_script::{NativeScript, evaluate_native_script},
-    network::Network,
-    network_id::NetworkId,
-    network_magic::NetworkMagic,
-    network_name::{NetworkName, PEER_SNAPSHOT_NETWORKS},
+    network::{self, Network},
+    network_magic::{self, NetworkMagic},
+    network_name::{self, NetworkName, PEER_SNAPSHOT_NETWORKS},
     non_zero_int::NonZeroInt,
     nonce::{Nonce, parse_nonce},
     operational_cert::OperationalCert,
@@ -129,14 +116,14 @@ pub use cardano::{
     required_signers::RequiredSigners,
     reward::Reward,
     reward_account::{
-        PlutusWithdrawals, RewardAccount, WithdrawalError, expect_stake_credential, new_stake_address,
-        reward_account_to_stake_credential,
+        PlutusWithdrawals, RewardAccount, WithdrawalError, expect_stake_credential, reward_account_to_stake_credential,
     },
     reward_kind::RewardKind,
     script_context::ScriptContext,
     script_info::{ScriptInfo, ScriptPurpose},
     script_integrity_data::{ScriptIntegrityData, compute_script_integrity_hash},
     slot::{Slot, SlotArithmeticError},
+    stake_address::{self, PlutusStakeAddress, StakeAddress},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
     time_range::TimeRange,
@@ -205,6 +192,8 @@ pub use cardano::{
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
 };
 
+pub mod bech32;
+
 pub mod cbor {
     pub use amaru_minicbor_extra::{
         TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
@@ -244,9 +233,9 @@ pub mod macros;
 
 mod traits;
 pub use traits::{
-    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasNetwork, HasOwnership, HasScriptHash,
+    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasOwnership, HasScriptHash,
     HasTransactionId, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_major_version,
-    has_network, has_ownership, has_script_hash, has_transaction_id, is_header, to_bytes,
+    has_ownership, has_script_hash, has_transaction_id, is_header, to_bytes,
 };
 
 pub mod utils;

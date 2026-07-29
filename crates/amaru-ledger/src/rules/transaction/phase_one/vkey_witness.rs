@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    AsHash, BootstrapWitness, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness, size::KEY,
+    BootstrapWitness, ByronAddress, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness, size::KEY,
     utils::string::display_collection, verify_ed25519_signature,
 };
 use thiserror::Error;
@@ -54,7 +54,7 @@ pub fn execute(
         provided_keys_or_roots.insert(Hasher::<224>::hash(&witness.vkey));
     });
     bootstrap_witnesses.iter().for_each(|witness| {
-        provided_keys_or_roots.insert(witness.as_hash());
+        provided_keys_or_roots.insert(ByronAddress::root(witness));
     });
 
     let mut required_keys_or_roots = context.required_signers();

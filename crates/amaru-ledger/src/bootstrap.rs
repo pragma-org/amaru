@@ -24,9 +24,9 @@ use amaru_kernel::{
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
     ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward,
-    RewardAccount, Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    RewardAccount, Slot, StakeAddress, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
-    new_stake_address, protocol_version, reward_account_to_stake_credential, size,
+    protocol_version, reward_account_to_stake_credential, size,
     utils::cbor::SerialisedAsSet,
 };
 use amaru_observability::{info, warn};
@@ -1394,11 +1394,11 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodeRewardAccount {
                 let credential = d.decode_with(ctx)?;
                 let network: Network = (*ctx).into();
                 let payload = match credential {
-                    StakeCredential::AddrKeyhash(hash) => StakePayload::Stake(hash),
+                    StakeCredential::AddrKeyhash(hash) => StakePayload::Key(hash),
                     StakeCredential::ScriptHash(hash) => StakePayload::Script(hash),
                 };
 
-                Ok(Self(Bytes::from(new_stake_address(network, payload).to_vec())))
+                Ok(Self(Bytes::from(StakeAddress::new(network, payload).to_vec())))
             }
             other => Err(cbor::decode::Error::type_mismatch(other)),
         }

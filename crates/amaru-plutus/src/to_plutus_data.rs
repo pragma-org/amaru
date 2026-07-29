@@ -180,7 +180,7 @@ where
                         Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)])?).to_plutus_data()
                     }
                     ShelleyDelegationPart::Pointer(pointer) => {
-                        Some(constr!(1, [pointer.slot(), pointer.tx_idx(), pointer.cert_idx()])?).to_plutus_data()
+                        Some(constr!(1, [pointer.slot, pointer.transaction, pointer.certificate])?).to_plutus_data()
                     }
                     ShelleyDelegationPart::Null => None::<StakeCredential>.to_plutus_data(),
                 }?;

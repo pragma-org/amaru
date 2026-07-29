@@ -76,6 +76,16 @@ pub fn fmt<const N: usize>(hashes: &[Hash<N>]) -> String {
     out
 }
 
+pub fn try_from_slice<const N: usize>(slice: &[u8]) -> Option<Hash<N>> {
+    if slice.len() != N {
+        return None;
+    }
+
+    let mut sized = [0u8; N];
+    sized.copy_from_slice(slice);
+    Some(sized.into())
+}
+
 // -----------------------------------------------------------------------------
 // Test
 // -----------------------------------------------------------------------------

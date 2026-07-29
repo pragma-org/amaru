@@ -233,7 +233,10 @@ pub mod test_vectors {
                             Field::Address => {
                                 let string: String = map.next_value()?;
                                 let bytes = hex::decode(string).map_err(serde::de::Error::custom)?;
-                                address = Some(Address::from_bytes(&bytes).map_err(serde::de::Error::custom)?);
+                                address = Some(
+                                    Address::from_bytes(&bytes)
+                                        .ok_or_else(|| serde::de::Error::custom("invalid address"))?,
+                                );
                             }
                             Field::Value => {
                                 let helper: BTreeMap<String, BTreeMap<String, u64>> = map.next_value()?;

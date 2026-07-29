@@ -170,7 +170,7 @@ fn decode_compact_address(decoder: &mut Decoder<'_>) -> Result<Address, String> 
     let bytes = decoder.short_bytes()?;
     let normalized = normalize_compact_address(bytes)?;
 
-    Address::from_bytes(&normalized).map_err(|err| format!("invalid compact address: {err}"))
+    Address::from_bytes(&normalized).ok_or_else(|| "invalid compact address".to_string())
 }
 
 fn normalize_compact_address(bytes: &[u8]) -> Result<Vec<u8>, String> {

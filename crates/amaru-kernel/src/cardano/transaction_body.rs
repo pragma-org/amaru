@@ -19,7 +19,7 @@ use amaru_minicbor_extra::encode_optional;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::to_cbor;
 use crate::{
-    AssetName, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NULL_HASH32, NetworkId,
+    AssetName, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NULL_HASH32, Network,
     NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set, Slot,
     TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor,
     size::{CREDENTIAL, KEY},
@@ -64,7 +64,7 @@ pub struct TransactionBody {
 
     pub required_signers: Option<NonEmptySet<Hash<KEY>>>,
 
-    pub network_id: Option<NetworkId>,
+    pub network: Option<Network>,
 
     pub collateral_return: Option<MemoizedTransactionOutput>,
 
@@ -142,7 +142,7 @@ impl Default for TransactionBody {
             script_data_hash: None,
             collateral: None,
             required_signers: None,
-            network_id: None,
+            network: None,
             collateral_return: None,
             total_collateral: None,
             reference_inputs: None,
@@ -178,7 +178,7 @@ impl<C> cbor::Encode<C> for TransactionBody {
         encode_optional(e, ctx, 11, &self.script_data_hash)?;
         encode_optional(e, ctx, 13, &self.collateral)?;
         encode_optional(e, ctx, 14, &self.required_signers)?;
-        encode_optional(e, ctx, 15, &self.network_id)?;
+        encode_optional(e, ctx, 15, &self.network)?;
         encode_optional(e, ctx, 16, &self.collateral_return)?;
         encode_optional(e, ctx, 17, &self.total_collateral)?;
         encode_optional(e, ctx, 18, &self.reference_inputs)?;
@@ -246,7 +246,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
                     // 12: there's no 12, has never been used.
                     13 => blanket(&mut st.optional.collateral, k, d, ctx)?,
                     14 => blanket(&mut st.optional.required_signers, k, d, ctx)?,
-                    15 => blanket(&mut st.optional.network_id, k, d, ctx)?,
+                    15 => blanket(&mut st.optional.network, k, d, ctx)?,
                     16 => blanket(&mut st.optional.collateral_return, k, d, ctx)?,
                     17 => blanket(&mut st.optional.total_collateral, k, d, ctx)?,
                     18 => blanket(&mut st.optional.reference_inputs, k, d, ctx)?,
