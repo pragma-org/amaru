@@ -76,7 +76,7 @@ impl PoolsEpochTransitionUpdates {
     /// Only check if a pool would be retiring, without taking ownership or modifying the original
     /// object.
     pub fn is_retiring(epoch: Epoch, pool: &Pool) -> bool {
-        fold_future_params(&pool.future_params, epoch).1.is_some()
+        fold_future_params(&pool.future_params, epoch).retirement.is_some()
     }
 
     /// Check whether a pool needs any sort of updates at the beginning of an epoch
@@ -96,11 +96,11 @@ impl PoolsEpochTransitionUpdates {
     /// a. Any re-registration that comes after a retirement cancels that retirement.
     /// b. Any retirement that come after a retirement cancels that previous retirement.
     pub fn tick_pool(&mut self, epoch: Epoch, mut pool: Pool) {
-        let (update, retirement) = fold_future_params(&pool.future_params, epoch);
+        let FoldedFutureParams { update, retirement, residual } = fold_future_params(&pool.future_params, epoch);
 
         // If the most recent retirement is effective as per the current epoch, we simply drop the
-        // entry. Note that, any re-registration happening after that retirement would cancel it,
-        // which is taken care of in the fold above (returning 'None').
+        // entry. Note that, any certificate submitted after that retirement would cancel it, which
+        // is taken care of in the fold above (clearing 'retirement').
         if retirement.is_some() {
             return self.retire_pool(epoch, pool);
         }
@@ -149,10 +149,9 @@ impl PoolsEpochTransitionUpdates {
             false
         };
 
-        // Regardless, always prune future params from those that are now-obsolete.
-        let future_params_old_len = pool.future_params.len();
-        pool.future_params.retain(|(_, effective_in)| effective_in > &epoch);
-        let has_pruned_params = pool.future_params.len() < future_params_old_len;
+        // Regardless, always replace future params with those that remain relevant.
+        let has_pruned_params = residual.len() < pool.future_params.len();
+        pool.future_params = residual;
 
         if has_updated || has_pruned_params {
             self.updated.insert(pool_id, pool);
@@ -199,25 +198,58 @@ impl PoolsEpochTransitionUpdates {
 /// last epoch, then we could be in a situation where we haven't yet processed the registrations
 /// (since they're processed with a delay of k blocks) but have already moved into the next epoch.
 ///
-/// The function returns any new params becoming active in the 'current_epoch', and the retirement
-/// status of the pool. Note that the pool can both have new parameters AND a retirement scheduled
-/// at a later epoch; so the return parameters are not necessarily a replacement of the existing
-/// ones.
+/// The certificates are folded in submission order, applying two cancellation rules:
+///
+/// a. Any re-registration that comes after a retirement cancels that retirement.
+/// b. Any retirement that comes after a retirement cancels that previous retirement.
 pub fn fold_future_params(
     future_params: &[(Option<PoolParams>, Epoch)],
     current_epoch: Epoch,
-) -> (Option<&PoolParams>, Option<Epoch>) {
-    future_params.iter().fold((None, None), |(update, _retirement), (params, epoch)| {
+) -> FoldedFutureParams<'_> {
+    let mut folded = FoldedFutureParams { update: None, retirement: None, residual: Vec::new() };
+
+    for (params, effective_in) in future_params {
         match params {
-            // Pool has a parameter update that should now be applied; overwrite any prior update
-            // and cancels any immediate retirement.
-            Some(params) => (Some(params), None),
-            // Pool is retiring *now*, cancels any pool update.
-            None if epoch <= &current_epoch => (None, Some(*epoch)),
-            // Pool is retiring later, though updates may still be present.
-            None => (update, None),
+            // A re-registration that should now be applied; overwrites any prior update and
+            // cancels any pending retirement, including those scheduled for later epochs.
+            Some(params) if effective_in <= &current_epoch => {
+                folded.residual.retain(|(update, _)| update.is_some());
+                folded.retirement = None;
+                folded.update = Some(params);
+            }
+            // A retirement taking effect *now*; cancels any pool update and supersedes any earlier
+            // retirement.
+            None if effective_in <= &current_epoch => {
+                folded.residual.retain(|(update, _)| update.is_some());
+                folded.update = None;
+                folded.retirement = Some(*effective_in);
+            }
+            // Not effective yet; kept for a later epoch. Being submitted afterwards, it also
+            // supersedes any retirement that would otherwise take effect now.
+            _ => {
+                folded.retirement = None;
+                folded.residual.push((params.clone(), *effective_in));
+            }
         }
-    })
+    }
+
+    folded
+}
+
+/// The outcome of collapsing a pool's future parameters at a given epoch.
+#[derive(Debug)]
+pub struct FoldedFutureParams<'a> {
+    /// New parameters becoming active at the current epoch, the last submitted taking precedence.
+    pub update: Option<&'a PoolParams>,
+
+    /// The epoch of a retirement taking effect now, provided no later certificate cancelled it.
+    /// Mutually exclusive with 'update': whichever was submitted last wins.
+    pub retirement: Option<Epoch>,
+
+    /// The certificates that remain relevant beyond the current epoch: pending retirements and any
+    /// yet-to-be-applied updates, minus those cancelled by a subsequent certificate. This is what
+    /// 'future_params' must become once the current epoch's updates are applied.
+    pub residual: Vec<(Option<PoolParams>, Epoch)>,
 }
 
 // Update a value in a source object, and returns a tracing field ready to be displayed. The field
@@ -290,6 +322,7 @@ mod tests {
                             }
                         }
                         Some(params) => {
+                            future.retain(|(update, _)| update.is_some());
                             self.current = Some(params.clone());
                         }
                     }
@@ -379,6 +412,30 @@ mod tests {
             prop_assert!(pools_updates.retired().contains(&pool_id));
             prop_assert_eq!(pools_updates.refund(&reward_account), deposit);
         }
+    }
+
+    #[test]
+    fn re_registration_cancels_a_later_dated_retirement() {
+        let params = run_strategy(any_pool_params());
+        let updated_params = PoolParams { pledge: params.pledge.wrapping_add(1), ..params.clone() };
+
+        let mut pool = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), 500_000_000, params);
+        let pool_id = pool.id();
+
+        // A retirement scheduled for a distant epoch, then a re-registration effective sooner. The
+        // re-registration cancels the retirement, so the pool must survive the retirement epoch.
+        pool.future_params = vec![(None, Epoch::from(617)), (Some(updated_params.clone()), Epoch::from(615))];
+
+        let mut at_615 = PoolsEpochTransitionUpdates::default();
+        at_615.tick_pool(Epoch::from(615), pool);
+        assert!(!at_615.retired().contains(&pool_id), "retired at the re-registration boundary");
+
+        let pool = at_615.updated().get(&pool_id).cloned().expect("parameters update at 615");
+        assert_eq!(pool.current_params, updated_params, "new parameters not applied");
+
+        let mut at_617 = PoolsEpochTransitionUpdates::default();
+        at_617.tick_pool(Epoch::from(617), pool);
+        assert!(!at_617.retired().contains(&pool_id), "cancelled retirement resurfaced at its epoch");
     }
 
     #[test]

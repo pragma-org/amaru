@@ -325,6 +325,18 @@ mod tests {
     )]
     #[test_case(
         EndOfEpochView {
+            stable: &[(0, &[Event::LateRetirement])],
+            volatile: &[(0, Event::Registration)]
+        },
+        NextEpochExpectations {
+            seen: &[0],
+            updated: &[(0, Pool { current_params: volatile(0).current_params, ..stable(0) })],
+            retired: &[]
+        };
+        "existing stable, late retirement, one volatile update"
+    )]
+    #[test_case(
+        EndOfEpochView {
             stable: &[(0, &[])],
             volatile: &[(0, Event::ImminentRetirement)]
         },
