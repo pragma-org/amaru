@@ -54,6 +54,7 @@ struct Overrides {
     set_best_chain_hash: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
     store_block: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, &RawBlock) -> Result<(), StoreError> + Send>>,
     set_block_valid: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, bool) -> Result<(), StoreError> + Send>>,
+    remove_block_valid: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
     put_nonces: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, &Nonces) -> Result<(), StoreError> + Send>>,
     switch_to_fork: Option<Box<dyn FnMut(&dyn ChainStore, &Point, &[Point]) -> Result<(), StoreError> + Send>>,
     roll_forward_chain: Option<Box<dyn FnMut(&dyn ChainStore, &Point) -> Result<(), StoreError> + Send>>,
@@ -459,6 +460,14 @@ impl WriteChainStore for OverridingChainStore {
         match &mut overrides.set_block_valid {
             Some(f) => f(self.inner.as_ref(), hash, valid),
             None => self.inner.set_block_valid(hash, valid),
+        }
+    }
+
+    fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        let mut overrides = self.overrides.lock();
+        match &mut overrides.remove_block_valid {
+            Some(f) => f(self.inner.as_ref(), hash),
+            None => self.inner.remove_block_valid(hash),
         }
     }
 

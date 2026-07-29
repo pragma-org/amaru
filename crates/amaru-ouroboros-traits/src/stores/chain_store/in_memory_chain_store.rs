@@ -220,6 +220,13 @@ impl WriteChainStore for InMemoryChainStore {
     }
 
     #[expect(clippy::unwrap_used)]
+    fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.block_validity.remove(hash);
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         if let Some(pos) = inner.chain.iter().rposition(|p| p == fork_point) {

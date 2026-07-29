@@ -31,7 +31,7 @@ on-activate = '''
     done
   fi
 
-  # The telemetry stack (Grafana/Tempo/Prometheus) needs a Docker daemon, which
+  # The telemetry stack (Grafana/Tempo/Prometheus/Loki) needs a Docker daemon, which
   # Flox cannot provide. Run the demos with START_TELEMETRY=false when Docker is
   # not available on the host.
   if ! command -v docker >/dev/null 2>&1; then

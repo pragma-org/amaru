@@ -1,14 +1,10 @@
 # Monitoring
 
-This document summarizes the various details regarding to monitoring Amaru. As a pre-requisite, it's important to note that Amaru leverages [OpenTelemetry](https://opentelemetry.io/) to emit traces & metrics. A compatible observability backend such as [Jaeger](https://www.jaegertracing.io/), [Grafana Tempo](https://grafana.com/docs/tempo/latest/) and/or [Prometheus](https://prometheus.io/) is therefore needed to collect and visualise telemetry.
-
-We provide example configurations using different compositions of tools:
-
-- Profiles available: Prometheus, Grafana+Tempo, and Jaeger (all optional)
+Amaru emits metrics, logs, and spans through [OpenTelemetry](https://opentelemetry.io/). The monitoring directory provides one local observability stack: an OpenTelemetry Collector routes metrics to Prometheus, logs to Loki, and spans to Tempo, while Grafana provides a single interface for exploring all three signals.
 
 To turn on monitoring, use the following CLI options when running the application:
 
-- `--with-open-telemetry` (or env variable `AMARU_WITH_OPEN_TELEMETRY`) to enable [OpenTelemetry](https://opentelemetry.io/) traces
+- `--with-open-telemetry` (or env variable `AMARU_WITH_OPEN_TELEMETRY`) to export OpenTelemetry metrics, logs, and spans
 - `--with-json-traces` (or env variable `AMARU_WITH_JSON_TRACES`) to enable JSON traces on stdout
 
 ## Filtering traces
@@ -75,153 +71,30 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 
 ## Setup
 
-The monitoring setup uses Docker Compose with an OTLP collector as the base service. Profile-specific configuration files are located in the `profiles/` subdirectory.
-
-Run with:
+From the repository root, start the complete stack with one command:
 
 ```bash
-cd monitoring
-docker compose up
+docker compose -f monitoring/docker-compose.yml up -d
 ```
 
-Once running, metrics are available at `http://localhost:8889/metrics` (Prometheus-compatible scrape endpoint).
+The stack includes:
 
-### Optional Profiles
+- **OpenTelemetry Collector** on `localhost:4317` (OTLP/gRPC) and `localhost:4318` (OTLP/HTTP)
+- **Tempo** for spans and span-derived metrics
+- **Prometheus** for application and span-derived metrics
+- **Loki** for OpenTelemetry logs and their structured metadata
+- **Grafana** with all three data sources provisioned and trace-to-log correlation enabled
 
-Prometheus and Grafana+Tempo are available as optional top-level profiles.
-Jaeger is provided as a dedicated standalone stack under `profiles/jaeger/` so
-that it can keep its own OTLP collector in front of the Jaeger backend.
+Open [Grafana](http://localhost) and use **Explore** to query Tempo, Prometheus, or Loki. The backend endpoints are also available directly:
 
-#### Prometheus
+The provisioned [Amaru Overview dashboard](http://localhost/d/amaru-overview/amaru-overview) is the Grafana home page. It refreshes every five seconds and combines node metrics, live logs, and recent traces containing at least ten spans. Click a trace ID to open its complete span waterfall. Use the `service` field at the top when Amaru is started with a different `OTEL_SERVICE_NAME`.
 
-To start Prometheus with the OTLP collector configured to export metrics:
+- `http://localhost:3200` - Tempo
+- `http://localhost:9090` - Prometheus
+- `http://localhost:3100` - Loki
+- `http://localhost:8889/metrics` - collector's Prometheus scrape endpoint
 
-```bash
-docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus up
-```
-
-**Includes:**
-- **Prometheus** with OTLP collector metrics scrape configuration
-- OTLP collector with Prometheus exporter
-
-**Available URLs:**
-- `http://localhost:8889/metrics` - OTLP collector metrics endpoint
-- `http://localhost:9090` - Prometheus UI
-
-> [!IMPORTANT]
-> The extra `-f profiles/prometheus/docker-compose.yml` is required.
-> Running only `docker compose --profile prometheus up` starts Prometheus, but
-> leaves the OTLP collector on its base config, so metrics are not exported to
-> Prometheus.
-
-#### Jaeger
-
-For distributed tracing with Jaeger:
-
-```bash
-docker compose -f profiles/jaeger/docker-compose.yml up
-```
-
-**Includes:**
-- **Jaeger** UI for trace visualization
-- **Prometheus** for span metrics
-- In-memory span and metrics storage
-- An OTLP collector that receives traces, metrics, and logs from Amaru
-- Forwarding from the collector to Jaeger for traces and to Prometheus for metrics
-
-**Available URLs:**
-- `http://localhost:16686` - Jaeger UI
-- `http://localhost:9090` - Prometheus UI
-- `http://localhost:8889/metrics` - OTLP collector metrics endpoint
-
-This stack is self-contained and should be started directly, rather than being
-combined with the top-level `monitoring/docker-compose.yml`.
-
-#### Grafana
-
-For a visualization dashboard with datasource support:
-
-```bash
-docker compose --profile grafana up
-```
-
-**Includes:**
-- **Grafana** with anonymous access and automatic datasource setup
-- Datasource provisioning for Prometheus and Tempo (if running)
-
-**Available URLs:**
-- `http://localhost:80` - Grafana UI
-
-#### Tempo
-
-For distributed trace backend storage and visualization:
-
-```bash
-docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile tempo up
-```
-
-**Includes:**
-- **Tempo** trace backend with local storage
-- OTLP collector with Tempo trace exporter
-- Service map integration for topology visualization
-
-**Available URLs:**
-- `http://localhost:8889/metrics` - OTLP collector metrics endpoint
-- `http://localhost:3200/api/traces` - Tempo traces API
-
-> [!IMPORTANT]
-> The extra `-f profiles/tempo/docker-compose.yml` is required.
-> Running only `docker compose --profile tempo up` starts Tempo, but leaves the
-> OTLP collector on its base config, so traces are not forwarded to Tempo.
-
-#### Combining Profiles: Grafana + Tempo
-
-For the full visualization stack with Grafana and Tempo:
-
-```bash
-docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile grafana --profile tempo up
-```
-
-This enables Grafana to query Tempo traces through the "Explore" → "Tempo" datasource.
-
-#### Combining Profiles
-
-You can combine multiple profiles for different setups:
-
-```bash
-# Prometheus metrics only
-docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus up
-
-# Grafana with Prometheus metrics
-docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml --profile prometheus --profile grafana up
-
-# Grafana with Tempo traces
-docker compose -f docker-compose.yml -f profiles/tempo/docker-compose.yml --profile grafana --profile tempo up
-
-# Full stack: Prometheus, Grafana, and Tempo
-docker compose -f docker-compose.yml -f profiles/prometheus/docker-compose.yml -f profiles/tempo/docker-compose.yml --profile prometheus --profile grafana --profile tempo up
-```
-
-> [!WARNING]
-> When several `-f` files define the `otlp-collector` service, Docker Compose merges their `volumes`
-> but **replaces** `command` with the one from the last file. Each `--config` flag must therefore be
-> listed in the command of the last profile file: `profiles/tempo/docker-compose.yml` mounts and loads
-> the prometheus collector configuration in addition to its own, so the full Prometheus + Grafana +
-> Tempo stack keeps its metrics pipeline when the tempo file is listed last.
-
-### Forwarding traces and logs to another OTLP backend
-
-By default, traces and logs are only printed to the collector's console output. To bridge them to an external OTLP-compatible backend (e.g. Jaeger, Grafana Tempo, a remote collector), use the `docker-compose.forward.yml` override:
-
-```bash
-# default downstream endpoint (localhost:4319)
-docker compose -f docker-compose.yml -f docker-compose.forward.yml up
-
-# custom downstream endpoint
-OTLP_FORWARD_ENDPOINT=myhost:4317 docker compose -f docker-compose.yml -f docker-compose.forward.yml up
-```
-
-`OTLP_FORWARD_ENDPOINT` controls where traces and logs are forwarded (gRPC, no TLS). It defaults to `host.docker.internal:4319` when not set, which resolves to the host machine from inside the collector container.
+The Docker volumes retain all three signals across restarts. To stop the stack, run `docker compose -f monitoring/docker-compose.yml down`; add `--volumes` only when the stored telemetry should also be deleted.
 
 ## Spans
 
@@ -246,7 +119,7 @@ For a comprehensive list of all available spans, see [TRACES.md](../docs/TRACES.
 
 ## Metrics
 
-Coming soon.
+Application metrics are exported by the collector at `http://localhost:8889/metrics` and scraped into Prometheus. Tempo also writes service graph and span metrics to Prometheus, so traces and metrics can be correlated in Grafana.
 
 > [!NOTE]
 > The plan so far is to maximise compatibility with the existing Haskell node Prometheus metrics such that tools like [`gLiveView`](https://cardano-community.github.io/guild-operators/Scripts/gliveview/?h=gliveview) and [`nview`](https://github.com/blinklabs-io/nview) keep working out-of-the-box.
@@ -257,14 +130,14 @@ Coming soon.
 
 Amaru recognizes standard OpenTelemetry env variable for its configuration:
 
-- `OTEL_SERVICE_NAME`: Sets the [service.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-name) key used to identify metrics and traces. Defaults to `amaru`.
+- `OTEL_SERVICE_NAME`: Sets the [service.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-name) key used to identify metrics, logs, and spans. Defaults to `amaru`.
 - `OTEL_SERVICE_INSTANCE_ID`: Sets the [service.instance.id](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-instance-id) key used to identify this specific amaru instance
-- `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the endpoint used to send spans, defaults to `http://localhost:4317`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the endpoint used to send logs and spans, defaults to `http://localhost:4317`
 - `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
 
 Note that two different transports are used internally:
 
-- OTLP/gRPC for spans
+- OTLP/gRPC for logs and spans
 - OTLP/HTTP for metrics
 
 This helps maximize compatibility with 3rd party tools receiving those data.

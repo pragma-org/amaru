@@ -51,6 +51,7 @@ Other guiding principles:
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
 - **amaru-ledger**: track account unregistrations to avoid O(n) scan on all accounts during epoch transition calculations.
 - **amaru-ledger**: add phase-one conformance coverage for `TooManyCollateralInputs`, `ScriptsNotPaidUTxO` and `IncorrectTotalCollateralField`, and move the fixture that was filed under `InsufficientCollateral` while expecting `ValueNotConservedUTxO` to the directory matching its predicate.
+- **amaru**: consolidate the monitoring stack.
 
 ### Fixed
 
@@ -59,6 +60,7 @@ Other guiding principles:
 - **amaru-consensus**: fix the recheck deferred headers loop ([#1078][], [#1082][])
 - **amaru-node**: support Cardano ledger peer snapshots via `--peer-snapshot` / `AMARU_PEER_SNAPSHOT` for cold-start big-ledger peers in peer selection (complements `--peer-address`) ([#1047](https://github.com/pragma-org/amaru/pull/1047))
 - **amaru-node**: embed best-effort peer snapshots for known networks (for example mainnet, preprod, preview) at build time from cardano-foundation/cardano-configurations; used by default when `--peer-snapshot` is omitted
+- **amaru**: fix the start/restart of a node ([#1095][], [#1098][])
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
@@ -247,3 +249,5 @@ Other guiding principles:
 [#1060]: https://github.com/pragma-org/amaru/issues/1060
 [#1078]: https://github.com/pragma-org/amaru/issues/1078
 [#1082]: https://github.com/pragma-org/amaru/pull/1082
+[#1095]: https://github.com/pragma-org/amaru/issues/1095
+[#1098]: https://github.com/pragma-org/amaru/pull/1098

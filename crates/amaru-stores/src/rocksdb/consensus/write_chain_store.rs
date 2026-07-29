@@ -60,6 +60,12 @@ impl WriteChainStore for RocksDBStore {
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
+    fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        self.db
+            .delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat())
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
+    }
+
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.db
             .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))

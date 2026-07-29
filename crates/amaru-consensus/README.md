@@ -109,9 +109,7 @@ The consensus chain synchronisation pipeline emits the following spans (at `TRAC
   * `consensus.store.roll_forward_chain`: store current chain state on disk
 * `diffusion.forward_chain`: propagage possible changes in node's best chain to downstream peers
 
-Tracing data can be collected through the OpenTelemetry exported, here is a rendering of such a trace using Jaeger UI:
-
-![Jaeger Trace Waterfall](./jaeger-trace.png)
+Tracing data can be collected through the OpenTelemetry exporter and explored in the Grafana Tempo data source provided by the monitoring stack.
 
 ## Chain Selection
 

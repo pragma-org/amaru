@@ -29,6 +29,9 @@ pub trait WriteChainStore: Send + Sync {
 
     fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError>;
 
+    /// Remove the validity flag of a block.
+    fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
 
     /// Replace the current best chain from the given fork point with the provided

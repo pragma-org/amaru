@@ -26,6 +26,7 @@ use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HAS
 use amaru_ledger::state::State;
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_network::connection::TokioConnections;
+use amaru_observability::{debug, info, info_record};
 use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
@@ -38,7 +39,7 @@ use amaru_pure_stage::{
     trace_buffer::TraceBuffer,
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use opentelemetry::metrics::Meter;
 use parking_lot::Mutex;
 use tokio::runtime::Handle;
@@ -126,7 +127,10 @@ pub fn build_node(
     // ledger tip.
     initialize_chain_store(chain_store.clone(), ledger_tip)?;
     let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
-    let best_hash = find_best_candidate(chain_store.as_ref())?;
+
+    // The best hash for blocks that were possibly downloaded and validated before a restart,
+    // i.e. before the volatile ledger was dropped.
+    let recovery_best_hash = find_best_candidate(chain_store.as_ref())?;
 
     // Make resources
     let era_history = &config.era_history();
@@ -149,8 +153,15 @@ pub fn build_node(
     let resources = stage_builder.resources().clone();
 
     // Build the stage graph and return a reference to the stages that can be connected from outside this function
-    let node_stages =
-        build_stage_graph(config, era_history, global_parameters, ledger_tip, best_hash, max_epoch, stage_builder);
+    let node_stages = build_stage_graph(
+        config,
+        era_history,
+        global_parameters,
+        ledger_tip,
+        recovery_best_hash,
+        max_epoch,
+        stage_builder,
+    );
 
     let track_peers_sender = node_stages.track_peers_stake_dist_sender();
     block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
@@ -247,14 +258,154 @@ pub fn make_state(config: &LedgerConfig) -> anyhow::Result<State<RocksDB, RocksD
 }
 
 fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {
-    let anchor_hash = chain_store.get_anchor_hash();
+    info!(consensus::chain_db::INITIALIZE, ledger_tip = %ledger_tip);
 
-    // This corresponds to a bootstrap, we need to correctly initialize the chain store
-    if anchor_hash == ORIGIN_HASH {
-        tracing::info!(anchor = %ledger_tip, "first initialization - setting anchor and best chain");
-        chain_store.set_anchor_hash(&ledger_tip.hash())?;
-        chain_store.set_block_valid(&ledger_tip.hash(), true)?;
+    let best_chain_hash = chain_store.get_best_chain_hash();
+    let has_best_chain = best_chain_hash != ORIGIN_HASH;
+
+    // Every fork branches at or after the immutable tip, which cannot be rolled back, so the
+    // ledger tip is always on the recorded best chain. When it is not, the two databases describe
+    // different chains and truncating the best chain would silently discard headers. This is
+    // checked before any mutation so that a rejected chain database is left untouched.
+    if has_best_chain && chain_store.load_from_best_chain(&ledger_tip).is_none() {
+        bail!(
+            "the chain database is inconsistent with the ledger: its best chain, ending at \
+             {best_chain_hash}, does not contain the ledger tip {ledger_tip}. This happens when \
+             a ledger snapshot is imported on top of a chain database built for another chain. \
+             Remove the chain database so that it can be rebuilt from the ledger tip."
+        );
+    }
+
+    chain_store.set_anchor_hash(&ledger_tip.hash())?;
+    chain_store.set_block_valid(&ledger_tip.hash(), true)?;
+    if has_best_chain {
+        chain_store.switch_to_fork(&ledger_tip, &[])?;
+    } else {
         chain_store.roll_forward_chain(&ledger_tip)?;
     }
+
+    info_record!(consensus::chain_db::INITIALIZE, best_chain_hash = best_chain_hash);
+    clear_valid_descendants_after_ledger_tip(chain_store.as_ref(), ledger_tip)?;
     Ok(())
+}
+
+/// Consider that previously validated blocks haven't been validated now, since the volatile ledger
+/// is going to be reconstructed on a restart.
+fn clear_valid_descendants_after_ledger_tip(chain_store: &dyn ChainStore, ledger_tip: Point) -> anyhow::Result<()> {
+    let mut to_visit = chain_store.get_children(&ledger_tip.hash());
+    let mut count = 0;
+
+    while let Some(hash) = to_visit.pop() {
+        let Some((_header, validity)) = chain_store.load_header_with_validity(&hash) else {
+            continue;
+        };
+
+        if validity == Some(true) {
+            count += 1;
+            chain_store.remove_block_valid(&hash)?;
+        }
+
+        to_visit.extend(chain_store.get_children(&hash));
+    }
+    debug!(consensus::chain_db::CLEAR_VALID_DESCENDANTS, count = count);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{BlockHeader, IsHeader, make_header};
+    use amaru_ouroboros::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+
+    use super::*;
+
+    #[test]
+    fn realign_the_chain_store_on_the_ledger_tip() {
+        // h0 -- h1 -- h2 -- h3   the chain the consensus had validated
+        //         \
+        //          h2a          a fork that was validated and rejected
+        let h0 = header(1, 1, None);
+        let h1 = header(2, 2, Some(&h0));
+        let h2 = header(3, 3, Some(&h1));
+        let h3 = header(4, 4, Some(&h2));
+        let h2a = header(3, 30, Some(&h1));
+
+        let chain_store = Arc::new(InMemoryChainStore::new());
+        for header in [&h0, &h1, &h2, &h3, &h2a] {
+            chain_store.store_header(header).unwrap();
+            chain_store.set_block_valid(&header.hash(), true).unwrap();
+        }
+        chain_store.set_block_valid(&h2a.hash(), false).unwrap();
+        for header in [&h0, &h1, &h2, &h3] {
+            chain_store.roll_forward_chain(&header.point()).unwrap();
+        }
+        chain_store.set_anchor_hash(&h0.hash()).unwrap();
+
+        // the ledger restarts from h1, behind the blocks the consensus had validated
+        initialize_chain_store(chain_store.clone(), h1.point()).unwrap();
+
+        assert_eq!(chain_store.get_anchor_hash(), h1.hash(), "the anchor must move to the ledger tip");
+        assert_eq!(chain_store.get_best_chain_hash(), h1.hash(), "the best chain must end at the ledger tip");
+        assert!(chain_store.load_from_best_chain(&h1.point()).is_some(), "the ledger tip stays on the best chain");
+        assert!(chain_store.load_from_best_chain(&h2.point()).is_none(), "h2 must leave the best chain");
+        assert!(chain_store.load_from_best_chain(&h3.point()).is_none(), "h3 must leave the best chain");
+
+        assert_eq!(validity(chain_store.as_ref(), &h0), Some(true), "blocks before the ledger tip stay validated");
+        assert_eq!(validity(chain_store.as_ref(), &h1), Some(true), "the ledger tip stays validated");
+        assert_eq!(validity(chain_store.as_ref(), &h2), None, "h2 must be applied to the ledger again");
+        assert_eq!(validity(chain_store.as_ref(), &h3), None, "h3 must be applied to the ledger again");
+        assert_eq!(validity(chain_store.as_ref(), &h2a), Some(false), "an invalid block was never applied");
+    }
+
+    #[test]
+    fn start_the_best_chain_on_a_store_that_has_none() {
+        let h0 = header(1, 1, None);
+
+        let chain_store = Arc::new(InMemoryChainStore::new());
+        chain_store.store_header(&h0).unwrap();
+
+        initialize_chain_store(chain_store.clone(), h0.point()).unwrap();
+
+        assert_eq!(chain_store.get_anchor_hash(), h0.hash());
+        assert_eq!(chain_store.get_best_chain_hash(), h0.hash());
+        assert!(chain_store.load_from_best_chain(&h0.point()).is_some(), "the ledger tip starts the best chain");
+        assert_eq!(validity(chain_store.as_ref(), &h0), Some(true));
+    }
+
+    #[test]
+    fn reject_a_chain_store_that_does_not_contain_the_ledger_tip() {
+        // h0 -- h1     the chain the consensus had built
+        //   \
+        //    h1a       the branch the ledger was bootstrapped on
+        let h0 = header(1, 1, None);
+        let h1 = header(2, 2, Some(&h0));
+        let h1a = header(2, 20, Some(&h0));
+
+        let chain_store = Arc::new(InMemoryChainStore::new());
+        for header in [&h0, &h1, &h1a] {
+            chain_store.store_header(header).unwrap();
+        }
+        for header in [&h0, &h1] {
+            chain_store.roll_forward_chain(&header.point()).unwrap();
+        }
+        chain_store.set_anchor_hash(&h0.hash()).unwrap();
+
+        let error = initialize_chain_store(chain_store.clone(), h1a.point()).unwrap_err().to_string();
+
+        assert!(error.contains("inconsistent with the ledger"), "unexpected error: {error}");
+        assert_eq!(chain_store.get_best_chain_hash(), h1.hash(), "the best chain must be left untouched");
+        assert_eq!(chain_store.get_anchor_hash(), h0.hash(), "the anchor must be left untouched");
+        for header in [&h0, &h1, &h1a] {
+            assert_eq!(validity(chain_store.as_ref(), header), None, "no block validity must be recorded");
+        }
+    }
+
+    // HELPERS
+
+    fn header(block_height: u64, slot: u64, parent: Option<&BlockHeader>) -> BlockHeader {
+        BlockHeader::from(make_header(block_height, slot, parent.map(BlockHeader::hash)))
+    }
+
+    fn validity(chain_store: &dyn ChainStore, header: &BlockHeader) -> Option<bool> {
+        chain_store.load_header_with_validity(&header.hash()).and_then(|(_, validity)| validity)
+    }
 }

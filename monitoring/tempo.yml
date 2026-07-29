@@ -1,4 +1,5 @@
 stream_over_http_enabled: true
+
 server:
   http_listen_port: 3200
   log_level: info
@@ -21,11 +22,11 @@ distributor:
           endpoint: "tempo:4317"
 
 ingester:
-  max_block_duration: 5m # cut the headblock when this much time passes. this is being set for demo purposes and should probably be left alone normally
+  max_block_duration: 5m
 
 compactor:
   compaction:
-    block_retention: 1h # overall Tempo trace retention. set for demo purposes
+    block_retention: 1h
 
 metrics_generator:
   registry:
@@ -42,14 +43,14 @@ metrics_generator:
 
 storage:
   trace:
-    backend: local # backend configuration to use
+    backend: local
     wal:
-      path: /var/tempo/wal # where to store the wal locally
+      path: /var/tempo/wal
     local:
       path: /var/tempo/blocks
 
 overrides:
   defaults:
     metrics_generator:
-      processors: [service-graphs, span-metrics, local-blocks] # enables metrics generator
+      processors: [service-graphs, span-metrics, local-blocks]
       generate_native_histograms: both
