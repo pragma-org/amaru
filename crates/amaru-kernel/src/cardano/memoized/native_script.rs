@@ -91,7 +91,6 @@ impl<C> cbor::Encode<C> for MemoizedNativeScript {
 
 #[cfg(test)]
 mod tests {
-    use pallas_primitives::conway as pallas;
     use proptest::prelude::*;
 
     use super::*;
@@ -110,7 +109,7 @@ mod tests {
         InvalidHereafter(u64),
     }
 
-    impl From<NativeScript> for pallas::NativeScript {
+    impl From<NativeScript> for crate::NativeScript {
         fn from(script: NativeScript) -> Self {
             match script {
                 NativeScript::ScriptPubkey(sig) => Self::ScriptPubkey(sig),
@@ -220,7 +219,7 @@ mod tests {
             let original_bytes = to_cbor(&original_script);
             let result = MemoizedNativeScript::try_from(hex::encode(&original_bytes)).unwrap();
 
-            assert_eq!(result.as_ref(), &pallas::NativeScript::from(original_script));
+            assert_eq!(result.as_ref(), &crate::NativeScript::from(original_script));
             assert_eq!(result.original_bytes(), &original_bytes);
         }
     }
@@ -229,10 +228,10 @@ mod tests {
         #[test]
         fn roundtrip_cbor(original_script in any_native_script(3)) {
             let original_bytes = to_cbor(&original_script);
-            let raw: KeepRaw<'_, pallas::NativeScript> = cbor::decode(&original_bytes).unwrap();
+            let raw: KeepRaw<'_, crate::NativeScript> = cbor::decode(&original_bytes).unwrap();
             let result: MemoizedNativeScript = raw.into();
 
-            assert_eq!(result.as_ref(), &pallas::NativeScript::from(original_script));
+            assert_eq!(result.as_ref(), &crate::NativeScript::from(original_script));
             assert_eq!(result.original_bytes(), &original_bytes);
         }
     }
