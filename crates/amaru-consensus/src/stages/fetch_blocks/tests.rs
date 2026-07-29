@@ -210,7 +210,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
     logs.assert_and_remove(Level::DEBUG, &["recovering stored blocks"])
         .assert_and_remove(Level::DEBUG, &["validating stored block"])
         .assert_and_remove(Level::DEBUG, &["requesting blocks"])
-        .assert_and_remove(Level::ERROR, &["timeout fetching blocks"])
+        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
