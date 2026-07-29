@@ -28,6 +28,7 @@
 #   --config      PATH  JSON config file            (default: <script-dir>/compare-metrics.json)
 #   --output      PATH  Write JSON report to file   (default: stdout)
 #   --summary           Write a Markdown summary to $GITHUB_STEP_SUMMARY (or stderr outside CI)
+#   --check             Exit non-zero when cardano-node metrics are missing from Amaru
 #   -h, --help          Show this help message
 
 set -euo pipefail
@@ -38,6 +39,7 @@ AMARU_URL="http://localhost:8889/metrics"
 CONFIG="$SCRIPT_DIR/compare-metrics.json"
 OUTPUT=""
 SUMMARY=false
+CHECK=false
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 
@@ -48,8 +50,9 @@ while [[ $# -gt 0 ]]; do
     --config)      CONFIG="$2";      shift 2 ;;
     --output)      OUTPUT="$2";      shift 2 ;;
     --summary)     SUMMARY=true;     shift   ;;
+    --check)       CHECK=true;       shift   ;;
     -h|--help)
-      grep '^#' "$0" | sed -n '/^# Usage:/,/^# *$/p' | sed 's/^# \{0,1\}//'
+      sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) printf 'unknown option: %s\n' "$1" >&2; exit 1 ;;
@@ -79,7 +82,7 @@ fetch_metrics() {
 
 # Filter a sorted metrics file using the ignore rules from the config JSON.
 apply_ignore_rules() {
-  local file="$1" names_pattern prefix_pattern result
+  local file="$1" names_pattern prefix_pattern pattern
 
   if [[ -f "$CONFIG" ]]; then
     names_pattern=$(jq  -r '.ignore_metrics  // [] | map("^" + . + "$") | join("|")' "$CONFIG")
@@ -89,10 +92,19 @@ apply_ignore_rules() {
     prefix_pattern=""
   fi
 
-  result=$(cat "$file")
-  [[ -n "$names_pattern"  ]] && result=$(printf '%s\n' "$result" | grep -vE "$names_pattern"  || true)
-  [[ -n "$prefix_pattern" ]] && result=$(printf '%s\n' "$result" | grep -vE "$prefix_pattern" || true)
-  printf '%s\n' "$result"
+  if [[ -n "$names_pattern" && -n "$prefix_pattern" ]]; then
+    pattern="${names_pattern}|${prefix_pattern}"
+  elif [[ -n "$names_pattern" ]]; then
+    pattern="$names_pattern"
+  else
+    pattern="$prefix_pattern"
+  fi
+
+  if [[ -n "$pattern" ]]; then
+    grep -vE "$pattern" "$file" || true
+  else
+    cat "$file"
+  fi
 }
 
 # Portable line count — macOS wc -l pads output with spaces.
@@ -151,7 +163,13 @@ fi
 # ── Markdown summary ──────────────────────────────────────────────────────────
 
 if $SUMMARY; then
-  [[ "$missing_count" -eq 0 ]] && status='✅' || status='⚠️'
+  if [[ "$missing_count" -eq 0 ]]; then
+    status='✅'
+  elif $CHECK; then
+    status='❌'
+  else
+    status='⚠️'
+  fi
 
   summary_tmp=$(mktemp)
   {
@@ -183,3 +201,8 @@ if $SUMMARY; then
 fi
 
 rm -f "$cardano_tmp" "$amaru_tmp" "$filtered_cardano_tmp" "$filtered_amaru_tmp" "$missing_tmp"
+
+if $CHECK && [[ "$missing_count" -gt 0 ]]; then
+  printf 'error: %s cardano-node metric(s) are missing from Amaru\n' "$missing_count" >&2
+  exit 1
+fi

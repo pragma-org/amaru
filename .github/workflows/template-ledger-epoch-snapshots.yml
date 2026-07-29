@@ -54,6 +54,10 @@ jobs:
       OBJECT: "s3://${{ secrets.CARDANO_NODE_BUCKET_NAME }}/${{ matrix.network.name }}.tar.zstd"
       TRACE_CONTRACT: data/${{ matrix.network.name }}/run-until-trace-contract.json
       TRACE_COMPARE_LOG: trace-compare.log
+      AMARU_WITH_OPEN_TELEMETRY: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://localhost:4318/v1/metrics"
+      OTEL_METRIC_EXPORT_INTERVAL: 1000
 
     steps:
       - name: Support longpaths
@@ -88,12 +92,15 @@ jobs:
           make download-haskell-config
           jq 'del(.bootstrapPeers) | del(.peerSnapshotFile) | .useLedgerAfterSlot = -1' "./$CONFIG_DIR/topology.json" > "$CONFIG_DIR/topology.patched.json"
           mv "$CONFIG_DIR/topology.patched.json" "$CONFIG_DIR/topology.json"
+          jq '.hasPrometheus = ["0.0.0.0", 12798]' "./$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.patched.json"
+          mv "$CONFIG_DIR/config.patched.json" "$CONFIG_DIR/config.json"
           docker run -d --name cardano-node \
             -v ${{ runner.temp }}/db-${{ matrix.network.name }}:/db \
             -v ${{ runner.temp }}/ipc:/ipc \
             -v "./$CONFIG_DIR:/config" \
             -v "./$CONFIG_DIR:/genesis" \
             -p 3001:3001 \
+            -p 127.0.0.1:12798:12798 \
             ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }} run \
               --config /config/config.json \
               --database-path /db \
@@ -112,6 +119,16 @@ jobs:
         with:
           network: ${{ matrix.network.name }}
           epoch: ${{ matrix.network.start_epoch }}
+
+      - name: Start OTLP collector
+        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        shell: bash
+        run: |
+          docker run -d --network host \
+            --name otlp-collector \
+            -v "$PWD/monitoring/otlp-collector.yml:/etc/otlp-collector.yml:ro" \
+            otel/opentelemetry-collector-contrib:0.133.0 \
+              --config=/etc/otlp-collector.yml
 
       - name: Run until target epoch
         if: ${{ (inputs.network == '' || inputs.network == matrix.network.name) && (matrix.network.name != 'preprod' || github.ref != 'refs/heads/main') }}
@@ -139,9 +156,46 @@ jobs:
         run: |
           make compare-trace-contract
 
-      - name: Teardown haskell node
+      - name: Wait for metrics endpoints
+        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        shell: bash
+        run: |
+          timeout 120 bash -c \
+            'until curl -sf http://localhost:8889/metrics | grep -q "^cardano_node_metrics_"; do sleep 2; done' || {
+            echo "Amaru metrics did not become available within 120s."
+            docker logs otlp-collector 2>&1 | tail -20 || true
+            exit 1
+          }
+          timeout 120 bash -c \
+            'until curl -sf http://localhost:12798/metrics | grep -q "^cardano_node_metrics_"; do sleep 2; done' || {
+            echo "cardano-node metrics did not become available within 120s."
+            docker logs cardano-node 2>&1 | tail -30 || true
+            exit 1
+          }
+
+      - name: Check metrics conformance
+        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          scripts/compare-metrics \
+            --check \
+            --output "metrics-report-${{ matrix.network.name }}.json" \
+            --summary
+
+      - name: Upload metrics report
+        if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network.name) }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: metrics-coverage-report-${{ matrix.network.name }}
+          path: metrics-report-${{ matrix.network.name }}.json
+          if-no-files-found: warn
+
+      - name: Teardown metrics collector and Haskell node
         if: ${{ always() && (inputs.network == '' || inputs.network == matrix.network.name) }}
         shell: bash
         run: |
+          docker logs --tail 50 otlp-collector || true
+          docker rm -f otlp-collector || true
           docker logs --tail 200 cardano-node || true
           docker rm -f cardano-node || true
