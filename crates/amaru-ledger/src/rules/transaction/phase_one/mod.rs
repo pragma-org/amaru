@@ -211,7 +211,7 @@ where
                 // the output length elsewhere since after having consumed the outputs, the .len()
                 // will always return zero.
                 let offset = transaction_body.outputs.len() as u64;
-                Some(TransactionInput { transaction_id: *transaction_id.as_ref(), index: offset })
+                Some(TransactionInput { transaction_id: *transaction_id, index: offset })
             },
         )?;
 
@@ -228,7 +228,7 @@ where
                     return None;
                 }
 
-                Some(TransactionInput { transaction_id: *transaction_id.as_ref(), index })
+                Some(TransactionInput { transaction_id: *transaction_id, index })
             },
         )?;
 

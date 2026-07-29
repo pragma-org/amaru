@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
     Address, BigInt, BorrowedScript, Bytes, CurrencySymbol, Epoch, HasScriptHash, Hash, Int, KeyValuePairs,
     LegacyKeyValuePairs, MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable,
     PlutusData, RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId,
-    Value, size,
+    Value,
 };
 use thiserror::Error;
 
@@ -506,6 +506,6 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        AsRef::<Hash<{ size::TRANSACTION_BODY }>>::as_ref(self).to_plutus_data()
+        self.deref().to_plutus_data()
     }
 }
