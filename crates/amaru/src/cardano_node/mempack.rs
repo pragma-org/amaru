@@ -16,12 +16,10 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, Bytes, Hash, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, MemoizedValue, Multiasset, Network, PlutusScript, PositiveCoin, ShelleyAddress,
-    ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value,
-    cardano::multiasset_key_value_pairs::NonEmptyKeyValuePairs,
+    MemoizedTransactionOutput, MemoizedValue, Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin,
+    ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value,
 };
 
-const INDEFINITE_MAP_THRESHOLD: usize = 23;
 const MAX_VARUINT64_BYTES: usize = 10;
 
 pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutput, String> {
@@ -442,27 +440,13 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
             .push((Bytes::from(rep[asset_offset..asset_end].to_vec()), quantity));
     }
 
-    let mut policies = Vec::with_capacity(bundles.len());
+    let mut policies = BTreeMap::new();
     for (policy_id, mut assets) in bundles {
         assets.sort_by(|(a, _), (b, _)| a.cmp(b));
-        if assets.is_empty() {
-            return Err("invalid multiasset bundle: empty asset bundle".to_string());
-        }
-        let assets = if assets.len() > INDEFINITE_MAP_THRESHOLD {
-            NonEmptyKeyValuePairs::Indef(assets)
-        } else {
-            NonEmptyKeyValuePairs::Def(assets)
-        };
-        policies.push((policy_id, assets));
+        policies.insert(policy_id, NonEmptyKeyValuePairs::try_from(assets).map_err(|e| e.to_string())?);
     }
 
-    if policies.is_empty() {
-        Err("empty multiasset representation".to_string())
-    } else if policies.len() > INDEFINITE_MAP_THRESHOLD {
-        Ok(NonEmptyKeyValuePairs::Indef(policies))
-    } else {
-        Ok(NonEmptyKeyValuePairs::Def(policies))
-    }
+    Ok(policies)
 }
 
 #[cfg(test)]

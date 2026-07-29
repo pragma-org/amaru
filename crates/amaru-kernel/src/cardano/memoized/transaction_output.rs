@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_primitives::conway::Multiasset;
+use std::collections::BTreeMap;
 
 use crate::{
-    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, PositiveCoin,
+    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
     ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
     utils::cbor::SerialisedAsCbor,
 };
@@ -263,7 +263,7 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
     let value = match helper {
         ValueHelper::Coin(coin) => Value::Coin(coin),
         ValueHelper::Multiasset(coin, multiasset_data) => {
-            let mut converted_multiasset = Vec::new();
+            let mut multiasset = BTreeMap::new();
 
             for (policy_id, assets) in multiasset_data {
                 let policy_id = hex::decode(&policy_id)
@@ -285,14 +285,11 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                 let policy_id: Hash<CREDENTIAL> = Hash::from(policy_id.as_slice());
 
                 let pairs = NonEmptyKeyValuePairs::try_from(converted_assets)
-                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?
-                    .as_pallas();
+                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?;
 
-                converted_multiasset.push((policy_id, pairs));
+                multiasset.insert(policy_id, pairs);
             }
 
-            let multiasset: Multiasset<PositiveCoin> =
-                Multiasset::from_vec(converted_multiasset).ok_or(serde::de::Error::custom("empty multiasset"))?;
             Value::Multiasset(coin, multiasset)
         }
     };
