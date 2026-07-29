@@ -127,7 +127,7 @@ impl BlockHeader {
     }
 
     pub fn vrf_output(&self) -> &[u8] {
-        &self.header.header_body.vrf_result.0
+        self.header.vrf_output()
     }
 
     pub fn issuer_vkey(&self) -> &Bytes {
@@ -213,6 +213,6 @@ impl IsHeader for BlockHeader {
     }
 
     fn vrf_output(&self) -> &[u8] {
-        &self.header.header_body.vrf_result.0
+        self.header.vrf_output()
     }
 }

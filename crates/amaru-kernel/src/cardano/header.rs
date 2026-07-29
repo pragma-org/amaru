@@ -22,3 +22,13 @@ pub struct Header {
     #[n(1)]
     pub body_signature: Bytes,
 }
+
+impl Header {
+    pub fn vrf_output(&self) -> &[u8] {
+        &self.header_body.vrf_result.output
+    }
+
+    pub fn vrf_proof(&self) -> &[u8] {
+        &self.header_body.vrf_result.proof
+    }
+}

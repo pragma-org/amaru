@@ -133,9 +133,7 @@ pub fn assert_all<'a>(
             AssertLeaderStakeError::new(
                 &active_slot_coeff,
                 &leader_relative_stake,
-                &FixedDecimal::from(
-                    vrf::Derivation::Leader.derive_tagged_vrf_output(&header.header_body.vrf_result.0).as_slice(),
-                ),
+                &FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(header.vrf_output()).as_slice()),
             )?;
             Ok(())
         }),
@@ -250,24 +248,24 @@ impl AssertVrfProofError {
         let input = &vrf::Input::new(absolute_slot, epoch_nonce);
 
         // TODO: Should have fixed size slices here.
-        let block_proof_hash: [u8; vrf::Proof::HASH_SIZE] = {
-            let bytes: &[u8] = vrf_cert.0.as_ref();
+        let block_output: [u8; vrf::Proof::HASH_SIZE] = {
+            let bytes: &[u8] = vrf_cert.output.as_ref();
             bytes.try_into()
         }?;
 
         // TODO: Should have fixed size slices here.
         let block_proof: [u8; vrf::Proof::SIZE] = {
-            let bytes: &[u8] = vrf_cert.1.as_ref();
+            let bytes: &[u8] = vrf_cert.proof.as_ref();
             bytes.try_into()
         }?;
 
         // Verify the VRF proof
         let vrf_proof = vrf::Proof::try_from(&block_proof)?;
-        let proof_hash = vrf_proof
+        let computed_output = vrf_proof
             .verify(leader_public_key, input)
             .map_err(|e| Self::InvalidProof(e, absolute_slot, *epoch_nonce, leader_public_key.as_ref().to_vec()))?;
-        if proof_hash.as_slice() != block_proof_hash {
-            return Err(Self::ProofMismatch { declared: Box::new(block_proof_hash), computed: Box::new(proof_hash) });
+        if computed_output.as_slice() != block_output {
+            return Err(Self::ProofMismatch { declared: Box::new(block_output), computed: Box::new(computed_output) });
         }
 
         Ok(())
