@@ -50,6 +50,7 @@ Other guiding principles:
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
 - **amaru-ledger**: track account unregistrations to avoid O(n) scan on all accounts during epoch transition calculations.
 - **amaru-ledger**: add phase-one conformance coverage for `TooManyCollateralInputs`, `ScriptsNotPaidUTxO` and `IncorrectTotalCollateralField`, and move the fixture that was filed under `InsufficientCollateral` while expecting `ValueNotConservedUTxO` to the directory matching its predicate.
+- **amaru**: consolidate the monitoring stack.
 
 ### Fixed
 
