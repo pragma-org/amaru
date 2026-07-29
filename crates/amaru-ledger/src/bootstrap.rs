@@ -69,7 +69,7 @@ fn format_pool_state_decode_error(error: Box<dyn std::error::Error>) -> String {
     let error = error.to_string();
 
     if error.contains("node pool vrf key hashes") && error.contains("Invalid hash size") {
-        return "snapshot uses an older unsupported pool/account encoding; regenerate snapshots with amaru create-bootstrap-snapshots (db-analyser).".to_owned();
+        return "snapshot uses an older unsupported pool/account encoding; regenerate snapshots with amaru snapshot create (db-analyser).".to_owned();
     }
 
     format!("decode pool state: {error}")
