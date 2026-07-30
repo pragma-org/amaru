@@ -62,6 +62,7 @@ Other guiding principles:
 - **amaru-node**: support Cardano ledger peer snapshots via `--peer-snapshot` / `AMARU_PEER_SNAPSHOT` for cold-start big-ledger peers in peer selection (complements `--peer-address`) ([#1047](https://github.com/pragma-org/amaru/pull/1047))
 - **amaru-node**: embed best-effort peer snapshots for known networks (for example mainnet, preprod, preview) at build time from cardano-foundation/cardano-configurations; used by default when `--peer-snapshot` is omitted
 - **amaru**: fix the start/restart of a node ([#1095][], [#1098][])
+- **amaru-node**: fix build script to avoid hitting the github API too frequently ([#1108](https://github.com/pragma-org/amaru/pull/1108))
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
