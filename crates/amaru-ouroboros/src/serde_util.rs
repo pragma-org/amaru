@@ -15,8 +15,7 @@
 /// utilities for serializing and deserializing some types that aren’t immediately
 /// supported by serde, but should be.
 pub mod bytes {
-    use amaru_kernel::Hash;
-    use ed25519_dalek as ed25519;
+    use amaru_kernel::{Hash, ed25519};
     use serde::Deserialize;
 
     pub fn serialize<S>(bytes: &impl Bytes, serializer: S) -> Result<S::Ok, S::Error>

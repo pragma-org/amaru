@@ -23,6 +23,7 @@ clap = ["dep:clap"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+anyhow.workspace = true
 base58.workspace = true
 bech32.workspace = true
 bytes = { workspace = true, features = ["serde"] }

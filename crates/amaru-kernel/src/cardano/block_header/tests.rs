@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_crypto::key::ed25519::PublicKey;
 use proptest::prelude::*;
 
 use super::*;
 use crate::{
-    Bytes, Hash, Header, OperationalCert, VrfCert, any_hash28, cardano::network_block::make_block_with_header,
+    Bytes, Hash, Header, OperationalCert, VrfCert, any_hash28, cardano::network_block::make_block_with_header, ed25519,
     size::BLOCK_BODY,
 };
 
@@ -41,7 +40,7 @@ pub fn make_header_with_op_cert_seq(
             block_number,
             slot,
             prev_hash,
-            issuer_vkey: Bytes::from(vec![0u8; PublicKey::SIZE]),
+            issuer_vkey: Bytes::from(vec![0u8; ed25519::PUBLIC_KEY_LENGTH]),
             vrf_vkey: Bytes::from(vec![]),
             vrf_result: VrfCert { output: Bytes::from(vec![]), proof: Bytes::from(vec![]) },
             block_body_size: 0,

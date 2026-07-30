@@ -20,11 +20,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, Slot, VrfCert,
+    ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, Slot, VrfCert, ed25519,
     maths::{ExpOrdering, FixedDecimal},
 };
 use amaru_ouroboros_traits::{PoolSummary, has_stake_distribution::GetPoolError};
-use ed25519_dalek as ed25519;
 use thiserror::Error;
 
 use crate::{kes, vrf};

@@ -12,10 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use ed25519_dalek as ed25519;
+pub use num;
 pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
 pub use pallas_traverse::{ComputeHash, OriginalHash};
+pub use serde_json as json;
 
 pub mod maths;
+
+pub mod macros;
+
+pub mod utils;
+
+pub mod bech32;
+
+mod traits;
+pub use traits::{
+    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasOwnership, HasScriptHash,
+    HasTransactionId, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_major_version,
+    has_ownership, has_script_hash, has_transaction_id, is_header, to_bytes,
+};
+
+mod data_structures;
+pub use data_structures::{
+    ignore_eq::IgnoreEq,
+    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs, LegacyKeyValuePairs},
+    legacy::Legacy,
+    non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
+    non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
+    non_empty_set::{IntoNonEmptySetError, NonEmptySet},
+    non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
+    non_zero_duration::{NonZeroDuration, ZeroDurationError},
+};
+
+pub mod cbor {
+    pub use amaru_minicbor_extra::{
+        TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
+        collect_map_value_bytes, decode_break, expect_tag, from_cbor, from_cbor_no_leftovers,
+        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee, to_cbor,
+        to_cbor_with, unexpected_field,
+    };
+    pub use minicbor::{
+        CborLen, Decode, Decoder, Encode, Encoder, bytes,
+        data::{self, IanaTag, Tag, Type},
+        decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
+    };
+    pub use pallas_codec::utils::AnyCbor as Any;
+}
+pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 
 pub mod cardano;
 pub use cardano::{
@@ -191,46 +235,3 @@ pub use cardano::{
     transaction_pointer::any_transaction_pointer,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
 };
-
-pub mod bech32;
-
-pub mod cbor {
-    pub use amaru_minicbor_extra::{
-        TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
-        collect_map_value_bytes, decode_break, expect_tag, from_cbor, from_cbor_no_leftovers,
-        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee, to_cbor,
-        to_cbor_with, unexpected_field,
-    };
-    pub use minicbor::{
-        CborLen, Decode, Decoder, Encode, Encoder, bytes,
-        data::{self, IanaTag, Tag, Type},
-        decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
-    };
-    pub use pallas_codec::utils::AnyCbor as Any;
-}
-pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
-
-mod data_structures;
-pub use data_structures::{
-    ignore_eq::IgnoreEq,
-    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs, LegacyKeyValuePairs},
-    legacy::Legacy,
-    non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
-    non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
-    non_empty_set::{IntoNonEmptySetError, NonEmptySet},
-    non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
-    non_zero_duration::{NonZeroDuration, ZeroDurationError},
-};
-pub use num;
-pub use serde_json as json;
-
-pub mod macros;
-
-mod traits;
-pub use traits::{
-    AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasOwnership, HasScriptHash,
-    HasTransactionId, IsHeader, ToBytes, as_hash, as_index, as_shelley, has_ex_units, has_lovelace, has_major_version,
-    has_ownership, has_script_hash, has_transaction_id, is_header, to_bytes,
-};
-
-pub mod utils;

@@ -14,10 +14,9 @@
 
 use std::ops::Deref;
 
-use ed25519_dalek as ed25519;
 use thiserror::Error;
 
-use crate::{Bytes, cbor};
+use crate::{Bytes, cbor, ed25519};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct VKeyWitness {
