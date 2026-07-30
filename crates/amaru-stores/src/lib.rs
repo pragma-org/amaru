@@ -24,10 +24,10 @@ pub mod tests {
         any_stake_credential,
     };
     use amaru_ledger::{
-        epoch_transition::{GovernanceActivity, pools_updates::PoolCertificates},
+        epoch_transition::{GovernanceActivity, GovernanceUpdates, pools_updates::PoolCertificates},
         state::volatile::Resettable,
         store::{
-            Columns, ReadStore, Store, StoreError, TransactionalContext,
+            Columns, ReadStore, Store, StoreError, TransactionalContext, apply_governance_updates,
             columns::{
                 accounts, cc_members, dreps, proposals,
                 slots::tests::any_slot,
@@ -491,6 +491,81 @@ pub mod tests {
         let repeat = context.try_epoch_transition(from, to)?;
         assert!(!repeat, "Expected second transition from outdated state to fail");
         context.commit()?;
+
+        Ok(())
+    }
+
+    pub fn test_treasury_withdrawal_debits_pots(
+        store: &impl Store,
+        fixture: &Fixture,
+        runner: &mut TestRunner,
+    ) -> Result<(), StoreError> {
+        use std::collections::BTreeMap;
+
+        use amaru_kernel::{PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalsRoots};
+
+        let withdrawal = 70_000;
+        let initial_treasury = 1_000_000;
+
+        let read_rewards = |credential: &StakeCredential| -> Result<u64, StoreError> {
+            let context = store.create_transaction();
+            let mut rewards = None;
+            context.with_accounts(|mut accounts| {
+                rewards = accounts
+                    .find(|(key, _)| key == credential)
+                    .and_then(|(_, row)| row.borrow().as_ref().map(|account| account.rewards));
+            })?;
+            context.commit()?;
+            rewards.ok_or_else(|| StoreError::Internal("missing account".into()))
+        };
+
+        let governance_updates = |payouts: BTreeMap<StakeCredential, u64>| GovernanceUpdates {
+            roots: ProposalsRoots::default(),
+            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            pruned_proposals: BTreeMap::new(),
+            payouts,
+            treasury_withdrawals: withdrawal,
+            is_dormant_epoch: false,
+            constitutional_committee: None,
+            new_constitution: None,
+        };
+
+        let context = store.create_transaction();
+        context.with_pots(|mut row| row.borrow_mut().treasury = initial_treasury)?;
+        context.commit()?;
+
+        let rewards_before = read_rewards(&fixture.account_key)?;
+
+        let context = store.create_transaction();
+        apply_governance_updates(
+            &context,
+            &governance_updates(BTreeMap::from([(fixture.account_key.clone(), withdrawal)])),
+        )?;
+        context.commit()?;
+
+        assert_eq!(
+            store.pots()?.treasury,
+            initial_treasury - withdrawal,
+            "an enacted withdrawal must be debited from the treasury"
+        );
+        assert_eq!(
+            read_rewards(&fixture.account_key)?,
+            rewards_before + withdrawal,
+            "an enacted withdrawal must be credited to the target account"
+        );
+
+        let unknown = any_stake_credential().new_tree(runner).unwrap().current();
+        assert_ne!(unknown, fixture.account_key);
+
+        let context = store.create_transaction();
+        apply_governance_updates(&context, &governance_updates(BTreeMap::from([(unknown, withdrawal)])))?;
+        context.commit()?;
+
+        assert_eq!(
+            store.pots()?.treasury,
+            initial_treasury - withdrawal,
+            "a withdrawal to an unregistered account must flow back into the treasury"
+        );
 
         Ok(())
     }

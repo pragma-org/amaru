@@ -60,6 +60,11 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-ledger**: debit the treasury when enacted withdrawals are paid out at the epoch boundary; the payout was
+  credited to the reward account without ever being subtracted from the treasury pot.
+- **amaru-ledger**: preserve the `Ratified` status of proposals pruned during ratification; it was overwritten with
+  `NotRatified` when computing deposit refunds, which skewed the DRep voting stake for accounts receiving a
+  just-enacted treasury withdrawal.
 - **amaru-ledger**: reject pool retirement when the retirement epoch is out of range. ([#1036][])
 - **amaru-ledger**: validate stake pool exists when attempting to unregister ([#912][], [#1034][])
 - **amaru-consensus**: fix the recheck deferred headers loop ([#1078][], [#1082][])

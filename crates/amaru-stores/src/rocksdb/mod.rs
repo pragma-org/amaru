@@ -1038,7 +1038,7 @@ mod tests {
         tests::{
             Fixture, add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep, test_read_pool,
             test_read_utxo, test_refund_account, test_remove_account, test_remove_drep, test_remove_pool,
-            test_remove_utxo, test_slot_updated,
+            test_remove_utxo, test_slot_updated, test_treasury_withdrawal_debits_pots,
         },
     };
 
@@ -1120,6 +1120,13 @@ mod tests {
         let mut runner = TestRunner::default();
         let (store, _) = setup_rocksdb_store(&mut runner)?;
         test_epoch_transition(&store)
+    }
+
+    #[test]
+    fn test_rocksdb_treasury_withdrawal_debits_pots() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_treasury_withdrawal_debits_pots(&store, &fixture, &mut runner)
     }
 
     #[test]

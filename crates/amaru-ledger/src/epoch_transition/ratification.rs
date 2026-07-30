@@ -63,6 +63,11 @@ pub struct GovernanceUpdates {
     /// withdrawal.
     pub payouts: BTreeMap<StakeCredential, Lovelace>,
 
+    /// Total amount withdrawn from the treasury by enacted proposals. Kept separate from
+    /// `payouts`, which merges withdrawals with deposit refunds that must not be debited from
+    /// the treasury.
+    pub treasury_withdrawals: Lovelace,
+
     /// Captures whether the resulting epoch is considered 'dormant' (i.e. no active proposals
     /// left to vote on at the beginning of the epoch, after ratification).
     pub is_dormant_epoch: bool,
@@ -170,6 +175,7 @@ impl GovernanceUpdates {
                 // Once ratified, we can go over each proposal and figure out refunds due to
                 // enactment, expiry or conflicts with other enacted proposals.
                 let mut is_dormant_epoch = true;
+                let treasury_withdrawals = ctx.withdrawals.values().sum();
                 let mut payouts = ctx.withdrawals;
                 let mut payouts_str = String::new();
                 for (id, proposal) in proposals_metadata.into_iter() {
@@ -178,7 +184,9 @@ impl GovernanceUpdates {
 
                     if expired || ratified_or_evicted {
                         info!(ledger::proposal::DROP, id = %id, expired, ratified_or_evicted);
-                        ctx.pruned_proposals.insert(id, RatificationStatus::NotRatified); // For expired proposals
+                        // Expired proposals aren't in the pruned set yet; ratified or evicted ones
+                        // already are, and must keep the status recorded during ratification.
+                        ctx.pruned_proposals.entry(id).or_insert(RatificationStatus::NotRatified);
                         let return_account = proposal.return_account;
                         let deposit = proposal.deposit;
                         payouts
@@ -265,6 +273,7 @@ impl GovernanceUpdates {
                     roots: roots.unwrap_or_clone(),
                     pruned_proposals,
                     payouts,
+                    treasury_withdrawals,
                     is_dormant_epoch,
                     protocol_parameters: ctx.protocol_parameters,
                     new_constitution: ctx.new_constitution,
@@ -399,4 +408,88 @@ fn opt_str(s: String) -> Box<dyn tracing::Value> {
 
 fn opt_root(root: Option<&ComparableProposalId>) -> Box<dyn tracing::Value> {
     root.map(|r| Box::new(r.to_string()) as Box<dyn tracing::Value>).unwrap_or_else(|| Box::new(tracing::field::Empty))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::VecDeque, sync::Mutex};
+
+    use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, any_proposal_id};
+    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+
+    use super::*;
+    use crate::{
+        state::StakeDistributionView, store::columns::proposals, summary::stake_distribution::StakeDistribution,
+    };
+
+    fn empty_stake_distribution(epoch: Epoch) -> StakeDistribution {
+        StakeDistribution {
+            epoch,
+            treasury: 0,
+            reserves: 0,
+            active_stake: 0,
+            pools_voting_stake: 0,
+            dreps_voting_stake: 0,
+            accounts: BTreeMap::new(),
+            pools: BTreeMap::new(),
+            dreps: BTreeMap::new(),
+        }
+    }
+
+    fn any_information_proposal(runner: &mut TestRunner, valid_until: Epoch) -> Proposal {
+        let mut row = proposals::tests::any_row(1_000).new_tree(runner).unwrap().current();
+        row.valid_until = valid_until;
+        row.proposal.deposit = 100_000;
+        row.proposal.gov_action = GovernanceAction::Information;
+        row
+    }
+
+    #[test]
+    fn dropped_proposals_keep_their_ratification_status() {
+        let mut runner = TestRunner::default();
+        let epoch = Epoch::from(10);
+
+        let ratified_id = ComparableProposalId::from(any_proposal_id().new_tree(&mut runner).unwrap().current());
+        let expired_id = ComparableProposalId::from(any_proposal_id().new_tree(&mut runner).unwrap().current());
+
+        let ratified = any_information_proposal(&mut runner, epoch + 5);
+        let expired = any_information_proposal(&mut runner, epoch);
+
+        let withdrawal_account = expect_stake_credential(&ratified.proposal.reward_account);
+
+        let distributions = Mutex::new(VecDeque::from([empty_stake_distribution(epoch)]));
+        let ctx = RatificationContext {
+            epoch,
+            treasury: 1_000_000_000,
+            stake_distribution: StakeDistributionView::new(distributions.lock().unwrap(), epoch).unwrap(),
+            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            pruned_proposals: BTreeMap::from([(Rc::new(ratified_id.clone()), RatificationStatus::Ratified)]),
+            withdrawals: BTreeMap::from([(withdrawal_account, 70_000)]),
+            constitutional_committee: None,
+            constitutional_committee_update: None,
+            new_constitution: None,
+            votes: BTreeMap::new(),
+        };
+
+        let updates = GovernanceUpdates::new(
+            ProposalsRootsRc::default(),
+            [(ratified_id.clone(), ratified), (expired_id.clone(), expired)].into_iter(),
+            &PREPROD_ERA_HISTORY,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+            ctx,
+        )
+        .unwrap();
+
+        assert_eq!(
+            updates.pruned_proposals.get(&ratified_id),
+            Some(&RatificationStatus::Ratified),
+            "a proposal pruned during ratification must keep its 'Ratified' status"
+        );
+        assert_eq!(
+            updates.pruned_proposals.get(&expired_id),
+            Some(&RatificationStatus::NotRatified),
+            "an expired proposal is 'NotRatified'"
+        );
+        assert_eq!(updates.treasury_withdrawals, 70_000, "enacted withdrawals are totalled for the treasury debit");
+    }
 }

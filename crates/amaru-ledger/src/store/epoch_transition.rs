@@ -238,6 +238,16 @@ pub fn apply_governance_updates<'store>(
 
         pay_or_refund_accounts(db, updates.payouts.iter().map(|(k, v)| (k, *v)))?;
 
+        // Withdrawals move money out of the treasury into reward accounts. Deposit refunds do
+        // not; they were never part of the treasury. Withdrawals whose target account no longer
+        // exists flow back into the treasury as leftovers just above.
+        if updates.treasury_withdrawals > 0 {
+            db.with_pots(|mut row| {
+                let pots = row.borrow_mut();
+                pots.treasury = pots.treasury.saturating_sub(updates.treasury_withdrawals);
+            })?;
+        }
+
         let mut governance_activity = db.governance_activity()?;
         if updates.is_dormant_epoch {
             governance_activity.consecutive_dormant_epochs += 1;
