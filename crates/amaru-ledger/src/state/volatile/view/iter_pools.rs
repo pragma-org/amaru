@@ -134,7 +134,7 @@ mod tests {
         sync::LazyLock,
     };
 
-    use amaru_kernel::{PoolCertificates, any_certificate_pointer, any_lovelace, any_pool_params};
+    use amaru_kernel::{any_certificate_pointer, any_lovelace, any_pool_params};
     use proptest::{
         strategy::{Strategy, ValueTree},
         test_runner::{Config, RngSeed, TestRunner},
@@ -142,7 +142,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::epoch_transition::PoolsEpochTransitionUpdates;
+    use crate::epoch_transition::{PoolsEpochTransitionUpdates, pools_updates::PoolCertificates};
 
     const MAX_POOLS: u8 = 3;
 

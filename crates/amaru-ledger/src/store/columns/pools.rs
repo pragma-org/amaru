@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{
-    CertificatePointer, Epoch, Lovelace, PoolCertificates, PoolId, PoolParams,
-    cardano::pool_certificates::PoolCertificate, cbor,
-};
+use amaru_kernel::{CertificatePointer, Epoch, Lovelace, PoolId, PoolParams, cbor};
+
+use crate::epoch_transition::pools_updates::{PoolCertificate, PoolCertificates};
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
@@ -80,12 +79,13 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{
-        any_certificate_pointer, any_lovelace, any_pool_certificates, any_pool_params, prop_cbor_roundtrip,
-    };
+    use amaru_kernel::{any_certificate_pointer, any_lovelace, any_pool_params, prop_cbor_roundtrip};
     use proptest::prelude::*;
 
     use super::*;
+    #[cfg(test)]
+    use crate::epoch_transition::pools_updates::any_pool_certificate;
+    use crate::epoch_transition::pools_updates::any_pool_certificates;
 
     // Generate arbitrary `Row`, good for serialization for not for logic.
     pub fn any_row() -> impl Strategy<Value = Row> {
@@ -103,7 +103,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn prop_decode_after_extend(row in any_row(), certificate in amaru_kernel::any_pool_certificate(Epoch::from(100))) {
+        fn prop_decode_after_extend(row in any_row(), certificate in any_pool_certificate(Epoch::from(100))) {
             let mut bytes = Vec::new();
             cbor::encode(&row, &mut bytes)
                 .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));

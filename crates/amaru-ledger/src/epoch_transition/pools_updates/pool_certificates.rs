@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    Epoch, PoolParams,
-    cardano::pool_certificates::PoolCertificate::{Registration, Retirement},
-    cbor,
-};
+use amaru_kernel::{Epoch, PoolParams, cbor};
 
 /// List of registration / retirement updates collected at the end of an epoch.
 /// It can be summarized as the effect to perform at the current epoch + the remaining updates to
@@ -59,20 +55,20 @@ impl PoolCertificates {
     }
 
     pub fn append_registration(&mut self, params: PoolParams, effective_in: Epoch) {
-        self.0.push(Registration(params, effective_in));
+        self.0.push(PoolCertificate::Registration(params, effective_in));
     }
 
     pub fn append_retirement(&mut self, epoch: Epoch) {
-        self.0.push(Retirement(epoch))
+        self.0.push(PoolCertificate::Retirement(epoch))
     }
 
     pub fn with_registration(mut self, params: PoolParams, effective_in: Epoch) -> Self {
-        self.0.push(Registration(params, effective_in));
+        self.0.push(PoolCertificate::Registration(params, effective_in));
         self
     }
 
     pub fn with_retirement(mut self, epoch: Epoch) -> Self {
-        self.0.push(Retirement(epoch));
+        self.0.push(PoolCertificate::Retirement(epoch));
         self
     }
 
@@ -87,6 +83,8 @@ impl PoolCertificates {
     /// b. Any retirement that comes after a retirement cancels that previous retirement.
     ///
     pub fn pending_after(&self, current_epoch: Epoch) -> PendingPoolCertificates<'_> {
+        use PoolCertificate::*;
+
         let mut folded = PendingPoolCertificates {
             certificate: None,
             next_certificates: Vec::new(),
@@ -135,8 +133,8 @@ pub enum PoolCertificate {
 impl PoolCertificate {
     pub fn epoch(&self) -> Epoch {
         match self {
-            Registration(_, epoch) => *epoch,
-            Retirement(epoch) => *epoch,
+            Self::Registration(_, epoch) => *epoch,
+            Self::Retirement(epoch) => *epoch,
         }
     }
 }
@@ -151,11 +149,11 @@ impl<C> cbor::encode::Encode<C> for PoolCertificate {
         // retirement is an absent parameters update
         e.array(2)?;
         match self {
-            Registration(params, effective_in) => {
+            Self::Registration(params, effective_in) => {
                 e.encode_with(params, ctx)?;
                 e.encode_with(effective_in, ctx)?;
             }
-            Retirement(at) => {
+            Self::Retirement(at) => {
                 e.null()?;
                 e.encode_with(at, ctx)?;
             }
@@ -171,9 +169,9 @@ impl<'b, C> cbor::decode::Decode<'b, C> for PoolCertificate {
         match d.datatype()? {
             cbor::data::Type::Null => {
                 d.null()?;
-                Ok(Retirement(d.decode_with(ctx)?))
+                Ok(Self::Retirement(d.decode_with(ctx)?))
             }
-            _ => Ok(Registration(d.decode_with(ctx)?, d.decode_with(ctx)?)),
+            _ => Ok(Self::Registration(d.decode_with(ctx)?, d.decode_with(ctx)?)),
         }
     }
 }
@@ -193,18 +191,18 @@ pub struct PendingPoolCertificates<'a> {
 
 impl<'a> PendingPoolCertificates<'a> {
     pub fn registration(&self) -> Option<&'a PoolParams> {
-        if let Some(Registration(params, _)) = self.certificate { Some(params) } else { None }
+        if let Some(PoolCertificate::Registration(params, _)) = self.certificate { Some(params) } else { None }
     }
 
     pub fn is_retiring(&self) -> bool {
-        matches!(self.certificate, Some(Retirement(_)))
+        matches!(self.certificate, Some(PoolCertificate::Retirement(_)))
     }
 
     pub fn is_retiring_at(&self, epoch: Epoch) -> bool {
-        matches!(self.certificate, Some(Retirement(e)) if *e == epoch)
+        matches!(self.certificate, Some(PoolCertificate::Retirement(e)) if *e == epoch)
     }
 
-    pub fn next_certificates(&self) -> PoolCertificates {
+    pub fn to_next_certificates(&self) -> PoolCertificates {
         // Only retirements can be applied at a future epoch and they are cheap to clone.
         PoolCertificates(self.next_certificates.iter().copied().cloned().collect())
     }
@@ -219,10 +217,11 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
+    use PoolCertificate::*;
+    use amaru_kernel::{any_pool_params, prop_cbor_roundtrip};
     use proptest::{collection, prelude::*};
 
     use super::*;
-    use crate::{any_pool_params, prop_cbor_roundtrip};
 
     pub fn any_pool_certificate(epoch: Epoch) -> impl Strategy<Value = PoolCertificate> {
         prop_oneof![Just(Retirement(epoch)), any_pool_params().prop_map(move |params| Registration(params, epoch))]
@@ -250,7 +249,7 @@ mod tests {
                 Retirement(at) => (None, *at),
             };
 
-            prop_assert_eq!(crate::to_cbor(&certificate), crate::to_cbor(&legacy));
+            prop_assert_eq!(amaru_kernel::to_cbor(&certificate), amaru_kernel::to_cbor(&legacy));
         }
     }
 }

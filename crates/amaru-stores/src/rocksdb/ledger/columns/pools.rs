@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, cardano::pool_certificates::PoolCertificate};
-use amaru_ledger::store::{
-    StoreError,
-    columns::{
-        pools::{Key, Row, Value},
-        unsafe_decode,
+use amaru_kernel::Epoch;
+use amaru_ledger::{
+    epoch_transition::pools_updates::PoolCertificate,
+    store::{
+        StoreError,
+        columns::{
+            pools::{Key, Row, Value},
+            unsafe_decode,
+        },
     },
 };
 use amaru_observability::{error, trace_span};

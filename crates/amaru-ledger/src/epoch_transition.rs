@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod pools_updates;
+pub mod pools_updates;
 pub use pools_updates::PoolsEpochTransitionUpdates;
 
-mod rewards_state;
+pub mod rewards_state;
 pub use rewards_state::{Computed, Effective, Rewards, RewardsState};
 
-mod ratification;
+pub mod ratification;
 pub use ratification::{GovernanceActivity, GovernanceUpdates};

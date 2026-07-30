@@ -18,12 +18,17 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, Hash, Lovelace, PendingPoolCertificates, PoolId, PoolParams, RewardAccount, StakeCredential,
-    expect_stake_credential, hash, pool_metadata, rational_number, relay,
+    Epoch, Hash, Lovelace, PoolId, PoolParams, RewardAccount, StakeCredential, expect_stake_credential, hash,
+    pool_metadata, rational_number, relay,
 };
 use amaru_observability::{debug, info_span};
 
 use crate::store::columns::pools::Row as Pool;
+
+mod pool_certificates;
+pub use pool_certificates::{PendingPoolCertificates, PoolCertificate, PoolCertificates};
+#[cfg(any(test, feature = "test-utils"))]
+pub use pool_certificates::{any_pool_certificate, any_pool_certificates};
 
 /// Captures stake pool updates computed at the epoch transition, but not yet applied to the
 /// immutable storage. Those updates are meant to be updated only after `k` blocks have passed in
@@ -151,7 +156,7 @@ impl PoolsEpochTransitionUpdates {
 
         // Regardless, always replace future params with those that remain relevant.
         let has_resolved_certificates = pending.has_resolved_certificates();
-        pool.pending_certificates = pending.next_certificates();
+        pool.pending_certificates = pending.to_next_certificates();
 
         if has_updated || has_resolved_certificates {
             self.updated.insert(pool_id, pool);
@@ -206,15 +211,16 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, Network, PoolCertificate,
-        PoolCertificate::{Registration, Retirement},
-        PoolCertificates, PoolId, PoolParams, RewardAccount, StakeCredential, StakePayload, any_certificate_pointer,
+        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeCredential, StakePayload, any_certificate_pointer,
         any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential, new_stake_address,
         utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
 
-    use super::PoolsEpochTransitionUpdates;
+    use super::{
+        PoolCertificate::{self, Registration, Retirement},
+        PoolCertificates, PoolsEpochTransitionUpdates,
+    };
     use crate::store::columns::pools::Row as Pool;
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an

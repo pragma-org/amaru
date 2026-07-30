@@ -19,12 +19,12 @@ pub mod rocksdb;
 pub mod tests {
     use amaru_kernel::{
         Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolCertificates, PoolId, PoolParams, Slot,
-        StakeCredential, TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params,
-        any_proposal_id, any_stake_credential,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
+        TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
+        any_stake_credential,
     };
     use amaru_ledger::{
-        epoch_transition::GovernanceActivity,
+        epoch_transition::{GovernanceActivity, pools_updates::PoolCertificates},
         state::volatile::Resettable,
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
