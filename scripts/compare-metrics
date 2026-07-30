@@ -15,9 +15,8 @@
 # limitations under the License.
 
 
-# Compare Prometheus metrics exposed by a cardano-node against those exposed by
-# Amaru.  Produces a JSON report of metrics present in cardano-node but missing
-# from Amaru, after applying configurable ignore rules to both sides.
+# Compare Prometheus metrics exposed by cardano-node and Amaru against the
+# checked-in metric contract.
 #
 # Usage:
 #   scripts/compare-metrics [options]
@@ -28,7 +27,7 @@
 #   --config      PATH  JSON config file            (default: <script-dir>/compare-metrics.json)
 #   --output      PATH  Write JSON report to file   (default: stdout)
 #   --summary           Write a Markdown summary to $GITHUB_STEP_SUMMARY (or stderr outside CI)
-#   --check             Exit non-zero when cardano-node metrics are missing from Amaru
+#   --check             Exit non-zero when either endpoint violates the metric contract
 #   -h, --help          Show this help message
 
 set -euo pipefail
@@ -80,77 +79,102 @@ fetch_metrics() {
   rm -f "$tmp"
 }
 
-# Filter a sorted metrics file using the ignore rules from the config JSON.
-apply_ignore_rules() {
-  local file="$1" names_pattern prefix_pattern pattern
-
-  if [[ -f "$CONFIG" ]]; then
-    names_pattern=$(jq  -r '.ignore_metrics  // [] | map("^" + . + "$") | join("|")' "$CONFIG")
-    prefix_pattern=$(jq -r '.ignore_prefixes // [] | map("^" + .)        | join("|")' "$CONFIG")
-  else
-    names_pattern=""
-    prefix_pattern=""
-  fi
-
-  if [[ -n "$names_pattern" && -n "$prefix_pattern" ]]; then
-    pattern="${names_pattern}|${prefix_pattern}"
-  elif [[ -n "$names_pattern" ]]; then
-    pattern="$names_pattern"
-  else
-    pattern="$prefix_pattern"
-  fi
-
-  if [[ -n "$pattern" ]]; then
-    grep -vE "$pattern" "$file" || true
-  else
-    cat "$file"
-  fi
-}
-
 # Portable line count — macOS wc -l pads output with spaces.
 count_lines() { wc -l < "$1" | tr -d ' '; }
+
+if [[ ! -f "$CONFIG" ]]; then
+  printf 'error: metrics config not found: %s\n' "$CONFIG" >&2
+  exit 1
+fi
+
+if ! jq -e '
+  def string_array:
+    type == "array"
+    and all(.[]; type == "string" and length > 0)
+    and (length == (unique | length));
+  type == "object"
+  and (.cardano_node_metrics | string_array)
+  and (.amaru_metrics | string_array)
+' "$CONFIG" >/dev/null; then
+  printf 'error: %s must contain unique string arrays "cardano_node_metrics" and "amaru_metrics"\n' "$CONFIG" >&2
+  exit 1
+fi
+
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT
 
 # ── fetch ─────────────────────────────────────────────────────────────────────
 
 printf 'Fetching cardano-node metrics from %s…\n' "$CARDANO_URL" >&2
-cardano_tmp=$(mktemp)
+cardano_tmp="$tmp_dir/cardano"
 fetch_metrics "$CARDANO_URL" > "$cardano_tmp"
 
 printf 'Fetching Amaru metrics from %s…\n' "$AMARU_URL" >&2
-amaru_tmp=$(mktemp)
+amaru_tmp="$tmp_dir/amaru"
 fetch_metrics "$AMARU_URL" > "$amaru_tmp"
 
-# ── filter + diff ─────────────────────────────────────────────────────────────
+# ── contract checks ──────────────────────────────────────────────────────────
 
-filtered_cardano_tmp=$(mktemp)
-apply_ignore_rules "$cardano_tmp" > "$filtered_cardano_tmp"
+cardano_node_metrics_tmp="$tmp_dir/cardano-node-metrics"
+jq -r '.cardano_node_metrics[]' "$CONFIG" | sort -u > "$cardano_node_metrics_tmp"
 
-filtered_amaru_tmp=$(mktemp)
-apply_ignore_rules "$amaru_tmp" > "$filtered_amaru_tmp"
+amaru_metrics_tmp="$tmp_dir/amaru-metrics"
+jq -r '.amaru_metrics[]' "$CONFIG" | sort -u > "$amaru_metrics_tmp"
 
-missing_tmp=$(mktemp)
-# comm -23: lines present in file1 (filtered cardano) but absent in file2 (filtered amaru).
-comm -23 "$filtered_cardano_tmp" "$filtered_amaru_tmp" > "$missing_tmp"
+unknown_cardano_tmp="$tmp_dir/unknown-cardano"
+comm -23 "$cardano_tmp" "$cardano_node_metrics_tmp" > "$unknown_cardano_tmp"
+
+missing_cardano_tmp="$tmp_dir/missing-cardano"
+comm -23 "$cardano_node_metrics_tmp" "$cardano_tmp" > "$missing_cardano_tmp"
+
+unknown_amaru_tmp="$tmp_dir/unknown-amaru"
+comm -23 "$amaru_tmp" "$amaru_metrics_tmp" > "$unknown_amaru_tmp"
+
+missing_amaru_tmp="$tmp_dir/missing-amaru"
+comm -23 "$amaru_metrics_tmp" "$amaru_tmp" > "$missing_amaru_tmp"
 
 cardano_total=$(count_lines "$cardano_tmp")
-cardano_filtered=$(count_lines "$filtered_cardano_tmp")
+cardano_node_metrics_total=$(count_lines "$cardano_node_metrics_tmp")
 amaru_total=$(count_lines "$amaru_tmp")
-missing_count=$(count_lines "$missing_tmp")
+amaru_metrics_total=$(count_lines "$amaru_metrics_tmp")
+unknown_cardano_count=$(count_lines "$unknown_cardano_tmp")
+missing_cardano_count=$(count_lines "$missing_cardano_tmp")
+unknown_amaru_count=$(count_lines "$unknown_amaru_tmp")
+missing_amaru_count=$(count_lines "$missing_amaru_tmp")
+violation_count=$((unknown_cardano_count + missing_cardano_count + unknown_amaru_count + missing_amaru_count))
 
 # ── JSON report ───────────────────────────────────────────────────────────────
 
 json=$(jq -n \
-  --argjson cardano_total    "$cardano_total" \
-  --argjson cardano_filtered "$cardano_filtered" \
-  --argjson amaru_total      "$amaru_total" \
-  --argjson missing_count    "$missing_count" \
-  --rawfile  missing_raw     "$missing_tmp" \
+  --argjson cardano_total              "$cardano_total" \
+  --argjson cardano_node_metrics_total "$cardano_node_metrics_total" \
+  --argjson amaru_total                "$amaru_total" \
+  --argjson amaru_metrics_total        "$amaru_metrics_total" \
+  --argjson unknown_cardano_count      "$unknown_cardano_count" \
+  --argjson missing_cardano_count      "$missing_cardano_count" \
+  --argjson unknown_amaru_count        "$unknown_amaru_count" \
+  --argjson missing_amaru_count        "$missing_amaru_count" \
+  --rawfile  cardano_raw               "$cardano_tmp" \
+  --rawfile  amaru_raw                 "$amaru_tmp" \
+  --rawfile  unknown_cardano_raw       "$unknown_cardano_tmp" \
+  --rawfile  missing_cardano_raw       "$missing_cardano_tmp" \
+  --rawfile  unknown_amaru_raw         "$unknown_amaru_tmp" \
+  --rawfile  missing_amaru_raw         "$missing_amaru_tmp" \
   '{
-    cardano_total:    $cardano_total,
-    cardano_filtered: $cardano_filtered,
-    amaru_total:      $amaru_total,
-    missing_count:    $missing_count,
-    missing: ($missing_raw | split("\n") | map(select(. != "")))
+    cardano_total: $cardano_total,
+    cardano_node_metrics_total: $cardano_node_metrics_total,
+    amaru_total: $amaru_total,
+    amaru_metrics_total: $amaru_metrics_total,
+    unknown_cardano_count: $unknown_cardano_count,
+    missing_cardano_count: $missing_cardano_count,
+    unknown_amaru_count: $unknown_amaru_count,
+    missing_amaru_count: $missing_amaru_count,
+    observed_cardano_node_metrics: ($cardano_raw | split("\n") | map(select(. != ""))),
+    observed_amaru_metrics: ($amaru_raw | split("\n") | map(select(. != ""))),
+    unknown_cardano_metrics: ($unknown_cardano_raw | split("\n") | map(select(. != ""))),
+    missing_cardano_metrics: ($missing_cardano_raw | split("\n") | map(select(. != ""))),
+    unknown_amaru_metrics: ($unknown_amaru_raw | split("\n") | map(select(. != ""))),
+    missing_amaru_metrics: ($missing_amaru_raw | split("\n") | map(select(. != "")))
   }')
 
 if [[ -n "$OUTPUT" ]]; then
@@ -163,7 +187,7 @@ fi
 # ── Markdown summary ──────────────────────────────────────────────────────────
 
 if $SUMMARY; then
-  if [[ "$missing_count" -eq 0 ]]; then
+  if [[ "$violation_count" -eq 0 ]]; then
     status='✅'
   elif $CHECK; then
     status='❌'
@@ -171,22 +195,53 @@ if $SUMMARY; then
     status='⚠️'
   fi
 
-  summary_tmp=$(mktemp)
+  summary_tmp="$tmp_dir/summary"
   {
     printf '## %s Metrics Coverage Report\n\n' "$status"
     printf '| | Count |\n'
     printf '|---|---:|\n'
-    printf '| Cardano node metrics (total) | %s |\n'              "$cardano_total"
-    printf '| Cardano node metrics (after ignore rules) | %s |\n' "$cardano_filtered"
-    printf '| Amaru metrics (total) | %s |\n'                     "$amaru_total"
-    printf '| **Missing in Amaru** | **%s** |\n\n'                "$missing_count"
+    printf '| Cardano node metrics (observed) | %s |\n' "$cardano_total"
+    printf '| Cardano node metrics (supported) | %s |\n' "$cardano_node_metrics_total"
+    printf '| Amaru metrics (observed) | %s |\n' "$amaru_total"
+    printf '| Amaru metrics (supported) | %s |\n' "$amaru_metrics_total"
+    printf '| **Unknown cardano-node metrics** | **%s** |\n' "$unknown_cardano_count"
+    printf '| **Missing cardano-node metrics** | **%s** |\n' "$missing_cardano_count"
+    printf '| **Unknown Amaru metrics** | **%s** |\n' "$unknown_amaru_count"
+    printf '| **Missing Amaru metrics** | **%s** |\n\n' "$missing_amaru_count"
 
-    if [[ "$missing_count" -gt 0 ]]; then
+    if [[ "$unknown_cardano_count" -gt 0 ]]; then
       printf '<details>\n'
-      printf '<summary>Missing metrics (%s)</summary>\n\n' "$missing_count"
+      printf '<summary>Unknown cardano-node metrics (%s)</summary>\n\n' "$unknown_cardano_count"
       printf '| Metric |\n'
       printf '|--------|\n'
-      awk '{ printf "| `%s` |\n", $0 }' "$missing_tmp"
+      awk '{ printf "| `%s` |\n", $0 }' "$unknown_cardano_tmp"
+      printf '\n</details>\n\n'
+    fi
+
+    if [[ "$missing_cardano_count" -gt 0 ]]; then
+      printf '<details>\n'
+      printf '<summary>Missing cardano-node metrics (%s)</summary>\n\n' "$missing_cardano_count"
+      printf '| Metric |\n'
+      printf '|--------|\n'
+      awk '{ printf "| `%s` |\n", $0 }' "$missing_cardano_tmp"
+      printf '\n</details>\n\n'
+    fi
+
+    if [[ "$unknown_amaru_count" -gt 0 ]]; then
+      printf '<details>\n'
+      printf '<summary>Unknown Amaru metrics (%s)</summary>\n\n' "$unknown_amaru_count"
+      printf '| Metric |\n'
+      printf '|--------|\n'
+      awk '{ printf "| `%s` |\n", $0 }' "$unknown_amaru_tmp"
+      printf '\n</details>\n\n'
+    fi
+
+    if [[ "$missing_amaru_count" -gt 0 ]]; then
+      printf '<details>\n'
+      printf '<summary>Missing Amaru metrics (%s)</summary>\n\n' "$missing_amaru_count"
+      printf '| Metric |\n'
+      printf '|--------|\n'
+      awk '{ printf "| `%s` |\n", $0 }' "$missing_amaru_tmp"
       printf '\n</details>\n\n'
     fi
   } > "$summary_tmp"
@@ -196,13 +251,10 @@ if $SUMMARY; then
   else
     cat "$summary_tmp" >&2
   fi
-
-  rm -f "$summary_tmp"
 fi
 
-rm -f "$cardano_tmp" "$amaru_tmp" "$filtered_cardano_tmp" "$filtered_amaru_tmp" "$missing_tmp"
-
-if $CHECK && [[ "$missing_count" -gt 0 ]]; then
-  printf 'error: %s cardano-node metric(s) are missing from Amaru\n' "$missing_count" >&2
+if $CHECK && [[ "$violation_count" -gt 0 ]]; then
+  printf 'error: metric contract failed (cardano-node: %s unknown, %s missing; Amaru: %s unknown, %s missing)\n' \
+    "$unknown_cardano_count" "$missing_cardano_count" "$unknown_amaru_count" "$missing_amaru_count" >&2
   exit 1
 fi
