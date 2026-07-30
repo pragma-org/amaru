@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{CertificatePointer, Epoch, Lovelace, PoolId, PoolParams, cbor};
+use amaru_kernel::{CertificatePointer, Lovelace, PoolId, PoolParams, cbor};
 
 use crate::epoch_transition::pools_updates::{PoolCertificate, PoolCertificates};
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (PoolParams, CertificatePointer, Lovelace, Epoch);
+pub type Value = (PoolParams, CertificatePointer, Lovelace);
 
 pub type Key = PoolId;
 
@@ -103,7 +103,7 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn prop_decode_after_extend(row in any_row(), certificate in any_pool_certificate(Epoch::from(100))) {
+        fn prop_decode_after_extend(row in any_row(), certificate in any_pool_certificate(amaru_kernel::Epoch::from(100))) {
             let mut bytes = Vec::new();
             cbor::encode(&row, &mut bytes)
                 .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));

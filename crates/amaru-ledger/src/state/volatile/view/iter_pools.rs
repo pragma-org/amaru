@@ -46,7 +46,6 @@ use crate::{
 /// Importantly, the last points means that there's no guaranteed order on this iterator. Pools
 /// shall be considered unordered by consumers of this iterator.
 pub(crate) struct IterPools<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> {
-    epoch: Epoch,
     db_iterator: DBIter,
     registrations: BTreeMap<PoolId, Registrations<&'volatile (PoolParams, CertificatePointer, Lovelace)>>,
     retirements: BTreeMap<PoolId, Epoch>,
@@ -54,12 +53,10 @@ pub(crate) struct IterPools<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> 
 
 impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> IterPools<'volatile, DBIter> {
     pub fn new(
-        epoch: Epoch,
         db_iterator: DBIter,
         pools: &mut DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>,
     ) -> Self {
         Self {
-            epoch,
             db_iterator,
             registrations: mem::take(&mut pools.registered),
             retirements: mem::take(&mut pools.unregistered),
@@ -94,7 +91,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
             // Pool is already registered, and has some updates.
             if let Some(update) = self.registrations.remove(&pool_id) {
                 for (pool_params, _, _) in update.iter() {
-                    pool.pending_certificates.append_registration(pool_params.clone(), self.epoch + 1);
+                    pool.pending_certificates.append_registration(pool_params.clone());
                 }
             }
 
@@ -112,7 +109,7 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
 
             let mut pool = Pool::new(registration.1, registration.2, registration.0.clone());
             if let Some(re_registration) = re_registration {
-                pool.pending_certificates.append_registration(re_registration.0.clone(), self.epoch + 1);
+                pool.pending_certificates.append_registration(re_registration.0.clone());
             }
 
             // Pool has announced its retirement.
@@ -187,12 +184,13 @@ mod tests {
         seen: &'a [u8],
     }
 
+    const DEFAULT_INITIAL_EPOCH: Epoch = Epoch::new(100);
+
     impl From<EndOfEpochView<'_>> for IterPools<'static, std::vec::IntoIter<(PoolId, Pool)>> {
         fn from(test: EndOfEpochView<'_>) -> Self {
-            let epoch = Epoch::new(100);
+            let epoch = DEFAULT_INITIAL_EPOCH;
 
             Self::new(
-                epoch,
                 test.stable
                     .iter()
                     .map(|(ix, row)| {
@@ -200,9 +198,7 @@ mod tests {
                         let mut pending_certificates = PoolCertificates::default();
                         for event in row.iter() {
                             match event {
-                                Event::Registration => {
-                                    pending_certificates.append_registration(mock_pool_params(*ix), epoch + 1)
-                                }
+                                Event::Registration => pending_certificates.append_registration(mock_pool_params(*ix)),
                                 Event::LateRetirement => pending_certificates.append_retirement(epoch + 10),
                                 Event::ImminentRetirement => pending_certificates.append_retirement(epoch + 1),
                             }
@@ -469,7 +465,6 @@ mod tests {
     )]
     fn iter_pools_scenarios(test: EndOfEpochView<'_>, expectations: NextEpochExpectations<'_>) {
         let iterator = IterPools::from(test);
-        let epoch = iterator.epoch;
 
         let mut seen = BTreeSet::new();
         let transition = PoolsEpochTransitionUpdates::new(
@@ -477,7 +472,7 @@ mod tests {
                 seen.insert(ix);
                 (ix, pool)
             }),
-            epoch + 1,
+            DEFAULT_INITIAL_EPOCH + 1,
         );
 
         assert_eq!(expectations.seen.iter().copied().map(mock_pool_id).collect::<BTreeSet<_>>(), seen, "seen mismatch");

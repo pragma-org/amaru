@@ -54,16 +54,16 @@ impl PoolCertificates {
         self.0.push(certificate);
     }
 
-    pub fn append_registration(&mut self, params: PoolParams, effective_in: Epoch) {
-        self.0.push(PoolCertificate::Registration(params, effective_in));
+    pub fn append_registration(&mut self, params: PoolParams) {
+        self.0.push(PoolCertificate::Registration(params));
     }
 
     pub fn append_retirement(&mut self, epoch: Epoch) {
         self.0.push(PoolCertificate::Retirement(epoch))
     }
 
-    pub fn with_registration(mut self, params: PoolParams, effective_in: Epoch) -> Self {
-        self.0.push(PoolCertificate::Registration(params, effective_in));
+    pub fn with_registration(mut self, params: PoolParams) -> Self {
+        self.0.push(PoolCertificate::Registration(params));
         self
     }
 
@@ -95,27 +95,30 @@ impl PoolCertificates {
             match certificate {
                 // A re-registration that should now be applied. It overwrites any prior update and
                 // cancels any pending retirement, including those scheduled for later epochs.
-                Registration(_, effective_in) if effective_in <= &current_epoch => {
-                    folded.next_certificates.retain(|certificate| !matches!(certificate, Retirement(_)));
+                Registration(_) => {
+                    folded.next_certificates = Vec::new();
                     folded.certificate = Some(certificate);
                 }
-                // A retirement taking effect *now*. It cancels any pool update and supersedes any
-                // earlier retirement.
-                Retirement(effective_in) if effective_in <= &current_epoch => {
-                    folded.next_certificates.retain(|certificate| !matches!(certificate, Registration(..)));
-                    folded.certificate = Some(certificate);
-                }
-                // Not effective yet. This certificate is kept for a later epoch. Being submitted afterwards,
-                // it also supersedes any retirement that would otherwise take effect now.
-                Registration(..) | Retirement(_) => {
-                    if matches!(folded.certificate, Some(Retirement(_))) {
-                        folded.certificate = None;
+                Retirement(effective_in) => {
+                    if effective_in <= &current_epoch {
+                        // A retirement taking effect *now*. It cancels any pool update and supersedes any
+                        // earlier retirement.
+                        folded.next_certificates = Vec::new();
+                        folded.certificate = Some(certificate);
+                    } else {
+                        // Not effective yet. This certificate is kept for a later epoch. Being submitted afterwards,
+                        // it also supersedes any retirement that would otherwise take effect now.
+                        if matches!(folded.certificate, Some(Retirement(_))) {
+                            folded.certificate = None;
+                        }
+                        folded.next_certificates.push(certificate);
                     }
-                    folded.next_certificates.push(certificate);
                 }
             }
         }
+
         folded.has_resolved_certificates = folded.next_certificates.len() < self.0.len();
+
         folded
     }
 
@@ -126,17 +129,8 @@ impl PoolCertificates {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PoolCertificate {
-    Registration(PoolParams, Epoch),
+    Registration(PoolParams),
     Retirement(Epoch),
-}
-
-impl PoolCertificate {
-    pub fn epoch(&self) -> Epoch {
-        match self {
-            Self::Registration(_, epoch) => *epoch,
-            Self::Retirement(epoch) => *epoch,
-        }
-    }
 }
 
 impl<C> cbor::encode::Encode<C> for PoolCertificate {
@@ -145,15 +139,16 @@ impl<C> cbor::encode::Encode<C> for PoolCertificate {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        // This is encoded as `(Option<PoolParams>, Epoch)` tuple, where a
-        // retirement is an absent parameters update
-        e.array(2)?;
+        // This used to be encoded as `(Option<PoolParams>, Epoch)` tuple, where a
+        // retirement is an absent parameters update. We now encode in a similar manner to allow
+        // decoding from a 'legacy' format more easily.
         match self {
-            Self::Registration(params, effective_in) => {
+            Self::Registration(params) => {
+                e.array(1)?;
                 e.encode_with(params, ctx)?;
-                e.encode_with(effective_in, ctx)?;
             }
             Self::Retirement(at) => {
+                e.array(2)?;
                 e.null()?;
                 e.encode_with(at, ctx)?;
             }
@@ -163,15 +158,20 @@ impl<C> cbor::encode::Encode<C> for PoolCertificate {
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for PoolCertificate {
-    #[expect(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        match d.datatype()? {
-            cbor::data::Type::Null => {
-                d.null()?;
-                Ok(Self::Retirement(d.decode_with(ctx)?))
+        let len = d
+            .array()?
+            .ok_or_else(|| cbor::decode::Error::message("expected definite length when decoding PoolCertificate"))?;
+
+        if d.datatype()? == cbor::data::Type::Null {
+            d.null()?;
+            Ok(Self::Retirement(d.decode_with(ctx)?))
+        } else {
+            let params = d.decode_with(ctx)?;
+            if len == 2 {
+                d.skip()?; // Legacy epoch that may be present.
             }
-            _ => Ok(Self::Registration(d.decode_with(ctx)?, d.decode_with(ctx)?)),
+            Ok(Self::Registration(params))
         }
     }
 }
@@ -191,7 +191,7 @@ pub struct PendingPoolCertificates<'a> {
 
 impl<'a> PendingPoolCertificates<'a> {
     pub fn registration(&self) -> Option<&'a PoolParams> {
-        if let Some(PoolCertificate::Registration(params, _)) = self.certificate { Some(params) } else { None }
+        if let Some(PoolCertificate::Registration(params)) = self.certificate { Some(params) } else { None }
     }
 
     pub fn is_retiring(&self) -> bool {
@@ -224,7 +224,7 @@ mod tests {
     use super::*;
 
     pub fn any_pool_certificate(epoch: Epoch) -> impl Strategy<Value = PoolCertificate> {
-        prop_oneof![Just(Retirement(epoch)), any_pool_params().prop_map(move |params| Registration(params, epoch))]
+        prop_oneof![Just(Retirement(epoch)), any_pool_params().prop_map(Registration)]
     }
 
     pub fn any_pool_certificates() -> impl Strategy<Value = PoolCertificates> {
@@ -243,13 +243,13 @@ mod tests {
         // The on-disk format predates this type: certificates must keep encoding exactly like the
         // `(Option<PoolParams>, Epoch)` tuples found in already-stored pool rows.
         #[test]
-        fn prop_encodes_like_the_legacy_tuple(certificate in any_pool_certificate(Epoch::from(42))) {
+        fn prop_decodes_legacy_tuple_encoding(certificate in any_pool_certificate(Epoch::from(42))) {
             let legacy: (Option<&PoolParams>, Epoch) = match &certificate {
-                Registration(params, effective_in) => (Some(params), *effective_in),
+                Registration(params) => (Some(params), Epoch::new(999)),
                 Retirement(at) => (None, *at),
             };
 
-            prop_assert_eq!(amaru_kernel::to_cbor(&certificate), amaru_kernel::to_cbor(&legacy));
+            prop_assert_eq!(amaru_kernel::from_cbor(&amaru_kernel::to_cbor(&legacy)), Some(certificate))
         }
     }
 }

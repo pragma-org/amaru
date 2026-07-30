@@ -116,7 +116,7 @@ pub mod tests {
         let deposit = any_lovelace().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 
-        let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit, pool_epoch));
+        let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit));
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();

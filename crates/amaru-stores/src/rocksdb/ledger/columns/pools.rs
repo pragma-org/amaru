@@ -43,7 +43,7 @@ pub fn get<'a>(
 
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::pools::ADD).in_scope(|| {
-        for (params, registered_at, deposit, epoch) in rows {
+        for (params, registered_at, deposit) in rows {
             let pool = params.id;
 
             // Pool parameters are stored in an epoch-aware fashion.
@@ -58,7 +58,7 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
             // necessary.
             let params = match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
                 None => as_value(Row::new(registered_at, deposit, params)),
-                Some(existing_params) => Row::extend(existing_params, PoolCertificate::Registration(params, epoch)),
+                Some(existing_params) => Row::extend(existing_params, PoolCertificate::Registration(params)),
             };
 
             db.put(as_key(&PREFIX, pool), params).map_err(|err| StoreError::Internal(err.into()))?;

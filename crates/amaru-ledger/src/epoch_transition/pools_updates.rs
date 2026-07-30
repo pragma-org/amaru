@@ -233,10 +233,7 @@ mod tests {
                     let pending_certificate = || {
                         prop_oneof![
                             (1..3u64).prop_map(move |offset| Retirement(Epoch::from(epoch as u64) + offset)),
-                            any_pool_params().prop_map(move |params| Registration(
-                                PoolParams { id, ..params },
-                                Epoch::from(epoch as u64 + 1)
-                            ))
+                            any_pool_params().prop_map(move |params| Registration(PoolParams { id, ..params }))
                         ]
                     };
                     vec(pending_certificate(), 0..3)
@@ -267,12 +264,11 @@ mod tests {
             let mut retiring = false;
             for certificate in &self.log {
                 match certificate {
-                    Registration(params, effective_in) if effective_in <= &epoch => {
+                    Registration(params) => {
                         current = Some(params.clone());
                         retiring = false;
                     }
-                    Retirement(at) if at <= &epoch => retiring = true,
-                    Registration(..) | Retirement(_) => retiring = false,
+                    Retirement(at) => retiring = at <= &epoch,
                 }
             }
 
@@ -381,9 +377,8 @@ mod tests {
 
         // A retirement scheduled for a distant epoch, then a re-registration effective sooner. The
         // re-registration cancels the retirement, so the pool must survive the retirement epoch.
-        pool.pending_certificates = PoolCertificates::default()
-            .with_retirement(Epoch::from(617))
-            .with_registration(updated_params.clone(), Epoch::from(615));
+        pool.pending_certificates =
+            PoolCertificates::default().with_retirement(Epoch::from(617)).with_registration(updated_params.clone());
 
         let mut at_615 = PoolsEpochTransitionUpdates::default();
         at_615.tick_pool(Epoch::from(615), pool);
