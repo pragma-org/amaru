@@ -18,7 +18,8 @@ use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, Point, Tip, Tra
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateTxs, HasStakePools, PoolSummaries, TransactionValidationError,
+    BlockValidationError, CanValidateBlocks, CanValidateTxs, HasStakePools, Nonces, PoolSummaries,
+    TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
@@ -31,7 +32,9 @@ use crate::validate_header::ValidateHeaderError;
 pub trait LedgerOps: Send + Sync {
     fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>>;
 
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), ValidateHeaderError>>;
+    /// Validate a header and return its evolved nonces, which the caller is expected to store
+    /// atomically with the header itself.
+    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>>;
 
     fn validate_block(
         &self,
@@ -78,7 +81,7 @@ impl LedgerOps for Ledger {
         self.effects.external(ValidateTxEffect::new(tx))
     }
 
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), ValidateHeaderError>> {
+    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>> {
         self.effects.external(ValidateHeaderEffect::new(header).with_trace_context(&self.trace_context))
     }
 
@@ -253,7 +256,7 @@ impl ExternalEffect for ValidateHeaderEffect {
 }
 
 impl ExternalEffectAPI for ValidateHeaderEffect {
-    type Response = Result<(), ValidateHeaderError>;
+    type Response = Result<Nonces, ValidateHeaderError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

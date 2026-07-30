@@ -39,6 +39,21 @@ impl WriteChainStore for RocksDBStore {
         })
     }
 
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+        let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
+        let _guard = span.enter();
+
+        let hash = header.hash();
+        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+
+        self.with_batch(|batch| {
+            batch.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), []);
+            batch.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header));
+            batch.put([&NONCES_PREFIX[..], &hash[..]].concat(), to_cbor(nonces));
+            Ok(())
+        })
+    }
+
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.db.put(ANCHOR_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }

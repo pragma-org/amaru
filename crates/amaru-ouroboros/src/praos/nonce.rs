@@ -12,15 +12,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hasher, IsHeader, Nonce};
+use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hasher, HeaderHash, IsHeader, Nonce, ORIGIN_HASH};
+use amaru_ouroboros_traits::Nonces;
 
-/// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
-/// last block (header) of the previous epoch.
-///
-/// Return `None` if header has no parent (i.e. which never happens because all our blocks have
-/// parents in Amaru).
-pub fn from_candidate<H: IsHeader>(header: &H, candidate: &Nonce) -> Option<Nonce> {
-    Some(Hasher::<256>::hash(&[&candidate[..], &header.parent()?[..]].concat()))
+/// Compute the nonces of a header from the nonces of its parent.
+pub fn evolve_nonces<H: IsHeader>(
+    header: &H,
+    parent_nonces: &Nonces,
+    epoch: Epoch,
+    is_within_stability_window: bool,
+    previous_epoch_tail_parent_hash: Option<HeaderHash>,
+) -> Nonces {
+    // Compute the new evolving nonce by combining it with the current one and the header's VRF
+    // output.
+    let evolving = evolve(header, &parent_nonces.evolving);
+
+    // Unless we are within the randomness stability window, we also update the candidate. This
+    // means that outside of the stability window, we always have:
+    //
+    //   evolving == candidate
+    //
+    // They only diverge for the last blocks of each epoch; The candidate remains stable while
+    // the rolling nonce keeps evolving in preparation of the next epoch. Another way to look
+    // at it is to think that there's always an entire epoch length contributing to the nonce
+    // randomness, but it spans over two epochs.
+    let candidate = if is_within_stability_window { evolving } else { parent_nonces.candidate };
+
+    // The active nonce is either:
+    //  1. the active parent nonce if there's no epoch change.
+    //  2. the combination of the stable candidate and the previous epoch's last block's parent header hash.
+    //
+    // The tail is either
+    //  1. the parent_nonce tail if there is no epoch change.
+    //  2. the parent hash of the current header (the last header hash of the previous epoch).
+    //
+    let (active, tail) = match previous_epoch_tail_parent_hash {
+        Some(previous_epoch_tail_parent_hash) => {
+            (parent_nonces.next_active(previous_epoch_tail_parent_hash), header.parent().unwrap_or(ORIGIN_HASH))
+        }
+        None => (parent_nonces.active, parent_nonces.tail),
+    };
+
+    Nonces { epoch, evolving, candidate, active, tail }
 }
 
 /// Evolve the current nonce by combining it with the current rolling nonce and the

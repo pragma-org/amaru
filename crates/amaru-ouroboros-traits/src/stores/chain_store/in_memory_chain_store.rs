@@ -204,6 +204,20 @@ impl WriteChainStore for InMemoryChainStore {
     }
 
     #[expect(clippy::unwrap_used)]
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+        let hash = header.hash();
+        let mut inner = self.inner.lock().unwrap();
+        inner.headers.insert(hash, header.clone());
+        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+        let children = inner.parent_child_relationship.entry(parent_hash).or_default();
+        if !children.contains(&hash) {
+            children.push(hash);
+        };
+        inner.nonces.insert(hash, nonces.clone());
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.nonces.insert(*header, nonces.clone());

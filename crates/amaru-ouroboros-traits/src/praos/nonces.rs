@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, HeaderHash, Nonce, cbor};
+use amaru_kernel::{Epoch, Hasher, HeaderHash, Nonce, cbor};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Nonces {
@@ -21,6 +21,21 @@ pub struct Nonces {
     pub candidate: Nonce,
     pub tail: HeaderHash,
     pub epoch: Epoch,
+}
+
+impl Nonces {
+    /// The active nonce for the epoch starting after these nonces, derived from the candidate
+    /// (stable by then) and the parent hash of the last header of the previous epoch.
+    pub fn next_active(&self, hash: HeaderHash) -> Nonce {
+        Hasher::<256>::hash(&[&self.candidate[..], &hash[..]].concat())
+    }
+
+    /// Zeroed nonces, for tests that need a `Nonces` value whose contents they never inspect.
+    #[cfg(feature = "test-utils")]
+    pub fn for_tests() -> Self {
+        let zero = Nonce::from([0u8; 32]);
+        Nonces { active: zero, evolving: zero, candidate: zero, tail: zero, epoch: Epoch::from(0) }
+    }
 }
 
 impl<C> cbor::encode::Encode<C> for Nonces {
