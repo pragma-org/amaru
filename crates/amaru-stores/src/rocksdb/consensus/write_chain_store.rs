@@ -14,11 +14,12 @@
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
 use amaru_observability::debug_span;
-use amaru_ouroboros_traits::{Nonces, StoreError, WriteChainStore};
+use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
-    RocksDBStore,
+    OPCERT_PREFIX, RocksDBStore,
+    base_read_chain_store::opcert_key,
     util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX},
 };
 
@@ -33,6 +34,7 @@ impl WriteChainStore for RocksDBStore {
         self.with_batch(|batch| {
             batch.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), []);
             batch.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header));
+            batch.put(opcert_key(header), to_cbor(&header.op_cert_seq()));
             Ok(())
         })
     }
@@ -70,6 +72,17 @@ impl WriteChainStore for RocksDBStore {
         self.db
             .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
+    }
+
+    fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError> {
+        let slot = u64::from(at.slot_or_default()).to_be_bytes();
+        let hash = at.hash();
+        self.with_batch(|batch| {
+            for (pool_id, sequence_number) in counters.iter() {
+                batch.put([&OPCERT_PREFIX[..], &pool_id[..], &slot[..], &hash[..]].concat(), to_cbor(sequence_number));
+            }
+            Ok(())
+        })
     }
 
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {

@@ -14,13 +14,20 @@
 
 use std::{cmp::Ordering, fmt};
 
-use crate::{BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, Slot, Tip, cbor, size::HEADER};
+use pallas_codec::utils::Bytes;
+use pallas_crypto::key::{ed25519, ed25519::TryFromPublicKeyError};
+
+use crate::{
+    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, cbor, size::HEADER,
+};
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
+
+use crate::size::POOL_COLD_KEY;
 
 /// This header type encapsulates a header and its hash to avoid recomputing
 #[derive(PartialEq, Eq, Clone)]
@@ -121,6 +128,18 @@ impl BlockHeader {
 
     pub fn vrf_leader(&self) -> Vec<u8> {
         self.header.header_body.leader_vrf_output()
+    }
+
+    pub fn issuer_vkey(&self) -> &Bytes {
+        &self.header_body().issuer_vkey
+    }
+
+    pub fn issuer(&self) -> Result<ed25519::PublicKey, TryFromPublicKeyError> {
+        ed25519::PublicKey::try_from(&self.header_body().issuer_vkey[..])
+    }
+
+    pub fn pool_id(&self) -> PoolId {
+        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.header_body().issuer_vkey[..])
     }
 
     pub fn op_cert_seq(&self) -> u64 {

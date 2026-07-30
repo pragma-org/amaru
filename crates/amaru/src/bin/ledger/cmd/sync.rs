@@ -1,4 +1,4 @@
-// Copyright 2026 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,23 +17,17 @@ use std::{
     io::Read,
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Instant,
 };
 
-use amaru::{
-    default_chain_dir, default_data_dir, default_ledger_dir,
-    lifecycle::{Runnable, RuntimeKind},
-};
-use amaru_consensus::{block_validator::BlockValidator, store::PraosChainStore};
+use amaru::{default_chain_dir, default_data_dir, default_ledger_dir};
+use amaru_consensus::store::PraosChainStore;
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, IsHeader, NetworkName, Point, RawBlock,
     cardano::network_block::NetworkBlock, to_cbor,
 };
-use amaru_node::stages::{
-    build_node::{make_block_validator, make_state},
-    config::LedgerConfig,
-};
+use amaru_ledger::block_validator::BlockValidator;
 use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
@@ -41,6 +35,8 @@ use flate2::read::GzDecoder;
 use rayon::prelude::*;
 use tar::Archive;
 use tracing::info;
+
+use crate::cmd::new_block_validator;
 
 #[derive(Debug, clap::Parser)]
 pub struct Args {
@@ -150,15 +146,14 @@ async fn load_blocks(
 /// Process blocks as if they were processed by the full node
 /// Particularly all on disk side-effects are performed
 /// Blocks are assumed valid; no validation error should happen
-#[expect(clippy::unwrap_used)]
-#[expect(clippy::too_many_arguments)]
-#[expect(clippy::result_large_err)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     praos_chain_store: &PraosChainStore,
     consensus_parameters: Arc<ConsensusParameters>,
     block_validator: &BlockValidator<RocksDB, RocksDBHistoricalStores>,
-    pool_summaries: &RwLock<PoolSummaries>,
     era_history: &EraHistory,
     point: Point,
     raw_block: RawBlock,
@@ -170,23 +165,23 @@ async fn process_block(
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
     let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
 
-    {
-        let summaries = pool_summaries.read().unwrap();
-        let pool_id = block_header.pool_id();
-        let last_opcert_sequence_number = chain_store.get_latest_opcert_sequence_number(&pool_id, &block_header)?;
-        let pool_summary = summaries
-            .get_pool(block_header.slot(), &pool_id, era_history)?
-            .ok_or_else(|| anyhow!("unknown pool: {pool_id:?}"))?;
-        header::assert_all(
-            consensus_parameters,
-            block_header.header(),
-            to_cbor(&block_header.header_body()).as_slice(),
-            last_opcert_sequence_number,
-            &pool_summary,
-            &epoch_nonce.active,
-        )
-        .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
-    }
+    let pool_id = block_header.pool_id();
+    let summaries: PoolSummaries = block_validator.state.lock().unwrap().pool_summaries();
+    let pool_summary = summaries.get_pool(block_header.slot(), &pool_id, era_history).unwrap().expect("a pool summary");
+    let last_opcert_sequence_number = chain_store
+        .get_latest_opcert_sequence_number(&pool_id, &block_header)
+        .expect("cannot get last opcert sequence number");
+
+    // Verify block headers
+    header::assert_all(
+        consensus_parameters,
+        block_header.header(),
+        to_cbor(&block_header.header_body()).as_slice(),
+        last_opcert_sequence_number,
+        &pool_summary,
+        &epoch_nonce.active,
+    )
+    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
 
     // Verify block content
     block_validator
@@ -198,11 +193,7 @@ async fn process_block(
     Ok(())
 }
 
-pub(crate) fn runnable(args: Args) -> Runnable {
-    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
-}
-
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
@@ -216,21 +207,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history));
 
+    let block_validator = new_block_validator(network, ledger_dir)?;
+    let tip = block_validator.get_tip();
     let chain_store: Arc<dyn ChainStore> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
     let praos_chain_store = create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);
-
-    let ledger_config =
-        LedgerConfig { ledger_store: RocksDbConfig::new(ledger_dir), network, ..LedgerConfig::default() };
-    let state = make_state(&ledger_config)?;
-    let tip = state.tip().into_owned();
-    let pool_summaries = Arc::new(RwLock::new(state.pool_summaries()));
-    let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())?;
-    {
-        let pool_summaries = pool_summaries.clone();
-        #[allow(clippy::unwrap_used)]
-        block_validator
-            .set_on_stake_dist_updated(Arc::new(move |summaries| *pool_summaries.write().unwrap() = summaries));
-    }
 
     // Collect .tar.gz files
     let archive_names = list_archive_names(network)?;
@@ -257,7 +237,6 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &praos_chain_store,
                 consensus_parameters.clone(),
                 &block_validator,
-                &pool_summaries,
                 era_history,
                 point,
                 raw_block,

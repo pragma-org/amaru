@@ -277,7 +277,7 @@ fn setup_inner(
             resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
             let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
             let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
-            let cp = Arc::new(ConsensusParameters::new(global, &era_history, Default::default()));
+            let cp = Arc::new(ConsensusParameters::new(global, &era_history));
             resources.put::<ResourceConsensusParameters>(cp);
             resources.put::<ResourceEraHistory>(era_history);
             resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));

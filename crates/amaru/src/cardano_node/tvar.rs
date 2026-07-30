@@ -37,8 +37,8 @@ use amaru_ledger::{
 use amaru_observability::info;
 use amaru_progress_bar::ProgressBar;
 
-use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_nonces};
-use crate::bootstrap::InitialNonces;
+use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_chain_state};
+use crate::bootstrap::ChainState;
 
 #[expect(clippy::too_many_arguments)]
 pub fn import_snapshot_from_tvar<S, F>(
@@ -50,16 +50,16 @@ pub fn import_snapshot_from_tvar<S, F>(
     nonce_tail: Option<HeaderHash>,
     recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
     with_progress: F,
-) -> Result<(Epoch, Point, Option<InitialNonces>), Box<dyn std::error::Error>>
+) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn std::error::Error>>
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
 {
     let state_head = read_state_snapshot(state_file)?;
-    let (parsed_snapshot, initial_nonces) = if let Some(tail) = nonce_tail {
-        let (parsed_snapshot, initial_nonces) =
-            parse_state_snapshot_with_nonces(minicbor::Decoder::new(&state_head), global_parameters, tail)?;
-        (parsed_snapshot, Some(initial_nonces))
+    let (parsed_snapshot, chain_state) = if let Some(tail) = nonce_tail {
+        let (parsed_snapshot, chain_state) =
+            parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&state_head), global_parameters, tail)?;
+        (parsed_snapshot, Some(chain_state))
     } else {
         let mut decoder = minicbor::Decoder::new(&state_head);
         (parse_state_snapshot(&mut decoder, global_parameters)?, None)
@@ -83,7 +83,7 @@ where
 
     import_utxo_from_tvar(utxo_file, db, with_progress, &point, &parsed_snapshot.era_history, network)?;
 
-    Ok((epoch, point, initial_nonces))
+    Ok((epoch, point, chain_state))
 }
 
 fn read_state_snapshot(file: &mut std::fs::File) -> Result<Vec<u8>, Box<dyn std::error::Error>> {

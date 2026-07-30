@@ -16,7 +16,8 @@ use std::sync::Arc;
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, EraHistory, HeaderHash, NonEmptyVec, Point, Tip,
-    cardano::network_block::make_encoded_block, make_header, make_header_with_op_cert_seq,
+    cardano::{block_header::make_block_header_with_op_cert_seq, network_block::make_encoded_block},
+    make_header,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
 use amaru_ouroboros_traits::{DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -39,15 +40,6 @@ use crate::stages::test_utils::{BufferWriter, Logs};
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
     BlockHeader::from(make_header(block_number, slot, parent))
-}
-
-pub fn make_block_header_with_op_cert_seq(
-    block_number: u64,
-    slot: u64,
-    parent: Option<HeaderHash>,
-    op_cert_seq: u64,
-) -> BlockHeader {
-    BlockHeader::from(make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq))
 }
 
 /// Header tree for testing adopt_chain control flow:

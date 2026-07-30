@@ -15,11 +15,12 @@
 use std::time::Duration;
 
 use amaru_kernel::{EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, HeaderHash, Nonce, Point};
+use amaru_ouroboros::OpcertSequenceNumbers;
 use anyhow::anyhow;
 use minicbor::Decoder;
 use tracing::warn;
 
-use crate::bootstrap::InitialNonces;
+use crate::bootstrap::{ChainState, InitialNonces};
 
 pub(crate) mod mempack;
 pub mod tvar;
@@ -62,11 +63,11 @@ pub fn parse_state_snapshot(
     decode_current_era(d, past_eras, current_era, global_parameters)
 }
 
-fn extract_snapshot_nonces_after_prefix(
+fn extract_snapshot_chain_state_after_prefix(
     d: &mut Decoder<'_>,
     parsed_snapshot: &ParsedStateSnapshot,
     tail: HeaderHash,
-) -> Result<InitialNonces, Box<dyn std::error::Error>> {
+) -> Result<ChainState, Box<dyn std::error::Error>> {
     let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
 
     d.skip().map_err(|err| format!("skip shelley transition: {err}"))?;
@@ -100,7 +101,8 @@ fn extract_snapshot_nonces_after_prefix(
     d.array().map_err(|err| format!("decode last slot wrapper: {err}"))?;
     d.skip().map_err(|err| format!("skip last slot tag: {err}"))?;
     d.u64().map_err(|err| format!("decode last slot: {err}"))?;
-    d.skip().map_err(|err| format!("skip ocert counters: {err}"))?;
+    let opcert_sequence_numbers: OpcertSequenceNumbers =
+        d.decode().map_err(|err| format!("decode ocert counters: {err}"))?;
 
     d.array().map_err(|err| format!("decode evolving nonce wrapper: {err}"))?;
     d.skip().map_err(|err| format!("skip evolving nonce tag: {err}"))?;
@@ -117,19 +119,20 @@ fn extract_snapshot_nonces_after_prefix(
     d.skip().map_err(|err| format!("skip lab nonce: {err}"))?;
     d.skip().map_err(|err| format!("skip last epoch nonce: {err}"))?;
 
-    Ok(InitialNonces { at, active, evolving, candidate, tail })
+    let initial_nonces = InitialNonces { at, active, evolving, candidate, tail };
+    Ok(ChainState { initial_nonces, opcert_sequence_numbers })
 }
 
-pub fn parse_state_snapshot_with_nonces(
+pub fn parse_state_snapshot_with_chain_state(
     mut d: Decoder<'_>,
     global_parameters: &GlobalParameters,
     tail: HeaderHash,
-) -> Result<(ParsedStateSnapshot, InitialNonces), Box<dyn std::error::Error>> {
+) -> Result<(ParsedStateSnapshot, ChainState), Box<dyn std::error::Error>> {
     let parsed_snapshot =
         parse_state_snapshot(&mut d, global_parameters).map_err(|err| format!("parse state snapshot prefix: {err}"))?;
-    let initial_nonces = extract_snapshot_nonces_after_prefix(&mut d, &parsed_snapshot, tail)?;
+    let chain_state = extract_snapshot_chain_state_after_prefix(&mut d, &parsed_snapshot, tail)?;
 
-    Ok((parsed_snapshot, initial_nonces))
+    Ok((parsed_snapshot, chain_state))
 }
 
 fn decode_current_era(

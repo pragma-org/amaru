@@ -24,7 +24,9 @@ use rocksdb::{DB, Options, WriteBatch};
 use crate::rocksdb::{
     RocksDbConfig,
     consensus::{
-        DbOps, check_db_version, migrate_db, set_version,
+        DbOps,
+        base_read_chain_store::opcert_key,
+        check_db_version, migrate_db, set_version,
         util::{
             BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
         },
@@ -132,9 +134,16 @@ impl RocksDBStore<DB> {
 
     pub fn remove_header(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         let parent = self.load_header(hash).and_then(|h| h.parent());
+        let header = self.load_header(hash);
         self.with_batch(|batch| {
             if let Some(parent) = parent {
                 batch.delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat());
+            }
+            if let Some(header) = &header {
+                if let Some(parent) = header.parent() {
+                    batch.delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat());
+                }
+                batch.delete(opcert_key(header));
             }
             batch.delete([&HEADER_PREFIX[..], &hash[..]].concat());
             batch.delete([&BLOCK_PREFIX[..], &hash[..]].concat());

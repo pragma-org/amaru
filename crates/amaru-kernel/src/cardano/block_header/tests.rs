@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pallas_crypto::key::ed25519::PublicKey;
 use proptest::prelude::*;
 
 use super::*;
-use crate::{Hash, cardano::network_block::make_block_with_header, size::BLOCK_BODY};
+use crate::{Hash, any_hash28, cardano::network_block::make_block_with_header, size::BLOCK_BODY};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
@@ -41,7 +42,7 @@ pub fn make_header_with_op_cert_seq(
             block_number,
             slot,
             prev_hash,
-            issuer_vkey: Bytes::from(vec![]),
+            issuer_vkey: Bytes::from(vec![0u8; PublicKey::SIZE]),
             vrf_vkey: Bytes::from(vec![]),
             vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
             block_body_size: 0,
@@ -56,6 +57,19 @@ pub fn make_header_with_op_cert_seq(
         },
         body_signature: Bytes::from(vec![]),
     }
+}
+
+pub fn make_block_header_with_op_cert_seq(
+    block_number: u64,
+    slot: u64,
+    parent: Option<HeaderHash>,
+    op_cert_seq: u64,
+) -> BlockHeader {
+    BlockHeader::from(make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq))
+}
+
+pub fn any_pool_id() -> impl Strategy<Value = PoolId> {
+    any_hash28()
 }
 
 /// Create a list of arbitrary headers starting from a root, and where chain\[i\] is the parent of chain\[i+1\]

@@ -14,12 +14,15 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, IsHeader, to_cbor};
+use amaru_kernel::{BlockHeader, ConsensusParameters, Epoch, EraHistory, IsHeader, to_cbor};
 use amaru_observability::debug_span;
 use amaru_ouroboros::praos::{self, header::AssertHeaderError};
-use amaru_ouroboros_traits::{ChainStore, PoolSummaries, Praos};
+use amaru_ouroboros_traits::{ChainStore, PoolSummaries, Praos, has_stake_distribution::GetPoolError};
 
-use crate::store::{NoncesError, PraosChainStore};
+use crate::{
+    errors::ConsensusError,
+    store::{NoncesError, PraosChainStore},
+};
 
 #[derive(Debug, thiserror::Error, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ValidateHeaderError {
@@ -27,6 +30,19 @@ pub enum ValidateHeaderError {
     Nonces(#[from] NoncesError),
     #[error("header validation failed: {0}")]
     Assert(#[from] AssertHeaderError),
+    #[error("{0}")]
+    Consensus(#[from] ConsensusError),
+}
+
+impl ValidateHeaderError {
+    pub fn missing_stake_distribution(&self) -> Option<Epoch> {
+        match self {
+            ValidateHeaderError::Consensus(ConsensusError::GetPoolError(
+                GetPoolError::StakeDistributionNotAvailable(_, Some(target)),
+            )) => Some(*target),
+            ValidateHeaderError::Nonces(_) | ValidateHeaderError::Assert(_) | ValidateHeaderError::Consensus(_) => None,
+        }
+    }
 }
 
 /// Validate a block header.
@@ -43,24 +59,35 @@ pub fn validate_header(
     era_history: Arc<EraHistory>,
 ) -> Result<(), ValidateHeaderError> {
     let _span = debug_span!(consensus::header::VALIDATE, header_hash = &header.hash()).entered();
+    let _guard = _span.enter();
 
     let epoch_nonce = debug_span!(consensus::header::EVOLVE_NONCE, header_hash = header.hash())
         .in_scope(|| PraosChainStore::new(consensus_parameters.clone(), store.clone()).evolve_nonce(header))?
         .active;
 
     debug_span!(consensus::header::CHECK, issuer_key = &header.header_body().issuer_vkey).in_scope(|| {
+        let pool_id = header.pool_id();
+        let last_opcert_sequence_number =
+            store.get_latest_opcert_sequence_number(&pool_id, header).map_err(ConsensusError::StoreError)?;
+
+        let pool_summary = pool_summaries
+            .get_pool(header.slot(), &pool_id, era_history.as_ref())
+            .map_err(ConsensusError::GetPoolError)?
+            .ok_or(ConsensusError::UnknownPool { pool_id })?;
+
         praos::header::assert_all(
             consensus_parameters,
             header.header(),
             to_cbor(&header.header_body()).as_slice(),
-            &pool_summaries,
-            &era_history,
+            last_opcert_sequence_number,
+            &pool_summary,
             &epoch_nonce,
         )
         .and_then(|assertions| {
             use rayon::prelude::*;
             assertions.into_par_iter().try_for_each(|assert| assert())
         })
+        .map_err(ValidateHeaderError::Assert)
     })?;
 
     Ok(())

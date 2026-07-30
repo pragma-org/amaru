@@ -44,6 +44,10 @@ Other guiding principles:
 - **amaru-consensus**: add events and metrics to track the performance of headers processing. ([#1005][])
 - **amaru-ledger**: benchmarks for key volatile db operations (roll forward, switch to fork and context preparation).
 - **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][] [#895][])
+- **amaru-consensus**: track pool opcert sequence numbers in the chain store and enforce the Praos rule 
+  that a pool sequence number minus its last known value must be at most 1.
+  Sequence numbers are migrated from header already stored in the chain store and otherwise seeded
+  from the cardano-node snapshot at bootstrap. ([#1021][])
 
 ### Changed
 
@@ -108,6 +112,10 @@ Other guiding principles:
 - **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
 
+### Removed
+
+- **amaru**: no more `--force` flag on `snapshot create`. ([#1039][])
+
 ### Fixed
 
 - **amaru-consensus**: use slot height instead of block height for block forecast, to allow coping better with low density chains (fixes the regression in syncing time on Preview/PreProd). ([#1027][])
@@ -124,6 +132,8 @@ Other guiding principles:
 - **amaru-ledger**: keep treasury donations as first-class ledger state, so protocol pots and derived summaries retain the corresponding accounting information. ([#1010][])
 - **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
 - **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
+
+## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
 ### Changed
 
@@ -230,6 +240,7 @@ Other guiding principles:
 [#1011]: https://github.com/pragma-org/amaru/pull/1011
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
+[#1021]: https://github.com/pragma-org/amaru/pull/1021
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
 [#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027

@@ -141,8 +141,7 @@ pub fn build_node(
     // Make resources
     let era_history = &config.era_history();
 
-    let consensus_parameters =
-        Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history(), Default::default()));
+    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history()));
 
     // Register resources
     register_resources(

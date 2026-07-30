@@ -24,8 +24,7 @@ use amaru_kernel::{
 };
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
-use amaru_ouroboros::{ConnectionId, praos::header::AssertHeaderError};
-use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
+use amaru_ouroboros::ConnectionId;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     metrics_effects::{Metrics, MetricsOps},
@@ -39,7 +38,6 @@ use crate::{
     effects::{Ledger, LedgerOps, VolatileTipEffect},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
     stages::select_chain::PerfHeaderForwardOutcome,
-    validate_header::ValidateHeaderError,
 };
 
 /// Poll interval while headers are deferred on applied ledger height.
@@ -500,12 +498,8 @@ impl TrackPeers {
     /// Returns true if deferred (and not adversarial).
     /// Rejects (returns false to let caller do adversarial) if the missing dist is >1 epoch ahead.
     fn try_defer_for_stake(&mut self, args: &RollForwardArgs, error: &ConsensusError) -> Option<DeferredHeader> {
-        let Some(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
-            GetPoolError::StakeDistributionNotAvailable(_, Some(target)),
-        ))) = error.as_invalid_header()
-        else {
-            return None;
-        };
+        let validate_error = error.as_invalid_header()?;
+        let target = validate_error.missing_stake_distribution()?;
 
         // target more than one epoch ahead of known stake dists → adversarial; otherwise defer.
         // Use checked_sub so target < max_epoch does not panic (treat as defer / retry).
@@ -517,7 +511,7 @@ impl TrackPeers {
             conn_id: args.conn_id,
             handler: args.handler.clone(),
             reason: DeferReason::StakeDistribution {
-                epoch: *target,
+                epoch: target,
                 header: args.header.clone(),
                 tip: args.tip,
                 variant: args.variant,
@@ -751,7 +745,7 @@ impl TrackPeers {
                                 &self.peer_selection,
                                 PeerSelectionMsg::Adversarial(peer, trace_context.clone()),
                             )
-                            .await;
+                                .await;
                             return;
                         }
                     };
@@ -776,7 +770,7 @@ impl TrackPeers {
                     // maybe update ledger applied block height (rate-limited to 500ms or initial)
                     if limit > self.ledger_applied_block_height
                         && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_millis(500)
-                            || self.ledger_applied_block_height == BlockHeight::from(0))
+                        || self.ledger_applied_block_height == BlockHeight::from(0))
                     {
                         self.ledger_last_checked_at = now;
                         self.ledger_applied_block_height = eff.external(VolatileTipEffect).await.block_height();
@@ -819,8 +813,8 @@ impl TrackPeers {
                         self.ensure_recheck_armed(&eff).await;
                     }
                 }
-                .instrument(span)
-                .await
+                    .instrument(span)
+                    .await
             }
             RollBackward(current, tip) => {
                 tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");

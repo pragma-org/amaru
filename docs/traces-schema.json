@@ -286,6 +286,25 @@
       "description": "Import initial nonces into the chain store",
       "public": true
     },
+    "amaru::bootstrap::opcert_sequence_numbers::IMPORT": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "import",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::opcert_sequence_numbers",
+      "description": "Import initial opcert sequence numbers into the chain store",
+      "public": true
+    },
     "amaru::bootstrap::peer::FAILED_TO_CONNECT": {
       "type": "object",
       "properties": {

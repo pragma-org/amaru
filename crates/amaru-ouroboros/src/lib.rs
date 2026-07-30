@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Hasher, PoolId, size::POOL_COLD_KEY};
-use ed25519_dalek as ed25519;
-
 pub mod kes;
 pub mod mempool;
 pub mod praos;
@@ -23,30 +20,3 @@ pub mod vrf;
 
 pub use amaru_ouroboros_traits::*;
 pub use mempool::*;
-
-/// The node's cold vkey is hashed with blake2b224 to create the pool id
-pub fn issuer_to_pool_id(issuer: &ed25519::VerifyingKey) -> PoolId {
-    Hasher::<{ 8 * POOL_COLD_KEY }>::hash(issuer.as_ref())
-}
-
-#[cfg(test)]
-mod test {
-    use amaru_kernel::Bytes;
-    use ed25519_dalek as ed25519;
-
-    use super::issuer_to_pool_id;
-
-    #[test]
-    fn test_issuer_to_pool_id() {
-        let test_vector = vec![(
-            "cad3c900ca6baee9e65bf61073d900bfbca458eeca6d0b9f9931f5b1017a8cd6",
-            "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114",
-        )];
-
-        for (issuer_vkey_str, expected_pool_id_str) in test_vector {
-            let issuer_vkey: Bytes = issuer_vkey_str.parse().unwrap();
-            let pool_id = issuer_to_pool_id(&ed25519::VerifyingKey::try_from(&issuer_vkey[..]).unwrap());
-            assert_eq!(pool_id.to_string(), expected_pool_id_str);
-        }
-    }
-}
