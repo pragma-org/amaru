@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
 use crate::utils::cbor::SerialisedAsSet;
 pub use crate::{
-    Anchor, DRep, Epoch, Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, Set,
+    Anchor, DRep, Epoch, Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount,
     StakeCredential, cbor,
     size::{KEY, VRF_KEY},
 };
@@ -32,7 +34,7 @@ pub enum Certificate {
         cost: Lovelace,
         margin: RationalNumber,
         reward_account: RewardAccount,
-        pool_owners: Vec<Hash<KEY>>,
+        pool_owners: BTreeSet<Hash<KEY>>,
         relays: Vec<Relay>,
         pool_metadata: Nullable<PoolMetadata>,
     },

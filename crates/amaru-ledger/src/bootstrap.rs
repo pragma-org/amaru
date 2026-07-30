@@ -1062,7 +1062,7 @@ pub fn decode_node_accounts(
 ) -> Result<BTreeMap<StakeCredential, Account>, cbor::decode::Error> {
     d.array()?;
     let accounts: BTreeMap<StakeCredential, NodeAccount> = d.decode()?;
-    let mut pointers: BTreeMap<StakeCredential, SerialisedAsSet<Vec<(u64, u64, u64)>>> = d.decode()?;
+    let mut pointers: BTreeMap<StakeCredential, SerialisedAsSet<BTreeSet<(u64, u64, u64)>>> = d.decode()?;
     d.skip()?; // dsFutureGenDelegs
     d.skip()?; // dsGenDelegs
 
@@ -1083,7 +1083,7 @@ struct NodePoolParams {
     cost: Lovelace,
     margin: RationalNumber,
     reward_account: RewardAccount,
-    owners: Vec<Hash<{ size::KEY }>>,
+    owners: BTreeSet<Hash<{ size::KEY }>>,
     relays: Vec<Relay>,
     metadata: StrictMaybe<PoolMetadata>,
 }
@@ -1344,7 +1344,7 @@ struct NodeAccount {
 }
 
 impl NodeAccount {
-    fn into_account(self, pointers: Vec<(u64, u64, u64)>) -> Account {
+    fn into_account(self, pointers: BTreeSet<(u64, u64, u64)>) -> Account {
         Account {
             rewards_and_deposit: if self.rewards == 0 && self.deposit == 0 {
                 StrictMaybe::Nothing

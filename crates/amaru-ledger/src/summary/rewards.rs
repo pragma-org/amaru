@@ -575,6 +575,8 @@ impl From<RewardsSummary> for Rewards<Computed> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeSet;
+
     use amaru_kernel::{
         CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Nullable, PoolParams, RationalNumber,
     };
@@ -632,7 +634,7 @@ mod test {
                 margin: RationalNumber { numerator: 1, denominator: 1 },
                 // 0xF0 discriminates a script stake address on a test network.
                 reward_account: [&[0xF0], &[tag; 28][..]].concat().into(),
-                owners: Vec::new().into(),
+                owners: BTreeSet::new(),
                 relays: Vec::new(),
                 metadata: Nullable::Null,
             },

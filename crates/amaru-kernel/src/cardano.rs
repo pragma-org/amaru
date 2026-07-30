@@ -57,7 +57,6 @@ pub mod lovelace;
 pub mod memoized;
 pub mod metadatum;
 pub mod multiasset;
-pub mod multiasset_key_value_pairs;
 pub mod native_script;
 pub mod network;
 pub mod network_block;

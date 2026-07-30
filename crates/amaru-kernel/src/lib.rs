@@ -223,7 +223,6 @@ pub use data_structures::{
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
     nullable::Nullable,
-    set::Set,
     strict_maybe::StrictMaybe,
 };
 pub use num;

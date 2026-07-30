@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
 use crate::{
     Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
@@ -26,7 +28,7 @@ pub struct PoolParams {
     pub cost: Lovelace,
     pub margin: RationalNumber,
     pub reward_account: RewardAccount,
-    pub owners: Vec<Hash<KEY>>,
+    pub owners: BTreeSet<Hash<KEY>>,
     pub relays: Vec<Relay>,
     pub metadata: Nullable<PoolMetadata>,
 }
@@ -61,10 +63,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
             cost: d.decode_with(ctx)?,
             margin: d.decode_with(ctx)?,
             reward_account: d.decode_with(ctx)?,
-            owners: {
-                let SerialisedAsSet(owners) = d.decode_with(ctx)?;
-                owners
-            },
+            owners: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
             relays: d.decode_with(ctx)?,
             metadata: d.decode_with(ctx)?,
         })
@@ -80,7 +79,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        Bytes, Hash, Nullable, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip,
+        Bytes, Nullable, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip,
         size::{CREDENTIAL, KEY},
     };
 
@@ -155,7 +154,7 @@ mod tests {
                 cost,
                 margin: RationalNumber { numerator: margin, denominator: 100 },
                 reward_account: [&[0xF0], &reward_account[..]].concat().into(),
-                owners: owners.into_iter().map(|h| h.into()).collect::<Vec<Hash<KEY>>>(),
+                owners: owners.into_iter().map(|h| h.into()).collect(),
                 relays,
                 metadata: Nullable::Null,
             }

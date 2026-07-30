@@ -20,8 +20,8 @@ use amaru_minicbor_extra::encode_optional;
 use crate::to_cbor;
 use crate::{
     Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Multiasset, NULL_HASH32, Network,
-    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set, Slot,
-    TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY,
+    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Slot,
+    TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY, utils::cbor::SerialisedAsSet,
 };
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
@@ -39,7 +39,7 @@ pub struct TransactionBody {
 
     original_bytes: Bytes,
 
-    pub inputs: Set<TransactionInput>,
+    pub inputs: Vec<TransactionInput>,
 
     pub outputs: Vec<MemoizedTransactionOutput>,
 
@@ -109,7 +109,7 @@ impl TransactionBody {
         fee: Lovelace,
     ) -> Self {
         let mut body = Self {
-            inputs: Set::from(inputs.into_iter().collect::<Vec<_>>()),
+            inputs: inputs.into_iter().collect(),
             outputs: outputs.into_iter().collect(),
             fee,
             ..Self::default()
@@ -129,7 +129,7 @@ impl Default for TransactionBody {
         Self {
             hash: NULL_HASH32,
             original_bytes: Bytes::from(Vec::new()),
-            inputs: Set::from(vec![]),
+            inputs: vec![],
             outputs: vec![],
             fee: 0,
             validity_interval_end: None,
@@ -164,7 +164,7 @@ impl<C> cbor::Encode<C> for TransactionBody {
         }
 
         e.begin_map()?;
-        e.u8(0)?.encode_with(&self.inputs, ctx)?;
+        e.u8(0)?.encode_with(SerialisedAsSet(&self.inputs), ctx)?;
         e.u8(1)?.encode_with(&self.outputs, ctx)?;
         e.u8(2)?.encode_with(self.fee, ctx)?;
 
@@ -208,7 +208,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         #[derive(Default)]
         struct RequiredFields {
-            inputs: Option<Set<TransactionInput>>,
+            inputs: Option<SerialisedAsSet<Vec<TransactionInput>>>,
             outputs: Option<Vec<MemoizedTransactionOutput>>,
             fee: Option<Lovelace>,
         }
@@ -283,7 +283,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
         Ok(TransactionBody {
             hash: Hasher::<{ TransactionBody::HASH_SIZE * 8 }>::hash(&original_bytes[start_position..end_position]),
             original_bytes: Bytes::from(original_bytes[start_position..end_position].to_vec()),
-            inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?,
+            inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?.0,
             outputs: expect_field(mem::take(&mut state.required.outputs), 1, "outputs")?,
             fee: expect_field(mem::take(&mut state.required.fee), 2, "fee")?,
             ..state.optional

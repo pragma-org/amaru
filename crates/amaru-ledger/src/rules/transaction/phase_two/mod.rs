@@ -102,7 +102,7 @@ where
 
     let mut resolved_inputs = transaction_body
         .inputs
-        .into_iter()
+        .iter()
         .map(|input| Ok((*input, context.lookup(input).ok_or(PhaseTwoError::MissingInput(*input))?.clone())))
         .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()?;
 

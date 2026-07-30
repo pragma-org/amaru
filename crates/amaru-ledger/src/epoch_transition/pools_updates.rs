@@ -12,14 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Deref,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Epoch, Hash, Lovelace, PoolId, PoolParams, RewardAccount, StakeCredential, expect_stake_credential, hash,
-    pool_metadata, rational_number, utils::string::display_collection,
+    Epoch, Hash, Lovelace, PoolId, PoolParams, RewardAccount, StakeCredential, expect_stake_credential, pool_metadata,
+    rational_number, utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
 
@@ -132,7 +129,7 @@ impl PoolsEpochTransitionUpdates {
             let cost = set(&mut current_params.cost, cost, Lovelace::to_string);
             let margin = set(&mut current_params.margin, margin, rational_number::fmt);
             let reward_account = set(&mut current_params.reward_account, reward_account, RewardAccount::to_string);
-            let owners = set(&mut current_params.owners, owners, |s| hash::fmt(s.deref()));
+            let owners = set(&mut current_params.owners, owners, |s| display_collection(s));
             let relays = set(&mut current_params.relays, relays, |r| display_collection(r));
             let metadata = set(&mut current_params.metadata, metadata, pool_metadata::fmt);
 
