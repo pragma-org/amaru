@@ -26,8 +26,8 @@ pub mod tests {
         Account, Bytes, CertificatePointer, ComparableProposalId, ConstitutionalCommittee,
         ConstitutionalCommitteeMemberStatus, DRepRegistration, DRepState, Epoch, EraHistory, MemoizedTransactionOutput,
         NetworkName, PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState,
-        ProtocolParameters, Slot, StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer,
-        WitnessSet, cbor, cbor as minicbor,
+        ProtocolParameters, Slot, StakeCredential, Transaction, TransactionInput, TransactionPointer, WitnessSet, cbor,
+        cbor as minicbor, utils::cbor::SerialisedAsArray,
     };
     use amaru_ledger::{
         self,
@@ -110,9 +110,9 @@ pub mod tests {
         accounts: BTreeMap<StakeCredential, Account>,
         dreps: BTreeMap<StakeCredential, DRepState>,
         cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
-        cc_state: StrictMaybe<ConstitutionalCommittee>,
+        cc_state: Option<ConstitutionalCommittee>,
         proposals: Vec<NewEpochProposalState>,
-        roots: [StrictMaybe<ComparableProposalId>; 4],
+        roots: [Option<ComparableProposalId>; 4],
         pparams_hash: &'b cbor::bytes::ByteSlice,
         dormant_epochs: Epoch,
     }
@@ -190,9 +190,14 @@ pub mod tests {
         // The proposals field nests the governance roots ahead of the proposals themselves.
         d.array()?;
         d.array()?;
-        let roots = [d.decode()?, d.decode()?, d.decode()?, d.decode()?];
+        let roots = [
+            d.decode::<SerialisedAsArray<_>>()?.0,
+            d.decode::<SerialisedAsArray<_>>()?.0,
+            d.decode::<SerialisedAsArray<_>>()?.0,
+            d.decode::<SerialisedAsArray<_>>()?.0,
+        ];
         let proposals = d.decode()?;
-        let cc_state = d.decode()?;
+        let cc_state = d.decode::<SerialisedAsArray<_>>()?.0;
         d.skip()?; // constitution
         let pparams_hash = d.decode()?;
         d.skip()?; // previous_pparams_hash

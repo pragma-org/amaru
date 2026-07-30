@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Anchor, Hash, Nullable, cbor, size::SCRIPT};
+use crate::{Anchor, Hash, cbor, size::SCRIPT};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Constitution {
     pub anchor: Anchor,
-    pub guardrail_script: Nullable<Hash<SCRIPT>>,
+    pub guardrail_script: Option<Hash<SCRIPT>>,
 }
 
 impl<'b, C> cbor::Decode<'b, C> for Constitution {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        Ok(Self { anchor: d.decode_with(ctx)?, guardrail_script: d.decode_with(ctx)? })
+        let anchor = d.decode_with(ctx)?;
+        let guardrail_script = d.decode_with(ctx)?;
+        Ok(Self { anchor, guardrail_script })
     }
 }
 
@@ -35,7 +37,7 @@ impl<C> cbor::Encode<C> for Constitution {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.encode_with(&self.anchor, ctx)?;
-        e.encode_with(&self.guardrail_script, ctx)?;
+        e.encode_with(self.guardrail_script, ctx)?;
         Ok(())
     }
 }
@@ -45,14 +47,14 @@ pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {
-    use proptest::prelude::*;
+    use proptest::{option, prelude::*};
 
-    use crate::{Constitution, any_anchor, any_hash28, any_nullable};
+    use crate::{Constitution, any_anchor, any_hash28};
 
     prop_compose! {
         pub fn any_constitution()(
             anchor in any_anchor(),
-            guardrail_script in any_nullable(any_hash28())
+            guardrail_script in option::of(any_hash28())
         ) -> Constitution {
             Constitution {
                 anchor,

@@ -16,9 +16,8 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Account, CertificatePointer, ComparableProposalId, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
-    DRep, EraHistory, EraHistoryError, Lovelace, Point, PoolId, ProposalPointer,
-    ProposalState as NewEpochProposalState, ProposalsRoots, ProtocolParameters, Slot, StakeCredential, StrictMaybe,
-    TransactionPointer,
+    EraHistory, EraHistoryError, Lovelace, Point, ProposalPointer, ProposalState as NewEpochProposalState,
+    ProposalsRoots, ProtocolParameters, Slot, StakeCredential, TransactionPointer,
 };
 
 use crate::context::{AccountState, CCMember, ProposalState};
@@ -31,10 +30,9 @@ pub fn account_state(
     point: &Point,
     protocol_parameters: &ProtocolParameters,
 ) -> AccountState {
-    let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(account.rewards_and_deposit)
-        .unwrap_or((0, protocol_parameters.stake_credential_deposit));
+    let (rewards, deposit) = account.rewards_and_deposit.unwrap_or((0, protocol_parameters.stake_credential_deposit));
 
-    let pool = Option::<PoolId>::from(account.pool).map(|pool| {
+    let pool = account.pool.map(|pool| {
         let pointer = CertificatePointer {
             transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
             certificate_index: 0,
@@ -42,7 +40,7 @@ pub fn account_state(
         (pool, pointer)
     });
 
-    let drep = Option::<DRep>::from(account.drep).map(|drep| {
+    let drep = account.drep.map(|drep| {
         let pointer = CertificatePointer {
             transaction: TransactionPointer { slot: point.slot_or_default(), ..TransactionPointer::default() },
             certificate_index: 1,
@@ -56,12 +54,12 @@ pub fn account_state(
 /// Each committee member's declared hot key and term as of the snapshot. A no-confidence committee
 /// has no elected members.
 pub fn committee_members(
-    cc: StrictMaybe<ConstitutionalCommittee>,
+    cc: Option<ConstitutionalCommittee>,
     hot_cold_delegations: &BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
 ) -> BTreeMap<StakeCredential, CCMember> {
     let members = match cc {
-        StrictMaybe::Just(ConstitutionalCommittee { members, .. }) => members,
-        StrictMaybe::Nothing => return BTreeMap::new(),
+        Some(ConstitutionalCommittee { members, .. }) => members,
+        None => return BTreeMap::new(),
     };
 
     members
@@ -102,15 +100,10 @@ pub fn proposal_state(
 
 /// The governance roots, the latest enacted action per category, as of the snapshot.
 pub fn proposals_roots(
-    protocol_parameters: StrictMaybe<ComparableProposalId>,
-    hard_fork: StrictMaybe<ComparableProposalId>,
-    constitutional_committee: StrictMaybe<ComparableProposalId>,
-    constitution: StrictMaybe<ComparableProposalId>,
+    protocol_parameters: Option<ComparableProposalId>,
+    hard_fork: Option<ComparableProposalId>,
+    constitutional_committee: Option<ComparableProposalId>,
+    constitution: Option<ComparableProposalId>,
 ) -> ProposalsRoots {
-    ProposalsRoots {
-        protocol_parameters: Option::from(protocol_parameters),
-        hard_fork: Option::from(hard_fork),
-        constitutional_committee: Option::from(constitutional_committee),
-        constitution: Option::from(constitution),
-    }
+    ProposalsRoots { protocol_parameters, hard_fork, constitutional_committee, constitution }
 }

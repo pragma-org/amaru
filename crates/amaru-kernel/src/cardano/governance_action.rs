@@ -13,18 +13,18 @@
 // limitations under the License.
 
 use crate::{
-    Constitution, Epoch, Hash, KeyValuePairs, Lovelace, Nullable, ProposalId, ProtocolParamUpdate, ProtocolVersion,
+    Constitution, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
     RationalNumber, RewardAccount, StakeCredential, cbor, hash, utils::cbor::SerialisedAsSet,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GovernanceAction {
-    ParameterChange(Nullable<ProposalId>, Box<ProtocolParamUpdate>, Nullable<Hash<{ hash::size::SCRIPT }>>),
-    HardForkInitiation(Nullable<ProposalId>, ProtocolVersion),
-    TreasuryWithdrawals(KeyValuePairs<RewardAccount, Lovelace>, Nullable<Hash<{ hash::size::SCRIPT }>>),
-    NoConfidence(Nullable<ProposalId>),
-    UpdateCommittee(Nullable<ProposalId>, Vec<StakeCredential>, KeyValuePairs<StakeCredential, Epoch>, RationalNumber),
-    NewConstitution(Nullable<ProposalId>, Constitution),
+    ParameterChange(Option<ProposalId>, Box<ProtocolParamUpdate>, Option<Hash<{ hash::size::SCRIPT }>>),
+    HardForkInitiation(Option<ProposalId>, ProtocolVersion),
+    TreasuryWithdrawals(KeyValuePairs<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
+    NoConfidence(Option<ProposalId>),
+    UpdateCommittee(Option<ProposalId>, Vec<StakeCredential>, KeyValuePairs<StakeCredential, Epoch>, RationalNumber),
+    NewConstitution(Option<ProposalId>, Constitution),
     Information,
 }
 

@@ -15,8 +15,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal,
-    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
+    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
+    ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
     StakeCredential, TransactionId, TransactionPointer, parse_reward_account, size::SCRIPT,
 };
 use thiserror::Error;
@@ -268,8 +268,8 @@ fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
     use amaru_kernel::GovernanceAction::*;
 
     match proposal.gov_action {
-        ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
-        TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        ParameterChange(_, _, Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        TreasuryWithdrawals(_, Some(gov_proposal_hash)) => Some(gov_proposal_hash),
         ParameterChange(..)
         | HardForkInitiation(..)
         | TreasuryWithdrawals(..)

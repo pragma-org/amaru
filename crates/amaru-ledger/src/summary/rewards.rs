@@ -577,9 +577,7 @@ impl From<RewardsSummary> for Rewards<Computed> {
 mod test {
     use std::collections::BTreeSet;
 
-    use amaru_kernel::{
-        CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Nullable, PoolParams, RationalNumber,
-    };
+    use amaru_kernel::{CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PoolParams, RationalNumber};
 
     use super::*;
     use crate::summary::stake_distribution::StakeDistribution;
@@ -636,7 +634,7 @@ mod test {
                 reward_account: [&[0xF0], &[tag; 28][..]].concat().into(),
                 owners: BTreeSet::new(),
                 relays: Vec::new(),
-                metadata: Nullable::Null,
+                metadata: None,
             },
         }
     }

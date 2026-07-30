@@ -506,9 +506,9 @@ mod tests {
     use super::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
     use crate::{
         CostModel, CostModels, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
-        KeyValuePairs, Lovelace, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RewardAccount, StakeCredential, any_constitution, any_epoch, any_hash28, any_nullable,
-        any_proposal_id, any_rational_number, any_reward_account, any_stake_credential, size::SCRIPT,
+        KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
+        ProtocolVersion, RewardAccount, StakeCredential, any_constitution, any_epoch, any_hash28, any_proposal_id,
+        any_rational_number, any_reward_account, any_stake_credential, size::SCRIPT,
     };
 
     #[cfg(not(target_os = "windows"))]
@@ -708,8 +708,8 @@ mod tests {
         prop_compose! {
             fn any_parent_proposal_id()(
                 proposal_id in option::of(any_proposal_id()),
-            ) -> Nullable<ProposalId> {
-                Nullable::from(proposal_id)
+            ) -> Option<ProposalId> {
+                proposal_id
             }
         }
 
@@ -812,8 +812,8 @@ mod tests {
         }
     }
 
-    pub fn any_guardrails_script() -> impl Strategy<Value = Nullable<Hash<SCRIPT>>> {
-        any_nullable(any_hash28())
+    pub fn any_guardrails_script() -> impl Strategy<Value = Option<Hash<SCRIPT>>> {
+        option::of(any_hash28())
     }
 
     prop_compose! {

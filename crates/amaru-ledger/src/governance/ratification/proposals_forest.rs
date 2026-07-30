@@ -20,7 +20,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, Nullable, ProposalId,
+    AsHash, ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, ProposalId,
     ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus,
     display_protocol_parameters_update, expect_stake_credential, utils::string::display_collection,
 };
@@ -633,9 +633,8 @@ impl fmt::Display for ProposalsForest {
                     "{} with {}",
                     constitution.anchor.url,
                     match constitution.guardrail_script {
-                        Nullable::Some(hash) =>
-                            format!("guardrails={}", hash.to_string().chars().take(8).collect::<String>()),
-                        Nullable::Undefined | Nullable::Null => "no guardrails".to_string(),
+                        Some(hash) => format!("guardrails={}", hash.to_string().chars().take(8).collect::<String>()),
+                        None => "no guardrails".to_string(),
                     },
                 ))
             }),
@@ -712,11 +711,8 @@ pub struct ProposedIn<T> {
     pub proposal: T,
 }
 
-fn into_parent_id(nullable: Nullable<ProposalId>) -> Option<Rc<ComparableProposalId>> {
-    match nullable {
-        Nullable::Undefined | Nullable::Null => None,
-        Nullable::Some(id) => Some(Rc::new(ComparableProposalId::from(id))),
-    }
+fn into_parent_id(nullable: Option<ProposalId>) -> Option<Rc<ComparableProposalId>> {
+    nullable.map(|id| Rc::new(ComparableProposalId::from(id)))
 }
 
 /// Insert a proposal in a sequence while maintaining a priority order. The priority is given by
@@ -772,7 +768,7 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Anchor, ComparableProposalId, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, Nullable,
+        Anchor, ComparableProposalId, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer,
         ProtocolParameters, RationalNumber, Slot, TransactionPointer, any_comparable_proposal_id, any_constitution,
         any_gov_action, any_proposal_pointer, any_protocol_params_update, any_protocol_version, any_reward_account,
@@ -823,10 +819,10 @@ mod tests {
         assert!(proposal_id_1 > proposal_id_2);
 
         // first hard fork
-        let proposal_1 = make_proposal(Nullable::Null);
+        let proposal_1 = make_proposal(None);
 
         // second hard-fork with `proposal_a` as parent.
-        let proposal_2 = make_proposal(Nullable::Some(proposal_id_1.clone()));
+        let proposal_2 = make_proposal(Some(proposal_id_1.clone()));
 
         let proposal_id_1 = Rc::new(proposal_id_1);
         let proposal_id_2 = Rc::new(proposal_id_2);
@@ -1150,7 +1146,7 @@ mod tests {
             let (lo, hi) = (0, MAX_TREE_SIZE + 1);
             let any_protocol_parameters_tree =
                 any_proposals_tree(ids[lo..hi].into(), any_protocol_params_update(), |parent, update| {
-                    GovernanceAction::ParameterChange(parent, Box::new(update), Nullable::Null)
+                    GovernanceAction::ParameterChange(parent, Box::new(update), None)
                 });
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
@@ -1257,7 +1253,7 @@ mod tests {
     fn any_proposals_tree<Arg: 'static>(
         ids: Vec<Rc<ComparableProposalId>>,
         any_action_arg: impl Strategy<Value = Arg>,
-        into_action: impl Fn(Nullable<ProposalId>, Arg) -> GovernanceAction,
+        into_action: impl Fn(Option<ProposalId>, Arg) -> GovernanceAction,
     ) -> impl Strategy<
         Value = (
             // An optional root
@@ -1309,7 +1305,7 @@ mod tests {
                 ).prop_map(|kvs|
                     GovernanceAction::TreasuryWithdrawals(
                         KeyValuePairs::from(kvs),
-                        Nullable::Null
+                        None
                     )
                 ),
         ]
@@ -1353,7 +1349,7 @@ mod tests {
     }
 
     // Overwrite the parent of the given governance action
-    fn set_parent(action: GovernanceAction, parent: Nullable<ProposalId>) -> GovernanceAction {
+    fn set_parent(action: GovernanceAction, parent: Option<ProposalId>) -> GovernanceAction {
         use GovernanceAction::*;
         match action {
             Information | TreasuryWithdrawals(..) => action,
@@ -1367,12 +1363,11 @@ mod tests {
 
     // Select an element from a list by its position, wrapping the position around if it overflows
     // the list. For a non empty list, this ensures to return an element from the list.
-    fn select(list: &[Option<Rc<ComparableProposalId>>], ix: u8) -> Nullable<ProposalId> {
+    fn select(list: &[Option<Rc<ComparableProposalId>>], ix: u8) -> Option<ProposalId> {
         list.get(ix as usize % list.len())
             .unwrap_or_else(|| unreachable!("out of bound"))
             .as_ref()
-            .map(|id| Nullable::Some(ProposalId::from(id.as_ref().clone())))
-            .unwrap_or(Nullable::Null)
+            .map(|id| ProposalId::from(id.as_ref().clone()))
     }
 
     /// A type helper to ease counterexamples display.
@@ -1409,7 +1404,7 @@ mod tests {
     }
 
     /// Make a proposal with an optional parent
-    fn make_proposal(parent: Nullable<ComparableProposalId>) -> Proposal {
+    fn make_proposal(parent: Option<ComparableProposalId>) -> Proposal {
         Proposal {
             deposit: 0,
             reward_account: empty_bytes(),

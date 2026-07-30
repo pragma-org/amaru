@@ -14,14 +14,14 @@
 
 use std::collections::BTreeSet;
 
-use crate::{DRep, Lovelace, PoolId, StrictMaybe, cbor, utils::cbor::SerialisedAsSet};
+use crate::{DRep, Lovelace, PoolId, cbor, utils::cbor::SerialisedAsSet};
 
 #[derive(Debug)]
 pub struct Account {
-    pub rewards_and_deposit: StrictMaybe<(Lovelace, Lovelace)>,
+    pub rewards_and_deposit: Option<(Lovelace, Lovelace)>,
     pub pointers: BTreeSet<(u64, u64, u64)>,
-    pub pool: StrictMaybe<PoolId>,
-    pub drep: StrictMaybe<DRep>,
+    pub pool: Option<PoolId>,
+    pub drep: Option<DRep>,
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for Account {

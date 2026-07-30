@@ -16,12 +16,12 @@ use std::{fmt, net::Ipv6Addr};
 
 use serde::ser::SerializeStruct;
 
-use crate::{Bytes, Nullable, cbor};
+use crate::{Bytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Relay {
-    SingleHostAddr(Nullable<u32>, Nullable<IPv4>, Nullable<IPv6>),
-    SingleHostName(Nullable<u32>, String),
+    SingleHostAddr(Option<u32>, Option<IPv4>, Option<IPv6>),
+    SingleHostName(Option<u32>, String),
     MultiHostName(String),
 }
 
@@ -38,13 +38,13 @@ impl fmt::Display for Relay {
             Self::SingleHostName(port, dns) => {
                 write!(f, "{dns}")?;
 
-                if let Nullable::Some(port) = port {
+                if let Some(port) = port {
                     write!(f, ":{}", port)?;
                 }
             }
 
             Self::SingleHostAddr(port, ipv4, ipv6) => {
-                if let Nullable::Some(ipv4) = ipv4 {
+                if let Some(ipv4) = ipv4 {
                     write!(
                         f,
                         "{}.{}.{}.{}{}",
@@ -52,12 +52,12 @@ impl fmt::Display for Relay {
                         ipv4[1],
                         ipv4[2],
                         ipv4[3],
-                        if let Nullable::Some(port) = port { format!(":{port}") } else { String::new() }
+                        if let Some(port) = port { format!(":{port}") } else { String::new() }
                     )?;
                 }
 
-                if let Nullable::Some(ipv6) = ipv6 {
-                    if matches!(ipv4, Nullable::Some(..)) {
+                if let Some(ipv6) = ipv6 {
+                    if ipv4.is_some() {
                         write!(f, "|")?;
                     }
 
@@ -70,7 +70,7 @@ impl fmt::Display for Relay {
                             ipv6[11], ipv6[10], ipv6[9], ipv6[8], // group 3
                             ipv6[15], ipv6[14], ipv6[13], ipv6[12], // group 4
                         ]),
-                        if let Nullable::Some(port) = port { format!(":{port}") } else { String::new() }
+                        if let Some(port) = port { format!(":{port}") } else { String::new() }
                     )?;
                 }
             }
@@ -136,10 +136,10 @@ pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S
             // NOTE: keep fields in lexicographic order
             //
             // This instance is used for canonical ledger state comparisons.
-            if let Nullable::Some(ipv4) = ipv4 {
+            if let Some(ipv4) = ipv4 {
                 s.serialize_field("ipv4", &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]))?;
             }
-            if let Nullable::Some(ipv6) = ipv6 {
+            if let Some(ipv6) = ipv6 {
                 let bytes: [u8; 16] = [
                     ipv6[3], ipv6[2], ipv6[1], ipv6[0], // 1st fragment
                     ipv6[7], ipv6[6], ipv6[5], ipv6[4], // 2nd fragment
@@ -148,7 +148,7 @@ pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S
                 ];
                 s.serialize_field("ipv6", &format!("{}", std::net::Ipv6Addr::from(bytes)))?;
             }
-            if let Nullable::Some(port) = port {
+            if let Some(port) = port {
                 s.serialize_field("port", port)?;
             }
             s.serialize_field("type", "ip_address")?;
@@ -160,7 +160,7 @@ pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S
             //
             // This instance is used for canonical ledger state comparisons.
             s.serialize_field("hostname", hostname)?;
-            if let Nullable::Some(port) = port {
+            if let Some(port) = port {
                 s.serialize_field("port", port)?;
             }
             s.serialize_field("type", "hostname")?;

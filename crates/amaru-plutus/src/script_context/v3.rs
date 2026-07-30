@@ -541,9 +541,7 @@ impl ToPlutusData<3> for PlutusStakeAddress {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{
-        KeyValuePairs, Nullable, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor,
-    };
+    use amaru_kernel::{KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor};
     use test_case::test_case;
 
     use super::{
@@ -609,7 +607,7 @@ mod tests {
     #[test]
     fn governance_quorum_uses_constr_encoding() {
         let action = GovernanceAction::UpdateCommittee(
-            Nullable::Null,
+            None,
             vec![],
             KeyValuePairs::default(),
             RationalNumber { numerator: 2, denominator: 4 },

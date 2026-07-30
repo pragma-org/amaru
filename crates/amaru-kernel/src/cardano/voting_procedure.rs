@@ -14,18 +14,20 @@
 
 use std::collections::BTreeMap;
 
-use crate::{Anchor, ComparableProposalId, NonEmptyKeyValuePairs, Nullable, ProposalId, Vote, Voter, cbor};
+use crate::{Anchor, ComparableProposalId, NonEmptyKeyValuePairs, ProposalId, Vote, Voter, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VotingProcedure {
     pub vote: Vote,
-    pub anchor: Nullable<Anchor>,
+    pub anchor: Option<Anchor>,
 }
 
 impl<'b, C> cbor::Decode<'b, C> for VotingProcedure {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        Ok(Self { vote: d.decode_with(ctx)?, anchor: d.decode_with(ctx)? })
+        let vote = d.decode_with(ctx)?;
+        let anchor = d.decode_with(ctx)?;
+        Ok(Self { vote, anchor })
     }
 }
 

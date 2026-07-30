@@ -14,12 +14,15 @@
 
 use std::collections::BTreeSet;
 
-use crate::{Anchor, Epoch, Lovelace, StakeCredential, StrictMaybe, cbor, utils::cbor::SerialisedAsSet};
+use crate::{
+    Anchor, Epoch, Lovelace, StakeCredential, cbor,
+    utils::cbor::{SerialisedAsArray, SerialisedAsSet},
+};
 
 #[derive(Debug)]
 pub struct DRepState {
     pub expiry: Epoch,
-    pub anchor: StrictMaybe<Anchor>,
+    pub anchor: Option<Anchor>,
     pub deposit: Lovelace,
     pub delegators: BTreeSet<StakeCredential>,
 }
@@ -29,7 +32,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
         d.array()?;
         Ok(DRepState {
             expiry: d.decode_with(ctx)?,
-            anchor: d.decode_with(ctx)?,
+            anchor: d.decode_with::<_, SerialisedAsArray<_>>(ctx)?.0,
             deposit: d.decode_with(ctx)?,
             delegators: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
         })

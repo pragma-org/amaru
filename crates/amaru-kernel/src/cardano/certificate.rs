@@ -16,8 +16,8 @@ use std::collections::BTreeSet;
 
 use crate::utils::cbor::SerialisedAsSet;
 pub use crate::{
-    Anchor, DRep, Epoch, Hash, Lovelace, Nullable, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount,
-    StakeCredential, cbor,
+    Anchor, DRep, Epoch, Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, StakeCredential,
+    cbor,
     size::{KEY, VRF_KEY},
 };
 
@@ -36,7 +36,7 @@ pub enum Certificate {
         reward_account: RewardAccount,
         pool_owners: BTreeSet<Hash<KEY>>,
         relays: Vec<Relay>,
-        pool_metadata: Nullable<PoolMetadata>,
+        pool_metadata: Option<PoolMetadata>,
     },
     PoolRetirement(PoolId, Epoch),
     Reg(StakeCredential, Lovelace),
@@ -47,10 +47,10 @@ pub enum Certificate {
     VoteRegDeleg(StakeCredential, DRep, Lovelace),
     StakeVoteRegDeleg(StakeCredential, PoolId, DRep, Lovelace),
     AuthCommitteeHot(StakeCredential, StakeCredential),
-    ResignCommitteeCold(StakeCredential, Nullable<Anchor>),
-    RegDRepCert(StakeCredential, Lovelace, Nullable<Anchor>),
+    ResignCommitteeCold(StakeCredential, Option<Anchor>),
+    RegDRepCert(StakeCredential, Lovelace, Option<Anchor>),
     UnRegDRepCert(StakeCredential, Lovelace),
-    UpdateDRepCert(StakeCredential, Nullable<Anchor>),
+    UpdateDRepCert(StakeCredential, Option<Anchor>),
 }
 
 impl<C> cbor::encode::Encode<C> for Certificate {

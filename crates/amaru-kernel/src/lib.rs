@@ -211,8 +211,6 @@ pub mod cbor {
 pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 
 mod data_structures;
-#[cfg(any(test, feature = "test-utils"))]
-pub use data_structures::nullable::any_nullable;
 pub use data_structures::{
     ignore_eq::IgnoreEq,
     key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs, LegacyKeyValuePairs},
@@ -222,8 +220,6 @@ pub use data_structures::{
     non_empty_set::{IntoNonEmptySetError, NonEmptySet},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
-    nullable::Nullable,
-    strict_maybe::StrictMaybe,
 };
 pub use num;
 pub use serde_json as json;

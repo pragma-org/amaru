@@ -22,12 +22,12 @@ use std::{
 use amaru_kernel::{
     Account, Ballot, BallotId, Bytes, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
-    NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
-    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward,
-    RewardAccount, Slot, StakeAddress, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal, ProposalId,
+    ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount,
+    Slot, StakeAddress, StakeCredential, StakePayload, TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
     protocol_version, reward_account_to_stake_credential, size,
-    utils::cbor::SerialisedAsSet,
+    utils::cbor::{SerialisedAsArray, SerialisedAsSet},
 };
 use amaru_observability::{info, warn};
 use amaru_progress_bar::ProgressBar;
@@ -182,7 +182,12 @@ pub fn import_initial_snapshot(
         })
         .map_err(|err| format!("decode fees: {err}"))?;
 
-    let (root_params, root_hard_fork, root_cc, root_constitution) = decoder.with_decoder(|d| {
+    let (
+        SerialisedAsArray(root_params),
+        SerialisedAsArray(root_hard_fork),
+        SerialisedAsArray(root_cc),
+        SerialisedAsArray(root_constitution),
+    ) = decoder.with_decoder(|d| {
         // Epoch State / Ledger State / UTxO State / utxosGovState
         d.array()?;
 
@@ -194,7 +199,7 @@ pub fn import_initial_snapshot(
 
     let proposals: Vec<ProposalState> = decoder.decode()?;
 
-    let cc_state: StrictMaybe<ConstitutionalCommittee> = decoder.decode()?;
+    let SerialisedAsArray(cc_state) = decoder.decode()?;
 
     let constitution: Constitution = decoder.decode()?;
 
@@ -468,7 +473,7 @@ fn import_dreps(
                 let registration =
                     DRepRegistration { deposit: state.deposit, valid_until: state.expiry, registered_at };
 
-                (credential, (Resettable::from(Option::from(state.anchor)), Some(registration)))
+                (credential, (Resettable::from(state.anchor), Some(registration)))
             }),
             cc_members: iter::empty(),
             proposals: iter::empty(),
@@ -646,8 +651,7 @@ fn import_accounts(
             // re-registered.
             recently_unregistered_accounts.remove(&credential);
 
-            let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
-                .unwrap_or((0, protocol_parameters.stake_credential_deposit));
+            let (rewards, deposit) = rewards_and_deposit.unwrap_or((0, protocol_parameters.stake_credential_deposit));
 
             let rewards_update = match rewards_updates.remove(&credential) {
                 None => 0,
@@ -657,11 +661,9 @@ fn import_accounts(
             (
                 credential,
                 accounts::Value::Create {
-                    pool: Resettable::from(
-                        Option::<PoolId>::from(pool).map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER)),
-                    ),
+                    pool: Resettable::from(pool.map(|pool| (pool, *DEFAULT_CERTIFICATE_POINTER))),
                     //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                    drep: Resettable::from(Option::<DRep>::from(drep).map(|drep| {
+                    drep: Resettable::from(drep.map(|drep| {
                         (
                             drep,
                             CertificatePointer {
@@ -747,19 +749,14 @@ fn import_accounts(
 
 fn import_proposals_roots(
     db: &impl Store,
-    protocol_parameters: StrictMaybe<ComparableProposalId>,
-    hard_fork: StrictMaybe<ComparableProposalId>,
-    constitutional_committee: StrictMaybe<ComparableProposalId>,
-    constitution: StrictMaybe<ComparableProposalId>,
+    protocol_parameters: Option<ComparableProposalId>,
+    hard_fork: Option<ComparableProposalId>,
+    constitutional_committee: Option<ComparableProposalId>,
+    constitution: Option<ComparableProposalId>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
-    let roots = ProposalsRoots {
-        protocol_parameters: Option::from(protocol_parameters),
-        hard_fork: Option::from(hard_fork),
-        constitutional_committee: Option::from(constitutional_committee),
-        constitution: Option::from(constitution),
-    };
+    let roots = ProposalsRoots { protocol_parameters, hard_fork, constitutional_committee, constitution };
 
     let roots_constitution = roots.constitution.as_ref().map(|s| s.to_string());
     let roots_constitutional_committee = roots.constitutional_committee.as_ref().map(|s| s.to_string());
@@ -786,7 +783,8 @@ fn import_constitution(db: &impl Store, constitution: Constitution) -> Result<()
     info!(
         bootstrap::constitution::IMPORT,
         anchor = constitution.anchor.url,
-        guardrails = Option::from(constitution.guardrail_script.clone())
+        guardrails = constitution
+            .guardrail_script
             .map(|s: Hash<28>| s.to_string().chars().take(8).collect())
             .unwrap_or_else(|| "none".to_string()),
     );
@@ -803,7 +801,7 @@ fn import_constitutional_committee(
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
-    cc: StrictMaybe<ConstitutionalCommittee>,
+    cc: Option<ConstitutionalCommittee>,
     mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
@@ -817,11 +815,11 @@ fn import_constitutional_committee(
     let mut cc_members = BTreeMap::new();
 
     let cc = match cc {
-        StrictMaybe::Nothing => {
+        None => {
             info!(bootstrap::constitutional_committee::IMPORT, state = "no_confidence");
             amaru_kernel::ConstitutionalCommitteeStatus::NoConfidence
         }
-        StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
+        Some(ConstitutionalCommittee { threshold, members }) => {
             info!(
                 bootstrap::constitutional_committee::IMPORT,
                 state = "trusted",
@@ -1085,7 +1083,7 @@ struct NodePoolParams {
     reward_account: RewardAccount,
     owners: BTreeSet<Hash<{ size::KEY }>>,
     relays: Vec<Relay>,
-    metadata: StrictMaybe<PoolMetadata>,
+    metadata: Option<PoolMetadata>,
 }
 
 impl NodePoolParams {
@@ -1099,10 +1097,7 @@ impl NodePoolParams {
             reward_account: self.reward_account,
             owners: self.owners,
             relays: self.relays,
-            metadata: match self.metadata {
-                StrictMaybe::Nothing => Nullable::Null,
-                StrictMaybe::Just(metadata) => Nullable::Some(metadata),
-            },
+            metadata: self.metadata,
         }
     }
 }
@@ -1129,13 +1124,13 @@ fn decode_optional_node_pool_metadata(
     d: &mut cbor::Decoder<'_>,
     len: Option<u64>,
     fields_before_metadata: u64,
-    decode_metadata: impl FnOnce(&mut cbor::Decoder<'_>) -> Result<StrictMaybe<PoolMetadata>, cbor::decode::Error>,
-) -> Result<(StrictMaybe<PoolMetadata>, u64, bool), cbor::decode::Error> {
+    decode_metadata: impl FnOnce(&mut cbor::Decoder<'_>) -> Result<Option<PoolMetadata>, cbor::decode::Error>,
+) -> Result<(Option<PoolMetadata>, u64, bool), cbor::decode::Error> {
     match len {
-        Some(total) if total <= fields_before_metadata => Ok((StrictMaybe::Nothing, fields_before_metadata, false)),
+        Some(total) if total <= fields_before_metadata => Ok((None, fields_before_metadata, false)),
         None if d.datatype()? == cbor::data::Type::Break => {
             d.skip()?;
-            Ok((StrictMaybe::Nothing, fields_before_metadata, true))
+            Ok((None, fields_before_metadata, true))
         }
         _ => Ok((decode_metadata(d)?, fields_before_metadata + 1, false)),
     }
@@ -1276,7 +1271,9 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolStateParams {
             d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool owners", err))?;
         let relays = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool relays", err))?;
         let (metadata, consumed, _) = decode_optional_node_pool_metadata(d, len, 7, |d| {
-            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool metadata", err))
+            d.decode_with(ctx)
+                .map(|SerialisedAsArray(option)| option)
+                .map_err(|err| contextualize_decode_error("node pool metadata", err))
         })?;
 
         d.skip().map_err(|err| {
@@ -1305,7 +1302,7 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolStateParams {
     }
 }
 
-struct NodePoolUpdateMetadata(StrictMaybe<PoolMetadata>);
+struct NodePoolUpdateMetadata(Option<PoolMetadata>);
 
 impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateMetadata {
     #[allow(clippy::wildcard_enum_match_arm)]
@@ -1313,19 +1310,19 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateMetadata {
         match d.datatype()? {
             cbor::data::Type::Null => {
                 d.skip()?;
-                Ok(Self(StrictMaybe::Nothing))
+                Ok(Self(None))
             }
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
                 let mut probe = d.probe();
                 let len = probe.array()?;
                 if len == Some(0) {
                     d.array()?;
-                    Ok(Self(StrictMaybe::Nothing))
+                    Ok(Self(None))
                 } else if matches!(probe.datatype()?, cbor::data::Type::String | cbor::data::Type::StringIndef) {
                     let metadata: PoolMetadata = d.decode_with(ctx)?;
-                    Ok(Self(StrictMaybe::Just(metadata)))
+                    Ok(Self(Some(metadata)))
                 } else {
-                    let metadata: StrictMaybe<PoolMetadata> = d.decode_with(ctx)?;
+                    let SerialisedAsArray(metadata) = d.decode_with(ctx)?;
                     Ok(Self(metadata))
                 }
             }
@@ -1339,27 +1336,21 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateMetadata {
 struct NodeAccount {
     rewards: Lovelace,
     deposit: Lovelace,
-    pool: Nullable<PoolId>,
-    drep: Nullable<DRep>,
+    pool: Option<PoolId>,
+    drep: Option<DRep>,
 }
 
 impl NodeAccount {
     fn into_account(self, pointers: BTreeSet<(u64, u64, u64)>) -> Account {
         Account {
             rewards_and_deposit: if self.rewards == 0 && self.deposit == 0 {
-                StrictMaybe::Nothing
+                None
             } else {
-                StrictMaybe::Just((self.rewards, self.deposit))
+                Some((self.rewards, self.deposit))
             },
             pointers,
-            pool: match self.pool {
-                Nullable::Some(pool) => StrictMaybe::Just(pool),
-                Nullable::Null | Nullable::Undefined => StrictMaybe::Nothing,
-            },
-            drep: match self.drep {
-                Nullable::Some(drep) => StrictMaybe::Just(drep),
-                Nullable::Null | Nullable::Undefined => StrictMaybe::Nothing,
-            },
+            pool: self.pool,
+            drep: self.drep,
         }
     }
 }
@@ -1367,13 +1358,12 @@ impl NodeAccount {
 impl<'b, C> cbor::decode::Decode<'b, C> for NodeAccount {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
+        let rewards = d.decode_with(ctx)?;
+        let deposit = d.decode_with(ctx)?;
+        let pool = d.decode_with(ctx)?;
+        let drep = d.decode_with(ctx)?;
 
-        Ok(NodeAccount {
-            rewards: d.decode_with(ctx)?,
-            deposit: d.decode_with(ctx)?,
-            pool: d.decode_with(ctx)?,
-            drep: d.decode_with(ctx)?,
-        })
+        Ok(NodeAccount { rewards, deposit, pool, drep })
     }
 }
 
@@ -1409,7 +1399,7 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodeRewardAccount {
 mod tests {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{Bytes, Epoch, Hash, NetworkName, StakeCredential, StrictMaybe, cbor, to_cbor};
+    use amaru_kernel::{Bytes, Epoch, Hash, NetworkName, StakeCredential, cbor, to_cbor};
 
     use super::{
         NodeRewardAccount, decode_initial_snapshot_prefix, decode_optional_node_pool_metadata,
@@ -1456,9 +1446,9 @@ mod tests {
         assert_eq!(decoder.u8().unwrap(), 2);
 
         let (metadata, consumed, break_consumed) =
-            decode_optional_node_pool_metadata(&mut decoder, len, 2, |_| Ok(StrictMaybe::Nothing)).unwrap();
+            decode_optional_node_pool_metadata(&mut decoder, len, 2, |_| Ok(None)).unwrap();
 
-        assert!(matches!(metadata, StrictMaybe::Nothing));
+        assert!(metadata.is_none());
         assert_eq!(consumed, 2);
         assert!(!break_consumed);
 
@@ -1476,9 +1466,9 @@ mod tests {
         assert_eq!(decoder.u8().unwrap(), 2);
 
         let (metadata, consumed, break_consumed) =
-            decode_optional_node_pool_metadata(&mut decoder, len, 2, |_| Ok(StrictMaybe::Nothing)).unwrap();
+            decode_optional_node_pool_metadata(&mut decoder, len, 2, |_| Ok(None)).unwrap();
 
-        assert!(matches!(metadata, StrictMaybe::Nothing));
+        assert!(metadata.is_none());
         assert_eq!(consumed, 2);
         assert!(break_consumed);
 

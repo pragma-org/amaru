@@ -350,7 +350,7 @@ where
                 context,
                 drep,
                 DRepRegistration { deposit, registered_at: pointer, valid_until },
-                Option::from(anchor),
+                anchor,
             )?;
 
             context.produce_lovelace(deposit);
@@ -385,7 +385,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
+            DRepsSlice::update(context, drep, anchor)?;
 
             Ok(())
         }
@@ -415,7 +415,7 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
+            CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())
         }
 

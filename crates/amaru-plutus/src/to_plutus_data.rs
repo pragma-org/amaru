@@ -16,9 +16,8 @@ use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
     Address, BigInt, BorrowedScript, Bytes, CurrencySymbol, Epoch, HasScriptHash, Hash, Int, KeyValuePairs,
-    LegacyKeyValuePairs, MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable,
-    PlutusData, RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId,
-    Value,
+    LegacyKeyValuePairs, MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData,
+    RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value,
 };
 use thiserror::Error;
 
@@ -475,19 +474,6 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         T::to_plutus_data(*self)
-    }
-}
-
-impl<const V: u8, T> ToPlutusData<V> for Nullable<T>
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-    T: ToPlutusData<V> + Clone,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self {
-            Nullable::Some(t) => constr!(0, [t]),
-            Nullable::Null | Nullable::Undefined => constr!(1),
-        }
     }
 }
 
