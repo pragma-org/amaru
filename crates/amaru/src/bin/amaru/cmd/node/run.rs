@@ -267,8 +267,8 @@ impl Args {
 
 const SUBMIT_API_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub(crate) fn runnable(args: Args, meter_provider: Option<SdkMeterProvider>) -> Runnable {
-    Runnable::soft(RuntimeKind::Node, move |shutdown| run(args, meter_provider, shutdown))
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::soft(RuntimeKind::Node, move |shutdown, meter_provider| run(args, meter_provider, shutdown))
 }
 
 async fn run(

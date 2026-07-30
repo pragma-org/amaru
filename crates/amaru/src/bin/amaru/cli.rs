@@ -18,7 +18,6 @@ use amaru::{
 };
 use amaru_kernel::GlobalParameters;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use opentelemetry_sdk::metrics::SdkMeterProvider;
 
 use crate::cmd;
 
@@ -76,14 +75,17 @@ pub(crate) enum Command {
 
 impl Command {
     /// Collapse the clap command tree into a single [`Runnable`] leaf.
-    pub(crate) fn into_runnable(self, metrics: Option<SdkMeterProvider>) -> Runnable {
+    ///
+    /// The returned value describes the runtime and work factory only; observability must be
+    /// set up on that runtime before [`amaru::lifecycle::Runnable::run_on`] is called.
+    pub(crate) fn into_runnable(self) -> Runnable {
         match self {
-            Command::Node(cmd) => cmd.into_runnable(metrics),
+            Command::Node(cmd) => cmd.into_runnable(),
             Command::Snapshot(cmd) => cmd.into_runnable(),
             Command::Dev(cmd) => cmd.into_runnable(),
             Command::ShellCompletions(args) => cmd::shell_completions::runnable(args),
             // Legacy top-level aliases: same behaviour as their modern counterparts.
-            Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::runnable(args, metrics),
+            Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::runnable(args),
             Command::LegacyBootstrap(args) => cmd::node::bootstrap::runnable(args),
             Command::LegacyResetToEpoch(args) => cmd::dev::ledger::reset::runnable(args),
             Command::LegacyCreateSnapshots(args) => cmd::snapshot::create::runnable(args),

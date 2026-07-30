@@ -48,6 +48,7 @@ Other guiding principles:
   that a pool sequence number minus its last known value must be at most 1.
   Sequence numbers are migrated from header already stored in the chain store and otherwise seeded
   from the cardano-node snapshot at bootstrap. ([#1021][])
+- **amaru**: automate prometheus metrics comparison with cardano-node. ([#1075](https://github.com/pragma-org/amaru/pull/1075))
 
 ### Changed
 
