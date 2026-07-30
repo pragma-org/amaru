@@ -324,11 +324,11 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                         batch.save(
                             &self.era_history,
                             protocol_parameters,
-                            self.governance_activity_for(immutable_epoch).unwrap_or_else(|| unreachable! {
+                            Some(self.governance_activity_for(immutable_epoch).unwrap_or_else(|| unreachable! {
                                 "invariant violation: asking governance activity for an unreachable epoch; immutable epoch = {}; volatile epoch = {}",
                                 immutable_epoch,
                                 self.epoch(),
-                            }),
+                            })),
                             &stable_point,
                             Some(&stable_issuer),
                             add,

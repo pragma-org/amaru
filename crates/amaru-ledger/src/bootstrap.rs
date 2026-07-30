@@ -329,7 +329,7 @@ fn save_point(
     transaction.save(
         era_history,
         protocol_parameters,
-        governance_activity,
+        Some(governance_activity),
         point,
         None,
         Default::default(),
@@ -374,7 +374,7 @@ fn import_block_issuers(
                 era_history,
                 // TODO: Unused when storing block issuers; require API change.
                 &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                GovernanceActivity::default(),
+                None,
                 &Point::Specific(fake_slot.into(), Hash::new([0; 32])),
                 Some(&pool),
                 store::Columns {
@@ -436,7 +436,7 @@ fn import_dreps(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -483,7 +483,7 @@ fn import_proposals(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -561,7 +561,7 @@ fn import_stake_pools(
         era_history,
         // TODO: Unused when storing block issuers; require API change.
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -671,7 +671,7 @@ fn import_accounts(
         transaction.save(
             era_history,
             protocol_parameters,
-            GovernanceActivity::default(),
+            None,
             point,
             None,
             store::Columns {
@@ -791,7 +791,7 @@ fn import_constitutional_committee(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -876,7 +876,7 @@ fn import_votes(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {

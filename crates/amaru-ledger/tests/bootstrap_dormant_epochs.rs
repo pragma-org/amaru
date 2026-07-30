@@ -67,7 +67,7 @@ fn bootstrap_preserves_dormant_epochs_across_utxo_import() {
                 .save(
                     &PREPROD_ERA_HISTORY,
                     &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                    GovernanceActivity { consecutive_dormant_epochs: DORMANT_EPOCHS },
+                    Some(GovernanceActivity { consecutive_dormant_epochs: DORMANT_EPOCHS }),
                     &point,
                     None,
                     Columns {
@@ -101,7 +101,7 @@ fn bootstrap_preserves_dormant_epochs_across_utxo_import() {
                 .save(
                     &PREPROD_ERA_HISTORY,
                     &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                    GovernanceActivity::default(),
+                    None,
                     &point,
                     None,
                     Columns::empty(),
@@ -139,5 +139,105 @@ fn bootstrap_preserves_dormant_epochs_across_utxo_import() {
         Some(raw_valid_until + DORMANT_EPOCHS as u64),
         "the imported dormant-epoch counter must survive the follow-up UTxO import and be re-applied \
          to DRep expiry (raw valid_until={raw_valid_until:?}, dormant_epochs={DORMANT_EPOCHS})",
+    );
+}
+
+/// Dormant epochs pause the activity clock for DReps that are still active, but they must not revive
+/// a DRep that stays expired even after the extension. `GovernanceSummary` therefore extends a DRep's
+/// expiry by `consecutive_dormant_epochs` only when the result remains at/after the current epoch,
+/// matching the store's bake-in guard. Without that guard, an already-expired DRep is reported with
+/// an inflated expiry and diverges from the Haskell node.
+#[test]
+fn dormant_epochs_do_not_revive_expired_dreps() {
+    let tmp_dir = tempfile::tempdir().expect("tempdir");
+    let cfg = RocksDbConfig::new(tmp_dir.path().into());
+
+    let slot = Slot::from(50_000_000u64);
+    let point = Point::Specific(slot, Hash::from([0u8; 32]));
+    let epoch = PREPROD_ERA_HISTORY.slot_to_epoch(slot, slot).expect("slot_to_epoch");
+
+    let registered_at = CertificatePointer {
+        transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+        certificate_index: 0,
+    };
+
+    // Active: raw expiry at the current epoch, so raw + dormant stays at/after it.
+    let active_hash = Hash::from([1u8; 28]);
+    let active_raw = epoch;
+    // Expired: raw expiry far enough in the past that even raw + dormant stays below the current epoch.
+    let expired_hash = Hash::from([2u8; 28]);
+    let expired_raw = epoch - (DORMANT_EPOCHS as u64 + 5);
+
+    {
+        let store = RocksDB::empty(&cfg).expect("open empty store");
+        {
+            let context = store.create_transaction();
+            context
+                .save(
+                    &PREPROD_ERA_HISTORY,
+                    &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+                    Some(GovernanceActivity { consecutive_dormant_epochs: DORMANT_EPOCHS }),
+                    &point,
+                    None,
+                    Columns {
+                        utxo: std::iter::empty(),
+                        pools: std::iter::empty(),
+                        accounts: std::iter::empty(),
+                        dreps: [
+                            (
+                                StakeCredential::AddrKeyhash(active_hash),
+                                (
+                                    Resettable::Unchanged,
+                                    Some(DRepRegistration {
+                                        deposit: 500_000_000,
+                                        registered_at,
+                                        valid_until: active_raw,
+                                    }),
+                                ),
+                            ),
+                            (
+                                StakeCredential::AddrKeyhash(expired_hash),
+                                (
+                                    Resettable::Unchanged,
+                                    Some(DRepRegistration {
+                                        deposit: 500_000_000,
+                                        registered_at,
+                                        valid_until: expired_raw,
+                                    }),
+                                ),
+                            ),
+                        ]
+                        .into_iter(),
+                        cc_members: std::iter::empty(),
+                        proposals: std::iter::empty(),
+                        votes: std::iter::empty(),
+                    },
+                    Columns::empty(),
+                    std::iter::empty(),
+                )
+                .expect("import save");
+            context.commit().expect("commit");
+        }
+        store.next_snapshot(epoch).expect("snapshot");
+        store
+            .with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))
+            .expect("epoch transition");
+    }
+
+    let snapshot = RocksDBHistoricalStores::for_epoch_with(&cfg, epoch).expect("open snapshot");
+    let summary = GovernanceSummary::new(&snapshot, &PREPROD_ERA_HISTORY).expect("governance summary");
+
+    // The active DRep is extended by the dormant epochs.
+    assert_eq!(
+        summary.dreps.get(&DRep::Key(active_hash)).expect("active drep in summary").valid_until,
+        Some(active_raw + DORMANT_EPOCHS as u64),
+        "an active DRep's expiry must be extended by the dormant epochs",
+    );
+
+    // The expired DRep is NOT revived: it keeps its raw expiry.
+    assert_eq!(
+        summary.dreps.get(&DRep::Key(expired_hash)).expect("expired drep in summary").valid_until,
+        Some(expired_raw),
+        "dormant epochs must not revive a DRep that stays expired even after the extension",
     );
 }

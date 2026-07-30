@@ -351,12 +351,15 @@ pub trait TransactionalContext<'a>: ReadStore {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
+    ///
+    /// `governance_activity` is `None` for saves that carry no governance state (e.g. a raw UTxO
+    /// import): such saves leave the persisted dormant-epoch counter untouched.
     #[expect(clippy::too_many_arguments)]
     fn save(
         &self,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
-        governance_activity: GovernanceActivity,
+        governance_activity: Option<GovernanceActivity>,
         point: &Point,
         issuer: Option<&pools::Key>,
         add: Columns<
