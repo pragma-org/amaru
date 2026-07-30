@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Epoch, Hash, Lovelace, PoolId, PoolParams, RationalNumber, RewardAccount, StakeCredential, expect_stake_credential,
-    pool_metadata, utils::string::display_collection,
+    Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RationalNumber, RewardAccount, StakeCredential,
+    expect_stake_credential, utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
 
@@ -131,7 +131,9 @@ impl PoolsEpochTransitionUpdates {
             let reward_account = set(&mut current_params.reward_account, reward_account, RewardAccount::to_string);
             let owners = set(&mut current_params.owners, owners, |s| display_collection(s));
             let relays = set(&mut current_params.relays, relays, |r| display_collection(r));
-            let metadata = set(&mut current_params.metadata, metadata, pool_metadata::fmt);
+            let metadata = set(&mut current_params.metadata, metadata, |opt| {
+                opt.as_ref().map(PoolMetadata::to_string).unwrap_or_default()
+            });
 
             debug!(
                 ledger::epoch_transition::TICK_POOL,
