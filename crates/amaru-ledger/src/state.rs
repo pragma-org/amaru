@@ -23,8 +23,8 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
-    utils::string::display_collection,
+    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, expect_stake_credential,
+    protocol_version, to_cbor, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, info, info_span, trace, warn};
@@ -407,7 +407,15 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             //
             // It also tells us the reward account of every pool, which the rewards below need to
             // tell apart the leader rewards that can no longer be paid.
-            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
+            let mut pools_rewards_accounts = BTreeSet::new();
+            let pools_updates = PoolsEpochTransitionUpdates::new(
+                volatile_view.iter_pools()?.inspect(|(_, pool)| {
+                    // Capture the reward account *before* any pending update is folded in, so that we remember
+                    // the one the epoch that just ended paid its leader rewards to.
+                    pools_rewards_accounts.insert(expect_stake_credential(&pool.current_params.reward_account));
+                }),
+                next_epoch,
+            );
 
             // NOTE: No rewards during epoch transition?
             //
@@ -427,7 +435,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 // the ledger if we don't.
                 let computed_rewards = computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?;
 
-                let unclaimed = volatile_view.unclaimed_reward_accounts(pools_updates.reward_accounts())?;
+                let unclaimed = volatile_view.iter_unreachable_accounts(pools_rewards_accounts)?;
 
                 let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed);
 

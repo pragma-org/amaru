@@ -35,6 +35,7 @@ use crate::{
 };
 
 mod iter_pools;
+mod iter_unreachable_accounts;
 
 // ------------------------------------------------------------------------------------ VolatileView
 
@@ -120,65 +121,48 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         )))
     }
 
-    /// Amongst the accounts owed a reward at the epoch boundary, those that can no longer be paid
-    /// because they have no account. Their rewards go to the treasury instead.
+    /// Provides an iterator for accounts on top of the stable store, tracking accounts that are "no
+    /// longer reachable" and cannot receive rewards they've been allocated.
     ///
     /// Payability is resolved from two complementary sources, because the rewarded accounts come
     /// from two places:
     ///
-    /// - Delegators were, by construction, registered when the stake distribution was taken. So they
-    ///   can only have become unpayable by unregistering since, which the
-    ///   `recently_unregistered_accounts` index records. It is patched here with the registrations
-    ///   and deregistrations still pending in the volatile window.
+    /// - Delegators: registered when the stake distribution was taken but that have since
+    ///   unregistered. We track a rolling 'recently_unregistered_accounts' over the past few epochs
+    ///   that allows us to recover this information.
     ///
-    /// - Pool leaders are paid on their pool's reward account, an arbitrary stake credential which
-    ///   the protocol never requires to be registered: the pledge is checked against the pool's
-    ///   *owners* and the performance against its *delegators*, so a pool can earn a reward payable
-    ///   to a credential that has never had an account at all. No unregistration was ever recorded
-    ///   for such a credential, so the `recently_unregistered_accounts` index cannot speak for it and
-    ///   each `pool_reward_account` is looked up directly. There are only a few thousand pools, so
-    ///   this stays cheap.
+    /// - Pool leaders: pools are paid on their pool's reward account, an arbitrary stake credential
+    ///   which the protocol never requires to be registered so a pool can earn a reward payable to a
+    ///   credential that has never had an account at all. Such an account may be missing despite no
+    ///   unregistration to have ever been recorded .
     ///
-    /// The unregistration column can be arbitrarily large, so it is streamed rather than materialized.
-    /// The returned iterator will be eventually filtered by the accounts that effectively received a
-    /// reward in order to determine the unclaimed rewards.
-    ///
-    /// IMPORTANT: yields credentials in no particular order and possibly more than once. Can only be
-    /// called once on a given view.
-    pub fn unclaimed_reward_accounts(
+    /// IMPORTANT: Yields accounts in no particular order.
+    #[expect(clippy::panic)]
+    pub fn iter_unreachable_accounts(
         &mut self,
-        pool_reward_accounts: &BTreeSet<StakeCredential>,
-    ) -> Result<impl Iterator<Item = StakeCredential> + use<'volatile, 'db, DB>, StoreError> {
-        let db = self.db;
-
-        let AccountVolatileView { registered, unregistered } = match mem::take(&mut self.accounts) {
+        pools_rewards_accounts: BTreeSet<StakeCredential>,
+    ) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
+        let AccountVolatileView { mut registered, mut unregistered } = match mem::take(&mut self.accounts) {
             None => {
                 // Just being careful here. There's no reason to ever call this twice; but if it
                 // ever happens, this line might save us from hours of debugging.
-                unreachable!(".unclaimed_reward_accounts() called twice on the same VolatileView! Don't do that.")
+                unreachable!(".iter_unreachable_accounts() called twice on the same VolatileView! Don't do that.")
             }
             Some(accounts) => accounts,
         };
 
-        // Pool reward accounts that never had an account to unregister in the first place. A
-        // credential freshly registered within the volatile window is payable even though the stable
-        // store hasn't seen it yet; one unregistered there is already yielded below.
-        let mut resolved = Vec::new();
-        for credential in pool_reward_accounts {
-            if !registered.contains(credential) && db.account(credential)?.is_none() {
-                resolved.push(credential.clone());
-            }
-        }
-
-        // Unregistered within the volatile window, so the stable store hasn't caught up yet.
-        let unregistered = unregistered.into_iter().cloned().collect::<Vec<_>>();
-
-        Ok(db
-            .iter_recently_unregistered_accounts()?
-            // Recently unregistered, unless they have since re-registered within the volatile window.
-            .filter(move |credential| !registered.contains(credential))
-            .chain(unregistered)
-            .chain(resolved))
+        Ok(iter_unreachable_accounts::IterUnreachableAccounts::new(
+            |account| {
+                self.db
+                    .account(account)
+                    .unwrap_or_else(|err| panic!("unexpected database error while iterating: {err}"))
+                    .is_some()
+            },
+            self.db.iter_recently_unregistered_accounts()?,
+            &mut registered,
+            &mut unregistered,
+            pools_rewards_accounts,
+        ))
     }
 
     /// A view on the proposal roots; this doesn't really require any volatile update but is
@@ -216,7 +200,7 @@ mod test {
         let pool_reward_accounts = BTreeSet::from([credential(1), credential(2)]);
 
         assert_eq!(
-            unclaimed(&mut view, &pool_reward_accounts),
+            unreachable_accounts(&mut view, pool_reward_accounts),
             BTreeSet::from([credential(2)]),
             "credential(1) has an account and is payable; credential(2) never had one",
         );
@@ -233,7 +217,7 @@ mod test {
         let volatile = VolatileDB::default();
         let mut view = VolatileView::new(&volatile, &stable);
 
-        assert_eq!(unclaimed(&mut view, &BTreeSet::new()), BTreeSet::from([credential(2)]));
+        assert_eq!(unreachable_accounts(&mut view, BTreeSet::new()), BTreeSet::from([credential(2)]));
     }
 
     /// The volatile window overrides both sources: a re-registration makes a credential payable
@@ -261,18 +245,21 @@ mod test {
 
         let pool_reward_accounts = BTreeSet::from([credential(1), credential(5)]);
 
-        assert_eq!(unclaimed(&mut view, &pool_reward_accounts), BTreeSet::from([credential(2), credential(4)]));
+        assert_eq!(
+            unreachable_accounts(&mut view, pool_reward_accounts),
+            BTreeSet::from([credential(2), credential(4)])
+        );
     }
 
     // HELPERS
 
     /// The unclaimed credentials a view yields, gathered into a set so that the order they come in
     /// and any repetition don't matter.
-    fn unclaimed(
+    fn unreachable_accounts(
         view: &mut VolatileView<'_, '_, Stable>,
-        pool_reward_accounts: &BTreeSet<StakeCredential>,
+        pool_reward_accounts: BTreeSet<StakeCredential>,
     ) -> BTreeSet<StakeCredential> {
-        view.unclaimed_reward_accounts(pool_reward_accounts).unwrap().collect()
+        view.iter_unreachable_accounts(pool_reward_accounts).unwrap().collect()
     }
 
     fn credential(tag: u8) -> StakeCredential {

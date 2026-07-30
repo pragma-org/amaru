@@ -43,9 +43,6 @@ pub struct PoolsEpochTransitionUpdates {
 
     /// Pool owners refunds, corresponding to the return of their deposit upon de-registration.
     refunds: BTreeMap<StakeCredential, Lovelace>,
-
-    /// The reward account of every pool seen at the epoch transition, retired ones included.
-    reward_accounts: BTreeSet<StakeCredential>,
 }
 
 impl PoolsEpochTransitionUpdates {
@@ -56,7 +53,7 @@ impl PoolsEpochTransitionUpdates {
             let mut pools_updates = Self::default();
 
             for (_pool_id, pool) in pools_iter {
-                pools_updates.tick_pool(epoch, pool)
+                pools_updates.tick_pool(epoch, pool);
             }
 
             pools_updates
@@ -73,11 +70,6 @@ impl PoolsEpochTransitionUpdates {
 
     pub fn refunds(&self) -> impl Iterator<Item = (&StakeCredential, Lovelace)> {
         self.refunds.iter().map(|(account, refund)| (account, *refund))
-    }
-
-    /// The reward account of every pool, as it stood when the epoch ended.
-    pub fn reward_accounts(&self) -> &BTreeSet<StakeCredential> {
-        &self.reward_accounts
     }
 
     /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
@@ -109,10 +101,6 @@ impl PoolsEpochTransitionUpdates {
     /// a. Any re-registration that comes after a retirement cancels that retirement.
     /// b. Any retirement that come after a retirement cancels that previous retirement.
     pub fn tick_pool(&mut self, epoch: Epoch, mut pool: Pool) {
-        // Capture the reward account *before* any pending update is folded in, so that we remember
-        // the one the epoch that just ended paid its leader rewards to.
-        self.reward_accounts.insert(expect_stake_credential(&pool.current_params.reward_account));
-
         let pending = pool.pending_certificates.pending_after(epoch);
 
         // If the most recent retirement is effective as per the current epoch, we simply drop the

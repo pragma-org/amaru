@@ -188,13 +188,19 @@ impl Rewards<Effective> {
     /// shared map (they are folded back into the treasury via [`Self::delta_treasury`]) but they are
     /// never paid out to the account.
     ///
-    /// `unregistered` may come in any order and repeat itself; only the credentials actually owed a
-    /// reward are retained, as the others sway neither [`Self::reward_of`] nor
-    /// [`Self::unclaimed_rewards`]. What we hold onto is thus bounded by the rewarded accounts rather
-    /// than by the number of accounts that unregistered during the epoch.
-    pub fn new(computed_rewards: Rewards<Computed>, unregistered: impl IntoIterator<Item = StakeCredential>) -> Self {
+    /// `unreachable_accounts` may come in any order; only the credentials actually owed a reward
+    /// are retained, as the others sway neither [`Self::reward_of`] nor [`Self::unclaimed_rewards`].
+    ///
+    /// What we hold onto is thus bounded by the rewarded accounts rather than by the number of
+    /// accounts that are unreachable at the end of the epoch.
+    pub fn new(
+        computed_rewards: Rewards<Computed>,
+        unreachable_accounts: impl IntoIterator<Item = StakeCredential>,
+    ) -> Self {
         let accounts = computed_rewards.accounts;
-        let unclaimed = unregistered.into_iter().filter(|credential| accounts.contains_key(credential)).collect();
+
+        let unclaimed =
+            unreachable_accounts.into_iter().filter(|credential| accounts.contains_key(credential)).collect();
 
         Self {
             step: PhantomData,
