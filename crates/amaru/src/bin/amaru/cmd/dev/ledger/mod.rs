@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod convert;
@@ -45,4 +46,18 @@ pub(crate) enum LedgerCommand {
 
     #[cfg(feature = "mithril")]
     Mithril(mithril::Args),
+}
+
+impl LedgerCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Convert(args) => convert::runnable(args),
+            Self::Nonces(cmd) => cmd.into_runnable(),
+            Self::States(cmd) => cmd.into_runnable(),
+            Self::Reset(args) => reset::runnable(args),
+            Self::Sync(args) => sync::runnable(args),
+            #[cfg(feature = "mithril")]
+            Self::Mithril(args) => mithril::runnable(args),
+        }
+    }
 }

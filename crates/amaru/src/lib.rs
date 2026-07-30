@@ -23,6 +23,8 @@ use include_dir::{Dir, include_dir};
 
 pub mod bootstrap;
 pub mod cardano_node;
+pub mod exit;
+pub mod lifecycle;
 pub mod metrics;
 pub mod observability;
 pub mod panic;

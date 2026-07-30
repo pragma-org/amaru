@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod ancestors;
@@ -62,4 +63,20 @@ pub(crate) enum ChainCommand {
 
     /// Remove the given chain fragment from the chain database.
     Remove(remove::Args),
+}
+
+impl ChainCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Ancestors(args) => ancestors::runnable(args),
+            Self::BestChain(args) => best_chain::runnable(args),
+            Self::Children(args) => children::runnable(args),
+            Self::ClearInvalid(args) => clear_invalid::runnable(args),
+            Self::Dump(args) => dump::runnable(args),
+            Self::Fetch(args) => fetch::runnable(args),
+            Self::Migrate(args) => migrate::runnable(args),
+            Self::Prune(args) => prune::runnable(args),
+            Self::Remove(args) => remove::runnable(args),
+        }
+    }
 }

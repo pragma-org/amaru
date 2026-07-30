@@ -14,7 +14,10 @@
 
 use std::path::PathBuf;
 
-use amaru::default_chain_dir;
+use amaru::{
+    default_chain_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_kernel::NetworkName;
 use amaru_ouroboros::WriteChainStore;
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
@@ -46,7 +49,11 @@ pub struct Args {
     network: NetworkName,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     tracing::info!(

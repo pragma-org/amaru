@@ -14,7 +14,11 @@
 
 use std::{error::Error, path::PathBuf};
 
-use amaru::{bootstrap::bootstrap, default_chain_dir, default_ledger_dir};
+use amaru::{
+    bootstrap::bootstrap,
+    default_chain_dir, default_ledger_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_kernel::{Epoch, GlobalParameters, NetworkName, utils::path::relative_path};
 use amaru_observability::{info, warn};
 use clap::Parser;
@@ -69,7 +73,11 @@ pub struct Args {
     pub(crate) help_global_parameters: bool,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);

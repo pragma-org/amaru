@@ -14,7 +14,11 @@
 
 use std::path::PathBuf;
 
-use amaru::{bootstrap::import_snapshots, default_ledger_dir};
+use amaru::{
+    bootstrap::import_snapshots,
+    default_ledger_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_kernel::NetworkName;
 use clap::Parser;
 use tracing::info;
@@ -42,8 +46,12 @@ pub struct Args {
     network: NetworkName,
 }
 
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
 #[expect(clippy::print_stdout)]
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
