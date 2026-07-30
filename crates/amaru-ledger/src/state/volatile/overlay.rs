@@ -445,6 +445,7 @@ mod test {
             protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             pruned_proposals: BTreeMap::new(),
             payouts: BTreeMap::new(),
+            treasury_withdrawals: 0,
             is_dormant_epoch: true,
             constitutional_committee: None,
             new_constitution: None,

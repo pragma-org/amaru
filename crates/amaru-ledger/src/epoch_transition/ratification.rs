@@ -62,6 +62,11 @@ pub struct GovernanceUpdates {
     /// withdrawal.
     pub payouts: BTreeMap<StakeCredential, Lovelace>,
 
+    /// Total amount withdrawn from the treasury by enacted proposals. Kept separate from
+    /// `payouts`, which merges withdrawals with deposit refunds that must not be debited from
+    /// the treasury.
+    pub treasury_withdrawals: Lovelace,
+
     /// Captures whether the resulting epoch is considered 'dormant' (i.e. no active proposals
     /// left to vote on at the beginning of the epoch, after ratification).
     pub is_dormant_epoch: bool,
@@ -163,6 +168,7 @@ impl GovernanceUpdates {
                 // Once ratified, we can go over each proposal and figure out refunds due to
                 // enactment, expiry or conflicts with other enacted proposals.
                 let mut is_dormant_epoch = true;
+                let treasury_withdrawals = ctx.withdrawals.values().sum();
                 let mut payouts = ctx.withdrawals;
                 let mut payouts_str = String::new();
                 for (id, proposal) in proposals_metadata.into_iter() {
@@ -258,6 +264,7 @@ impl GovernanceUpdates {
                     roots: roots.unwrap_or_clone(),
                     pruned_proposals,
                     payouts,
+                    treasury_withdrawals,
                     is_dormant_epoch,
                     protocol_parameters: ctx.protocol_parameters,
                     new_constitution: ctx.new_constitution,
