@@ -15,7 +15,7 @@
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
 use amaru_observability::debug_span;
 use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
-use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
+use rocksdb::{IteratorMode, PrefixRange, ReadOptions, WriteBatch};
 
 use crate::rocksdb::consensus::{
     OPCERT_PREFIX, RocksDBStore,
@@ -28,13 +28,19 @@ impl WriteChainStore for RocksDBStore {
         let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
         let _guard = span.enter();
 
-        let hash = header.hash();
-        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+        self.with_batch(|batch| {
+            put_header(batch, header);
+            Ok(())
+        })
+    }
+
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+        let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
+        let _guard = span.enter();
 
         self.with_batch(|batch| {
-            batch.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), []);
-            batch.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header));
-            batch.put(opcert_key(header), to_cbor(&header.op_cert_seq()));
+            put_header(batch, header);
+            batch.put([&NONCES_PREFIX[..], &header.hash()[..]].concat(), to_cbor(nonces));
             Ok(())
         })
     }
@@ -150,4 +156,16 @@ impl WriteChainStore for RocksDBStore {
             Ok(())
         })
     }
+}
+
+/// Record a header, its link to its parent, and the opcert sequence number it declares. Every
+/// stored header must contribute to the opcert index, otherwise the sequence numbers observed on
+/// the chain go stale and subsequent headers get rejected as being too far ahead.
+fn put_header(batch: &mut WriteBatch, header: &BlockHeader) {
+    let hash = header.hash();
+    let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+
+    batch.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), []);
+    batch.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header));
+    batch.put(opcert_key(header), to_cbor(&header.op_cert_seq()));
 }

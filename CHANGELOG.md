@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260806 _[unreleased; planned for 2026-08-06]_
 
+### Changed
+
+- **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
+
 ### Removed
 
 - **amaru-kernel**: dependency on `pallas-*`

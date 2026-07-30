@@ -1231,6 +1231,32 @@ fn storing_a_header_records_its_opcert_sequence_number() {
 }
 
 #[test]
+fn storing_a_validated_header_records_its_opcert_sequence_number() {
+    with_db(|db| {
+        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header3 = make_block_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
+        db.store_validated_header(&header1, &Nonces::for_tests()).unwrap();
+        db.roll_forward_chain(&header1.point()).unwrap();
+        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.store_validated_header(&header2, &Nonces::for_tests()).unwrap();
+        db.store_validated_header(&header3, &Nonces::for_tests()).unwrap();
+        let pool_id = header1.pool_id();
+
+        assert_eq!(
+            db.get_latest_opcert_sequence_number(&pool_id, &header2).unwrap(),
+            Some(3),
+            "the opcert sequence number of its parent"
+        );
+        assert_eq!(
+            db.get_latest_opcert_sequence_number(&pool_id, &header3).unwrap(),
+            Some(4),
+            "the opcert sequence number of its parent"
+        );
+    })
+}
+
+#[test]
 fn pools_can_be_initialized_with_opcert_sequence_numbers() {
     with_db(|db| {
         // mirror bootstrap + first-start initialization (build_node.rs)

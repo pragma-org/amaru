@@ -55,6 +55,8 @@ struct Overrides {
     >,
     has_header: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> bool + Send>>,
     store_header: Option<Box<dyn FnMut(&dyn ChainStore, &BlockHeader) -> Result<(), StoreError> + Send>>,
+    store_validated_header:
+        Option<Box<dyn FnMut(&dyn ChainStore, &BlockHeader, &Nonces) -> Result<(), StoreError> + Send>>,
     set_anchor_hash: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
     set_best_chain_hash: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
     store_block: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, &RawBlock) -> Result<(), StoreError> + Send>>,
@@ -187,6 +189,14 @@ impl OverridingChainStoreBuilder {
         F: FnMut(&dyn ChainStore, &BlockHeader) -> Result<(), StoreError> + Send + 'static,
     {
         self.overrides.store_header = Some(Box::new(f));
+        self
+    }
+
+    pub fn with_store_validated_header<F>(mut self, f: F) -> Self
+    where
+        F: FnMut(&dyn ChainStore, &BlockHeader, &Nonces) -> Result<(), StoreError> + Send + 'static,
+    {
+        self.overrides.store_validated_header = Some(Box::new(f));
         self
     }
 
@@ -475,6 +485,14 @@ impl WriteChainStore for OverridingChainStore {
         match &mut overrides.store_header {
             Some(f) => f(self.inner.as_ref(), header),
             None => self.inner.store_header(header),
+        }
+    }
+
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+        let mut overrides = self.overrides.lock();
+        match &mut overrides.store_validated_header {
+            Some(f) => f(self.inner.as_ref(), header, nonces),
+            None => self.inner.store_validated_header(header, nonces),
         }
     }
 

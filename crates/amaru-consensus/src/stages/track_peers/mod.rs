@@ -25,6 +25,7 @@ use amaru_kernel::{
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
 use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     metrics_effects::{Metrics, MetricsOps},
@@ -384,12 +385,13 @@ impl TrackPeers {
     ///
     /// The received `tip` is the highest advertised tip for the peer as part of the RollForward message.
     ///
-    /// If the store already holds evolved nonces for this header (this is the durable proof that it
-    /// went through full validation once before) the header is skipped and `None` is returned.
-    /// Otherwise the header is validated and the point of its parent is returned.
+    /// If the store already holds evolved nonces for this header, it went through full validation
+    /// before (nonces are only stored together with a validated header), so the header is skipped
+    /// and `None` is returned. Otherwise the header is validated and the point of its parent is
+    /// returned, together with the nonces to store alongside it.
     ///
-    /// Note: a header could already sits in the chain store, as is the case for headers imported
-    /// during bootstrap, but not carry a nonce yet.
+    /// Note: a header can already sit in the chain store without carrying any nonces, as is the
+    /// case for headers imported during bootstrap. Those still need to be validated.
     #[expect(clippy::too_many_arguments)]
     async fn validate_header(
         &mut self,
@@ -401,7 +403,7 @@ impl TrackPeers {
         ledger: &Ledger,
         store: &Store,
         current_time: Instant,
-    ) -> Result<Option<Point>, ConsensusError> {
+    ) -> Result<Option<(Point, Nonces)>, ConsensusError> {
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
             return Err(ConsensusError::EraNameMismatch { from_raw_header: variant, from_slot: era_name });
@@ -454,14 +456,16 @@ impl TrackPeers {
             return Err(ConsensusError::HeaderSlotInNearFuture(header.slot()));
         }
 
-        // The evolved nonces are the durable proof that a header was fully validated.
-        // Note that a header merely imported during bootstrap has no nonces yet and must still be
-        // validated.
+        // Stored nonces are the durable proof that a header was fully validated: they are only
+        // written together with the header they belong to, once it passed all the Praos checks.
         if store.get_nonces(&header.hash()).await.is_some() {
             return Ok(None);
         }
-        ledger.validate_header(header).await.map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
-        Ok(Some(current.point()))
+        let nonces = ledger
+            .validate_header(header)
+            .await
+            .map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
+        Ok(Some((current.point(), nonces)))
     }
 
     async fn roll_forward(&mut self, conn_id: ConnectionId, header: &BlockHeader, tip: Tip) {
@@ -620,8 +624,8 @@ impl TrackPeers {
         let store = Store::new(eff.clone()).with_trace_context(trace_context);
 
         let result = self.validate_header(peer, *conn_id, *variant, header, *tip, &ledger, &store, now).await;
-        let parent = match result {
-            Ok(parent) => parent,
+        let validated = match result {
+            Ok(validated) => validated,
             Err(error) => {
                 if let Some(dh) = self.try_defer_for_stake(&args, &error) {
                     return Err(dh);
@@ -642,14 +646,13 @@ impl TrackPeers {
                 return Ok(());
             }
         };
-        // at this point the evolved nonces have been stored and follow-up headers can be validated
         self.roll_forward(*conn_id, header, *tip).await;
 
         // now we can destructure to consume the pieces
         let RollForwardArgs { peer, header, tip, sent_request_next, handler, trace_context, received_at, .. } = args;
         let header_tip = header.tip();
         let current = header_tip.point();
-        match parent {
+        match validated {
             None => {
                 tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward, header already stored");
                 debug!(
@@ -660,9 +663,11 @@ impl TrackPeers {
                 );
                 record_header_rejected(eff, PerfHeaderForwardOutcome::DuplicateHeader).await;
             }
-            Some(parent) => {
+            Some((parent, nonces)) => {
+                // the header and its nonces are stored atomically, so that stored nonces always
+                // denote a fully validated header, and follow-up headers can be validated
                 store
-                    .store_header(&header)
+                    .store_validated_header(&header, &nonces)
                     .or_terminate_with(eff, async |e| {
                         let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
                         error!(

@@ -15,8 +15,8 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, Hash, HeaderHash, IsHeader, NetworkName, Point, Tip,
-    make_header, num::CheckedSub,
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
+    num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
@@ -27,7 +27,8 @@ use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
     manager::ManagerMessage,
     store_effects::{
-        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect,
+        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore,
+        StoreValidatedHeaderEffect,
     },
 };
 use amaru_pure_stage::{
@@ -102,14 +103,9 @@ pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
 pub fn build_store_with_nonces(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     let store = build_store(headers);
     for header in headers {
-        store.put_nonces(&header.hash(), &dummy_nonces()).unwrap();
+        store.put_nonces(&header.hash(), &Nonces::for_tests()).unwrap();
     }
     store
-}
-
-fn dummy_nonces() -> Nonces {
-    let zero = Hash::from([0u8; 32]);
-    Nonces { active: zero, evolving: zero, candidate: zero, tail: zero, epoch: Epoch::from(0) }
 }
 
 /// Bundles state, runtime, handler, conn_id, and three linked headers for tests.
@@ -172,8 +168,11 @@ pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetNoncesEffect::new(hash))))
 }
 
-pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
+pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(StoreValidatedHeaderEffect::new(header, Nonces::for_tests())),
+    ))
 }
 
 pub fn te_clock_suspend(at_stage: &str) -> TraceEntry {
@@ -210,7 +209,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetNoncesEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
@@ -226,7 +225,9 @@ pub fn setup(
     store: Arc<InMemoryChainStore>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base(rt, state, [msg], store, |running| {
-        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+            OverrideResult::handled(Ok(Nonces::for_tests()))
+        });
     })
 }
 
@@ -241,7 +242,9 @@ pub fn setup_with_ledger_tip_until_sleeping(
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base_until_sleeping(rt, state, msg, store, |running| {
-        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+            OverrideResult::handled(Ok(Nonces::for_tests()))
+        });
         running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
             move |_| OverrideResult::handled(ledger_tip)
         });

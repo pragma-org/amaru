@@ -20,6 +20,12 @@ use crate::{Nonces, OpcertSequenceNumbers, StoreError};
 pub trait WriteChainStore: Send + Sync {
     fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError>;
 
+    /// Store a header together with its evolved nonces in a single store operation.
+    ///
+    /// Both are written atomically so that the presence of nonces for a header always means that
+    /// this header was fully validated.
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError>;
+
     /// TODO: use a set_anchor_tip function instead
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
 
