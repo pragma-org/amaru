@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Epoch;
+use amaru_kernel::{Epoch, cardano::pool_certificates::PoolCertificate};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -55,7 +55,7 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
             // necessary.
             let params = match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
                 None => as_value(Row::new(registered_at, deposit, params)),
-                Some(existing_params) => Row::extend(existing_params, (Some(params), epoch)),
+                Some(existing_params) => Row::extend(existing_params, PoolCertificate::Registration(params, epoch)),
             };
 
             db.put(as_key(&PREFIX, pool), params).map_err(|err| StoreError::Internal(err.into()))?;
@@ -76,7 +76,7 @@ pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Epo
                     error!(stores::ledger::pools::REMOVE, ?pool, reason = "unknown pool")
                 }
                 Some(existing_params) => db
-                    .put(as_key(&PREFIX, pool), Row::extend(existing_params, (None, epoch)))
+                    .put(as_key(&PREFIX, pool), Row::extend(existing_params, PoolCertificate::Retirement(epoch)))
                     .map_err(|err| StoreError::Internal(err.into()))?,
             };
         }

@@ -19,9 +19,9 @@ pub mod rocksdb;
 pub mod tests {
     use amaru_kernel::{
         Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
-        any_stake_credential,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolCertificates, PoolId, PoolParams, Slot,
+        StakeCredential, TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params,
+        any_proposal_id, any_stake_credential,
     };
     use amaru_ledger::{
         epoch_transition::GovernanceActivity,
@@ -255,7 +255,7 @@ pub mod tests {
         let stored_pool = stored_pool.unwrap();
 
         assert_eq!(stored_pool.current_params, fixture.pool_params, "current pool params mismatch");
-        assert_eq!(stored_pool.future_params, vec![], "future pool params mismatch");
+        assert!(stored_pool.pending_certificates.is_empty(), "pending pool certificates mismatch");
     }
 
     pub fn test_read_drep(store: &impl ReadStore, fixture: &Fixture) {
@@ -376,13 +376,9 @@ pub mod tests {
         )?;
         context.commit()?;
 
-        assert!(
-            store
-                .pool(&fixture.pool_params.id)?
-                .expect("Expected pool row")
-                .future_params
-                .iter()
-                .any(|(p, e)| p.is_none() && *e == fixture.pool_epoch),
+        assert_eq!(
+            store.pool(&fixture.pool_params.id)?.expect("Expected pool row").pending_certificates,
+            PoolCertificates::default().with_retirement(fixture.pool_epoch),
             "Expected pool to be scheduled for removal"
         );
 
