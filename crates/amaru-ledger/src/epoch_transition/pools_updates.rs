@@ -25,6 +25,11 @@ use amaru_observability::{debug, info_span};
 
 use crate::store::columns::pools::Row as Pool;
 
+mod pool_certificates;
+pub use pool_certificates::{PendingPoolCertificates, PoolCertificate, PoolCertificates};
+#[cfg(any(test, feature = "test-utils"))]
+pub use pool_certificates::{any_pool_certificate, any_pool_certificates};
+
 /// Captures stake pool updates computed at the epoch transition, but not yet applied to the
 /// immutable storage. Those updates are meant to be updated only after `k` blocks have passed in
 /// the following epoch (i.e. once they are stable).
@@ -76,7 +81,7 @@ impl PoolsEpochTransitionUpdates {
     /// Only check if a pool would be retiring, without taking ownership or modifying the original
     /// object.
     pub fn is_retiring(epoch: Epoch, pool: &Pool) -> bool {
-        fold_future_params(&pool.future_params, epoch).1.is_some()
+        pool.pending_certificates.pending_after(epoch).is_retiring()
     }
 
     /// Check whether a pool needs any sort of updates at the beginning of an epoch
@@ -96,18 +101,18 @@ impl PoolsEpochTransitionUpdates {
     /// a. Any re-registration that comes after a retirement cancels that retirement.
     /// b. Any retirement that come after a retirement cancels that previous retirement.
     pub fn tick_pool(&mut self, epoch: Epoch, mut pool: Pool) {
-        let (update, retirement) = fold_future_params(&pool.future_params, epoch);
+        let pending = pool.pending_certificates.pending_after(epoch);
 
         // If the most recent retirement is effective as per the current epoch, we simply drop the
-        // entry. Note that, any re-registration happening after that retirement would cancel it,
-        // which is taken care of in the fold above (returning 'None').
-        if retirement.is_some() {
-            return self.retire_pool(epoch, pool);
+        // entry. Note that, any certificate submitted after that retirement would cancel it, which
+        // is taken care of in the fold above (clearing 'retirement').
+        if pending.is_retiring() {
+            return self.retire_pool(epoch, &pool, pending);
         }
 
         let pool_id = pool.id();
 
-        let has_updated = if let Some(new_params) = update {
+        let has_updated = if let Some(new_params) = pending.registration() {
             // NOTE: hidden exhaustiveness check
             //
             // The following statement is destructuring and not using a wildcard spread `..`
@@ -149,17 +154,16 @@ impl PoolsEpochTransitionUpdates {
             false
         };
 
-        // Regardless, always prune future params from those that are now-obsolete.
-        let future_params_old_len = pool.future_params.len();
-        pool.future_params.retain(|(_, effective_in)| effective_in > &epoch);
-        let has_pruned_params = pool.future_params.len() < future_params_old_len;
+        // Regardless, always replace future params with those that remain relevant.
+        let has_resolved_certificates = pending.has_resolved_certificates();
+        pool.pending_certificates = pending.to_next_certificates();
 
-        if has_updated || has_pruned_params {
+        if has_updated || has_resolved_certificates {
             self.updated.insert(pool_id, pool);
         }
     }
 
-    fn retire_pool(&mut self, epoch: Epoch, pool: Pool) {
+    fn retire_pool(&mut self, epoch: Epoch, pool: &Pool, pending: PendingPoolCertificates<'_>) {
         debug!(ledger::epoch_transition::RETIRE_POOL, id = %pool.id());
 
         self.retired.insert(pool.id());
@@ -183,41 +187,13 @@ impl PoolsEpochTransitionUpdates {
         // we enforce this invariant here is because the next action will erase the
         // pool -- and any remaining updates with it. This would have dramatic
         // consequences should we still have updates stashed for the future.
-        let last = pool.future_params.last();
-        assert_eq!(
-            last,
-            Some(&(None, epoch)),
-            "invariant violation: most recent retirement (epoch={epoch}) is not the last certificate;\npool={}\ncertificates={:#?}",
+        assert!(
+            pending.is_retiring_at(epoch),
+            "invariant violation: no retirement effective exactly at epoch={epoch} survived;\npool={}\ncertificates={:#?}",
             pool.id(),
-            pool.future_params,
+            pool.pending_certificates,
         );
     }
-}
-
-/// Collapse stake pool future parameters according to the current epoch. The stable DB is at most k
-/// blocks in the past. So, if a certificate is submitted near the end (i.e. within k blocks) of the
-/// last epoch, then we could be in a situation where we haven't yet processed the registrations
-/// (since they're processed with a delay of k blocks) but have already moved into the next epoch.
-///
-/// The function returns any new params becoming active in the 'current_epoch', and the retirement
-/// status of the pool. Note that the pool can both have new parameters AND a retirement scheduled
-/// at a later epoch; so the return parameters are not necessarily a replacement of the existing
-/// ones.
-pub fn fold_future_params(
-    future_params: &[(Option<PoolParams>, Epoch)],
-    current_epoch: Epoch,
-) -> (Option<&PoolParams>, Option<Epoch>) {
-    future_params.iter().fold((None, None), |(update, _retirement), (params, epoch)| {
-        match params {
-            // Pool has a parameter update that should now be applied; overwrite any prior update
-            // and cancels any immediate retirement.
-            Some(params) => (Some(params), None),
-            // Pool is retiring *now*, cancels any pool update.
-            None if epoch <= &current_epoch => (None, Some(*epoch)),
-            // Pool is retiring later, though updates may still be present.
-            None => (update, None),
-        }
-    })
 }
 
 // Update a value in a source object, and returns a tracing field ready to be displayed. The field
@@ -241,26 +217,26 @@ mod tests {
     };
     use proptest::{collection::vec, prelude::*};
 
-    use super::PoolsEpochTransitionUpdates;
+    use super::{
+        PoolCertificate::{self, Registration, Retirement},
+        PoolCertificates, PoolsEpochTransitionUpdates,
+    };
     use crate::store::columns::pools::Row as Pool;
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
     // epoch's update. So a caller is expected to tick a base Pool between each application.
-    pub fn any_row_seq_updates(id: PoolId) -> impl Strategy<Value = Vec<Vec<(Option<PoolParams>, Epoch)>>> {
+    pub fn any_row_seq_updates(id: PoolId) -> impl Strategy<Value = Vec<Vec<PoolCertificate>>> {
         vec(Just(()), 0..10).prop_flat_map(move |cols| {
             cols.iter()
                 .enumerate()
                 .map(|(epoch, _)| {
-                    let future_params = || {
+                    let pending_certificate = || {
                         prop_oneof![
-                            (1..3u64).prop_map(move |offset| (None, Epoch::from(epoch as u64) + offset)),
-                            any_pool_params().prop_map(move |params| (
-                                Some(PoolParams { id, ..params }),
-                                Epoch::from(epoch as u64 + 1)
-                            ))
+                            (1..3u64).prop_map(move |offset| Retirement(Epoch::from(epoch as u64) + offset)),
+                            any_pool_params().prop_map(move |params| Registration(PoolParams { id, ..params }))
                         ]
                     };
-                    vec(future_params(), 0..3)
+                    vec(pending_certificate(), 0..3)
                 })
                 .collect::<Vec<_>>()
         })
@@ -268,34 +244,35 @@ mod tests {
 
     #[derive(Debug)]
     struct Model {
+        initial_params: PoolParams,
+        log: Vec<PoolCertificate>,
         current: Option<PoolParams>,
-        future: Vec<(Option<PoolParams>, Epoch)>,
     }
 
     impl Model {
         fn new(initial_params: PoolParams) -> Self {
-            Self { current: Some(initial_params), future: Vec::new() }
+            Self { current: Some(initial_params.clone()), initial_params, log: Vec::new() }
         }
 
-        // Process all updates through our simpler model
-        fn tick(&mut self, epoch: Epoch, updates: &[(Option<PoolParams>, Epoch)]) {
-            self.future =
-                self.future.iter().chain(updates).fold(Vec::new(), |mut future, (update, retirement_epoch)| {
-                    match update {
-                        None => {
-                            if retirement_epoch <= &epoch {
-                                self.current = None;
-                            } else {
-                                future.push((None, *retirement_epoch));
-                            }
-                        }
-                        Some(params) => {
-                            self.current = Some(params.clone());
-                        }
-                    }
+        // Replay the full certificate history rather than modelling any pruning. Applied
+        // registrations are permanent: the last one whose epoch has come defines the parameters.
+        // Retirements only kill the pool when no certificate was submitted after them.
+        fn tick(&mut self, epoch: Epoch, updates: &[PoolCertificate]) {
+            self.log.extend(updates.iter().cloned());
 
-                    future
-                });
+            let mut current = Some(self.initial_params.clone());
+            let mut retiring = false;
+            for certificate in &self.log {
+                match certificate {
+                    Registration(params) => {
+                        current = Some(params.clone());
+                        retiring = false;
+                    }
+                    Retirement(at) => retiring = at <= &epoch,
+                }
+            }
+
+            self.current = if retiring { None } else { current };
         }
     }
 
@@ -309,51 +286,60 @@ mod tests {
             }),
         ) {
             let mut model = Model::new(initial_params.clone());
-            let mut pool_opt = Some(Pool::new(registered_at, deposit, initial_params));
+            let mut pool = Pool::new(registered_at, deposit, initial_params);
 
-            for (current_epoch, updates) in sequence.into_iter().enumerate() {
-                let Some(mut pool) = pool_opt.take() else {
-                    break;
-                };
+            for (submission_epoch, updates) in sequence.into_iter().enumerate() {
+                // Certificates submitted during an epoch take effect at the next boundary at the
+                // earliest, which is where pools get ticked.
+                let boundary = Epoch::from(submission_epoch as u64) + 1;
 
-                let current_epoch = Epoch::from(current_epoch as u64);
+                model.tick(boundary, &updates);
 
-                model.tick(current_epoch, &updates);
-
-                let mut pools_updates = PoolsEpochTransitionUpdates::default();
                 let pool_id = pool.id();
-                pool.future_params = updates;
-                pools_updates.tick_pool(current_epoch, pool);
+                for certificate in updates {
+                    pool.pending_certificates.append_certificate(certificate);
+                }
 
-                if let Some(pool) = pools_updates.updated().get(&pool_id).cloned() {
+                let before_tick = pool.clone();
+                let mut pools_updates = PoolsEpochTransitionUpdates::default();
+                pools_updates.tick_pool(boundary, pool);
+
+                if let Some(updated) = pools_updates.updated().get(&pool_id).cloned() {
                     prop_assert_eq!(
                         model.current.as_ref(),
-                        Some(&pool.current_params),
-                        "current_epoch = {:?}, model = {:?}",
-                        current_epoch,
+                        Some(&updated.current_params),
+                        "boundary = {:?}, model = {:?}",
+                        boundary,
                         model
                     );
 
-                    let obsolete_count = pool.future_params.iter()
-                        .filter(|(_, epoch)| epoch <= &current_epoch)
-                        .count();
-
-                    prop_assert_eq!(
-                        obsolete_count,
-                        0,
-                        "future_params should not contain obsolete entries: {:?}",
-                        pool.future_params
+                    let has_resolved = updated.pending_certificates.pending_after(boundary).has_resolved_certificates();
+                    prop_assert!(
+                        !has_resolved,
+                        "There can't be any resolved certificates after we cleared the current ones: {:?}",
+                        updated.pending_certificates
                     );
 
-                    pool_opt = Some(pool)
+                    pool = updated;
                 } else if pools_updates.retired().contains(&pool_id) {
                     prop_assert_eq!(
                         model.current.as_ref(),
                         None,
-                        "current_epoch = {:?}, model = {:?}",
-                        current_epoch,
+                        "boundary = {:?}, model = {:?}",
+                        boundary,
                         model,
                     );
+                    break;
+                } else {
+                    // Nothing took effect at this boundary: the pool must be exactly as it was.
+                    prop_assert_eq!(
+                        model.current.as_ref(),
+                        Some(&before_tick.current_params),
+                        "boundary = {:?}, model = {:?}",
+                        boundary,
+                        model
+                    );
+                    pool = before_tick;
                 }
             }
         }
@@ -371,7 +357,7 @@ mod tests {
 
             let mut pool = Pool::new(registered_at, deposit, initial_params);
             let pool_id = pool.id();
-            pool.future_params = vec![(None, epoch)];
+            pool.pending_certificates = PoolCertificates::default().with_retirement(epoch);
 
             let mut pools_updates = PoolsEpochTransitionUpdates::default();
             pools_updates.tick_pool(epoch, pool);
@@ -379,6 +365,31 @@ mod tests {
             prop_assert!(pools_updates.retired().contains(&pool_id));
             prop_assert_eq!(pools_updates.refund(&reward_account), deposit);
         }
+    }
+
+    #[test]
+    fn re_registration_cancels_a_later_dated_retirement() {
+        let params = run_strategy(any_pool_params());
+        let updated_params = PoolParams { pledge: params.pledge.wrapping_add(1), ..params.clone() };
+
+        let mut pool = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), 500_000_000, params);
+        let pool_id = pool.id();
+
+        // A retirement scheduled for a distant epoch, then a re-registration effective sooner. The
+        // re-registration cancels the retirement, so the pool must survive the retirement epoch.
+        pool.pending_certificates =
+            PoolCertificates::default().with_retirement(Epoch::from(617)).with_registration(updated_params.clone());
+
+        let mut at_615 = PoolsEpochTransitionUpdates::default();
+        at_615.tick_pool(Epoch::from(615), pool);
+        assert!(!at_615.retired().contains(&pool_id), "retired at the re-registration boundary");
+
+        let pool = at_615.updated().get(&pool_id).cloned().expect("parameters update at 615");
+        assert_eq!(pool.current_params, updated_params, "new parameters not applied");
+
+        let mut at_617 = PoolsEpochTransitionUpdates::default();
+        at_617.tick_pool(Epoch::from(617), pool);
+        assert!(!at_617.retired().contains(&pool_id), "cancelled retirement resurfaced at its epoch");
     }
 
     #[test]
@@ -397,14 +408,16 @@ mod tests {
         pool_params_b.reward_account = reward_account;
 
         let mut pool_a = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), deposit_a, pool_params_a);
-        pool_a.future_params.push((None, Epoch::from(0)));
+        pool_a.pending_certificates.append_retirement(Epoch::from(0));
 
         let mut pool_b = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), deposit_b, pool_params_b);
-        pool_b.future_params.push((None, Epoch::from(0)));
+        pool_b.pending_certificates.append_retirement(Epoch::from(0));
 
         let mut pools_updates = PoolsEpochTransitionUpdates::default();
-        pools_updates.retire_pool(Epoch::from(0), pool_a);
-        pools_updates.retire_pool(Epoch::from(0), pool_b);
+        let pending_a = pool_a.pending_certificates.pending_after(Epoch::from(0));
+        let pending_b = pool_b.pending_certificates.pending_after(Epoch::from(0));
+        pools_updates.retire_pool(Epoch::from(0), &pool_a, pending_a);
+        pools_updates.retire_pool(Epoch::from(0), &pool_b, pending_b);
 
         let refunds = pools_updates.refunds().collect::<Vec<_>>();
         assert_eq!(refunds, vec![(&reward_credential, deposit_a + deposit_b)]);

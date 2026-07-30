@@ -106,7 +106,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
                 // ever happens, this line might save us from hours of debugging.
                 unreachable!(".iter_pools() called twice on the same VolatileView! Don't do that.")
             }
-            Some(mut pools) => Ok(iter_pools::IterPools::new(self.epoch, self.db.iter_pools()?, &mut pools)),
+            Some(mut pools) => Ok(iter_pools::IterPools::new(self.db.iter_pools()?, &mut pools)),
         }
     }
 

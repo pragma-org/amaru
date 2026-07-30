@@ -208,7 +208,7 @@ pub fn import_initial_snapshot(
     })?;
 
     import_block_issuers(db, point, era_history, block_issuers)?;
-    import_stake_pools(db, point, era_history, epoch, pools, pools_updates, pools_retirements)
+    import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
         .map_err(|err| format!("import pool state: {err}"))?;
     import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
@@ -537,7 +537,6 @@ fn import_stake_pools(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
-    epoch: Epoch,
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
@@ -579,7 +578,7 @@ fn import_stake_pools(
             pools: state.registered.into_values().flat_map(move |registrations| {
                 registrations
                     .into_iter()
-                    .map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, protocol_parameters.stake_pool_deposit, epoch))
+                    .map(|r| (r, *DEFAULT_CERTIFICATE_POINTER, protocol_parameters.stake_pool_deposit))
                     .collect::<Vec<_>>()
             }),
             accounts: iter::empty(),

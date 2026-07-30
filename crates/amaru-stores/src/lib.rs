@@ -24,7 +24,7 @@ pub mod tests {
         any_stake_credential,
     };
     use amaru_ledger::{
-        epoch_transition::GovernanceActivity,
+        epoch_transition::{GovernanceActivity, pools_updates::PoolCertificates},
         state::volatile::Resettable,
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
@@ -116,7 +116,7 @@ pub mod tests {
         let deposit = any_lovelace().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 
-        let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit, pool_epoch));
+        let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit));
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
@@ -255,7 +255,7 @@ pub mod tests {
         let stored_pool = stored_pool.unwrap();
 
         assert_eq!(stored_pool.current_params, fixture.pool_params, "current pool params mismatch");
-        assert_eq!(stored_pool.future_params, vec![], "future pool params mismatch");
+        assert!(stored_pool.pending_certificates.is_empty(), "pending pool certificates mismatch");
     }
 
     pub fn test_read_drep(store: &impl ReadStore, fixture: &Fixture) {
@@ -376,13 +376,9 @@ pub mod tests {
         )?;
         context.commit()?;
 
-        assert!(
-            store
-                .pool(&fixture.pool_params.id)?
-                .expect("Expected pool row")
-                .future_params
-                .iter()
-                .any(|(p, e)| p.is_none() && *e == fixture.pool_epoch),
+        assert_eq!(
+            store.pool(&fixture.pool_params.id)?.expect("Expected pool row").pending_certificates,
+            PoolCertificates::default().with_retirement(fixture.pool_epoch),
             "Expected pool to be scheduled for removal"
         );
 

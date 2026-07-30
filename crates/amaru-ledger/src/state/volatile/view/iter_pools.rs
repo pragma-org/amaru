@@ -46,7 +46,6 @@ use crate::{
 /// Importantly, the last points means that there's no guaranteed order on this iterator. Pools
 /// shall be considered unordered by consumers of this iterator.
 pub(crate) struct IterPools<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> {
-    epoch: Epoch,
     db_iterator: DBIter,
     registrations: BTreeMap<PoolId, Registrations<&'volatile (PoolParams, CertificatePointer, Lovelace)>>,
     retirements: BTreeMap<PoolId, Epoch>,
@@ -54,12 +53,10 @@ pub(crate) struct IterPools<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> 
 
 impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> IterPools<'volatile, DBIter> {
     pub fn new(
-        epoch: Epoch,
         db_iterator: DBIter,
         pools: &mut DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>,
     ) -> Self {
         Self {
-            epoch,
             db_iterator,
             registrations: mem::take(&mut pools.registered),
             retirements: mem::take(&mut pools.unregistered),
@@ -93,14 +90,14 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
         if let Some((pool_id, mut pool)) = self.db_iterator.next() {
             // Pool is already registered, and has some updates.
             if let Some(update) = self.registrations.remove(&pool_id) {
-                let mut future_params =
-                    update.iter().map(|(pool_params, _, _)| (Some(pool_params.clone()), self.epoch + 1)).collect();
-                pool.future_params.append(&mut future_params);
+                for (pool_params, _, _) in update.iter() {
+                    pool.pending_certificates.append_registration(pool_params.clone());
+                }
             }
 
             // Pool has announced its retirement.
             if let Some(retirement_epoch) = self.retirements.remove(&pool_id) {
-                pool.future_params.append(&mut vec![(None, retirement_epoch)])
+                pool.pending_certificates.append_retirement(retirement_epoch)
             }
 
             return Some((pool_id, pool));
@@ -112,12 +109,12 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
 
             let mut pool = Pool::new(registration.1, registration.2, registration.0.clone());
             if let Some(re_registration) = re_registration {
-                pool.future_params = vec![(Some(re_registration.0.clone()), self.epoch + 1)]
+                pool.pending_certificates.append_registration(re_registration.0.clone());
             }
 
             // Pool has announced its retirement.
             if let Some(retirement_epoch) = self.retirements.remove(&pool_id) {
-                pool.future_params.append(&mut vec![(None, retirement_epoch)])
+                pool.pending_certificates.append_retirement(retirement_epoch)
             }
 
             return Some((pool_id, pool));
@@ -142,15 +139,17 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::epoch_transition::PoolsEpochTransitionUpdates;
+    use crate::epoch_transition::{PoolsEpochTransitionUpdates, pools_updates::PoolCertificates};
 
     const MAX_POOLS: u8 = 3;
 
     static STABLE: LazyLock<BTreeMap<u8, (PoolId, Pool)>> = LazyLock::new(|| {
         let row = |ix| {
             let (current_params, registered_at, deposit) = mock_pool(ix);
-            let future_params = Vec::new();
-            (mock_pool_id(ix), Pool { registered_at, deposit, current_params, future_params })
+            (
+                mock_pool_id(ix),
+                Pool { registered_at, deposit, current_params, pending_certificates: Default::default() },
+            )
         };
 
         (0..MAX_POOLS).map(|ix| (ix, row(ix))).collect()
@@ -185,25 +184,26 @@ mod tests {
         seen: &'a [u8],
     }
 
+    const DEFAULT_INITIAL_EPOCH: Epoch = Epoch::new(100);
+
     impl From<EndOfEpochView<'_>> for IterPools<'static, std::vec::IntoIter<(PoolId, Pool)>> {
         fn from(test: EndOfEpochView<'_>) -> Self {
-            let epoch = Epoch::new(100);
+            let epoch = DEFAULT_INITIAL_EPOCH;
 
             Self::new(
-                epoch,
                 test.stable
                     .iter()
                     .map(|(ix, row)| {
                         let (current_params, registered_at, deposit) = mock_pool(*ix);
-                        let future_params = row
-                            .iter()
-                            .map(|event| match event {
-                                Event::Registration => (Some(mock_pool_params(*ix)), epoch + 1),
-                                Event::LateRetirement => (None, epoch + 10),
-                                Event::ImminentRetirement => (None, epoch + 1),
-                            })
-                            .collect();
-                        (mock_pool_id(*ix), Pool { registered_at, deposit, current_params, future_params })
+                        let mut pending_certificates = PoolCertificates::default();
+                        for event in row.iter() {
+                            match event {
+                                Event::Registration => pending_certificates.append_registration(mock_pool_params(*ix)),
+                                Event::LateRetirement => pending_certificates.append_retirement(epoch + 10),
+                                Event::ImminentRetirement => pending_certificates.append_retirement(epoch + 1),
+                            }
+                        }
+                        (mock_pool_id(*ix), Pool { registered_at, deposit, current_params, pending_certificates })
                     })
                     .collect::<Vec<(PoolId, Pool)>>()
                     .into_iter(),
@@ -251,7 +251,7 @@ mod tests {
 
     fn volatile(ix: u8) -> Pool {
         let (current_params, registered_at, deposit) = (*VOLATILE).get(&ix).cloned().unwrap();
-        Pool { current_params, registered_at, deposit, future_params: Vec::new() }
+        Pool { current_params, registered_at, deposit, pending_certificates: Default::default() }
     }
 
     fn sample<T>(seed: u8, strategy: impl Strategy<Value = T>) -> T {
@@ -325,6 +325,18 @@ mod tests {
     )]
     #[test_case(
         EndOfEpochView {
+            stable: &[(0, &[Event::LateRetirement])],
+            volatile: &[(0, Event::Registration)]
+        },
+        NextEpochExpectations {
+            seen: &[0],
+            updated: &[(0, Pool { current_params: volatile(0).current_params, ..stable(0) })],
+            retired: &[]
+        };
+        "existing stable, late retirement, one volatile update"
+    )]
+    #[test_case(
+        EndOfEpochView {
             stable: &[(0, &[])],
             volatile: &[(0, Event::ImminentRetirement)]
         },
@@ -362,7 +374,7 @@ mod tests {
             // parameters and yet, preserve the late retirement as well. There's no diff strategy on
             // pool updates, we just replace the pool object entirely; and must therefore include
             // the late retirement.
-            updated: &[(0, Pool { future_params: vec![(None, Epoch::from(110))], ..stable(0) })],
+            updated: &[(0, Pool { pending_certificates: PoolCertificates::default().with_retirement(Epoch::from(110)), ..stable(0) })],
             retired: &[]
         };
         "update in stable, late retirement in volatile"
@@ -398,7 +410,7 @@ mod tests {
         },
         NextEpochExpectations {
             seen: &[0],
-            updated: &[(0, Pool { future_params: vec![(None, Epoch::from(110))], ..stable(0) })],
+            updated: &[(0, Pool { pending_certificates: PoolCertificates::default().with_retirement(Epoch::from(110)), ..stable(0) })],
             retired: &[]
         };
         "imminent retirement in stable, late retirement in volatile"
@@ -453,7 +465,6 @@ mod tests {
     )]
     fn iter_pools_scenarios(test: EndOfEpochView<'_>, expectations: NextEpochExpectations<'_>) {
         let iterator = IterPools::from(test);
-        let epoch = iterator.epoch;
 
         let mut seen = BTreeSet::new();
         let transition = PoolsEpochTransitionUpdates::new(
@@ -461,7 +472,7 @@ mod tests {
                 seen.insert(ix);
                 (ix, pool)
             }),
-            epoch + 1,
+            DEFAULT_INITIAL_EPOCH + 1,
         );
 
         assert_eq!(expectations.seen.iter().copied().map(mock_pool_id).collect::<BTreeSet<_>>(), seen, "seen mismatch");
