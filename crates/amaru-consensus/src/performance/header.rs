@@ -16,19 +16,25 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{HeaderHash, Tip};
+use amaru_kernel::{HeaderHash, Peer, Tip};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
 use amaru_observability::debug;
 use amaru_pure_stage::Instant;
 
 /// Tracks the processing of headers to emit a single `perf.header.lifecycle` event per header when
 /// its block reaches a terminal state (adopted, invalidated, abandoned, or pruned). The event covers
-/// the four network-health processing points of a header's lifecycle and carries the intervals
-/// between them:
+/// the virtual slot start followed by the four network-health processing points of a header's
+/// lifecycle and carries the intervals between them:
 ///
+/// - `slot_start_to_header_micros`: from the virtual beginning of the slot to the header's
+///   reception (computed by stages via era history; omitted when the node is still syncing).
 /// - `block_fetch_wait_micros`: from the header's reception to the request of its block.
 /// - `block_fetch_micros`: from the request of the block to its reception.
 /// - `forward_micros`: from the header's reception to the adoption of its block.
+///
+/// The first peer that announced the header is retained so terminal lifecycle events can attribute
+/// timings to that peer (TUI / `perf.header.lifecycle`). Later announcements of the same hash do not
+/// overwrite the first announcer or the slot-start interval.
 ///
 /// Fork switches are tracked independently and emitted as `perf.fork.switch`.
 ///
@@ -46,6 +52,10 @@ pub struct HeaderPerformance {
 /// The processing timestamps accumulated for a header until its block reaches a terminal state.
 #[derive(Debug, Clone)]
 struct HeaderLifecycle {
+    /// Peer from which the header was first received.
+    peer: Peer,
+    /// Interval from virtual slot start to header reception, computed by the announcing stage.
+    slot_start_to_header_micros: u64,
     /// Time when the header was first received from an upstream peer.
     received_at: Instant,
     /// Time when its block was first requested, if it was requested.
@@ -55,8 +65,8 @@ struct HeaderLifecycle {
 }
 
 impl HeaderLifecycle {
-    fn new(received_at: Instant) -> Self {
-        Self { received_at, requested_at: None, downloaded_at: None }
+    fn new(peer: Peer, slot_start_to_header_micros: u64, received_at: Instant) -> Self {
+        Self { peer, slot_start_to_header_micros, received_at, requested_at: None, downloaded_at: None }
     }
 }
 
@@ -137,9 +147,21 @@ impl HeaderPerformance {
     }
 
     /// A header has been accepted from upstream: start tracking its lifecycle from `received_at`.
-    /// Subsequent announcements of the same header do not move `received_at` (first wins).
-    pub fn apply_header_received(&mut self, tip: Tip, received_at: Instant) {
-        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(received_at));
+    /// Subsequent announcements of the same header do not move `received_at`, the first announcer
+    /// peer, or the precomputed slot-start interval (first wins).
+    ///
+    /// `slot_start_to_header_micros` is computed by the caller (using era history) so this type
+    /// stays free of consensus calendar knowledge.
+    pub fn apply_header_received(
+        &mut self,
+        peer: Peer,
+        tip: Tip,
+        received_at: Instant,
+        slot_start_to_header_micros: u64,
+    ) {
+        self.lifecycles
+            .entry(tip.hash())
+            .or_insert_with(|| HeaderLifecycle::new(peer, slot_start_to_header_micros, received_at));
     }
 
     /// The fetch stage requested the blocks for these headers: record their request time.
@@ -166,7 +188,8 @@ impl HeaderPerformance {
 
     /// A received header that is abandoned because its block depends on an invalid block.
     pub fn apply_header_abandoned(&mut self, hash: &HeaderHash, now: Instant, meter: Option<&Meter>) {
-        self.emit_lifecycle(hash, HeaderLifecycleOutcome::AbandonedBlock, now, meter);
+        // Not a sync-path decision; always include the slot-start interval when available.
+        self.emit_lifecycle(hash, HeaderLifecycleOutcome::AbandonedBlock, now, false, meter);
     }
 
     /// A fork has been detected: start tracking the time it takes to switch to it. If a previous
@@ -180,8 +203,11 @@ impl HeaderPerformance {
 
     /// The block for a header has been validated and adopted: emit its lifecycle event and the
     /// fork-switch event if it was waiting on this header.
-    pub fn apply_block_valid(&mut self, hash: &HeaderHash, now: Instant, meter: Option<&Meter>) {
-        self.emit_lifecycle(hash, HeaderLifecycleOutcome::ValidBlock, now, meter);
+    ///
+    /// When `syncing` is true, `slot_start_to_header_micros` is omitted (not meaningful while
+    /// catching up far behind the network tip).
+    pub fn apply_block_valid(&mut self, hash: &HeaderHash, now: Instant, syncing: bool, meter: Option<&Meter>) {
+        self.emit_lifecycle(hash, HeaderLifecycleOutcome::ValidBlock, now, syncing, meter);
         self.close_fork(hash, ForkSwitchOutcome::ValidBlock, now, meter);
     }
 
@@ -189,19 +215,38 @@ impl HeaderPerformance {
     ///
     /// `invalid == true` means that the block was found invalid; otherwise this header/block
     /// has been abandoned because a better chain is available.
-    pub fn apply_block_pruned(&mut self, hash: &HeaderHash, invalid: bool, now: Instant, meter: Option<&Meter>) {
+    ///
+    /// When `syncing` is true, `slot_start_to_header_micros` is omitted.
+    pub fn apply_block_pruned(
+        &mut self,
+        hash: &HeaderHash,
+        invalid: bool,
+        now: Instant,
+        syncing: bool,
+        meter: Option<&Meter>,
+    ) {
         let (header_outcome, fork_outcome) = if invalid {
             (HeaderLifecycleOutcome::InvalidBlock, ForkSwitchOutcome::InvalidBlock)
         } else {
             (HeaderLifecycleOutcome::AbandonedBlock, ForkSwitchOutcome::AbandonedBlock)
         };
-        self.emit_lifecycle(hash, header_outcome, now, meter);
+        self.emit_lifecycle(hash, header_outcome, now, syncing, meter);
         self.close_fork(hash, fork_outcome, now, meter);
     }
 
     /// Number of headers currently tracked (tests / diagnostics).
     pub fn lifecycle_count(&self) -> usize {
         self.lifecycles.len()
+    }
+
+    /// First peer that announced `hash`, if tracked (tests / diagnostics).
+    pub fn first_announcer(&self, hash: &HeaderHash) -> Option<Peer> {
+        self.lifecycles.get(hash).map(|l| l.peer.clone())
+    }
+
+    /// Stage-computed slot-start interval for `hash`, if tracked (tests / diagnostics).
+    pub fn slot_start_to_header_micros(&self, hash: &HeaderHash) -> Option<u64> {
+        self.lifecycles.get(hash).map(|l| l.slot_start_to_header_micros)
     }
 
     /// Whether a fork switch is in progress for `hash` (tests / diagnostics).
@@ -218,12 +263,14 @@ impl HeaderPerformance {
         hash: &HeaderHash,
         outcome: HeaderLifecycleOutcome,
         now: Instant,
+        syncing: bool,
         meter: Option<&Meter>,
     ) {
         let Some(lifecycle) = self.lifecycles.remove(hash) else {
             return;
         };
 
+        let slot_start_to_header_micros = (!syncing).then_some(lifecycle.slot_start_to_header_micros);
         let block_fetch_wait_micros =
             lifecycle.requested_at.map(|requested_at| duration_micros(lifecycle.received_at, requested_at));
         let block_fetch_micros = lifecycle
@@ -234,8 +281,10 @@ impl HeaderPerformance {
 
         debug!(
             consensus::perf::header::LIFECYCLE,
+            peer = lifecycle.peer.clone(),
             header_hash = hash,
             outcome = outcome.as_str(),
+            slot_start_to_header_micros = @slot_start_to_header_micros,
             block_fetch_wait_micros = @block_fetch_wait_micros,
             block_fetch_micros = @block_fetch_micros,
             forward_micros = @forward_micros
@@ -245,8 +294,7 @@ impl HeaderPerformance {
             meter,
             ConsensusMetrics::HeaderLifecycle {
                 outcome: outcome.as_str().to_string(),
-                // Not tracked on the resource yet; callers may supply this via later wiring.
-                slot_start_to_header_micros: None,
+                slot_start_to_header_micros,
                 block_fetch_wait_micros,
                 block_fetch_micros,
                 forward_micros: Some(forward_micros),

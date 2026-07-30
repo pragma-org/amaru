@@ -78,8 +78,9 @@ impl Performance {
         header: Tip,
         parent: Option<HeaderHash>,
         at: Instant,
+        slot_start_to_header_micros: u64,
     ) -> RecordHeaderAnnouncementEffect {
-        RecordHeaderAnnouncementEffect { peer, header, parent, at }
+        RecordHeaderAnnouncementEffect { peer, header, parent, at, slot_start_to_header_micros }
     }
 
     pub fn record_blocks_requested(hashes: Vec<HeaderHash>, requested_at: Instant) -> RecordBlocksRequestedEffect {
@@ -162,12 +163,17 @@ impl Performance {
         RecordForkStartedEffect { tip, started_at }
     }
 
-    pub fn record_block_valid(hash: HeaderHash, now: Instant) -> RecordBlockValidEffect {
-        RecordBlockValidEffect { hash, now }
+    pub fn record_block_valid(hash: HeaderHash, now: Instant, syncing: bool) -> RecordBlockValidEffect {
+        RecordBlockValidEffect { hash, now, syncing }
     }
 
-    pub fn record_block_pruned(hash: HeaderHash, invalid: bool, now: Instant) -> RecordBlockPrunedEffect {
-        RecordBlockPrunedEffect { hash, invalid, now }
+    pub fn record_block_pruned(
+        hash: HeaderHash,
+        invalid: bool,
+        now: Instant,
+        syncing: bool,
+    ) -> RecordBlockPrunedEffect {
+        RecordBlockPrunedEffect { hash, invalid, now, syncing }
     }
 }
 
@@ -202,6 +208,8 @@ pub struct RecordHeaderAnnouncementEffect {
     pub(crate) header: Tip,
     pub(crate) parent: Option<HeaderHash>,
     pub(crate) at: Instant,
+    /// Stage-computed interval from virtual slot start to header reception.
+    pub(crate) slot_start_to_header_micros: u64,
 }
 
 impl ExternalEffect for RecordHeaderAnnouncementEffect {
@@ -561,6 +569,8 @@ impl ExternalEffectAPI for RecordForkStartedEffect {
 pub struct RecordBlockValidEffect {
     pub(crate) hash: HeaderHash,
     pub(crate) now: Instant,
+    /// When true, omit `slot_start_to_header_micros` from the emitted lifecycle metric.
+    pub(crate) syncing: bool,
 }
 
 impl ExternalEffect for RecordBlockValidEffect {
@@ -582,6 +592,8 @@ pub struct RecordBlockPrunedEffect {
     pub(crate) hash: HeaderHash,
     pub(crate) invalid: bool,
     pub(crate) now: Instant,
+    /// When true, omit `slot_start_to_header_micros` from the emitted lifecycle metric.
+    pub(crate) syncing: bool,
 }
 
 impl ExternalEffect for RecordBlockPrunedEffect {

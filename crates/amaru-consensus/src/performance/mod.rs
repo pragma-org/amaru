@@ -251,8 +251,8 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             peers.apply_intersection(effect.peer, effect.current, effect.parent, effect.at);
         }
         PerformanceOp::RecordHeaderAnnouncement { effect } => {
-            peers.apply_header_announcement(effect.peer, effect.header, effect.parent, effect.at);
-            headers.apply_header_received(effect.header, effect.at);
+            peers.apply_header_announcement(effect.peer.clone(), effect.header, effect.parent, effect.at);
+            headers.apply_header_received(effect.peer, effect.header, effect.at, effect.slot_start_to_header_micros);
         }
         PerformanceOp::RecordBlocksRequested { effect } => {
             headers.apply_blocks_requested(&effect.hashes, effect.requested_at);
@@ -325,10 +325,10 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             headers.apply_fork_started(effect.tip, effect.started_at, meter.as_deref());
         }
         PerformanceOp::RecordBlockValid { effect, meter } => {
-            headers.apply_block_valid(&effect.hash, effect.now, meter.as_deref());
+            headers.apply_block_valid(&effect.hash, effect.now, effect.syncing, meter.as_deref());
         }
         PerformanceOp::RecordBlockPruned { effect, meter } => {
-            headers.apply_block_pruned(&effect.hash, effect.invalid, effect.now, meter.as_deref());
+            headers.apply_block_pruned(&effect.hash, effect.invalid, effect.now, effect.syncing, meter.as_deref());
         }
     }
 }

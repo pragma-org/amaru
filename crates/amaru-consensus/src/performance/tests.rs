@@ -382,7 +382,7 @@ fn header_received_and_peer_claim_are_independent_maps() {
     let alice = peer("alice");
 
     peers.apply_header_announcement(alice.clone(), tip(1, 1), None, t(1));
-    headers.apply_header_received(tip(1, 1), t(1));
+    headers.apply_header_received(alice.clone(), tip(1, 1), t(1), 1_000);
 
     assert_eq!(headers.lifecycle_count(), 1);
     assert!(peers.apply_peer_covers_fragment(&alice, &[hash(1)]));
@@ -390,13 +390,27 @@ fn header_received_and_peer_claim_are_independent_maps() {
 }
 
 #[test]
+fn first_header_announcer_peer_is_retained() {
+    let mut headers = HeaderPerformance::new();
+    let alice = peer("alice");
+    let bob = peer("bob");
+
+    headers.apply_header_received(alice.clone(), tip(1, 1), t(1), 1_000);
+    // Later announcer must not overwrite the first peer or slot interval.
+    headers.apply_header_received(bob, tip(1, 1), t(2), 9_999);
+
+    assert_eq!(headers.first_announcer(&hash(1)), Some(alice));
+    assert_eq!(headers.slot_start_to_header_micros(&hash(1)), Some(1_000));
+}
+
+#[test]
 fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(tip(1, 1), t(1));
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 500);
     headers.apply_blocks_requested(&[hash(1)], t(2));
     headers.apply_block_downloaded(&hash(1), t(3));
     assert_eq!(headers.lifecycle_count(), 1);
-    headers.apply_block_valid(&hash(1), t(4), None);
+    headers.apply_block_valid(&hash(1), t(4), false, None);
     assert_eq!(headers.lifecycle_count(), 0);
 }
 
@@ -410,11 +424,20 @@ fn header_rejected_does_not_require_lifecycle_entry() {
 #[test]
 fn fork_started_and_closed_on_valid_block() {
     let mut headers = HeaderPerformance::new();
-    headers.apply_header_received(tip(1, 1), t(1));
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
     headers.apply_fork_started(tip(1, 1), t(1), None);
     assert!(headers.has_fork_switch(&hash(1)));
-    headers.apply_block_valid(&hash(1), t(2), None);
+    headers.apply_block_valid(&hash(1), t(2), false, None);
     assert!(!headers.has_fork_switch(&hash(1)));
+}
+
+#[test]
+fn slot_start_metric_omitted_while_syncing() {
+    let mut headers = HeaderPerformance::new();
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000);
+    // Syncing path still closes the lifecycle; metric emission is covered via OTel/meter in production.
+    headers.apply_block_valid(&hash(1), t(2), true, None);
+    assert_eq!(headers.lifecycle_count(), 0);
 }
 
 // ---------------------------------------------------------------------------

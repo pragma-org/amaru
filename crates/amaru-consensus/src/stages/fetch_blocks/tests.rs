@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use amaru_kernel::BlockHeight;
+use amaru_kernel::{BlockHeight, IsHeader};
 use amaru_ouroboros_traits::MissingBlocks;
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
@@ -27,7 +27,8 @@ use super::*;
 use crate::stages::{
     fetch_blocks::test_setup::{
         TestPrep, make_block_header, setup, te_ancestors_between, te_cancel_schedule, te_clock, te_find_missing_blocks,
-        te_has_block, te_load_header, te_schedule, te_store_block, test_peer, test_prep,
+        te_has_block, te_load_header, te_record_block_delivery, te_record_blocks_requested, te_schedule,
+        te_store_block, test_peer, test_prep,
     },
     test_utils::{
         assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated, tm_state,
@@ -159,6 +160,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
         );
         state.block_height = BlockHeight::from(4);
         state.trace_context = Some(Default::default());
+        state.fetch_started_at = Some(Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time));
         state
     };
     assert_trace(
@@ -187,11 +189,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
                     cr: prep.cleanup_replies.clone(),
                 },
             ),
-            te_send(
-                "fb-1",
-                "upstream",
-                SelectChainMsg::BlocksRequested(vec![prep.headers.h2.hash(), h3.hash()], requested_at),
-            ),
+            te_record_blocks_requested("fb-1", vec![prep.headers.h2.hash(), h3.hash()], requested_at),
             te_schedule("fb-1", FetchBlocksMsg::Timeout(1), schedule_id),
             te_state("fb-1", &expected),
             // The batch chains onto h1, so a timeout must resume from there.
@@ -237,6 +235,7 @@ fn test_new_tip_blocks_to_fetch() {
     state_with_timeout.block_height = BlockHeight::from(3);
     state_with_timeout.trace_context = Some(Default::default());
     let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    state_with_timeout.fetch_started_at = Some(requested_at);
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
         state.missing = None;
@@ -261,11 +260,7 @@ fn test_new_tip_blocks_to_fetch() {
                     cr: prep.cleanup_replies.clone(),
                 },
             ),
-            te_send(
-                "fb-1",
-                "upstream",
-                SelectChainMsg::BlocksRequested(vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at),
-            ),
+            te_record_blocks_requested("fb-1", vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at),
             te_schedule("fb-1", FetchBlocksMsg::Timeout(1), schedule_id),
             te_state("fb-1", &state_with_timeout),
             te_clock(timeout_at),
@@ -282,11 +277,16 @@ fn test_new_tip_blocks_to_fetch() {
 #[test]
 fn test_block_received() {
     let mut prep = test_prep();
-    prep.state = prep.state_with_request(
-        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
-        1,
-        prep.schedule_at(Duration::from_secs(5)),
-    );
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    prep.state = {
+        let mut state = prep.state_with_request(
+            MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point(), prep.headers.h2.point()]),
+            1,
+            prep.schedule_at(Duration::from_secs(5)),
+        );
+        state.fetch_started_at = Some(requested_at);
+        state
+    };
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
@@ -298,27 +298,32 @@ fn test_block_received() {
         state.missing = Some(MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]));
         state
     };
-    assert_trace(
+    let raw = TestPrep::raw_block(&prep.headers.h1);
+    let bytes = raw.len() as u64;
+    assert_trace_contains(
         &running,
         &[
-            te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
-            te_clock_read("fb-1"),
-            te_send(
+            te_input("fb-1", &msg).into(),
+            te_clock_read("fb-1").into(),
+            te_record_block_delivery(
                 "fb-1",
-                "upstream",
-                SelectChainMsg::BlockDownloaded(
-                    prep.headers.h1.hash(),
-                    Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
-                ),
-            ),
-            te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
+                test_peer(),
+                prep.headers.h1.hash(),
+                prep.headers.h1.block_height(),
+                prep.headers.h1.parent_hash(),
+                requested_at,
+                Duration::ZERO,
+                bytes,
+            )
+            .into(),
+            te_store_block("fb-1", prep.headers.h1.hash(), raw).into(),
             te_send(
                 "fb-1",
                 "downstream",
                 DownloadedBlock::new(prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(0)),
-            ),
-            te_state("fb-1", &expected),
+            )
+            .into(),
+            te_state("fb-1", &expected).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["received block"]).assert_no_remaining_at([
@@ -332,11 +337,16 @@ fn test_block_received() {
 fn test_block2_received() {
     let mut prep = test_prep();
     let schedule_id = prep.schedule_at(Duration::from_secs(5));
-    prep.state = prep.state_with_request(
-        MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]),
-        1,
-        schedule_id,
-    );
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    prep.state = {
+        let mut state = prep.state_with_request(
+            MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]),
+            1,
+            schedule_id,
+        );
+        state.fetch_started_at = Some(requested_at);
+        state
+    };
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
@@ -347,31 +357,37 @@ fn test_block2_received() {
         let mut state = prep.state.clone();
         state.missing = None;
         state.timeout = None;
+        state.fetch_started_at = None;
         state
     };
-    assert_trace(
+    let raw = TestPrep::raw_block(&prep.headers.h2);
+    let bytes = raw.len() as u64;
+    assert_trace_contains(
         &running,
         &[
-            te_state("fb-1", &prep.state),
-            te_input("fb-1", &msg),
-            te_clock_read("fb-1"),
-            te_send(
+            te_input("fb-1", &msg).into(),
+            te_clock_read("fb-1").into(),
+            te_record_block_delivery(
                 "fb-1",
-                "upstream",
-                SelectChainMsg::BlockDownloaded(
-                    prep.headers.h2.hash(),
-                    Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
-                ),
-            ),
-            te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
+                test_peer(),
+                prep.headers.h2.hash(),
+                prep.headers.h2.block_height(),
+                prep.headers.h2.parent_hash(),
+                requested_at,
+                Duration::ZERO,
+                bytes,
+            )
+            .into(),
+            te_store_block("fb-1", prep.headers.h2.hash(), raw).into(),
             te_send(
                 "fb-1",
                 "downstream",
                 DownloadedBlock::new(prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(0)),
-            ),
-            te_cancel_schedule("fb-1", schedule_id),
-            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h2.point())),
-            te_state("fb-1", &expected),
+            )
+            .into(),
+            te_cancel_schedule("fb-1", schedule_id).into(),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h2.point())).into(),
+            te_state("fb-1", &expected).into(),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["received block"]).assert_no_remaining_at([
