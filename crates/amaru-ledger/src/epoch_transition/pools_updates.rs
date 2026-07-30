@@ -53,7 +53,7 @@ impl PoolsEpochTransitionUpdates {
             let mut pools_updates = Self::default();
 
             for (_pool_id, pool) in pools_iter {
-                pools_updates.tick_pool(epoch, pool)
+                pools_updates.tick_pool(epoch, pool);
             }
 
             pools_updates

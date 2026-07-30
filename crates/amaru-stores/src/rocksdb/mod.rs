@@ -988,7 +988,7 @@ fn with_prefix_iterator<
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::ITER_SCAN, db_collection_name = collection).in_scope(|| {
         let mut iterator = amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
+            // TODO: clarify what kind of errors can come from the database at this point.
             // We are merely iterating over a collection.
             item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
         }));
