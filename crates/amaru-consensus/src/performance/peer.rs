@@ -18,7 +18,6 @@ use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Tip};
 use amaru_pure_stage::Instant;
-use parking_lot::Mutex;
 
 const EWMA_ALPHA: f64 = 0.2;
 /// Safety cap on parent walks. With height-aware early exit this is rarely approached;
@@ -111,49 +110,36 @@ struct PeerState {
     scores: PeerScores,
 }
 
+/// Peer performance map (availability + scores). Owned by the performance worker thread.
 #[derive(Debug, Default)]
-struct Inner {
+pub struct PeerPerformance {
     parents: BTreeMap<HeaderHash, ParentInfo>,
     direct: BTreeMap<HeaderHash, BTreeMap<Peer, ClaimMeta>>,
     peers: BTreeMap<Peer, PeerState>,
 }
 
-/// Thread-safe peer performance map (availability + scores).
-#[derive(Debug, Default)]
-pub struct PeerPerformance {
-    inner: Mutex<Inner>,
-}
-
 impl PeerPerformance {
     pub fn new() -> Self {
-        Self { inner: Mutex::new(Inner::default()) }
+        Self::default()
     }
 
-    pub fn apply_intersection(&self, peer: Peer, current: Tip, parent: Option<HeaderHash>, at: Instant) {
-        self.inner.lock().insert_claim(
-            peer,
-            current.hash(),
-            current.block_height(),
-            parent,
-            ClaimKind::Intersection,
-            at,
-        );
+    pub fn apply_intersection(&mut self, peer: Peer, current: Tip, parent: Option<HeaderHash>, at: Instant) {
+        self.insert_claim(peer, current.hash(), current.block_height(), parent, ClaimKind::Intersection, at);
     }
 
-    pub fn apply_header_announcement(&self, peer: Peer, header: Tip, parent: Option<HeaderHash>, at: Instant) {
-        let mut guard = self.inner.lock();
+    pub fn apply_header_announcement(&mut self, peer: Peer, header: Tip, parent: Option<HeaderHash>, at: Instant) {
         // First announcer records zero lag (bonus); later peers record delay vs first.
-        let lag = guard
+        let lag = self
             .first_announced_at_unlocked(&header.hash())
             .map(|(_, first_at)| at.saturating_since(first_at))
             .unwrap_or(Duration::ZERO);
-        guard.update_header_lag(&peer, lag, at);
-        guard.insert_claim(peer, header.hash(), header.block_height(), parent, ClaimKind::HeaderAnnouncement, at);
+        self.update_header_lag(&peer, lag, at);
+        self.insert_claim(peer, header.hash(), header.block_height(), parent, ClaimKind::HeaderAnnouncement, at);
     }
 
     #[expect(clippy::too_many_arguments)]
     pub fn apply_block_delivery(
-        &self,
+        &mut self,
         peer: Peer,
         hash: HeaderHash,
         height: BlockHeight,
@@ -162,86 +148,81 @@ impl PeerPerformance {
         response: Duration,
         bytes: u64,
     ) {
-        let mut guard = self.inner.lock();
-        guard.insert_claim(peer.clone(), hash, height, parent, ClaimKind::BlockDelivery, at);
-        guard.update_block_delivery(&peer, response, bytes, at);
+        self.insert_claim(peer.clone(), hash, height, parent, ClaimKind::BlockDelivery, at);
+        self.update_block_delivery(&peer, response, bytes, at);
     }
 
-    pub fn apply_fetch_failure(&self, peers: &[Peer], at: Instant) {
-        let mut guard = self.inner.lock();
+    pub fn apply_fetch_failure(&mut self, peers: &[Peer], at: Instant) {
         for peer in peers {
-            let state = guard.peers.entry(peer.clone()).or_default();
+            let state = self.peers.entry(peer.clone()).or_default();
             state.scores.fetch_timeouts = state.scores.fetch_timeouts.saturating_add(1);
             state.scores.last_change = Some(at);
         }
     }
 
-    pub fn apply_keepalive_rtt(&self, peer: Peer, rtt: Duration, at: Instant) {
-        let mut guard = self.inner.lock();
-        let state = guard.peers.entry(peer).or_default();
+    pub fn apply_keepalive_rtt(&mut self, peer: Peer, rtt: Duration, at: Instant) {
+        let state = self.peers.entry(peer).or_default();
         state.scores.keepalive_rtt_ewma = Some(ewma_duration(state.scores.keepalive_rtt_ewma, rtt));
         state.scores.last_change = Some(at);
     }
 
-    pub fn apply_clear_peer_availability(&self, peer: &Peer) {
-        let mut guard = self.inner.lock();
-        if let Some(state) = guard.peers.get_mut(peer) {
+    pub fn apply_clear_peer_availability(&mut self, peer: &Peer) {
+        if let Some(state) = self.peers.get_mut(peer) {
             state.tips.clear();
         }
-        for claimants in guard.direct.values_mut() {
+        for claimants in self.direct.values_mut() {
             claimants.remove(peer);
         }
-        guard.direct.retain(|_, claimants| !claimants.is_empty());
+        self.direct.retain(|_, claimants| !claimants.is_empty());
     }
 
-    pub fn apply_forget_peer(&self, peer: &Peer) {
-        let mut guard = self.inner.lock();
-        guard.peers.remove(peer);
-        for claimants in guard.direct.values_mut() {
+    pub fn apply_forget_peer(&mut self, peer: &Peer) {
+        self.peers.remove(peer);
+        for claimants in self.direct.values_mut() {
             claimants.remove(peer);
         }
-        guard.direct.retain(|_, claimants| !claimants.is_empty());
+        self.direct.retain(|_, claimants| !claimants.is_empty());
     }
 
-    pub fn apply_prune_below(&self, min_height: BlockHeight) {
-        self.inner.lock().prune_below(min_height);
+    pub fn apply_prune_below(&mut self, min_height: BlockHeight) {
+        self.prune_below(min_height);
     }
 
-    pub fn apply_select_peers_for_fetch(&self, params: SelectPeersParams) -> FetchPeerSet {
-        self.inner.lock().select_peers_for_fetch(params)
+    pub fn apply_select_peers_for_fetch(&mut self, params: SelectPeersParams) -> FetchPeerSet {
+        self.select_peers_for_fetch(params)
     }
 
     pub fn apply_peer_covers_fragment(&self, peer: &Peer, need: &[HeaderHash]) -> bool {
-        self.inner.lock().peer_covers_fragment(peer, need)
+        self.peer_covers_fragment(peer, need)
     }
 
     pub fn apply_first_announced_at(&self, hash: &HeaderHash) -> Option<(Peer, Instant)> {
-        self.inner.lock().first_announced_at_unlocked(hash)
+        self.first_announced_at_unlocked(hash)
     }
 
     pub fn apply_direct_claimants(&self, hash: &HeaderHash) -> Vec<(Peer, Instant, ClaimKind)> {
-        self.inner.lock().direct_claimants(hash)
+        self.direct_claimants(hash)
     }
 
     pub fn apply_rank_peers_for_churn(&self, candidates: &[Peer], _now: Instant) -> Vec<(Peer, PeerScores)> {
-        self.inner.lock().rank_peers_for_churn(candidates)
+        self.rank_peers_for_churn(candidates)
     }
 
     pub fn apply_scores(&self, peer: &Peer) -> PeerScores {
-        self.inner.lock().peers.get(peer).map(|s| s.scores.clone()).unwrap_or_default()
+        self.peers.get(peer).map(|s| s.scores.clone()).unwrap_or_default()
     }
 
     pub fn apply_snapshot(&self, peer: &Peer) -> Option<PeerSnapshot> {
-        self.inner.lock().snapshot(peer)
+        self.snapshot(peer)
     }
 
     /// Re-tip a peer after chainsync rollback to `point`.
-    pub fn apply_rollback(&self, peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) {
-        self.inner.lock().record_rollback(peer, point, parent, at);
+    pub fn apply_rollback(&mut self, peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) {
+        self.record_rollback(peer, point, parent, at);
     }
 }
 
-impl Inner {
+impl PeerPerformance {
     fn insert_claim(
         &mut self,
         peer: Peer,
@@ -409,7 +390,7 @@ impl Inner {
 ///
 /// `target` must appear in `parents` (every claim inserts itself and stubs its parent with
 /// height). If it does not, no recorded claim can cover it, so this returns false.
-fn peer_covers_hash(inner: &Inner, peer: &Peer, target: HeaderHash) -> bool {
+fn peer_covers_hash(inner: &PeerPerformance, peer: &Peer, target: HeaderHash) -> bool {
     let Some(state) = inner.peers.get(peer) else {
         return false;
     };

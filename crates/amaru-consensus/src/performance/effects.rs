@@ -15,17 +15,18 @@
 //! External-effect constructors and implementations for [`Performance`] events.
 //!
 //! Stages use factory methods on [`Performance`] and pass the result to `eff.external(...)`.
+//! Each effect is enqueued as a [`PerformanceOp`] on the worker thread.
 
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Tip};
-use amaru_metrics::Meter;
 use amaru_protocols::metrics_effects::ResourceMeter;
 use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Instant, Resources, SendData};
+use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, PeerScores, PeerSnapshot, Performance, ResourcePerformance,
-    SelectPeersParams,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, PeerScores, PeerSnapshot, Performance, PerformanceOp,
+    ResourcePerformance, SelectPeersParams,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -33,8 +34,26 @@ fn require_perf(resources: &Resources) -> ResourcePerformance {
     resources.get::<ResourcePerformance>().expect("Performance effect requires ResourcePerformance").clone()
 }
 
-fn optional_meter(resources: &Resources) -> Option<Arc<Meter>> {
+fn optional_meter(resources: &Resources) -> Option<Arc<amaru_metrics::Meter>> {
     resources.get::<ResourceMeter>().ok().map(|m| m.clone())
+}
+
+/// Fire-and-forget: enqueue and return immediately (does not wait for the worker).
+fn enqueue(perf: &Performance, op: PerformanceOp) {
+    perf.submit(op);
+}
+
+/// Enqueue a query and await the oneshot reply without blocking a multi-thread Tokio worker.
+async fn enqueue_query<T: Send + 'static>(
+    perf: &Performance,
+    make: impl FnOnce(oneshot::Sender<T>) -> PerformanceOp,
+) -> T {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    perf.submit(make(reply_tx));
+    #[expect(clippy::expect_used)]
+    {
+        reply_rx.await.expect("performance worker dropped reply")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -155,16 +174,16 @@ impl Performance {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordIntersectionEffect {
-    peer: Peer,
-    current: Tip,
-    parent: Option<HeaderHash>,
-    at: Instant,
+    pub(crate) peer: Peer,
+    pub(crate) current: Tip,
+    pub(crate) parent: Option<HeaderHash>,
+    pub(crate) at: Instant,
 }
 
 impl ExternalEffect for RecordIntersectionEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_intersection(self.peer, self.current, self.parent, self.at);
+        enqueue(&perf, PerformanceOp::RecordIntersection { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -175,16 +194,16 @@ impl ExternalEffectAPI for RecordIntersectionEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordHeaderAnnouncementEffect {
-    peer: Peer,
-    header: Tip,
-    parent: Option<HeaderHash>,
-    at: Instant,
+    pub(crate) peer: Peer,
+    pub(crate) header: Tip,
+    pub(crate) parent: Option<HeaderHash>,
+    pub(crate) at: Instant,
 }
 
 impl ExternalEffect for RecordHeaderAnnouncementEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_header_announcement(self.peer, self.header, self.parent, self.at);
+        enqueue(&perf, PerformanceOp::RecordHeaderAnnouncement { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -195,14 +214,14 @@ impl ExternalEffectAPI for RecordHeaderAnnouncementEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordBlocksRequestedEffect {
-    hashes: Vec<HeaderHash>,
-    requested_at: Instant,
+    pub(crate) hashes: Vec<HeaderHash>,
+    pub(crate) requested_at: Instant,
 }
 
 impl ExternalEffect for RecordBlocksRequestedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_blocks_requested(&self.hashes, self.requested_at);
+        enqueue(&perf, PerformanceOp::RecordBlocksRequested { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -213,19 +232,19 @@ impl ExternalEffectAPI for RecordBlocksRequestedEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordBlockDeliveryEffect {
-    peer: Peer,
-    hash: HeaderHash,
-    height: BlockHeight,
-    parent: Option<HeaderHash>,
-    at: Instant,
-    response: Duration,
-    bytes: u64,
+    pub(crate) peer: Peer,
+    pub(crate) hash: HeaderHash,
+    pub(crate) height: BlockHeight,
+    pub(crate) parent: Option<HeaderHash>,
+    pub(crate) at: Instant,
+    pub(crate) response: Duration,
+    pub(crate) bytes: u64,
 }
 
 impl ExternalEffect for RecordBlockDeliveryEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_block_delivery(self.peer, self.hash, self.height, self.parent, self.at, self.response, self.bytes);
+        enqueue(&perf, PerformanceOp::RecordBlockDelivery { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -236,14 +255,14 @@ impl ExternalEffectAPI for RecordBlockDeliveryEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordFetchFailureEffect {
-    peers: Vec<Peer>,
-    at: Instant,
+    pub(crate) peers: Vec<Peer>,
+    pub(crate) at: Instant,
 }
 
 impl ExternalEffect for RecordFetchFailureEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_fetch_failure(&self.peers, self.at);
+        enqueue(&perf, PerformanceOp::RecordFetchFailure { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -254,15 +273,15 @@ impl ExternalEffectAPI for RecordFetchFailureEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordKeepaliveRttEffect {
-    peer: Peer,
-    rtt: Duration,
-    at: Instant,
+    pub(crate) peer: Peer,
+    pub(crate) rtt: Duration,
+    pub(crate) at: Instant,
 }
 
 impl ExternalEffect for RecordKeepaliveRttEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_keepalive_rtt(self.peer, self.rtt, self.at);
+        enqueue(&perf, PerformanceOp::RecordKeepaliveRtt { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -273,13 +292,13 @@ impl ExternalEffectAPI for RecordKeepaliveRttEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClearPeerAvailabilityEffect {
-    peer: Peer,
+    pub(crate) peer: Peer,
 }
 
 impl ExternalEffect for ClearPeerAvailabilityEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_clear_peer_availability(&self.peer);
+        enqueue(&perf, PerformanceOp::ClearPeerAvailability { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -290,13 +309,13 @@ impl ExternalEffectAPI for ClearPeerAvailabilityEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ForgetPeerEffect {
-    peer: Peer,
+    pub(crate) peer: Peer,
 }
 
 impl ExternalEffect for ForgetPeerEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_forget_peer(&self.peer);
+        enqueue(&perf, PerformanceOp::ForgetPeer { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -307,13 +326,13 @@ impl ExternalEffectAPI for ForgetPeerEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PruneBelowEffect {
-    min_height: BlockHeight,
+    pub(crate) min_height: BlockHeight,
 }
 
 impl ExternalEffect for PruneBelowEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_prune_below(self.min_height);
+        enqueue(&perf, PerformanceOp::PruneBelow { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -324,14 +343,15 @@ impl ExternalEffectAPI for PruneBelowEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SelectPeersForFetchEffect {
-    params: SelectPeersParams,
+    pub(crate) params: SelectPeersParams,
 }
 
 impl ExternalEffect for SelectPeersForFetchEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let result = perf.apply_select_peers_for_fetch(self.params);
-        Self::wrap_sync(result)
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::SelectPeersForFetch { effect: *self, reply }).await
+        })
     }
 }
 
@@ -341,15 +361,16 @@ impl ExternalEffectAPI for SelectPeersForFetchEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PeerCoversFragmentEffect {
-    peer: Peer,
-    need: Vec<HeaderHash>,
+    pub(crate) peer: Peer,
+    pub(crate) need: Vec<HeaderHash>,
 }
 
 impl ExternalEffect for PeerCoversFragmentEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let result = perf.apply_peer_covers_fragment(&self.peer, &self.need);
-        Self::wrap_sync(result)
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::PeerCoversFragment { effect: *self, reply }).await
+        })
     }
 }
 
@@ -359,14 +380,15 @@ impl ExternalEffectAPI for PeerCoversFragmentEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DirectClaimantsEffect {
-    hash: HeaderHash,
+    pub(crate) hash: HeaderHash,
 }
 
 impl ExternalEffect for DirectClaimantsEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let result = perf.apply_direct_claimants(&self.hash);
-        Self::wrap_sync(result)
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::DirectClaimants { effect: *self, reply }).await
+        })
     }
 }
 
@@ -376,14 +398,15 @@ impl ExternalEffectAPI for DirectClaimantsEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FirstAnnouncedAtEffect {
-    hash: HeaderHash,
+    pub(crate) hash: HeaderHash,
 }
 
 impl ExternalEffect for FirstAnnouncedAtEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let result = perf.apply_first_announced_at(&self.hash);
-        Self::wrap_sync(result)
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::FirstAnnouncedAt { effect: *self, reply }).await
+        })
     }
 }
 
@@ -393,15 +416,16 @@ impl ExternalEffectAPI for FirstAnnouncedAtEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RankPeersForChurnEffect {
-    candidates: Vec<Peer>,
-    now: Instant,
+    pub(crate) candidates: Vec<Peer>,
+    pub(crate) now: Instant,
 }
 
 impl ExternalEffect for RankPeersForChurnEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let result = perf.apply_rank_peers_for_churn(&self.candidates, self.now);
-        Self::wrap_sync(result)
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::RankPeersForChurn { effect: *self, reply }).await
+        })
     }
 }
 
@@ -411,14 +435,13 @@ impl ExternalEffectAPI for RankPeersForChurnEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ScoresEffect {
-    peer: Peer,
+    pub(crate) peer: Peer,
 }
 
 impl ExternalEffect for ScoresEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let result = perf.apply_scores(&self.peer);
-        Self::wrap_sync(result)
+        Self::wrap(async move { enqueue_query(&perf, |reply| PerformanceOp::Scores { effect: *self, reply }).await })
     }
 }
 
@@ -428,14 +451,13 @@ impl ExternalEffectAPI for ScoresEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotEffect {
-    peer: Peer,
+    pub(crate) peer: Peer,
 }
 
 impl ExternalEffect for SnapshotEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        let result = perf.apply_snapshot(&self.peer);
-        Self::wrap_sync(result)
+        Self::wrap(async move { enqueue_query(&perf, |reply| PerformanceOp::Snapshot { effect: *self, reply }).await })
     }
 }
 
@@ -445,16 +467,16 @@ impl ExternalEffectAPI for SnapshotEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordRollbackEffect {
-    peer: Peer,
-    point: Tip,
-    parent: Option<HeaderHash>,
-    at: Instant,
+    pub(crate) peer: Peer,
+    pub(crate) point: Tip,
+    pub(crate) parent: Option<HeaderHash>,
+    pub(crate) at: Instant,
 }
 
 impl ExternalEffect for RecordRollbackEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
-        perf.apply_rollback(self.peer, self.point, self.parent, self.at);
+        enqueue(&perf, PerformanceOp::RecordRollback { effect: *self, done: None });
         Self::wrap_sync(())
     }
 }
@@ -465,14 +487,14 @@ impl ExternalEffectAPI for RecordRollbackEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordHeaderRejectedEffect {
-    outcome: HeaderLifecycleOutcome,
+    pub(crate) outcome: HeaderLifecycleOutcome,
 }
 
 impl ExternalEffect for RecordHeaderRejectedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
         let meter = optional_meter(&resources);
-        perf.apply_header_rejected(self.outcome, meter.as_deref());
+        enqueue(&perf, PerformanceOp::RecordHeaderRejected { effect: *self, meter, done: None });
         Self::wrap_sync(())
     }
 }
@@ -483,15 +505,15 @@ impl ExternalEffectAPI for RecordHeaderRejectedEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordHeaderAbandonedEffect {
-    hash: HeaderHash,
-    now: Instant,
+    pub(crate) hash: HeaderHash,
+    pub(crate) now: Instant,
 }
 
 impl ExternalEffect for RecordHeaderAbandonedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
         let meter = optional_meter(&resources);
-        perf.apply_header_abandoned(&self.hash, self.now, meter.as_deref());
+        enqueue(&perf, PerformanceOp::RecordHeaderAbandoned { effect: *self, meter, done: None });
         Self::wrap_sync(())
     }
 }
@@ -502,15 +524,15 @@ impl ExternalEffectAPI for RecordHeaderAbandonedEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordForkStartedEffect {
-    tip: Tip,
-    started_at: Instant,
+    pub(crate) tip: Tip,
+    pub(crate) started_at: Instant,
 }
 
 impl ExternalEffect for RecordForkStartedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
         let meter = optional_meter(&resources);
-        perf.apply_fork_started(self.tip, self.started_at, meter.as_deref());
+        enqueue(&perf, PerformanceOp::RecordForkStarted { effect: *self, meter, done: None });
         Self::wrap_sync(())
     }
 }
@@ -521,15 +543,15 @@ impl ExternalEffectAPI for RecordForkStartedEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordBlockValidEffect {
-    hash: HeaderHash,
-    now: Instant,
+    pub(crate) hash: HeaderHash,
+    pub(crate) now: Instant,
 }
 
 impl ExternalEffect for RecordBlockValidEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
         let meter = optional_meter(&resources);
-        perf.apply_block_valid(&self.hash, self.now, meter.as_deref());
+        enqueue(&perf, PerformanceOp::RecordBlockValid { effect: *self, meter, done: None });
         Self::wrap_sync(())
     }
 }
@@ -540,16 +562,16 @@ impl ExternalEffectAPI for RecordBlockValidEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordBlockPrunedEffect {
-    hash: HeaderHash,
-    invalid: bool,
-    now: Instant,
+    pub(crate) hash: HeaderHash,
+    pub(crate) invalid: bool,
+    pub(crate) now: Instant,
 }
 
 impl ExternalEffect for RecordBlockPrunedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let perf = require_perf(&resources);
         let meter = optional_meter(&resources);
-        perf.apply_block_pruned(&self.hash, self.invalid, self.now, meter.as_deref());
+        enqueue(&perf, PerformanceOp::RecordBlockPruned { effect: *self, meter, done: None });
         Self::wrap_sync(())
     }
 }
