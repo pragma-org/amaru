@@ -22,13 +22,11 @@ use amaru_kernel::{
     BlockHeader, BlockHeight, Epoch, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Slot, Tip,
     from_cbor_no_leftovers, num::CheckedSub,
 };
-use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
-    metrics_effects::{Metrics, MetricsOps},
     store_effects::Store,
 };
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
@@ -38,7 +36,7 @@ use super::peer_selection::PeerSelectionMsg;
 use crate::{
     effects::{Ledger, LedgerOps, VolatileTipEffect},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
-    stages::select_chain::PerfHeaderForwardOutcome,
+    performance::{HeaderLifecycleOutcome, Performance},
 };
 
 /// Poll interval while headers are deferred on applied ledger height.
@@ -282,31 +280,16 @@ pub enum TrackPeersMsg {
     RecheckLedgerHeight,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct NewTip {
     pub tip: Tip,
     pub parent: Point,
     pub trace_context: TraceContext,
-    /// When this header was received, so the downstream stage can measure the forward duration.
-    pub received_at: Instant,
-}
-
-impl PartialEq for NewTip {
-    fn eq(&self, other: &Self) -> bool {
-        // `received_at` is a performance timestamp used only to measure durations downstream; it does
-        // not define the identity of the message, so it is excluded from equality.
-        self.tip == other.tip && self.parent == other.parent && self.trace_context == other.trace_context
-    }
 }
 
 impl NewTip {
     pub fn new(tip: Tip, parent: Point) -> Self {
-        NewTip {
-            tip,
-            parent,
-            trace_context: Default::default(),
-            received_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
-        }
+        NewTip { tip, parent, trace_context: Default::default() }
     }
 }
 
@@ -637,9 +620,9 @@ impl TrackPeers {
                     peer = peer.clone(),
                     header_hash = header.hash(),
                     error = %error,
-                    outcome = PerfHeaderForwardOutcome::InvalidHeader.as_str()
+                    outcome = HeaderLifecycleOutcome::InvalidHeader.as_str()
                 );
-                record_header_rejected(eff, PerfHeaderForwardOutcome::InvalidHeader).await;
+                record_header_rejected(eff, HeaderLifecycleOutcome::InvalidHeader).await;
 
                 self.purge_connection(*conn_id);
                 eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(args.peer, args.trace_context)).await;
@@ -652,16 +635,26 @@ impl TrackPeers {
         let RollForwardArgs { peer, header, tip, sent_request_next, handler, trace_context, received_at, .. } = args;
         let header_tip = header.tip();
         let current = header_tip.point();
+        // Parent claim for peer performance: chain parent of this header.
+        let header_parent = header.parent_hash();
         match validated {
             None => {
+                // Already fully validated (nonces present). Still score the peer announcement.
                 tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward, header already stored");
+                eff.external(Performance::record_header_announcement(
+                    peer.clone(),
+                    header_tip,
+                    header_parent,
+                    received_at,
+                ))
+                .await;
                 debug!(
                     consensus::perf::header::LIFECYCLE,
                     peer = peer.clone(),
                     header_hash = current.hash(),
-                    outcome = PerfHeaderForwardOutcome::DuplicateHeader.as_str()
+                    outcome = HeaderLifecycleOutcome::DuplicateHeader.as_str()
                 );
-                record_header_rejected(eff, PerfHeaderForwardOutcome::DuplicateHeader).await;
+                record_header_rejected(eff, HeaderLifecycleOutcome::DuplicateHeader).await;
             }
             Some((parent, nonces)) => {
                 // the header and its nonces are stored atomically, so that stored nonces always
@@ -675,13 +668,21 @@ impl TrackPeers {
                             peer = peer.clone(),
                             header_hash = current.hash(),
                             error = %error,
-                            outcome = PerfHeaderForwardOutcome::StoreHeaderError.as_str()
+                            outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
                         );
-                        record_header_rejected(eff, PerfHeaderForwardOutcome::StoreHeaderError).await;
+                        record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
                     })
                     .await;
+                // Peer scores + first-wins lifecycle for every successful reception (new header).
+                eff.external(Performance::record_header_announcement(
+                    peer.clone(),
+                    header_tip,
+                    header_parent,
+                    received_at,
+                ))
+                .await;
                 tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward with new header");
-                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context, received_at }).await;
+                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context }).await;
             }
         }
 
@@ -727,6 +728,8 @@ impl TrackPeers {
                     return;
                 };
                 tracing::info!(%peer, %conn_id, %current, highest = %tip.point(), "intersect found");
+                let now = eff.clock().await;
+                eff.external(Performance::record_intersection(peer.clone(), current_tip, None, now)).await;
                 self.upstream.insert(conn_id, PerPeer::Established { peer, current: current_tip, highest: tip });
             }
             IntersectNotFound(tip) => {
@@ -751,9 +754,9 @@ impl TrackPeers {
                                 consensus::perf::header::LIFECYCLE,
                                 peer = peer.clone(),
                                 error = %error,
-                                outcome = PerfHeaderForwardOutcome::UndecodableHeader.as_str()
+                                outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
-                            record_header_rejected(&eff, PerfHeaderForwardOutcome::UndecodableHeader).await;
+                            record_header_rejected(&eff, HeaderLifecycleOutcome::UndecodableHeader).await;
                             eff.send(
                                 &self.peer_selection,
                                 PeerSelectionMsg::Adversarial(peer, trace_context.clone()),
@@ -907,23 +910,12 @@ pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<BlockHead
         .map_err(|reason| ConsensusError::CannotDecodeHeader { header: raw_header.cbor, reason: reason.to_string() })
 }
 
-/// Record the `header_lifecycle` metric for a header rejected on reception.
-/// Such a header carries no lifecycle durations, only its `outcome`.
+/// Record a header rejected on reception via the performance resource (no lifecycle durations).
 async fn record_header_rejected<T: amaru_pure_stage::SendData + Sync>(
     eff: &Effects<T>,
-    outcome: PerfHeaderForwardOutcome,
+    outcome: HeaderLifecycleOutcome,
 ) {
-    Metrics::new(eff)
-        .record(
-            ConsensusMetrics::HeaderLifecycle {
-                outcome: outcome.as_str().to_string(),
-                block_fetch_wait_micros: None,
-                block_fetch_micros: None,
-                forward_micros: None,
-            }
-            .into(),
-        )
-        .await;
+    eff.external(Performance::record_header_rejected(outcome)).await;
 }
 
 #[cfg(test)]

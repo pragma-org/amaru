@@ -141,6 +141,8 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlocksRequestedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockDeliveryEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
@@ -181,6 +183,9 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
+                crate::performance::Performance::new(),
+            ));
         },
         |_running| {
             // No additional external effect overrides needed for basic fetch_blocks tests.
@@ -234,4 +239,11 @@ pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) ->
 
 pub fn te_clock(instant: Instant) -> TraceEntry {
     TraceEntry::Clock(instant)
+}
+
+pub fn te_record_blocks_requested(at_stage: &str, hashes: Vec<HeaderHash>, requested_at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_blocks_requested(hashes, requested_at)),
+    ))
 }

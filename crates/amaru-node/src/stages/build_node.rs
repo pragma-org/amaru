@@ -229,6 +229,10 @@ fn register_resources(
     if let Some(meter) = meter {
         stage_graph.resources().put::<ResourceMeter>(Arc::new(meter));
     };
+
+    stage_graph.resources().put::<amaru_consensus::performance::ResourcePerformance>(Arc::new(
+        amaru_consensus::performance::Performance::new(),
+    ));
 }
 
 /// This function migrates the database if necessary

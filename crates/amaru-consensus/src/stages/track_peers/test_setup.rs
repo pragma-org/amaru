@@ -15,8 +15,8 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
-    num::CheckedSub,
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Peer, Point, Tip,
+    make_header, num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
@@ -175,6 +175,19 @@ pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEn
     ))
 }
 
+pub fn te_record_header_announcement(
+    at_stage: &str,
+    peer: Peer,
+    header: Tip,
+    parent: Option<HeaderHash>,
+    at: Instant,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_header_announcement(peer, header, parent, at)),
+    ))
+}
+
 pub fn te_clock_suspend(at_stage: &str) -> TraceEntry {
     TraceEntry::suspend(Effect::Clock { at_stage: Name::from(at_stage) })
 }
@@ -184,12 +197,7 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
 }
 
 pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
-    NewTip {
-        tip,
-        parent,
-        trace_context: Default::default(),
-        received_at: amaru_pure_stage::Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO),
-    }
+    NewTip { tip, parent, trace_context: Default::default() }
 }
 
 fn register_guards() -> DeserializerGuards {
@@ -213,6 +221,9 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderAnnouncementEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderRejectedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordIntersectionEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::metrics_effects::RecordMetricsEffect>()
             .boxed(),
     ]
@@ -292,6 +303,9 @@ fn setup_inner(
             network.preload(&tp, msg).unwrap();
         },
         |resources| {
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
+                crate::performance::Performance::new(),
+            ));
             resources.put::<ResourceHeaderStore>(store.clone());
             let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());

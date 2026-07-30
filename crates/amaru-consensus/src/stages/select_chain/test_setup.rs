@@ -15,15 +15,11 @@
 use std::sync::Arc;
 
 use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
-use amaru_metrics::{MetricsEvent, consensus::ConsensusMetrics};
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
-use amaru_protocols::{
-    metrics_effects::RecordMetricsEffect,
-    store_effects::{
-        GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
-        LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, SetBlockValidEffect,
-        UnvalidatedAncestorHashesEffect,
-    },
+use amaru_protocols::store_effects::{
+    GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
+    LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, SetBlockValidEffect,
+    UnvalidatedAncestorHashesEffect,
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef, simulation::SimulationRunning, trace_buffer::TraceEntry,
@@ -133,7 +129,10 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindBestCandidate>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderAbandonedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockValidEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockPrunedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordForkStartedEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
     ]
 }
@@ -162,6 +161,9 @@ pub fn setup(prep: &TestPrep, msg: SelectChainMsg) -> (SimulationRunning, Deseri
             network.preload(&sc, [msg]).unwrap();
         },
         |resources| {
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
+                crate::performance::Performance::new(),
+            ));
             resources.put::<ResourceHeaderStore>(prep.store.clone());
         },
         |_running| {
@@ -202,9 +204,35 @@ pub fn te_unvalidated_ancestor_hashes(at_stage: &str, start: HeaderHash) -> Trac
     TraceEntry::suspend(Effect::external(at_stage, Box::new(UnvalidatedAncestorHashesEffect::new(start))))
 }
 
-pub fn te_record_metrics(at_stage: &str, metrics: ConsensusMetrics) -> TraceEntry {
+pub fn te_record_header_abandoned(at_stage: &str, hash: HeaderHash, now: amaru_pure_stage::Instant) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(RecordMetricsEffect::new(MetricsEvent::ConsensusMetrics(metrics))),
+        Box::new(crate::performance::Performance::record_header_abandoned(hash, now)),
+    ))
+}
+
+pub fn te_record_block_valid(at_stage: &str, hash: HeaderHash, now: amaru_pure_stage::Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_block_valid(hash, now)),
+    ))
+}
+
+pub fn te_record_block_pruned(
+    at_stage: &str,
+    hash: HeaderHash,
+    invalid: bool,
+    now: amaru_pure_stage::Instant,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_block_pruned(hash, invalid, now)),
+    ))
+}
+
+pub fn te_record_fork_started(at_stage: &str, tip: Tip, now: amaru_pure_stage::Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_fork_started(tip, now)),
     ))
 }

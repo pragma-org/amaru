@@ -23,7 +23,10 @@ use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
 use tracing::Instrument;
 
-use crate::stages::{block_source::BlockSourceMsg, peer_selection::PeerSelectionMsg, select_chain::SelectChainMsg};
+use crate::{
+    performance::Performance,
+    stages::{block_source::BlockSourceMsg, peer_selection::PeerSelectionMsg, select_chain::SelectChainMsg},
+};
 
 // TODO make configurable
 const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
@@ -118,6 +121,8 @@ pub struct FetchBlocks {
     /// Trace context originating from the reception of a new tip. Additional spans created by
     /// this stage are children of that context
     trace_context: Option<TraceContext>,
+    /// When the current fetch batch was requested (for peer delivery timing).
+    fetch_started_at: Option<amaru_pure_stage::Instant>,
 }
 
 impl FetchBlocks {
@@ -141,6 +146,7 @@ impl FetchBlocks {
             no_peers_pause: false,
             block_height: BlockHeight::from(0),
             trace_context: Default::default(),
+            fetch_started_at: None,
         }
     }
 
@@ -328,9 +334,8 @@ impl FetchBlocks {
             ManagerMessage::FetchBlocks { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
         )
         .await;
-        // Tell the select_chain stage when this block was received so it can record the
-        // block_fetch_wait point of its lifecycle.
-        eff.send(&self.upstream, SelectChainMsg::BlocksRequested(requested, now)).await;
+        self.fetch_started_at = Some(now);
+        eff.external(Performance::record_blocks_requested(requested, now)).await;
         let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
         self.timeout = Some(timeout);
     }
@@ -370,10 +375,21 @@ impl FetchBlocks {
             return;
         }
 
-        // Tell the select_chain stage when this block was received so it can record the
-        // block_downloaded point of its lifecycle.
         let now = eff.clock().await;
-        eff.send(&self.upstream, SelectChainMsg::BlockDownloaded(point.hash(), now)).await;
+        let response = self.fetch_started_at.map(|started| now.saturating_since(started)).unwrap_or(Duration::ZERO);
+        let bytes = network_block.raw_block().len() as u64;
+        let height = header.block_height();
+        let parent = header.parent_hash();
+        eff.external(Performance::record_block_delivery(
+            peer.clone(),
+            point.hash(),
+            height,
+            parent,
+            now,
+            response,
+            bytes,
+        ))
+        .await;
 
         store
             .store_block(&point.hash(), &network_block.raw_block())
@@ -394,6 +410,7 @@ impl FetchBlocks {
         if missing.is_empty() {
             self.missing = None;
             self.no_peers_pause = false;
+            self.fetch_started_at = None;
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;
             }
