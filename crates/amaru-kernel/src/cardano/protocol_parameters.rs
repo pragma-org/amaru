@@ -873,7 +873,7 @@ mod tests {
                 max_ref_script_size_per_tx: default.max_ref_script_size_per_tx,
                 max_ref_script_size_per_block: default.max_ref_script_size_per_block,
                 ref_script_cost_stride: default.ref_script_cost_stride,
-                ref_script_cost_multiplier: default.ref_script_cost_multiplier.clone(),
+                ref_script_cost_multiplier: default.ref_script_cost_multiplier,
                 stake_pool_max_retirement_epoch,
                 optimal_stake_pools_count,
                 pledge_influence,

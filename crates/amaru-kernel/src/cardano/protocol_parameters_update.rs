@@ -16,7 +16,6 @@ use std::fmt::{self, Write};
 
 use crate::{
     CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, cbor,
-    rational_number,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
@@ -125,14 +124,11 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
 
     push_opt(&mut s, &mut is_first, prefix, "desired_number_of_stake_pools", &update.desired_number_of_stake_pools)?;
 
-    let pool_pledge_influence = update.pool_pledge_influence.as_ref().map(rational_number::fmt);
-    push_opt(&mut s, &mut is_first, prefix, "pool_pledge_influence", &pool_pledge_influence)?;
+    push_opt(&mut s, &mut is_first, prefix, "pool_pledge_influence", &update.pool_pledge_influence)?;
 
-    let expansion_rate = update.expansion_rate.as_ref().map(rational_number::fmt);
-    push_opt(&mut s, &mut is_first, prefix, "expansion_rate", &expansion_rate)?;
+    push_opt(&mut s, &mut is_first, prefix, "expansion_rate", &update.expansion_rate)?;
 
-    let treasury_growth_rate = update.treasury_growth_rate.as_ref().map(rational_number::fmt);
-    push_opt(&mut s, &mut is_first, prefix, "treasury_growth_rate", &treasury_growth_rate)?;
+    push_opt(&mut s, &mut is_first, prefix, "treasury_growth_rate", &update.treasury_growth_rate)?;
 
     push_opt(&mut s, &mut is_first, prefix, "min_pool_cost", &update.min_pool_cost)?;
 
@@ -154,10 +150,7 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
     });
     push_opt(&mut s, &mut is_first, prefix, "cost_models", &cost_models)?;
 
-    let execution_costs = update.execution_costs.as_ref().map(|p| {
-        format!("{{mem={}, cpu={}}}", rational_number::fmt(&p.mem_price), rational_number::fmt(&p.step_price))
-    });
-    push_opt(&mut s, &mut is_first, prefix, "execution_costs", &execution_costs)?;
+    push_opt(&mut s, &mut is_first, prefix, "execution_costs", &update.execution_costs)?;
 
     push_opt(&mut s, &mut is_first, prefix, "max_tx_ex_units", &update.max_tx_ex_units)?;
 
@@ -177,11 +170,11 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
              \n{p}  ├─ hard fork                  {hfi}\
              \n{p}  └─ protocol params (security) {svt}",
             p = prefix,
-            cn = rational_number::fmt(&v.committee_normal),
-            cc = rational_number::fmt(&v.committee_no_confidence),
-            mnc = rational_number::fmt(&v.motion_no_confidence),
-            hfi = rational_number::fmt(&v.hard_fork_initiation),
-            svt = rational_number::fmt(&v.security_voting_threshold),
+            cn = &v.committee_normal,
+            cc = &v.committee_no_confidence,
+            mnc = &v.motion_no_confidence,
+            hfi = &v.hard_fork_initiation,
+            svt = &v.security_voting_threshold,
         )
     });
     push_opt(&mut s, &mut is_first, prefix, "pool_voting_thresholds", &pool_voting)?;
@@ -199,16 +192,16 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
              \n{p}  ├─ protocol params (governance) {ppg}\
              \n{p}  └─ hard fork                    {hfi}",
             p = prefix,
-            cn = rational_number::fmt(&v.committee_normal),
-            cc = rational_number::fmt(&v.committee_no_confidence),
-            mnc = rational_number::fmt(&v.motion_no_confidence),
-            tw = rational_number::fmt(&v.treasury_withdrawal),
-            uc = rational_number::fmt(&v.update_constitution),
-            ppn = rational_number::fmt(&v.pp_network_group),
-            ppe = rational_number::fmt(&v.pp_economic_group),
-            ppt = rational_number::fmt(&v.pp_technical_group),
-            ppg = rational_number::fmt(&v.pp_governance_group),
-            hfi = rational_number::fmt(&v.hard_fork_initiation),
+            cn = &v.committee_normal,
+            cc = &v.committee_no_confidence,
+            mnc = &v.motion_no_confidence,
+            tw = &v.treasury_withdrawal,
+            uc = &v.update_constitution,
+            ppn = &v.pp_network_group,
+            ppe = &v.pp_economic_group,
+            ppt = &v.pp_technical_group,
+            ppg = &v.pp_governance_group,
+            hfi = &v.hard_fork_initiation,
         )
     });
 
@@ -232,8 +225,7 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
 
     push_opt(&mut s, &mut is_first, prefix, "drep_inactivity_period", &update.drep_inactivity_period)?;
 
-    let minfee_refscript_cost_per_byte = update.minfee_refscript_cost_per_byte.as_ref().map(rational_number::fmt);
-    push_opt(&mut s, &mut is_first, prefix, "minfee_refscript_cost_per_byte", &minfee_refscript_cost_per_byte)?;
+    push_opt(&mut s, &mut is_first, prefix, "minfee_refscript_cost_per_byte", &update.minfee_refscript_cost_per_byte)?;
 
     Ok(s)
 }

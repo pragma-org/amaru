@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::{RationalNumber, cbor, rational_number};
+use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DRepVotingThresholds {
@@ -57,16 +57,16 @@ impl<C> cbor::Encode<C> for DRepVotingThresholds {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(10)?;
 
-        e.encode_with(&self.motion_no_confidence, ctx)?;
-        e.encode_with(&self.committee_normal, ctx)?;
-        e.encode_with(&self.committee_no_confidence, ctx)?;
-        e.encode_with(&self.update_constitution, ctx)?;
-        e.encode_with(&self.hard_fork_initiation, ctx)?;
-        e.encode_with(&self.pp_network_group, ctx)?;
-        e.encode_with(&self.pp_economic_group, ctx)?;
-        e.encode_with(&self.pp_technical_group, ctx)?;
-        e.encode_with(&self.pp_governance_group, ctx)?;
-        e.encode_with(&self.treasury_withdrawal, ctx)?;
+        e.encode_with(self.motion_no_confidence, ctx)?;
+        e.encode_with(self.committee_normal, ctx)?;
+        e.encode_with(self.committee_no_confidence, ctx)?;
+        e.encode_with(self.update_constitution, ctx)?;
+        e.encode_with(self.hard_fork_initiation, ctx)?;
+        e.encode_with(self.pp_network_group, ctx)?;
+        e.encode_with(self.pp_economic_group, ctx)?;
+        e.encode_with(self.pp_technical_group, ctx)?;
+        e.encode_with(self.pp_governance_group, ctx)?;
+        e.encode_with(self.treasury_withdrawal, ctx)?;
 
         Ok(())
     }
@@ -90,28 +90,18 @@ impl fmt::Display for DRepVotingThresholds {
 
         write!(
             f,
-            "{{\
-            committee_normal={}, \
-            committee_no_confidence={}, \
-            motion_no_confidence={}, \
-            treasury_withdrawal={}, \
-            update_constitution={}, \
-            pp_network_group={}, \
-            pp_economic_group={}, \
-            pp_technical_group={}, \
-            pp_governance_group={}, \
-            hard_fork_initiation={}\
-        }}",
-            rational_number::fmt(committee_normal),
-            rational_number::fmt(committee_no_confidence),
-            rational_number::fmt(motion_no_confidence),
-            rational_number::fmt(treasury_withdrawal),
-            rational_number::fmt(update_constitution),
-            rational_number::fmt(pp_network_group),
-            rational_number::fmt(pp_economic_group),
-            rational_number::fmt(pp_technical_group),
-            rational_number::fmt(pp_governance_group),
-            rational_number::fmt(hard_fork_initiation),
+            "{{ \
+            committee_normal={committee_normal}, \
+            committee_no_confidence={committee_no_confidence}, \
+            motion_no_confidence={motion_no_confidence}, \
+            treasury_withdrawal={treasury_withdrawal}, \
+            update_constitution={update_constitution}, \
+            pp_network_group={pp_network_group}, \
+            pp_economic_group={pp_economic_group}, \
+            pp_technical_group={pp_technical_group}, \
+            pp_governance_group={pp_governance_group}, \
+            hard_fork_initiation={hard_fork_initiation} \
+            }}",
         )
     }
 }

@@ -34,7 +34,6 @@ use amaru_kernel::{
     cbor as minicbor,
     expect_stake_credential,
     protocol_version,
-    rational_number,
 };
 use amaru_observability::{debug, info, info_span};
 
@@ -350,26 +349,25 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         stake_credential_deposit = @opt_field(&old.stake_credential_deposit, stake_credential_deposit),
         stake_pool_deposit = @opt_field(&old.stake_pool_deposit, stake_pool_deposit),
         monetary_expansion_rate =
-            @opt_field_with(&old.monetary_expansion_rate, monetary_expansion_rate, rational_number::fmt),
+            @opt_field(&old.monetary_expansion_rate, monetary_expansion_rate),
         treasury_expansion_rate =
-            @opt_field_with(&old.treasury_expansion_rate, treasury_expansion_rate, rational_number::fmt),
+            @opt_field(&old.treasury_expansion_rate, treasury_expansion_rate),
         min_pool_cost = @opt_field(&old.min_pool_cost, min_pool_cost),
         lovelace_per_utxo_byte = @opt_field(&old.lovelace_per_utxo_byte, lovelace_per_utxo_byte),
         prices = @opt_field(&old.prices, prices),
-        min_fee_ref_script_lovelace_per_byte = @opt_field_with(
+        min_fee_ref_script_lovelace_per_byte = @opt_field(
             &old.min_fee_ref_script_lovelace_per_byte,
             min_fee_ref_script_lovelace_per_byte,
-            rational_number::fmt,
         ),
         max_ref_script_size_per_tx = @opt_field(&old.max_ref_script_size_per_tx, max_ref_script_size_per_tx),
         max_ref_script_size_per_block = @opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
         ref_script_cost_stride = @opt_field(&old.ref_script_cost_stride, ref_script_cost_stride),
         ref_script_cost_multiplier =
-            @opt_field_with(&old.ref_script_cost_multiplier, ref_script_cost_multiplier, rational_number::fmt),
+            @opt_field(&old.ref_script_cost_multiplier, ref_script_cost_multiplier),
         stake_pool_max_retirement_epoch =
             @opt_field(&old.stake_pool_max_retirement_epoch, stake_pool_max_retirement_epoch),
         optimal_stake_pools_count = @opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
-        pledge_influence = @opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
+        pledge_influence = @opt_field(&old.pledge_influence, pledge_influence),
         collateral_percentage = @opt_field(&old.collateral_percentage, collateral_percentage),
         cost_models = @opt_field(&old.cost_models, cost_models),
         pool_voting_thresholds = @opt_field(&old.pool_voting_thresholds, pool_voting_thresholds),

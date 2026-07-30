@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::{RationalNumber, cbor, rational_number};
+use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct ExUnitPrices {
@@ -27,7 +27,7 @@ pub struct ExUnitPrices {
 
 impl fmt::Display for ExUnitPrices {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{mem={}, cpu={}}}", rational_number::fmt(&self.mem_price), rational_number::fmt(&self.step_price))
+        write!(f, "{{mem={}, cpu={}}}", &self.mem_price, &self.step_price)
     }
 }
 

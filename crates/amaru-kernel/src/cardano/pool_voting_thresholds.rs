@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::{RationalNumber, cbor, rational_number};
+use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PoolVotingThresholds {
@@ -38,18 +38,13 @@ impl fmt::Display for PoolVotingThresholds {
 
         write!(
             f,
-            "{{\
-            committee_normal={}, \
-            committee_no_confidence={}, \
-            motion_no_confidence={}, \
-            hard_fork_initiation={}, \
-            security_voting_threshold={}\
-        }}",
-            rational_number::fmt(committee_normal),
-            rational_number::fmt(committee_no_confidence),
-            rational_number::fmt(motion_no_confidence),
-            rational_number::fmt(hard_fork_initiation),
-            rational_number::fmt(security_voting_threshold),
+            "{{ \
+            committee_normal={committee_normal}, \
+            committee_no_confidence={committee_no_confidence}, \
+            motion_no_confidence={motion_no_confidence}, \
+            hard_fork_initiation={hard_fork_initiation}, \
+            security_voting_threshold={security_voting_threshold} \
+            }}",
         )
     }
 }
@@ -76,11 +71,11 @@ impl<C> cbor::Encode<C> for PoolVotingThresholds {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(5)?;
 
-        e.encode_with(&self.motion_no_confidence, ctx)?;
-        e.encode_with(&self.committee_normal, ctx)?;
-        e.encode_with(&self.committee_no_confidence, ctx)?;
-        e.encode_with(&self.hard_fork_initiation, ctx)?;
-        e.encode_with(&self.security_voting_threshold, ctx)?;
+        e.encode_with(self.motion_no_confidence, ctx)?;
+        e.encode_with(self.committee_normal, ctx)?;
+        e.encode_with(self.committee_no_confidence, ctx)?;
+        e.encode_with(self.hard_fork_initiation, ctx)?;
+        e.encode_with(self.security_voting_threshold, ctx)?;
 
         Ok(())
     }

@@ -44,7 +44,7 @@ impl<C> cbor::encode::Encode<C> for PoolParams {
         e.encode_with(self.vrf, ctx)?;
         e.encode_with(self.pledge, ctx)?;
         e.encode_with(self.cost, ctx)?;
-        e.encode_with(&self.margin, ctx)?;
+        e.encode_with(self.margin, ctx)?;
         e.encode_with(&self.reward_account, ctx)?;
         e.encode_with(SerialisedAsSet(&self.owners), ctx)?;
         e.encode_with(&self.relays, ctx)?;
