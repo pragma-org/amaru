@@ -68,7 +68,6 @@ toml.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-stores.workspace = true
-amaru-tracing-json.workspace = true
 
 [build-dependencies]
 anyhow.workspace = true

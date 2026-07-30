@@ -29,7 +29,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
-    state::diff_bind::Resettable,
+    state::volatile::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
@@ -483,6 +483,16 @@ macro_rules! impl_ReadStore_body {
                 )
             }
 
+            fn iter_recently_unregistered_accounts(
+                &self,
+            ) -> Result<impl Iterator<Item = scolumns::recently_unregistered_accounts::Key>, StoreError>
+            {
+                iter::<_, scolumns::recently_unregistered_accounts::Value, _, _>(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    recently_unregistered_accounts::PREFIX,
+                ).map(|iterator| iterator.map(|(k, _)| k))
+            }
+
             fn iter_block_issuers(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
@@ -702,6 +712,11 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         proposals::remove(&self.db, proposals.into_iter())
     }
 
+    /// Prune recently unregistered accounts from the database that are no longer required.
+    fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<(), StoreError> {
+        recently_unregistered_accounts::prune(&self.db, epoch)
+    }
+
     fn save(
         &self,
         era_history: &EraHistory,
@@ -767,7 +782,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
                 utxo::remove(&self.db, remove.utxo)?;
                 pools::remove(&self.db, remove.pools)?;
-                accounts::remove(&self.db, remove.accounts)?;
+                accounts::remove(&self.db, remove.accounts, current_epoch)?;
                 dreps::remove(&self.db, remove.dreps)?;
 
                 // When a proposal is seen during a dormant period, we flush the current dormant

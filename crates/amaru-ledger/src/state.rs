@@ -54,9 +54,6 @@ use crate::{
     tracing_enabled,
 };
 
-pub mod diff_bind;
-pub mod diff_epoch_reg;
-pub mod diff_set;
 pub mod volatile;
 
 /// The minimum number of past (from the current epoch) snapshots required for the ledger to
@@ -172,7 +169,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
         let stake_distributions = initial_stake_distributions(&snapshots, &era_history)?;
 
-        let epoch = unsafe_slot_to_epoch(&era_history, stable.tip()?.slot_or_default());
+        let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
 
         Ok(Self::new_with(
             stable,
@@ -357,10 +354,9 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
     /// corresponds to a block in a different (next) epoch, in which case, we must first transition
     /// into the new epoch before the block can be validated.
     fn try_epoch_transition(&mut self, next_tip: Point) -> Result<(), StateError> {
-        let current_epoch = unsafe_slot_to_epoch(&self.era_history, self.tip().slot_or_default());
         let next_epoch = unsafe_slot_to_epoch(&self.era_history, next_tip.slot_or_default());
 
-        if next_epoch > current_epoch {
+        if next_epoch > self.epoch() {
             let old_protocol_version = self.protocol_version();
 
             self.epoch_transition(next_epoch)?;
@@ -388,25 +384,8 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
 
             let progress = db.epoch_transition_progress()?;
 
-            match progress {
-                Some(resuming_from) => {
-                    Span::current().record("resuming_from", resuming_from.to_string());
-                }
-                // NOTE: Skipping epoch transition
-                //
-                // It is possible to interrupt Amaru just after the epoch transition was flushed
-                // to disk. The consequence of that is: the tip of the immutable db is still in the
-                // previous epoch which will cause the next block we see to trigger an epoch transition.
-                //
-                // However, the epoch transition had already happened and was even persisted to disk
-                // already! So we must not redo it. This strange behaviour occurs because we do not
-                // persist the volatile; so on restart, we rewind `k` blocks in the past, for which we
-                // may or may not need to perform the transition again (depending where we interrupted).
-                None if self.most_recent_snapshot() == next_epoch - 1 => {
-                    Span::current().record("skipped", true);
-                    return Ok(());
-                }
-                None => (),
+            if let Some(resuming_from) = progress {
+                Span::current().record("resuming_from", resuming_from.to_string());
             }
 
             // NOTE: Crossing states during epoch transition
@@ -440,7 +419,7 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                     // have some rewards summary being available. There's no way to continue progressing
                     // the ledger if we don't.
                     computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?,
-                    volatile_view.iter_accounts()?,
+                    volatile_view.iter_unregistered_accounts()?.collect(),
                 );
 
                 (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
@@ -998,6 +977,29 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
         } else {
             max(1, self.volatile.len()) as f64 / (u64::from(latest_slot) - u64::from(k_slot)) as f64
         }
+    }
+}
+
+/// Resolve the epoch on restart to initialize the volatile db with.
+pub fn initial_epoch<S, HS>(db: &S, snapshots: &HS, era_history: &EraHistory) -> Result<Epoch, StoreError>
+where
+    S: Store,
+    HS: HistoricalStores,
+{
+    let epoch_from_immutable_tip = unsafe_slot_to_epoch(era_history, db.tip()?.slot_or_default());
+
+    // NOTE: Initial epoch on restart
+    //
+    // It is possible to interrupt Amaru just after the epoch transition was flushed
+    // to disk. The consequence of that is: the tip of the immutable db is still in the
+    // previous epoch which will cause the next block we see to trigger an epoch transition.
+    //
+    // However, the epoch transition had already happened and was even persisted to disk
+    // already! So we must not redo it, we are already in the next epoch!
+    if db.epoch_transition_progress()?.is_none() && snapshots.most_recent_snapshot() == epoch_from_immutable_tip {
+        Ok(epoch_from_immutable_tip + 1)
+    } else {
+        Ok(epoch_from_immutable_tip)
     }
 }
 

@@ -30,6 +30,8 @@ pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
 // See above.
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
+pub mod maths;
+
 pub mod cardano;
 pub use cardano::{
     account::Account,
@@ -94,6 +96,7 @@ pub use cardano::{
     network_name::{NetworkName, PEER_SNAPSHOT_NETWORKS},
     non_zero_int::NonZeroInt,
     nonce::{Nonce, parse_nonce},
+    operational_cert::OperationalCert,
     output_reference::OutputReference,
     peer::Peer,
     plutus_data::{PlutusData, PlutusDataSet, PlutusDatums},
@@ -153,6 +156,7 @@ pub use cardano::{
     voter::Voter,
     voter_kind::VoterKind,
     voting_procedure::{PlutusVotes, VotingProcedure},
+    vrf_cert::VrfCert,
     witness_set::WitnessSet,
 };
 #[cfg(any(test, feature = "test-utils"))]
@@ -197,6 +201,7 @@ pub use cardano::{
     reward_account::any_reward_account,
     stake_credential::any_stake_credential,
     tip::any_tip,
+    transaction_input::any_transaction_input,
     transaction_pointer::any_transaction_pointer,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},
 };
@@ -222,7 +227,7 @@ mod data_structures;
 pub use data_structures::nullable::any_nullable;
 pub use data_structures::{
     ignore_eq::IgnoreEq,
-    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs},
+    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs, LegacyKeyValuePairs},
     legacy::Legacy,
     non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
     non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},

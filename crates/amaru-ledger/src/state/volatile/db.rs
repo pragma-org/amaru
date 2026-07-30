@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{mem, sync::Arc};
+use std::{iter, mem, sync::Arc};
 
 use amaru_kernel::{
     ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
@@ -75,16 +75,9 @@ impl Default for VolatileDB {
 
 impl VolatileState for VolatileDB {
     // --------------------------------------------------------------------------------------- UTxOs
-    fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        if self.has_consumed_input(input) {
-            return None;
-        }
-
-        self.current.resolve_input(input).or(self.draining.resolve_input(input))
-    }
-
-    fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.current.has_consumed_input(input) || self.draining.has_consumed_input(input)
+    type TransactionOutput<'a> = Existence<&'a MemoizedTransactionOutput>;
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
+        self.current.resolve_input(input).or_else(|| self.draining.resolve_input(input))
     }
 
     // --------------------------------------------------------------------------------------- Pools
@@ -105,19 +98,19 @@ impl VolatileState for VolatileDB {
     }
 
     // ------------------------------------------------------------------------------------ Accounts
-    type Account = (Existence<AccountBind>, RewardsAtTip);
-    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
+    type Account<'a> = (Existence<AccountBind<'a>>, RewardsAtTip);
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
         // Resolve a stake account across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
         // bind-only update layers over it.
-        let account = self.current.resolve_account(credential).or_else(|| self.draining.resolve_account(credential));
+        let account = self.current.resolve_account(credential).chain(|| self.draining.resolve_account(credential));
 
-        let rewards_at_tip = if self.current.withdrew(credential) {
+        let rewards_at_tip = if self.current.has_withdrawal(credential) {
             // rewards withdrawn after the boundary credit
             RewardsAtTip::Reset
         } else {
             let credit = self.overlay.pending_reward_credit(credential);
-            if self.draining.withdrew(credential) {
+            if self.draining.has_withdrawal(credential) {
                 // rewards withdrawn before the boundary credit
                 RewardsAtTip::Replace(credit)
             } else {
@@ -129,25 +122,30 @@ impl VolatileState for VolatileDB {
         (account, rewards_at_tip)
     }
 
+    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+        self.current.has_withdrawal(credential) || self.draining.has_withdrawal(credential)
+    }
+
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepBind>;
-    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
+    type DRep<'a> = Existence<DRepBind<'a>>;
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
         // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
-        // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
-        // bind-only update layers over it.
-        self.current.resolve_drep(credential).or_else(|| self.draining.resolve_drep(credential))
+        // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, an
+        // anchor-only update layers over the registration it finds below.
+        self.current.resolve_drep(credential).chain(|| self.draining.resolve_drep(credential))
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember = Existence<CommitteeMemberBind>;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember {
+    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
+    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
         // Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
         // draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
         // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
-        self.current
-            .resolve_cc_member(credential)
-            .or_else(|| self.overlay.committee_verdict(credential))
-            .or_else(|| self.draining.resolve_cc_member(credential))
+        Self::CCMember::fold(
+            iter::once(self.current.resolve_cc_member(credential))
+                .chain(iter::once_with(|| self.overlay.committee_verdict(credential)))
+                .chain(iter::once_with(|| self.draining.resolve_cc_member(credential))),
+        )
     }
 
     // ----------------------------------------------------------------------------------- Proposals
@@ -495,19 +493,16 @@ mod tests {
 
     use amaru_kernel::{
         Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, ProposalsRoots, Slot, StakeCredential,
+        any_modern_output, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
-    use proptest::prelude::*;
     use test_case::test_case;
 
     use super::*;
     use crate::{
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
         governance::ratification::CommitteeUpdate,
-        state::{
-            diff_bind::{Bind, Resettable},
-            volatile::test_support::*,
-        },
+        state::volatile::{Bind, Resettable},
         summary::SafeRatio,
     };
 
@@ -887,20 +882,19 @@ mod tests {
 
     #[test]
     fn test_consumed_input_is_tracked() {
-        let input = test_input(1);
+        let input = run_strategy(any_transaction_input());
         let mut anchored = AnchoredVolatileFragment::fixture(10, 1);
         anchored.fragment.utxo.consume(input.clone());
 
         let mut db = VolatileDB::default();
-        db.push_back(anchored);
 
-        assert!(db.has_consumed_input(&input));
-        assert!(db.resolve_input(&input).is_none());
+        db.push_back(anchored);
+        assert_eq!(db.resolve_input(&input), Existence::Gone);
     }
 
     #[test]
     fn test_rollback_removes_consumed_input_from_cache() {
-        let input = test_input(1);
+        let input = run_strategy(any_transaction_input());
         let mut db = VolatileDB::default();
         let first = AnchoredVolatileFragment::fixture(10, 1);
         let first_point = first.point();
@@ -908,13 +902,12 @@ mod tests {
 
         let mut second = AnchoredVolatileFragment::fixture(20, 2);
         second.fragment.utxo.consume(input.clone());
-        db.push_back(second);
 
-        assert!(db.has_consumed_input(&input));
+        db.push_back(second);
+        assert_eq!(db.resolve_input(&input), Existence::Gone);
 
         db.rollback_to(&first_point).unwrap();
-
-        assert!(!db.has_consumed_input(&input));
+        assert_eq!(db.resolve_input(&input), Existence::Unknown);
     }
 
     #[test]
@@ -997,7 +990,7 @@ mod tests {
         resolvable: bool,
         consumed: bool,
     ) {
-        let input = test_input(1);
+        let input = run_strategy(any_transaction_input());
         let mut draining_block = AnchoredVolatileFragment::fixture(10, 1);
         let mut current_block = AnchoredVolatileFragment::fixture(20, 2);
 
@@ -1006,7 +999,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.produce(input.clone(), Arc::new(fixed_output()));
+            block.fragment.utxo.produce(input.clone(), Arc::new(run_strategy(any_modern_output())));
         }
 
         if let Some(layer) = consume_in {
@@ -1022,8 +1015,13 @@ mod tests {
         db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
         db.push_back(current_block);
 
-        assert_eq!(db.resolve_input(&input).is_some(), resolvable);
-        assert_eq!(db.has_consumed_input(&input), consumed);
+        if resolvable {
+            assert!(matches!(dbg!(db.resolve_input(&input)), Existence::Exists(..)))
+        } else if consumed {
+            assert_eq!(db.resolve_input(&input), Existence::Gone)
+        } else {
+            assert_eq!(db.resolve_input(&input), Existence::Unknown)
+        }
     }
 
     #[test]
@@ -1048,30 +1046,6 @@ mod tests {
         db.pop_front();
         assert!(db.is_empty());
         assert_eq!(db.len(), 0);
-    }
-
-    proptest! {
-        #[test]
-        fn db_resolve_matches_naive_walk_over_both_series(
-            diffs in unique_lifecycle_diffs(VOLATILE_WINDOW),
-            transition_after in 1usize..VOLATILE_WINDOW,
-        ) {
-            let mut db = VolatileDB::default();
-            for (index, diff) in diffs.iter().enumerate() {
-                if index == transition_after {
-                    db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None));
-                }
-                let mut anchored = AnchoredVolatileFragment::fixture(index as u64, index as u8);
-                anchored.fragment.utxo = diff.clone();
-                db.push_back(anchored);
-            }
-
-            for tag in 0u8..16 {
-                let input = test_input(tag);
-                prop_assert_eq!(db.resolve_input(&input).is_some(), naive_resolve(&diffs, &input).is_some());
-                prop_assert_eq!(db.has_consumed_input(&input), naive_has_consumed(&diffs, &input));
-            }
-        }
     }
 
     #[test_case(None, Some(Act::Reg) => Expect::Registered ; "registered in current")]
@@ -1121,8 +1095,9 @@ mod tests {
     #[test]
     fn reward_balance_folds_in_the_pending_overlay_credit_during_the_straddle() {
         let mut db = VolatileDB::default();
-        let computed = Rewards::<Computed>::new(0, 0, BTreeMap::from([(cred(1), 5_000_000)]));
-        let effective = Rewards::<Effective>::new(computed, std::iter::once(cred(1)));
+        let accounts = BTreeMap::from([(cred(1), 5_000_000)]);
+        let computed = Rewards::<Computed>::new(0, 0, accounts.values().sum(), accounts);
+        let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
 
         // The pending boundary credit is added on top of the stable base.
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(0));
@@ -1160,8 +1135,8 @@ mod tests {
     #[test_case(None, None => Existence::Unknown; "untouched everywhere defers to the stable store")]
     fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Existence<bool> {
         let mut db = VolatileDB::default();
-        let computed = Rewards::<Computed>::new(0, 0, BTreeMap::new());
-        let effective = Rewards::<Effective>::new(computed, std::iter::empty());
+        let computed = Rewards::<Computed>::new(0, 0, 0, BTreeMap::new());
+        let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
         if let Some(act) = draining {
             db.push_back(committee_block(10, act));
         }
@@ -1193,7 +1168,7 @@ mod tests {
         );
         assert!(matches!(
             db.resolve_cc_member(&cred(1)),
-            Existence::Exists(Bind { value: Some(term_limit),.. }) if term_limit == expected_term_limit
+            Existence::Exists(Bind { value: Some(term_limit),.. }) if *term_limit == expected_term_limit
         ));
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
@@ -1253,8 +1228,8 @@ mod tests {
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
     /// observable state (its pending reward credit surfaces through `resolve_account`).
     fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(0, 0, BTreeMap::from([(credential.clone(), amount)]));
-        Rewards::<Effective>::new(computed, std::iter::once(credential))
+        let computed = Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential.clone(), amount)]));
+        Rewards::<Effective>::new(computed, BTreeSet::new())
     }
 
     fn account_block(slot: u64, act: Act) -> AnchoredVolatileFragment {

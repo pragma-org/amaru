@@ -72,7 +72,6 @@ TX_QUERY_SOURCE="${TX_QUERY_SOURCE:-$(default_tx_query_source)}"
 START_TELEMETRY="${START_TELEMETRY:-true}"
 TELEMETRY_DIR="${TELEMETRY_DIR:-$AMARU_DIR/monitoring}"
 TELEMETRY_COMPOSE_OVERRIDE_FILE="${TELEMETRY_COMPOSE_OVERRIDE_FILE:-$SCRIPT_DIR/telemetry/docker-compose.yml}"
-TELEMETRY_PROFILES="${TELEMETRY_PROFILES:-prometheus grafana tempo}"
 TELEMETRY_GRAFANA_URL="${TELEMETRY_GRAFANA_URL:-http://localhost}"
 TELEMETRY_PROMETHEUS_URL="${TELEMETRY_PROMETHEUS_URL:-http://localhost:9090}"
 export AMARU_RELAY_LOGDIR="$LOGDIR"
@@ -218,6 +217,7 @@ run_prepare_wallet() {
 
 telemetry_urls() {
   grafana_trace_url "traces" '{ resource.service.name = "amaru-middle" && span:name = "roll_forward.process" } with (most_recent=true)'
+  grafana_logs_url "logs" '{service_name=~"amaru-middle|amaru-downstream"}'
   grafana_dashboard_panel_url "amaru-relay-consensus-perf" 7
   grafana_dashboard_url "amaru-relay-mempool"
   grafana_dashboard_url "amaru-relay-consensus-perf"

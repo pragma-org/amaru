@@ -14,13 +14,12 @@
 
 use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
-use amaru_kernel::{ConsensusParameters, Epoch, Header, NetworkName, Nonce, PoolId, cbor};
+use amaru_kernel::{BlockHeader, ConsensusParameters, Epoch, NetworkName, Nonce, PoolId, cbor, hash::Hash};
 use amaru_ouroboros::{issuer_to_pool_id, kes, praos};
 use amaru_ouroboros_traits::has_stake_distribution::mock_ledger_state::MockLedgerState;
 use ctor::ctor;
+use ed25519_dalek as ed25519;
 use num::CheckedSub;
-use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
-use pallas_primitives::babbage;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Context from which a header has been generated.
@@ -49,7 +48,7 @@ struct GeneratorContext {
     #[serde(rename = "kesSignKey", deserialize_with = "deserialize_secret_kes_key")]
     kes_secret_key: KesKeyWrapper,
     #[serde(rename = "coldSignKey", deserialize_with = "deserialize_secret_ed25519_key")]
-    cold_secret_key: SecretKey,
+    cold_secret_key: ed25519::SecretKey,
     #[serde(rename = "vrfVKeyHash", deserialize_with = "deserialize_vrf_vkey_hash")]
     vrf_vkey_hash: Hash<32>,
     #[serde(deserialize_with = "deserialize_nonce")]
@@ -104,16 +103,16 @@ where
     Ok(KesKeyWrapper { bytes })
 }
 
-fn deserialize_secret_ed25519_key<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
+fn deserialize_secret_ed25519_key<'de, D>(deserializer: D) -> Result<ed25519::SecretKey, D::Error>
 where
     D: Deserializer<'de>,
 {
     let buf = <String>::deserialize(deserializer)?;
     let decoded = hex::decode(buf).map_err(serde::de::Error::custom)?;
-    let bytes: [u8; SecretKey::SIZE] = decoded
+    let bytes: [u8; ed25519::SECRET_KEY_LENGTH] = decoded
         .try_into()
         .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to secret key: {:?}", e)))?;
-    Ok(bytes.into())
+    Ok(bytes)
 }
 
 fn deserialize_vrf_vkey_hash<'de, D>(deserializer: D) -> Result<Hash<32>, D::Error>
@@ -153,7 +152,7 @@ struct HeaderWrapper {
 }
 
 impl HeaderWrapper {
-    fn get_header(&mut self) -> Result<babbage::MintedHeader<'_>, ()> {
+    fn get_header(&mut self) -> Result<BlockHeader, ()> {
         cbor::decode(self.bytes.as_slice()).map_err(|_| ())
     }
 }
@@ -217,10 +216,11 @@ fn can_read_and_write_json_test_vectors() {
     let mut vec = result.unwrap();
     let header = vec[0].1.header.get_header().expect("cannot create header");
     // NOTE: this magic number ensures that we read an up-to-date test vector
-    assert_eq!(header.header_body.slot, EXPECTED_SLOT_NUMBER);
+    assert_eq!(header.header_body().slot, EXPECTED_SLOT_NUMBER);
 }
 
 #[test]
+#[allow(clippy::result_large_err)]
 fn validation_conforms_to_test_vectors() {
     use rayon::prelude::*;
 
@@ -236,11 +236,11 @@ fn validation_conforms_to_test_vectors() {
             .map(|minted_header| {
                 let expected = &test.1.mutation;
                 let mock = mock_ledger_state(context);
-                let issuer = pallas_crypto::key::ed25519::PublicKey::from(<[u8; pallas_crypto::key::ed25519::PublicKey::SIZE]>::try_from(&minted_header.header_body.issuer_vkey[..]).expect("issuer vkey"));
+                let issuer = ed25519::VerifyingKey::try_from(&minted_header.header_body().issuer_vkey[..]).expect("issuer vkey");
                 let pool: PoolId = issuer_to_pool_id(&issuer);
                 let epoch_nonce = context.nonce;
-                let raw_header_body = minted_header.header_body.raw_cbor();
-                let header = Header::from(minted_header);
+                let raw_header_body = cbor::to_cbor(minted_header.header_body());
+                let header = minted_header.header();
                 let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
                 let era_history = NetworkName::Preprod.as_era_history().expect("era");
                 let slot = amaru_kernel::Slot::from(header.header_body.slot);
@@ -248,7 +248,7 @@ fn validation_conforms_to_test_vectors() {
                     e.checked_sub(Epoch::TWO)
                 }).expect("test vector epoch should be >= 2");
                 let summaries = mock.to_pool_summaries(pool, target);
-                let assertions = praos::header::assert_all(consensus_parameters, &header, raw_header_body, &summaries, era_history, &epoch_nonce)
+                let assertions = praos::header::assert_all(consensus_parameters, header, &raw_header_body, &summaries, era_history, &epoch_nonce)
                     .unwrap()
                     .into_par_iter()
                     .map(|assert| assert())

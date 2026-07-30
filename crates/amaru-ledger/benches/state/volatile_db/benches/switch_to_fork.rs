@@ -43,7 +43,10 @@ impl SwitchToFork {
     }
 
     pub fn fork_point(&self) -> usize {
-        std::env::var(Self::ENV_VAR_FORK_POINT).ok().and_then(|s| s.parse().ok()).unwrap_or(self.scale.block_size / 2)
+        std::env::var(Self::ENV_VAR_FORK_POINT)
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(self.scale.volatile_size / 2)
     }
 
     #[expect(clippy::expect_used, reason = "non-production code")]

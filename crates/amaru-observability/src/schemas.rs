@@ -35,12 +35,22 @@ define_schemas! {
                     required from: u16
                     required to: u16
                 }
+                /// Initialize the store
+                INITIALIZE {
+                    required ledger_tip: amaru_kernel::Point
+                    optional best_chain_hash: amaru_kernel::HeaderHash
+                }
+                /// Remove the valid status of descendants of a given block to reapply those blocks.
+                CLEAR_VALID_DESCENDANTS {
+                    required count: usize
+                }
             }
             blocks {
                 /// Validate downloaded blocks that are not yet validated
                 RECOVER_STORED {
                     tags: setup
-                    required best_hash: amaru_kernel::HeaderHash
+                    required from: amaru_kernel::Point
+                    required to: amaru_kernel::HeaderHash
                 }
                 /// Fetch a range of blocks starting from the specified tip
                 FETCH {
@@ -735,6 +745,11 @@ define_schemas! {
                 public DETECT {
                     required count: usize
                 }
+                /// Failed to read or parse a local snapshot
+                public FAIL_TO_READ {
+                    required file: String,
+                    required hint: anyhow::Error,
+                }
             }
             nonces {
                 /// Import initial nonces into the chain store
@@ -1055,6 +1070,16 @@ define_schemas! {
                     public RESET_MANY {
                         optional credential: amaru_kernel::StakeCredential
                         optional reason: String
+                    }
+                }
+                recently_unregistered_accounts {
+                    /// Insert a recently unregistered account
+                    public INSERT {}
+                    /// Remove a recently unregistered account
+                    public REMOVE {}
+                    /// Prune recently unregistered accounts
+                    public PRUNE {
+                        required epoch: Epoch
                     }
                 }
                 dreps {

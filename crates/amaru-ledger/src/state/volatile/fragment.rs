@@ -24,67 +24,31 @@ use amaru_kernel::{
 };
 
 use crate::{
-    state::{
-        diff_bind::{Bind, DiffBind, Empty, Resettable},
-        diff_epoch_reg::{DiffEpochReg, Registrations},
-        diff_set::DiffSet,
-    },
+    state::volatile::{Bind, Empty, Resettable},
     store::{self, columns::*},
 };
+
+mod diff_bind;
+pub use diff_bind::{BindError, DiffBind, RegisterError};
+
+mod diff_epoch_reg;
+pub use diff_epoch_reg::DiffEpochReg;
+
+mod diff_set;
+pub use diff_set::DiffSet;
+
+mod registrations;
+pub use registrations::Registrations;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    pub use super::{diff_bind::any_diff_bind, diff_set::any_diff_set};
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
 // ----------------------------------------------------------------------------------- VolatileFragment
-
-/// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
-pub type AccountBind = Bind<(PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
-
-/// A DRep's accumulated binding: metadata anchor, and the DRep registration data.
-pub type DRepBind = Bind<Anchor, Empty, DRepRegistration>;
-
-/// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
-/// since no in-block cert establishes them.
-pub type CommitteeMemberBind = Bind<StakeCredential, Empty, Epoch>;
-
-/// A volatile layer's verdict on an entity.
-/// - `T` is the resolved record.
-/// - `Gone` is a tombstone, so don't fall back to the stable store.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Existence<T> {
-    Exists(T),
-    Gone,
-    Unknown,
-}
-
-impl<L, R, V> Existence<Bind<L, R, V>> {
-    /// Layer this verdict over an `older` one, evaluated lazily
-    pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
-        match self {
-            Existence::Unknown => older(),
-
-            // If this is rebinding (i.e. value is None), then we must still take into
-            // account the previous value, if any.
-            //
-            // NOTE: superfluous 'is_none()' check actually not superfluous
-            //
-            // The `value.is_none()` guard may seem redundant with the implementation of `then`.
-            // But it allows to only lazily get the `older` state when we truly have to. Indeed, if
-            // there already exists a newer value, that means the object was entirely re-recreated
-            // and there's no need to fetch the previous state for any left or right binds. It's
-            // just been overidden.
-            //
-            // Hence, the guard doesn't fundamentally changes the logic since `older.then(newer)`
-            // would simply override `older` with `newer` when the value exists; but it saves us
-            // from fetching the `older` to begin with.
-            Existence::Exists(newer)
-                if newer.value.is_none()
-                    && let Existence::Exists(mut older) = older() =>
-            {
-                older.then(newer);
-                Existence::Exists(older)
-            }
-
-            Existence::Gone | Existence::Exists(..) => self,
-        }
-    }
-}
 
 /// Resulting state change coming from processing a block.
 #[derive(Debug, Default, Clone)]
@@ -105,151 +69,6 @@ pub struct VolatileFragment {
 impl VolatileFragment {
     pub fn anchor(self, tip: Tip, issuer: PoolId) -> AnchoredVolatileFragment {
         AnchoredVolatileFragment { anchor: (tip, issuer), fragment: self }
-    }
-
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.utxo.produced.get(input).map(|output| output.as_ref())
-    }
-
-    pub fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.utxo.consumed.contains(input)
-    }
-
-    /// Whether this fragment registered the given pool. Unregistrations
-    /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
-    pub fn resolve_pool(&self, pool_id: PoolId) -> bool {
-        self.pools.registered.contains_key(&pool_id)
-    }
-
-    /// This fragment's verdict on a stake account. Deregistration is immediate, so an `unregistered`
-    /// entry is a live tombstone.
-    pub fn resolve_account(&self, credential: &StakeCredential) -> Existence<AccountBind> {
-        if let Some(bind) = self.accounts.registered.get(credential) {
-            Existence::Exists(bind.clone())
-        } else if self.accounts.unregistered.contains(credential) {
-            Existence::Gone
-        } else {
-            Existence::Unknown
-        }
-    }
-
-    /// This fragment's verdict on a DRep. Deregistration is immediate, so an `unregistered`
-    /// entry is a live tombstone.
-    pub fn resolve_drep(&self, credential: &StakeCredential) -> Existence<DRepBind> {
-        if let Some(bind) = self.dreps.registered.get(credential) {
-            Existence::Exists(bind.to_owned())
-        } else if self.dreps.unregistered.contains(credential) {
-            Existence::Gone
-        } else {
-            Existence::Unknown
-        }
-    }
-
-    /// This fragment's verdict on a CC member. Resignation is immediate, so a resignation entry is a
-    /// live tombstone. A delegation resolves as a bind-only update (`value: None`): no in-block cert
-    /// establishes membership, so existence still defers to the layer below.
-    pub fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
-        if let Some(hot_credential) = self.committee.produced.get(credential) {
-            Existence::Exists(Bind {
-                left: Resettable::Set(hot_credential.clone()),
-                right: Resettable::Unchanged,
-                value: None,
-            })
-        } else if self.committee.consumed.contains(credential) {
-            Existence::Exists(Bind { left: Resettable::Reset, right: Resettable::Unchanged, value: None })
-        } else {
-            Existence::Unknown
-        }
-    }
-
-    /// This fragment's view of a governance proposal. Proposals are add-only in a block, so this is
-    /// `Exists` or `Unknown`; pruning only happens at the boundary.
-    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
-        match self.proposals.get(id) {
-            Some(_) => Existence::Exists(()),
-            None => Existence::Unknown,
-        }
-    }
-
-    /// Whether this fragment withdrew the account's rewards.
-    pub fn withdrew(&self, credential: &StakeCredential) -> bool {
-        self.withdrawals.contains(credential)
-    }
-
-    /// A best-effort cleanup of a previous fragment in the current aggreate. This is not generally
-    /// possible (with our current design), for all elements in a fragment, because we loose
-    /// information each time we aggregate two fragments (a little thought exercise with account
-    /// registrations and delegations should be convincing enough).
-    ///
-    /// But it is possible for a few types such as the `DiffSet` and the various maps. Note that
-    /// not cleaning up all the data is not fundamentally wrong; but it is *leaking memory*. We
-    /// just keep in memory information that we should have flushed on-disk.
-    ///
-    /// Yet, this is counterbalanced by the frequent rollbacks happening on Cardano (once every
-    /// 10-15min due to slot battles). Rollbacks are infrequent enough and frequent enough that
-    /// they are the perfect opportunity to cleanup the now-stable memory (by re-computing the
-    /// aggregate from scratch). Also, because we cannot *guarantee* that rollbacks happen, we
-    /// still also manually perform such a cleanup every now-and-then using a counter that gets
-    /// reset for every rollback.
-    pub fn incremental_cleanup(&mut self, fragment: &VolatileFragment) {
-        let VolatileFragment {
-            utxo,
-            votes,
-            withdrawals,
-            proposals,
-            fees,
-            donations,
-            accounts: _,
-            committee: _,
-            dreps: _,
-            dreps_deregistrations: _,
-            pools: _,
-        } = fragment;
-
-        self.utxo.cleanup(utxo);
-
-        self.votes.cleanup(votes);
-
-        for credential in withdrawals {
-            self.withdrawals.remove(credential);
-        }
-
-        for proposal_id in proposals.keys() {
-            self.proposals.remove(proposal_id);
-        }
-
-        self.fees -= *fees;
-        self.donations -= *donations;
-    }
-
-    /// Fold `more_recent` into this fragment, treating it as applied *after* `self`.
-    /// This maintains the running aggregate of a [`crate::state::volatile::VolatileSeries`].
-    pub fn compose(&mut self, more_recent: &VolatileFragment) {
-        let VolatileFragment {
-            utxo,
-            votes,
-            pools,
-            withdrawals,
-            proposals,
-            fees,
-            donations,
-            accounts,
-            dreps,
-            dreps_deregistrations,
-            committee,
-        } = more_recent;
-
-        self.utxo.extend(utxo);
-        self.votes.extend(votes);
-        self.pools.extend(pools);
-        self.withdrawals.extend(withdrawals.iter().cloned());
-        self.proposals.extend(proposals.iter().map(|(id, value)| (id.clone(), value.clone())));
-        self.accounts.append(accounts.clone());
-        self.dreps.append(dreps.clone());
-        self.dreps_deregistrations.extend(dreps_deregistrations.iter().map(|(k, v)| (k.clone(), *v)));
-        self.committee.extend(committee);
-        self.fees += *fees;
-        self.donations += *donations;
     }
 }
 

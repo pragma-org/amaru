@@ -39,8 +39,8 @@ jobs:
             target_epoch: 280
           - name: preview
             magic: 2
-            start_epoch: 1002
-            target_epoch: 1020
+            start_epoch: 1122
+            target_epoch: 1240
         cardano_node_version: [11.0.1]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}

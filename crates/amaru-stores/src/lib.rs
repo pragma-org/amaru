@@ -25,7 +25,7 @@ pub mod tests {
     };
     use amaru_ledger::{
         epoch_transition::GovernanceActivity,
-        state::diff_bind::Resettable,
+        state::volatile::Resettable,
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
             columns::{

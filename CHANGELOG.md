@@ -35,7 +35,6 @@ Other guiding principles:
   ```
 -->
 
-
 ## v10.11.20260730 _[unreleased; planned for 2026-07-30]_
 
 ### Added
@@ -44,11 +43,15 @@ Other guiding principles:
 - **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
 - **amaru-consensus**: add events and metrics to track the performance of headers processing. ([#1005][])
 - **amaru-ledger**: benchmarks for key volatile db operations (roll forward, switch to fork and context preparation).
+- **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][] [#895][])
 
 ### Changed
 
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
 - **amaru**: removed `#[tokio::main]`; each subcommand builds its own Tokio runtime; signals are handled via `signal-hook` on the main thread (EDR 019). Unexpected consensus stage-graph death now exits non-zero. OpenTelemetry teardown is time-bounded.
+- **amaru-ledger**: track account unregistrations to avoid O(n) scan on all accounts during epoch transition calculations.
+- **amaru-ledger**: add phase-one conformance coverage for `TooManyCollateralInputs`, `ScriptsNotPaidUTxO` and `IncorrectTotalCollateralField`, and move the fixture that was filed under `InsufficientCollateral` while expecting `ValueNotConservedUTxO` to the directory matching its predicate.
+- **amaru**: consolidate the monitoring stack.
 
 ### Fixed
 
@@ -58,6 +61,7 @@ Other guiding principles:
 - **amaru**: process lifecycle no longer depends on the Tokio runtime to observe SIGINT/SIGTERM; first signal requests graceful shutdown (including main-thread stage abort), second signal force-exits (exit 130). Fixes hang during catch-up roll-forward ([#1061](https://github.com/pragma-org/amaru/pull/1061)).
 - **amaru-node**: support Cardano ledger peer snapshots via `--peer-snapshot` / `AMARU_PEER_SNAPSHOT` for cold-start big-ledger peers in peer selection (complements `--peer-address`) ([#1047](https://github.com/pragma-org/amaru/pull/1047))
 - **amaru-node**: embed best-effort peer snapshots for known networks (for example mainnet, preprod, preview) at build time from cardano-foundation/cardano-configurations; used by default when `--peer-snapshot` is omitted
+- **amaru**: fix the start/restart of a node ([#1095][], [#1098][])
 
 ## [v10.11.20260723](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260723)
 
@@ -76,6 +80,7 @@ Other guiding principles:
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
 - **amaru**: no more separate `amaru-ledger` binary; associated commands have been moved into the main `amaru` binary under `amaru dev ledger`. ([#1064](https://github.com/pragma-org/amaru/pull/1064))
 
+- **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][])
 
 ### Fixed
 
@@ -100,13 +105,6 @@ Other guiding principles:
 - **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
 - **amaru-ledger**: add more state elements to the validation context, enabling the introduction of ledger predicates that depend on state such as pools, governance, and more. ([#831][], [#896][], [#902][], [#915][], [#975][], [#1017][])
 - **amaru-ledger**: validate value preservation across (valid and invalid) transactions. ([#892][], [#831][])
-- **amaru-ledger**: validate account reward balance at unregistration (and fail when non-zero). ([#899][], [#1033][])
-- **amaru**: add / modify tracing spans to conform to [EDR-26](https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/026-tracing-span-design.md). ([#996][])
-- **amaru**: add a demo showcasing `amaru` as a relay node supporting both chainsync (to synchronize downstream nodes) and txsubmission (to diffuse transactions upstream). ([#1029][])
-
-### Removed
-
-- **amaru**: no more `--force` flag on `snapshot create`. ([#1039][])
 
 ### Fixed
 
@@ -200,7 +198,9 @@ Other guiding principles:
 [#820]: https://github.com/pragma-org/amaru/pull/820
 [#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
+[#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
+[#895]: https://github.com/pragma-org/amaru/issues/895
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
@@ -225,6 +225,7 @@ Other guiding principles:
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
+[#1011]: https://github.com/pragma-org/amaru/pull/1011
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
@@ -248,3 +249,5 @@ Other guiding principles:
 [#1060]: https://github.com/pragma-org/amaru/issues/1060
 [#1078]: https://github.com/pragma-org/amaru/issues/1078
 [#1082]: https://github.com/pragma-org/amaru/pull/1082
+[#1095]: https://github.com/pragma-org/amaru/issues/1095
+[#1098]: https://github.com/pragma-org/amaru/pull/1098

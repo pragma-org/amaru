@@ -54,7 +54,6 @@ amaru-deps.workspace = true
 
 [dev-dependencies]
 hex.workspace = true
-pallas-primitives.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 rand.workspace = true

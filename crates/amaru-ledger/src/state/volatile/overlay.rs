@@ -28,8 +28,7 @@ use crate::{
     governance::ratification::CommitteeUpdate,
     state::{
         StateError,
-        diff_bind::{Bind, Resettable},
-        volatile::{CommitteeMemberBind, Existence},
+        volatile::{Bind, CommitteeMemberBind, Existence, Resettable},
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
@@ -160,6 +159,51 @@ impl StateOverlay {
         let updated = info_span!(ledger::epoch_transition::APPLY, epoch = self.epoch).in_scope(|| {
             use EpochTransitionProgress::*;
 
+            // NOTE: 3-step epoch transition
+            //
+            // Why are 3 db transactions needed here?
+            //
+            // Two transactions can be explained with a few points:
+            //
+            //  - Calculations that depend on historical data. A snapshot must be taken precisely
+            //    after paying out the rewards, but before ratifying governance actions or pruning
+            //    stake pools. So there's a precise split between these moment and it's nice
+            //    (albeit strictly unnecessary) to make it apparent.
+            //
+            //  - Another compelling reason for the split is the bootstrapping of Amaru. Snapshots
+            //    we produce from the Haskell node correspond precisely to our definition of
+            //    snapshot here (i.e. data at the end of the epoch, after rewards payments but
+            //    before next epoch start). Hence, we must be able to resume from a snapshot
+            //    mid-transaction, and instead of making a special case for the bootstrapping, we
+            //    make it our default behaviour.
+            //
+            // Why the third split then? Because while RocksDB allows for checkpointing in the
+            // middle of a transaction, it does not rollback checkpoints on failures.
+            //
+            // So if anything goes wrong during the transaction but after the checkpoint/snapshot
+            // was taken, we end up in an awkward spot where we need to re-apply the end of epoch,
+            // skip the snapshot, and re-apply the beginning.
+            //
+            // Yet, this puts us in an inconsistent state where a snapshot exists (and other logic
+            // may infer a bunch of decisions from it!), while the actual database state still lives
+            // in the past. So to prevent this, we introduce a third split between the moment the
+            // epoch ended (and was persisted to disk) and the moment the snapshot was taken.
+            //
+            // This way, if anything goes wrong:
+            //
+            // - before the epoch transition or during the epoch-ended transaction: the database
+            //   remains unmodified, and no snapshot was generated.
+            //
+            // - after the epoch-ended or during the snapshot being taken: then we may or may not
+            //   have a snapshot. If we do have a snapshot, we may still report a progress as
+            //   "EpochEnded", which would only cause the snapshot to be taken _again_. Since this
+            //   is an idempotent and rather quick operation, that's not a big problem. If we don't
+            //   have a snapshot, then the progress is also still at "EpochEnded" and the snapshot
+            //   will normally happen on restart.
+            //
+            // - during the epoch start: then we have a stable snapshot and the database is still in
+            //   a correct state because the epoch progress still indicates "SnapshotTaken".
+
             // ---------------------------------------------------------------------------- End of epoch
             db.with_transaction::<_, StateError>(|batch| {
                 let should_end_epoch = batch.try_epoch_transition(None, Some(EpochEnded))?;
@@ -201,8 +245,8 @@ impl StateOverlay {
                 Span::current().record("should_begin_epoch", should_begin_epoch);
 
                 let updated = if should_begin_epoch {
+                    batch.prune_recently_unregistered_accounts(self.epoch)?;
                     reset_blocks_count(batch)?;
-
                     reset_fees_and_donations(batch)?;
 
                     if let Some(pools_updates) = mem::take(&mut self.pools_updates) {
@@ -272,7 +316,7 @@ impl StateOverlay {
     /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
     /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
     /// so it defers to the layers below. `Unknown` outside the straddle window.
-    pub fn committee_verdict(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    pub fn committee_verdict<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
             Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
                 if removed.contains(credential) {
@@ -282,7 +326,7 @@ impl StateOverlay {
                     Existence::Exists(Bind {
                         left: Resettable::Reset,
                         right: Resettable::Unchanged,
-                        value: Some(*epoch),
+                        value: Some(epoch),
                     })
                 } else {
                     Existence::Unknown
@@ -343,7 +387,7 @@ impl StateOverlay {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalsRoots};
 
@@ -391,8 +435,9 @@ mod test {
     /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during
     /// the epoch, so its rewards are unclaimed and returned to the treasury.
     fn effective_rewards() -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(1_000, 7, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
-        Rewards::<Effective>::new(computed, std::iter::once(credential(1)))
+        let computed =
+            Rewards::<Computed>::new(1_000, 7, 142, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
+        Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))
     }
 
     fn governance_updates() -> GovernanceUpdates {

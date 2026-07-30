@@ -26,9 +26,7 @@ use amaru_kernel::{
 use crate::{
     state::{
         VolatileDB,
-        diff_bind::DiffBind,
-        diff_epoch_reg::DiffEpochReg,
-        volatile::{VolatileSequence, fragment::add_proposals},
+        volatile::{DiffBind, DiffEpochReg, VolatileSequence, fragment::add_proposals},
     },
     store::{
         ReadStore, StoreError,
@@ -36,8 +34,8 @@ use crate::{
     },
 };
 
-mod iter_accounts;
 mod iter_pools;
+mod iter_unregistered_accounts;
 
 // ------------------------------------------------------------------------------------ VolatileView
 
@@ -63,9 +61,9 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         let mut accounts = DiffBind::default();
 
         for anchored in volatile.iter() {
-            accounts.append(anchored.fragment.accounts.as_borrowed());
+            accounts.extend_refs(&anchored.fragment.accounts);
 
-            pools.append(anchored.fragment.pools.as_borrowed());
+            pools.extend_derefs(&anchored.fragment.pools);
 
             for (k, v) in anchored.fragment.proposals.iter() {
                 proposals.insert(k, v);
@@ -80,7 +78,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
                 .filter_map(|(credential, bind)| {
                     // NOTE: only accounts that are newly registered (i.e. .value is some)
                     //
-                    // Delegations only needs not to appear here as they'll be available from the
+                    // Delegations-only needs not to appear here as they'll be available from the
                     // stable store.
                     bind.value.map(|_| credential)
                 })
@@ -127,15 +125,15 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     /// registration or deregistration from the aggregated volatile state.
     ///
     /// IMPORTANT: Yields accounts in no particular order.
-    pub fn iter_accounts(&mut self) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
+    pub fn iter_unregistered_accounts(&mut self) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
         match mem::take(&mut self.accounts) {
             None => {
                 // Just being careful here. There's no reason to ever call this twice; but if it
                 // ever happens, this line might save us from hours of debugging.
-                unreachable!(".iter_accounts() called twice on the same VolatileView! Don't do that.")
+                unreachable!(".iter_unregistered_accounts() called twice on the same VolatileView! Don't do that.")
             }
-            Some(mut accounts) => Ok(iter_accounts::IterAccounts::new(
-                self.db.iter_accounts()?,
+            Some(mut accounts) => Ok(iter_unregistered_accounts::IterUnregisteredAccounts::new(
+                self.db.iter_recently_unregistered_accounts()?,
                 &mut accounts.registered,
                 &mut accounts.unregistered,
             )),

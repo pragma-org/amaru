@@ -41,8 +41,12 @@ fn main() -> Result<()> {
 
 fn emit_rerun_if_exists(path: &Path) {
     if path.exists() {
-        println!("cargo:rerun-if-changed={}", path.display());
+        emit_rerun_if_changed(path)
     }
+}
+
+fn emit_rerun_if_changed(path: &Path) {
+    println!("cargo:rerun-if-changed={}", path.display());
 }
 
 /// Write `contents` to `path` unless the file already holds them, to avoid

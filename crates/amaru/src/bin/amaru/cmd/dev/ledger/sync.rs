@@ -150,8 +150,9 @@ async fn load_blocks(
 /// Process blocks as if they were processed by the full node
 /// Particularly all on disk side-effects are performed
 /// Blocks are assumed valid; no validation error should happen
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::too_many_arguments)]
+#[expect(clippy::result_large_err)]
 async fn process_block(
     chain_store: &Arc<dyn ChainStore>,
     praos_chain_store: &PraosChainStore,

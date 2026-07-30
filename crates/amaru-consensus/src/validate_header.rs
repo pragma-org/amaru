@@ -34,6 +34,7 @@ pub enum ValidateHeaderError {
 /// This is the core implementation, intended to be called from within an external effect
 /// (ValidateHeaderEffect) so that up-to-date resources (in particular PoolSummaries) can be
 /// obtained on each use.
+#[allow(clippy::result_large_err)]
 pub fn validate_header(
     header: &BlockHeader,
     consensus_parameters: Arc<ConsensusParameters>,

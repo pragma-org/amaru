@@ -52,7 +52,9 @@ parking_lot.workspace = true
 rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# 'preserve_order' keeps `dump-traces-schema` emitting each schema's fields in declaration
+# order (required before optional) rather than alphabetically, which docs/TRACES.md relies on.
+serde_json = { workspace = true, features = ["preserve_order"] }
 signal-hook.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
@@ -77,7 +79,6 @@ amaru-ledger.workspace = true
 amaru-mempool.workspace = true
 amaru-metrics.workspace = true
 amaru-mithril = { workspace = true, optional = true }
-amaru-network.workspace = true
 amaru-node.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true

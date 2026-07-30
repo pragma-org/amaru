@@ -328,8 +328,7 @@ pub fn setup_open_telemetry(
         .build();
 
     // Metrics
-    // NOTE: We use the http exporter here because not every OTLP receivers (in particular Jaeger)
-    // support gRPC for metrics.
+    // NOTE: We use the http exporter here because not every OTLP receiver supports gRPC for metrics.
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_http()
         .with_temporality(Temporality::default())

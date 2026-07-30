@@ -171,8 +171,8 @@ impl AccountsSlice for DefaultValidationContext {
                 // fresh in-block registration; supersedes the block start state
                 Some(deposit) => AccountState {
                     deposit,
-                    pool: bind.left.as_borrowed().to_option(None),
-                    drep: bind.right.as_borrowed().to_option(None),
+                    pool: bind.left.as_refs().to_option(None),
+                    drep: bind.right.as_refs().to_option(None),
                     rewards: 0,
                 },
                 // re-binding layered over the block start state
@@ -180,8 +180,8 @@ impl AccountsSlice for DefaultValidationContext {
                     let base = self.accounts.get(credential)?;
                     AccountState {
                         deposit: base.deposit,
-                        pool: bind.left.as_borrowed().to_option(base.pool.as_ref()),
-                        drep: bind.right.as_borrowed().to_option(base.drep.as_ref()),
+                        pool: bind.left.as_refs().to_option(base.pool.as_ref()),
+                        drep: bind.right.as_refs().to_option(base.drep.as_ref()),
                         rewards: base.rewards,
                     }
                 }

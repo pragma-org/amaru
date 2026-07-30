@@ -1,0 +1,42 @@
+{
+  "title": "withdraw all funds and deregister the account in one tx",
+  "description": "The transaction withdraws and deregisters that same stake credential in the same transaction.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0,
+        "drep": {
+          "id": "8102",
+          "delegatedAt": {
+            "transaction": { "slot": 0, "transactionIndex": 0 },
+            "certificateIndex": 0
+          }
+        }
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a600d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a0067c280ff021a00030d4004d901028182018200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd805a1581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258408c3c421c6d1cf3070527ac72badec36785f4568018ebe275bf670ba5e907d92e6dec3a59b8f41e6097bdc078725acf3b134d38515f6d005cc1c851841da3ef09f5f6",
+  "expected": "Pass"
+}
