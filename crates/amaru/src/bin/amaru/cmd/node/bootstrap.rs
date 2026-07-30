@@ -18,6 +18,7 @@ use amaru::{
     aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Config},
     bootstrap::bootstrap,
     default_chain_dir, default_ledger_dir,
+    lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{Epoch, GlobalParameters, NetworkName, utils::path::relative_path};
 use amaru_observability::{info, warn};
@@ -119,7 +120,11 @@ pub struct Args {
     s3_public_url: String,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);

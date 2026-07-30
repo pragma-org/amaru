@@ -14,7 +14,10 @@
 
 use std::{error::Error, fmt::Display, path::PathBuf};
 
-use amaru::default_chain_dir;
+use amaru::{
+    default_chain_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{HeaderHash, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
 use amaru_ouroboros::{ChildTipsMode, DiagnosticChainStore, ReadChainStore};
@@ -67,7 +70,11 @@ pub struct Args {
     children: Option<PointOrHash>,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(

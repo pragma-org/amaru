@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod chain;
@@ -31,4 +32,14 @@ pub(crate) enum DevCommand {
     /// Observability and trace operations.
     #[command(subcommand)]
     Traces(traces::TracesCommand),
+}
+
+impl DevCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Chain(cmd) => cmd.into_runnable(),
+            Self::Ledger(cmd) => cmd.into_runnable(),
+            Self::Traces(cmd) => cmd.into_runnable(),
+        }
+    }
 }

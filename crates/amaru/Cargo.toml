@@ -56,6 +56,7 @@ serde.workspace = true
 # 'preserve_order' keeps `dump-traces-schema` emitting each schema's fields in declaration
 # order (required before optional) rather than alphabetically, which docs/TRACES.md relies on.
 serde_json = { workspace = true, features = ["preserve_order"] }
+signal-hook.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 tempfile.workspace = true
@@ -66,7 +67,7 @@ tokio = { workspace = true, features = [
   "net",
   "rt",
   "rt-multi-thread",
-  "signal",
+  "time",
 ] }
 tokio-util.workspace = true
 tracing.workspace = true

@@ -60,9 +60,12 @@ config/peer-snapshots/preview/peer-snapshot.json
 ## Conditional fetch cache
 
 After a successful commits-API response, `CONFIGS_COMMIT_CACHE` records the configs-repo
-SHA plus any `ETag` / `Last-Modified` headers (also not committed). Later builds send
-conditional requests; a `304 Not Modified` reuses the cached SHA and only re-downloads
-missing or stale snapshot files.
+SHA plus any `ETag` / `Last-Modified` headers (also not committed) and gets a fresh
+modification time. Builds within the next **12 hours** reuse that cached SHA without
+contacting the commits API (avoids rate-limit noise on frequent local/LSP rebuilds).
+When the TTL expires, later builds send conditional requests; a `304 Not Modified`
+rewrites the cache (refreshing the 12h window) and only re-downloads missing or stale
+snapshot files.
 
 ## Optional env vars
 

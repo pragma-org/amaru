@@ -17,6 +17,8 @@ use amaru_kernel::NetworkName;
 pub mod aws;
 pub mod bootstrap;
 pub mod cardano_node;
+pub mod exit;
+pub mod lifecycle;
 pub mod metrics;
 pub mod observability;
 pub mod panic;

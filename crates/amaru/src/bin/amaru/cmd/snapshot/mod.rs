@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod create;
@@ -28,4 +29,14 @@ pub(crate) enum SnapshotCommand {
 
     /// Rebuild the snapshot index from archives stored in S3.
     Reindex(reindex::Args),
+}
+
+impl SnapshotCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Create(args) => create::runnable(args),
+            Self::Publish(args) => publish::runnable(args),
+            Self::Reindex(args) => reindex::runnable(args),
+        }
+    }
 }

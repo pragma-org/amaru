@@ -14,7 +14,10 @@
 
 use std::{fs, io, path::PathBuf};
 
-use amaru::default_ledger_dir;
+use amaru::{
+    default_ledger_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_kernel::NetworkName;
 use amaru_ledger::state::MIN_LEDGER_SNAPSHOTS;
 use clap::Parser;
@@ -46,11 +49,15 @@ pub struct Args {
     network: NetworkName,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "node reset",
+        _command = "dev ledger reset",
         epoch = %args.epoch,
         ledger_dir = %ledger_dir.to_string_lossy(),
         network = %args.network,

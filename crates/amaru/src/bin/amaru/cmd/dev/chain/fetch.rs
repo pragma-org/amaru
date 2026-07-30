@@ -23,6 +23,7 @@ use std::{
 use amaru::{
     DEFAULT_PEER_ADDRESS,
     bootstrap::{BOOTSTRAP_HEADERS_PER_POINT, fetch_headers_from_points},
+    lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point, from_cbor};
 use clap::{ArgAction, Parser};
@@ -78,7 +79,11 @@ pub struct Args {
     peer_address: String,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
 
     info!(

@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability::{Color, ObservabilityHints};
+use amaru::{
+    lifecycle::Runnable,
+    observability::{Color, ObservabilityHints},
+};
 use amaru_kernel::GlobalParameters;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 
 use crate::cmd;
 
@@ -71,6 +75,27 @@ pub(crate) enum Command {
 }
 
 impl Command {
+    /// Collapse the clap command tree into a single [`Runnable`] leaf.
+    pub(crate) fn into_runnable(self, metrics: Option<SdkMeterProvider>) -> Runnable {
+        match self {
+            Command::Node(cmd) => cmd.into_runnable(metrics),
+            Command::Snapshot(cmd) => cmd.into_runnable(),
+            Command::Dev(cmd) => cmd.into_runnable(),
+            Command::ShellCompletions(args) => cmd::shell_completions::runnable(args),
+            // Legacy top-level aliases: same behaviour as their modern counterparts.
+            Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::runnable(args, metrics),
+            Command::LegacyBootstrap(args) => cmd::node::bootstrap::runnable(args),
+            Command::LegacyResetToEpoch(args) => cmd::dev::ledger::reset::runnable(args),
+            Command::LegacyCreateSnapshots(args) => cmd::snapshot::create::runnable(args),
+            Command::LegacyDumpChainDB(args) => cmd::dev::chain::dump::runnable(args),
+            Command::LegacyRemoveValidationStatus(args) => cmd::dev::chain::clear_invalid::runnable(args),
+            Command::LegacyFetchChainHeaders(args) => cmd::dev::chain::fetch::runnable(args),
+            Command::LegacyMigrateChainDB(args) => cmd::dev::chain::migrate::runnable(args),
+            Command::LegacyRemoveChain(args) => cmd::dev::chain::remove::runnable(args),
+            Command::LegacyDumpTracesSchema(args) => cmd::dev::traces::dump::runnable(args),
+        }
+    }
+
     #[allow(clippy::wildcard_enum_match_arm)]
     pub(crate) fn show_alternative_help(&self) -> Result<bool, Box<dyn std::error::Error>> {
         match self {

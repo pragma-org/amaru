@@ -20,10 +20,12 @@
 //! `cardano-foundation/cardano-configurations` at the youngest commit at or
 //! before the Amaru HEAD committer timestamp.
 //!
-//! The commits API request is conditional when a previous response left an
-//! `ETag` / `Last-Modified` in `CONFIGS_COMMIT_CACHE`. A `304 Not Modified`
-//! reuses the cached SHA and only re-downloads missing or stale snapshot files
-//! (mtime not strictly newer than the cache file).
+//! Commit metadata is cached in `CONFIGS_COMMIT_CACHE`. A successful resolve
+//! rewrites that file so its mtime is current; the commits API is not contacted
+//! again while the file is younger than [`COMMIT_CACHE_TTL`] (12 hours). When
+//! a request is made, it is conditional on any stored `ETag` / `Last-Modified`.
+//! A `304 Not Modified` reuses the cached SHA. Snapshot files are only
+//! re-downloaded when missing or not strictly newer than the cache file.
 //!
 //! Every network in [`PEER_SNAPSHOT_NETWORKS`] must have a staged file after the
 //! fetch attempt (empty placeholders are allowed offline; see
@@ -47,6 +49,7 @@ use crate::{emit_rerun_if_exists, write_if_changed};
 const CONFIGS_REPO: &str = "cardano-foundation/cardano-configurations";
 const USER_AGENT: &str = "amaru-build (https://github.com/pragma-org/amaru)";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+const COMMIT_CACHE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
 const CACHE_FILE_NAME: &str = "CONFIGS_COMMIT_CACHE";
 
 fn peer_snapshot_network_names() -> impl Iterator<Item = &'static str> {
@@ -115,22 +118,31 @@ pub fn prepare_peer_snapshots() -> Result<()> {
 }
 
 fn fetch_all(staging_root: &Path) -> Result<String> {
-    let amaru_time = amaru_head_committer_date().context("determine Amaru HEAD committer date")?;
-    let agent = http_agent()?;
     let existing = read_configs_commit_cache(staging_root);
 
-    let resolved = resolve_configs_commit(&agent, &amaru_time, existing.as_ref())
-        .with_context(|| format!("resolve {CONFIGS_REPO} commit at or before {amaru_time}"))?;
-
-    let sha = match resolved {
-        ResolveResult::NotModified { sha } => sha,
-        ResolveResult::Updated { cache } => {
-            // Write cache before downloads so successful snapshot mtimes will be newer.
+    // Skip the commits API while the cache file is younger than COMMIT_CACHE_TTL.
+    // A successful resolve always rewrites the cache so its mtime starts a new window.
+    let sha = match existing.as_ref() {
+        Some(cache) if commit_cache_is_fresh(staging_root) => cache.sha.clone(),
+        _ => {
+            let amaru_time = amaru_head_committer_date().context("determine Amaru HEAD committer date")?;
+            let agent = http_agent()?;
+            let resolved = resolve_configs_commit(&agent, &amaru_time, existing.as_ref())
+                .with_context(|| format!("resolve {CONFIGS_REPO} commit at or before {amaru_time}"))?;
+            let cache = match resolved {
+                ResolveResult::NotModified => {
+                    existing.clone().context("received HTTP 304 without a staged configs commit cache")?
+                }
+                ResolveResult::Updated { cache } => cache,
+            };
+            // Write (or rewrite) before downloads so the TTL and snapshot mtime
+            // comparisons use a fresh cache timestamp.
             write_configs_commit_cache(staging_root, &cache)?;
             cache.sha
         }
     };
 
+    let agent = http_agent()?;
     let cache_mtime = fs::metadata(configs_commit_cache_path(staging_root)).and_then(|m| m.modified()).ok();
 
     for network in peer_snapshot_network_names() {
@@ -156,6 +168,22 @@ fn fetch_all(staging_root: &Path) -> Result<String> {
     }
 
     Ok(sha)
+}
+
+/// True when `CONFIGS_COMMIT_CACHE` exists and was modified within [`COMMIT_CACHE_TTL`].
+fn commit_cache_is_fresh(staging_root: &Path) -> bool {
+    let path = configs_commit_cache_path(staging_root);
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    let Ok(mtime) = meta.modified() else {
+        return false;
+    };
+    match SystemTime::now().duration_since(mtime) {
+        Ok(age) => age < COMMIT_CACHE_TTL,
+        // Clock skew / future mtime: treat as stale so we re-resolve.
+        Err(_) => false,
+    }
 }
 
 /// True when the staged snapshot is missing or not strictly newer than the cache file.
@@ -228,7 +256,7 @@ struct ConfigsCommitCache {
 }
 
 enum ResolveResult {
-    NotModified { sha: String },
+    NotModified,
     Updated { cache: ConfigsCommitCache },
 }
 
@@ -281,10 +309,10 @@ fn response_headers(response: &ureq::Response) -> String {
 }
 
 fn not_modified(existing: Option<&ConfigsCommitCache>) -> Result<ResolveResult> {
-    let Some(cache) = existing else {
+    if existing.is_none() {
         bail!("received HTTP 304 without a staged configs commit cache");
-    };
-    Ok(ResolveResult::NotModified { sha: cache.sha.clone() })
+    }
+    Ok(ResolveResult::NotModified)
 }
 
 /// Percent-encode only what GitHub's `until` query needs (ISO-8601 is mostly safe).

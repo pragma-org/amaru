@@ -14,7 +14,10 @@
 
 use std::path::PathBuf;
 
-use amaru::default_chain_dir;
+use amaru::{
+    default_chain_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{NetworkName, utils::string::ListToString};
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore};
@@ -41,9 +44,13 @@ pub struct Args {
     network: NetworkName,
 }
 
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
 #[expect(clippy::print_stdout)]
 #[expect(clippy::unwrap_used)]
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(

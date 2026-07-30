@@ -17,6 +17,7 @@ use std::{collections::BTreeSet, env, fs, path::PathBuf};
 use amaru::{
     aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config},
     bootstrap::validate_publishable_snapshot_archive,
+    lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{NetworkName, Point, utils::path::relative_path};
 use amaru_observability::info;
@@ -85,7 +86,11 @@ pub struct Args {
     s3_public_url: String,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let Args { network, snapshot_dir, s3_bucket, s3_endpoint, s3_region, s3_public_url } = args;
 
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;

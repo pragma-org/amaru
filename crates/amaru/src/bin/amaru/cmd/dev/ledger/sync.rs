@@ -21,7 +21,10 @@ use std::{
     time::Instant,
 };
 
-use amaru::{default_chain_dir, default_data_dir, default_ledger_dir};
+use amaru::{
+    default_chain_dir, default_data_dir, default_ledger_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_consensus::{block_validator::BlockValidator, store::PraosChainStore};
 use amaru_kernel::{
     BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point, RawBlock,
@@ -189,7 +192,12 @@ async fn process_block(
 
     Ok(())
 }
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(network).into());

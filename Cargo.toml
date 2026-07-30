@@ -101,6 +101,7 @@ serde_cbor = "0.11.2"
 serde_json = { version = "1.0.151", default-features = false }
 serde_with = "3.11.0"
 sha3 = "0.12.0"
+signal-hook = { version = "0.3", default-features = false }
 socket2 = "0.6.5"
 syn = { version = "3.0.2", features = ["full"] }
 sysinfo = "0.39.6"

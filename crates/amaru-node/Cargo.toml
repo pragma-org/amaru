@@ -48,7 +48,6 @@ tokio = { workspace = true, features = [
   "net",
   "rt",
   "rt-multi-thread",
-  "signal",
 ] }
 tokio-util.workspace = true
 tracing.workspace = true

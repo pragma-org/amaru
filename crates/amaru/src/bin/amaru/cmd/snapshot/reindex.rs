@@ -14,7 +14,10 @@
 
 use std::env;
 
-use amaru::aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config};
+use amaru::{
+    aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config},
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_kernel::NetworkName;
 use amaru_observability::info;
 use clap::Parser;
@@ -60,7 +63,11 @@ pub struct Args {
     s3_region: String,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let Args { network, s3_bucket, s3_endpoint, s3_region } = args;
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
     let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;

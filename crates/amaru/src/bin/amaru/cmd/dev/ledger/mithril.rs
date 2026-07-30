@@ -14,7 +14,10 @@
 
 use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 
-use amaru::{default_data_dir, default_ledger_dir};
+use amaru::{
+    default_data_dir, default_ledger_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_kernel::{NetworkName, Point, cbor};
 use amaru_ledger::store::ReadStore;
 use amaru_mithril::{
@@ -66,7 +69,11 @@ pub struct Args {
     snapshots_dir: PathBuf,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(network).into());
 
