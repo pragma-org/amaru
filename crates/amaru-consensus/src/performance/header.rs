@@ -20,7 +20,6 @@ use amaru_kernel::{HeaderHash, Tip};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
 use amaru_observability::debug;
 use amaru_pure_stage::Instant;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 /// Tracks the processing of headers to emit a single `perf.header.lifecycle` event per header when
@@ -35,13 +34,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// OTel events and metrics are emitted from this type when terminal outcomes are recorded
 /// (optional `Meter` from pure-stage resources).
+/// Owned by the performance worker thread.
 #[derive(Debug, Default)]
 pub struct HeaderPerformance {
-    inner: Mutex<Inner>,
-}
-
-#[derive(Debug, Default)]
-struct Inner {
     /// The lifecycle timestamps of each header whose block has not yet reached a terminal state.
     lifecycles: BTreeMap<HeaderHash, HeaderLifecycle>,
     /// An in-progress fork switch, if any.
@@ -139,25 +134,22 @@ impl HeaderPerformance {
 
     /// A header has been accepted from upstream: start tracking its lifecycle from `received_at`.
     /// Subsequent announcements of the same header do not move `received_at` (first wins).
-    pub fn apply_header_received(&self, tip: Tip, received_at: Instant) {
-        let mut inner = self.inner.lock();
-        inner.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(received_at));
+    pub fn apply_header_received(&mut self, tip: Tip, received_at: Instant) {
+        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(received_at));
     }
 
     /// The fetch stage requested the blocks for these headers: record their request time.
-    pub fn apply_blocks_requested(&self, hashes: &[HeaderHash], requested_at: Instant) {
-        let mut inner = self.inner.lock();
+    pub fn apply_blocks_requested(&mut self, hashes: &[HeaderHash], requested_at: Instant) {
         for hash in hashes {
-            if let Some(lifecycle) = inner.lifecycles.get_mut(hash) {
+            if let Some(lifecycle) = self.lifecycles.get_mut(hash) {
                 lifecycle.requested_at.get_or_insert(requested_at);
             }
         }
     }
 
     /// The fetch stage received a block for this header: record the reception time.
-    pub fn apply_block_downloaded(&self, hash: &HeaderHash, downloaded_at: Instant) {
-        let mut inner = self.inner.lock();
-        if let Some(lifecycle) = inner.lifecycles.get_mut(hash) {
+    pub fn apply_block_downloaded(&mut self, hash: &HeaderHash, downloaded_at: Instant) {
+        if let Some(lifecycle) = self.lifecycles.get_mut(hash) {
             lifecycle.downloaded_at.get_or_insert(downloaded_at);
         }
     }
@@ -169,56 +161,52 @@ impl HeaderPerformance {
     }
 
     /// A received header that is abandoned because its block depends on an invalid block.
-    pub fn apply_header_abandoned(&self, hash: &HeaderHash, now: Instant, meter: Option<&Meter>) {
-        let mut inner = self.inner.lock();
-        inner.emit_lifecycle(hash, HeaderLifecycleOutcome::AbandonedBlock, now, meter);
+    pub fn apply_header_abandoned(&mut self, hash: &HeaderHash, now: Instant, meter: Option<&Meter>) {
+        self.emit_lifecycle(hash, HeaderLifecycleOutcome::AbandonedBlock, now, meter);
     }
 
     /// A fork has been detected: start tracking the time it takes to switch to it. If a previous
     /// fork switch is still in progress, record it as superseded.
-    pub fn apply_fork_started(&self, tip: Tip, started_at: Instant, meter: Option<&Meter>) {
-        let mut inner = self.inner.lock();
-        if let Some(previous) = inner.fork_switch.take() {
+    pub fn apply_fork_started(&mut self, tip: Tip, started_at: Instant, meter: Option<&Meter>) {
+        if let Some(previous) = self.fork_switch.take() {
             emit_fork_switch(&previous.hash, ForkSwitchOutcome::Superseded, started_at, previous.started_at, meter);
         }
-        inner.fork_switch = Some(ForkSwitch { hash: tip.hash(), started_at });
+        self.fork_switch = Some(ForkSwitch { hash: tip.hash(), started_at });
     }
 
     /// The block for a header has been validated and adopted: emit its lifecycle event and the
     /// fork-switch event if it was waiting on this header.
-    pub fn apply_block_valid(&self, hash: &HeaderHash, now: Instant, meter: Option<&Meter>) {
-        let mut inner = self.inner.lock();
-        inner.emit_lifecycle(hash, HeaderLifecycleOutcome::ValidBlock, now, meter);
-        inner.close_fork(hash, ForkSwitchOutcome::ValidBlock, now, meter);
+    pub fn apply_block_valid(&mut self, hash: &HeaderHash, now: Instant, meter: Option<&Meter>) {
+        self.emit_lifecycle(hash, HeaderLifecycleOutcome::ValidBlock, now, meter);
+        self.close_fork(hash, ForkSwitchOutcome::ValidBlock, now, meter);
     }
 
     /// A header has been pruned after a block validation.
     ///
     /// `invalid == true` means that the block that was found invalid; otherwise this header/block
     /// has been abandoned because a better chain is available.
-    pub fn apply_block_pruned(&self, hash: &HeaderHash, invalid: bool, now: Instant, meter: Option<&Meter>) {
+    pub fn apply_block_pruned(&mut self, hash: &HeaderHash, invalid: bool, now: Instant, meter: Option<&Meter>) {
         let (header_outcome, fork_outcome) = if invalid {
             (HeaderLifecycleOutcome::InvalidBlock, ForkSwitchOutcome::InvalidBlock)
         } else {
             (HeaderLifecycleOutcome::AbandonedBlock, ForkSwitchOutcome::AbandonedBlock)
         };
-        let mut inner = self.inner.lock();
-        inner.emit_lifecycle(hash, header_outcome, now, meter);
-        inner.close_fork(hash, fork_outcome, now, meter);
+        self.emit_lifecycle(hash, header_outcome, now, meter);
+        self.close_fork(hash, fork_outcome, now, meter);
     }
 
     /// Number of headers currently tracked (tests / diagnostics).
     pub fn lifecycle_count(&self) -> usize {
-        self.inner.lock().lifecycles.len()
+        self.lifecycles.len()
     }
 
     /// Whether a fork switch is in progress for `hash` (tests / diagnostics).
     pub fn has_fork_switch(&self, hash: &HeaderHash) -> bool {
-        self.inner.lock().fork_switch.as_ref().is_some_and(|f| &f.hash == hash)
+        self.fork_switch.as_ref().is_some_and(|f| &f.hash == hash)
     }
 }
 
-impl Inner {
+impl HeaderPerformance {
     /// Emit a `perf.header.lifecycle` event for a header reaching a terminal state.
     /// Record the corresponding metric, and drop its tracking record.
     fn emit_lifecycle(
