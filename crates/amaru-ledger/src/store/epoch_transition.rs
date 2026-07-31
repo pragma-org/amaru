@@ -139,7 +139,7 @@ pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Res
 /// Return deposits back to reward accounts, adding leftovers to the treasury.
 pub fn pay_or_refund_accounts<'store, 'iter>(
     db: &impl TransactionalContext<'store>,
-    payouts: impl IntoIterator<Item = (&'iter StakeCredential, Lovelace)>,
+    payouts: impl IntoIterator<Item = (&'iter StakeCredential, &'iter Lovelace)>,
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::overlay::PAY_OR_REFUND_ACCOUNTS,).in_scope(|| {
         let (leftovers, paid) = payouts.into_iter().try_fold::<_, _, Result<_, StoreError>>(
@@ -152,7 +152,7 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
                     %deposit,
                 );
 
-                Ok((leftovers + db.refund(account, deposit)?, paid + deposit))
+                Ok((leftovers + db.refund(account, *deposit)?, paid + *deposit))
             },
         )?;
 
@@ -236,7 +236,17 @@ pub fn apply_governance_updates<'store>(
 
         db.set_protocol_parameters(&updates.protocol_parameters)?;
 
-        pay_or_refund_accounts(db, updates.payouts.iter().map(|(k, v)| (k, *v)))?;
+        pay_or_refund_accounts(db, updates.deposit_refunds.iter().chain(updates.treasury_withdrawals.iter()))?;
+
+        // Withdrawals move money out of the treasury into reward accounts. Deposit refunds do
+        // not; they were never part of the treasury. Withdrawals whose target account no longer
+        // exists flow back into the treasury as leftovers just above.
+        if !updates.treasury_withdrawals.is_empty() {
+            db.with_pots(|mut row| {
+                let pots = row.borrow_mut();
+                pots.treasury -= updates.treasury_withdrawals.values().sum::<Lovelace>();
+            })?;
+        }
 
         let mut governance_activity = db.governance_activity()?;
         if updates.is_dormant_epoch {

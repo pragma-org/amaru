@@ -2040,7 +2040,10 @@
         "pruned_proposals": {
           "type": "string"
         },
-        "payouts": {
+        "refunds": {
+          "type": "string"
+        },
+        "withdrawals": {
           "type": "string"
         },
         "new_constitution": {
@@ -2055,7 +2058,8 @@
       ],
       "optional": [
         "pruned_proposals",
-        "payouts",
+        "refunds",
+        "withdrawals",
         "new_constitution",
         "constitutional_committee_update"
       ],

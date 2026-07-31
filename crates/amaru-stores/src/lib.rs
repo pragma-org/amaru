@@ -17,17 +17,19 @@ pub mod rocksdb;
 
 #[cfg(test)]
 pub mod tests {
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{
-        Anchor, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
+        Anchor, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
         TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
         any_stake_credential,
     };
     use amaru_ledger::{
-        epoch_transition::{GovernanceActivity, pools_updates::PoolCertificates},
+        epoch_transition::{GovernanceActivity, GovernanceUpdates, pools_updates::PoolCertificates},
         state::volatile::Resettable,
         store::{
-            Columns, ReadStore, Store, StoreError, TransactionalContext,
+            Columns, ReadStore, Store, StoreError, TransactionalContext, apply_governance_updates,
             columns::{
                 accounts, cc_members, dreps, proposals,
                 slots::tests::any_slot,
@@ -495,6 +497,57 @@ pub mod tests {
         Ok(())
     }
 
+    pub fn test_treasury_withdrawal_debits_pots(
+        store: &impl Store,
+        fixture: &Fixture,
+        runner: &mut TestRunner,
+    ) -> Result<(), StoreError> {
+        let withdrawal = 70_000;
+        let initial_treasury = 1_000_000;
+
+        let context = store.create_transaction();
+        context.with_pots(|mut row| row.borrow_mut().treasury = initial_treasury)?;
+        context.commit()?;
+
+        let rewards_before = read_rewards(store, &fixture.account_key)?;
+
+        let context = store.create_transaction();
+        apply_governance_updates(
+            &context,
+            &make_governance_updates(BTreeMap::new(), BTreeMap::from([(fixture.account_key, withdrawal)])),
+        )?;
+        context.commit()?;
+
+        assert_eq!(
+            store.pots()?.treasury,
+            initial_treasury - withdrawal,
+            "an enacted withdrawal must be debited from the treasury"
+        );
+        assert_eq!(
+            read_rewards(store, &fixture.account_key)?,
+            rewards_before + withdrawal,
+            "an enacted withdrawal must be credited to the target account"
+        );
+
+        let unknown = any_stake_credential().new_tree(runner).unwrap().current();
+        assert_ne!(unknown, fixture.account_key);
+
+        let context = store.create_transaction();
+        apply_governance_updates(
+            &context,
+            &make_governance_updates(BTreeMap::new(), BTreeMap::from([(unknown, withdrawal)])),
+        )?;
+        context.commit()?;
+
+        assert_eq!(
+            store.pots()?.treasury,
+            initial_treasury - withdrawal,
+            "a withdrawal to an unregistered account must flow back into the treasury"
+        );
+
+        Ok(())
+    }
+
     pub fn test_slot_updated(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let issuers: Vec<_> = store.iter_block_issuers()?.collect();
 
@@ -503,5 +556,30 @@ pub mod tests {
         assert!(found, "expected slot {:?} with issuer {:?} not found", fixture.slot, fixture.slot_leader);
 
         Ok(())
+    }
+
+    // HELPERS
+
+    fn read_rewards(store: &impl Store, credential: &StakeCredential) -> Result<u64, StoreError> {
+        let context = store.create_transaction();
+        let mut rewards = None;
+        context.with_accounts(|mut accounts| {
+            rewards = accounts
+                .find(|(key, _)| key == credential)
+                .and_then(|(_, row)| row.borrow().as_ref().map(|account| account.rewards));
+        })?;
+        context.commit()?;
+        rewards.ok_or_else(|| StoreError::Internal("missing account".into()))
+    }
+
+    fn make_governance_updates(
+        deposit_refunds: BTreeMap<StakeCredential, Lovelace>,
+        treasury_withdrawals: BTreeMap<StakeCredential, Lovelace>,
+    ) -> GovernanceUpdates {
+        GovernanceUpdates {
+            deposit_refunds,
+            treasury_withdrawals,
+            ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
+        }
     }
 }

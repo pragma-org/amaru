@@ -661,7 +661,8 @@ define_schemas! {
                 public SUMMARIZE {
                     required is_dormant_epoch: bool
                     optional pruned_proposals: String
-                    optional payouts: String
+                    optional refunds: String
+                    optional withdrawals: String
                     optional new_constitution: String
                     optional constitutional_committee_update: String
                 }
