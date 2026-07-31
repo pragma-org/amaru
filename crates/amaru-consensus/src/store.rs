@@ -44,6 +44,8 @@ impl Praos<BlockHeader> for PraosChainStore {
     ///
     /// Once the stability window has been reached, the candidate is fixed for the epoch and will
     /// be used once crossing the epoch boundary to produce the next epoch nonce.
+    ///
+    /// Return the evolved nonces.
     fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonces, Self::Error> {
         let (epoch, is_within_stability_window) = nonce::randomness_stability_window(
             header,
@@ -52,58 +54,31 @@ impl Praos<BlockHeader> for PraosChainStore {
         )
         .map_err(NoncesError::EraHistoryError)?;
 
+        // Get the necessary data from the store
         let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
-
         let parent_nonces = self
             .store
             .get_nonces(&parent_hash)
             .ok_or_else(|| NoncesError::UnknownParent { header: header.hash(), parent: parent_hash })?;
 
-        // Compute the new evolving nonce by combining it with the current one and the header's VRF
-        // output.
-        let evolving = nonce::evolve(header, &parent_nonces.evolving);
-
-        let nonces = Nonces {
-            epoch,
-            evolving,
-
-            // On epoch changes, compute the new active nonce by combining:
-            //   1. the (now stable) candidate; and
-            //   2. the previous epoch's last block's parent header hash.
-            //
-            // If the epoch hasn't changed, then our active nonce is unchanged.
-            active: if epoch > parent_nonces.epoch {
-                let tail = self
-                    .store
-                    .load_header(&parent_nonces.tail)
-                    .ok_or(NoncesError::UnknownHeader { header: parent_nonces.tail })?;
-                nonce::from_candidate(&tail, &parent_nonces.candidate)
-                    .ok_or(NoncesError::NoParentHeader { header: parent_nonces.tail })?
-            } else {
-                parent_nonces.active
-            },
-
-            // Unless we are within the randomness stability window, we also update the candidate. This
-            // means that outside of the stability window, we always have:
-            //
-            //   evolving == candidate
-            //
-            // They only diverge for the last blocks of each epoch; The candidate remains stable while
-            // the rolling nonce keeps evolving in preparation of the next epoch. Another way to look
-            // at it is to think that there's always an entire epoch length contributing to the nonce
-            // randomness, but it spans over two epochs.
-            candidate: if is_within_stability_window { evolving } else { parent_nonces.candidate },
-
-            // On epoch changes, the parent header is -- by definition -- the last header of the
-            // previous epoch.
-            //
-            // Otherwise, the tail remains unchanged.
-            tail: if epoch > parent_nonces.epoch { parent_hash } else { parent_nonces.tail },
+        // The last header of the previous epoch is only needed when crossing an epoch boundary.
+        let previous_epoch_tail_parent_hash = if epoch > parent_nonces.epoch {
+            self.store
+                .load_header(&parent_nonces.tail)
+                .ok_or(NoncesError::UnknownHeader { header: parent_nonces.tail })?
+                .parent_hash()
+        } else {
+            None
         };
 
-        self.store.put_nonces(&header.hash(), &nonces)?;
-
-        Ok(nonces)
+        // Evolve the nonces per se
+        Ok(nonce::evolve_nonces(
+            header,
+            &parent_nonces,
+            epoch,
+            is_within_stability_window,
+            previous_epoch_tail_parent_hash,
+        ))
     }
 }
 
@@ -114,9 +89,6 @@ pub enum NoncesError {
 
     #[error("unknown header: {header}")]
     UnknownHeader { header: HeaderHash },
-
-    #[error("no parent header for: {header} (where one is clearly expected)")]
-    NoParentHeader { header: HeaderHash },
 
     #[error("{0}")]
     StoreError(#[from] StoreError),
@@ -133,7 +105,7 @@ mod test {
         BlockHeader, Epoch, EraHistory, GlobalParameters, IsHeader, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
         from_cbor, hash, to_cbor,
     };
-    use amaru_ouroboros_traits::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+    use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use proptest::{prelude::*, prop_compose, proptest};
 
     use super::*;
@@ -188,7 +160,7 @@ mod test {
         current: &BlockHeader,
         era_history: &EraHistory,
         global_parameters: &GlobalParameters,
-    ) -> Option<Nonces> {
+    ) -> Nonces {
         let store = Arc::new(InMemoryChainStore::default());
         let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history));
 
@@ -198,10 +170,8 @@ mod test {
         // Have information about the direct parent.
         store.put_nonces(&parent.0.hash(), parent.1).expect("database failure");
 
-        // Evolve the current nonce so that 'get_nonces' can then return a result.
         let praos_store = PraosChainStore::new(consensus_parameters, store.clone());
-        praos_store.evolve_nonce(current).expect("evolve nonce failed");
-        store.get_nonces(&current.hash())
+        praos_store.evolve_nonce(current).expect("evolve nonce failed")
     }
 
     #[test]
@@ -213,9 +183,8 @@ mod test {
                 &PREPROD_HEADER_70070379,
                 &PREPROD_ERA_HISTORY,
                 &PREPROD_GLOBAL_PARAMETERS
-            )
-            .as_ref(),
-            Some(&*PREPROD_NONCES_70070379)
+            ),
+            *PREPROD_NONCES_70070379
         )
     }
 
@@ -228,9 +197,8 @@ mod test {
                 &PREPROD_HEADER_70070426,
                 &PREPROD_ERA_HISTORY,
                 &PREPROD_GLOBAL_PARAMETERS
-            )
-            .as_ref(),
-            Some(&*PREPROD_NONCES_70070426)
+            ),
+            *PREPROD_NONCES_70070426
         )
     }
 
@@ -243,9 +211,8 @@ mod test {
                 &PREPROD_HEADER_70070464,
                 &PREPROD_ERA_HISTORY,
                 &PREPROD_GLOBAL_PARAMETERS
-            )
-            .as_ref(),
-            Some(&*PREPROD_NONCES_70070464)
+            ),
+            *PREPROD_NONCES_70070464
         )
     }
 

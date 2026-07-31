@@ -166,9 +166,8 @@ async fn process_block(
     let network_block = NetworkBlock::try_from(raw_block)?;
     let block = network_block.decode_block()?;
     let block_header = BlockHeader::from(&block.header);
-    chain_store.store_header(&block_header)?;
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
-    let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
+    let nonces = praos_chain_store.evolve_nonce(&block_header)?;
 
     {
         let summaries = pool_summaries.read().unwrap();
@@ -183,10 +182,12 @@ async fn process_block(
             to_cbor(&block_header.header_body()).as_slice(),
             last_opcert_sequence_number,
             &pool_summary,
-            &epoch_nonce.active,
+            &nonces.active,
         )
         .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
     }
+
+    chain_store.store_validated_header(&block_header, &nonces)?;
 
     // Verify block content
     block_validator
