@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, ComparableProposalId, DRep, Epoch, EraHistory, EraHistoryError, Lovelace,
-    RatificationStatus, Slot, StakeCredential, TransactionPointer, expect_stake_credential,
+    Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, ProposalId, RatificationStatus,
+    Slot, StakeCredential, TransactionPointer, expect_stake_credential,
 };
 
 use crate::{
@@ -74,7 +74,7 @@ impl GovernanceSummary {
         let mut dreps_deposits: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
         let mut pools_deposits: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
-        let recently_pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus> =
+        let recently_pruned_proposals: BTreeMap<ProposalId, RatificationStatus> =
             db.iter_recently_pruned_proposals()?.collect();
 
         db.iter_proposals()?.try_for_each(|(proposal_id, row)| -> Result<(), Error> {
@@ -106,10 +106,7 @@ impl GovernanceSummary {
                 // stake correctly uses the stake distribution after the refunds / withdrawals have
                 // been processed; so this gap is only observed for stake pools.
                 if current_epoch <= row.valid_until && recently_pruned.is_none() {
-                    pools_deposits
-                        .entry(stake_credential)
-                        .and_modify(|total| *total += deposit)
-                        .or_insert(deposit);
+                    pools_deposits.entry(stake_credential).and_modify(|total| *total += deposit).or_insert(deposit);
                 }
 
                 dreps_deposits.entry(stake_credential).and_modify(|total| *total += deposit).or_insert(deposit);

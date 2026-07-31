@@ -15,8 +15,8 @@
 use std::{collections::BTreeMap, rc::Rc};
 
 use amaru_kernel::{
-    Ballot, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace,
-    PoolId, ProposalsRootsRc, ProtocolParameters, RatificationStatus, StakeCredential, Vote, Voter,
+    Ballot, Constitution, ConstitutionalCommitteeStatus, DRep, Epoch, EraHistory, Lovelace, PoolId, ProposalId,
+    ProposalsRootsRc, ProtocolParameters, RatificationStatus, StakeCredential, Vote, Voter,
 };
 use amaru_observability::info_span;
 use num::Zero;
@@ -58,7 +58,7 @@ pub struct RatificationContext<'distr> {
     pub protocol_parameters: ProtocolParameters,
 
     /// All proposals that have been pruned due to ratification or conflict.
-    pub pruned_proposals: BTreeMap<Rc<ComparableProposalId>, RatificationStatus>,
+    pub pruned_proposals: BTreeMap<Rc<ProposalId>, RatificationStatus>,
 
     /// Enacted withdrawals during this round of ratification.
     pub withdrawals: BTreeMap<StakeCredential, Lovelace>,
@@ -74,16 +74,16 @@ pub struct RatificationContext<'distr> {
     pub new_constitution: Option<Constitution>,
 
     /// All latest votes indexed by proposals and voters.
-    pub votes: BTreeMap<ComparableProposalId, Vec<(Voter, Ballot)>>,
+    pub votes: BTreeMap<ProposalId, Vec<(Voter, Ballot)>>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum RatificationInternalError {
     #[error("invalid operation while creating the proposals forest: {0}")]
-    InternalForestCreationError(#[from] ProposalsInsertError<ComparableProposalId>),
+    InternalForestCreationError(#[from] ProposalsInsertError<ProposalId>),
 
     #[error("invalid operation while enacting a proposal: {0}")]
-    InternalForestEnactmentError(#[from] ProposalsEnactError<ComparableProposalId>),
+    InternalForestEnactmentError(#[from] ProposalsEnactError<ProposalId>),
 }
 
 impl<'distr> RatificationContext<'distr> {
@@ -147,7 +147,7 @@ impl<'distr> RatificationContext<'distr> {
     pub fn ratify_proposals(
         &mut self,
         era_history: &EraHistory,
-        proposals: Vec<(Rc<ComparableProposalId>, CandidateProposal)>,
+        proposals: Vec<(Rc<ProposalId>, CandidateProposal)>,
         roots: ProposalsRootsRc,
     ) -> Result<ProposalsRootsRc, RatificationInternalError> {
         info_span!(
@@ -176,7 +176,7 @@ impl<'distr> RatificationContext<'distr> {
             loop {
                 // The inner block limits the lifetime of the immutable borrow(s) on forest; so that we
                 // can then borrow the forest as immutable when a proposal gets ratified.
-                let ratified: Option<(Rc<ComparableProposalId>, ProposalEnum)> = {
+                let ratified: Option<(Rc<ProposalId>, ProposalEnum)> = {
                     let Some((id, (proposal, _))) = compass.next(&forest, &self.protocol_parameters) else {
                         break;
                     };
@@ -212,7 +212,7 @@ impl<'distr> RatificationContext<'distr> {
     /// updates may override some previous update in the same ratification).
     fn enact_proposal(
         &mut self,
-        id: Rc<ComparableProposalId>,
+        id: Rc<ProposalId>,
         proposal: ProposalEnum,
         forest: &mut ProposalsForest,
         compass: &mut ProposalsForestCompass,
@@ -278,7 +278,7 @@ impl<'distr> RatificationContext<'distr> {
         })
     }
 
-    fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
+    fn new_enact_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
             ledger::governance::ENACTING,
             proposal_id = id.to_compact_string(),
@@ -286,7 +286,7 @@ impl<'distr> RatificationContext<'distr> {
         )
     }
 
-    fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
+    fn new_ratify_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
         info_span!(
             ledger::governance::RATIFYING,
             proposal_id = id.to_compact_string(),
@@ -296,7 +296,7 @@ impl<'distr> RatificationContext<'distr> {
 
     fn is_accepted_by_everyone(
         &self,
-        id: &ComparableProposalId,
+        id: &ProposalId,
         proposal: &ProposalEnum,
         stake_distribution: &StakeDistribution,
     ) -> bool {
@@ -433,7 +433,7 @@ fn partition_votes(
     )
 }
 
-fn opt_root(opt: Option<&ComparableProposalId>) -> String {
+fn opt_root(opt: Option<&ProposalId>) -> String {
     opt.map(|r| r.to_compact_string()).unwrap_or_else(|| "none".to_string())
 }
 

@@ -15,8 +15,7 @@
 use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, PoolId, ProposalsRoots, ProtocolParameters, RatificationStatus,
-    StakeCredential,
+    Epoch, Lovelace, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus, StakeCredential,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -338,13 +337,13 @@ impl StateOverlay {
 
     /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or
     /// dropped). Like pool reaping, this short-circuits before the stale stable entry.
-    pub fn has_pruned_proposal(&self, id: &ComparableProposalId) -> bool {
+    pub fn has_pruned_proposal(&self, id: &ProposalId) -> bool {
         self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains_key(id))
     }
 
     /// The set of all pruned proposals from the epoch boundary (because they expired, were
     /// ratified, or evicted due to another ratification).
-    pub fn pruned_proposals(&self) -> BTreeMap<&ComparableProposalId, RatificationStatus> {
+    pub fn pruned_proposals(&self) -> BTreeMap<&ProposalId, RatificationStatus> {
         self.governance_updates
             .as_ref()
             .map(|updates| updates.pruned_proposals.iter().map(|(k, v)| (k, *v)).collect())

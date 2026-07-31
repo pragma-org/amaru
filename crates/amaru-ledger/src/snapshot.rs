@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Account, CertificatePointer, ComparableProposalId, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
-    EraHistory, EraHistoryError, Lovelace, Point, ProposalPointer, ProposalState as NewEpochProposalState,
+    Account, CertificatePointer, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus, EraHistory,
+    EraHistoryError, Lovelace, Point, ProposalId, ProposalPointer, ProposalState as NewEpochProposalState,
     ProposalsRoots, ProtocolParameters, Slot, StakeCredential, TransactionPointer,
 };
 
@@ -80,7 +80,7 @@ pub fn proposal_state(
     proposal: NewEpochProposalState,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(ComparableProposalId, ProposalState), EraHistoryError> {
+) -> Result<(ProposalId, ProposalState), EraHistoryError> {
     let NewEpochProposalState { id, procedure, proposed_in, .. } = proposal;
 
     let proposed_in_pointer = ProposalPointer {
@@ -89,7 +89,7 @@ pub fn proposal_state(
     };
 
     Ok((
-        ComparableProposalId::from(id),
+        id,
         ProposalState {
             proposed_in: proposed_in_pointer,
             valid_until: proposed_in + protocol_parameters.gov_action_lifetime,
@@ -100,10 +100,10 @@ pub fn proposal_state(
 
 /// The governance roots, the latest enacted action per category, as of the snapshot.
 pub fn proposals_roots(
-    protocol_parameters: Option<ComparableProposalId>,
-    hard_fork: Option<ComparableProposalId>,
-    constitutional_committee: Option<ComparableProposalId>,
-    constitution: Option<ComparableProposalId>,
+    protocol_parameters: Option<ProposalId>,
+    hard_fork: Option<ProposalId>,
+    constitutional_committee: Option<ProposalId>,
+    constitution: Option<ProposalId>,
 ) -> ProposalsRoots {
     ProposalsRoots { protocol_parameters, hard_fork, constitutional_committee, constitution }
 }

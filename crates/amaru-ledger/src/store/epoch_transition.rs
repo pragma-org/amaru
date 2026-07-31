@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ComparableProposalId, ConstitutionalCommitteeStatus, Lovelace, PoolId, ProtocolParameters,
-    RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind,
+    AsHash, ConstitutionalCommitteeStatus, Lovelace, PoolId, ProposalId, ProtocolParameters, RatificationStatus,
+    RationalNumber, StakeCredential, StakeCredentialKind,
 };
 use amaru_observability::{debug, debug_span};
 use num::BigUint;
@@ -98,7 +98,7 @@ pub fn pay_rewards<'store>(
 /// expiring) for the epoch, to allow resolving voting stake distribution for the epoch correctly.
 pub fn reset_recently_pruned_proposals<'store>(
     db: &impl TransactionalContext<'store>,
-    pruned_proposals: BTreeMap<&ComparableProposalId, RatificationStatus>,
+    pruned_proposals: BTreeMap<&ProposalId, RatificationStatus>,
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::overlay::RECORD_PRUNED_PROPOSALS).in_scope(|| {
         db.set_recently_pruned_proposals(pruned_proposals)?;

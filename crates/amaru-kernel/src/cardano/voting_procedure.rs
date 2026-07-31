@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::{Anchor, ComparableProposalId, NonEmptyKeyValuePairs, ProposalId, Vote, Voter, cbor};
+use crate::{Anchor, NonEmptyKeyValuePairs, ProposalId, Vote, Voter, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VotingProcedure {
@@ -47,10 +47,10 @@ impl<C> cbor::Encode<C> for VotingProcedure {
 /// The governance votes cast by a transaction.
 ///
 /// A nested map from [`Voter`] to the [`Vote`] (yes/no/abstain) it casts on each
-/// governance action, keyed by [`ComparableProposalId`]. Only the decision is kept,
+/// governance action, keyed by [`ProposalId`]. Only the decision is kept,
 /// the on-chain [`VotingProcedure`]'s anchor is dropped, since scripts never see it.
 #[derive(Debug, Default)]
-pub struct PlutusVotes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ComparableProposalId, &'a Vote>>);
+pub struct PlutusVotes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ProposalId, &'a Vote>>);
 
 impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>
     for PlutusVotes<'a>
@@ -62,15 +62,7 @@ impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId,
             voting_procedures
                 .iter()
                 .map(|(voter, votes)| {
-                    (
-                        voter,
-                        votes
-                            .iter()
-                            .map(|(proposal, procedure)| {
-                                (ComparableProposalId::from(proposal.clone()), &procedure.vote)
-                            })
-                            .collect(),
-                    )
+                    (voter, votes.iter().map(|(proposal, procedure)| (*proposal, &procedure.vote)).collect())
                 })
                 .collect(),
         )

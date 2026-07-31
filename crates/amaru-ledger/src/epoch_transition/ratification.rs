@@ -16,11 +16,11 @@ use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
     AsHash,
-    ComparableProposalId,
     Constitution,
     Epoch,
     EraHistory,
     Lovelace,
+    ProposalId,
     ProposalsRoots,
     ProposalsRootsRc,
     ProtocolParameters,
@@ -56,7 +56,7 @@ pub struct GovernanceUpdates {
 
     /// Proposals that have been ratified, have expired or have been pruned due to another
     /// conflicting proposal being dropped.
-    pub pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus>,
+    pub pruned_proposals: BTreeMap<ProposalId, RatificationStatus>,
 
     /// Payouts done to accounts; either because of a deposit refunds or because of a treasury
     /// withdrawal.
@@ -116,16 +116,16 @@ impl GovernanceUpdates {
     ///
     pub fn new(
         roots: ProposalsRootsRc,
-        iter_proposals: impl Iterator<Item = (ComparableProposalId, Proposal)>,
+        iter_proposals: impl Iterator<Item = (ProposalId, Proposal)>,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
         mut ctx: RatificationContext<'_>,
     ) -> Result<Self, StateError> {
-        let mut proposals_metadata: BTreeMap<Rc<ComparableProposalId>, ProposalMetadata> = BTreeMap::new();
+        let mut proposals_metadata: BTreeMap<Rc<ProposalId>, ProposalMetadata> = BTreeMap::new();
 
         // A dual fold where we split the proposal information between 'CandidateProposal' and
         // 'ProposalMetadata'; both used in different contexts.
-        let proposals: Vec<(Rc<ComparableProposalId>, CandidateProposal)> = iter_proposals
+        let proposals: Vec<(Rc<ProposalId>, CandidateProposal)> = iter_proposals
             .map(|(id, row)| {
                 let id = Rc::new(id);
 
@@ -220,7 +220,7 @@ impl GovernanceUpdates {
                 // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
                 // clean transfer of ownership without clone.
                 let mut pruned_proposals_str = String::new();
-                let pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus> = ctx
+                let pruned_proposals: BTreeMap<ProposalId, RatificationStatus> = ctx
                     .pruned_proposals
                     .into_iter()
                     .map(|(id, status)| {
@@ -393,6 +393,6 @@ fn opt_str(s: String) -> Box<dyn tracing::Value> {
     if s.is_empty() { Box::new(tracing::field::Empty) as Box<dyn tracing::Value> } else { Box::new(s) }
 }
 
-fn opt_root(root: Option<&ComparableProposalId>) -> Box<dyn tracing::Value> {
+fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
     root.map(|r| Box::new(r.to_string()) as Box<dyn tracing::Value>).unwrap_or_else(|| Box::new(tracing::field::Empty))
 }

@@ -20,7 +20,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Account, Ballot, BallotId, Bytes, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee,
+    Account, Ballot, BallotId, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal, ProposalId,
     ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount,
@@ -518,7 +518,7 @@ fn import_proposals(
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
                     let proposal_index = proposal.id.action_index as usize;
                     Ok((
-                        ComparableProposalId::from(proposal.id.clone()),
+                        proposal.id,
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {
@@ -749,10 +749,10 @@ fn import_accounts(
 
 fn import_proposals_roots(
     db: &impl Store,
-    protocol_parameters: Option<ComparableProposalId>,
-    hard_fork: Option<ComparableProposalId>,
-    constitutional_committee: Option<ComparableProposalId>,
-    constitution: Option<ComparableProposalId>,
+    protocol_parameters: Option<ProposalId>,
+    hard_fork: Option<ProposalId>,
+    constitutional_committee: Option<ProposalId>,
+    constitution: Option<ProposalId>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
@@ -878,7 +878,7 @@ fn import_votes(
     let votes = actions
         .into_iter()
         .flat_map(|st| {
-            let new_ballot_id = |voter| BallotId { proposal: ComparableProposalId::from(st.id.clone()), voter };
+            let new_ballot_id = |voter| BallotId { proposal: st.id, voter };
 
             let mut votes = Vec::new();
 

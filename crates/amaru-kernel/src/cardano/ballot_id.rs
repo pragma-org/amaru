@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ComparableProposalId, Voter, cbor};
+use crate::{ProposalId, Voter, cbor};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BallotId {
-    pub proposal: ComparableProposalId,
+    pub proposal: ProposalId,
     pub voter: Voter,
 }
 
@@ -27,7 +27,7 @@ impl<C> cbor::encode::Encode<C> for BallotId {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.encode_with(&self.proposal, ctx)?;
+        e.encode_with(self.proposal, ctx)?;
         e.encode_with(&self.voter, ctx)?;
         Ok(())
     }
@@ -50,7 +50,7 @@ mod tests {
     use proptest::{prelude::*, prop_compose};
 
     use super::BallotId;
-    use crate::{Voter, any_comparable_proposal_id, any_hash28, prop_cbor_roundtrip};
+    use crate::{Voter, any_hash28, any_proposal_id, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(BallotId, any_ballot_id());
 
@@ -66,7 +66,7 @@ mod tests {
 
     prop_compose! {
         pub fn any_ballot_id()(
-            proposal in any_comparable_proposal_id(),
+            proposal in any_proposal_id(),
             voter in any_voter(),
         ) -> BallotId {
             BallotId {

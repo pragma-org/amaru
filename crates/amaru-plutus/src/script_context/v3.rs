@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, Certificate, ComparableProposalId, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices,
-    ExUnits, GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolVotingThresholds, Proposal, ProposalId,
+    Address, Certificate, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
+    GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolVotingThresholds, Proposal, ProposalId,
     ProtocolParamUpdate, RationalNumber, StakeAddress, StakeCredential, StakePayload, TransactionInput, Vote, Voter,
 };
 use num::Integer;
@@ -273,12 +273,6 @@ impl ToPlutusData<3> for Constitution {
 impl ToPlutusData<3> for ProposalId {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v3!(0, [self.transaction_id, self.action_index])
-    }
-}
-
-impl ToPlutusData<3> for ComparableProposalId {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        self.deref().to_plutus_data()
     }
 }
 
@@ -540,6 +534,8 @@ impl ToPlutusData<3> for PlutusStakeAddress {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
+
     use amaru_kernel::{KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor};
     use test_case::test_case;
 

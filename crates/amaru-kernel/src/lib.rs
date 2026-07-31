@@ -134,7 +134,7 @@ pub use cardano::{
     pool_voting_thresholds::{self, PoolVotingThresholds},
     positive_coin::PositiveCoin,
     proposal::Proposal,
-    proposal_id::{ComparableProposalId, ProposalId},
+    proposal_id::{self, ProposalId},
     proposal_pointer::ProposalPointer,
     proposal_state::ProposalState,
     proposals_roots::{self, ProposalsRoots, ProposalsRootsRc},
@@ -218,7 +218,7 @@ pub use cardano::{
     point::{any_point, any_specific_point},
     pool_params::any_pool_params,
     proposal::any_proposal,
-    proposal_id::{any_comparable_proposal_id, any_proposal_id},
+    proposal_id::any_proposal_id,
     proposal_pointer::any_proposal_pointer,
     proposals_roots::any_proposals_roots,
     protocol_parameters::{

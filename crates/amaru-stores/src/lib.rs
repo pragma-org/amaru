@@ -18,7 +18,7 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
+        Anchor, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
         TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
         any_stake_credential,
@@ -142,10 +142,10 @@ pub mod tests {
         // proposals (Does not generate proposal row on Windows due to stack overflow)
         #[cfg(not(target_os = "windows"))]
         let (proposal_iter, proposal_key, proposal_row) = {
-            let proposal_key = ComparableProposalId::from(any_proposal_id().new_tree(runner).unwrap().current());
+            let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
             let proposal_row =
                 amaru_ledger::store::columns::proposals::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
-            (std::iter::once((proposal_key.clone(), proposal_row.clone())), proposal_key, proposal_row)
+            (std::iter::once((proposal_key, proposal_row.clone())), proposal_key, proposal_row)
         };
 
         #[cfg(target_os = "windows")]

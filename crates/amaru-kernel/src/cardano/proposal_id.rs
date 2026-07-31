@@ -12,92 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Ordering, fmt, ops::Deref};
+use std::fmt;
 
-pub use pallas_primitives::conway::GovActionId as ProposalId;
+use crate::{Hash, cbor, size::TRANSACTION_BODY};
 
-use crate::cbor;
-
-// TODO: This type shouldn't exist, and `Ord` / `PartialOrd` should be derived in Pallas on
-// 'GovActionId' already.
-#[derive(Debug, Eq, PartialEq, Clone)]
-#[repr(transparent)]
-pub struct ComparableProposalId {
-    pub inner: ProposalId,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+pub struct ProposalId {
+    pub transaction_id: Hash<{ TRANSACTION_BODY }>,
+    pub action_index: u32,
 }
 
-impl ComparableProposalId {
+impl fmt::Display for ProposalId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.transaction_id, self.action_index)
+    }
+}
+
+impl ProposalId {
     /// Like `Display`, but more compact
     pub fn to_compact_string(&self) -> String {
-        format!(
-            "{}.{}",
-            self.inner.action_index,
-            self.inner.transaction_id.to_string().chars().take(8).collect::<String>()
-        )
+        format!("{}#{}", self.action_index, self.transaction_id.to_string().chars().take(8).collect::<String>())
     }
 }
 
-impl AsRef<ComparableProposalId> for ComparableProposalId {
-    fn as_ref(&self) -> &ComparableProposalId {
-        self
-    }
-}
-
-impl Deref for ComparableProposalId {
-    type Target = ProposalId;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl fmt::Display for ComparableProposalId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}#{}", self.inner.transaction_id, self.inner.action_index,)
-    }
-}
-
-impl From<ProposalId> for ComparableProposalId {
-    fn from(inner: ProposalId) -> Self {
-        Self { inner }
-    }
-}
-
-impl From<ComparableProposalId> for ProposalId {
-    fn from(comparable: ComparableProposalId) -> ProposalId {
-        comparable.inner
-    }
-}
-
-impl PartialOrd for ComparableProposalId {
-    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
-        Some(self.cmp(rhs))
-    }
-}
-
-impl Ord for ComparableProposalId {
-    fn cmp(&self, rhs: &Self) -> Ordering {
-        match self.inner.transaction_id.cmp(&rhs.inner.transaction_id) {
-            Ordering::Equal => self.inner.action_index.cmp(&rhs.inner.action_index),
-            ordering @ Ordering::Less | ordering @ Ordering::Greater => ordering,
-        }
-    }
-}
-
-impl<C> cbor::encode::Encode<C> for ComparableProposalId {
+impl<C> cbor::Encode<C> for ProposalId {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.encode_with(&self.inner, ctx)?;
+        e.array(2)?;
+        e.encode_with(self.transaction_id, ctx)?;
+        e.encode_with(self.action_index, ctx)?;
         Ok(())
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for ComparableProposalId {
-    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Ok(Self { inner: d.decode_with(ctx)? })
+impl<'b, C> cbor::Decode<'b, C> for ProposalId {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+
+        Ok(Self { transaction_id: d.decode_with(ctx)?, action_index: d.decode_with(ctx)? })
     }
 }
 
@@ -108,10 +63,10 @@ pub use tests::*;
 mod tests {
     use proptest::{prelude::*, prop_compose};
 
-    use super::{ComparableProposalId, ProposalId};
+    use super::ProposalId;
     use crate::{Hash, prop_cbor_roundtrip};
 
-    prop_cbor_roundtrip!(ComparableProposalId, any_comparable_proposal_id());
+    prop_cbor_roundtrip!(ProposalId, any_proposal_id());
 
     prop_compose! {
         pub fn any_proposal_id()(
@@ -121,16 +76,6 @@ mod tests {
             ProposalId {
                 transaction_id: Hash::new(transaction_id),
                 action_index,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_comparable_proposal_id()(
-            inner in any_proposal_id()
-        ) -> ComparableProposalId {
-            ComparableProposalId {
-                inner,
             }
         }
     }

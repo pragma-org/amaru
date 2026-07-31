@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    ComparableProposalId, DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalsRoots,
-    StakeCredential, TransactionInput, drep,
+    DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalsRoots, StakeCredential,
+    TransactionInput, drep,
 };
 use amaru_observability::debug_span;
 
@@ -47,7 +47,7 @@ pub struct DefaultPreparationContext<'a> {
     pub dreps: BTreeSet<&'a StakeCredential>,
     pub drep_delegations: BTreeSet<&'a DRep>,
     pub committee: BTreeSet<&'a StakeCredential>,
-    pub proposals: BTreeSet<ComparableProposalId>,
+    pub proposals: BTreeSet<ProposalId>,
 }
 
 impl DefaultPreparationContext<'_> {
@@ -102,7 +102,7 @@ impl<'a> PrepareCommitteeSlice<'a> for DefaultPreparationContext<'a> {
 
 impl<'a> PrepareProposalsSlice<'a> for DefaultPreparationContext<'a> {
     fn require_proposal(&mut self, id: &'a ProposalId) {
-        self.proposals.insert(ComparableProposalId::from(id.clone()));
+        self.proposals.insert(*id);
     }
 }
 
@@ -435,8 +435,8 @@ fn resolve_committee<'block, 'volatile>(
 pub fn resolve_proposals(
     volatile: &impl VolatileState<Proposal = Existence<()>>,
     db: &impl ReadStore,
-    mut keys: impl Iterator<Item = ComparableProposalId>,
-) -> Result<BTreeSet<ComparableProposalId>, ContextHydratationError> {
+    mut keys: impl Iterator<Item = ProposalId>,
+) -> Result<BTreeSet<ProposalId>, ContextHydratationError> {
     debug_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
