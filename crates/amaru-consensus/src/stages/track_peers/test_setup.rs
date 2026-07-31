@@ -168,6 +168,10 @@ pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetNoncesEffect::new(hash))))
 }
 
+pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
+}
+
 pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
 }

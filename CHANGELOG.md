@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
+### Fixed
+
+- **amaru-consensus**: make sure that a header previously ingested, with its block validated cannot be sent to the `select_chain` stage.
+
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
 ### Added

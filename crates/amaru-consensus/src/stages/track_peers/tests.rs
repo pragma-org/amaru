@@ -38,9 +38,9 @@ use crate::{
                 HEIGHT_RECHECK_INTERVAL, SIM_INITIAL_CLOCK_SECS, build_store, build_store_with_nonces,
                 height_recheck_schedule_id, make_block_header, new_tip, schedule_id_at, setup, setup_base,
                 setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clear_peer_availability,
-                te_clock, te_clock_suspend, te_get_nonces, te_load_header, te_load_tip, te_record_header_announcement,
-                te_record_rollback, te_schedule, te_store_validated_header, te_validate_header, test_prep,
-                test_prep_with_max_peer_lead, tm_volatile_tip,
+                te_clock, te_clock_suspend, te_get_nonces, te_has_header, te_load_header, te_load_tip,
+                te_record_header_announcement, te_record_rollback, te_schedule, te_store_validated_header,
+                te_validate_header, test_prep, test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
     },
@@ -404,11 +404,11 @@ fn test_roll_forward_known_peer_header_already_stored() {
 
 /// A header imported during bootstrap is present in the chain store but has no evolved nonces.
 /// When re-received from a peer, its nonces must still be computed (via `validate_header`) so
-/// that descendant headers can be validated. Nonce absence means the header was never fully
-/// validated, so it is treated like a new header: stored with its nonces and propagated
-/// downstream.
+/// that descendant headers can be validated. It is not propagated downstream though: the block of
+/// an already-stored header may have been validated by the startup recovery, and chain selection
+/// only accepts tips whose block has no validity verdict yet.
 #[test]
-fn test_roll_forward_stored_header_missing_nonces_revalidates() {
+fn test_roll_forward_stored_header_missing_nonces_revalidates_without_forwarding() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
     let parent = &prep.headers[0];
@@ -439,6 +439,7 @@ fn test_roll_forward_stored_header_missing_nonces_revalidates() {
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
+            te_has_header("tp-1", header.hash()).into(),
             te_store_validated_header("tp-1", header.clone()).into(),
             te_record_header_announcement(
                 "tp-1",
@@ -449,11 +450,11 @@ fn test_roll_forward_stored_header_missing_nonces_revalidates() {
                 slot_start_to_header_micros(&header.tip(), received_at),
             )
             .into(),
-            te_send("tp-1", "downstream", new_tip(header.tip(), parent.point())).into(),
+            te_header_rejected("duplicate header").into(),
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["roll forward", "already stored"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -490,6 +491,7 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
+            te_has_header("tp-1", header.hash()).into(),
             te_store_validated_header("tp-1", header.clone()).into(),
             te_record_header_announcement(
                 "tp-1",
@@ -812,6 +814,7 @@ fn test_roll_forward_header_slot_near_future_defers() {
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "clock skew deferred"),
             te_input("tp-1", &TrackPeersMsg::RecheckLedgerHeight).into(),
             te_validate_header("tp-1", header.clone()).into(),
+            te_has_header("tp-1", header.hash()).into(),
             te_store_validated_header("tp-1", header.clone()).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.is_empty(), "processed after recheck"),
         ],
@@ -1153,6 +1156,7 @@ fn test_height_defer_recheck_when_ledger_advances() {
             te_clock_suspend("tp-1").into(),
             te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
+            te_has_header("tp-1", header.hash()).into(),
             te_store_validated_header("tp-1", header.clone()).into(),
             te_send("tp-1", "downstream", new_tip(header.tip(), Point::Origin)).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
@@ -1292,10 +1296,12 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             te_clock_suspend("tp-1").into(),
             te_get_nonces("tp-1", h1.hash()).into(),
             te_validate_header("tp-1", h1.clone()).into(),
+            te_has_header("tp-1", h1.hash()).into(),
             te_store_validated_header("tp-1", h1.clone()).into(),
             te_send("tp-1", "downstream", new_tip(h1.tip(), parent.point())).into(),
             te_get_nonces("tp-1", h2.hash()).into(),
             te_validate_header("tp-1", h2.clone()).into(),
+            te_has_header("tp-1", h2.hash()).into(),
             te_store_validated_header("tp-1", h2.clone()).into(),
             te_send("tp-1", "downstream", new_tip(h2.tip(), h1.point())).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
