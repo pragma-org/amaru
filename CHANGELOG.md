@@ -41,6 +41,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
+- **amaru-consensus**: make sure that a header previously ingested, with its block validated cannot be sent to the `select_chain` stage.
 
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
