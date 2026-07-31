@@ -13,82 +13,62 @@
 // limitations under the License.
 
 use std::{
-    fs,
-    io::{self, Cursor},
+    fs, io,
     path::{Path, PathBuf},
 };
 
 use tar::{Builder, Header};
 
-use super::EpochTarget;
-
-pub(super) fn snapshot_path_for_target(snapshot_root: &Path, target: &EpochTarget) -> PathBuf {
-    snapshot_root.join(format!("{}.{}", target.slot, target.hash))
-}
+use super::{EpochTarget, PACKAGED_BLOCKS_FILE_NAME};
 
 pub(super) fn archive_path_for_target(snapshot_root: &Path, target: &EpochTarget) -> PathBuf {
     snapshot_root.join(format!("{}.{}.tar.zst", target.slot, target.hash))
 }
 
-pub(super) fn materialize_snapshot(
-    snapshot_dir: &Path,
-    snapshot_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let tmp_path = temporary_snapshot_path(snapshot_path)?;
-
-    if tmp_path.exists() {
-        fs::remove_dir_all(&tmp_path)?;
-    }
-
-    if snapshot_path.exists() {
-        return Err(format!("refusing to overwrite existing snapshot directory {}", snapshot_path.display()).into());
-    }
-
-    fs::create_dir_all(&tmp_path)?;
-    copy_snapshot_contents(snapshot_dir, &tmp_path)?;
-    fs::rename(tmp_path, snapshot_path)?;
-
-    Ok(())
-}
-
 pub(super) fn write_snapshot_archive(
     snapshot_dir: &Path,
     archive_path: &Path,
+    target: &EpochTarget,
+    packaged_blocks: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let tmp_path = archive_path.with_extension("tmp");
     let file = fs::File::create(&tmp_path)?;
-    build_snapshot_archive(snapshot_dir, io::BufWriter::new(file))?;
+    build_snapshot_archive(snapshot_dir, target, packaged_blocks, io::BufWriter::new(file))?;
     fs::rename(tmp_path, archive_path)?;
     Ok(())
 }
 
-fn temporary_snapshot_path(snapshot_path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let name = snapshot_path
-        .file_name()
-        .ok_or_else(|| format!("snapshot path has no final path segment: {}", snapshot_path.display()))?
-        .to_string_lossy();
-    Ok(snapshot_path.with_file_name(format!(".{name}.partial")))
-}
-
-fn build_snapshot_archive<W: io::Write>(snapshot_dir: &Path, writer: W) -> Result<(), Box<dyn std::error::Error>> {
-    let root_name = snapshot_dir
-        .file_name()
-        .ok_or_else(|| format!("snapshot directory has no final path segment: {}", snapshot_dir.display()))?
-        .to_string_lossy()
-        .into_owned();
+fn build_snapshot_archive<W: io::Write>(
+    snapshot_dir: &Path,
+    target: &EpochTarget,
+    packaged_blocks: &[u8],
+    writer: W,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root_name = format!("{}.{}", target.slot, target.hash);
 
     let encoder = zstd::Encoder::new(writer, 0)?;
     let mut tar = Builder::new(encoder);
 
     append_directory_entry(&mut tar, Path::new(&root_name))?;
+    if snapshot_dir.join("tables").is_file() {
+        append_directory_entry(&mut tar, &PathBuf::from(&root_name).join("tables"))?;
+    }
 
     let mut entries = collect_directory_entries(snapshot_dir)?;
     entries.sort();
 
     for path in entries {
         let relative = path.strip_prefix(snapshot_dir)?;
-        let archive_path = PathBuf::from(&root_name).join(relative);
         let metadata = fs::symlink_metadata(&path)?;
+        let relative = if metadata.is_file() && relative == Path::new("tables") {
+            PathBuf::from("tables").join("tvar")
+        } else {
+            relative.to_path_buf()
+        };
+        if relative == Path::new(PACKAGED_BLOCKS_FILE_NAME) {
+            return Err(format!("snapshot source contains reserved entry {}", path.display()).into());
+        }
+        let archive_path = PathBuf::from(&root_name).join(relative);
 
         if metadata.is_dir() {
             append_directory_entry(&mut tar, &archive_path)?;
@@ -98,6 +78,8 @@ fn build_snapshot_archive<W: io::Write>(snapshot_dir: &Path, writer: W) -> Resul
             return Err(format!("unsupported snapshot entry {}", path.display()).into());
         }
     }
+
+    append_bytes_entry(&mut tar, &PathBuf::from(&root_name).join(PACKAGED_BLOCKS_FILE_NAME), packaged_blocks)?;
 
     tar.into_inner()?.finish()?.flush()?;
     Ok(())
@@ -131,30 +113,6 @@ fn collect_directory_entries(root: &Path) -> Result<Vec<PathBuf>, io::Error> {
     Ok(entries)
 }
 
-fn copy_snapshot_contents(source: &Path, target: &Path) -> Result<(), io::Error> {
-    walk_directory(source, |path, file_type| {
-        let relative = path
-            .strip_prefix(source)
-            .map_err(|err| io::Error::other(format!("invalid snapshot path prefix: {err}")))?;
-        let target_path = if file_type.is_file() && relative == Path::new("tables") {
-            target.join("tables").join("tvar")
-        } else {
-            target.join(relative)
-        };
-
-        if file_type.is_dir() {
-            fs::create_dir_all(&target_path)
-        } else if file_type.is_file() {
-            if let Some(parent) = target_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            fs::copy(path, &target_path).map(|_| ())
-        } else {
-            Err(io::Error::other(format!("unsupported snapshot entry {}", path.display())))
-        }
-    })
-}
-
 fn append_directory_entry<W: io::Write>(tar: &mut Builder<W>, archive_path: &Path) -> io::Result<()> {
     let mut header = Header::new_gnu();
     header.set_entry_type(tar::EntryType::Directory);
@@ -168,14 +126,84 @@ fn append_directory_entry<W: io::Write>(tar: &mut Builder<W>, archive_path: &Pat
 }
 
 fn append_file_entry<W: io::Write>(tar: &mut Builder<W>, archive_path: &Path, file_path: &Path) -> io::Result<()> {
-    let bytes = fs::read(file_path)?;
+    let mut file = fs::File::open(file_path)?;
+    let size = file.metadata()?.len();
+    append_entry(tar, archive_path, size, &mut file)
+}
+
+fn append_bytes_entry<W: io::Write>(tar: &mut Builder<W>, archive_path: &Path, bytes: &[u8]) -> io::Result<()> {
+    append_entry(tar, archive_path, bytes.len() as u64, bytes)
+}
+
+fn append_entry<W: io::Write, R: io::Read>(
+    tar: &mut Builder<W>,
+    archive_path: &Path,
+    size: u64,
+    reader: R,
+) -> io::Result<()> {
     let mut header = Header::new_gnu();
     header.set_entry_type(tar::EntryType::Regular);
     header.set_mode(0o644);
-    header.set_size(bytes.len() as u64);
+    header.set_size(size);
     header.set_mtime(0);
     header.set_uid(0);
     header.set_gid(0);
     header.set_cksum();
-    tar.append_data(&mut header, archive_path, Cursor::new(bytes))
+    tar.append_data(&mut header, archive_path, reader)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, io::Read};
+
+    use amaru::bootstrap::validate_publishable_snapshot_archive;
+    use amaru_kernel::{
+        BlockHeader, Epoch, IsHeader, PREPROD_ERA_HISTORY, cardano::network_block::make_encoded_block,
+        extract_block_header_cbor, from_cbor, make_header,
+    };
+    use tar::Archive;
+    use tempfile::TempDir;
+    use zstd::Decoder;
+
+    use super::{EpochTarget, write_snapshot_archive};
+
+    #[test]
+    fn writes_archive_directly_from_db_analyser_snapshot() {
+        let temp_dir = TempDir::new().unwrap();
+        let source = temp_dir.path().join("42_db-analyser");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("state"), b"state").unwrap();
+        fs::write(source.join("tables"), b"utxo").unwrap();
+        fs::write(source.join("meta"), b"meta").unwrap();
+        let block = make_encoded_block(&BlockHeader::from(make_header(1, 42, None)), &PREPROD_ERA_HISTORY).to_vec();
+        let header: BlockHeader = from_cbor(extract_block_header_cbor(&block).unwrap()).unwrap();
+        let target =
+            EpochTarget { epoch: Epoch::from(1), slot: header.slot(), hash: header.hash(), parent_point: None };
+        let archive_path = temp_dir.path().join("snapshot.tar.zst");
+        let packaged_blocks = serde_json::to_vec(&vec![hex::encode(block)]).unwrap();
+
+        write_snapshot_archive(&source, &archive_path, &target, &packaged_blocks).unwrap();
+        validate_publishable_snapshot_archive(&archive_path, &header.point().to_string()).unwrap();
+
+        let root = format!("{}.{}", target.slot, target.hash);
+        let decoder = Decoder::new(fs::File::open(&archive_path).unwrap()).unwrap();
+        let mut archive = Archive::new(decoder);
+        let entries = archive
+            .entries()
+            .unwrap()
+            .map(|entry| {
+                let mut entry = entry.unwrap();
+                let path = entry.path().unwrap().to_string_lossy().into_owned();
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                (path, bytes)
+            })
+            .collect::<Vec<_>>();
+
+        assert!(entries.contains(&(format!("{root}/state"), b"state".to_vec())));
+        assert!(entries.contains(&(format!("{root}/tables/tvar"), b"utxo".to_vec())));
+        assert!(entries.contains(&(format!("{root}/meta"), b"meta".to_vec())));
+        assert!(entries.contains(&(format!("{root}/bootstrap.blocks.json"), packaged_blocks)));
+        assert!(!temp_dir.path().join(&root).exists());
+    }
 }

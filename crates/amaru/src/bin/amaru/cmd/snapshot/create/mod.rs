@@ -41,7 +41,7 @@ mod db_analyser;
 mod koios;
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use archive::{archive_path_for_target, materialize_snapshot, snapshot_path_for_target, write_snapshot_archive};
+use archive::{archive_path_for_target, write_snapshot_archive};
 use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
@@ -326,7 +326,6 @@ fn process_target(
     previous_snapshot_slot: Option<Slot>,
     context: &SnapshotBuildContext<'_>,
 ) -> Result<Slot, Box<dyn std::error::Error>> {
-    let prepared_snapshot_path = snapshot_path_for_target(context.snapshot_output_dir, target);
     let prepared_archive_path = archive_path_for_target(context.snapshot_output_dir, target);
 
     if prepared_archive_path.is_file() {
@@ -340,28 +339,10 @@ fn process_target(
         return Ok(target.slot);
     }
 
-    if !prepared_snapshot_path.exists() {
-        let snapshot_dir =
-            resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
-
-        info!(
-            cli::snapshot::MATERIALIZE,
-            epoch = %target.epoch,
-            slot = %target.slot,
-            snapshot = %relative_path(&prepared_snapshot_path)?.display(),
-        );
-        materialize_snapshot(&snapshot_dir, &prepared_snapshot_path)?;
-    } else {
-        info!(
-            cli::snapshot::SKIP_MATERIALIZE,
-            epoch = %target.epoch,
-            slot = %target.slot,
-            snapshot = %relative_path(&prepared_snapshot_path)?.display(),
-            reason = "already exists",
-        );
-    }
-
-    write_packaged_blocks(target, context.immutable_dir, &prepared_snapshot_path)?;
+    let snapshot_dir =
+        resolve_or_create_snapshot_dir(target, previous_snapshot_slot, context.ledger_snapshot_dir, context)?;
+    let packaged_blocks = packaged_blocks_for_target(context.immutable_dir, target)?;
+    let packaged_blocks = serde_json::to_vec_pretty(&packaged_blocks)?;
 
     info!(
         cli::snapshot::PACKAGE,
@@ -369,7 +350,7 @@ fn process_target(
         slot = %target.slot,
         archive = %relative_path(&prepared_archive_path)?.display(),
     );
-    write_snapshot_archive(&prepared_snapshot_path, &prepared_archive_path)?;
+    write_snapshot_archive(&snapshot_dir, &prepared_archive_path, target, &packaged_blocks)?;
 
     info!(
         cli::snapshot::CREATED,
@@ -423,21 +404,6 @@ fn resolve_or_create_snapshot_dir(
 
     exact_snapshot_dir(ledger_snapshot_dir, target.slot)
         .ok_or_else(|| format!("db-analyser did not create snapshot directory for slot {}", target.slot).into())
-}
-
-fn write_packaged_blocks(
-    target: &EpochTarget,
-    immutable_dir: &Path,
-    prepared_snapshot_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let blocks = packaged_blocks_for_target(immutable_dir, target)?;
-    if blocks.is_empty() {
-        return Ok(());
-    }
-
-    fs::write(prepared_snapshot_path.join(PACKAGED_BLOCKS_FILE_NAME), serde_json::to_vec_pretty(&blocks)?)?;
-
-    Ok(())
 }
 
 async fn resolve_start_epoch(
@@ -541,9 +507,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        EpochTarget,
-        archive::materialize_snapshot,
-        bootstrap_target_epochs,
+        EpochTarget, bootstrap_target_epochs,
         db_analyser::{
             latest_snapshot_slot_at_or_before, parse_db_analyser_progress_line, parse_snapshot_slot_dir_name,
             select_analyse_from_slot,
@@ -626,22 +590,6 @@ mod tests {
         }
 
         assert_eq!(select_analyse_from_slot(temp_dir.path(), Slot::from(200), None).unwrap(), Some(Slot::from(150)));
-    }
-
-    #[test]
-    fn materialize_snapshot_converts_flat_tables_file_to_bootstrap_directory_shape() {
-        let temp_dir = TempDir::new().unwrap();
-        let source = temp_dir.path().join("69206375_db-analyser");
-        fs::create_dir_all(&source).unwrap();
-        fs::write(source.join("state"), b"state").unwrap();
-        fs::write(source.join("tables"), b"utxo").unwrap();
-
-        let target = temp_dir.path().join("69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912");
-
-        materialize_snapshot(&source, &target).unwrap();
-
-        assert!(target.join("state").is_file());
-        assert!(target.join("tables").join("tvar").is_file());
     }
 
     #[test]
