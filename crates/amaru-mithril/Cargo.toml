@@ -38,3 +38,6 @@ rustdoc-args = ["-D", "warnings"]
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -47,7 +47,6 @@ opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
-pallas-hardano.workspace = true
 pallas-network.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true

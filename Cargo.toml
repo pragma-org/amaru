@@ -78,7 +78,6 @@ opentelemetry-otlp = { version = "0.32.0", features = [ "grpc-tonic", "http-prot
 opentelemetry-semantic-conventions = { version = "0.32.1", features = ["semconv_experimental"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["logs"] }
 ouroboros = "0.18.5"
-pallas-hardano = "0.34.0"
 pallas-network = "0.34.0"
 parking_lot = "0.12.3"
 pretty_assertions = "1.4.1"
