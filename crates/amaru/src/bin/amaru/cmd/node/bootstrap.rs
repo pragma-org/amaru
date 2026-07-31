@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, path::PathBuf};
+use std::{
+    error::Error,
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use amaru::{
     bootstrap::bootstrap,
@@ -94,17 +98,20 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         epoch = @args.epoch.map(|e| e.to_string()),
     );
 
-    if ledger_dir.exists() || chain_dir.exists() {
+    let ledger_dir_populated = is_populated(&ledger_dir)?;
+    let chain_dir_populated = is_populated(&chain_dir)?;
+
+    if ledger_dir_populated || chain_dir_populated {
         let mut messages = Vec::new();
 
-        if ledger_dir.exists() {
+        if ledger_dir_populated {
             let dir = relative_path(&ledger_dir)?.display().to_string();
             let hint = "ledger directory already exists: use another location or remove it manually";
             warn!(cli::ledger_db::EXIST, dir = %dir, hint = hint);
             messages.push(format!("{hint} ({dir})"));
         }
 
-        if chain_dir.exists() {
+        if chain_dir_populated {
             let dir = relative_path(&chain_dir)?.display().to_string();
             let hint = "chain directory already exists: use another location or remove it manually";
             warn!(cli::chain_db::EXIST, dir = %dir, hint = hint);
@@ -115,4 +122,17 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     }
 
     bootstrap(network, &global_parameters, ledger_dir, chain_dir, args.epoch).await
+}
+
+/// Whether `dir` holds anything. An empty directory is no more a database than a missing one, and
+/// the build script keeps empty ledger directories around for cargo to watch.
+///
+/// A directory that cannot be read is not reported as empty: this guards existing databases, so it
+/// must not let a bootstrap through on a failed inspection.
+fn is_populated(dir: &Path) -> Result<bool, io::Error> {
+    match fs::read_dir(dir) {
+        Ok(mut entries) => Ok(entries.next().is_some()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(io::Error::new(err.kind(), format!("{}: {err}", dir.display()))),
+    }
 }

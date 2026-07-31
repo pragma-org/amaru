@@ -65,8 +65,8 @@ impl PoolsEpochTransitionUpdates {
         &self.updated
     }
 
-    pub fn refunds(&self) -> impl Iterator<Item = (&StakeCredential, Lovelace)> {
-        self.refunds.iter().map(|(account, refund)| (account, *refund))
+    pub fn refunds(&self) -> impl Iterator<Item = (&StakeCredential, &Lovelace)> {
+        self.refunds.iter()
     }
 
     /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
@@ -419,7 +419,7 @@ mod tests {
         pools_updates.retire_pool(Epoch::from(0), &pool_b, pending_b);
 
         let refunds = pools_updates.refunds().collect::<Vec<_>>();
-        assert_eq!(refunds, vec![(&reward_credential, deposit_a + deposit_b)]);
+        assert_eq!(refunds, vec![(&reward_credential, &(deposit_a + deposit_b))]);
     }
 
     fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {

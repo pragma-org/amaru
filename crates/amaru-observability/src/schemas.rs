@@ -661,7 +661,8 @@ define_schemas! {
                 public SUMMARIZE {
                     required is_dormant_epoch: bool
                     optional pruned_proposals: String
-                    optional payouts: String
+                    optional refunds: String
+                    optional withdrawals: String
                     optional new_constitution: String
                     optional constitutional_committee_update: String
                 }
@@ -792,6 +793,12 @@ define_schemas! {
                 /// Existing proposals found in the store before import
                 public IS_NOT_EMPTY {}
                 /// Import governance proposals from a snapshot
+                public IMPORT {
+                    required size: usize
+                }
+            }
+            recently_pruned_proposals {
+                /// Import proposals pruned at the snapshot's epoch boundary, from its ratify state
                 public IMPORT {
                     required size: usize
                 }

@@ -575,8 +575,6 @@ impl From<RewardsSummary> for Rewards<Computed> {
 
 #[cfg(test)]
 mod test {
-    use std::collections::BTreeSet;
-
     use amaru_kernel::{CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PoolParams, RationalNumber};
 
     use super::*;
