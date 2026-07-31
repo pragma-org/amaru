@@ -1266,7 +1266,7 @@ impl NodePoolParams {
             cost: self.cost,
             margin: self.margin,
             reward_account: self.reward_account,
-            owners: self.owners,
+            owners: self.owners.into_iter().collect(),
             relays: self.relays,
             metadata: self.metadata,
         }

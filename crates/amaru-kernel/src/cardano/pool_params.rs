@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
-
 use crate::{
     Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
@@ -28,7 +26,18 @@ pub struct PoolParams {
     pub cost: Lovelace,
     pub margin: RationalNumber,
     pub reward_account: RewardAccount,
-    pub owners: BTreeSet<Hash<KEY>>,
+    // NOTE: Small set too small for BTreeSet
+    //
+    // A BTreeSet allocates in nodes of ~400 bytes which can contain multiple elements. So when a
+    // set would typically be small; a BTreeSet can easily kill us memory-wise; especially when
+    // found in an object that gets reproduced many many times. Using a BTreeSet makes every pool
+    // params 400 bytes bigger; even if most will have a single owner.
+    //
+    // Plus, if the set is small anyway, doing a binary search to find elements is cheap.
+    //
+    // Here, nothing guarantees that the set is small but we know that at worse, it cannot contain
+    // much more than 500 elements due to the transaction max size.
+    pub owners: Vec<Hash<KEY>>,
     pub relays: Vec<Relay>,
     pub metadata: Option<PoolMetadata>,
 }
