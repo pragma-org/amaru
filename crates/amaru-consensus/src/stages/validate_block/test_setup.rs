@@ -183,10 +183,11 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
     run_simulation(
         prep.rt.handle(),
         guards,
-        |network| {
+        |mut network| {
             let vb = network.stage("vb", stage);
             let vb = network.wire_up(vb, prep.state.clone());
             network.preload(&vb, [msg]).unwrap();
+            network
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());

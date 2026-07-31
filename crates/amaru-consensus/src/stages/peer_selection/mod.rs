@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, btree_map::Entry},
+    cmp::Reverse,
+    collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map::Entry},
     time::Duration,
 };
 
@@ -21,7 +22,7 @@ use amaru_kernel::{BlockHeight, Peer};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
-use amaru_pure_stage::{Effects, ScheduleId, StageRef};
+use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
 use rand::{SeedableRng, rngs::StdRng, seq::IteratorRandom};
 use tracing::Instrument;
 
@@ -43,7 +44,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///
 /// Outbound regulation uses a random refill (via `GenerateRandomSeed` external effect)
 /// preferring static peers, then snapshot candidates, then ledger candidates, while
-/// skipping any peer currently tracked in `outbound_peers` or `cooldown_timers`.
+/// skipping any peer currently tracked in `outbound_peers` or `cooldown_until`.
 /// Inbound connections are accepted up to `target_downstream_peers` (excess are
 /// immediately rejected with a `Disconnect`).
 ///
@@ -58,12 +59,15 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// - `manager`: `StageRef<ManagerMessage>` for all outbound commands.
 /// - `static_peers`, `snapshot_candidates`, `ledger_candidates`: candidate pools (`BTreeSet<Peer>`).
 /// - `peer_removal_cooldown`: duration for non-static bans.
-/// - `cooldown_timers`: `BTreeMap<Peer, ScheduleId>` for active bans (self-scheduled
-///   `CooldownEnded` messages).
+/// - `cooldown_until`: `BTreeMap<Peer, Instant>` of active bans (end time per peer).
+/// - `cooldown_heap`: min-heap of pending `(Instant, Peer)` cool-down entries
+///   (may contain stale entries after re-ban or early `AddPeer` lift).
+/// - `cooldown_timer`: at most one outstanding `schedule_at(CheckCooldowns)` for the
+///   earliest heap entry (`None` when no cool-downs are pending).
 /// - `inbound_peers`: `BTreeMap<Peer, Connection>` (downstream tracking).
 /// - `outbound_peers`: `BTreeMap<Peer, PeerState>` (`Connecting` or `Connected(Connection)`).
 ///
-/// ## Message Handling (core of `stage()` at mod.rs:188)
+/// ## Message Handling
 ///
 /// All behaviour is implemented in the single `match msg` inside `pub async fn stage`.
 /// The stage is purely message-driven; there are no background loops outside scheduled
@@ -84,19 +88,23 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///   `"removing peer (outbound)"`, calls `regulate_peers`, marks for removal).
 ///   If any removal occurred, sends `ManagerMessage::RemovePeer` to the manager.
 ///   Always calls `cool_down` (which computes `STATIC_PEER_BAN_PERIOD` (10s) for
-///   static peers vs. configured cooldown, schedules a self `CooldownEnded` via
-///   `eff.schedule_after`, cancels any prior timer for the same peer, and records
-///   the new `ScheduleId` in `cooldown_timers`).
+///   static peers vs. configured cooldown, pushes onto the cool-down min-heap, and
+///   arms `eff.schedule_at(CheckCooldowns)` only when the live cool-down set goes from
+///   empty to one item, or when the new end time is earlier than the currently armed timer).
 ///
 /// - **AddPeer**: Manual/test hook. If the peer
-///   has an active cooldown timer, cancels the schedule (`eff.cancel_schedule`) and
-///   records `was_banned = true`. If the peer is not already in `outbound_peers`:
-///   logs `"peer_selection.add_peer"` (with `was_banned`), sends `ManagerMessage::AddPeer`,
-///   and inserts as `Connecting`. Otherwise logs that it is not adding.
+///   has an active cool-down, removes it from `cooldown_until` (`was_banned = true`)
+///   and cancels the armed timer if no cool-downs remain. If the peer is not already
+///   in `outbound_peers`: logs `"peer_selection.add_peer"` (with `was_banned`), sends
+///   `ManagerMessage::AddPeer`, and inserts as `Connecting`. Otherwise logs that it is
+///   not adding.
 ///
-/// - **CooldownEnded**: Removes the peer from
-///   `cooldown_timers` (idempotent for stale messages). Unconditionally calls
-///   `regulate_peers` (which may trigger `GenerateRandomSeed` + `AddPeer` sends).
+/// - **CheckCooldowns**: Clears any armed timer (cancel is a no-op if this message was
+///   the delivery), drains all due min-heap entries (removes a peer from `cooldown_until`
+///   when its stored deadline is `<= now` — so a re-ban with a later deadline is kept),
+///   calls `regulate_peers`, then arms the next earliest heap entry via `schedule_at`
+///   (if any). A past `Instant` is delivered on the priority path as soon as the runtime
+///   can run this stage again.
 ///
 /// - **Connected**:
 ///   - `Inbound`: If `inbound_peers.len() >= target_downstream_peers`, logs
@@ -126,7 +134,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// ## Helper Methods
 ///
 /// - `ban_peer`: Core removal + ban logic (used only by `Adversarial`).
-/// - `cool_down`: Computes ban period, schedules `CooldownEnded`,   cancels prior timer for the peer.
+/// - `cool_down`: Computes ban end, pushes onto the min-heap, arms at most one timer.
 /// - `regulate_peers`: Core outbound refill logic (see below).
 ///
 /// ## Ledger-Check Child Protocol
@@ -148,23 +156,24 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///
 /// ## Regulation, Schedules, and Effects
 ///
-/// `regulate_peers` (called from `CooldownEnded`, outbound non-retry disconnect,
+/// `regulate_peers` (called from `CheckCooldowns`, outbound non-retry disconnect,
 /// `ConnectFailed`, `LedgerCheckCandidates`, and outbound removal inside `ban_peer`)
 /// early-returns if `outbound_peers.len() >= target_upstream_peers`. Otherwise it
 /// obtains a seed via `eff.external(GenerateRandomSeed)`, builds an `StdRng`, and
 /// does three passes (statics, then snapshot_candidates, then ledger_candidates):
-/// - Filters candidates to those absent from `outbound_peers` and `cooldown_timers`.
+/// - Filters candidates to those absent from `outbound_peers` and `cooldown_until`.
 /// - `choose_multiple` up to the deficit.
 /// - For each: logs `"peer_selection.add_peer"`, sends `ManagerMessage::AddPeer`,
 ///   inserts as `Connecting`.
 ///
 /// Schedules (via `Effects`):
-/// - Cooldown `CooldownEnded(Peer)` messages (from `cool_down`).
+/// - At most one `CheckCooldowns` armed via `schedule_at` (from `cool_down` /
+///   `arm_next_cooldown`); remaining cool-downs live only in the min-heap.
 /// - Child-internal `()` triggers (60s cadence, conditional on height delta).
 ///
-/// Other effects used: `eff.send` (to manager and child), `eff.schedule_after`,
-/// `eff.cancel_schedule`, `eff.stage`/`eff.wire_up`, `eff.me()`, `eff.external`,
-/// and `Ledger` (via effects facade).
+/// Other effects used: `eff.send` (to manager and child), `eff.clock`, `eff.schedule_at`,
+/// `eff.schedule_after`, `eff.cancel_schedule`, `eff.stage`/`eff.wire_up`, `eff.me()`,
+/// `eff.external`, and `Ledger` (via effects facade).
 ///
 /// ## Logging, Errors, and Invariants
 ///
@@ -173,13 +182,14 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///   rejection, removals with `is_static`, outbound replacement warnings).
 /// - Ledger child errors are logged at `warn!` but do not crash the parent
 ///   (just reschedule with no candidate update).
-/// - Stale messages are tolerated (e.g., `CooldownEnded` for absent peers still
+/// - Stale messages are tolerated (e.g., `CheckCooldowns` with nothing due still
 ///   runs `regulate_peers`; duplicate `AddPeer` is a no-op after logging).
-/// - Map invariants: `cooldown_timers` entries are created only in `cool_down`,
-///   removed in `CooldownEnded`/`AddPeer` (with cancel), and filtered in
-///   `regulate_peers`. Inbound/outbound maps are updated only on exact id matches
-///   in disconnect paths. `outbound_peers` length is the primary signal for
-///   regulation. `static_peers` and `snapshot_candidates` are never mutated after `new`.
+/// - Cool-down invariants: live bans are only in `cooldown_until` (created in
+///   `cool_down`, removed in `CheckCooldowns`/`AddPeer`); the heap may lag with
+///   stale entries; at most one `cooldown_timer` is outstanding. Inbound/outbound
+///   maps are updated only on exact id matches in disconnect paths.
+///   `outbound_peers` length is the primary signal for regulation. `static_peers`
+///   and `snapshot_candidates` are never mutated after `new`.
 /// - `Connection` and `PeerState` are simple value types for tracking duplex
 ///   capability and lifecycle.
 ///
@@ -188,7 +198,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// trace helpers) and `tests.rs` (covering Initialize, every `PeerSelectionMsg`
 /// arm, double-adversarial timer replacement, regulate preference/skipping,
 /// will_retry vs. normal disconnect, inbound caps, etc.).
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PeerSelection {
     target_upstream_peers: usize,
     target_downstream_peers: usize,
@@ -197,9 +207,34 @@ pub struct PeerSelection {
     snapshot_candidates: BTreeSet<Peer>,
     ledger_candidates: BTreeSet<Peer>,
     peer_removal_cooldown: Duration,
-    cooldown_timers: BTreeMap<Peer, ScheduleId>,
+    cooldown_until: BTreeMap<Peer, Instant>,
+    cooldown_heap: BinaryHeap<Reverse<(Instant, Peer)>>,
+    cooldown_timer: Option<ScheduleId>,
     inbound_peers: BTreeMap<Peer, Connection>,
     outbound_peers: BTreeMap<Peer, PeerState>,
+}
+
+impl PartialEq for PeerSelection {
+    fn eq(&self, other: &Self) -> bool {
+        self.target_upstream_peers == other.target_upstream_peers
+            && self.target_downstream_peers == other.target_downstream_peers
+            && self.manager == other.manager
+            && self.static_peers == other.static_peers
+            && self.snapshot_candidates == other.snapshot_candidates
+            && self.ledger_candidates == other.ledger_candidates
+            && self.peer_removal_cooldown == other.peer_removal_cooldown
+            && self.cooldown_until == other.cooldown_until
+            && self.cooldown_timer == other.cooldown_timer
+            && self.inbound_peers == other.inbound_peers
+            && self.outbound_peers == other.outbound_peers
+            && {
+                let mut left: Vec<_> = self.cooldown_heap.iter().collect();
+                let mut right: Vec<_> = other.cooldown_heap.iter().collect();
+                left.sort();
+                right.sort();
+                left == right
+            }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -234,8 +269,8 @@ pub enum PeerSelectionMsg {
     Adversarial(Peer, TraceContext),
     /// Manually add a peer, mostly for testing.
     AddPeer(Peer),
-    /// The cooldown period for a peer has ended, and the peer can be re-added.
-    CooldownEnded(Peer),
+    /// Wake-up to drain cool-downs whose end time is at or before now, then re-arm the next.
+    CheckCooldowns,
     /// A peer has connected and the peer_selection stage can start tracking it.
     ///
     /// This may be a downstream peer or the successful result of a connection attempt.
@@ -272,7 +307,9 @@ impl PeerSelection {
             static_peers,
             snapshot_candidates,
             peer_removal_cooldown: Duration::from_secs(peer_removal_cooldown_secs),
-            cooldown_timers: BTreeMap::new(),
+            cooldown_until: BTreeMap::new(),
+            cooldown_heap: BinaryHeap::new(),
+            cooldown_timer: None,
             inbound_peers: BTreeMap::new(),
             outbound_peers: BTreeMap::new(),
         }
@@ -304,10 +341,56 @@ impl PeerSelection {
 
     async fn cool_down(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>, is_static: bool) {
         let ban_period = if is_static { STATIC_PEER_BAN_PERIOD } else { self.peer_removal_cooldown };
-        let id = eff.schedule_after(PeerSelectionMsg::CooldownEnded(peer.clone()), ban_period).await;
-        let old = self.cooldown_timers.insert(peer, id);
-        if let Some(id) = old {
-            eff.cancel_schedule(id).await;
+        let now = eff.clock().await;
+        let when = now + ban_period;
+
+        let was_empty = self.cooldown_until.is_empty();
+        self.cooldown_until.insert(peer.clone(), when);
+        self.cooldown_heap.push(Reverse((when, peer)));
+
+        match self.cooldown_timer {
+            None if was_empty => {
+                let id = eff.schedule_at(PeerSelectionMsg::CheckCooldowns, when).await;
+                self.cooldown_timer = Some(id);
+            }
+            None => {
+                self.arm_next_cooldown(eff).await;
+            }
+            Some(id) if id.time() > when => {
+                eff.cancel_schedule(id).await;
+                let id = eff.schedule_at(PeerSelectionMsg::CheckCooldowns, when).await;
+                self.cooldown_timer = Some(id);
+            }
+            Some(_) => {}
+        }
+    }
+
+    async fn arm_next_cooldown(&mut self, eff: &Effects<PeerSelectionMsg>) {
+        while let Some(Reverse((when, peer))) = self.cooldown_heap.peek() {
+            if let Some(until) = self.cooldown_until.get(peer)
+                && until == when
+            {
+                break; // stop discarding when we find the next valid entry
+            }
+            self.cooldown_heap.pop();
+        }
+        if let Some(Reverse((when, _))) = self.cooldown_heap.peek() {
+            let id = eff.schedule_at(PeerSelectionMsg::CheckCooldowns, *when).await;
+            self.cooldown_timer = Some(id);
+        }
+    }
+
+    fn drain_due_cooldowns(&mut self, now: Instant) {
+        while let Some(Reverse((when, _))) = self.cooldown_heap.peek() {
+            if *when > now {
+                break;
+            }
+            let Some(Reverse((_when, peer))) = self.cooldown_heap.pop() else {
+                break;
+            };
+            if self.cooldown_until.get(&peer).is_some_and(|until| *until <= now) {
+                self.cooldown_until.remove(&peer);
+            }
         }
     }
 
@@ -328,7 +411,7 @@ impl PeerSelection {
             let candidates = self
                 .static_peers
                 .iter()
-                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_until.contains_key(p))
                 .cloned()
                 .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
@@ -343,7 +426,7 @@ impl PeerSelection {
             let candidates = self
                 .snapshot_candidates
                 .iter()
-                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_until.contains_key(p))
                 .cloned()
                 .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
@@ -358,7 +441,7 @@ impl PeerSelection {
             let candidates = self
                 .ledger_candidates
                 .iter()
-                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_timers.contains_key(p))
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_until.contains_key(p))
                 .cloned()
                 .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
@@ -398,17 +481,23 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer = peer.clone());
             state.ban_peer(peer, &eff).instrument(span).await;
         }
-        PeerSelectionMsg::CooldownEnded(peer) => {
-            state.cooldown_timers.remove(&peer);
+        PeerSelectionMsg::CheckCooldowns => {
+            if let Some(id) = state.cooldown_timer.take() {
+                eff.cancel_schedule(id).await;
+            }
+            let now = eff.clock().await;
+            state.drain_due_cooldowns(now);
             state.regulate_peers(&eff).await;
+            state.arm_next_cooldown(&eff).await;
         }
         PeerSelectionMsg::AddPeer(peer) => {
-            let was_banned = if let Some(schedule_id) = state.cooldown_timers.remove(&peer) {
-                eff.cancel_schedule(schedule_id).await;
-                true
-            } else {
-                false
-            };
+            let was_banned = state.cooldown_until.remove(&peer).is_some();
+            if was_banned && state.cooldown_until.is_empty() {
+                if let Some(id) = state.cooldown_timer.take() {
+                    eff.cancel_schedule(id).await;
+                }
+                state.cooldown_heap.clear();
+            }
 
             if !state.outbound_peers.contains_key(&peer) {
                 tracing::info!(%peer, was_banned, "peer_selection.add_peer");

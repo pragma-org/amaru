@@ -174,10 +174,11 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
     run_simulation(
         prep.rt.handle(),
         guards,
-        |network| {
+        |mut network| {
             let fb = network.stage("fb", stage);
             let fb = network.wire_up(fb, prep.state.clone());
             network.preload(&fb, [msg]).unwrap();
+            network
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
