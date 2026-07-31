@@ -31,7 +31,7 @@ use super::{
     CommitteeUpdate, OrphanProposal, ProposalEnum,
     proposals_tree::{ProposalsTree, Sibling},
 };
-use crate::summary::into_safe_ratio;
+use crate::{store::columns::proposals, summary::into_safe_ratio};
 
 #[derive(Debug, Clone)]
 pub struct ProposalsForest {
@@ -94,6 +94,11 @@ impl ProposalsForest {
     /// Returns what's left from the initial treasury
     pub fn treasury(&self) -> Lovelace {
         self.treasury
+    }
+
+    /// Look up a proposal currently in the forest.
+    pub fn get(&self, id: &ProposalId) -> Option<&ProposalEnum> {
+        self.proposals.get(id).map(|proposed_in| &proposed_in.proposal)
     }
 
     /// Insert many proposals at once, consuming them.
@@ -698,6 +703,16 @@ pub struct CandidateProposal {
     pub valid_until: Epoch,
     pub proposed_in: ProposalPointer,
     pub governance_action: GovernanceAction,
+}
+
+impl From<proposals::Row> for CandidateProposal {
+    fn from(row: proposals::Row) -> Self {
+        CandidateProposal {
+            valid_until: row.valid_until,
+            proposed_in: row.proposed_in,
+            governance_action: row.proposal.gov_action,
+        }
+    }
 }
 
 // Helpers

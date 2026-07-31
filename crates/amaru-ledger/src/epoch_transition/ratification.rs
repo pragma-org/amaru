@@ -129,12 +129,6 @@ impl GovernanceUpdates {
             .map(|(id, row)| {
                 let id = Rc::new(id);
 
-                let candidate = CandidateProposal {
-                    valid_until: row.valid_until,
-                    proposed_in: row.proposed_in,
-                    governance_action: row.proposal.gov_action,
-                };
-
                 let metadata = ProposalMetadata {
                     valid_until: row.valid_until,
                     return_account: expect_stake_credential(&row.proposal.reward_account),
@@ -143,7 +137,7 @@ impl GovernanceUpdates {
 
                 proposals_metadata.insert(id.clone(), metadata);
 
-                (id, candidate)
+                (id, CandidateProposal::from(row))
             })
             .collect();
 

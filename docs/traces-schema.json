@@ -417,6 +417,24 @@
       "description": "Existing proposals found in the store before import",
       "public": true
     },
+    "amaru::bootstrap::recently_pruned_proposals::IMPORT": {
+      "type": "object",
+      "properties": {
+        "size": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "import",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::recently_pruned_proposals",
+      "description": "Import proposals pruned at the snapshot's epoch boundary, from its ratify state",
+      "public": true
+    },
     "amaru::bootstrap::snapshot::DOWNLOAD": {
       "type": "object",
       "properties": {
