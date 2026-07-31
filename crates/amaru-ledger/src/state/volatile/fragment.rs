@@ -56,7 +56,7 @@ pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
+    pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
@@ -233,7 +233,7 @@ pub(crate) fn add_accounts(
 // ------------------------------------------------------------------------------------------- DReps
 
 pub(crate) fn add_dreps(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<Box<Anchor>, Empty, DRepRegistration>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(move |(credential, Bind { left: anchor, right: _, value: registration }): (_, Bind<_, Empty, _>)| {
         (credential, (anchor, registration))

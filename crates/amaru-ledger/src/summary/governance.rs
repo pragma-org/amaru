@@ -37,7 +37,7 @@ pub struct GovernanceSummary {
 #[derive(Debug, serde::Serialize)]
 #[cfg_attr(test, derive(Clone))]
 pub struct DRepState {
-    pub metadata: Option<Anchor>,
+    pub metadata: Option<Box<Anchor>>,
     pub valid_until: Option<Epoch>,
     pub voting_stake: Lovelace,
     #[serde(skip)]

@@ -112,7 +112,7 @@ pub mod tests {
             let row_extended: Row = cbor::decode(&bytes_extended).unwrap();
 
             let mut pending_certificates = row.pending_certificates.clone();
-            pending_certificates.append_certificate(certificate);
+            pending_certificates.append(certificate);
             let expected = Row {
                 pending_certificates,
                 ..row

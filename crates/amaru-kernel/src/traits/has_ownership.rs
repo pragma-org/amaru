@@ -71,9 +71,8 @@ impl HasOwnership for Certificate {
             | Self::RegDRepCert(stake_credential, _, _)
             | Self::UnRegDRepCert(stake_credential, _)
             | Self::UpdateDRepCert(stake_credential, _) => *stake_credential,
-            Self::PoolRegistration { operator: id, .. } | Self::PoolRetirement(id, _) => {
-                StakeCredential::AddrKeyhash(*id)
-            }
+            Self::PoolRetirement(id, _) => StakeCredential::AddrKeyhash(*id),
+            Self::PoolRegistration(params) => StakeCredential::AddrKeyhash(params.id),
         }
     }
 }

@@ -436,7 +436,7 @@ pub mod tests {
         ) -> DRepState {
             DRepState {
                 valid_until: Some(Epoch::from(valid_until)),
-                metadata,
+                metadata: metadata.map(Box::new),
                 voting_stake,
                 registered_at,
             }

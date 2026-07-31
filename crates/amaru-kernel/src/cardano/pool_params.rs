@@ -20,7 +20,7 @@ use crate::{
     utils::cbor::SerialisedAsSet,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PoolParams {
     pub id: PoolId,
     pub vrf: Hash<VRF_KEY>,

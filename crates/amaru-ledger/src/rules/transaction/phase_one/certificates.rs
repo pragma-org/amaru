@@ -159,18 +159,11 @@ where
     };
 
     match certificate {
-        Certificate::PoolRegistration {
-            operator: id,
-            vrf_keyhash: vrf,
-            pledge,
-            cost,
-            margin,
-            reward_account,
-            pool_owners: owners,
-            relays,
-            pool_metadata: metadata,
-        } => {
-            context.require_vkey_witness(id);
+        Certificate::PoolRegistration(params) => {
+            let PoolParams { id, cost, reward_account, owners, .. } = params.as_ref();
+
+            context.require_vkey_witness(*id);
+
             // https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/UTxO.hs#L250-L256
             // The Haskell node requires both the owners and the operators, which may be the same pkh.
             // TODO: We need coverage for this branch, we have none in either conformance tests or unit tests.
@@ -179,7 +172,7 @@ where
             }
 
             let reward_account_network =
-                parse_reward_account(&reward_account).ok_or(InvalidCertificates::PoolMalformedRewardAccount)?.1;
+                parse_reward_account(reward_account).ok_or(InvalidCertificates::PoolMalformedRewardAccount)?.1;
 
             if reward_account_network != network {
                 return Err(InvalidCertificates::PoolWrongNetwork {
@@ -188,19 +181,17 @@ where
                 });
             }
 
-            if cost < protocol_parameters.min_pool_cost {
+            if cost < &protocol_parameters.min_pool_cost {
                 return Err(InvalidCertificates::PoolCostTooLow {
-                    provided: cost,
+                    provided: *cost,
                     minimum: protocol_parameters.min_pool_cost,
                 });
             }
 
             // TODO: Have `register` return this information
-            let is_new_pool = !context.exists(id);
+            let is_new_pool = !context.exists(*id);
 
-            let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
-
-            PoolsSlice::register(context, params, pointer, protocol_parameters.stake_pool_deposit);
+            PoolsSlice::register(context, *params, pointer, protocol_parameters.stake_pool_deposit);
 
             if is_new_pool {
                 context.produce_lovelace(protocol_parameters.stake_pool_deposit);
@@ -463,12 +454,12 @@ where
     use Certificate::*;
 
     match certificate {
-        PoolRegistration { operator: id, .. } => {
+        PoolRegistration(params) => {
             // TODO: Have tests covering local state changes in certificate accounting
             //
             // See note below.
-            if !local_pools_slice.contains(&id) && !context.exists(id) {
-                local_pools_slice.insert(id);
+            if !local_pools_slice.contains(&params.id) && !context.exists(params.id) {
+                local_pools_slice.insert(params.id);
                 protocol_parameters.stake_pool_deposit as i64
             } else {
                 0

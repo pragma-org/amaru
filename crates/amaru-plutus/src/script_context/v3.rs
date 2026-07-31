@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, Certificate, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
-    GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolVotingThresholds, Proposal, ProposalId,
+    GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolParams, PoolVotingThresholds, Proposal, ProposalId,
     ProtocolParamUpdate, RationalNumber, StakeAddress, StakeCredential, StakePayload, TransactionInput, Vote, Voter,
 };
 use num::Integer;
@@ -162,17 +162,20 @@ impl ToPlutusData<3> for Certificate {
             Certificate::UnRegDRepCert(drep_credential, deposit) => {
                 constr_v3!(6, [drep_credential, deposit])
             }
-            Certificate::PoolRegistration {
-                operator,
-                vrf_keyhash,
-                pledge: _,
-                cost: _,
-                margin: _,
-                reward_account: _,
-                pool_owners: _,
-                relays: _,
-                pool_metadata: _,
-            } => constr_v3!(7, [operator, vrf_keyhash]),
+            Certificate::PoolRegistration(params) => {
+                let PoolParams {
+                    id,
+                    vrf,
+                    pledge: _,
+                    cost: _,
+                    margin: _,
+                    reward_account: _,
+                    owners: _,
+                    relays: _,
+                    metadata: _,
+                } = params.as_ref();
+                constr_v3!(7, [id, vrf])
+            }
             Certificate::PoolRetirement(pool_keyhash, epoch) => {
                 constr_v3!(8, [pool_keyhash, epoch])
             }

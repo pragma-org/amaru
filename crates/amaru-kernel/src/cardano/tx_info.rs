@@ -202,7 +202,7 @@ impl<'a> TxInfo<'a> {
                 let output_ref = utxos.resolve_input(input).ok_or(TxInfoTranslationError::MissingInput(*input))?;
 
                 if let Some(script) = output_ref.output.script.as_ref() {
-                    scripts.insert(script.script_hash(), BorrowedScript::from(script));
+                    scripts.insert(script.script_hash(), BorrowedScript::from(script.as_ref()));
                 };
 
                 Ok(output_ref)

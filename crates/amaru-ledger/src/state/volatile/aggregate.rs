@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId, ProposalId,
+    CertificatePointer, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId, ProposalId,
     StakeCredential, TransactionInput,
 };
 
@@ -38,7 +38,7 @@ type Accounts = IndexedBind<StakeCredential, (PoolId, CertificatePointer), (DRep
 
 /// The window's DReps, indexed by credential so each one's per-fragment history is retracted exactly
 /// on stabilization and folded on read. See [`IndexedBind`].
-type DReps = IndexedBind<StakeCredential, Anchor, Empty, DRepRegistration>;
+type DReps = IndexedBind<StakeCredential, Empty, Empty, DRepRegistration>;
 
 /// The window's constitutional committee, indexed by cold credential so each member's hot-key
 /// history is retracted exactly on stabilization. A member may rotate their hot key (produce then
@@ -146,7 +146,7 @@ impl VolatileAggregate {
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.keys().cloned());
-        self.dreps.extend(dreps);
+        self.dreps.extend_with(dreps, |bind| bind.map_left(|_| Empty));
         self.committee.extend(committee);
         self.accounts.extend(accounts);
 
