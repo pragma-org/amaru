@@ -14,13 +14,11 @@
 
 use std::collections::BTreeMap;
 
-pub use pallas_primitives::conway::RewardAccount;
 use thiserror::Error;
 
-use crate::{
-    Address, Lovelace, NonEmptyKeyValuePairs as PallasNonEmptyKeyValuePairs, PlutusStakeAddress, StakeCredential,
-    StakePayload,
-};
+use crate::{Address, Bytes, Lovelace, NonEmptyKeyValuePairs, PlutusStakeAddress, StakeCredential, StakePayload};
+
+pub type RewardAccount = Bytes;
 
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
 // StakeCredential) out of the box instead of row bytes.
@@ -74,10 +72,10 @@ pub enum WithdrawalError {
     InvalidAddressType(Address),
 }
 
-impl TryFrom<&PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>> for PlutusWithdrawals {
+impl TryFrom<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for PlutusWithdrawals {
     type Error = WithdrawalError;
 
-    fn try_from(value: &PallasNonEmptyKeyValuePairs<RewardAccount, Lovelace>) -> Result<Self, Self::Error> {
+    fn try_from(value: &NonEmptyKeyValuePairs<RewardAccount, Lovelace>) -> Result<Self, Self::Error> {
         let withdrawals = value
             .iter()
             .map(|(reward_account, coin)| {
