@@ -49,6 +49,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-node**: invalidate peer snapshot commit metadata cache when switching to older or newer commits. ([#1114](https://github.com/pragma-org/amaru/issues/1114))
+- **amaru-ledger**: populate `recently_pruned_proposals` when importing a cardano-node snapshot.
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 

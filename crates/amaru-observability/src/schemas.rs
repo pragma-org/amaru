@@ -796,6 +796,12 @@ define_schemas! {
                     required size: usize
                 }
             }
+            recently_pruned_proposals {
+                /// Import proposals pruned at the snapshot's epoch boundary, from its ratify state
+                public IMPORT {
+                    required size: usize
+                }
+            }
             snapshot {
                 /// Download a snapshot archive
                 public DOWNLOAD {

@@ -268,6 +268,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::bootstrap::recently_pruned_proposals`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `import` | `TRACE` | public | Import proposals pruned at the snapshot's epoch boundary, from its ratify state | size |  |
+
+<details><summary>span: `import`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `size` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::bootstrap::snapshot`
 
 | name | level | public | description | required fields | optional fields |
