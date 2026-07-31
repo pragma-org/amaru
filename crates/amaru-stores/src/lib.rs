@@ -21,9 +21,9 @@ pub mod tests {
 
     use amaru_kernel::{
         Anchor, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, ProposalsRoots, Slot,
-        StakeCredential, TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params,
-        any_proposal_id, any_stake_credential,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
+        TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
+        any_stake_credential,
     };
     use amaru_ledger::{
         epoch_transition::{GovernanceActivity, GovernanceUpdates, pools_updates::PoolCertificates},
@@ -514,7 +514,7 @@ pub mod tests {
         let context = store.create_transaction();
         apply_governance_updates(
             &context,
-            &make_governance_updates(BTreeMap::from([(fixture.account_key, withdrawal)]), withdrawal),
+            &make_governance_updates(BTreeMap::new(), BTreeMap::from([(fixture.account_key, withdrawal)])),
         )?;
         context.commit()?;
 
@@ -535,7 +535,7 @@ pub mod tests {
         let context = store.create_transaction();
         apply_governance_updates(
             &context,
-            &make_governance_updates(BTreeMap::from([(unknown, withdrawal)]), withdrawal),
+            &make_governance_updates(BTreeMap::new(), BTreeMap::from([(unknown, withdrawal)])),
         )?;
         context.commit()?;
 
@@ -572,16 +572,14 @@ pub mod tests {
         rewards.ok_or_else(|| StoreError::Internal("missing account".into()))
     }
 
-    fn make_governance_updates(payouts: BTreeMap<StakeCredential, u64>, withdrawal: Lovelace) -> GovernanceUpdates {
+    fn make_governance_updates(
+        deposit_refunds: BTreeMap<StakeCredential, Lovelace>,
+        treasury_withdrawals: BTreeMap<StakeCredential, Lovelace>,
+    ) -> GovernanceUpdates {
         GovernanceUpdates {
-            roots: ProposalsRoots::default(),
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::new(),
-            payouts,
-            treasury_withdrawals: withdrawal,
-            is_dormant_epoch: false,
-            constitutional_committee: None,
-            new_constitution: None,
+            deposit_refunds,
+            treasury_withdrawals,
+            ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
         }
     }
 }

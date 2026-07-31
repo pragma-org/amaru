@@ -491,8 +491,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, ProposalsRoots, Slot, StakeCredential,
-        any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Slot, StakeCredential, any_modern_output,
+        any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -1121,7 +1121,7 @@ mod tests {
         // like a pool-deposit refund.
         let mut db = VolatileDB::default();
         let mut updates = committee_update(None);
-        updates.payouts = BTreeMap::from([(cred(1), 3_000_000)]);
+        updates.deposit_refunds = BTreeMap::from([(cred(1), 3_000_000)]);
         db.transition(None, PoolsEpochTransitionUpdates::default(), updates);
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
@@ -1257,14 +1257,8 @@ mod tests {
 
     fn committee_update(committee: Option<CommitteeUpdate>) -> GovernanceUpdates {
         GovernanceUpdates {
-            roots: ProposalsRoots::default(),
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::new(),
-            payouts: BTreeMap::new(),
-            treasury_withdrawals: 0,
-            is_dormant_epoch: false,
             constitutional_committee: committee,
-            new_constitution: None,
+            ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
         }
     }
 }

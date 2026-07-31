@@ -1053,7 +1053,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `skip` | `TRACE` | public | Skip the remaining proposals for this epoch | reason |  |
-| `summarize` | `TRACE` | public | Summary of the outcome of a ratification round | is_dormant_epoch | pruned_proposals, payouts, new_constitution, constitutional_committee_update |
+| `summarize` | `TRACE` | public | Summary of the outcome of a ratification round | is_dormant_epoch | pruned_proposals, refunds, withdrawals, new_constitution, constitutional_committee_update |
 
 <details><summary>span: `skip`</summary>
 
@@ -1069,7 +1069,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `is_dormant_epoch` | `boolean` | ✓ |
 | `pruned_proposals` | `string` |  |
-| `payouts` | `string` |  |
+| `refunds` | `string` |  |
+| `withdrawals` | `string` |  |
 | `new_constitution` | `string` |  |
 | `constitutional_committee_update` | `string` |  |
 

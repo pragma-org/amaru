@@ -388,7 +388,7 @@ impl StateOverlay {
 mod test {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalsRoots};
+    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS};
 
     use super::*;
     use crate::epoch_transition::Computed;
@@ -401,7 +401,7 @@ mod test {
             most_recent_snapshot: RefCell::new(None),
             rewards: RewardsState::Effective(Arc::new(effective_rewards())),
             pools_updates: Some(Arc::new(PoolsEpochTransitionUpdates::default())),
-            governance_updates: Some(Arc::new(governance_updates())),
+            governance_updates: Some(Arc::new(GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()))),
         };
 
         overlay.rollback();
@@ -437,18 +437,5 @@ mod test {
         let computed =
             Rewards::<Computed>::new(1_000, 7, 142, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
         Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))
-    }
-
-    fn governance_updates() -> GovernanceUpdates {
-        GovernanceUpdates {
-            roots: ProposalsRoots::default(),
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::new(),
-            payouts: BTreeMap::new(),
-            treasury_withdrawals: 0,
-            is_dormant_epoch: true,
-            constitutional_committee: None,
-            new_constitution: None,
-        }
     }
 }
