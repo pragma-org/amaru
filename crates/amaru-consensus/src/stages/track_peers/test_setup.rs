@@ -168,6 +168,23 @@ pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetNoncesEffect::new(hash))))
 }
 
+pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
+}
+
+pub fn te_record_rollback(
+    at_stage: &str,
+    peer: Peer,
+    point: Tip,
+    parent: Option<HeaderHash>,
+    at: Instant,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_rollback(peer, point, parent, at)),
+    ))
+}
+
 pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
@@ -224,6 +241,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderAnnouncementEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderRejectedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordIntersectionEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordRollbackEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::metrics_effects::RecordMetricsEffect>()
             .boxed(),
     ]

@@ -143,6 +143,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlocksRequestedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockDeliveryEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordFetchFailureEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
@@ -245,5 +246,31 @@ pub fn te_record_blocks_requested(at_stage: &str, hashes: Vec<HeaderHash>, reque
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::record_blocks_requested(hashes, requested_at)),
+    ))
+}
+
+#[expect(clippy::too_many_arguments)]
+pub fn te_record_block_delivery(
+    at_stage: &str,
+    peer: Peer,
+    hash: HeaderHash,
+    height: amaru_kernel::BlockHeight,
+    parent: Option<HeaderHash>,
+    at: Instant,
+    response: Duration,
+    bytes: u64,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_block_delivery(
+            peer, hash, height, parent, at, response, bytes,
+        )),
+    ))
+}
+
+pub fn te_record_fetch_failure(at_stage: &str, peers: Vec<Peer>, at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_fetch_failure(peers, at)),
     ))
 }

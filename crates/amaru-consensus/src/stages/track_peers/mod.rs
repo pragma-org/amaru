@@ -466,7 +466,7 @@ impl TrackPeers {
         current: Point,
         tip: Tip,
         store: &Store,
-    ) -> Result<(), ConsensusError> {
+    ) -> Result<Tip, ConsensusError> {
         let Some(current_tip) = store.load_tip(&current.hash()).await else {
             return Err(ConsensusError::UnknownPoint(current.hash()));
         };
@@ -476,7 +476,7 @@ impl TrackPeers {
         };
         *current_ref = current_tip;
         *highest_ref = tip;
-        Ok(())
+        Ok(current_tip)
     }
 
     /// Remove all per-connection state for a chainsync session. Idempotent.
@@ -848,10 +848,21 @@ impl TrackPeers {
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;
 
                     let store = Store::new(eff.clone()).with_trace_context(&trace_context);
-                    if let Err(error) = self.roll_backward(&peer, conn_id, current, tip, &store).await {
-                        tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
-                        self.purge_connection(conn_id);
-                        eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
+                    match self.roll_backward(&peer, conn_id, current, tip, &store).await {
+                        Ok(current_tip) => {
+                            let parent = store
+                                .load_header(&current_tip.hash())
+                                .await
+                                .and_then(|h| h.parent_hash())
+                                .filter(|p| *p != ORIGIN_HASH);
+                            let now = eff.clock().await;
+                            eff.external(Performance::record_rollback(peer, current_tip, parent, now)).await;
+                        }
+                        Err(error) => {
+                            tracing::error!(%error, %peer, "chain_sync.roll_backward.failed");
+                            self.purge_connection(conn_id);
+                            eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, trace_context)).await;
+                        }
                     }
                 }
                 .instrument(span)

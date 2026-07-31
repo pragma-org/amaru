@@ -579,19 +579,20 @@ impl Manager {
         eff: &Effects<ManagerMessage>,
     ) {
         tracing::debug!(?from, ?through, "fetching blocks");
-        let mut sent = 0;
+        let mut peers = Vec::new();
         for conn in self.connections.values() {
             if !conn.may_initiate {
                 continue;
             }
+            peers.push(conn.peer.clone());
             eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
-            sent += 1;
         }
-        if sent == 0 {
+        if peers.is_empty() {
             tracing::debug!(%id, "no connections available to fetch blocks");
             eff.send(&cr, Blocks::NoPeersAvailable(id)).await;
         } else {
-            tracing::debug!(%id, sent, "fetch blocks request sent to connections");
+            tracing::debug!(%id, sent = peers.len(), "fetch blocks request sent to connections");
+            eff.send(&cr, Blocks::PeersAsked(id, peers)).await;
         }
     }
 }
