@@ -12,4 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::NetworkId;
+use crate::{ExUnits, PlutusData, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct RedeemerValue {
+    #[n(0)]
+    pub data: PlutusData,
+    #[n(1)]
+    pub ex_units: ExUnits,
+}

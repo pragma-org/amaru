@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{ComparableProposalId, Epoch, Proposal, ProposalPointer, cbor};
+use amaru_kernel::{Epoch, Proposal, ProposalId, ProposalPointer, cbor};
 
 /// Iterator used to browse rows from the proposals column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Key = ComparableProposalId;
+pub type Key = ProposalId;
 
 pub type Value = Row;
 

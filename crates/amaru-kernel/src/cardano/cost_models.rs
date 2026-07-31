@@ -12,30 +12,50 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::CostModels;
+use std::fmt;
+
+use crate::{CostModel, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(map)]
+pub struct CostModels {
+    #[n(0)]
+    pub plutus_v1: Option<CostModel>,
+
+    #[n(1)]
+    pub plutus_v2: Option<CostModel>,
+
+    #[n(2)]
+    pub plutus_v3: Option<CostModel>,
+}
+
+impl fmt::Display for CostModels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // NOTE: destructuring for completeness static checks
+        let CostModels { plutus_v1, plutus_v2, plutus_v3 } = self;
+
+        let mut needs_separator = false;
+
+        if let Some(cost_model) = plutus_v1 {
+            write!(f, "plutus_v1 = {:?}", cost_model)?;
+            needs_separator = true;
+        }
+
+        if let Some(cost_model) = plutus_v2 {
+            write!(f, "{}plutus_v2 = {:?}", if needs_separator { ", " } else { "" }, cost_model)?;
+            needs_separator = true;
+        }
+
+        if let Some(cost_model) = plutus_v3 {
+            write!(f, "{}plutus_v3 = {:?}", if needs_separator { ", " } else { "" }, cost_model)?;
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use proxy::*;
-
-pub fn fmt(cost_models: &CostModels) -> String {
-    // NOTE: destructuring for completeness static checks
-    let CostModels { plutus_v1, plutus_v2, plutus_v3 } = cost_models;
-
-    let mut s = String::new();
-
-    if let Some(cost_model) = plutus_v1 {
-        s += &format!("plutus_v1 = {:?}", cost_model);
-    }
-
-    if let Some(cost_model) = plutus_v2 {
-        s += &format!("{}plutus_v2 = {:?}", if s.is_empty() { "" } else { ",  " }, cost_model);
-    }
-
-    if let Some(cost_model) = plutus_v3 {
-        s += &format!("{}plutus_v3 = {:?}", if s.is_empty() { "" } else { ",  " }, cost_model);
-    }
-
-    format!("{{{s}}}")
-}
 
 #[cfg(any(test, feature = "test-utils"))]
 mod proxy {

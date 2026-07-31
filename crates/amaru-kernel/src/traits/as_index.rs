@@ -37,10 +37,6 @@ impl AsIndex<u32> for RedeemerTag {
 
 impl AsIndex<u8> for Network {
     fn as_index(&self) -> u8 {
-        match self {
-            Self::Testnet => 0,
-            Self::Mainnet => 1,
-            Self::Other(id) => *id,
-        }
+        u8::from(*self)
     }
 }

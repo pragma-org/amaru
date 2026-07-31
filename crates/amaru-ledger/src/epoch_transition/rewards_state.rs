@@ -272,15 +272,14 @@ mod test {
         let unregistered = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
 
         let mut accounts = BTreeMap::new();
-        accounts.insert(registered.clone(), 100);
-        accounts.insert(unregistered.clone(), 42);
+        accounts.insert(registered, 100);
+        accounts.insert(unregistered, 42);
 
         let delta_reserves = 1_000;
         let delta_treasury = 7;
         let computed_rewards =
             Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts.values().sum(), accounts);
-        let effective_rewards =
-            Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered.clone()]));
+        let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered]));
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
         // is folded back into the treasury instead).
@@ -301,11 +300,11 @@ mod test {
         let rewarded = StakeCredential::ScriptHash(Hash::from([1u8; 28]));
         let rewardless = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
 
-        let accounts = BTreeMap::from([(rewarded.clone(), 42)]);
+        let accounts = BTreeMap::from([(rewarded, 42)]);
         let computed_rewards = Rewards::<Computed>::new(1_000, 7, 42, accounts);
 
         // The same credentials repeated, as chaining the unregistration sources may well do.
-        let unregistered = [rewarded.clone(), rewardless.clone(), rewarded.clone(), rewardless];
+        let unregistered = [rewarded, rewardless, rewarded, rewardless];
 
         let effective_rewards = Rewards::<Effective>::new(computed_rewards, unregistered);
 

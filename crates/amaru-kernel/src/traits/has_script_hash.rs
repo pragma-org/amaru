@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, Hasher, KeepRaw, MemoizedNativeScript, MemoizedScript, NativeScript, PlutusScript, size::SCRIPT};
+use crate::{Hash, Hasher, MemoizedNativeScript, MemoizedScript, PlutusScript, size::SCRIPT};
 
 pub trait HasScriptHash {
     /*
@@ -52,12 +52,6 @@ impl HasScriptHash for MemoizedScript {
 impl HasScriptHash for MemoizedNativeScript {
     fn script_hash(&self) -> Hash<SCRIPT> {
         native_script_hash(self.original_bytes())
-    }
-}
-
-impl HasScriptHash for KeepRaw<'_, NativeScript> {
-    fn script_hash(&self) -> Hash<SCRIPT> {
-        native_script_hash(self.raw_cbor())
     }
 }
 

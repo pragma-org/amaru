@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrType, Address, AddressError, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript,
-    TransactionInput, cardano::memoized::script_size, cbor, transaction_input_to_string,
+    Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, TransactionInput,
+    address::byron::AddressType, utils::string::display_collection,
 };
 use thiserror::Error;
 
@@ -22,21 +22,18 @@ use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
-    #[error("Unknown input: {}", transaction_input_to_string(.0))]
+    #[error("Unknown input: {0}")]
     UnknownInput(TransactionInput),
+
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
-        intersection
-            .iter()
-            .map(transaction_input_to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
+        display_collection(.intersection),
     )]
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
+
     #[error("input set empty")]
     EmptyInputSet,
-    #[error("invalid Byron address payload at input {}: {error}", transaction_input_to_string(input))]
-    InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
+
     #[error("reference scripts total bytes exceeds per-tx limit: (provided {provided}, allowed {allowed})")]
     RefScriptSizeTooBig { provided: u64, allowed: u64 },
 }
@@ -61,17 +58,16 @@ where
         for reference_input in reference_inputs {
             // Non-disjoint reference inputs
             if inputs.contains(reference_input) {
-                intersection.push(reference_input.clone());
+                intersection.push(*reference_input);
                 continue;
             }
 
-            let output =
-                context.lookup(reference_input).ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+            let output = context.lookup(reference_input).ok_or(InvalidInputs::UnknownInput(*reference_input))?;
 
-            let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
+            let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
             match &output.datum {
-                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), reference_input.clone()),
+                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), *reference_input),
                 MemoizedDatum::Hash(hash) => {
                     context.allow_supplemental_datum(*hash);
                 }
@@ -80,7 +76,7 @@ where
 
             if let Some((script_hash, script_size)) = script_ref {
                 ref_scripts_size += script_size;
-                context.acknowledge_script(script_hash, reference_input.clone());
+                context.acknowledge_script(script_hash, *reference_input);
             }
         }
     }
@@ -103,9 +99,9 @@ where
     for (input_index, original_index) in indices.iter().enumerate() {
         let input = &inputs[*original_index];
 
-        let output = context.lookup(input).ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
+        let output = context.lookup(input).ok_or(InvalidInputs::UnknownInput(*input))?;
 
-        let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
+        let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
         // TODO: Avoid cloning here. Could probably be achieved by having 'RequiredScript'
         // always take a datum hash, and lookup its value when needed.
@@ -117,18 +113,8 @@ where
 
         match &output.address {
             Address::Byron(byron_address) => {
-                let payload = byron_address.decode().map_err(|e| {
-                    #[allow(clippy::wildcard_enum_match_arm)]
-                    match e {
-                        AddressError::InvalidByronCbor(error) => {
-                            InvalidInputs::InvalidByronAddressPayload { input: input.clone(), error: Box::new(error) }
-                        }
-                        _ => unreachable!("byron_address.decode() only returns InvalidByronCbor"),
-                    }
-                })?;
-
-                if let AddrType::PubKey = payload.addrtype {
-                    context.require_bootstrap_witness(payload.root);
+                if let AddressType::VerificationKey = byron_address.address_type {
+                    context.require_bootstrap_witness(byron_address.root);
                 };
             }
             Address::Shelley(shelley_address) => {
@@ -148,7 +134,7 @@ where
 
         if let Some((script_hash, script_size)) = script_ref {
             ref_scripts_size += script_size;
-            context.acknowledge_script(script_hash, input.clone());
+            context.acknowledge_script(script_hash, *input);
         }
 
         context.consume_value(&consumed_value);
@@ -159,43 +145,4 @@ where
     }
 
     Ok(ref_scripts_size)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
-
-    use super::InvalidInputs;
-    use crate::{
-        context::DefaultValidationContext,
-        tests::{fake_input, fake_output},
-    };
-
-    /// A Byron address with a well-formed envelope (so it resolves as an address) but whose inner
-    /// payload is a two-element array instead of the `(root, attributes, addrtype)` triple, so
-    /// `decode()` fails. Haskell cannot represent this state, hence no conformance predicate for it.
-    const UNDECODABLE_BYRON_ADDRESS: &str =
-        "82D818582082581C8518129A3C0DF8E33C40E04B8D26AD3B0422D0FA9CA9255806A3F38B001AE781CD5B";
-
-    #[test]
-    fn rejects_an_input_whose_byron_address_payload_does_not_decode() {
-        let input = fake_input("47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab", 2);
-
-        let mut context = DefaultValidationContext::new(
-            BTreeMap::from([(input.clone(), fake_output(UNDECODABLE_BYRON_ADDRESS))]),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        );
-
-        assert!(matches!(
-            super::execute(&mut context, &[input], None, &PREPROD_DEFAULT_PROTOCOL_PARAMETERS),
-            Err(InvalidInputs::InvalidByronAddressPayload { .. })
-        ));
-    }
 }

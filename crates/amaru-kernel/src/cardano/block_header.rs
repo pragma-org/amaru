@@ -14,11 +14,12 @@
 
 use std::{cmp::Ordering, fmt};
 
-use pallas_codec::utils::Bytes;
-use pallas_crypto::key::{ed25519, ed25519::TryFromPublicKeyError};
+use anyhow::anyhow;
 
 use crate::{
-    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, cbor, size::HEADER,
+    BlockHeight, Bytes, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, cbor, ed25519,
+    size::{HEADER, POOL_COLD_KEY},
+    to_cbor,
 };
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -26,8 +27,6 @@ mod tests;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
-
-use crate::size::POOL_COLD_KEY;
 
 /// This header type encapsulates a header and its hash to avoid recomputing
 #[derive(PartialEq, Eq, Clone)]
@@ -126,16 +125,17 @@ impl BlockHeader {
         self.header.header_body.prev_hash
     }
 
-    pub fn vrf_leader(&self) -> Vec<u8> {
-        self.header.header_body.leader_vrf_output()
+    pub fn vrf_output(&self) -> &[u8] {
+        self.header.vrf_output()
     }
 
     pub fn issuer_vkey(&self) -> &Bytes {
         &self.header_body().issuer_vkey
     }
 
-    pub fn issuer(&self) -> Result<ed25519::PublicKey, TryFromPublicKeyError> {
-        ed25519::PublicKey::try_from(&self.header_body().issuer_vkey[..])
+    pub fn issuer(&self) -> Result<ed25519::VerifyingKey, anyhow::Error> {
+        ed25519::VerifyingKey::try_from(&self.header_body().issuer_vkey[..])
+            .map_err(|e| anyhow!("cannot convert issuer_vkey bytes to Ed25519 VerifyingKey").context(e))
     }
 
     pub fn pool_id(&self) -> PoolId {
@@ -147,7 +147,7 @@ impl BlockHeader {
     }
 
     fn recompute_hash(&mut self) {
-        self.hash = Hasher::<{ HEADER * 8 }>::hash_cbor(&self.header);
+        self.hash = Hasher::<{ HEADER * 8 }>::hash(&to_cbor(&self.header));
     }
 
     pub fn tip(&self) -> Tip {
@@ -212,7 +212,7 @@ impl IsHeader for BlockHeader {
         self.header.header_body.slot.into()
     }
 
-    fn extended_vrf_nonce_output(&self) -> Vec<u8> {
-        self.header.header_body.nonce_vrf_output()
+    fn vrf_output(&self) -> &[u8] {
+        self.header.vrf_output()
     }
 }

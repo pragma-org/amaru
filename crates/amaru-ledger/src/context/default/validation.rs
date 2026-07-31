@@ -20,9 +20,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -44,7 +44,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeSet<ComparableProposalId>,
+    proposals: BTreeSet<ProposalId>,
     proposals_roots: ProposalsRoots,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
@@ -63,7 +63,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeSet<ComparableProposalId>,
+        proposals: BTreeSet<ProposalId>,
         proposals_roots: ProposalsRoots,
     ) -> Self {
         Self {
@@ -318,7 +318,7 @@ impl DRepsSlice for DefaultValidationContext {
         let _span =
             trace_span!(ledger::transaction::CERTIFICATE_DREP_RETIREMENT, drep = format!("{drep:?}"), refund = refund);
         let _guard = _span.enter();
-        self.state.dreps_deregistrations.insert(drep.clone(), pointer);
+        self.state.dreps_deregistrations.insert(drep, pointer);
         self.state.dreps.unregister(drep)
     }
 }
@@ -332,7 +332,7 @@ impl CommitteeSlice for DefaultValidationContext {
         match self.state.committee.produced.get(cc_member) {
             Some(hot_credential) => {
                 let base = base?;
-                Some(CCMember { hot_credential: Some(hot_credential.clone()), valid_until: base.valid_until })
+                Some(CCMember { hot_credential: Some(*hot_credential), valid_until: base.valid_until })
             }
             // resigned in-block; gone
             None if self.state.committee.consumed.contains(cc_member) => None,
@@ -376,7 +376,7 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn exists(&self, id: &ComparableProposalId) -> bool {
+    fn exists(&self, id: &ProposalId) -> bool {
         // FIXME: also fold proposals discovered in the block during validation
         self.proposals.contains(id)
     }
@@ -386,13 +386,11 @@ impl ProposalsSlice for DefaultValidationContext {
     }
 
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
-        self.state.proposals.insert(id.into(), Arc::new((proposal, pointer)));
+        self.state.proposals.insert(id, Arc::new((proposal, pointer)));
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
-        self.state
-            .votes
-            .produce(BallotId { proposal: ComparableProposalId::from(proposal), voter }, Ballot::new(vote, anchor))
+        self.state.votes.produce(BallotId { proposal, voter }, Ballot::new(vote, anchor))
     }
 }
 

@@ -14,6 +14,8 @@
 
 use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hasher, IsHeader, Nonce};
 
+use crate::vrf;
+
 /// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
 /// last block (header) of the previous epoch.
 ///
@@ -31,7 +33,11 @@ pub fn from_candidate<H: IsHeader>(header: &H, candidate: &Nonce) -> Option<Nonc
 /// blake2b-256 hash.
 pub fn evolve<H: IsHeader>(header: &H, current: &Nonce) -> Nonce {
     Hasher::<256>::hash(
-        &[&current[..], &Hasher::<256>::hash(header.extended_vrf_nonce_output().as_slice())[..]].concat(),
+        &[
+            &current[..],
+            &Hasher::<256>::hash(&vrf::Derivation::Nonce.derive_tagged_vrf_output(header.vrf_output()))[..],
+        ]
+        .concat(),
     )
 }
 

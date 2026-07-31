@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer,
-    ProposalsRootsRc, StakeCredential,
+    CertificatePointer, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalsRootsRc,
+    StakeCredential,
 };
 
 use crate::{
@@ -47,7 +47,7 @@ pub struct VolatileView<'volatile, 'store, DB: ReadStore> {
     proposal_lifetime: u64,
     db: &'store DB,
     pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>>,
-    proposals: BTreeMap<&'volatile ComparableProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
+    proposals: BTreeMap<&'volatile ProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
     accounts: Option<AccountVolatileView<'volatile>>,
 }
 
@@ -114,9 +114,9 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     /// from the aggregated volatile state.
     ///
     /// IMPORTANT: Yields proposals in no particular order.
-    pub fn iter_proposals(&self) -> Result<impl Iterator<Item = (ComparableProposalId, proposals::Row)>, StoreError> {
+    pub fn iter_proposals(&self) -> Result<impl Iterator<Item = (ProposalId, proposals::Row)>, StoreError> {
         Ok(self.db.iter_proposals()?.chain(add_proposals(
-            self.proposals.iter().map(|(k, v)| ((*k).clone(), (*v).clone())),
+            self.proposals.iter().map(|(k, v)| (*(*k), (*v).clone())),
             self.epoch + self.proposal_lifetime,
         )))
     }

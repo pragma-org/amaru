@@ -20,11 +20,3 @@ pub mod non_empty_key_value_pairs;
 pub mod non_empty_set;
 pub mod non_empty_vec;
 pub mod non_zero_duration;
-// TODO: remove 'Nullable', eventually
-//
-// This type only exists for the sake of preserving CBOR structure at the Rust-level. It is,
-// however, usually unnecessary and only make code harder to deal with down the line. It should be
-// fully replaced with options.
-pub mod nullable;
-pub mod set;
-pub mod strict_maybe;

@@ -19,9 +19,7 @@ use std::{
     rc::Rc,
 };
 
-use amaru_kernel::{
-    ComparableProposalId, Constitution, Epoch, Lovelace, ProtocolParamUpdate, ProtocolVersion, StakeCredential,
-};
+use amaru_kernel::{Constitution, Epoch, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion, StakeCredential};
 
 use crate::summary::SafeRatio;
 
@@ -39,10 +37,10 @@ use crate::summary::SafeRatio;
 ///   `OrphanProposal`)
 #[derive(Debug, Clone)]
 pub enum ProposalEnum {
-    ProtocolParameters(ProtocolParamUpdate, Option<Rc<ComparableProposalId>>),
-    HardFork(ProtocolVersion, Option<Rc<ComparableProposalId>>),
-    ConstitutionalCommittee(CommitteeUpdate, Option<Rc<ComparableProposalId>>),
-    Constitution(Constitution, Option<Rc<ComparableProposalId>>),
+    ProtocolParameters(ProtocolParamUpdate, Option<Rc<ProposalId>>),
+    HardFork(ProtocolVersion, Option<Rc<ProposalId>>),
+    ConstitutionalCommittee(CommitteeUpdate, Option<Rc<ProposalId>>),
+    Constitution(Constitution, Option<Rc<ProposalId>>),
     Orphan(OrphanProposal),
 }
 
@@ -198,8 +196,8 @@ mod tests {
     use std::rc::Rc;
 
     use amaru_kernel::{
-        Epoch, any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
-        any_protocol_version, any_stake_credential,
+        Epoch, any_constitution, any_epoch, any_proposal_id, any_protocol_params_update, any_protocol_version,
+        any_stake_credential,
     };
     use num::{BigUint, One};
     use proptest::{collection, option, prelude::*};
@@ -208,17 +206,16 @@ mod tests {
     use crate::summary::SafeRatio;
 
     pub fn any_proposal_enum() -> impl Strategy<Value = ProposalEnum> {
-        let any_protocol_parameters = (option::of(any_comparable_proposal_id()), any_protocol_params_update())
+        let any_protocol_parameters = (option::of(any_proposal_id()), any_protocol_params_update())
             .prop_map(|(parent, params_update)| ProposalEnum::ProtocolParameters(params_update, parent.map(Rc::new)));
 
-        let any_hard_fork = (option::of(any_comparable_proposal_id()), any_protocol_version())
+        let any_hard_fork = (option::of(any_proposal_id()), any_protocol_version())
             .prop_map(|(parent, protocol_version)| ProposalEnum::HardFork(protocol_version, parent.map(Rc::new)));
 
-        let any_constitutional_committee =
-            (option::of(any_comparable_proposal_id()), any_committee_update(any_epoch()))
-                .prop_map(|(parent, committee)| ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new)));
+        let any_constitutional_committee = (option::of(any_proposal_id()), any_committee_update(any_epoch()))
+            .prop_map(|(parent, committee)| ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new)));
 
-        let any_constitution = (option::of(any_comparable_proposal_id()), any_constitution())
+        let any_constitution = (option::of(any_proposal_id()), any_constitution())
             .prop_map(|(parent, constitution)| ProposalEnum::Constitution(constitution, parent.map(Rc::new)));
 
         let any_orphan = any_orphan_proposal().prop_map(ProposalEnum::Orphan);

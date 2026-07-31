@@ -37,7 +37,7 @@ pub enum InvalidWithdrawals {
     #[error("attempted to withdraw from an account ({0:?}) that has no drep delegation")]
     MissingAccountDRepDelegation(StakeCredential),
     #[error(
-        "network mismatch in reward account in {context:?} at position {position}: expected {expected:?}, received {received:?}"
+        "network mismatch in reward account in {context:?} at position {position}: expected {expected}, received {received}"
     )]
     NetworkMismatch { expected: Network, received: Network, context: TransactionField, position: usize },
 }
@@ -73,10 +73,10 @@ where
                 };
 
                 let account =
-                    context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential.clone()))?;
+                    context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential))?;
 
                 if matches!(credential, StakeCredential::AddrKeyhash(_)) && account.drep.is_none() {
-                    return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential.clone()));
+                    return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential));
                 }
 
                 if amount != account.rewards {

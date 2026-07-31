@@ -12,20 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::Anchor;
-use serde::ser::SerializeStruct;
+use crate::{Hash, cbor};
 
-pub fn serialize<S: serde::Serializer>(anchor: &Option<Anchor>, serializer: S) -> Result<S::Ok, S::Error> {
-    if let Some(anchor) = anchor {
-        let mut s = serializer.serialize_struct("Anchor", 2)?;
-        // NOTE: keep fields in lexicographic order
-        //
-        // This instance is used for canonical ledger state comparisons.
-        s.serialize_field("content_hash", &anchor.content_hash)?;
-        s.serialize_field("url", &anchor.url)?;
-        s.end()
-    } else {
-        serializer.serialize_none()
+// NOTE: keep fields in lexicographic order
+//
+// The `Serialize` instance is used for canonical ledger state comparisons.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Anchor {
+    pub content_hash: Hash<32>,
+    pub url: String,
+}
+
+impl<'b, C> cbor::Decode<'b, C> for Anchor {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        Ok(Self { url: d.decode_with(ctx)?, content_hash: d.decode_with(ctx)? })
+    }
+}
+
+impl<C> cbor::Encode<C> for Anchor {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.encode_with(&self.url, ctx)?;
+        e.encode_with(self.content_hash, ctx)?;
+        Ok(())
     }
 }
 

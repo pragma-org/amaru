@@ -12,27 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    AssetName, Hash, MemoizedDatum, NonEmptyKeyValuePairs, NonZeroInt, RedeemerTag, RequiredScript, size::SCRIPT,
-};
+use amaru_kernel::{MemoizedDatum, Multiasset, NonZeroInt, RedeemerTag, RequiredScript};
 
 use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
-pub fn execute<C>(
-    context: &mut C,
-    mint: Option<&NonEmptyKeyValuePairs<Hash<SCRIPT>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
-) where
+pub fn execute<C>(context: &mut C, mint: Option<&Multiasset<NonZeroInt>>)
+where
     C: UtxoSlice + WitnessSlice + BalanceSlice,
 {
     if let Some(mint) = mint {
-        let mut indices: Vec<usize> = (0..mint.len()).collect();
-        indices.sort_by(|&a, &b| mint[a].0.cmp(&mint[b].0));
-
-        for (mint_index, original_index) in indices.iter().enumerate() {
-            let (policy, _) = mint[*original_index];
+        for (index, hash) in mint.keys().enumerate() {
             context.require_script_witness(RequiredScript {
-                hash: policy,
-                index: mint_index as u32,
+                hash: *hash,
+                index: index as u32,
                 purpose: RedeemerTag::Mint,
                 datum: MemoizedDatum::None,
             })

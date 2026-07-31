@@ -14,11 +14,9 @@
 
 use std::sync::LazyLock;
 
-use pallas_primitives::conway::CostModels;
-
 use crate::{
-    DRepVotingThresholds, ExUnitPrices, ExUnits, PROTOCOL_VERSION_10, PoolVotingThresholds, ProtocolParameters,
-    RationalNumber,
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PROTOCOL_VERSION_10, PoolVotingThresholds,
+    ProtocolParameters, RationalNumber,
 };
 
 /// Latest cost models for Plutus V1

@@ -14,7 +14,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::{MemoizedTransactionOutput, TransactionInput, cbor};
+use serde::Deserialize;
+
+use crate::{MemoizedTransactionOutput, TransactionInput, cbor, from_cbor_no_leftovers};
 
 // ----------------------------------------------------------------------------------- Generic utils
 
@@ -88,6 +90,56 @@ where
             Ok((input, output))
         })
         .collect()
+}
+
+// --------------------------------------------------------- Derive serde instance from minicbor ones
+
+pub struct SerdeUsingCbor<T>(pub T);
+
+impl<T> From<T> for SerdeUsingCbor<T> {
+    fn from(t: T) -> Self {
+        Self(t)
+    }
+}
+
+impl<T: cbor::Encode<()>> serde::Serialize for SerdeUsingCbor<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_using_cbor(&self.0, serializer)
+    }
+}
+
+pub fn serialize_using_cbor<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+    T: cbor::Encode<()>,
+{
+    let bytes = cbor::to_cbor(value);
+
+    if serializer.is_human_readable() {
+        serializer.serialize_str(&hex::encode(bytes))
+    } else {
+        serializer.serialize_bytes(&bytes)
+    }
+}
+
+impl<'de, T: for<'d> cbor::Decode<'d, ()>> serde::Deserialize<'de> for SerdeUsingCbor<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        deserialize_using_cbor(d).map(SerdeUsingCbor)
+    }
+}
+
+pub fn deserialize_using_cbor<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: for<'d> cbor::Decode<'d, ()>,
+{
+    if deserializer.is_human_readable() {
+        let encoded = String::deserialize(deserializer)?;
+        from_cbor_no_leftovers(&hex::decode(encoded).map_err(serde::de::Error::custom)?)
+    } else {
+        from_cbor_no_leftovers(<&[u8]>::deserialize(deserializer)?)
+    }
+    .map_err(serde::de::Error::custom)
 }
 
 // -------------------------------------------------------------------------------- TransactionInput

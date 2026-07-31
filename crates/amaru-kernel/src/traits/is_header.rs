@@ -38,12 +38,9 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     /// Slot number of the header
     fn slot(&self) -> Slot;
 
-    /// The range-extended tagged nonce vrf output
-    // TODO: Return type here should be a Hash<32>, but we cannot make this happen without either:
-    // 1. Making this return a Result
-    // 2. Use a panic
-    // 3. Fix Pallas' leader_vrf_output to return a Hash<32> instead of a Vec.
-    fn extended_vrf_nonce_output(&self) -> Vec<u8>;
+    /// The raw vrf output from the header, which can then be derived for nonce or leader VRF
+    /// computations.
+    fn vrf_output(&self) -> &[u8];
 
     /// Return the header tip
     fn tip(&self) -> Tip {

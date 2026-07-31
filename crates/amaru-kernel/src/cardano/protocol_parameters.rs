@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Language, Lovelace, PoolVotingThresholds,
+    CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PlutusVersion, PoolVotingThresholds,
     ProtocolParamUpdate, ProtocolVersion, RationalNumber, cbor,
 };
 
@@ -108,13 +108,13 @@ impl ProtocolParameters {
             // that language.
             //
             // Now, we'll get the following pattern-match to fail due to non exhaustivness.
-            match Language::PlutusV1 {
-                Language::PlutusV1 => {
+            match PlutusVersion::V1 {
+                PlutusVersion::V1 => {
                     if let Some(plutus_v1) = cost_models.plutus_v1 {
                         self.cost_models.plutus_v1 = Some(plutus_v1);
                     }
                 }
-                Language::PlutusV2 | Language::PlutusV3 => (),
+                PlutusVersion::V2 | PlutusVersion::V3 => (),
             }
             if let Some(plutus_v2) = cost_models.plutus_v2 {
                 self.cost_models.plutus_v2 = Some(plutus_v2);
@@ -505,9 +505,9 @@ mod tests {
 
     use super::PREPROD_DEFAULT_PROTOCOL_PARAMETERS;
     use crate::{
-        CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, Hash, KeyValuePairs,
-        Lovelace, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion,
-        RewardAccount, Set, StakeCredential, any_constitution, any_hash28, any_nullable, any_proposal_id,
+        CostModel, CostModels, DRepVotingThresholds, Epoch, ExUnitPrices, ExUnits, GovernanceAction, Hash,
+        KeyValuePairs, Lovelace, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolParameters,
+        ProtocolVersion, RewardAccount, StakeCredential, any_constitution, any_epoch, any_hash28, any_proposal_id,
         any_rational_number, any_reward_account, any_stake_credential, size::SCRIPT,
     };
 
@@ -708,8 +708,8 @@ mod tests {
         prop_compose! {
             fn any_parent_proposal_id()(
                 proposal_id in option::of(any_proposal_id()),
-            ) -> Nullable<ProposalId> {
-                Nullable::from(proposal_id)
+            ) -> Option<ProposalId> {
+                proposal_id
             }
         }
 
@@ -739,7 +739,7 @@ mod tests {
                 guardrails in any_guardrails_script(),
             ) -> GovernanceAction {
                 GovernanceAction::TreasuryWithdrawals(
-                    KeyValuePairs::try_from(withdrawals).unwrap().as_pallas(),
+                    KeyValuePairs::try_from(withdrawals).unwrap(),
                     guardrails
                 )
             }
@@ -756,8 +756,8 @@ mod tests {
         prop_compose! {
             fn any_committee_registration()(
                 credential in any_stake_credential(),
-                epoch in any::<u64>(),
-            ) -> (StakeCredential, u64) {
+                epoch in any_epoch(),
+            ) -> (StakeCredential, Epoch) {
                 (credential, epoch)
             }
         }
@@ -772,8 +772,8 @@ mod tests {
             ) -> GovernanceAction {
                 GovernanceAction::UpdateCommittee(
                     parent_proposal_id,
-                    Set::from(to_remove.into_iter().collect::<Vec<_>>()),
-                    KeyValuePairs::try_from(to_add).unwrap().as_pallas(),
+                    to_remove.into_iter().collect::<Vec<_>>(),
+                    KeyValuePairs::try_from(to_add).unwrap(),
                     quorum
                 )
             }
@@ -812,8 +812,8 @@ mod tests {
         }
     }
 
-    pub fn any_guardrails_script() -> impl Strategy<Value = Nullable<Hash<SCRIPT>>> {
-        any_nullable(any_hash28())
+    pub fn any_guardrails_script() -> impl Strategy<Value = Option<Hash<SCRIPT>>> {
+        option::of(any_hash28())
     }
 
     prop_compose! {
@@ -873,7 +873,7 @@ mod tests {
                 max_ref_script_size_per_tx: default.max_ref_script_size_per_tx,
                 max_ref_script_size_per_block: default.max_ref_script_size_per_block,
                 ref_script_cost_stride: default.ref_script_cost_stride,
-                ref_script_cost_multiplier: default.ref_script_cost_multiplier.clone(),
+                ref_script_cost_multiplier: default.ref_script_cost_multiplier,
                 stake_pool_max_retirement_epoch,
                 optimal_stake_pools_count,
                 pledge_influence,

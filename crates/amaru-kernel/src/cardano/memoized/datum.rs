@@ -78,9 +78,8 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                     if d.tag()? != IanaTag::Cbor.tag() {
                         return Err(cbor::decode::Error::message("unknown tag for datum tag"));
                     }
-                    let plutus_data: pallas_primitives::KeepRaw<'_, pallas_primitives::PlutusData> =
-                        cbor::decode_with(d.bytes()?, ctx)?;
-                    Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
+                    let plutus_data: MemoizedPlutusData = cbor::decode_with(d.bytes()?, ctx)?;
+                    Ok(MemoizedDatum::Inline(plutus_data))
                 }
                 _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
             }

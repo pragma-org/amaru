@@ -70,7 +70,7 @@ where
 
             if let Some(account) = self.deregistrations.pop_first() {
                 self.pools_rewards_accounts.remove(account);
-                return Some(account.clone());
+                return Some(*account);
             }
         }
 

@@ -12,14 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Deref,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Epoch, Hash, Lovelace, PoolId, PoolParams, RewardAccount, StakeCredential, expect_stake_credential, hash,
-    pool_metadata, rational_number, relay,
+    Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RationalNumber, RewardAccount, StakeCredential,
+    expect_stake_credential, utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
 
@@ -130,11 +127,13 @@ impl PoolsEpochTransitionUpdates {
             let vrf = set(&mut current_params.vrf, vrf, Hash::to_string);
             let pledge = set(&mut current_params.pledge, pledge, Lovelace::to_string);
             let cost = set(&mut current_params.cost, cost, Lovelace::to_string);
-            let margin = set(&mut current_params.margin, margin, rational_number::fmt);
+            let margin = set(&mut current_params.margin, margin, RationalNumber::to_string);
             let reward_account = set(&mut current_params.reward_account, reward_account, RewardAccount::to_string);
-            let owners = set(&mut current_params.owners, owners, |s| hash::fmt(s.deref()));
-            let relays = set(&mut current_params.relays, relays, |r| relay::fmt(r));
-            let metadata = set(&mut current_params.metadata, metadata, pool_metadata::fmt);
+            let owners = set(&mut current_params.owners, owners, |s| display_collection(s));
+            let relays = set(&mut current_params.relays, relays, |r| display_collection(r));
+            let metadata = set(&mut current_params.metadata, metadata, |opt| {
+                opt.as_ref().map(PoolMetadata::to_string).unwrap_or_default()
+            });
 
             debug!(
                 ledger::epoch_transition::TICK_POOL,
@@ -211,8 +210,8 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeCredential, StakePayload, any_certificate_pointer,
-        any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential, new_stake_address,
+        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeAddress, StakeCredential, StakePayload,
+        any_certificate_pointer, any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential,
         utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
@@ -425,10 +424,10 @@ mod tests {
 
     fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {
         let payload = match credential {
-            StakeCredential::AddrKeyhash(hash) => StakePayload::Stake(*hash),
+            StakeCredential::AddrKeyhash(hash) => StakePayload::Key(*hash),
             StakeCredential::ScriptHash(hash) => StakePayload::Script(*hash),
         };
 
-        new_stake_address(Network::Testnet, payload).to_vec().into()
+        StakeAddress::new(Network::Testnet, payload).to_vec().into()
     }
 }

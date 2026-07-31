@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_crypto::key::ed25519::PublicKey;
 use proptest::prelude::*;
 
 use super::*;
-use crate::{Hash, any_hash28, cardano::network_block::make_block_with_header, size::BLOCK_BODY};
+use crate::{
+    Bytes, Hash, Header, OperationalCert, VrfCert, any_hash28, cardano::network_block::make_block_with_header, ed25519,
+    size::BLOCK_BODY, to_cbor,
+};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
@@ -31,20 +33,16 @@ pub fn make_header_with_op_cert_seq(
     prev_hash: Option<HeaderHash>,
     op_cert_seq: u64,
 ) -> Header {
-    use pallas_primitives::{VrfCert, babbage::PseudoHeader, conway::OperationalCert};
+    let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash(&to_cbor(&vec![block_number, slot]));
 
-    use crate::Bytes;
-
-    let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash_cbor(&vec![block_number, slot]);
-
-    PseudoHeader {
+    Header {
         header_body: HeaderBody {
             block_number,
             slot,
             prev_hash,
-            issuer_vkey: Bytes::from(vec![0u8; PublicKey::SIZE]),
+            issuer_vkey: Bytes::from(vec![0u8; ed25519::PUBLIC_KEY_LENGTH]),
             vrf_vkey: Bytes::from(vec![]),
-            vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
+            vrf_result: VrfCert { output: Bytes::from(vec![]), proof: Bytes::from(vec![]) },
             block_body_size: 0,
             block_body_hash: block_hash,
             operational_cert: OperationalCert {

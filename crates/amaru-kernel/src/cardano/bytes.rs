@@ -12,10 +12,90 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_codec::utils::Bytes;
+use std::{fmt, ops::Deref, str::FromStr};
 
-/// Utility function to construct empty Bytes.
-/// Used for default values
-pub fn empty_bytes() -> Bytes {
-    Bytes::from(Vec::new())
+use crate::cbor;
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    std::hash::Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    cbor::Encode,
+    cbor::Decode,
+)]
+#[cbor(transparent)]
+#[serde(into = "String")]
+#[serde(try_from = "String")]
+pub struct Bytes(#[n(0)] cbor::bytes::ByteVec);
+
+impl Default for Bytes {
+    fn default() -> Self {
+        Self::from(vec![])
+    }
+}
+
+impl From<Vec<u8>> for Bytes {
+    fn from(xs: Vec<u8>) -> Self {
+        Bytes(cbor::bytes::ByteVec::from(xs))
+    }
+}
+
+impl From<Bytes> for Vec<u8> {
+    fn from(b: Bytes) -> Self {
+        b.0.into()
+    }
+}
+
+impl Deref for Bytes {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<const N: usize> TryFrom<&Bytes> for [u8; N] {
+    type Error = core::array::TryFromSliceError;
+
+    fn try_from(value: &Bytes) -> Result<Self, Self::Error> {
+        value.0.as_slice().try_into()
+    }
+}
+
+impl TryFrom<String> for Bytes {
+    type Error = hex::FromHexError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let v = hex::decode(value)?;
+        Ok(Bytes(cbor::bytes::ByteVec::from(v)))
+    }
+}
+
+impl FromStr for Bytes {
+    type Err = hex::FromHexError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let v = hex::decode(s)?;
+        Ok(Bytes(cbor::bytes::ByteVec::from(v)))
+    }
+}
+
+impl From<Bytes> for String {
+    fn from(b: Bytes) -> Self {
+        hex::encode(b.deref())
+    }
+}
+
+impl fmt::Display for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes: Vec<u8> = self.clone().into();
+
+        f.write_str(&hex::encode(bytes))
+    }
 }

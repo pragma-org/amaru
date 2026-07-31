@@ -12,4 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::VrfCert;
+use crate::{Bytes, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct VrfCert {
+    #[n(0)]
+    pub output: Bytes,
+    #[n(1)]
+    pub proof: Bytes,
+}

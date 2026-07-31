@@ -142,7 +142,7 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use amaru_kernel::{
-        PoolId, ProtocolParamUpdate, Vote, any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
+        PoolId, ProtocolParamUpdate, Vote, any_ex_units, any_pool_voting_thresholds, any_proposal_id,
         any_protocol_params_update, any_rational_number, any_vote_ref,
     };
     use num::{One, Zero};
@@ -200,7 +200,7 @@ mod tests {
             is_no_confidence in any::<bool>(),
             update_in_security_group in any_protocol_params_update_in_security_group(),
             update_no_security_group in any_protocol_params_update_no_security_group(),
-            parent in option::of(any_comparable_proposal_id()),
+            parent in option::of(any_proposal_id()),
             thresholds in any_pool_voting_thresholds()
         ) {
             let parent = parent.map(Rc::new);
