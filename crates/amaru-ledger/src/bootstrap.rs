@@ -16,6 +16,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
     iter,
+    rc::Rc,
     sync::LazyLock,
 };
 
@@ -23,8 +24,9 @@ use amaru_kernel::{
     Account, Ballot, BallotId, Bytes, CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, Nullable, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal,
-    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward,
-    RewardAccount, Set, Slot, StakeCredential, StakePayload, StrictMaybe, TransactionPointer, Vote, Voter,
+    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
+    RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Set, Slot, StakeCredential, StakePayload,
+    StrictMaybe, TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
     new_stake_address, protocol_version, reward_account_to_stake_credential, size,
 };
@@ -33,6 +35,7 @@ use amaru_progress_bar::ProgressBar;
 
 use crate::{
     epoch_transition::GovernanceActivity,
+    governance::ratification::{CandidateProposal, ProposalsForest},
     state::volatile::{DiffEpochReg, Resettable},
     store::{
         self, Store, StoreError, TransactionalContext,
@@ -181,7 +184,12 @@ pub fn import_initial_snapshot(
         })
         .map_err(|err| format!("decode fees: {err}"))?;
 
-    let (root_params, root_hard_fork, root_cc, root_constitution) = decoder.with_decoder(|d| {
+    let (root_params, root_hard_fork, root_cc, root_constitution): (
+        StrictMaybe<ComparableProposalId>,
+        StrictMaybe<ComparableProposalId>,
+        StrictMaybe<ComparableProposalId>,
+        StrictMaybe<ComparableProposalId>,
+    ) = decoder.with_decoder(|d| {
         // Epoch State / Ledger State / UTxO State / utxosGovState
         d.array()?;
 
@@ -190,6 +198,13 @@ pub fn import_initial_snapshot(
         d.array()?;
         Ok((d.decode()?, d.decode()?, d.decode()?, d.decode()?))
     })?;
+
+    let roots = ProposalsRoots {
+        protocol_parameters: Option::from(root_params),
+        hard_fork: Option::from(root_hard_fork),
+        constitutional_committee: Option::from(root_cc),
+        constitution: Option::from(root_constitution),
+    };
 
     let proposals: Vec<ProposalState> = decoder.decode()?;
 
@@ -210,12 +225,10 @@ pub fn import_initial_snapshot(
     import_block_issuers(db, point, era_history, block_issuers)?;
     import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
         .map_err(|err| format!("import pool state: {err}"))?;
-    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
+    import_proposals_roots(db, &roots)?;
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
 
     import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
-
-    import_votes(db, point, era_history, &protocol_parameters, proposals)?;
 
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
@@ -227,7 +240,22 @@ pub fn import_initial_snapshot(
     decoder.skip()?; // DRep distr
     decoder.skip()?; // DRep state
     decoder.skip()?; // Pool distr
-    decoder.skip()?; // Ratify state
+
+    let (enacted, expired): (Vec<ProposalState>, Set<ProposalId>) = decoder
+        .with_decoder(|d| {
+            // Ratify state
+            d.array()?;
+            d.skip()?; // Enact state
+            let enacted = d.decode()?;
+            let expired = d.decode()?;
+            d.skip()?; // Delayed
+            Ok((enacted, expired))
+        })
+        .map_err(|err| format!("decode ratify state: {err}"))?;
+
+    import_recently_pruned_proposals(db, era_history, epoch, &roots, &proposals, enacted, expired)?;
+
+    import_votes(db, point, era_history, &protocol_parameters, proposals)?;
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
     decoder.skip()?;
@@ -533,6 +561,80 @@ fn import_proposals(
     Ok(())
 }
 
+/// Record the proposals pruned at the epoch boundary the snapshot sits on, using the ratification
+/// outcome embedded in the snapshot (the `RatifyState` of the DRep pulser). Voting stake
+/// distributions computed from this snapshot rely on these markers to exclude the deposits of
+/// just-pruned proposals, and to account for just-enacted treasury withdrawals.
+///
+/// The ratify state only lists enacted and expired proposals; conflicting siblings pruned by an
+/// enactment are recovered by replaying the enactments through a proposals forest, mirroring the
+/// regular ratification.
+fn import_recently_pruned_proposals(
+    db: &impl Store,
+    era_history: &EraHistory,
+    epoch: Epoch,
+    roots: &ProposalsRoots,
+    proposals: &[ProposalState],
+    enacted: Vec<ProposalState>,
+    expired: Set<ProposalId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut pruned: BTreeMap<ComparableProposalId, RatificationStatus> = expired
+        .into_iter()
+        .map(|id| (ComparableProposalId::from(id.clone()), RatificationStatus::NotRatified))
+        .collect();
+
+    if !enacted.is_empty() {
+        let candidates = proposals
+            .iter()
+            .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
+                Ok((
+                    Rc::new(ComparableProposalId::from(proposal.id.clone())),
+                    CandidateProposal {
+                        valid_until: proposal.expires_after,
+                        proposed_in: ProposalPointer {
+                            transaction: TransactionPointer {
+                                slot: era_history.epoch_bounds(proposal.proposed_in)?.start,
+                                transaction_index: 0,
+                            },
+                            proposal_index: proposal.id.action_index as usize,
+                        },
+                        governance_action: proposal.procedure.gov_action.clone(),
+                    },
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // The forest's treasury is only used to refuse over-drawing withdrawals during
+        // ratification; enactments here come from the snapshot's own ratify state, so the
+        // value is irrelevant.
+        let mut forest = ProposalsForest::new(epoch - 1, &ProposalsRootsRc::from(roots.clone()), 0)
+            .drain(era_history, candidates)
+            .map_err(|err| format!("replay enacted proposals: {err}"))?;
+        let mut compass = forest.new_compass();
+
+        for enacted_state in enacted {
+            let id = Rc::new(ComparableProposalId::from(enacted_state.id));
+            let proposal = forest
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| format!("enacted proposal {id} not found in the snapshot's proposals"))?;
+            for (pruned_id, status) in
+                forest.enact(id, &proposal, &mut compass).map_err(|err| format!("replay enacted proposals: {err}"))?
+            {
+                pruned.insert(Rc::unwrap_or_clone(pruned_id), status);
+            }
+        }
+    }
+
+    info!(bootstrap::recently_pruned_proposals::IMPORT, size = pruned.len());
+
+    let transaction = db.create_transaction();
+    transaction.set_recently_pruned_proposals(pruned.iter().map(|(id, status)| (id, *status)))?;
+    transaction.commit()?;
+
+    Ok(())
+}
+
 fn import_stake_pools(
     db: &impl Store,
     point: &Point,
@@ -739,21 +841,8 @@ fn import_accounts(
     Ok(())
 }
 
-fn import_proposals_roots(
-    db: &impl Store,
-    protocol_parameters: StrictMaybe<ComparableProposalId>,
-    hard_fork: StrictMaybe<ComparableProposalId>,
-    constitutional_committee: StrictMaybe<ComparableProposalId>,
-    constitution: StrictMaybe<ComparableProposalId>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn import_proposals_roots(db: &impl Store, roots: &ProposalsRoots) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-
-    let roots = ProposalsRoots {
-        protocol_parameters: Option::from(protocol_parameters),
-        hard_fork: Option::from(hard_fork),
-        constitutional_committee: Option::from(constitutional_committee),
-        constitution: Option::from(constitution),
-    };
 
     let roots_constitution = roots.constitution.as_ref().map(|s| s.to_string());
     let roots_constitutional_committee = roots.constitutional_committee.as_ref().map(|s| s.to_string());
@@ -768,7 +857,7 @@ fn import_proposals_roots(
         protocol_parameters = roots_protocol_parameters.as_deref().unwrap_or("none"),
     );
 
-    transaction.set_proposals_roots(&roots)?;
+    transaction.set_proposals_roots(roots)?;
     transaction.commit()?;
 
     Ok(())

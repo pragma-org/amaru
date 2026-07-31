@@ -60,6 +60,10 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-ledger**: populate `recently_pruned_proposals` when importing a cardano-node snapshot, from the ratify
+  state embedded in the snapshot. Stake distributions computed from imported snapshots previously counted the
+  deposits of proposals pruned at the snapshot's epoch boundary towards the pools voting stake, unlike the
+  Haskell node.
 - **amaru-ledger**: debit the treasury when enacted withdrawals are paid out at the epoch boundary; the payout was
   credited to the reward account without ever being subtracted from the treasury pot.
 - **amaru-ledger**: preserve the `Ratified` status of proposals pruned during ratification; it was overwritten with

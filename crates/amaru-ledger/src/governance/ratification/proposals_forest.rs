@@ -96,6 +96,11 @@ impl ProposalsForest {
         self.treasury
     }
 
+    /// Look up a proposal currently in the forest.
+    pub fn get(&self, id: &ComparableProposalId) -> Option<&ProposalEnum> {
+        self.proposals.get(id).map(|proposed_in| &proposed_in.proposal)
+    }
+
     /// Insert many proposals at once, consuming them.
     ///
     /// Pre-condition: all proposals MUST HAVE NOT expire (i.e. be valid until the current epoch).
