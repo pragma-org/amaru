@@ -159,7 +159,7 @@ impl PlutusRedeemers<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Redeemer, RedeemerTag, empty_bytes};
+    use crate::{Bytes, Redeemer, RedeemerTag};
 
     #[test]
     fn iter_from_into_btreemap_keeps_last_for_duplicate_redeemers() {
@@ -177,7 +177,8 @@ mod tests {
         let r1 = make_redeemer(100, 200, 0xAA);
         let r2 = make_redeemer(999, 888, 0xBB);
 
-        let redeemers = Redeemers { original_bytes: empty_bytes(), inner: RedeemersInner::Array(vec![r1, r2.clone()]) };
+        let redeemers =
+            Redeemers { original_bytes: Bytes::default(), inner: RedeemersInner::Array(vec![r1, r2.clone()]) };
 
         let map: BTreeMap<RedeemerKey, (&PlutusData, ExUnits)> =
             PlutusRedeemers::iter_from(&redeemers).map(|(k, data, ex_units)| (k, (data, ex_units))).collect();

@@ -768,10 +768,10 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Anchor, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        Anchor, Bytes, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer, ProtocolParameters, RationalNumber, Slot,
         TransactionPointer, any_constitution, any_gov_action, any_proposal_id, any_proposal_pointer,
-        any_protocol_params_update, any_protocol_version, any_reward_account, empty_bytes,
+        any_protocol_params_update, any_protocol_version, any_reward_account,
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
 
@@ -1394,7 +1394,6 @@ mod tests {
 
     /// Make a simple proposal id based on a hash created from just one byte
     fn make_id(byte: u8) -> ProposalId {
-        
         ProposalId { transaction_id: Hash::new([byte; 32]), action_index: 0 }
     }
 
@@ -1402,7 +1401,7 @@ mod tests {
     fn make_proposal(parent: Option<ProposalId>) -> Proposal {
         Proposal {
             deposit: 0,
-            reward_account: empty_bytes(),
+            reward_account: Bytes::default(),
             gov_action: GovernanceAction::HardForkInitiation(parent, PROTOCOL_VERSION_10),
             anchor: Anchor { url: "https://example.com".to_string(), content_hash: Hash::new([0u8; 32]) },
         }

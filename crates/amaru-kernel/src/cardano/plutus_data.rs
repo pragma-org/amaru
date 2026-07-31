@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
-use crate::{Bytes, Hash, MemoizedPlutusData, NonEmptyVec, cbor, empty_bytes, size::DATUM};
+use crate::{Bytes, Hash, MemoizedPlutusData, NonEmptyVec, cbor, size::DATUM};
 
 mod bigint;
 pub use bigint::*;
@@ -145,7 +145,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for PlutusData {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct PlutusDataSet {
-    #[serde(skip, default = "empty_bytes")]
+    #[serde(skip, default = "crate::Bytes::default")]
     original_bytes: Bytes,
     inner: NonEmptyVec<MemoizedPlutusData>,
 }
