@@ -52,6 +52,7 @@ Other guiding principles:
 - **amaru-ledger**: populate `recently_pruned_proposals` when importing a cardano-node snapshot.
 - **amaru-ledger**: debit the treasury when enacted withdrawals are paid out at the epoch boundary ([#1118][])
 - **amaru-ledger**: preserve the `Ratified` status of proposals pruned during ratification ([#1118][])
+- **amaru-kernel**: reduce memory footprint of various types on the critical path.
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 

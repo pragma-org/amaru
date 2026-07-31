@@ -181,7 +181,7 @@ where
         collateral::execute(
             context,
             transaction_body.collateral.as_deref(),
-            transaction_body.collateral_return.as_ref(),
+            transaction_body.collateral_return.as_deref(),
             transaction_body.total_collateral,
             transaction_body.fee,
             protocol_parameters,
@@ -198,7 +198,7 @@ where
             context,
             protocol_parameters,
             network,
-            mem::take(&mut transaction_body.collateral_return).map(|x| vec![x]).unwrap_or_default(),
+            mem::take(&mut transaction_body.collateral_return).map(|x| vec![*x]).unwrap_or_default(),
             SupplementalDatumPolicy::Disallow,
             |_context, _index, _value| {
                 if is_valid {

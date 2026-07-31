@@ -22,7 +22,7 @@ use crate::{
 #[derive(Debug)]
 pub struct DRepState {
     pub expiry: Epoch,
-    pub anchor: Option<Anchor>,
+    pub anchor: Option<Box<Anchor>>,
     pub deposit: Lovelace,
     pub delegators: BTreeSet<StakeCredential>,
 }

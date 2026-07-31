@@ -14,7 +14,7 @@
 
 use amaru_kernel::Epoch;
 use amaru_ledger::{
-    epoch_transition::pools_updates::PoolCertificate,
+    epoch_transition::pools_updates::{PoolCertificate, PoolCertificates},
     store::{
         StoreError,
         columns::{
@@ -57,8 +57,13 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
             // TODO: We might want to define a MERGE OPERATOR to speed this up if
             // necessary.
             let params = match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
-                None => as_value(Row::new(registered_at, deposit, params)),
-                Some(existing_params) => Row::extend(existing_params, PoolCertificate::Registration(params)),
+                None => as_value(Row {
+                    registered_at,
+                    deposit,
+                    current_params: params,
+                    pending_certificates: PoolCertificates::default(),
+                }),
+                Some(existing_params) => Row::extend(existing_params, PoolCertificate::from(params)),
             };
 
             db.put(as_key(&PREFIX, pool), params).map_err(|err| StoreError::Internal(err.into()))?;

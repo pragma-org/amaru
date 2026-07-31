@@ -45,6 +45,21 @@ impl<L, R, V> Bind<L, R, V> {
         Bind { left: self.left.as_refs(), right: self.right.as_refs(), value: self.value.as_ref() }
     }
 
+    /// Map on the left-hand binding
+    pub fn map_left<A>(self, to: impl FnOnce(L) -> A) -> Bind<A, R, V> {
+        Bind { left: self.left.map(to), right: self.right, value: self.value }
+    }
+
+    /// Map on the right-hand binding
+    pub fn map_right<A>(self, to: impl FnOnce(R) -> A) -> Bind<L, A, V> {
+        Bind { left: self.left, right: self.right.map(to), value: self.value }
+    }
+
+    /// Map on the bind value
+    pub fn map<A>(self, to: impl FnOnce(V) -> A) -> Bind<L, R, A> {
+        Bind { left: self.left, right: self.right, value: self.value.map(to) }
+    }
+
     /// Absorb a more recent update in place.
     /// A `Set`/`Reset` overrides, `Unchanged` keeps what's here, and a `value: Some(...)` supersedes wholesale.
     pub fn then(&mut self, newer: Self) {

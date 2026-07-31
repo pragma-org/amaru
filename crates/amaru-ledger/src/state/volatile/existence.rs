@@ -50,6 +50,15 @@ impl<T> Existence<T> {
         }
     }
 
+    #[inline]
+    pub fn map<A>(self, to: impl FnOnce(T) -> A) -> Existence<A> {
+        match self {
+            Self::Exists(v) => Existence::Exists(to(v)),
+            Self::Gone => Existence::Gone,
+            Self::Unknown => Existence::Unknown,
+        }
+    }
+
     /// Return this verdict when it is conclusive, otherwise lazily fall back to an older one.
     pub fn or_else(self, older: impl FnOnce() -> Self) -> Self {
         match self {

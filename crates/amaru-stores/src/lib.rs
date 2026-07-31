@@ -127,7 +127,7 @@ pub mod tests {
 
         if drep_row.anchor.is_none() {
             drep_row.anchor =
-                Some(Anchor { url: "https://example.com".to_string(), content_hash: Hash::from([0u8; 32]) });
+                Some(Box::new(Anchor { url: "https://example.com".to_string(), content_hash: Hash::from([0u8; 32]) }));
         }
         let anchor = drep_row.anchor.clone().expect("Expected anchor to be Some");
         let deposit = drep_row.deposit;
@@ -380,7 +380,7 @@ pub mod tests {
 
         assert_eq!(
             store.pool(&fixture.pool_params.id)?.expect("Expected pool row").pending_certificates,
-            PoolCertificates::default().with_retirement(fixture.pool_epoch),
+            PoolCertificates::default().with(fixture.pool_epoch),
             "Expected pool to be scheduled for removal"
         );
 

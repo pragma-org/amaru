@@ -255,10 +255,14 @@ pub trait DRepsSlice {
         &mut self,
         drep: StakeCredential,
         registration: DRepRegistration,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>>;
 
-    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>>;
+    fn update(
+        &mut self,
+        drep: StakeCredential,
+        anchor: Option<Box<Anchor>>,
+    ) -> Result<(), UpdateError<StakeCredential>>;
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
 }
@@ -298,7 +302,7 @@ pub trait CommitteeSlice {
     fn resign(
         &mut self,
         cc_member: StakeCredential,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
 }
 
@@ -425,7 +429,7 @@ where
     for (script_hash, location) in known_scripts {
         let lookup = |input| {
             UtxoSlice::lookup(context, input)
-                .and_then(|output| output.script.as_ref())
+                .and_then(|output| output.script.as_deref())
                 .unwrap_or_else(|| unreachable!("no script at expected location: {location:?}"))
         };
 
@@ -455,7 +459,7 @@ where
                 .and_then(|output| match &output.datum {
                     MemoizedDatum::None => None,
                     MemoizedDatum::Hash(..) => None,
-                    MemoizedDatum::Inline(data) => Some(data),
+                    MemoizedDatum::Inline(data) => Some(data.as_ref()),
                 })
                 .unwrap_or_else(|| unreachable!("no datum at expected location: {location:?}"))
         };

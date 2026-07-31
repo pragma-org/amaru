@@ -15,7 +15,7 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId, ProposalId, StakeCredential,
+    CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId, ProposalId, StakeCredential,
     TransactionInput,
 };
 
@@ -66,7 +66,7 @@ pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Empty, &'a Epoc
 /// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
 /// is the queryable value; the anchor is updated independently of registration, so an anchor-only
 /// update is a bind-only (`value: None`) change that composes onto the registration from below.
-pub type DRepBind<'a> = Bind<&'a Anchor, &'a Empty, &'a DRepRegistration>;
+pub type DRepBind<'a> = Bind<&'a Empty, &'a Empty, &'a DRepRegistration>;
 
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {

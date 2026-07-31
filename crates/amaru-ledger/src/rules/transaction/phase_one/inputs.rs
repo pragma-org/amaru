@@ -69,7 +69,7 @@ where
             match &output.datum {
                 MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), *reference_input),
                 MemoizedDatum::Hash(hash) => {
-                    context.allow_supplemental_datum(*hash);
+                    context.allow_supplemental_datum(*hash.as_ref());
                 }
                 MemoizedDatum::None => (),
             };

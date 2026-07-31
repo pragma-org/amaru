@@ -50,25 +50,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for PoolCertificates {
 }
 
 impl PoolCertificates {
-    pub fn append_certificate(&mut self, certificate: PoolCertificate) {
-        self.0.push(certificate);
+    pub fn append(&mut self, certificate: impl Into<PoolCertificate>) {
+        self.0.push(certificate.into());
     }
 
-    pub fn append_registration(&mut self, params: PoolParams) {
-        self.0.push(PoolCertificate::Registration(params));
-    }
-
-    pub fn append_retirement(&mut self, epoch: Epoch) {
-        self.0.push(PoolCertificate::Retirement(epoch))
-    }
-
-    pub fn with_registration(mut self, params: PoolParams) -> Self {
-        self.0.push(PoolCertificate::Registration(params));
-        self
-    }
-
-    pub fn with_retirement(mut self, epoch: Epoch) -> Self {
-        self.0.push(PoolCertificate::Retirement(epoch));
+    pub fn with(mut self, certificate: impl Into<PoolCertificate>) -> Self {
+        self.0.push(certificate.into());
         self
     }
 
@@ -129,8 +116,26 @@ impl PoolCertificates {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PoolCertificate {
-    Registration(PoolParams),
+    Registration(Box<PoolParams>),
     Retirement(Epoch),
+}
+
+impl From<PoolParams> for PoolCertificate {
+    fn from(params: PoolParams) -> Self {
+        Self::Registration(Box::new(params))
+    }
+}
+
+impl From<Box<PoolParams>> for PoolCertificate {
+    fn from(params: Box<PoolParams>) -> Self {
+        Self::Registration(params)
+    }
+}
+
+impl From<Epoch> for PoolCertificate {
+    fn from(epoch: Epoch) -> Self {
+        Self::Retirement(epoch)
+    }
 }
 
 impl<C> cbor::encode::Encode<C> for PoolCertificate {
@@ -224,7 +229,7 @@ mod tests {
     use super::*;
 
     pub fn any_pool_certificate(epoch: Epoch) -> impl Strategy<Value = PoolCertificate> {
-        prop_oneof![Just(Retirement(epoch)), any_pool_params().prop_map(Registration)]
+        prop_oneof![Just(Retirement(epoch)), any_pool_params().prop_map(PoolCertificate::from)]
     }
 
     pub fn any_pool_certificates() -> impl Strategy<Value = PoolCertificates> {

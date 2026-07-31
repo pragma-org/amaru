@@ -40,7 +40,7 @@ impl<'a> ScriptContext<'a> {
             tx_info.inputs.get(redeemer_key.index as usize).and_then(|output_ref| match &output_ref.output.datum {
                 MemoizedDatum::None => None,
                 MemoizedDatum::Hash(hash) => tx_info.data.0.get(hash).copied(),
-                MemoizedDatum::Inline(data) => Some(data.as_ref()),
+                MemoizedDatum::Inline(data) => Some(data.as_ref().as_ref()),
             })
         } else {
             None
