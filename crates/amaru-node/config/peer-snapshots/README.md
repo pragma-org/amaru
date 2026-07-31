@@ -60,12 +60,20 @@ config/peer-snapshots/preview/peer-snapshot.json
 ## Conditional fetch cache
 
 After a successful commits-API response, `CONFIGS_COMMIT_CACHE` records the configs-repo
-SHA plus any `ETag` / `Last-Modified` headers (also not committed) and gets a fresh
-modification time. Builds within the next **12 hours** reuse that cached SHA without
-contacting the commits API (avoids rate-limit noise on frequent local/LSP rebuilds).
-When the TTL expires, later builds send conditional requests; a `304 Not Modified`
-rewrites the cache (refreshing the 12h window) and only re-downloads missing or stale
-snapshot files.
+SHA, the Amaru HEAD committer time used as GitHub `until` (unix seconds), plus any
+`ETag` / `Last-Modified` headers (also not committed), and gets a fresh modification
+time. Builds reuse that cached SHA without contacting the commits API only when
+**both** hold:
+
+- the cache file is younger than **12 hours** (avoids rate-limit noise on frequent
+  local/LSP rebuilds), and
+- the currently required Amaru HEAD committer time is within **1 hour** of the
+  cached `until` (so checking out a much older/newer commit re-resolves the
+  configs SHA instead of reusing a mismatched snapshot).
+
+When a refresh runs, later builds send conditional requests if `until` is still
+compatible; a `304 Not Modified` rewrites the cache (refreshing the 12h window) and
+only re-downloads missing or stale snapshot files.
 
 ## Optional env vars
 

@@ -20,12 +20,16 @@
 //! `cardano-foundation/cardano-configurations` at the youngest commit at or
 //! before the Amaru HEAD committer timestamp.
 //!
-//! Commit metadata is cached in `CONFIGS_COMMIT_CACHE`. A successful resolve
-//! rewrites that file so its mtime is current; the commits API is not contacted
-//! again while the file is younger than [`COMMIT_CACHE_TTL`] (12 hours). When
-//! a request is made, it is conditional on any stored `ETag` / `Last-Modified`.
-//! A `304 Not Modified` reuses the cached SHA. Snapshot files are only
-//! re-downloaded when missing or not strictly newer than the cache file.
+//! Commit metadata is cached in `CONFIGS_COMMIT_CACHE`, including the Amaru HEAD
+//! committer time (`until`, unix seconds) used to resolve the configs-repo SHA.
+//! A successful resolve rewrites that file so its mtime is current; the commits
+//! API is not contacted again while the file is younger than
+//! [`COMMIT_CACHE_TTL`] (12 hours) **and** the currently required HEAD time is
+//! within [`UNTIL_CACHE_TOLERANCE`] (1 hour) of the cached value. When a request
+//! is made, it is conditional on any stored `ETag` / `Last-Modified` only if the
+//! cached `until` is still compatible. A `304 Not Modified` reuses the cached
+//! SHA. Snapshot files are only re-downloaded when missing or not strictly
+//! newer than the cache file.
 //!
 //! Every network in [`PEER_SNAPSHOT_NETWORKS`] must have a staged file after the
 //! fetch attempt (empty placeholders are allowed offline; see
@@ -50,6 +54,7 @@ const CONFIGS_REPO: &str = "cardano-foundation/cardano-configurations";
 const USER_AGENT: &str = "amaru-build (https://github.com/pragma-org/amaru)";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 const COMMIT_CACHE_TTL: Duration = Duration::from_secs(12 * 60 * 60);
+const UNTIL_CACHE_TOLERANCE: Duration = Duration::from_secs(60 * 60);
 const CACHE_FILE_NAME: &str = "CONFIGS_COMMIT_CACHE";
 
 fn peer_snapshot_network_names() -> impl Iterator<Item = &'static str> {
@@ -118,22 +123,31 @@ pub fn prepare_peer_snapshots() -> Result<()> {
 }
 
 fn fetch_all(staging_root: &Path) -> Result<String> {
+    let amaru_time = amaru_head_committer_time().context("determine Amaru HEAD committer date")?;
     let existing = read_configs_commit_cache(staging_root);
 
-    // Skip the commits API while the cache file is younger than COMMIT_CACHE_TTL.
+    // Skip the commits API while the cache file is younger than COMMIT_CACHE_TTL
+    // and was resolved for a sufficiently close Amaru HEAD committer time.
     // A successful resolve always rewrites the cache so its mtime starts a new window.
     let sha = match existing.as_ref() {
-        Some(cache) if commit_cache_is_fresh(staging_root) => cache.sha.clone(),
+        Some(cache) if commit_cache_is_reusable(staging_root, cache, &amaru_time) => cache.sha.clone(),
         _ => {
-            let amaru_time = amaru_head_committer_date().context("determine Amaru HEAD committer date")?;
             let agent = http_agent()?;
-            let resolved = resolve_configs_commit(&agent, &amaru_time, existing.as_ref())
-                .with_context(|| format!("resolve {CONFIGS_REPO} commit at or before {amaru_time}"))?;
+            // Conditional headers are only valid for the same logical `until` query.
+            let conditional = existing.as_ref().filter(|c| until_is_compatible(c, &amaru_time));
+            let resolved = resolve_configs_commit(&agent, &amaru_time.iso, conditional)
+                .with_context(|| format!("resolve {CONFIGS_REPO} commit at or before {}", amaru_time.iso))?;
             let cache = match resolved {
                 ResolveResult::NotModified => {
-                    existing.clone().context("received HTTP 304 without a staged configs commit cache")?
+                    let mut cache =
+                        existing.clone().context("received HTTP 304 without a staged configs commit cache")?;
+                    cache.until = Some(amaru_time.unix);
+                    cache
                 }
-                ResolveResult::Updated { cache } => cache,
+                ResolveResult::Updated { mut cache } => {
+                    cache.until = Some(amaru_time.unix);
+                    cache
+                }
             };
             // Write (or rewrite) before downloads so the TTL and snapshot mtime
             // comparisons use a fresh cache timestamp.
@@ -170,8 +184,13 @@ fn fetch_all(staging_root: &Path) -> Result<String> {
     Ok(sha)
 }
 
+/// True when the cache may be reused without contacting the commits API.
+fn commit_cache_is_reusable(staging_root: &Path, cache: &ConfigsCommitCache, amaru_time: &AmaruHeadTime) -> bool {
+    commit_cache_mtime_is_fresh(staging_root) && until_is_compatible(cache, amaru_time)
+}
+
 /// True when `CONFIGS_COMMIT_CACHE` exists and was modified within [`COMMIT_CACHE_TTL`].
-fn commit_cache_is_fresh(staging_root: &Path) -> bool {
+fn commit_cache_mtime_is_fresh(staging_root: &Path) -> bool {
     let path = configs_commit_cache_path(staging_root);
     let Ok(meta) = fs::metadata(path) else {
         return false;
@@ -184,6 +203,16 @@ fn commit_cache_is_fresh(staging_root: &Path) -> bool {
         // Clock skew / future mtime: treat as stale so we re-resolve.
         Err(_) => false,
     }
+}
+
+/// True when the cached resolve used an Amaru HEAD time within [`UNTIL_CACHE_TOLERANCE`]
+/// of the currently required one.
+fn until_is_compatible(cache: &ConfigsCommitCache, amaru_time: &AmaruHeadTime) -> bool {
+    let Some(cached_unix) = cache.until else {
+        // Pre-`until` cache files are not reusable for timestamp-sensitive resolves.
+        return false;
+    };
+    amaru_time.unix.abs_diff(cached_unix) <= UNTIL_CACHE_TOLERANCE.as_secs()
 }
 
 /// True when the staged snapshot is missing or not strictly newer than the cache file.
@@ -206,10 +235,16 @@ fn snapshot_needs_download(staging_root: &Path, network: &str, cache_mtime: Opti
     }
 }
 
-fn amaru_head_committer_date() -> Result<String> {
+/// Amaru HEAD committer time: ISO-8601 for the GitHub `until` query, unix for comparisons.
+struct AmaruHeadTime {
+    iso: String,
+    unix: i64,
+}
+
+fn amaru_head_committer_time() -> Result<AmaruHeadTime> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let output = Command::new("git")
-        .args(["show", "-s", "--format=%cI", "HEAD"])
+        .args(["show", "-s", "--format=%cI%n%ct", "HEAD"])
         .current_dir(&manifest_dir)
         .output()
         .context("run git show for HEAD committer date")?;
@@ -218,11 +253,15 @@ fn amaru_head_committer_date() -> Result<String> {
         bail!("git show HEAD failed ({}): {}", output.status, String::from_utf8_lossy(&output.stderr));
     }
 
-    let date = String::from_utf8(output.stdout)?.trim().to_string();
-    if date.is_empty() {
-        bail!("git show HEAD returned empty committer date");
+    let text = String::from_utf8(output.stdout)?;
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let iso = lines.next().unwrap_or_default().to_string();
+    let unix_str = lines.next().unwrap_or_default();
+    if iso.is_empty() || unix_str.is_empty() {
+        bail!("git show HEAD returned incomplete committer date (need %cI and %ct)");
     }
-    Ok(date)
+    let unix: i64 = unix_str.parse().with_context(|| format!("parse git committer unix timestamp {unix_str:?}"))?;
+    Ok(AmaruHeadTime { iso, unix })
 }
 
 fn http_agent() -> Result<ureq::Agent> {
@@ -251,6 +290,8 @@ struct GithubCommit {
 #[derive(Debug, Clone)]
 struct ConfigsCommitCache {
     sha: String,
+    /// Amaru HEAD committer time (unix seconds) used as GitHub `until` when resolving `sha`.
+    until: Option<i64>,
     etag: Option<String>,
     last_modified: Option<String>,
 }
@@ -289,7 +330,9 @@ fn resolve_configs_commit(
             let Some(commit) = commits.into_iter().next() else {
                 bail!("no {CONFIGS_REPO} commit at or before {until_iso}");
             };
-            Ok(ResolveResult::Updated { cache: ConfigsCommitCache { sha: commit.sha, etag, last_modified } })
+            Ok(ResolveResult::Updated {
+                cache: ConfigsCommitCache { sha: commit.sha, until: None, etag, last_modified },
+            })
         }
         Err(ureq::Error::Status(304, _response)) => not_modified(existing),
         Err(ureq::Error::Status(statue, response)) => {
@@ -357,6 +400,7 @@ fn parse_configs_commit_cache(content: &str) -> Option<ConfigsCommitCache> {
     }
 
     let mut sha = None;
+    let mut until = None;
     let mut etag = None;
     let mut last_modified = None;
     for line in content.lines() {
@@ -374,18 +418,22 @@ fn parse_configs_commit_cache(content: &str) -> Option<ConfigsCommitCache> {
         }
         match key {
             "sha" => sha = Some(value.to_string()),
+            "until" => until = value.parse().ok(),
             "etag" => etag = Some(value.to_string()),
             "last-modified" => last_modified = Some(value.to_string()),
             _ => {}
         }
     }
 
-    Some(ConfigsCommitCache { sha: sha?, etag, last_modified })
+    Some(ConfigsCommitCache { sha: sha?, until, etag, last_modified })
 }
 
 fn write_configs_commit_cache(staging_root: &Path, cache: &ConfigsCommitCache) -> Result<()> {
     fs::create_dir_all(staging_root)?;
     let mut body = format!("sha: {}\n", cache.sha);
+    if let Some(until) = cache.until {
+        body.push_str(&format!("until: {until}\n"));
+    }
     if let Some(etag) = &cache.etag {
         body.push_str(&format!("etag: {etag}\n"));
     }

@@ -46,6 +46,10 @@ Other guiding principles:
 
 - **amaru-kernel**: dependency on `pallas-*`
 
+### Fixed
+
+- **amaru-node**: invalidate peer snapshot commit metadata cache when switching to older or newer commits. ([#1114](https://github.com/pragma-org/amaru/issues/1114))
+
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 
 ### Added
