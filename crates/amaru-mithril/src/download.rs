@@ -75,13 +75,15 @@ impl FeedbackReceiver for MithrilFeedbackReceiver {
                 _ => {}
             },
             MithrilEvent::CertificateChainValidationStarted { .. } => {
-                let pb = (self.with_progress)(0, "{spinner:.green} {elapsed_precise} {msg}");
+                let pb = (self.with_progress)(
+                    0,
+                    "{spinner:.green} {elapsed_precise} validating Mithril certificate chain ({pos} certificates)",
+                );
                 *self.certificate_validation_pb.lock().await = Some(pb);
             }
-            MithrilEvent::CertificateValidated { certificate_chain_validation_id: _, certificate_hash } => {
+            MithrilEvent::CertificateValidated { .. } | MithrilEvent::CertificateFetchedFromCache { .. } => {
                 if let Some(pb) = self.certificate_validation_pb.lock().await.as_ref() {
-                    let _ = certificate_hash;
-                    pb.tick(0);
+                    pb.tick(1);
                 }
             }
             MithrilEvent::CertificateChainValidated { .. } => {
@@ -122,7 +124,7 @@ pub async fn download_from_mithril(
     let client = ClientBuilder::new(mithril_client::AggregatorDiscoveryType::Url(endpoint.to_string()))
         .set_genesis_verification_key(GenesisVerificationKey::JsonHex(verification_key.into()))
         .with_origin_tag(Some("AMARU".to_string()))
-        .add_feedback_receiver(Arc::new(MithrilFeedbackReceiver::new(with_progress)))
+        .add_feedback_receiver(Arc::new(MithrilFeedbackReceiver::new(with_progress.clone())))
         .build()?;
     let database_client = client.cardano_database_v2();
     let snapshots = database_client.list().await?;
@@ -130,10 +132,10 @@ pub async fn download_from_mithril(
 
     info!(mithril::snapshot::FETCH, hash = %snapshot_list_item.hash, from_chunk);
 
-    let snapshot = database_client
-        .get(&snapshot_list_item.hash)
-        .await?
-        .ok_or_else(|| format!("Mithril snapshot not found: {}", snapshot_list_item.hash))?;
+    let fetch_progress = with_progress(0, "{spinner:.green} {elapsed_precise} fetching Mithril snapshot metadata");
+    let snapshot = database_client.get(&snapshot_list_item.hash).await;
+    fetch_progress.clear();
+    let snapshot = snapshot?.ok_or_else(|| format!("Mithril snapshot not found: {}", snapshot_list_item.hash))?;
     let certificate = client.certificate().verify_chain(&snapshot.certificate_hash).await?;
 
     let immutable_file_range = ImmutableFileRange::From(from_chunk);
@@ -144,11 +146,19 @@ pub async fn download_from_mithril(
 
     info!(mithril::snapshot::VERIFY_DIGESTS, target_dir = %target_dir.display());
     let verified_digests = client.cardano_database_v2().download_and_verify_digests(&certificate, &snapshot).await?;
+    let through_chunk = snapshot.beacon.immutable_file_number;
+    let immutable_file_count = immutable_file_range.length(through_chunk) * 3;
     info!(mithril::snapshot::VERIFY_DATABASE, target_dir = %target_dir.display());
+    let verification_template = format!(
+        "{{spinner:.green}} {{elapsed_precise}} verifying immutable chunks {from_chunk}..={through_chunk} ({immutable_file_count} files)"
+    );
+    let verification_progress = with_progress(0, &verification_template);
     let merkle_proof = client
         .cardano_database_v2()
         .verify_cardano_database(&certificate, &snapshot, &immutable_file_range, false, &target_dir, &verified_digests)
-        .await?;
+        .await;
+    verification_progress.clear();
+    let merkle_proof = merkle_proof?;
     let message = MessageBuilder::new().compute_cardano_database_message(&certificate, &merkle_proof).await?;
 
     if !certificate.match_message(&message) {
