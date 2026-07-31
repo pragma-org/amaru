@@ -632,7 +632,7 @@ mod test {
                 margin: RationalNumber { numerator: 1, denominator: 1 },
                 // 0xF0 discriminates a script stake address on a test network.
                 reward_account: [&[0xF0], &[tag; 28][..]].concat().into(),
-                owners: BTreeSet::new(),
+                owners: Vec::new(),
                 relays: Vec::new(),
                 metadata: None,
             },
