@@ -24,6 +24,9 @@ pub mod utils;
 
 pub mod bech32;
 
+mod hasher;
+pub use hasher::Hasher;
+
 mod traits;
 pub use traits::{
     AsHash, AsIndex, AsShelley, HasExUnits, HasLovelace, HasMajorVersion, HasOwnership, HasScriptHash,
@@ -104,7 +107,7 @@ pub use cardano::{
         GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS,
     },
     governance_action::GovernanceAction,
-    hash::{self, Hash, Hasher, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, size},
+    hash::{self, Hash, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, PoolId, size},
     header::Header,
     header_body::HeaderBody,
     int::Int,

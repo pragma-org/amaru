@@ -19,6 +19,7 @@ use anyhow::anyhow;
 use crate::{
     BlockHeight, Bytes, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, cbor, ed25519,
     size::{HEADER, POOL_COLD_KEY},
+    to_cbor,
 };
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -146,7 +147,7 @@ impl BlockHeader {
     }
 
     fn recompute_hash(&mut self) {
-        self.hash = Hasher::<{ HEADER * 8 }>::hash_cbor(&self.header);
+        self.hash = Hasher::<{ HEADER * 8 }>::hash(&to_cbor(&self.header));
     }
 
     pub fn tip(&self) -> Tip {

@@ -27,9 +27,9 @@ anyhow.workspace = true
 base58.workspace = true
 bech32.workspace = true
 bytes = { workspace = true, features = ["serde"] }
+clap = { workspace = true, optional = true }
 crc.workspace = true
 cryptoxide.workspace = true
-clap = { workspace = true, optional = true }
 dashu-base.workspace = true
 dashu-int.workspace = true
 ed25519-dalek.workspace = true
