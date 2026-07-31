@@ -35,7 +35,7 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::ADD).in_scope(|| {
         for (credential, value) in rows {
-            let key = as_key(&PREFIX, &credential);
+            let key = as_key(&PREFIX, credential);
 
             let existing =
                 db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d));
@@ -73,7 +73,7 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::RESET_MANY).in_scope(|| {
         for credential in rows {
-            let key = as_key(&PREFIX, &credential);
+            let key = as_key(&PREFIX, credential);
 
             if let Some(mut row) =
                 db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
@@ -136,7 +136,7 @@ pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>, epo
     trace_span!(stores::ledger::accounts::REMOVE).in_scope(|| {
         for credential in rows {
             recently_unregistered_accounts::insert(db, &credential, epoch)?;
-            db.delete(as_key(&PREFIX, &credential)).map_err(|err| StoreError::Internal(err.into()))?;
+            db.delete(as_key(&PREFIX, credential)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
         Ok(())

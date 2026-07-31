@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Ballot, BallotId, BlockHeight, ComparableProposalId, DRep, DRepRegistration, GovernanceAction, Hash,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalsRoots, Slot, StakeCredential, Tip,
-    TransactionInput, any_anchor, any_ballot, any_ballot_id, any_comparable_proposal_id, any_drep,
-    any_drep_registration, any_modern_output, any_pool_params, any_proposals_roots, any_reward_account,
-    any_stake_credential,
+    Ballot, BallotId, BlockHeight, DRep, DRepRegistration, GovernanceAction, Hash, MemoizedTransactionOutput, Point,
+    PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, StakeCredential, Tip, TransactionInput, any_anchor,
+    any_ballot, any_ballot_id, any_drep, any_drep_registration, any_modern_output, any_pool_params, any_proposal_id,
+    any_proposals_roots, any_reward_account, any_stake_credential,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
 use rand::Rng;
@@ -32,8 +31,8 @@ pub fn ballot_id(rng: &mut impl Rng) -> BallotId {
     run_strategy_with_rng(rng, any_ballot_id())
 }
 
-pub fn comparable_proposal_id(rng: &mut impl Rng) -> ComparableProposalId {
-    run_strategy_with_rng(rng, any_comparable_proposal_id())
+pub fn comparable_proposal_id(rng: &mut impl Rng) -> ProposalId {
+    run_strategy_with_rng(rng, any_proposal_id())
 }
 
 pub fn drep(rng: &mut impl Rng) -> DRep {

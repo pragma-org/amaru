@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_primitives::conway::Multiasset;
+use std::collections::BTreeMap;
 
 use crate::{
-    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, PositiveCoin,
-    ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script, encode_script, serialize_memoized_script,
-    size::CREDENTIAL, to_cbor,
+    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
+    ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
+    utils::cbor::SerialisedAsCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -161,7 +161,10 @@ fn decode_modern_output<C>(
                 0 => state.0 = Some(decode_address(d.bytes()?)?),
                 1 => state.1 = Some(d.decode_with(ctx)?),
                 2 => state.2 = d.decode_with(ctx)?,
-                3 => state.3 = Some(decode_script(d, ctx)?),
+                3 => {
+                    let SerialisedAsCbor(script) = d.decode_with(ctx)?;
+                    state.3 = Some(script)
+                }
                 _ => return cbor::unexpected_field::<MemoizedTransactionOutput, _>(field),
             }
             Ok(())
@@ -179,7 +182,7 @@ fn decode_modern_output<C>(
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
-    Address::from_bytes(address_bytes).map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
+    Address::from_bytes(address_bytes).ok_or_else(|| cbor::decode::Error::message("invalid address"))
 }
 
 impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
@@ -218,7 +221,7 @@ impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
                 None => (),
                 Some(script) => {
                     e.u8(3)?;
-                    encode_script(script, e)?;
+                    e.encode_with(SerialisedAsCbor(script), ctx)?;
                 }
             }
 
@@ -237,7 +240,7 @@ fn serialize_address<S: serde::ser::Serializer>(addr: &Address, serializer: S) -
 
 fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Address, D::Error> {
     let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
-    Address::from_hex(bytes).map_err(serde::de::Error::custom)
+    Address::from_hex(bytes).ok_or_else(|| serde::de::Error::custom("invalid address"))
 }
 
 // TODO: Eventually allow serializing complete values, not just coins.
@@ -260,7 +263,7 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
     let value = match helper {
         ValueHelper::Coin(coin) => Value::Coin(coin),
         ValueHelper::Multiasset(coin, multiasset_data) => {
-            let mut converted_multiasset = Vec::new();
+            let mut multiasset = BTreeMap::new();
 
             for (policy_id, assets) in multiasset_data {
                 let policy_id = hex::decode(&policy_id)
@@ -282,14 +285,11 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                 let policy_id: Hash<CREDENTIAL> = Hash::from(policy_id.as_slice());
 
                 let pairs = NonEmptyKeyValuePairs::try_from(converted_assets)
-                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?
-                    .as_pallas();
+                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?;
 
-                converted_multiasset.push((policy_id, pairs));
+                multiasset.insert(policy_id, pairs);
             }
 
-            let multiasset: Multiasset<PositiveCoin> =
-                Multiasset::from_vec(converted_multiasset).ok_or(serde::de::Error::custom("empty multiasset"))?;
             Value::Multiasset(coin, multiasset)
         }
     };
@@ -315,6 +315,9 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
         Some(placeholder) => Ok(Some(MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?)),
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {

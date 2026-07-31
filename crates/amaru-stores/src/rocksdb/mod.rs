@@ -15,7 +15,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
-    ops::Deref,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -23,7 +22,7 @@ use std::{
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
+    CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
     MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
     StakeCredential, TransactionInput, cbor,
 };
@@ -447,7 +446,7 @@ macro_rules! impl_ReadStore_body {
 
             fn proposal(
                 &self,
-                id: &ComparableProposalId,
+                id: &ProposalId,
             ) -> Result<Option<scolumns::proposals::Row>, StoreError> {
                 proposals::get(|key| self.db.get_pinned(key), id)
             }
@@ -698,17 +697,17 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn set_recently_pruned_proposals<'iter>(
         &self,
-        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
+        proposals: impl IntoIterator<Item = (&'iter ProposalId, RatificationStatus)>,
     ) -> Result<(), StoreError> {
         recently_pruned_proposals::replace_all(&self.db, proposals)
     }
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = &'iter Id>) -> Result<(), StoreError>
-    where
-        Id: Deref<Target = ProposalId> + 'iter,
-    {
+    fn remove_proposals<'iter>(
+        &self,
+        proposals: impl IntoIterator<Item = &'iter ProposalId>,
+    ) -> Result<(), StoreError> {
         proposals::remove(&self.db, proposals.into_iter())
     }
 
@@ -988,7 +987,7 @@ fn with_prefix_iterator<
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::ITER_SCAN, db_collection_name = collection).in_scope(|| {
         let mut iterator = amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
+            // TODO: clarify what kind of errors can come from the database at this point.
             // We are merely iterating over a collection.
             item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
         }));

@@ -168,7 +168,7 @@ jobs:
           AMARU_TRACE: "amaru=debug"
         run: |
           rm -f "$TRACE_COMPARE_LOG"
-          make RUN_UNTIL_TARGET_EPOCH=$(( ${{ matrix.network.start_epoch  }} + 2 )) run-until | tee "$TRACE_COMPARE_LOG"
+          make RUN_UNTIL_TARGET_EPOCH=$(( ${{ matrix.network.start_epoch  }} + 2 )) run-until > "$TRACE_COMPARE_LOG"
 
       - name: Compare trace contract (preprod only)
         if: ${{ (inputs.network == '' || inputs.network == matrix.network.name) && matrix.network.name == 'preprod' && github.ref == 'refs/heads/main' }}

@@ -180,20 +180,35 @@ impl Rewards<Computed> {
 }
 
 impl Rewards<Effective> {
-    /// Compute the effective rewards from a current set of existing accounts.
+    /// Compute the effective rewards from the accounts that are no longer registered at the epoch
+    /// boundary.
     ///
     /// The full per-account map is shared as-is; we only flag which accounts are *unclaimed*, i.e.
     /// have a reward but were no longer registered at the epoch boundary. Their amounts stay in the
     /// shared map (they are folded back into the treasury via [`Self::delta_treasury`]) but they are
     /// never paid out to the account.
-    pub fn new(computed_rewards: Rewards<Computed>, unregistered: BTreeSet<StakeCredential>) -> Self {
+    ///
+    /// `unreachable_accounts` may come in any order; only the credentials actually owed a reward
+    /// are retained, as the others sway neither [`Self::reward_of`] nor [`Self::unclaimed_rewards`].
+    ///
+    /// What we hold onto is thus bounded by the rewarded accounts rather than by the number of
+    /// accounts that are unreachable at the end of the epoch.
+    pub fn new(
+        computed_rewards: Rewards<Computed>,
+        unreachable_accounts: impl IntoIterator<Item = StakeCredential>,
+    ) -> Self {
+        let accounts = computed_rewards.accounts;
+
+        let unclaimed =
+            unreachable_accounts.into_iter().filter(|credential| accounts.contains_key(credential)).collect();
+
         Self {
             step: PhantomData,
             delta_reserves: computed_rewards.delta_reserves,
             delta_treasury: computed_rewards.delta_treasury,
             total_rewards: computed_rewards.total_rewards,
-            accounts: computed_rewards.accounts,
-            unclaimed: Arc::new(unregistered),
+            accounts,
+            unclaimed: Arc::new(unclaimed),
         }
     }
 
@@ -257,15 +272,14 @@ mod test {
         let unregistered = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
 
         let mut accounts = BTreeMap::new();
-        accounts.insert(registered.clone(), 100);
-        accounts.insert(unregistered.clone(), 42);
+        accounts.insert(registered, 100);
+        accounts.insert(unregistered, 42);
 
         let delta_reserves = 1_000;
         let delta_treasury = 7;
         let computed_rewards =
             Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts.values().sum(), accounts);
-        let effective_rewards =
-            Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered.clone()]));
+        let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered]));
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
         // is folded back into the treasury instead).
@@ -277,5 +291,25 @@ mod test {
         // Rolling back drops the unclaimed markers, restoring the original computed rewards.
         let rolled_back = effective_rewards.clone().to_computed();
         assert_eq!(rolled_back, computed_rewards, "rollback");
+    }
+
+    /// Unregistered credentials that are owed no reward are dropped: they cannot change what is paid
+    /// out nor what goes back to the treasury, and there can be arbitrarily many of them.
+    #[test]
+    fn unregistered_accounts_without_a_reward_are_not_retained() {
+        let rewarded = StakeCredential::ScriptHash(Hash::from([1u8; 28]));
+        let rewardless = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
+
+        let accounts = BTreeMap::from([(rewarded, 42)]);
+        let computed_rewards = Rewards::<Computed>::new(1_000, 7, 42, accounts);
+
+        // The same credentials repeated, as chaining the unregistration sources may well do.
+        let unregistered = [rewarded, rewardless, rewarded, rewardless];
+
+        let effective_rewards = Rewards::<Effective>::new(computed_rewards, unregistered);
+
+        assert_eq!(effective_rewards.unclaimed_rewards(), 42);
+        assert_eq!(effective_rewards.reward_of(&rewarded), 0);
+        assert_eq!(*effective_rewards.unclaimed, BTreeSet::from([rewarded]));
     }
 }

@@ -16,13 +16,11 @@ use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, BTreeSet},
     fmt, io, iter,
-    ops::Deref,
     path::{Path, PathBuf},
 };
 
 use amaru_kernel::{
     CertificatePointer,
-    ComparableProposalId,
     Constitution,
     ConstitutionalCommitteeStatus,
     Epoch,
@@ -31,8 +29,10 @@ use amaru_kernel::{
     MemoizedTransactionOutput,
     Point,
     PoolId,
+    ProposalId,
     ProposalsRoots,
     ProtocolParameters,
+    RatificationStatus,
     StakeCredential,
     TransactionInput,
     cbor,
@@ -41,7 +41,6 @@ use amaru_kernel::{
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
 };
-use amaru_kernel::{ProposalId, RatificationStatus};
 use columns::*;
 use thiserror::Error;
 
@@ -298,10 +297,10 @@ pub trait ReadStore {
 
     /// Get details about a specific governance proposal
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn proposal(&self, id: &ComparableProposalId) -> Result<Option<proposals::Row>>;
+    fn proposal(&self, id: &ProposalId) -> Result<Option<proposals::Row>>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn proposal(&self, id: &ComparableProposalId) -> Result<Option<proposals::Row>> {
+    fn proposal(&self, id: &ProposalId) -> Result<Option<proposals::Row>> {
         unimplemented!("ReadStore.proposal({id:?})");
     }
 
@@ -696,13 +695,13 @@ pub trait TransactionalContext<'a>: ReadStore {
     #[cfg(not(any(test, feature = "test-utils")))]
     fn set_recently_pruned_proposals<'iter>(
         &self,
-        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
+        proposals: impl IntoIterator<Item = (&'iter ProposalId, RatificationStatus)>,
     ) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
     fn set_recently_pruned_proposals<'iter>(
         &self,
-        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
+        proposals: impl IntoIterator<Item = (&'iter ProposalId, RatificationStatus)>,
     ) -> Result<()> {
         unimplemented!(
             "TransactionalContext.set_recently_pruned_proposals({:?})",
@@ -713,15 +712,10 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn remove_proposals<'iter, Id>(&self, proposals: impl Iterator<Item = &'iter Id>) -> Result<()>
-    where
-        Id: Deref<Target = ProposalId> + 'iter;
+    fn remove_proposals<'iter>(&self, proposals: impl Iterator<Item = &'iter ProposalId>) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn remove_proposals<'iter, Id>(&self, proposals: impl Iterator<Item = &'iter Id>) -> Result<()>
-    where
-        Id: Deref<Target = ProposalId> + std::fmt::Debug + 'iter,
-    {
+    fn remove_proposals<'iter>(&self, proposals: impl Iterator<Item = &'iter ProposalId>) -> Result<()> {
         unimplemented!("TransactionalContext.remove_proposals({:?})", proposals.collect::<Vec<_>>());
     }
 

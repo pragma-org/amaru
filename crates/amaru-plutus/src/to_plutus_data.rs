@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, collections::BTreeMap, time::SystemTime};
+use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
-    Address, BigInt, BorrowedScript, Bytes, ComputeHash, CurrencySymbol, Hash, Int, LegacyKeyValuePairs,
-    MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, Nullable, PlutusData,
-    RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, size,
+    Address, BorrowedScript, Bytes, CurrencySymbol, Epoch, HasScriptHash, Hash, Int, KeyValuePairs, MemoizedDatum,
+    MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, RequiredSigners, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, plutus_data::BigInt,
 };
 use thiserror::Error;
 
@@ -179,7 +179,7 @@ where
                         Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)])?).to_plutus_data()
                     }
                     ShelleyDelegationPart::Pointer(pointer) => {
-                        Some(constr!(1, [pointer.slot(), pointer.tx_idx(), pointer.cert_idx()])?).to_plutus_data()
+                        Some(constr!(1, [pointer.slot, pointer.transaction, pointer.certificate])?).to_plutus_data()
                     }
                     ShelleyDelegationPart::Null => None::<StakeCredential>.to_plutus_data(),
                 }?;
@@ -269,12 +269,7 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self {
-            BorrowedScript::Native(native) => native.compute_hash().to_plutus_data(),
-            BorrowedScript::PlutusV1(plutus) => plutus.compute_hash().to_plutus_data(),
-            BorrowedScript::PlutusV2(plutus) => plutus.compute_hash().to_plutus_data(),
-            BorrowedScript::PlutusV3(plutus) => plutus.compute_hash().to_plutus_data(),
-        }
+        self.script_hash().to_plutus_data()
     }
 }
 
@@ -339,6 +334,16 @@ where
     }
 }
 
+impl<const V: u8> ToPlutusData<V> for Epoch
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    #[allow(clippy::unwrap_used)]
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        u64::from(*self).to_plutus_data()
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for usize
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
@@ -356,13 +361,7 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        if self.is_empty() {
-            Ok(PlutusData::Array(MaybeIndefArray::Def(vec![])))
-        } else {
-            Ok(PlutusData::Array(MaybeIndefArray::Indef(
-                self.iter().map(|a| a.to_plutus_data()).collect::<Result<_, _>>()?,
-            )))
-        }
+        Ok(PlutusData::Array(self.iter().map(|a| a.to_plutus_data()).collect::<Result<_, _>>()?))
     }
 }
 
@@ -383,23 +382,23 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         Ok(PlutusData::Map(
-            self.iter().map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?))).collect::<Result<_, _>>()?,
+            self.iter().map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?))).collect::<Result<Vec<_>, _>>()?,
         ))
     }
 }
 
-impl<const VER: u8, K, V> ToPlutusData<VER> for LegacyKeyValuePairs<K, V>
+impl<const VER: u8, K, V> ToPlutusData<VER> for KeyValuePairs<K, V>
 where
     PlutusVersion<VER>: IsKnownPlutusVersion,
-    K: ToPlutusData<VER> + Clone,
+    K: ToPlutusData<VER> + Eq + Clone,
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(
+        Ok(PlutusData::Map(
             self.iter()
                 .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
-        )))
+        ))
     }
 }
 
@@ -410,11 +409,11 @@ where
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(
+        Ok(PlutusData::Map(
             self.iter()
                 .map(|(key, value): &(K, V)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
-        )))
+        ))
     }
 }
 
@@ -457,19 +456,6 @@ where
     }
 }
 
-impl<const V: u8, T> ToPlutusData<V> for Nullable<T>
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-    T: ToPlutusData<V> + Clone,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self {
-            Nullable::Some(t) => constr!(0, [t]),
-            Nullable::Null | Nullable::Undefined => constr!(1),
-        }
-    }
-}
-
 impl<const V: u8, T> ToPlutusData<V> for Cow<'_, T>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
@@ -485,6 +471,6 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        AsRef::<Hash<{ size::TRANSACTION_BODY }>>::as_ref(self).to_plutus_data()
+        self.deref().to_plutus_data()
     }
 }

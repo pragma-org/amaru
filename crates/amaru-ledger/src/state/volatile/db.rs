@@ -15,9 +15,8 @@
 use std::{iter, mem, sync::Arc};
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, ProposalsRoots, ProtocolParameters, StakeCredential,
-    TransactionInput,
+    Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+    Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, StakeCredential, TransactionInput,
 };
 
 use crate::{
@@ -153,7 +152,7 @@ impl VolatileState for VolatileDB {
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.
-    fn resolve_proposal(&self, id: &ComparableProposalId) -> Self::Proposal {
+    fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {
         if let Existence::Exists(proposal) = self.current.resolve_proposal(id) {
             Existence::Exists(proposal)
         } else if self.overlay.has_pruned_proposal(id) {
@@ -884,7 +883,7 @@ mod tests {
     fn test_consumed_input_is_tracked() {
         let input = run_strategy(any_transaction_input());
         let mut anchored = AnchoredVolatileFragment::fixture(10, 1);
-        anchored.fragment.utxo.consume(input.clone());
+        anchored.fragment.utxo.consume(input);
 
         let mut db = VolatileDB::default();
 
@@ -901,7 +900,7 @@ mod tests {
         db.push_back(first);
 
         let mut second = AnchoredVolatileFragment::fixture(20, 2);
-        second.fragment.utxo.consume(input.clone());
+        second.fragment.utxo.consume(input);
 
         db.push_back(second);
         assert_eq!(db.resolve_input(&input), Existence::Gone);
@@ -999,7 +998,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.produce(input.clone(), Arc::new(run_strategy(any_modern_output())));
+            block.fragment.utxo.produce(input, Arc::new(run_strategy(any_modern_output())));
         }
 
         if let Some(layer) = consume_in {
@@ -1007,7 +1006,7 @@ mod tests {
                 Where::Draining => &mut draining_block,
                 Where::Current => &mut current_block,
             };
-            block.fragment.utxo.consume(input.clone());
+            block.fragment.utxo.consume(input);
         }
 
         let mut db = VolatileDB::default();
@@ -1228,7 +1227,7 @@ mod tests {
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
     /// observable state (its pending reward credit surfaces through `resolve_account`).
     fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential.clone(), amount)]));
+        let computed = Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential, amount)]));
         Rewards::<Effective>::new(computed, BTreeSet::new())
     }
 

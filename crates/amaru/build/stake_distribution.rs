@@ -26,11 +26,13 @@ use crate::{emit_rerun_if_changed, write_if_changed};
 /// case per stake distribution fixture.
 pub(crate) fn write_stake_distribution_test_cases_file(network: &str) -> Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let workspace_dir = manifest_dir.join("../..");
     let fixtures_root = manifest_dir.join("tests").join("conformance").join("stake-distributions");
     let network_dir = fixtures_root.join(network);
-    let ledger_dir = default_ledger_dir(&manifest_dir, network);
+    let ledger_dir = default_ledger_dir(&workspace_dir, network);
 
     emit_rerun_if_changed(&network_dir);
+    ensure_ledger_dir(&ledger_dir, &workspace_dir);
 
     let epochs = stake_distribution_epochs(&network_dir)?;
     let available_epochs = available_ledger_snapshot_epochs(&ledger_dir)?;
@@ -43,8 +45,26 @@ pub(crate) fn write_stake_distribution_test_cases_file(network: &str) -> Result<
 }
 
 /// Return the local ledger database directory for `network`, at the workspace root.
-fn default_ledger_dir(manifest_dir: &Path, network: &str) -> PathBuf {
-    manifest_dir.join("../..").join(format!("ledger.{network}.db"))
+fn default_ledger_dir(workspace_dir: &Path, network: &str) -> PathBuf {
+    workspace_dir.join(format!("ledger.{network}.db"))
+}
+
+/// Create `ledger_dir` when it is missing, so that cargo has an existing path to watch.
+///
+/// Cargo treats a `rerun-if-changed` on a missing path as permanently stale, which would rebuild
+/// this crate on every build; but dropping the watch altogether would leave the generated test
+/// cases partitioned against the snapshots available when the directory did not exist yet, and
+/// silently skip the conformance tests once it appears. An empty placeholder gives cargo something
+/// stable to watch, whose modification time changes as soon as snapshots are imported into it.
+///
+/// Only done inside the amaru workspace: when this crate is built from a registry checkout, the
+/// workspace root is not ours to write to.
+fn ensure_ledger_dir(ledger_dir: &Path, workspace_dir: &Path) {
+    if !workspace_dir.join("Cargo.toml").is_file() {
+        return;
+    }
+
+    let _ = fs::create_dir_all(ledger_dir);
 }
 
 /// List the epochs having a fixture file in `network_dir`, most recent first.

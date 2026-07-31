@@ -12,18 +12,70 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_addresses::Network;
-pub use pallas_primitives::conway::StakeCredential;
-
 use crate::{
-    Address, HasOwnership, Hash,
+    Address, HasOwnership, Hash, Network, cbor,
     size::{KEY, SCRIPT},
 };
+
+// NOTE: Stake Credential variant order
+//
+// It is tempting to swap the order of the two constructors so that AddrKeyHash
+// comes first. This indeed nicely maps the binary representation which
+// associates 0 to AddrKeyHash and 1 to ScriptHash.
+//
+// However, for historical reasons, the ScriptHash variant comes first in the
+// Haskell reference codebase. From this ordering is derived the `PartialOrd`
+// and `Ord` instances; which impacts how Maps/Dictionnaries indexed by
+// StakeCredential will be ordered. So, it is crucial to preserve this quirks to
+// avoid hard to troubleshoot issues down the line.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+pub enum StakeCredential {
+    ScriptHash(Hash<{ SCRIPT }>),
+    AddrKeyhash(Hash<{ KEY }>),
+}
+
+impl<'b, C> cbor::Decode<'b, C> for StakeCredential {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        let variant = d.u16()?;
+
+        match variant {
+            0 => Ok(StakeCredential::AddrKeyhash(d.decode_with(ctx)?)),
+            1 => Ok(StakeCredential::ScriptHash(d.decode_with(ctx)?)),
+            _ => Err(cbor::decode::Error::message("invalid variant id for StakeCredential")),
+        }
+    }
+}
+
+impl<C> cbor::Encode<C> for StakeCredential {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match self {
+            StakeCredential::AddrKeyhash(a) => {
+                e.array(2)?;
+                e.encode_with(0, ctx)?;
+                e.encode_with(a, ctx)?;
+
+                Ok(())
+            }
+            StakeCredential::ScriptHash(a) => {
+                e.array(2)?;
+                e.encode_with(1, ctx)?;
+                e.encode_with(a, ctx)?;
+
+                Ok(())
+            }
+        }
+    }
+}
 
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
 // StakeCredential) out of the box instead of row bytes.
 pub fn parse_reward_account(bytes: &[u8]) -> Option<(StakeCredential, Network)> {
-    if let Ok(Address::Stake(address)) = Address::from_bytes(bytes) {
+    if let Some(Address::Stake(address)) = Address::from_bytes(bytes) {
         let network = address.network();
         Some((address.owner(), network))
     } else {

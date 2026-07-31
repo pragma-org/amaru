@@ -381,7 +381,8 @@ mod async_functions {
         }
     }
 
-    fn assert_send<T: Send>(_: T) {}
+    /// Just check that T has type `Send` but don't evaluate the argument
+    fn assert_send<T: Send>(_: fn(u64) -> T) {}
 
     fn traced_async_with_trace_span(point_slot: u64) -> impl Future<Output = bool> + Send {
         async move { tracing::Span::current().metadata().is_some() }
@@ -390,12 +391,12 @@ mod async_functions {
 
     #[test]
     fn test_traced_async_future_is_send() {
-        assert_send(traced_async(42));
+        assert_send(traced_async);
     }
 
     #[test]
     fn test_trace_span_instrument_future_is_send() {
-        assert_send(traced_async_with_trace_span(42));
+        assert_send(traced_async_with_trace_span);
     }
 
     #[tokio::test(flavor = "current_thread")]

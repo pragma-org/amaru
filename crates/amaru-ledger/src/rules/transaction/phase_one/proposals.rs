@@ -15,8 +15,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Nullable, Proposal,
-    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
+    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
+    ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
     StakeCredential, TransactionId, TransactionPointer, parse_reward_account, size::SCRIPT,
 };
 use thiserror::Error;
@@ -97,7 +97,7 @@ where
         context.produce_lovelace(proposal.deposit);
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
-        let id = ProposalId { transaction_id: *transaction.0.as_ref(), action_index: proposal_index as u32 };
+        let id = ProposalId { transaction_id: *transaction.0, action_index: proposal_index as u32 };
         context.acknowledge(id, pointer, proposal)
     }
 
@@ -134,7 +134,7 @@ fn validate_proposal(
     }
 
     match Address::from_bytes(&proposal.reward_account[..]) {
-        Ok(Address::Stake(addr)) => {
+        Some(Address::Stake(addr)) => {
             let actual = addr.network();
             if actual != network {
                 return Err(InvalidProposals::ReturnAddressWrongNetwork { expected: network, actual });
@@ -147,7 +147,7 @@ fn validate_proposal(
         GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
             for (account, _) in wdrls.iter() {
                 match Address::from_bytes(&account[..]) {
-                    Ok(Address::Stake(addr)) => {
+                    Some(Address::Stake(addr)) => {
                         let actual = addr.network();
                         if actual != network {
                             return Err(InvalidProposals::TreasuryWithdrawalWrongNetwork { expected: network, actual });
@@ -172,8 +172,8 @@ fn validate_proposal(
             // (see certificates.rs PoolRetirement comment for details)
             let current = era_history.slot_to_epoch(pointer.slot, pointer.slot)?;
             for (_, expiry) in added.iter() {
-                if Epoch::from(*expiry) <= current {
-                    return Err(InvalidProposals::ExpirationEpochTooSmall { expiry: Epoch::from(*expiry), current });
+                if expiry <= &current {
+                    return Err(InvalidProposals::ExpirationEpochTooSmall { expiry: *expiry, current });
                 }
             }
         }
@@ -268,8 +268,8 @@ fn get_proposal_script_hash(proposal: &Proposal) -> Option<Hash<SCRIPT>> {
     use amaru_kernel::GovernanceAction::*;
 
     match proposal.gov_action {
-        ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
-        TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        ParameterChange(_, _, Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+        TreasuryWithdrawals(_, Some(gov_proposal_hash)) => Some(gov_proposal_hash),
         ParameterChange(..)
         | HardForkInitiation(..)
         | TreasuryWithdrawals(..)

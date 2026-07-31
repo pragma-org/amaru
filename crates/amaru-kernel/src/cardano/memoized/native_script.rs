@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, KeepRaw, NativeScript, cbor, from_cbor, utils::string::blanket_try_from_hex_bytes};
+use crate::{NativeScript, cbor, utils::string::blanket_try_from_hex_bytes};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "&str")]
 pub struct MemoizedNativeScript {
-    original_bytes: Bytes,
+    original_bytes: Vec<u8>,
     // NOTE: This field isn't meant to be public, nor should we create any direct mutable
     // references to it. Reason being that this object is mostly meant to be read-only, and any
     // change to the 'expr' should be reflected onto the 'original_bytes'.
@@ -33,22 +33,6 @@ impl MemoizedNativeScript {
 impl AsRef<NativeScript> for MemoizedNativeScript {
     fn as_ref(&self) -> &NativeScript {
         &self.expr
-    }
-}
-
-impl TryFrom<Bytes> for MemoizedNativeScript {
-    type Error = String;
-
-    fn try_from(original_bytes: Bytes) -> Result<Self, Self::Error> {
-        let expr = from_cbor(&original_bytes).ok_or_else(|| "invalid serialized native script".to_string())?;
-
-        Ok(Self { original_bytes, expr })
-    }
-}
-
-impl From<KeepRaw<'_, NativeScript>> for MemoizedNativeScript {
-    fn from(script: KeepRaw<'_, NativeScript>) -> Self {
-        Self { original_bytes: Bytes::from(script.raw_cbor().to_vec()), expr: script.unwrap() }
     }
 }
 
@@ -70,12 +54,8 @@ impl TryFrom<String> for MemoizedNativeScript {
 
 impl<'b, C> cbor::Decode<'b, C> for MemoizedNativeScript {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let start_pos = d.position();
-        let expr: NativeScript = d.decode_with(ctx)?;
-        let end_pos = d.position();
-        let original_bytes = Bytes::from(d.input()[start_pos..end_pos].to_vec());
-
-        Ok(Self { original_bytes, expr })
+        let (expr, original_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
+        Ok(Self { original_bytes: original_bytes.to_vec(), expr })
     }
 }
 
@@ -91,41 +71,95 @@ impl<C> cbor::Encode<C> for MemoizedNativeScript {
 
 #[cfg(test)]
 mod tests {
-    use pallas_primitives::conway as pallas;
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{Hash, MaybeIndefArray, cbor, size::KEY, to_cbor};
+    use crate::{Hash, NativeScript, any_hash28, cbor, size::KEY, to_cbor, utils::cbor::CborArray};
 
-    // NOTE: Not using Pallas' type because (a) it has a serialization bug we still need to fix
-    // and, (b) it doesn't let us encode native script using unusual encoding choices (e.g. indef
-    // vs def arrays).
+    // --------------------------------------------------------------------------------------------
+    // Tests
+    // --------------------------------------------------------------------------------------------
+
+    proptest! {
+        #[test]
+        fn roundtrip_hex_encoded_str(original_script in VariableEncodingNativeScript::any(3)) {
+            let original_bytes = to_cbor(&original_script);
+            let result = MemoizedNativeScript::try_from(hex::encode(&original_bytes)).unwrap();
+
+            assert_eq!(result.as_ref(), &NativeScript::from(original_script));
+            assert_eq!(result.original_bytes(), &original_bytes);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn roundtrip_cbor(original_script in VariableEncodingNativeScript::any(3)) {
+            let original_bytes = to_cbor(&original_script);
+            let result: MemoizedNativeScript = cbor::decode(&original_bytes).unwrap();
+
+            assert_eq!(result.as_ref(), &NativeScript::from(original_script));
+            assert_eq!(result.original_bytes(), &original_bytes);
+        }
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // VariableEncodingNativeScript
+    // --------------------------------------------------------------------------------------------
+
     #[derive(Debug, Clone)]
-    enum NativeScript {
+    enum VariableEncodingNativeScript {
         ScriptPubkey(Hash<KEY>),
-        ScriptAll(MaybeIndefArray<NativeScript>),
-        ScriptAny(MaybeIndefArray<NativeScript>),
-        ScriptNOfK(u32, MaybeIndefArray<NativeScript>),
+        ScriptAll(CborArray<VariableEncodingNativeScript>),
+        ScriptAny(CborArray<VariableEncodingNativeScript>),
+        ScriptNOfK(u32, CborArray<VariableEncodingNativeScript>),
         InvalidBefore(u64),
         InvalidHereafter(u64),
     }
 
-    impl From<NativeScript> for pallas::NativeScript {
-        fn from(script: NativeScript) -> Self {
-            match script {
-                NativeScript::ScriptPubkey(sig) => Self::ScriptPubkey(sig),
-                NativeScript::ScriptAll(sigs) => Self::ScriptAll(sigs.to_vec().into_iter().map(|s| s.into()).collect()),
-                NativeScript::ScriptAny(sigs) => Self::ScriptAny(sigs.to_vec().into_iter().map(|s| s.into()).collect()),
-                NativeScript::ScriptNOfK(n, sigs) => {
-                    Self::ScriptNOfK(n, sigs.to_vec().into_iter().map(|s| s.into()).collect())
-                }
-                NativeScript::InvalidBefore(n) => Self::InvalidBefore(n),
-                NativeScript::InvalidHereafter(n) => Self::InvalidHereafter(n),
+    impl VariableEncodingNativeScript {
+        fn any(depth: u8) -> BoxedStrategy<Self> {
+            use VariableEncodingNativeScript::*;
+
+            let sig = any_hash28().prop_map(ScriptPubkey);
+            let before = any::<u64>().prop_map(InvalidBefore);
+            let after = any::<u64>().prop_map(InvalidHereafter);
+            if depth > 0 {
+                let all = (any::<bool>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize)).prop_map(
+                    |(is_def, sigs)| ScriptAll(if is_def { CborArray::Def(sigs) } else { CborArray::Indef(sigs) }),
+                );
+
+                let some = (any::<bool>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize)).prop_map(
+                    |(is_def, sigs)| ScriptAny(if is_def { CborArray::Def(sigs) } else { CborArray::Indef(sigs) }),
+                );
+
+                let n_of_k =
+                    (any::<bool>(), any::<u32>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize))
+                        .prop_map(|(is_def, n, sigs)| {
+                            ScriptNOfK(n, if is_def { CborArray::Def(sigs) } else { CborArray::Indef(sigs) })
+                        });
+
+                prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
+            } else {
+                prop_oneof![sig, before, after].boxed()
             }
         }
     }
 
-    impl<C> cbor::encode::Encode<C> for NativeScript {
+    impl From<VariableEncodingNativeScript> for NativeScript {
+        fn from(script: VariableEncodingNativeScript) -> Self {
+            use VariableEncodingNativeScript::*;
+            match script {
+                ScriptPubkey(sig) => Self::ScriptPubkey(sig),
+                ScriptAll(sigs) => Self::ScriptAll(Vec::from(sigs).into_iter().map(|s| s.into()).collect()),
+                ScriptAny(sigs) => Self::ScriptAny(Vec::from(sigs).into_iter().map(|s| s.into()).collect()),
+                ScriptNOfK(n, sigs) => Self::ScriptNOfK(n, Vec::from(sigs).into_iter().map(|s| s.into()).collect()),
+                InvalidBefore(n) => Self::InvalidBefore(n),
+                InvalidHereafter(n) => Self::InvalidHereafter(n),
+            }
+        }
+    }
+
+    impl<C> cbor::encode::Encode<C> for VariableEncodingNativeScript {
         fn encode<W: cbor::encode::Write>(
             &self,
             e: &mut cbor::Encoder<W>,
@@ -166,74 +200,6 @@ mod tests {
             };
 
             Ok(())
-        }
-    }
-
-    prop_compose! {
-        pub(crate) fn any_key_hash()(bytes in any::<[u8; 28]>()) -> Hash<28> {
-            Hash::from(bytes)
-        }
-    }
-
-    fn any_native_script(depth: u8) -> BoxedStrategy<NativeScript> {
-        let sig = any_key_hash().prop_map(NativeScript::ScriptPubkey);
-        let before = any::<u64>().prop_map(NativeScript::InvalidBefore);
-        let after = any::<u64>().prop_map(NativeScript::InvalidHereafter);
-        if depth > 0 {
-            let all = (any::<bool>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize)).prop_map(
-                |(is_def, sigs)| {
-                    NativeScript::ScriptAll(if is_def {
-                        MaybeIndefArray::Def(sigs)
-                    } else {
-                        MaybeIndefArray::Indef(sigs)
-                    })
-                },
-            );
-
-            let some = (any::<bool>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
-                .prop_map(|(is_def, sigs)| {
-                    NativeScript::ScriptAny(if is_def {
-                        MaybeIndefArray::Def(sigs)
-                    } else {
-                        MaybeIndefArray::Indef(sigs)
-                    })
-                });
-
-            let n_of_k =
-                (any::<bool>(), any::<u32>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
-                    .prop_map(|(is_def, n, sigs)| {
-                        NativeScript::ScriptNOfK(
-                            n,
-                            if is_def { MaybeIndefArray::Def(sigs) } else { MaybeIndefArray::Indef(sigs) },
-                        )
-                    });
-
-            prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
-        } else {
-            prop_oneof![sig, before, after].boxed()
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn roundtrip_hex_encoded_str(original_script in any_native_script(3)) {
-            let original_bytes = to_cbor(&original_script);
-            let result = MemoizedNativeScript::try_from(hex::encode(&original_bytes)).unwrap();
-
-            assert_eq!(result.as_ref(), &pallas::NativeScript::from(original_script));
-            assert_eq!(result.original_bytes(), &original_bytes);
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn roundtrip_cbor(original_script in any_native_script(3)) {
-            let original_bytes = to_cbor(&original_script);
-            let raw: KeepRaw<'_, pallas::NativeScript> = cbor::decode(&original_bytes).unwrap();
-            let result: MemoizedNativeScript = raw.into();
-
-            assert_eq!(result.as_ref(), &pallas::NativeScript::from(original_script));
-            assert_eq!(result.original_bytes(), &original_bytes);
         }
     }
 }

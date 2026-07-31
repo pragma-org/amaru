@@ -209,7 +209,7 @@ where
             Ok(())
         }
 
-        Certificate::PoolRetirement(id, epoch) => {
+        Certificate::PoolRetirement(id, retirement_epoch) => {
             context.require_vkey_witness(id);
 
             // NOTE: Some conformance tests fail this check because the Haskell imp tests run on
@@ -217,7 +217,6 @@ where
             // slot_to_epoch computes a different current epoch, making the range check reject
             // transactions that the Haskell node accepts.
             let current_epoch = era_history.slot_to_epoch_unchecked_horizon(pointer.slot())?;
-            let retirement_epoch = Epoch::from(epoch);
             let max_epoch = current_epoch + protocol_parameters.stake_pool_max_retirement_epoch;
             if retirement_epoch <= current_epoch || retirement_epoch > max_epoch {
                 return Err(InvalidCertificates::PoolRetirementWrongEpoch {
@@ -227,7 +226,7 @@ where
                 });
             }
 
-            PoolsSlice::retire(context, id, Epoch::from(epoch))?;
+            PoolsSlice::retire(context, id, retirement_epoch)?;
 
             Ok(())
         }
@@ -280,13 +279,10 @@ where
             };
 
             let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
             if account.rewards != 0 {
-                return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential: credential.clone(),
-                    rewards: account.rewards,
-                });
+                return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
             AccountsSlice::unregister(context, credential);
@@ -302,17 +298,14 @@ where
             };
 
             let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
             if refund != account.deposit {
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: account.deposit });
             }
 
             if account.rewards != 0 {
-                return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential: credential.clone(),
-                    rewards: account.rewards,
-                });
+                return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
             AccountsSlice::unregister(context, credential);
@@ -351,7 +344,7 @@ where
                 context,
                 drep,
                 DRepRegistration { deposit, registered_at: pointer, valid_until },
-                Option::from(anchor),
+                anchor,
             )?;
 
             context.produce_lovelace(deposit);
@@ -386,7 +379,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
+            DRepsSlice::update(context, drep, anchor)?;
 
             Ok(())
         }
@@ -416,35 +409,35 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
+            CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())
         }
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
-            let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
+            let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
-            let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
+            let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)

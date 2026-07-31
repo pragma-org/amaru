@@ -16,6 +16,7 @@ use std::{cmp::Ordering, collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tip};
 use amaru_observability::{TraceContext, debug_span};
+use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 use tracing::Instrument;
@@ -223,7 +224,8 @@ impl SelectChain {
         };
 
         if let Some(valid) = valid {
-            // track_peers only sends a tip if the header was just stored, so it cannot be already validated
+            // track_peers only sends a tip if the header was just validated,
+            // so its block cannot be already validated.
             tracing::error!(tip = %tip.point(), %valid, "got tip from upstream that was already validated");
             return eff.terminate().await;
         } else {
@@ -461,8 +463,8 @@ pub fn cmp_tip(a: Option<&BlockHeader>, b: Option<&BlockHeader>) -> Ordering {
         (Some(a), Some(b)) => (a, b),
     };
     a.block_height().cmp(&b.block_height()).then_with(|| {
-        let a_leader = a.vrf_leader();
-        let b_leader = b.vrf_leader();
+        let a_leader = vrf::Derivation::Leader.derive_tagged_vrf_output(a.vrf_output());
+        let b_leader = vrf::Derivation::Leader.derive_tagged_vrf_output(b.vrf_output());
         if a_leader == b_leader {
             a.op_cert_seq().cmp(&b.op_cert_seq())
         } else if (a.slot() - b.slot()).abs() <= 5 {

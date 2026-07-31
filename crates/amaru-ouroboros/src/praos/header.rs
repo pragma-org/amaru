@@ -20,11 +20,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, Slot, VrfCert,
+    ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, Slot, VrfCert, ed25519,
     maths::{ExpOrdering, FixedDecimal},
 };
 use amaru_ouroboros_traits::{PoolSummary, has_stake_distribution::GetPoolError};
-use ed25519_dalek as ed25519;
 use thiserror::Error;
 
 use crate::{kes, vrf};
@@ -124,7 +123,6 @@ pub fn assert_all<'a>(
             AssertVrfProofError::new(
                 absolute_slot,
                 epoch_nonce,
-                &header.header_body.leader_vrf_output()[..],
                 &vrf::PublicKey::from(declared_vrf_key),
                 &header.header_body.vrf_result,
             )?;
@@ -134,7 +132,7 @@ pub fn assert_all<'a>(
             AssertLeaderStakeError::new(
                 &active_slot_coeff,
                 &leader_relative_stake,
-                &FixedDecimal::from(&header.header_body.leader_vrf_output()[..]),
+                &FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(header.vrf_output()).as_slice()),
             )?;
             Ok(())
         }),
@@ -213,13 +211,6 @@ pub enum AssertVrfProofError {
         #[serde(with = "crate::serde_util::bytes")]
         computed: Box<Hash<{ vrf::Proof::HASH_SIZE }>>,
     },
-
-    #[error(
-        "Mismatch between the declared VRF output in block ({}) and the computed one ({}).",
-        hex::encode(&.declared[0..7]),
-        hex::encode(&.computed.as_slice()[0..7]),
-    )]
-    OutputMismatch { declared: Vec<u8>, computed: Vec<u8> },
 }
 
 impl From<TryFromSliceError> for AssertVrfProofError {
@@ -240,10 +231,6 @@ impl PartialEq for AssertVrfProofError {
                 Self::ProofMismatch { declared: l_declared, computed: l_computed },
                 Self::ProofMismatch { declared: r_declared, computed: r_computed },
             ) => l_declared == r_declared && l_computed == r_computed,
-            (
-                Self::OutputMismatch { declared: l_declared, computed: l_computed },
-                Self::OutputMismatch { declared: r_declared, computed: r_computed },
-            ) => l_declared == r_declared && l_computed == r_computed,
             _ => false,
         }
     }
@@ -254,36 +241,30 @@ impl AssertVrfProofError {
     pub fn new(
         absolute_slot: Slot,
         epoch_nonce: &Nonce,
-        output: &[u8],
         leader_public_key: &vrf::PublicKey,
-        certificate: &VrfCert,
+        vrf_cert: &VrfCert,
     ) -> Result<(), Self> {
         let input = &vrf::Input::new(absolute_slot, epoch_nonce);
+
         // TODO: Should have fixed size slices here.
-        let block_proof_hash: [u8; vrf::Proof::HASH_SIZE] = {
-            let bytes: &[u8] = certificate.0.as_ref();
+        let block_output: [u8; vrf::Proof::HASH_SIZE] = {
+            let bytes: &[u8] = vrf_cert.output.as_ref();
             bytes.try_into()
         }?;
 
         // TODO: Should have fixed size slices here.
         let block_proof: [u8; vrf::Proof::SIZE] = {
-            let bytes: &[u8] = certificate.1.as_ref();
+            let bytes: &[u8] = vrf_cert.proof.as_ref();
             bytes.try_into()
         }?;
 
         // Verify the VRF proof
         let vrf_proof = vrf::Proof::try_from(&block_proof)?;
-        let proof_hash = vrf_proof
+        let computed_output = vrf_proof
             .verify(leader_public_key, input)
             .map_err(|e| Self::InvalidProof(e, absolute_slot, *epoch_nonce, leader_public_key.as_ref().to_vec()))?;
-        if proof_hash.as_slice() != block_proof_hash {
-            return Err(Self::ProofMismatch { declared: Box::new(block_proof_hash), computed: Box::new(proof_hash) });
-        }
-
-        // The proof was valid. Make sure that the leader's output matches what was in the block
-        let calculated_leader_vrf_output = vrf::Derivation::Leader.derive_tagged_vrf_output(proof_hash.as_slice());
-        if calculated_leader_vrf_output.as_slice() != output {
-            return Err(Self::OutputMismatch { declared: output.to_vec(), computed: calculated_leader_vrf_output });
+        if computed_output.as_slice() != block_output {
+            return Err(Self::ProofMismatch { declared: Box::new(block_output), computed: Box::new(computed_output) });
         }
 
         Ok(())
@@ -462,7 +443,6 @@ mod tests {
                 declared: Box::new([1; 64]), // Proof::HASH_SIZE is 64
                 computed: Box::new(Hash::new([2; 64])),
             },
-            AssertVrfProofError::OutputMismatch { declared: vec![1, 2, 3, 4], computed: vec![5, 6, 7, 8] },
         ];
 
         for error in errors {
@@ -546,17 +526,5 @@ mod tests {
         let json_serialized = serde_json::to_string(&error).unwrap();
         let json_deserialized: AssertKesSignatureError = serde_json::from_str(&json_serialized).unwrap();
         assert_eq!(error, json_deserialized);
-    }
-
-    #[test]
-    fn test_serialization_consistency() {
-        // Test that the same error serializes to the same bytes consistently
-        let error =
-            AssertVrfProofError::OutputMismatch { declared: vec![1, 2, 3, 4, 5], computed: vec![6, 7, 8, 9, 10] };
-
-        // Test JSON consistency
-        let first_json = serde_json::to_string(&error).unwrap();
-        let second_json = serde_json::to_string(&error).unwrap();
-        assert_eq!(first_json, second_json);
     }
 }

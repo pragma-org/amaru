@@ -17,7 +17,7 @@ use std::{self, slice, time::Duration};
 use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, Tip, num::CheckedSub};
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_ouroboros::ConnectionId;
-use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
+use amaru_ouroboros_traits::{Nonces, has_stake_distribution::GetPoolError};
 use amaru_protocols::chainsync::{
     self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
 };
@@ -36,10 +36,10 @@ use crate::{
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
-                HEIGHT_RECHECK_INTERVAL, build_store, height_recheck_schedule_id, make_block_header, new_tip,
-                schedule_id_at, setup, setup_base, setup_with_ledger_tip_until_sleeping, te_clock, te_clock_suspend,
-                te_has_header, te_load_tip, te_schedule, te_store_header, te_validate_header, test_prep,
-                test_prep_with_max_peer_lead, tm_volatile_tip,
+                HEIGHT_RECHECK_INTERVAL, build_store, build_store_with_nonces, height_recheck_schedule_id,
+                make_block_header, new_tip, schedule_id_at, setup, setup_base, setup_with_ledger_tip_until_sleeping,
+                te_clock, te_clock_suspend, te_get_nonces, te_load_tip, te_schedule, te_store_validated_header,
+                te_validate_header, test_prep, test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
     },
@@ -347,6 +347,52 @@ fn test_roll_forward_known_peer_header_already_stored() {
     expected.insert_peer(peer.clone(), prep.conn_id, header.tip(), header.tip());
 
     let (running, _guards, mut logs) =
+        setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store_with_nonces(slice::from_ref(header)));
+    assert_trace_match(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_get_nonces("tp-1", header.hash()).into(),
+            te_header_rejected("duplicate header").into(),
+            te_state("tp-1", &expected).into(),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["roll forward", "already stored"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+/// A header imported during bootstrap is present in the chain store but has no evolved nonces.
+/// When re-received from a peer, its nonces must still be computed (via `validate_header`) so
+/// that descendant headers can be validated. Nonce absence means the header was never fully
+/// validated, so it is treated like a new header: stored with its nonces and propagated
+/// downstream.
+#[test]
+fn test_roll_forward_stored_header_missing_nonces_revalidates() {
+    let prep = test_prep();
+    let peer = Peer::new("peer1");
+    let parent = &prep.headers[0];
+    let header = &prep.headers[1];
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer: peer.clone(),
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.tip()),
+    });
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer.clone(), prep.conn_id, parent.tip(), parent.tip());
+
+    let mut expected = prep.state.clone();
+    expected.insert_peer(peer.clone(), prep.conn_id, header.tip(), header.tip());
+
+    // Header present but nonces absent, as after a bootstrap import.
+    let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(slice::from_ref(header)));
     assert_trace_match(
         &running,
@@ -355,13 +401,14 @@ fn test_roll_forward_known_peer_header_already_stored() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
-            te_has_header("tp-1", header.hash()).into(),
-            te_header_rejected("duplicate header").into(),
+            te_store_validated_header("tp-1", header.clone()).into(),
+            te_send("tp-1", "downstream", new_tip(header.tip(), parent.point())).into(),
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["roll forward", "already stored"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["roll forward", "new header"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -395,9 +442,9 @@ fn test_roll_forward_known_peer_new_header_forwards_tip() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
-            te_has_header("tp-1", header.hash()).into(),
-            te_store_header("tp-1", header.clone()).into(),
+            te_store_validated_header("tp-1", header.clone()).into(),
             te_send("tp-1", "downstream", new_tip(header.tip(), parent.point())).into(),
             te_state("tp-1", &expected).into(),
         ],
@@ -625,6 +672,7 @@ fn test_roll_forward_header_validation_failure_removes_peer() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
             te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
@@ -709,7 +757,7 @@ fn test_roll_forward_header_slot_near_future_defers() {
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "clock skew deferred"),
             te_input("tp-1", &TrackPeersMsg::RecheckLedgerHeight).into(),
             te_validate_header("tp-1", header.clone()).into(),
-            te_store_header("tp-1", header.clone()).into(),
+            te_store_validated_header("tp-1", header.clone()).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.is_empty(), "processed after recheck"),
         ],
     );
@@ -760,6 +808,7 @@ fn test_roll_forward_stake_dist_far_ahead_rejects() {
             te_input("tp-1", &msg).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
             te_header_rejected("invalid header").into(),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
@@ -1020,7 +1069,9 @@ fn test_height_defer_recheck_when_ledger_advances() {
                 // First call (defer decision) still at origin; recheck sees advanced height.
                 if n == 1 { OverrideResult::handled(Tip::origin()) } else { OverrideResult::handled(advanced_tip) }
             });
-            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+                OverrideResult::handled(Ok(Nonces::for_tests()))
+            });
         });
 
     logs.assert_and_remove(Level::DEBUG, &["track_peers.defer_request_next"])
@@ -1041,9 +1092,9 @@ fn test_height_defer_recheck_when_ledger_advances() {
             te_input("tp-1", &TrackPeersMsg::RecheckLedgerHeight).into(),
             tm_volatile_tip("tp-1"),
             te_clock_suspend("tp-1").into(),
+            te_get_nonces("tp-1", header.hash()).into(),
             te_validate_header("tp-1", header.clone()).into(),
-            te_has_header("tp-1", header.hash()).into(),
-            te_store_header("tp-1", header.clone()).into(),
+            te_store_validated_header("tp-1", header.clone()).into(),
             te_send("tp-1", "downstream", new_tip(header.tip(), Point::Origin)).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             tm_state::<TrackPeers>(
@@ -1084,7 +1135,9 @@ fn test_pipelined_headers_after_slot_near_future_defer() {
 
     let (running, _guards, mut logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg1.clone(), msg2.clone()], build_store(&[]), |running| {
-            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+                OverrideResult::handled(Ok(Nonces::for_tests()))
+            });
         });
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -1150,7 +1203,7 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
                         GetPoolError::StakeDistributionNotAvailable(slot1, Some(target_epoch)),
                     ))))
                 } else {
-                    OverrideResult::handled(Ok(()))
+                    OverrideResult::handled(Ok(Nonces::for_tests()))
                 }
             });
         },
@@ -1169,6 +1222,7 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             te_input("tp-1", &msg1).into(),
             te_clock_suspend("tp-1").into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
+            te_get_nonces("tp-1", h1.hash()).into(),
             te_validate_header("tp-1", h1.clone()).into(),
             tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "first stake deferred"),
             te_input("tp-1", &msg2).into(),
@@ -1177,13 +1231,13 @@ fn test_pipelined_stake_defer_and_wake_sequence() {
             te_input("tp-1", &wake).into(),
             tm_volatile_tip("tp-1"),
             te_clock_suspend("tp-1").into(),
+            te_get_nonces("tp-1", h1.hash()).into(),
             te_validate_header("tp-1", h1.clone()).into(),
-            te_has_header("tp-1", h1.hash()).into(),
-            te_store_header("tp-1", h1.clone()).into(),
+            te_store_validated_header("tp-1", h1.clone()).into(),
             te_send("tp-1", "downstream", new_tip(h1.tip(), parent.point())).into(),
+            te_get_nonces("tp-1", h2.hash()).into(),
             te_validate_header("tp-1", h2.clone()).into(),
-            te_has_header("tp-1", h2.hash()).into(),
-            te_store_header("tp-1", h2.clone()).into(),
+            te_store_validated_header("tp-1", h2.clone()).into(),
             te_send("tp-1", "downstream", new_tip(h2.tip(), h1.point())).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             tm_state::<TrackPeers>(

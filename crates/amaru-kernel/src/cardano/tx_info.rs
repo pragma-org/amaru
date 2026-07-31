@@ -22,7 +22,6 @@ use crate::{
     MemoizedTransactionOutput, OutputReference, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusVotes,
     PlutusWithdrawals, Proposal, RedeemerEntry, RedeemerKey, RequiredSigners, ScriptContext, ScriptPurpose, TimeRange,
     TransactionBody, TransactionId, TransactionInput, Utxos, WithdrawalError, WitnessSet, size::SCRIPT,
-    transaction_input_to_string,
 };
 
 /// An opaque type that represents the `TxInfo` field used in a [`ScriptContext`].
@@ -59,7 +58,7 @@ pub struct TxInfo<'a> {
 /// - Incorrect chain state such as an incomplete UTxO slice, wrong network, or wrong slot value
 pub enum TxInfoTranslationError {
     /// Some input was not in the provided [`Utxos`]
-    #[error("missing input: {}", transaction_input_to_string(.0))]
+    #[error("missing input: {0}")]
     MissingInput(TransactionInput),
     /// Some withdrawal is poorly constructed
     #[error("invalid withdrawal: {0}")]
@@ -144,7 +143,7 @@ impl<'a> TxInfo<'a> {
 
         let mut redeemers_map: BTreeMap<RedeemerKey, RedeemerEntry<'a>> = BTreeMap::new();
         if let Some(redeemers) = witness_set.redeemer.as_ref() {
-            for (ix, (key, data, ex_units)) in PlutusRedeemers::iter_from(redeemers.as_ref()).enumerate() {
+            for (ix, (key, data, ex_units)) in PlutusRedeemers::iter_from(redeemers).enumerate() {
                 let (purpose, script) = ScriptPurpose::builder(
                     &key,
                     &inputs[..],
@@ -200,8 +199,7 @@ impl<'a> TxInfo<'a> {
             .iter()
             .sorted()
             .map(|input| {
-                let output_ref =
-                    utxos.resolve_input(input).ok_or(TxInfoTranslationError::MissingInput(input.clone()))?;
+                let output_ref = utxos.resolve_input(input).ok_or(TxInfoTranslationError::MissingInput(*input))?;
 
                 if let Some(script) = output_ref.output.script.as_ref() {
                     scripts.insert(script.script_hash(), BorrowedScript::from(script));

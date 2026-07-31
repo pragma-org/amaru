@@ -12,35 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::PoolMetadata;
-use serde::ser::SerializeStruct;
+use std::fmt;
 
-use crate::Nullable;
+use crate::{Hash, cbor};
 
-#[derive(serde::Serialize)]
-#[serde(transparent)]
-pub struct AsJson<'a>(#[serde(serialize_with = "serialize")] pub &'a PoolMetadata);
-
-pub fn serialize<S: serde::Serializer>(metadata: &PoolMetadata, serializer: S) -> Result<S::Ok, S::Error> {
-    let mut s = serializer.serialize_struct("PoolMetadata", 2)?;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct PoolMetadata {
     // NOTE: keep fields in lexicographic order
     //
-    // This instance is used for canonical ledger state comparisons.
-    s.serialize_field("content_hash", &metadata.hash)?;
-    s.serialize_field("url", &metadata.url)?;
-    s.end()
+    // The serde instance is used for canonical ledger state comparisons.
+    #[n(1)]
+    pub content_hash: Hash<32>,
+    #[n(0)]
+    pub url: String,
 }
 
-pub fn as_option_ref(metadata: &Nullable<PoolMetadata>) -> Option<&PoolMetadata> {
-    match metadata {
-        Nullable::Null | Nullable::Undefined => None,
-        Nullable::Some(metadata) => Some(metadata),
-    }
-}
-
-pub fn fmt(metadata: &Nullable<PoolMetadata>) -> String {
-    match metadata {
-        Nullable::Null | Nullable::Undefined => "ø".to_string(),
-        Nullable::Some(PoolMetadata { url, hash }) => format!("({}) {url}", &hex::encode(hash)[0..12]),
+impl fmt::Display for PoolMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}]: {}", self.content_hash, self.url)
     }
 }

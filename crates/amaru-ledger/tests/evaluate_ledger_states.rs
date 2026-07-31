@@ -23,11 +23,11 @@ pub mod tests {
     };
 
     use amaru_kernel::{
-        Account, Bytes, CertificatePointer, ComparableProposalId, ConstitutionalCommittee,
-        ConstitutionalCommitteeMemberStatus, DRepRegistration, DRepState, Epoch, EraHistory, MemoizedTransactionOutput,
-        NetworkName, PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalState as NewEpochProposalState,
-        ProtocolParameters, Slot, StakeCredential, StrictMaybe, Transaction, TransactionInput, TransactionPointer,
-        WitnessSet, cbor, cbor as minicbor,
+        Account, Bytes, CertificatePointer, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
+        DRepRegistration, DRepState, Epoch, EraHistory, MemoizedTransactionOutput, NetworkName, PROTOCOL_VERSION_10,
+        Point, PoolId, PoolParams, ProposalId, ProposalState as NewEpochProposalState, ProtocolParameters, Slot,
+        StakeCredential, Transaction, TransactionInput, TransactionPointer, WitnessSet, cbor, cbor as minicbor,
+        utils::cbor::SerialisedAsArray,
     };
     use amaru_ledger::{
         self,
@@ -69,11 +69,11 @@ pub mod tests {
     #[allow(dead_code)]
     struct TestVector {
         #[n(0)]
-        config: cbor::Any,
+        config: cbor::Skip,
         #[n(1)]
-        initial_state: cbor::Any,
+        initial_state: cbor::Skip,
         #[n(2)]
-        final_state: cbor::Any,
+        final_state: cbor::Skip,
         #[n(3)]
         events: Vec<TestVectorEvent>,
         #[n(4)]
@@ -110,9 +110,9 @@ pub mod tests {
         accounts: BTreeMap<StakeCredential, Account>,
         dreps: BTreeMap<StakeCredential, DRepState>,
         cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
-        cc_state: StrictMaybe<ConstitutionalCommittee>,
+        cc_state: Option<ConstitutionalCommittee>,
         proposals: Vec<NewEpochProposalState>,
-        roots: [StrictMaybe<ComparableProposalId>; 4],
+        roots: [Option<ProposalId>; 4],
         pparams_hash: &'b cbor::bytes::ByteSlice,
         dormant_epochs: Epoch,
     }
@@ -190,9 +190,14 @@ pub mod tests {
         // The proposals field nests the governance roots ahead of the proposals themselves.
         d.array()?;
         d.array()?;
-        let roots = [d.decode()?, d.decode()?, d.decode()?, d.decode()?];
+        let roots = [
+            d.decode::<SerialisedAsArray<_>>()?.0,
+            d.decode::<SerialisedAsArray<_>>()?.0,
+            d.decode::<SerialisedAsArray<_>>()?.0,
+            d.decode::<SerialisedAsArray<_>>()?.0,
+        ];
         let proposals = d.decode()?;
-        let cc_state = d.decode()?;
+        let cc_state = d.decode::<SerialisedAsArray<_>>()?.0;
         d.skip()?; // constitution
         let pparams_hash = d.decode()?;
         d.skip()?; // previous_pparams_hash
@@ -283,8 +288,7 @@ pub mod tests {
             .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
             .collect();
         let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
-        let proposals =
-            decoded.proposals.into_iter().map(|st| ComparableProposalId::from(st.id)).collect::<BTreeSet<_>>();
+        let proposals = decoded.proposals.into_iter().map(|st| st.id).collect::<BTreeSet<_>>();
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
         let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
 

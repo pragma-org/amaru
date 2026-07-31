@@ -18,9 +18,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer, ProtocolParameters, Slot,
-    StakeCredential, Tip, TransactionInput,
+    Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput,
+    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProtocolParameters, Slot, StakeCredential, Tip,
+    TransactionInput,
 };
 
 use crate::{
@@ -60,7 +60,7 @@ pub struct VolatileFragment {
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
-    pub proposals: BTreeMap<ComparableProposalId, Arc<(Proposal, ProposalPointer)>>,
+    pub proposals: BTreeMap<ProposalId, Arc<(Proposal, ProposalPointer)>>,
     pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
     pub donations: Lovelace,
@@ -264,7 +264,7 @@ pub(crate) fn add_committee(
 // --------------------------------------------------------------------------------------- Proposals
 
 pub(crate) fn add_proposals(
-    iterator: impl Iterator<Item = (ComparableProposalId, Arc<(Proposal, ProposalPointer)>)>,
+    iterator: impl Iterator<Item = (ProposalId, Arc<(Proposal, ProposalPointer)>)>,
     expiration: Epoch,
 ) -> impl Iterator<Item = (proposals::Key, proposals::Value)> {
     iterator.map(move |(proposal_id, value)| {

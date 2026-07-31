@@ -12,10 +12,72 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::DRep;
 use serde::ser::SerializeStruct;
 
-use crate::StakeCredential;
+use crate::{
+    Hash, StakeCredential, cbor,
+    size::{KEY, SCRIPT},
+};
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub enum DRep {
+    Key(Hash<{ KEY }>),
+    Script(Hash<{ SCRIPT }>),
+    Abstain,
+    NoConfidence,
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for DRep {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        let variant = d.u16()?;
+
+        match variant {
+            0 => Ok(DRep::Key(d.decode_with(ctx)?)),
+            1 => Ok(DRep::Script(d.decode_with(ctx)?)),
+            2 => Ok(DRep::Abstain),
+            3 => Ok(DRep::NoConfidence),
+            _ => Err(cbor::decode::Error::message("invalid variant id for DRep")),
+        }
+    }
+}
+
+impl<C> cbor::encode::Encode<C> for DRep {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match self {
+            DRep::Key(h) => {
+                e.array(2)?;
+                e.encode_with(0, ctx)?;
+                e.encode_with(h, ctx)?;
+
+                Ok(())
+            }
+            DRep::Script(h) => {
+                e.array(2)?;
+                e.encode_with(1, ctx)?;
+                e.encode_with(h, ctx)?;
+
+                Ok(())
+            }
+            DRep::Abstain => {
+                e.array(1)?;
+                e.encode_with(2, ctx)?;
+
+                Ok(())
+            }
+            DRep::NoConfidence => {
+                e.array(1)?;
+                e.encode_with(3, ctx)?;
+
+                Ok(())
+            }
+        }
+    }
+}
 
 #[derive(serde::Serialize)]
 #[serde(transparent)]

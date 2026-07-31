@@ -12,10 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+use crate::cbor;
+
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+    cbor::Encode,
+    cbor::Decode,
+)]
+#[cbor(index_only)]
 pub enum PlutusVersion {
+    #[n(0)]
     V1,
+    #[n(1)]
     V2,
+    #[n(2)]
     #[default]
     V3,
 }

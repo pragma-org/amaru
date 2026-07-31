@@ -15,12 +15,12 @@
 use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, hash::Hash,
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
+    hash::Hash,
 };
 use amaru_ouroboros::{kes, praos, praos::header::AssertHeaderError};
 use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::mock_ledger_state::MockLedgerState};
 use ctor::ctor;
-use ed25519_dalek as ed25519;
 use num::CheckedSub;
 use serde::{Deserialize, Deserializer};
 

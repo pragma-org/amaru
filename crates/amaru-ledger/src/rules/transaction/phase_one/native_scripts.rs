@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Hash, Hasher, NativeScript, ValidityInterval, WitnessSet, evaluate_native_script,
+    Hash, Hasher, NativeScript, ValidityInterval, WitnessSet,
     size::{KEY, SCRIPT},
 };
 
@@ -50,9 +50,7 @@ pub(super) fn execute(
 
     let failing: BTreeSet<Hash<SCRIPT>> = required_natives
         .into_iter()
-        .filter_map(|(hash, script)| {
-            (!evaluate_native_script(script, &vkey_hashes, validity_interval)).then_some(*hash)
-        })
+        .filter_map(|(hash, script)| (!script.eval(&vkey_hashes, validity_interval)).then_some(*hash))
         .collect();
 
     if !failing.is_empty() {

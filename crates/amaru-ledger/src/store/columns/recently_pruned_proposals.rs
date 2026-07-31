@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ComparableProposalId, RatificationStatus};
+use amaru_kernel::{ProposalId, RatificationStatus};
 
-pub type Key = ComparableProposalId;
+pub type Key = ProposalId;
 pub type Value = RatificationStatus;

@@ -75,6 +75,25 @@ impl InMemoryChainStoreInner {
             block_validity: BTreeMap::new(),
         }
     }
+
+    /// Record a header, its link to its parent, and the opcert sequence number it declares. Every
+    /// stored header must contribute to the opcert index, otherwise the sequence numbers observed
+    /// on the chain go stale and subsequent headers get rejected as being too far ahead.
+    fn put_header(&mut self, header: &BlockHeader) {
+        let hash = header.hash();
+        self.headers.insert(hash, header.clone());
+        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+        let children = self.parent_child_relationship.entry(parent_hash).or_default();
+        if !children.contains(&hash) {
+            children.push(hash);
+        };
+        self.opcert_sequence_numbers
+            .entry(header.pool_id())
+            .or_default()
+            .entry(header.slot())
+            .or_default()
+            .insert(hash, header.op_cert_seq());
+    }
 }
 
 impl BaseReadChainStore for InMemoryChainStore {
@@ -185,21 +204,16 @@ impl ReadChainStore for InMemoryChainStore {
 impl WriteChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
-        let hash = header.hash();
         let mut inner = self.inner.lock().unwrap();
-        inner.headers.insert(hash, header.clone());
-        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
-        let children = inner.parent_child_relationship.entry(parent_hash).or_default();
-        if !children.contains(&hash) {
-            children.push(hash);
-        };
-        inner
-            .opcert_sequence_numbers
-            .entry(header.pool_id())
-            .or_default()
-            .entry(header.slot())
-            .or_default()
-            .insert(hash, header.op_cert_seq());
+        inner.put_header(header);
+        Ok(())
+    }
+
+    #[expect(clippy::unwrap_used)]
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.put_header(header);
+        inner.nonces.insert(header.hash(), nonces.clone());
         Ok(())
     }
 
