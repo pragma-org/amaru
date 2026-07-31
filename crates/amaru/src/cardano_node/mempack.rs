@@ -15,9 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, Bytes, Hash, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, MemoizedValue, Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin,
-    ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value,
+    Address, Bytes, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, MemoizedValue,
+    Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeCredential, Value, from_cbor,
 };
 
 const MAX_VARUINT64_BYTES: usize = 10;
@@ -346,14 +346,17 @@ fn decode_datum(decoder: &mut Decoder<'_>) -> Result<MemoizedDatum, String> {
 }
 
 fn decode_inline_plutus_data(decoder: &mut Decoder<'_>) -> Result<MemoizedPlutusData, String> {
-    decoder.decode_from_short_bytes("inline datum", MemoizedPlutusData::try_from)
+    decoder.decode_from_short_bytes("inline datum", |bytes| {
+        from_cbor(&bytes).ok_or_else(|| "failed to decode PlutusData from CBOR".to_string())
+    })
 }
 
 fn decode_script(decoder: &mut Decoder<'_>) -> Result<MemoizedScript, String> {
     match decoder.tag()? {
         0 => {
-            let native = decoder
-                .decode_from_short_bytes("native script", |bytes| MemoizedNativeScript::try_from(Bytes::from(bytes)))?;
+            let native = decoder.decode_from_short_bytes("native script", |bytes| {
+                from_cbor(&bytes).ok_or_else(|| "failed to decode Script from CBOR".to_string())
+            })?;
             Ok(MemoizedScript::NativeScript(native))
         }
         1 => {

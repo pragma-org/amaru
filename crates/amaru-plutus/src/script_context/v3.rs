@@ -16,9 +16,8 @@ use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
     Address, Certificate, ComparableProposalId, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices,
-    ExUnits, GovernanceAction, LegacyKeyValuePairs, MemoizedTransactionOutput, PlutusData, PoolVotingThresholds,
-    Proposal, ProposalId, ProtocolParamUpdate, RationalNumber, StakeAddress, StakeCredential, StakePayload,
-    TransactionInput, Vote, Voter,
+    ExUnits, GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolVotingThresholds, Proposal, ProposalId,
+    ProtocolParamUpdate, RationalNumber, StakeAddress, StakeCredential, StakePayload, TransactionInput, Vote, Voter,
 };
 use num::Integer;
 
@@ -246,9 +245,9 @@ impl ToPlutusData<3> for GovernanceAction {
 
                         Ok((reward_address, *amount))
                     })
-                    .collect::<Result<Vec<(_, _)>, _>>()?;
+                    .collect::<Result<BTreeMap<_, _>, _>>()?;
 
-                constr_v3!(2, [LegacyKeyValuePairs::Def(withdrawals), guardrail])
+                constr_v3!(2, [withdrawals, guardrail])
             }
             GovernanceAction::NoConfidence(previous_action) => {
                 constr_v3!(3, [previous_action])
@@ -285,7 +284,7 @@ impl ToPlutusData<3> for ComparableProposalId {
 
 impl ToPlutusData<3> for ProtocolParamUpdate {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let mut pparams = Vec::with_capacity(33);
+        let mut pparams = Vec::with_capacity(30);
 
         let mut push = |ix: usize, p: Result<PlutusData, PlutusDataError>| -> Result<(), PlutusDataError> {
             pparams.push((<usize as ToPlutusData<3>>::to_plutus_data(&ix)?, p?));
@@ -413,7 +412,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
             push(33, protocol_parameter_ratio(p))?;
         }
 
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(pparams)))
+        Ok(PlutusData::Map(pparams))
     }
 }
 

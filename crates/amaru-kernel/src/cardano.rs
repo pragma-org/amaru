@@ -19,7 +19,6 @@ pub mod asset_name;
 pub mod auxiliary_data;
 pub mod ballot;
 pub mod ballot_id;
-pub mod bigint;
 pub mod block;
 pub mod block_header;
 pub mod block_height;

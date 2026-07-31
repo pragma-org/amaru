@@ -25,8 +25,6 @@ mod script;
 pub use script::*;
 
 mod transaction_output;
-#[cfg(any(test, feature = "test-utils"))]
-pub use transaction_output::tests::{any_datum, any_legacy_output, any_modern_output};
 pub use transaction_output::*;
 
 mod value;

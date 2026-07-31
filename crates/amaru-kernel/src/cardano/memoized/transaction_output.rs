@@ -317,6 +317,9 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use proptest::{option, prelude::*};
 

@@ -14,8 +14,6 @@
 
 pub use ed25519_dalek as ed25519;
 pub use num;
-pub use pallas_primitives::conway::{Constr, KeepRaw, MaybeIndefArray};
-pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 
 pub mod maths;
@@ -36,7 +34,7 @@ pub use traits::{
 mod data_structures;
 pub use data_structures::{
     ignore_eq::IgnoreEq,
-    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs, LegacyKeyValuePairs},
+    key_value_pairs::{IntoKeyValuePairsError, KeyValuePairs},
     legacy::Legacy,
     non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
     non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
@@ -73,7 +71,6 @@ pub use cardano::{
     auxiliary_data::AuxiliaryData,
     ballot::Ballot,
     ballot_id::BallotId,
-    bigint::BigInt,
     block::Block,
     block_header::BlockHeader,
     block_height::BlockHeight,
@@ -114,12 +111,12 @@ pub use cardano::{
     language_view::LanguageView,
     lovelace::Lovelace,
     memoized::{
-        BorrowedScript, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
+        self, BorrowedScript, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
         MemoizedTransactionOutput, MemoizedValue, deserialize_script, serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
     multiasset::{self, Multiasset},
-    native_script::{NativeScript, evaluate_native_script},
+    native_script::{self, NativeScript},
     network::{self, Network},
     network_magic::{self, NetworkMagic},
     network_name::{self, NetworkName, PEER_SNAPSHOT_NETWORKS},
@@ -128,7 +125,7 @@ pub use cardano::{
     operational_cert::OperationalCert,
     output_reference::OutputReference,
     peer::Peer,
-    plutus_data::{PlutusData, PlutusDataSet, PlutusDatums},
+    plutus_data::{self, PlutusData, PlutusDataSet, PlutusDatums},
     plutus_script::PlutusScript,
     plutus_version::{IsKnownPlutusVersion, KnownPlutusVersion, PlutusVersion, reify_plutus_version},
     point::Point,
@@ -213,9 +210,11 @@ pub use cardano::{
     hash::{any_hash28, any_hash32},
     lovelace::any_lovelace,
     memoized::{any_datum, any_legacy_output, any_modern_output},
+    native_script::any_native_script,
     network::any_network,
     network_magic::any_network_magic,
     network_name::any_network_name,
+    plutus_data::any_plutus_data,
     point::{any_point, any_specific_point},
     pool_params::any_pool_params,
     proposal::any_proposal,

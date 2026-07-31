@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    LegacyKeyValuePairs, OutputReference, PlutusData, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusStakeAddress,
-    PlutusVotes, PlutusWithdrawals, ScriptContext, ScriptInfo, ScriptPurpose, TxInfo,
+    OutputReference, PlutusData, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusStakeAddress, PlutusVotes,
+    PlutusWithdrawals, ScriptContext, ScriptInfo, ScriptPurpose, TxInfo,
 };
 
 pub mod v1;
@@ -89,14 +89,14 @@ where
     ScriptPurpose<'a>: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let converted: Result<Vec<_>, _> = self
+        let converted = self
             .values()
             .map(|entry| {
                 Ok((<ScriptPurpose<'_> as ToPlutusData<V>>::to_plutus_data(&entry.purpose)?, entry.data.clone()))
             })
-            .collect();
+            .collect::<Result<Vec<(_, _)>, _>>()?;
 
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(converted?)))
+        Ok(PlutusData::Map(converted))
     }
 }
 

@@ -15,9 +15,9 @@
 use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
-    Address, BigInt, BorrowedScript, Bytes, CurrencySymbol, Epoch, HasScriptHash, Hash, Int, KeyValuePairs,
-    LegacyKeyValuePairs, MaybeIndefArray, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData,
-    RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value,
+    Address, BorrowedScript, Bytes, CurrencySymbol, Epoch, HasScriptHash, Hash, Int, KeyValuePairs, MemoizedDatum,
+    MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, RequiredSigners, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, plutus_data::BigInt,
 };
 use thiserror::Error;
 
@@ -361,13 +361,7 @@ where
     T: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        if self.is_empty() {
-            Ok(PlutusData::Array(MaybeIndefArray::Def(vec![])))
-        } else {
-            Ok(PlutusData::Array(MaybeIndefArray::Indef(
-                self.iter().map(|a| a.to_plutus_data()).collect::<Result<_, _>>()?,
-            )))
-        }
+        Ok(PlutusData::Array(self.iter().map(|a| a.to_plutus_data()).collect::<Result<_, _>>()?))
     }
 }
 
@@ -388,7 +382,7 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         Ok(PlutusData::Map(
-            self.iter().map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?))).collect::<Result<_, _>>()?,
+            self.iter().map(|(k, v)| Ok((k.to_plutus_data()?, v.to_plutus_data()?))).collect::<Result<Vec<_>, _>>()?,
         ))
     }
 }
@@ -400,26 +394,11 @@ where
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(
+        Ok(PlutusData::Map(
             self.iter()
                 .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
-        )))
-    }
-}
-
-impl<const VER: u8, K, V> ToPlutusData<VER> for LegacyKeyValuePairs<K, V>
-where
-    PlutusVersion<VER>: IsKnownPlutusVersion,
-    K: ToPlutusData<VER> + Clone,
-    V: ToPlutusData<VER> + Clone,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(
-            self.iter()
-                .map(|(key, value)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
-                .collect::<Result<Vec<_>, _>>()?,
-        )))
+        ))
     }
 }
 
@@ -430,11 +409,11 @@ where
     V: ToPlutusData<VER> + Clone,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(
+        Ok(PlutusData::Map(
             self.iter()
                 .map(|(key, value): &(K, V)| Ok((key.to_plutus_data()?, value.to_plutus_data()?)))
                 .collect::<Result<Vec<_>, _>>()?,
-        )))
+        ))
     }
 }
 

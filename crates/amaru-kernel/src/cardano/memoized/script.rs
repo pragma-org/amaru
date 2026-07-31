@@ -184,9 +184,9 @@ impl TryFrom<PlaceholderScript> for MemoizedScript {
 
     fn try_from(placeholder: PlaceholderScript) -> Result<Self, Self::Error> {
         Ok(match placeholder {
-            PlaceholderScript::NativeScript(bytes) => {
-                MemoizedScript::NativeScript(MemoizedNativeScript::try_from(bytes)?)
-            }
+            PlaceholderScript::NativeScript(bytes) => MemoizedScript::NativeScript(
+                cbor::from_cbor(&bytes).ok_or_else(|| "invalid native script".to_string())?,
+            ),
             PlaceholderScript::PlutusV1(bytes) => MemoizedScript::PlutusV1Script(PlutusScript(bytes)),
             PlaceholderScript::PlutusV2(bytes) => MemoizedScript::PlutusV2Script(PlutusScript(bytes)),
             PlaceholderScript::PlutusV3(bytes) => MemoizedScript::PlutusV3Script(PlutusScript(bytes)),
