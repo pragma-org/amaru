@@ -924,19 +924,6 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required archive: String
                 }
-                /// Materialize a bootstrap snapshot directory
-                public MATERIALIZE {
-                    required epoch: amaru_kernel::Epoch
-                    required slot: amaru_kernel::Slot
-                    required snapshot: String
-                }
-                /// Snapshot already materialized; skipping
-                public SKIP_MATERIALIZE {
-                    required epoch: amaru_kernel::Epoch
-                    required slot: amaru_kernel::Slot
-                    required snapshot: String
-                    required reason: String
-                }
                 /// Package a snapshot archive
                 public PACKAGE {
                     required epoch: amaru_kernel::Epoch

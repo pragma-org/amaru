@@ -501,10 +501,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `create` | `TRACE` | public | Create snapshots for the given network | network, snapshot_output_dir, config_dir, cardano_node_db, dist_dir | epoch, snapshots |
 | `created` | `TRACE` | public | Finished creating a snapshot archive | epoch, slot, archive |  |
-| `materialize` | `TRACE` | public | Materialize a bootstrap snapshot directory | epoch, slot, snapshot |  |
 | `package` | `TRACE` | public | Package a snapshot archive | epoch, slot, archive |  |
 | `publish` | `TRACE` | public | Publish snapshot archives | network, local, remote |  |
-| `skip_materialize` | `TRACE` | public | Snapshot already materialized; skipping | epoch, slot, snapshot, reason |  |
 | `skip_package` | `TRACE` | public | Snapshot archive already packaged; skipping | epoch, slot, archive, reason |  |
 | `skip_upload` | `TRACE` | public | Snapshot archive already uploaded; skipping | archive |  |
 | `update_index` | `TRACE` | public | Update the published snapshot index | network, snapshots |  |
@@ -535,16 +533,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `materialize`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `slot` | `string` | ✓ |
-| `snapshot` | `string` | ✓ |
-
-</details>
-
 <details><summary>span: `package`</summary>
 
 | field | type | required |
@@ -562,17 +550,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `network` | `string` | ✓ |
 | `local` | `integer` | ✓ |
 | `remote` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `skip_materialize`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `slot` | `string` | ✓ |
-| `snapshot` | `string` | ✓ |
-| `reason` | `string` | ✓ |
 
 </details>
 

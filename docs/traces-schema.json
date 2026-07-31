@@ -887,34 +887,6 @@
       "description": "Finished creating a snapshot archive",
       "public": true
     },
-    "amaru::cli::snapshot::MATERIALIZE": {
-      "type": "object",
-      "properties": {
-        "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
-        },
-        "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "snapshot": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "epoch",
-        "slot",
-        "snapshot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "materialize",
-      "level": "TRACE",
-      "target": "amaru::cli::snapshot",
-      "description": "Materialize a bootstrap snapshot directory",
-      "public": true
-    },
     "amaru::cli::snapshot::PACKAGE": {
       "type": "object",
       "properties": {
@@ -968,38 +940,6 @@
       "level": "TRACE",
       "target": "amaru::cli::snapshot",
       "description": "Publish snapshot archives",
-      "public": true
-    },
-    "amaru::cli::snapshot::SKIP_MATERIALIZE": {
-      "type": "object",
-      "properties": {
-        "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
-        },
-        "slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "snapshot": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "epoch",
-        "slot",
-        "snapshot",
-        "reason"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "skip_materialize",
-      "level": "TRACE",
-      "target": "amaru::cli::snapshot",
-      "description": "Snapshot already materialized; skipping",
       "public": true
     },
     "amaru::cli::snapshot::SKIP_PACKAGE": {
