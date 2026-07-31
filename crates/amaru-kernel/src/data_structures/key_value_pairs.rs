@@ -14,8 +14,6 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
-pub use pallas_codec::utils::KeyValuePairs as LegacyKeyValuePairs;
-
 use crate::cbor;
 
 /// A key-value map with no duplicate keys.
@@ -30,13 +28,6 @@ pub struct KeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 impl<K: Eq, V> Default for KeyValuePairs<K, V> {
     fn default() -> Self {
         Self(Vec::default())
-    }
-}
-
-impl<K: Eq + Clone, V: Clone> KeyValuePairs<K, V> {
-    // TODO: Temporary conversion method to Pallas primitive. Remove when no longer needed.
-    pub fn as_pallas(self) -> pallas_primitives::KeyValuePairs<K, V> {
-        pallas_primitives::KeyValuePairs::Def(self.0)
     }
 }
 
@@ -62,7 +53,7 @@ impl<K: Eq, V> TryFrom<Vec<(K, V)>> for KeyValuePairs<K, V> {
     type Error = IntoKeyValuePairsError;
 
     fn try_from(vec: Vec<(K, V)>) -> Result<Self, Self::Error> {
-        if !vec.is_empty() && has_duplicate(vec.as_slice()) {
+        if vec.len() > 1 && has_duplicate(vec.as_slice()) {
             return Err(Self::Error::HasDuplicate);
         }
 

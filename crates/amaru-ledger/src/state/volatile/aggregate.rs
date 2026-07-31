@@ -15,8 +15,8 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput,
-    PoolId, StakeCredential, TransactionInput,
+    Anchor, CertificatePointer, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId, ProposalId,
+    StakeCredential, TransactionInput,
 };
 
 use crate::state::volatile::{
@@ -66,7 +66,7 @@ pub struct VolatileAggregate {
     dreps: DReps,
     committee: Committee,
     withdrawals: BTreeSet<StakeCredential>,
-    proposals: BTreeSet<ComparableProposalId>,
+    proposals: BTreeSet<ProposalId>,
     fees: Lovelace,
     donations: Lovelace,
 }
@@ -119,7 +119,7 @@ impl VolatileAggregate {
 
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is
     /// `Exists` or `Unknown`; pruning only happens at the boundary.
-    pub fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
+    pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<()> {
         if self.proposals.contains(id) { Existence::Exists(()) } else { Existence::Unknown }
     }
 }

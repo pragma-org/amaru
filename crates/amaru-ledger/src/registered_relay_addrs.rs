@@ -17,7 +17,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
 };
 
-use amaru_kernel::{Bytes, Nullable, Relay};
+use amaru_kernel::{Bytes, Relay};
 use amaru_observability::info_span;
 
 use crate::store::{ReadStore, StoreError};
@@ -57,26 +57,17 @@ fn relay_to_socket_addrs(relay: &Relay, set: &mut BTreeSet<SocketAddr>) {
     }
 }
 
-fn nullable_to_port(port: &Nullable<u32>) -> Option<u16> {
-    match port {
-        Nullable::Some(p) => u16::try_from(*p).ok(),
-        Nullable::Null | Nullable::Undefined => None,
-    }
+fn nullable_to_port(port: &Option<u32>) -> Option<u16> {
+    port.and_then(|p| u16::try_from(p).ok())
 }
 
-fn nullable_ipv4_to_ip(null: &Nullable<Bytes>) -> Option<IpAddr> {
-    let bytes = match null {
-        Nullable::Some(b) => <[u8; 4]>::try_from(b).ok()?,
-        Nullable::Null | Nullable::Undefined => return None,
-    };
+fn nullable_ipv4_to_ip(null: &Option<Bytes>) -> Option<IpAddr> {
+    let bytes = <[u8; 4]>::try_from(null.as_ref()?).ok()?;
     Some(IpAddr::V4(Ipv4Addr::from_octets(bytes)))
 }
 
-fn nullable_ipv6_to_ip(null: &Nullable<Bytes>) -> Option<IpAddr> {
-    let mut bytes = match null {
-        Nullable::Some(b) => <[u8; 16]>::try_from(b).ok()?,
-        Nullable::Null | Nullable::Undefined => return None,
-    };
+fn nullable_ipv6_to_ip(null: &Option<Bytes>) -> Option<IpAddr> {
+    let mut bytes = <[u8; 16]>::try_from(null.as_ref()?).ok()?;
     // manual inspection of the ledger contents has confirmed that Haskell node
     // serialization of IPv6 addresses is in “screwed-endian” byte order
     bytes[0..4].reverse();

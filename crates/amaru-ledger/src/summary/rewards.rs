@@ -535,6 +535,13 @@ impl RewardsSummary {
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
         if rewards_leader > 0 {
+            // NOTE: the reward account needs not be a registered account
+            //
+            // Nothing above consults the reward account: the pledge is checked against the pool's
+            // *owners* and the performance against its *delegators*. So a pool can perfectly well
+            // earn a leader reward payable to a credential that has no account, in which case the
+            // reward is unclaimed and goes to the treasury instead. That is settled at the epoch
+            // boundary, from the reward accounts collected while ticking the pools.
             accounts
                 .entry(expect_stake_credential(&pool.parameters.reward_account))
                 .and_modify(|rewards| *rewards += rewards_leader)
@@ -563,5 +570,109 @@ impl From<RewardsSummary> for Rewards<Computed> {
             summary.effective_rewards,
             summary.accounts,
         )
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::{CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PoolParams, RationalNumber};
+
+    use super::*;
+    use crate::summary::stake_distribution::StakeDistribution;
+
+    /// A leader reward is credited to the pool's reward account whether or not that credential is a
+    /// registered account. Whether it can actually be paid is settled at the epoch boundary, against
+    /// the reward accounts collected while ticking the pools.
+    #[test]
+    fn a_leader_reward_is_credited_to_an_unregistered_reward_account() {
+        let pool = pool(1);
+        let accounts = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
+        assert!(accounts.contains_key(&credential(1)));
+    }
+
+    /// The same holds when the reward account also happens to be a delegator of the pool: it is
+    /// credited once for its leader reward here, and once for its member reward elsewhere.
+    #[test]
+    fn a_leader_reward_is_credited_to_a_registered_reward_account() {
+        let pool = pool(1);
+        let delegators = BTreeMap::from([(
+            credential(1),
+            AccountState { balance: STAKE, pool: Some(pool.parameters.id), drep: None },
+        )]);
+
+        let accounts = apply_leader_rewards(&pool, &stake_distribution(&pool, delegators));
+
+        assert!(accounts.contains_key(&credential(1)));
+    }
+
+    // HELPERS
+
+    const STAKE: Lovelace = 1_000_000_000_000;
+
+    fn credential(tag: u8) -> StakeCredential {
+        StakeCredential::ScriptHash(Hash::new([tag; 28]))
+    }
+
+    /// A pool whose reward account is `credential(tag)`, big enough and productive enough to earn a
+    /// leader reward. The margin is 100%, so the whole pot goes to the leader.
+    fn pool(tag: u8) -> PoolState {
+        PoolState {
+            registered_at: CertificatePointer::default(),
+            blocks_count: 1,
+            stake: STAKE,
+            voting_stake: STAKE,
+            margin: safe_ratio(1, 1),
+            parameters: PoolParams {
+                id: PoolId::new([tag; 28]),
+                vrf: Hash::new([tag; 32]),
+                pledge: 0,
+                cost: 0,
+                margin: RationalNumber { numerator: 1, denominator: 1 },
+                // 0xF0 discriminates a script stake address on a test network.
+                reward_account: [&[0xF0], &[tag; 28][..]].concat().into(),
+                owners: BTreeSet::new(),
+                relays: Vec::new(),
+                metadata: None,
+            },
+        }
+    }
+
+    fn stake_distribution(pool: &PoolState, accounts: BTreeMap<StakeCredential, AccountState>) -> StakeDistribution {
+        StakeDistribution {
+            epoch: Epoch::from(0),
+            treasury: 0,
+            reserves: 0,
+            active_stake: pool.stake,
+            pools_voting_stake: 0,
+            dreps_voting_stake: 0,
+            accounts,
+            pools: BTreeMap::from([(pool.parameters.id, pool.clone())]),
+            dreps: BTreeMap::new(),
+        }
+    }
+
+    /// Credit a leader reward to `pool`, and report which accounts were credited.
+    fn apply_leader_rewards(
+        pool: &PoolState,
+        stake_distribution: &StakeDistribution,
+    ) -> BTreeMap<StakeCredential, Lovelace> {
+        let mut accounts = BTreeMap::new();
+        let mut blocks_per_pool = BTreeMap::from([(pool.parameters.id, 1)]);
+
+        let rewards = RewardsSummary::apply_leader_rewards(
+            &mut accounts,
+            &mut blocks_per_pool,
+            1,
+            1_000_000_000,
+            STAKE,
+            stake_distribution,
+            pool,
+            &MAINNET_DEFAULT_PROTOCOL_PARAMETERS,
+        );
+
+        assert!(rewards.leader > 0, "the fixture should reward the leader");
+        accounts
     }
 }

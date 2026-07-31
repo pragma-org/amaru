@@ -15,26 +15,25 @@
 use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
-    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, ex_units, ex_units_prices,
-    pool_voting_thresholds, protocol_version,
-};
-use amaru_kernel::{
-    ComparableProposalId,
+    AsHash,
     Constitution,
     Epoch,
     EraHistory,
     Lovelace,
+    ProposalId,
     ProposalsRoots,
     ProposalsRootsRc,
     ProtocolParameters,
+    RatificationStatus,
     StakeCredential,
+    StakeCredentialKind,
     cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
     expect_stake_credential,
-    rational_number,
+    protocol_version,
 };
 use amaru_observability::{debug, info, info_span};
 
@@ -57,7 +56,7 @@ pub struct GovernanceUpdates {
 
     /// Proposals that have been ratified, have expired or have been pruned due to another
     /// conflicting proposal being dropped.
-    pub pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus>,
+    pub pruned_proposals: BTreeMap<ProposalId, RatificationStatus>,
 
     /// Payouts done to accounts; either because of a deposit refunds or because of a treasury
     /// withdrawal.
@@ -117,16 +116,16 @@ impl GovernanceUpdates {
     ///
     pub fn new(
         roots: ProposalsRootsRc,
-        iter_proposals: impl Iterator<Item = (ComparableProposalId, Proposal)>,
+        iter_proposals: impl Iterator<Item = (ProposalId, Proposal)>,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
         mut ctx: RatificationContext<'_>,
     ) -> Result<Self, StateError> {
-        let mut proposals_metadata: BTreeMap<Rc<ComparableProposalId>, ProposalMetadata> = BTreeMap::new();
+        let mut proposals_metadata: BTreeMap<Rc<ProposalId>, ProposalMetadata> = BTreeMap::new();
 
         // A dual fold where we split the proposal information between 'CandidateProposal' and
         // 'ProposalMetadata'; both used in different contexts.
-        let proposals: Vec<(Rc<ComparableProposalId>, CandidateProposal)> = iter_proposals
+        let proposals: Vec<(Rc<ProposalId>, CandidateProposal)> = iter_proposals
             .map(|(id, row)| {
                 let id = Rc::new(id);
 
@@ -182,7 +181,7 @@ impl GovernanceUpdates {
                         let return_account = proposal.return_account;
                         let deposit = proposal.deposit;
                         payouts
-                            .entry(return_account.clone())
+                            .entry(return_account)
                             .and_modify(|balance| {
                                 *balance += deposit;
                                 trace_return_account(&mut payouts_str, &return_account, *balance);
@@ -221,7 +220,7 @@ impl GovernanceUpdates {
                 // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
                 // clean transfer of ownership without clone.
                 let mut pruned_proposals_str = String::new();
-                let pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus> = ctx
+                let pruned_proposals: BTreeMap<ProposalId, RatificationStatus> = ctx
                     .pruned_proposals
                     .into_iter()
                     .map(|(id, status)| {
@@ -341,8 +340,8 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         max_block_body_size = @opt_field(&old.max_block_body_size, max_block_body_size),
         max_transaction_size = @opt_field(&old.max_transaction_size, max_transaction_size),
         max_block_header_size = @opt_field(&old.max_block_header_size, max_block_header_size),
-        max_tx_ex_units = @opt_field_with(&old.max_tx_ex_units, max_tx_ex_units, ex_units::fmt),
-        max_block_ex_units = @opt_field_with(&old.max_block_ex_units, max_block_ex_units, ex_units::fmt),
+        max_tx_ex_units = @opt_field(&old.max_tx_ex_units, max_tx_ex_units),
+        max_block_ex_units = @opt_field(&old.max_block_ex_units, max_block_ex_units),
         max_value_size = @opt_field(&old.max_value_size, max_value_size),
         max_collateral_inputs = @opt_field(&old.max_collateral_inputs, max_collateral_inputs),
         min_fee_a = @opt_field(&old.min_fee_a, min_fee_a),
@@ -350,32 +349,29 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         stake_credential_deposit = @opt_field(&old.stake_credential_deposit, stake_credential_deposit),
         stake_pool_deposit = @opt_field(&old.stake_pool_deposit, stake_pool_deposit),
         monetary_expansion_rate =
-            @opt_field_with(&old.monetary_expansion_rate, monetary_expansion_rate, rational_number::fmt),
+            @opt_field(&old.monetary_expansion_rate, monetary_expansion_rate),
         treasury_expansion_rate =
-            @opt_field_with(&old.treasury_expansion_rate, treasury_expansion_rate, rational_number::fmt),
+            @opt_field(&old.treasury_expansion_rate, treasury_expansion_rate),
         min_pool_cost = @opt_field(&old.min_pool_cost, min_pool_cost),
         lovelace_per_utxo_byte = @opt_field(&old.lovelace_per_utxo_byte, lovelace_per_utxo_byte),
-        prices = @opt_field_with(&old.prices, prices, ex_units_prices::fmt),
-        min_fee_ref_script_lovelace_per_byte = @opt_field_with(
+        prices = @opt_field(&old.prices, prices),
+        min_fee_ref_script_lovelace_per_byte = @opt_field(
             &old.min_fee_ref_script_lovelace_per_byte,
             min_fee_ref_script_lovelace_per_byte,
-            rational_number::fmt,
         ),
         max_ref_script_size_per_tx = @opt_field(&old.max_ref_script_size_per_tx, max_ref_script_size_per_tx),
         max_ref_script_size_per_block = @opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
         ref_script_cost_stride = @opt_field(&old.ref_script_cost_stride, ref_script_cost_stride),
         ref_script_cost_multiplier =
-            @opt_field_with(&old.ref_script_cost_multiplier, ref_script_cost_multiplier, rational_number::fmt),
+            @opt_field(&old.ref_script_cost_multiplier, ref_script_cost_multiplier),
         stake_pool_max_retirement_epoch =
             @opt_field(&old.stake_pool_max_retirement_epoch, stake_pool_max_retirement_epoch),
         optimal_stake_pools_count = @opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
-        pledge_influence = @opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
+        pledge_influence = @opt_field(&old.pledge_influence, pledge_influence),
         collateral_percentage = @opt_field(&old.collateral_percentage, collateral_percentage),
-        cost_models = @opt_field_with(&old.cost_models, cost_models, cost_models::fmt),
-        pool_voting_thresholds =
-            @opt_field_with(&old.pool_voting_thresholds, pool_voting_thresholds, pool_voting_thresholds::fmt),
-        drep_voting_thresholds =
-            @opt_field_with(&old.drep_voting_thresholds, drep_voting_thresholds, drep_voting_thresholds::fmt,),
+        cost_models = @opt_field(&old.cost_models, cost_models),
+        pool_voting_thresholds = @opt_field(&old.pool_voting_thresholds, pool_voting_thresholds),
+        drep_voting_thresholds = @opt_field(&old.drep_voting_thresholds, drep_voting_thresholds),
         min_committee_size = @opt_field(&old.min_committee_size, min_committee_size),
         max_committee_term_length = @opt_field(&old.max_committee_term_length, max_committee_term_length),
         gov_action_lifetime = @opt_field(&old.gov_action_lifetime, gov_action_lifetime),
@@ -397,6 +393,6 @@ fn opt_str(s: String) -> Box<dyn tracing::Value> {
     if s.is_empty() { Box::new(tracing::field::Empty) as Box<dyn tracing::Value> } else { Box::new(s) }
 }
 
-fn opt_root(root: Option<&ComparableProposalId>) -> Box<dyn tracing::Value> {
+fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
     root.map(|r| Box::new(r.to_string()) as Box<dyn tracing::Value>).unwrap_or_else(|| Box::new(tracing::field::Empty))
 }

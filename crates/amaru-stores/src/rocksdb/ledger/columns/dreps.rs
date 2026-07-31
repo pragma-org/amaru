@@ -50,7 +50,7 @@ pub fn add<DB>(
 ) -> Result<(), StoreError> {
     trace_span!(stores::ledger::dreps::ADD).in_scope(|| {
         for (credential, (anchor, registration)) in rows {
-            let key = as_key(&PREFIX, &credential);
+            let key = as_key(&PREFIX, credential);
 
             // Registration already exists. Which represents one of two cases:
             //
@@ -102,7 +102,7 @@ pub fn set_valid_until<DB>(
 ) -> Result<(), StoreError> {
     trace_span!(stores::ledger::dreps::SET_VALID_UNTIL).in_scope(|| {
         for credential in credentials {
-            let key = as_key(&PREFIX, &credential);
+            let key = as_key(&PREFIX, credential);
 
             if let Some(mut row) =
                 db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
@@ -125,7 +125,7 @@ pub fn remove<DB>(
 ) -> Result<(), StoreError> {
     trace_span!(stores::ledger::dreps::REMOVE).in_scope(|| {
         for (drep, _) in rows {
-            let key = as_key(&PREFIX, &drep);
+            let key = as_key(&PREFIX, drep);
 
             if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
                 db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;

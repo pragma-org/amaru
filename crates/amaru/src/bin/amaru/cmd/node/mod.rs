@@ -14,7 +14,6 @@
 
 use amaru::lifecycle::Runnable;
 use clap::Subcommand;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
 
 pub(crate) mod bootstrap;
 pub(crate) mod run;
@@ -39,9 +38,9 @@ pub(crate) enum NodeCommand {
 }
 
 impl NodeCommand {
-    pub(crate) fn into_runnable(self, metrics: Option<SdkMeterProvider>) -> Runnable {
+    pub(crate) fn into_runnable(self) -> Runnable {
         match self {
-            Self::Run(args) => run::runnable(args, metrics),
+            Self::Run(args) => run::runnable(args),
             Self::Bootstrap(args) => bootstrap::runnable(args),
         }
     }

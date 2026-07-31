@@ -18,9 +18,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalPointer, ProtocolParameters, Slot,
-    StakeCredential, Tip, TransactionInput,
+    Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput,
+    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProtocolParameters, Slot, StakeCredential, Tip,
+    TransactionInput,
 };
 
 use crate::{
@@ -60,7 +60,7 @@ pub struct VolatileFragment {
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
-    pub proposals: BTreeMap<ComparableProposalId, Arc<(Proposal, ProposalPointer)>>,
+    pub proposals: BTreeMap<ProposalId, Arc<(Proposal, ProposalPointer)>>,
     pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
     pub donations: Lovelace,
@@ -148,7 +148,7 @@ impl AnchoredVolatileFragment {
             withdrawals: withdrawals.into_iter(),
             add: store::Columns {
                 utxo: utxo.produced.into_iter().map(|(input, output)| (input, Arc::unwrap_or_clone(output))),
-                pools: add_pools(pools.registered.into_iter(), epoch),
+                pools: add_pools(pools.registered.into_iter()),
                 accounts: add_accounts(accounts.registered.into_iter()),
                 dreps: add_dreps(dreps.registered.into_iter()),
                 cc_members: add_committee(committee.produced.into_iter()),
@@ -200,22 +200,13 @@ pub struct StoreUpdate<W, A, R> {
 
 pub(crate) fn add_pools(
     iterator: impl Iterator<Item = (PoolId, Registrations<Arc<(PoolParams, CertificatePointer, Lovelace)>>)>,
-    epoch: Epoch,
 ) -> impl Iterator<Item = pools::Value> {
     iterator.flat_map(move |(_, registrations)| {
         registrations
             .into_iter()
-            // NOTE/TODO: Re-registrations (a.k.a pool params updates) are always
-            // happening on the following epoch. We do not explicitly store epochs
-            // for registrations in the DiffEpochReg (which may be an arguable
-            // choice?) so we have to artificially set it here. Note that for
-            // registrations (when there's no existing entry), the epoch is wrong
-            // but it is fully ignored. It's slightly ugly, but we cannot know if
-            // an entry exists without querying the stable store -- and frankly, we
-            // don't _have to_.
             .map(|registration| {
                 let (params, pointer, deposit) = Arc::unwrap_or_clone(registration);
-                (params, pointer, deposit, epoch + 1)
+                (params, pointer, deposit)
             })
             .collect::<Vec<_>>()
     })
@@ -273,7 +264,7 @@ pub(crate) fn add_committee(
 // --------------------------------------------------------------------------------------- Proposals
 
 pub(crate) fn add_proposals(
-    iterator: impl Iterator<Item = (ComparableProposalId, Arc<(Proposal, ProposalPointer)>)>,
+    iterator: impl Iterator<Item = (ProposalId, Arc<(Proposal, ProposalPointer)>)>,
     expiration: Epoch,
 ) -> impl Iterator<Item = (proposals::Key, proposals::Value)> {
     iterator.map(move |(proposal_id, value)| {

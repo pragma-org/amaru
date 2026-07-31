@@ -19,10 +19,9 @@ use amaru_minicbor_extra::encode_optional;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::to_cbor;
 use crate::{
-    AssetName, Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, NULL_HASH32, NetworkId,
-    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set, Slot,
-    TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor,
-    size::{CREDENTIAL, KEY},
+    Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Multiasset, NULL_HASH32, Network,
+    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Slot,
+    TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY, utils::cbor::SerialisedAsSet,
 };
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
@@ -40,7 +39,7 @@ pub struct TransactionBody {
 
     original_bytes: Bytes,
 
-    pub inputs: Set<TransactionInput>,
+    pub inputs: Vec<TransactionInput>,
 
     pub outputs: Vec<MemoizedTransactionOutput>,
 
@@ -56,7 +55,7 @@ pub struct TransactionBody {
 
     pub validity_interval_start: Option<Slot>,
 
-    pub mint: Option<NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>,
+    pub mint: Option<Multiasset<NonZeroInt>>,
 
     pub script_data_hash: Option<Hash<32>>,
 
@@ -64,7 +63,7 @@ pub struct TransactionBody {
 
     pub required_signers: Option<NonEmptySet<Hash<KEY>>>,
 
-    pub network_id: Option<NetworkId>,
+    pub network: Option<Network>,
 
     pub collateral_return: Option<MemoizedTransactionOutput>,
 
@@ -110,7 +109,7 @@ impl TransactionBody {
         fee: Lovelace,
     ) -> Self {
         let mut body = Self {
-            inputs: Set::from(inputs.into_iter().collect::<Vec<_>>()),
+            inputs: inputs.into_iter().collect(),
             outputs: outputs.into_iter().collect(),
             fee,
             ..Self::default()
@@ -130,7 +129,7 @@ impl Default for TransactionBody {
         Self {
             hash: NULL_HASH32,
             original_bytes: Bytes::from(Vec::new()),
-            inputs: Set::from(vec![]),
+            inputs: vec![],
             outputs: vec![],
             fee: 0,
             validity_interval_end: None,
@@ -142,7 +141,7 @@ impl Default for TransactionBody {
             script_data_hash: None,
             collateral: None,
             required_signers: None,
-            network_id: None,
+            network: None,
             collateral_return: None,
             total_collateral: None,
             reference_inputs: None,
@@ -165,7 +164,7 @@ impl<C> cbor::Encode<C> for TransactionBody {
         }
 
         e.begin_map()?;
-        e.u8(0)?.encode_with(&self.inputs, ctx)?;
+        e.u8(0)?.encode_with(SerialisedAsSet(&self.inputs), ctx)?;
         e.u8(1)?.encode_with(&self.outputs, ctx)?;
         e.u8(2)?.encode_with(self.fee, ctx)?;
 
@@ -178,7 +177,7 @@ impl<C> cbor::Encode<C> for TransactionBody {
         encode_optional(e, ctx, 11, &self.script_data_hash)?;
         encode_optional(e, ctx, 13, &self.collateral)?;
         encode_optional(e, ctx, 14, &self.required_signers)?;
-        encode_optional(e, ctx, 15, &self.network_id)?;
+        encode_optional(e, ctx, 15, &self.network)?;
         encode_optional(e, ctx, 16, &self.collateral_return)?;
         encode_optional(e, ctx, 17, &self.total_collateral)?;
         encode_optional(e, ctx, 18, &self.reference_inputs)?;
@@ -209,7 +208,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         #[derive(Default)]
         struct RequiredFields {
-            inputs: Option<Set<TransactionInput>>,
+            inputs: Option<SerialisedAsSet<Vec<TransactionInput>>>,
             outputs: Option<Vec<MemoizedTransactionOutput>>,
             fee: Option<Lovelace>,
         }
@@ -240,13 +239,28 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
                     // 6: governance updates, obsolete in Conway
                     7 => blanket(&mut st.optional.auxiliary_data_hash, k, d, ctx)?,
                     8 => blanket(&mut st.optional.validity_interval_start, k, d, ctx)?,
-                    9 => blanket(&mut st.optional.mint, k, d, ctx)?,
+                    9 => {
+                        blanket(&mut st.optional.mint, k, d, ctx)?;
+                        // NOTE: Non-empty multiasset mint
+                        //
+                        // This is a weird quirk but the type is technically a Multiasset which does
+                        // allow the outer map to be empty in Conway (it doesn't in Dijsktra). Yet,
+                        // for the mint field in particular, an additional check enforces it is not
+                        // empty.
+                        if let Some(mint) = st.optional.mint.as_ref()
+                            && mint.is_empty()
+                        {
+                            let position = d.position();
+                            Err(cbor::decode::Error::message("empty map when expecting at least one key/value pair")
+                                .at(position))?;
+                        }
+                    }
                     // 10: there's no 10, has never been used.
                     11 => blanket(&mut st.optional.script_data_hash, k, d, ctx)?,
                     // 12: there's no 12, has never been used.
                     13 => blanket(&mut st.optional.collateral, k, d, ctx)?,
                     14 => blanket(&mut st.optional.required_signers, k, d, ctx)?,
-                    15 => blanket(&mut st.optional.network_id, k, d, ctx)?,
+                    15 => blanket(&mut st.optional.network, k, d, ctx)?,
                     16 => blanket(&mut st.optional.collateral_return, k, d, ctx)?,
                     17 => blanket(&mut st.optional.total_collateral, k, d, ctx)?,
                     18 => blanket(&mut st.optional.reference_inputs, k, d, ctx)?,
@@ -269,7 +283,7 @@ impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
         Ok(TransactionBody {
             hash: Hasher::<{ TransactionBody::HASH_SIZE * 8 }>::hash(&original_bytes[start_position..end_position]),
             original_bytes: Bytes::from(original_bytes[start_position..end_position].to_vec()),
-            inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?,
+            inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?.0,
             outputs: expect_field(mem::take(&mut state.required.outputs), 1, "outputs")?,
             fee: expect_field(mem::take(&mut state.required.fee), 2, "fee")?,
             ..state.optional
@@ -411,7 +425,7 @@ mod tests {
     )]
     #[test_case(
         fixture!("conway", "402a8a9024d4160928e574c73aa66c66d92f9856c3fa2392242f7a92b8e9c347"),
-        "decode error at position 81: empty map when expecting at least one key/value pair";
+        "decode error at position 82: empty map when expecting at least one key/value pair";
         "empty mint"
     )]
     #[test_case(

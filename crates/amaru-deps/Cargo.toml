@@ -145,7 +145,7 @@ regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
-serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
 sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 slab = { version = "0.4" }
@@ -214,7 +214,7 @@ regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
-serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
+serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
 sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 slab = { version = "0.4" }

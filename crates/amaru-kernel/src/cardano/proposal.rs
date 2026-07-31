@@ -12,7 +12,46 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::ProposalProcedure as Proposal;
+use crate::{Anchor, GovernanceAction, Lovelace, RewardAccount, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Proposal {
+    pub deposit: Lovelace,
+    pub reward_account: RewardAccount,
+    pub gov_action: GovernanceAction,
+    pub anchor: Anchor,
+}
+
+impl<'b, C> cbor::Decode<'b, C> for Proposal {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+
+        Ok(Self {
+            deposit: d.decode_with(ctx)?,
+            reward_account: d.decode_with(ctx)?,
+            gov_action: d.decode_with(ctx)?,
+            anchor: d.decode_with(ctx)?,
+        })
+    }
+}
+
+impl<C> cbor::Encode<C> for Proposal {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(4)?;
+
+        e.encode_with(self.deposit, ctx)?;
+        e.encode_with(&self.reward_account, ctx)?;
+        e.encode_with(&self.gov_action, ctx)?;
+        e.encode_with(&self.anchor, ctx)?;
+
+        Ok(())
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 

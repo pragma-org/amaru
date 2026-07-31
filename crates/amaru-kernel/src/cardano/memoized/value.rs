@@ -75,13 +75,10 @@ impl<C> cbor::Encode<C> for MemoizedValue {
 
 #[cfg(test)]
 mod tests {
-    use pallas_primitives::{
-        Bytes as PallasBytes, NonEmptyKeyValuePairs, PositiveCoin, conway::Multiasset as PallasMultiasset,
-    };
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{Hash, size::CREDENTIAL, to_cbor};
+    use crate::{Bytes, Hash, Multiasset, NonEmptyKeyValuePairs, PositiveCoin, size::CREDENTIAL, to_cbor};
 
     fn any_coin() -> impl Strategy<Value = u64> {
         any::<u64>()
@@ -91,28 +88,28 @@ mod tests {
         any::<[u8; 28]>().prop_map(Hash::from)
     }
 
-    fn any_asset_name() -> impl Strategy<Value = PallasBytes> {
-        prop::collection::vec(any::<u8>(), 0..32).prop_map(PallasBytes::from)
+    fn any_asset_name() -> impl Strategy<Value = Bytes> {
+        prop::collection::vec(any::<u8>(), 0..32).prop_map(Bytes::from)
     }
 
     fn any_positive_coin() -> impl Strategy<Value = PositiveCoin> {
         (1u64..u64::MAX).prop_map(|n| PositiveCoin::try_from(n).unwrap())
     }
 
-    fn any_multiasset() -> impl Strategy<Value = PallasMultiasset<PositiveCoin>> {
-        prop::collection::vec(
-            (any_policy(), prop::collection::vec((any_asset_name(), any_positive_coin()), 1..4)),
+    fn any_multiasset() -> impl Strategy<Value = Multiasset<PositiveCoin>> {
+        prop::collection::btree_map(
+            any_policy(),
+            prop::collection::btree_map(any_asset_name(), any_positive_coin(), 1..4),
             1..4,
         )
         .prop_map(|policies| {
-            let pairs: Vec<_> = policies
+            policies
                 .into_iter()
                 .map(|(policy, assets)| {
-                    let assets = NonEmptyKeyValuePairs::try_from(assets).unwrap();
+                    let assets = NonEmptyKeyValuePairs::try_from(assets.into_iter().collect::<Vec<_>>()).unwrap();
                     (policy, assets)
                 })
-                .collect();
-            NonEmptyKeyValuePairs::try_from(pairs).unwrap()
+                .collect()
         })
     }
 

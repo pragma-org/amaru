@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, RawBlock, from_cbor, size::HEADER};
+use amaru_kernel::{BlockHeader, Hash, HeaderHash, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER};
 use amaru_ouroboros_traits::{DiagnosticChainStore, Nonces};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
-    RocksDBStore,
+    OPCERT_PREFIX, RocksDBStore,
+    base_read_chain_store::decode_opcert_key,
     util::{BLOCK_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX},
 };
 
@@ -38,6 +39,18 @@ impl DiagnosticChainStore for RocksDBStore {
                 from_cbor(&v).map(|nonces| (hash, nonces))
             }
             Err(err) => panic!("error iterating over nonces: {}", err),
+        }))
+    }
+
+    #[allow(clippy::panic)]
+    fn load_opcert_sequence_numbers(&self) -> Box<dyn Iterator<Item = (PoolId, Slot, HeaderHash, u64)> + '_> {
+        Box::new(self.db.prefix_iterator(OPCERT_PREFIX).filter_map(|item| match item {
+            Ok((k, v)) => {
+                let pool_id = PoolId::from(&k[CONSENSUS_PREFIX_LEN..CONSENSUS_PREFIX_LEN + size::POOL_COLD_KEY]);
+                let (slot, hash) = decode_opcert_key(&k).unwrap_or_else(|_| panic!("can't decode the opcert key"));
+                from_cbor(&v).map(|seq: u64| (pool_id, slot, hash, seq))
+            }
+            Err(err) => panic!("error iterating over opcert entries: {}", err),
         }))
     }
 

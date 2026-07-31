@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    LegacyKeyValuePairs, OutputReference, PlutusData, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusStakeAddress,
-    PlutusVotes, PlutusWithdrawals, ScriptContext, ScriptInfo, ScriptPurpose, TxInfo,
+    OutputReference, PlutusData, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusStakeAddress, PlutusVotes,
+    PlutusWithdrawals, ScriptContext, ScriptInfo, ScriptPurpose, TxInfo,
 };
 
 pub mod v1;
@@ -89,14 +89,14 @@ where
     ScriptPurpose<'a>: ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let converted: Result<Vec<_>, _> = self
+        let converted = self
             .values()
             .map(|entry| {
                 Ok((<ScriptPurpose<'_> as ToPlutusData<V>>::to_plutus_data(&entry.purpose)?, entry.data.clone()))
             })
-            .collect();
+            .collect::<Result<Vec<(_, _)>, _>>()?;
 
-        Ok(PlutusData::Map(LegacyKeyValuePairs::Def(converted?)))
+        Ok(PlutusData::Map(converted))
     }
 }
 
@@ -105,7 +105,7 @@ pub mod test_vectors {
     use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
-        Address, MemoizedDatum, MemoizedTransactionOutput, MemoizedValue, TransactionInput, include_json,
+        Address, MemoizedDatum, MemoizedTransactionOutput, MemoizedValue, TransactionInput, Value, include_json,
         utils::serde::hex_to_bytes,
     };
     use serde::Deserialize;
@@ -233,11 +233,14 @@ pub mod test_vectors {
                             Field::Address => {
                                 let string: String = map.next_value()?;
                                 let bytes = hex::decode(string).map_err(serde::de::Error::custom)?;
-                                address = Some(Address::from_bytes(&bytes).map_err(serde::de::Error::custom)?);
+                                address = Some(
+                                    Address::from_bytes(&bytes)
+                                        .ok_or_else(|| serde::de::Error::custom("invalid address"))?,
+                                );
                             }
                             Field::Value => {
                                 let helper: BTreeMap<String, BTreeMap<String, u64>> = map.next_value()?;
-                                value = Some(amaru_kernel::Value::Coin(
+                                value = Some(Value::Coin(
                                     *helper
                                         .get("ada")
                                         .ok_or_else(|| serde::de::Error::missing_field("ada"))?
@@ -295,7 +298,7 @@ pub mod test_vectors {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Bytes, Hash, NonEmptyKeyValuePairs, PositiveCoin};
+    use amaru_kernel::{Bytes, Hash, NonEmptyKeyValuePairs, PositiveCoin, Value};
     use proptest::{
         prelude::{any, prop},
         prop_assert, proptest,
@@ -306,23 +309,20 @@ mod tests {
 
     /// Build a multiasset [`Value`](amaru_kernel::Value) carrying the given lovelace `coin` and one
     /// asset (quantity 100) under each of `policies`.
-    fn multiasset_value(coin: u64, policies: &[[u8; 28]]) -> amaru_kernel::Value {
-        let multiasset = NonEmptyKeyValuePairs::try_from(
-            policies
-                .iter()
-                .map(|policy| {
-                    let assets = NonEmptyKeyValuePairs::try_from(vec![(
-                        Bytes::from(vec![1u8]),
-                        PositiveCoin::try_from(100u64).unwrap(),
-                    )])
-                    .unwrap();
-                    (Hash::from(*policy), assets.as_pallas())
-                })
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
+    fn multiasset_value(coin: u64, policies: &[[u8; 28]]) -> Value {
+        let multiasset = policies
+            .iter()
+            .map(|policy| {
+                let assets = NonEmptyKeyValuePairs::try_from(vec![(
+                    Bytes::from(vec![1u8]),
+                    PositiveCoin::try_from(100u64).unwrap(),
+                )])
+                .unwrap();
+                (Hash::from(*policy), assets)
+            })
+            .collect();
 
-        amaru_kernel::Value::Multiasset(coin, multiasset.as_pallas())
+        Value::Multiasset(coin, multiasset)
     }
 
     #[test]
@@ -330,7 +330,7 @@ mod tests {
         // We should be excluding ADA values with a quantity of zero in Plutus V3
         proptest!(|(policies in prop::collection::vec(any::<[u8; 28]>(), 1..5))| {
             let value = multiasset_value(0, &policies);
-            let plutus_data = <amaru_kernel::Value as ToPlutusData<3>>::to_plutus_data(&value)?;
+            let plutus_data = <Value as ToPlutusData<3>>::to_plutus_data(&value)?;
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {
@@ -360,7 +360,7 @@ mod tests {
             policies in prop::collection::vec(any::<[u8; 28]>(), 1..5)
         )| {
             let value = multiasset_value(ada_amount, &policies);
-            let plutus_data = <amaru_kernel::Value as ToPlutusData<3>>::to_plutus_data(&value)?;
+            let plutus_data = <Value as ToPlutusData<3>>::to_plutus_data(&value)?;
 
             #[allow(clippy::wildcard_enum_match_arm)]
             match plutus_data {

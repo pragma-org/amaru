@@ -14,7 +14,9 @@
 
 use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
+use amaru_kernel::{
+    BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Tip,
+};
 
 use crate::{
     BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
@@ -417,6 +419,14 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
 
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         self.as_ref().get_nonces(header)
+    }
+
+    fn get_latest_opcert_sequence_number(
+        &self,
+        pool_id: &PoolId,
+        header: &BlockHeader,
+    ) -> Result<Option<u64>, StoreError> {
+        self.as_ref().get_latest_opcert_sequence_number(pool_id, header)
     }
 
     fn has_header(&self, hash: &HeaderHash) -> bool {

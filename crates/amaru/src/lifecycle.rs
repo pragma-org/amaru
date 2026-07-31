@@ -23,6 +23,7 @@ use std::{
     time::Duration,
 };
 
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
@@ -35,6 +36,9 @@ pub const SIGNAL_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Exit status used when a termination signal force-exits the process (128 + SIGINT).
 pub const FORCE_EXIT_CODE: i32 = 130;
+
+/// Grace period for draining the Tokio runtime after command and observability teardown.
+pub const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Which Tokio runtime configuration a subcommand should use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,9 +71,14 @@ pub enum FirstSignal {
 }
 
 type CmdFuture = std::pin::Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + 'static>>;
-type CmdWork = Box<dyn FnOnce(ShutdownHandle) -> CmdFuture + Send>;
+type CmdWork = Box<dyn FnOnce(ShutdownHandle, Option<SdkMeterProvider>) -> CmdFuture + Send>;
 
 /// A fully resolved leaf subcommand ready to run under the process lifecycle.
+///
+/// Construct via [`Runnable::soft`] / [`Runnable::exit_on_signal`], then:
+/// 1. [`Self::build_runtime`] — create the Tokio runtime for this command
+/// 2. Set up observability while that runtime is current ([`Runtime::enter`])
+/// 3. [`Self::run_on`] — bind metrics and drive the command future on that runtime
 pub struct Runnable {
     runtime: RuntimeKind,
     first_signal: FirstSignal,
@@ -78,16 +87,17 @@ pub struct Runnable {
 
 impl Runnable {
     /// Soft shutdown on first signal. The work closure receives a [`ShutdownHandle`] so the
-    /// command can register abort hooks and await cancellation.
+    /// command can register abort hooks and await cancellation, plus any meter provider
+    /// produced by observability setup (only used by long-running commands).
     pub fn soft<F, Fut>(runtime: RuntimeKind, work: F) -> Self
     where
-        F: FnOnce(ShutdownHandle) -> Fut + Send + 'static,
+        F: FnOnce(ShutdownHandle, Option<SdkMeterProvider>) -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), Box<dyn Error>>> + 'static,
     {
         Self {
             runtime,
             first_signal: FirstSignal::SoftShutdown,
-            work: Box::new(move |shutdown| Box::pin(work(shutdown))),
+            work: Box::new(move |shutdown, metrics| Box::pin(work(shutdown, metrics))),
         }
     }
 
@@ -99,12 +109,37 @@ impl Runnable {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), Box<dyn Error>>> + 'static,
     {
-        Self { runtime, first_signal: FirstSignal::ImmediateExit, work: Box::new(move |_shutdown| Box::pin(work())) }
+        Self {
+            runtime,
+            first_signal: FirstSignal::ImmediateExit,
+            work: Box::new(move |_shutdown, _metrics| Box::pin(work())),
+        }
     }
 
+    pub fn build_runtime(&self) -> io::Result<Runtime> {
+        self.runtime.build()
+    }
+
+    /// Drive this command on an already-built runtime (observability must already be set up).
+    ///
+    /// Does **not** shut down `rt`; the caller tears down observability and then the runtime.
+    pub fn run_on(
+        self,
+        rt: &Runtime,
+        signals: &SignalState,
+        metrics: Option<SdkMeterProvider>,
+    ) -> Result<(), Box<dyn Error>> {
+        run_until_exit(rt, signals, self.first_signal, self.work, metrics)
+    }
+
+    /// Build a runtime, run the command with no meter provider, then shut the runtime down.
+    ///
+    /// Prefer the explicit build → observability → [`Self::run_on`] sequence in the binary.
     pub fn run(self, signals: &SignalState) -> Result<(), Box<dyn Error>> {
-        let rt = self.runtime.build()?;
-        run_until_exit(rt, signals, self.first_signal, self.work)
+        let rt = self.build_runtime()?;
+        let result = self.run_on(&rt, signals, None);
+        rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
+        result
     }
 }
 
@@ -180,11 +215,15 @@ pub fn runtime_node() -> io::Result<Runtime> {
 /// `Box<dyn Error>` command results do not need to be `Send` through `tokio::spawn`.
 ///
 /// Signal policy is controlled by [`FirstSignal`].
+///
+/// The runtime is **not** shut down here so the caller can tear down observability on the same
+/// runtime after the command completes.
 pub fn run_until_exit(
-    rt: Runtime,
+    rt: &Runtime,
     signals: &SignalState,
     first_signal: FirstSignal,
     work: CmdWork,
+    metrics: Option<SdkMeterProvider>,
 ) -> Result<(), Box<dyn Error>> {
     let shutdown = ShutdownHandle::new();
     let shutdown_work = shutdown.clone();
@@ -194,7 +233,7 @@ pub fn run_until_exit(
     let worker = thread::Builder::new()
         .name("amaru-cmd".into())
         .spawn(move || {
-            let result = handle.block_on(work(shutdown_work));
+            let result = handle.block_on(work(shutdown_work, metrics));
             let _ = result_tx.send(result.map_err(|err| err.to_string()));
         })
         .map_err(|e| format!("failed to spawn command worker thread: {e}"))?;
@@ -241,9 +280,6 @@ pub fn run_until_exit(
         }
     }
 
-    // Shut down the runtime after the command future completed (or panicked).
-    rt.shutdown_timeout(Duration::from_secs(5));
-
     result.map_err(|msg| msg.into())
 }
 
@@ -266,7 +302,7 @@ mod tests {
             signals2.shared_count().fetch_add(1, Ordering::SeqCst);
         });
 
-        let result = Runnable::soft(RuntimeKind::Simple, move |shutdown| {
+        let result = Runnable::soft(RuntimeKind::Simple, move |shutdown, _metrics| {
             let aborts2 = aborts2;
             async move {
                 shutdown.register_abort(move || {

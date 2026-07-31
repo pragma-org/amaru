@@ -12,13 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::PlutusScript;
+use crate::{Bytes, ToBytes, cbor};
 
-use crate::{ToBytes, cbor};
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(transparent)]
+pub struct PlutusScript<const VERSION: usize>(#[n(0)] pub Bytes);
 
 /// Unwrap the CBOR bytestring envelope to get the raw flat-encoded program bytes.
 impl<const V: usize> ToBytes for PlutusScript<V> {
     fn to_bytes(&self) -> Result<&[u8], cbor::decode::Error> {
         cbor::Decoder::new(&self.0).bytes()
+    }
+}
+
+impl<const VERSION: usize> AsRef<[u8]> for PlutusScript<VERSION> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_slice()
     }
 }

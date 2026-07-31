@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Anchor, StakeCredential, StrictMaybe, cbor};
+use crate::{Anchor, StakeCredential, cbor, utils::cbor::SerialisedAsArray};
 
 #[derive(Debug)]
 pub enum ConstitutionalCommitteeMemberStatus {
     DelegatedToHotCredential(StakeCredential),
-    Resigned(StrictMaybe<Anchor>),
+    Resigned(Option<Anchor>),
 }
 
 impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeMemberStatus {
@@ -29,7 +29,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeMemberStatus 
             }
             1 => {
                 assert_len(2)?;
-                Ok(Self::Resigned(d.decode_with(ctx)?))
+                Ok(Self::Resigned(d.decode_with::<_, SerialisedAsArray<_>>(ctx)?.0))
             }
             t => Err(cbor::decode::Error::message(format!(
                 "unexpected ConstitutionalCommitteeMemberStatus variant: {t}; expected 0 or 1."

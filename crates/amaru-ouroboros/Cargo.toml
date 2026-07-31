@@ -17,7 +17,6 @@ categories.workspace = true
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
-ed25519-dalek.workspace = true
 getrandom = { workspace = true, features = ["wasm_js"] }
 hex.workspace = true
 kes-summed-ed25519.workspace = true
@@ -41,7 +40,6 @@ ignored = ["getrandom", "amaru-deps"]
 # External dependencies ───────────────────────────────────────────────────────┐
 ctor.workspace = true
 insta = { workspace = true, features = ["yaml"] }
-pallas-traverse.workspace = true
 proptest.workspace = true
 rand.workspace = true
 rayon.workspace = true
@@ -51,6 +49,6 @@ tracing-subscriber.workspace = true
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [
-    "alloc",
-    "libm",
+  "alloc",
+  "libm",
 ] }

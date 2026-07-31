@@ -12,7 +12,66 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_addresses::Network;
+use std::fmt;
+
+use crate::cbor;
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    std::hash::Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    cbor::Encode,
+    cbor::Decode,
+)]
+#[cbor(index_only)]
+pub enum Network {
+    #[n(0)]
+    Testnet,
+    #[n(1)]
+    Mainnet,
+}
+
+impl fmt::Display for Network {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Testnet => "testnet",
+                Self::Mainnet => "mainnet",
+            }
+        )
+    }
+}
+
+impl From<Network> for u8 {
+    fn from(network: Network) -> u8 {
+        match network {
+            Network::Testnet => 0,
+            Network::Mainnet => 1,
+        }
+    }
+}
+
+impl TryFrom<u8> for Network {
+    type Error = ();
+
+    fn try_from(i: u8) -> Result<Self, Self::Error> {
+        match i {
+            0 => Ok(Self::Testnet),
+            1 => Ok(Self::Mainnet),
+            _ => Err(()),
+        }
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
@@ -20,17 +79,9 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use super::*;
+    use super::Network;
 
-    prop_compose! {
-        pub fn any_network()(
-            is_testnet in any::<bool>(),
-        ) -> Network {
-            if is_testnet {
-                Network::Testnet
-            } else {
-                Network::Mainnet
-            }
-        }
+    pub fn any_network() -> impl Strategy<Value = Network> {
+        prop_oneof![Just(Network::Testnet), Just(Network::Mainnet)]
     }
 }

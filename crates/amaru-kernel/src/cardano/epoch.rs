@@ -33,7 +33,7 @@ impl Epoch {
     pub const TWO: &'static Self = &Self(2);
     pub const THREE: &'static Self = &Self(3);
 
-    pub fn new(epoch: u64) -> Self {
+    pub const fn new(epoch: u64) -> Self {
         Self(epoch)
     }
 

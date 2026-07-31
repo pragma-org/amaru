@@ -18,13 +18,13 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        Anchor, ComparableProposalId, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
+        Anchor, DRepRegistration, Epoch, EraHistory, Hash, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
         TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
         any_stake_credential,
     };
     use amaru_ledger::{
-        epoch_transition::GovernanceActivity,
+        epoch_transition::{GovernanceActivity, pools_updates::PoolCertificates},
         state::volatile::Resettable,
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext,
@@ -81,11 +81,11 @@ pub mod tests {
         // utxos
         let txin = any_txin().new_tree(runner).unwrap().current();
         let output = any_memoized_transaction_output().new_tree(runner).unwrap().current();
-        let utxos_iter = std::iter::once((txin.clone(), output.clone()));
+        let utxos_iter = std::iter::once((txin, output.clone()));
 
         // accounts
         let account_key = any_stake_credential().new_tree(runner).unwrap().current();
-        let account_key_clone = account_key.clone();
+        let account_key_clone = account_key;
 
         let account_row =
             amaru_ledger::store::columns::accounts::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
@@ -116,7 +116,7 @@ pub mod tests {
         let deposit = any_lovelace().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 
-        let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit, pool_epoch));
+        let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit));
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
@@ -132,7 +132,7 @@ pub mod tests {
         let registered_at = drep_row.registered_at;
 
         let drep_iter = std::iter::once((
-            drep_key.clone(),
+            drep_key,
             (
                 Resettable::Set(anchor),
                 Some(DRepRegistration { deposit, registered_at, valid_until: drep_row.valid_until }),
@@ -142,10 +142,10 @@ pub mod tests {
         // proposals (Does not generate proposal row on Windows due to stack overflow)
         #[cfg(not(target_os = "windows"))]
         let (proposal_iter, proposal_key, proposal_row) = {
-            let proposal_key = ComparableProposalId::from(any_proposal_id().new_tree(runner).unwrap().current());
+            let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
             let proposal_row =
                 amaru_ledger::store::columns::proposals::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
-            (std::iter::once((proposal_key.clone(), proposal_row.clone())), proposal_key, proposal_row)
+            (std::iter::once((proposal_key, proposal_row.clone())), proposal_key, proposal_row)
         };
 
         #[cfg(target_os = "windows")]
@@ -161,10 +161,10 @@ pub mod tests {
         // Ensure hot_credential is always Some
         cc_member_row.hot_credential.get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current());
 
-        let hot_credential = cc_member_row.hot_credential.clone().unwrap();
+        let hot_credential = cc_member_row.hot_credential.unwrap();
 
         let cc_members_iter =
-            std::iter::once((cc_member_key.clone(), (Resettable::Set(hot_credential), Resettable::Unchanged)));
+            std::iter::once((cc_member_key, (Resettable::Set(hot_credential), Resettable::Unchanged)));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot, Hash::from([0u8; 32]));
@@ -255,7 +255,7 @@ pub mod tests {
         let stored_pool = stored_pool.unwrap();
 
         assert_eq!(stored_pool.current_params, fixture.pool_params, "current pool params mismatch");
-        assert_eq!(stored_pool.future_params, vec![], "future pool params mismatch");
+        assert!(stored_pool.pending_certificates.is_empty(), "pending pool certificates mismatch");
     }
 
     pub fn test_read_drep(store: &impl ReadStore, fixture: &Fixture) {
@@ -294,7 +294,7 @@ pub mod tests {
         let point = Point::Origin;
 
         let remove = Columns {
-            utxo: std::iter::once(fixture.txin.clone()),
+            utxo: std::iter::once(fixture.txin),
             pools: std::iter::empty(),
             accounts: std::iter::empty(),
             dreps: std::iter::empty(),
@@ -326,7 +326,7 @@ pub mod tests {
         let remove = Columns {
             utxo: std::iter::empty(),
             pools: std::iter::empty(),
-            accounts: std::iter::once(fixture.account_key.clone()),
+            accounts: std::iter::once(fixture.account_key),
             dreps: std::iter::empty(),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
@@ -376,13 +376,9 @@ pub mod tests {
         )?;
         context.commit()?;
 
-        assert!(
-            store
-                .pool(&fixture.pool_params.id)?
-                .expect("Expected pool row")
-                .future_params
-                .iter()
-                .any(|(p, e)| p.is_none() && *e == fixture.pool_epoch),
+        assert_eq!(
+            store.pool(&fixture.pool_params.id)?.expect("Expected pool row").pending_certificates,
+            PoolCertificates::default().with_retirement(fixture.pool_epoch),
             "Expected pool to be scheduled for removal"
         );
 
@@ -402,7 +398,7 @@ pub mod tests {
             utxo: std::iter::empty(),
             pools: std::iter::empty(),
             accounts: std::iter::empty(),
-            dreps: std::iter::once((fixture.drep_key.clone(), drep_registered_at)),
+            dreps: std::iter::once((fixture.drep_key, drep_registered_at)),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
             votes: std::iter::empty(),

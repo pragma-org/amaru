@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, ops::Deref};
 
-use crate::{KeepRaw, cbor};
+use crate::cbor;
 
 /// A read-only non-empty set: unique set of values with at least one element.
 ///
@@ -51,13 +51,6 @@ impl<T: Eq> TryFrom<Vec<T>> for NonEmptySet<T> {
         }
 
         Ok(Self(vec))
-    }
-}
-
-impl<T: Eq> From<NonEmptySet<KeepRaw<'_, T>>> for NonEmptySet<T> {
-    fn from(value: NonEmptySet<KeepRaw<'_, T>>) -> Self {
-        let inner = value.0.into_iter().map(|x| x.unwrap()).collect();
-        Self(inner)
     }
 }
 

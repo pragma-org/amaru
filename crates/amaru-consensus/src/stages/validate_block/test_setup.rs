@@ -15,7 +15,8 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq,
+    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip,
+    cardano::block_header::make_block_header_with_op_cert_seq, make_header,
 };
 use amaru_ouroboros_traits::{
     MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
@@ -45,15 +46,6 @@ use crate::{
 
 pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
     BlockHeader::from(make_header(block_number, slot, parent))
-}
-
-pub fn make_block_header_with_op_cert_seq(
-    block_number: u64,
-    slot: u64,
-    parent: Option<HeaderHash>,
-    op_cert_seq: u64,
-) -> BlockHeader {
-    BlockHeader::from(make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq))
 }
 
 /// Header tree for testing validate_block2 control flow.

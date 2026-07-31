@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ProtocolParameters, TransactionInput, cardano::memoized::script_size};
+use amaru_kernel::{ProtocolParameters, TransactionInput};
 
 use super::InvalidBlockDetails;
 use crate::context::UtxoSlice;
@@ -49,7 +49,7 @@ where
         if let Some(output) = context.lookup(input)
             && let Some(script) = output.script.as_ref()
         {
-            total += script_size(script);
+            total += script.len();
         }
     }
     if total > allowed {

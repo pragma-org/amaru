@@ -24,13 +24,12 @@ pub struct MockLedgerState {
     pub vrf_vkey_hash: Hash<VRF_KEY>,
     pub stake: Lovelace,
     pub active_stake: Lovelace,
-    pub op_certs: BTreeMap<PoolId, u64>,
 }
 
 impl MockLedgerState {
     #[expect(clippy::unwrap_used)]
     pub fn new(vrf_vkey_hash: &str, stake: Lovelace, active_stake: Lovelace) -> Self {
-        Self { vrf_vkey_hash: vrf_vkey_hash.parse().unwrap(), stake, active_stake, op_certs: Default::default() }
+        Self { vrf_vkey_hash: vrf_vkey_hash.parse().unwrap(), stake, active_stake }
     }
 
     /// Build a PoolSummaries that will return the mocked data for the specified pool at epoch 0.

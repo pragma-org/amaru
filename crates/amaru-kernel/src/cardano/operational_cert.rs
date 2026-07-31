@@ -12,4 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::OperationalCert;
+use crate::{Bytes, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct OperationalCert {
+    #[n(0)]
+    pub operational_cert_hot_vkey: Bytes,
+
+    #[n(1)]
+    pub operational_cert_sequence_number: u64,
+
+    #[n(2)]
+    pub operational_cert_kes_period: u64,
+
+    #[n(3)]
+    pub operational_cert_sigma: Bytes,
+}

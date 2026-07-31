@@ -833,7 +833,7 @@ mod cmp_tip_unit_tests {
     use std::cmp::Ordering;
 
     use amaru_kernel::{
-        BlockHeader, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, VrfCert, size::BLOCK_BODY,
+        BlockHeader, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, VrfCert, size::BLOCK_BODY, to_cbor,
     };
 
     fn make_test_header(
@@ -843,7 +843,7 @@ mod cmp_tip_unit_tests {
         op_cert_seq: u64,
         vrf: &[u8],
     ) -> BlockHeader {
-        let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash_cbor(&vec![block_number, slot]);
+        let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash(&to_cbor(&vec![block_number, slot]));
 
         let header = Header {
             header_body: HeaderBody {
@@ -852,7 +852,7 @@ mod cmp_tip_unit_tests {
                 prev_hash,
                 issuer_vkey: Bytes::from(vec![]),
                 vrf_vkey: Bytes::from(vec![]),
-                vrf_result: VrfCert(Bytes::from(vrf.to_vec()), Bytes::from(vec![])),
+                vrf_result: VrfCert { output: Bytes::from(vrf.to_vec()), proof: Bytes::from(vec![]) },
                 block_body_size: 0,
                 block_body_hash: block_hash,
                 operational_cert: OperationalCert {

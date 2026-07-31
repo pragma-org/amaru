@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+
+PackageIdentifier: PRAGMA.Amaru
+PackageVersion: 10.11.20260730
+PackageLocale: en-US
+Publisher: PRAGMA
+PublisherUrl: https://github.com/pragma-org/amaru
+PublisherSupportUrl: https://github.com/pragma-org/amaru/issues
+PackageName: Amaru
+PackageUrl: https://github.com/pragma-org/amaru
+Moniker: amaru
+License: Apache-2.0
+ShortDescription: A fully open source Cardano node written in Rust.
+Tags:
+  - cardano
+  - blockchain
+  - node
+  - ouroboros
+  - rust
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0

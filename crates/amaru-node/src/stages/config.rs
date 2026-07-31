@@ -155,7 +155,7 @@ pub struct LedgerConfig {
 
 impl LedgerConfig {
     pub fn to_consensus_parameters(&self) -> ConsensusParameters {
-        ConsensusParameters::new(self.global_parameters.clone(), self.era_history(), Default::default())
+        ConsensusParameters::new(self.global_parameters.clone(), self.era_history())
     }
 
     pub fn era_history(&self) -> &EraHistory {

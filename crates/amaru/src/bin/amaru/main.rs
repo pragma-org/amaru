@@ -16,7 +16,8 @@ use std::{error::Error, process::ExitCode, time::Duration};
 
 use amaru::{
     exit::install_termination_signals,
-    observability::{Color, setup_observability},
+    lifecycle::RUNTIME_SHUTDOWN_TIMEOUT,
+    observability::{Color, ObservabilityHints, setup_observability},
     panic::panic_handler,
     version,
 };
@@ -46,21 +47,50 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     let signals = install_termination_signals().map_err(|e| format!("failed to install signal handlers: {e}"))?;
 
     let color_enabled = Color::is_enabled(cli.color);
+    let with_open_telemetry = cli.with_open_telemetry;
+    let with_json_traces = cli.with_json_traces;
+    let skip_logging = cli.command.skip_logging();
+    // Capture observability hints before the command is consumed into a Runnable.
+    let listen_address = cli.command.listen_address().map(str::to_owned);
 
-    let (metrics, teardown) = if cli.command.skip_logging() {
+    // Resolve the subcommand into a Runnable so we know which Tokio runtime to build.
+    // Work is not started yet: the future is only created inside `run_on` after observability
+    // is set up on that same runtime.
+    let runnable = cli.command.into_runnable();
+    let rt = runnable.build_runtime().map_err(|e| format!("failed to build Tokio runtime: {e}"))?;
+
+    let (metrics, teardown) = if skip_logging {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn Error>> + Send>)
     } else {
-        let (m, t) = setup_observability(cli.with_open_telemetry, cli.with_json_traces, color_enabled, &cli.command);
-        (Some(m), t)
+        // OpenTelemetry batch exporters require a current Tokio runtime.
+        let _enter = rt.enter();
+        setup_observability(
+            with_open_telemetry,
+            with_json_traces,
+            color_enabled,
+            &ListenAddressHint(listen_address.as_deref()),
+        )
     };
 
-    let result = cli.command.into_runnable(metrics.unwrap_or(None)).run(&signals);
+    let result = runnable.run_on(&rt, &signals, metrics);
 
+    // Keep the runtime alive while OTEL providers flush (their batch tasks were spawned on it).
     if let Err(report) = run_teardown_with_timeout(teardown, Duration::from_secs(10)) {
         eprintln!("Failed to teardown tracing: {report}");
     }
 
+    rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
+
     result
+}
+
+/// Thin adapter so we can pass a captured listen address after the clap command is consumed.
+struct ListenAddressHint<'a>(Option<&'a str>);
+
+impl ObservabilityHints for ListenAddressHint<'_> {
+    fn listen_address(&self) -> Option<&str> {
+        self.0
+    }
 }
 
 fn run_teardown_with_timeout(

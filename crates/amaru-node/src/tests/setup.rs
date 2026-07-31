@@ -24,7 +24,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::{BlockHeight, ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Tip, Transaction};
 use amaru_ouroboros::{
-    BaseReadChainStore, ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateTxs,
+    BaseReadChainStore, ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateTxs, Nonces,
     PoolSummaries, ResourceMempool, has_stake_pools::MockHasStakePools,
 };
 use amaru_protocols::{
@@ -67,7 +67,9 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
 
         let mut running = stage_graph.run();
         // Don't validate the generated headers, we just want to check the mini-protocols communication.
-        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+            OverrideResult::handled(Ok(Nonces::for_tests()))
+        });
 
         nodes.push(Node::new(config, running, test_node_stages));
     }
@@ -160,7 +162,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
         Action::RollForward { header, .. } => {
             tracing::info!(point = %header.point(), "rollforward");
             store
-                .store_header(header)
+                .store_validated_header(header, &Nonces::for_tests())
                 .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot store the header {}: {e:?}. The seed is {seed}", &header);
                 })
@@ -208,7 +210,7 @@ fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph
     let era = NetworkName::Preprod.as_era_history().unwrap();
     #[expect(clippy::expect_used)]
     let global = NetworkName::Preprod.as_global_parameters().cloned().expect("global parameters for preprod");
-    let cp = Arc::new(ConsensusParameters::new(global, era, Default::default()));
+    let cp = Arc::new(ConsensusParameters::new(global, era));
     stage_graph.resources().put::<ResourceConsensusParameters>(cp);
     stage_graph.resources().put::<ResourceEraHistory>(era.clone());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));

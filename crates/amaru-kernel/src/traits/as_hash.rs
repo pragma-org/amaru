@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
-use sha3::{Digest, Sha3_256};
-
-use crate::{BootstrapWitness, Hash, Hasher, StakeCredential, Voter, size::CREDENTIAL};
+use crate::{Hash, StakeCredential, Voter, size::CREDENTIAL};
 
 pub trait AsHash<const SIZE: usize> {
     fn as_hash(&self) -> Hash<SIZE>;
@@ -40,22 +36,5 @@ impl AsHash<28> for Voter {
             | Self::ConstitutionalCommitteeScript(hash)
             | Self::StakePoolKey(hash) => *hash,
         }
-    }
-}
-
-impl AsHash<28> for BootstrapWitness {
-    /// Construct the bootstrap root from a bootstrap witness
-    fn as_hash(&self) -> Hash<CREDENTIAL> {
-        // CBOR header for data that will be encoded
-        let prefix: &[u8] = &[131, 0, 130, 0, 88, 64];
-
-        let mut sha_hasher = Sha3_256::new();
-        sha_hasher.update(prefix);
-        sha_hasher.update(self.public_key.deref());
-        sha_hasher.update(self.chain_code.deref());
-        sha_hasher.update(self.attributes.deref());
-
-        let sha_digest = sha_hasher.finalize();
-        Hasher::<224>::hash(&sha_digest)
     }
 }

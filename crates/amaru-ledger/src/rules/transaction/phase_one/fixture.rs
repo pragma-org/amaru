@@ -242,7 +242,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
             PhaseOneError::Inputs(InvalidInputs::RefScriptSizeTooBig { .. }) => Predicate::ConwayTxRefScriptsSizeTooBig,
             PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
-            PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
+            PhaseOneError::InvalidNetwork { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
                 Predicate::OutsideValidityIntervalUTxO
@@ -297,8 +297,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. }) => {
                 Predicate::IncorrectTotalCollateralField
             }
-            PhaseOneError::Inputs(_)
-            | PhaseOneError::Metadata(_)
+            PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Withdrawals(_)

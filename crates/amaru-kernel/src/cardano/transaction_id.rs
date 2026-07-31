@@ -15,14 +15,13 @@
 use std::{
     fmt,
     fmt::{Display, Formatter},
+    ops::Deref,
 };
 
-use pallas_crypto::hash::Hash;
-
-use crate::{cbor, size::TRANSACTION_BODY};
+use crate::{Hash, cbor, size::TRANSACTION_BODY};
 
 /// Identifier for a transaction. This is the hash of the transaction body bytes.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 #[repr(transparent)]
 pub struct TransactionId(Hash<{ TRANSACTION_BODY }>);
 
@@ -38,8 +37,16 @@ impl TransactionId {
     }
 }
 
-impl AsRef<Hash<{ TRANSACTION_BODY }>> for TransactionId {
-    fn as_ref(&self) -> &Hash<{ TRANSACTION_BODY }> {
+impl Display for TransactionId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl Deref for TransactionId {
+    type Target = Hash<{ TRANSACTION_BODY }>;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
@@ -48,22 +55,14 @@ impl cbor::Encode<()> for TransactionId {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
-        _ctx: &mut (),
+        ctx: &mut (),
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.encode(self.0)?;
-        Ok(())
+        self.deref().encode(e, ctx)
     }
 }
 
 impl<'b> cbor::Decode<'b, ()> for TransactionId {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
-        let hash = Hash::<{ TRANSACTION_BODY }>::decode(d, _ctx)?;
-        Ok(TransactionId(hash))
-    }
-}
-
-impl Display for TransactionId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(self.0))
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
+        d.decode_with(ctx).map(Self)
     }
 }

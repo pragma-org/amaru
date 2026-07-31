@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod chain_sync_client;
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
@@ -29,16 +27,18 @@ use amaru_kernel::{
 };
 use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
 use amaru_observability::{error, info};
-use amaru_ouroboros::{ChainStore, Nonces, WriteChainStore};
+use amaru_ouroboros::{ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
 use amaru_progress_bar::TerminalProgressBar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
-use chain_sync_client::ChainSyncClient;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use tar::Archive;
 use tokio::{fs as async_fs, time::timeout};
 use zstd::Decoder as ZstdDecoder;
+
+mod chain_sync_client;
+use chain_sync_client::ChainSyncClient;
 
 use crate::{
     aws::{AnonymousS3Client, S3Config},
@@ -434,9 +434,10 @@ pub async fn bootstrap(
     .await?;
 
     let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone()))?;
-    let initial_nonces =
-        imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
-    store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
+    let chain_state = imported_third_snapshot
+        .chain_state
+        .ok_or("bootstrap import must produce the chain state for the latest snapshot")?;
+    store_chain_state(imported_third_snapshot.epoch, &chain_db, chain_state)?;
     let blocks = load_packaged_blocks_for_bootstrap(
         &second_snapshot_path,
         second_snapshot,
@@ -509,21 +510,14 @@ fn require_single_packaged_block(mut hex_blocks: Vec<String>, snapshot_path: &Pa
     Ok(hex_blocks.remove(0))
 }
 
-fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let buf = <&str>::deserialize(deserializer)?;
-    Point::try_from(buf).map_err(|e| serde::de::Error::custom(format!("cannot convert vector to point: {:?}", e)))
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainState {
+    pub initial_nonces: InitialNonces,
+    pub opcert_sequence_numbers: OpcertSequenceNumbers,
 }
 
-fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&point.to_string())
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InitialNonces {
-    #[serde(serialize_with = "serialize_point", deserialize_with = "deserialize_point")]
     pub at: Point,
     pub active: Nonce,
     pub evolving: Nonce,
@@ -531,7 +525,8 @@ pub struct InitialNonces {
     pub tail: HeaderHash,
 }
 
-pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNonces) -> Result<(), Box<dyn Error>> {
+pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainState) -> Result<(), Box<dyn Error>> {
+    let initial_nonces = chain_state.initial_nonces;
     let header_hash = Hash::from(&initial_nonces.at);
 
     info!(bootstrap::nonces::IMPORT, point = %initial_nonces.at);
@@ -545,6 +540,9 @@ pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNo
     };
 
     db.put_nonces(&header_hash, &nonces)?;
+
+    info!(bootstrap::opcert_sequence_numbers::IMPORT, point = %initial_nonces.at);
+    db.put_opcert_seed(&chain_state.opcert_sequence_numbers, &initial_nonces.at)?;
 
     Ok(())
 }
@@ -611,7 +609,7 @@ pub enum ImportError {
 
 struct ImportedSnapshot {
     epoch: Epoch,
-    initial_nonces: Option<InitialNonces>,
+    chain_state: Option<ChainState>,
 }
 
 async fn import_snapshot(
@@ -698,7 +696,7 @@ async fn import_node_snapshot_source(
     let builder = std::thread::Builder::new().stack_size(10_000_000);
     let mut accounts = recently_unregistered_accounts.clone();
 
-    let (db, epoch, initial_nonces, accounts) = builder
+    let (db, epoch, chain_state, accounts) = builder
         .spawn(move || {
             import_node_snapshot_archive_data(
                 &archive_path,
@@ -709,7 +707,7 @@ async fn import_node_snapshot_source(
                 &mut accounts,
             )
             .map_err(|e| e.to_string())
-            .map(|(epoch, _point, initial_nonces)| (db, epoch, initial_nonces, accounts))
+            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state, accounts))
         })
         .unwrap()
         .join()
@@ -721,7 +719,7 @@ async fn import_node_snapshot_source(
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    Ok(ImportedSnapshot { epoch, initial_nonces })
+    Ok(ImportedSnapshot { epoch, chain_state })
 }
 
 fn import_node_snapshot_archive_data(
@@ -731,7 +729,7 @@ fn import_node_snapshot_archive_data(
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
     accounts: &mut BTreeSet<StakeCredential>,
-) -> Result<(Epoch, Point, Option<InitialNonces>), Box<dyn Error>> {
+) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn Error>> {
     let mut state = Cursor::new(read_snapshot_archive_entry(archive_path, Path::new(SNAPSHOT_STATE_FILE_NAME))?);
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);

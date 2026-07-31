@@ -27,7 +27,7 @@ use amaru::{
 };
 use amaru_consensus::{block_validator::BlockValidator, store::PraosChainStore};
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, NetworkName, Point, RawBlock,
+    BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, Hash, IsHeader, NetworkName, Point, RawBlock,
     cardano::network_block::NetworkBlock, to_cbor,
 };
 use amaru_node::stages::{
@@ -111,7 +111,7 @@ fn create_praos_chain_store(
     chain_store: Arc<dyn ChainStore>,
     era_history: &EraHistory,
 ) -> PraosChainStore {
-    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters, era_history, Default::default()));
+    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters, era_history));
     PraosChainStore::new(consensus_parameters, chain_store)
 }
 
@@ -166,22 +166,28 @@ async fn process_block(
     let network_block = NetworkBlock::try_from(raw_block)?;
     let block = network_block.decode_block()?;
     let block_header = BlockHeader::from(&block.header);
-    chain_store.store_header(&block_header)?;
     chain_store.store_block(&point.hash(), &network_block.raw_block())?;
-    let epoch_nonce = praos_chain_store.evolve_nonce(&block_header)?;
+    let nonces = praos_chain_store.evolve_nonce(&block_header)?;
 
     {
         let summaries = pool_summaries.read().unwrap();
+        let pool_id = block_header.pool_id();
+        let last_opcert_sequence_number = chain_store.get_latest_opcert_sequence_number(&pool_id, &block_header)?;
+        let pool_summary = summaries
+            .get_pool(block_header.slot(), &pool_id, era_history)?
+            .ok_or_else(|| anyhow!("unknown pool: {pool_id:?}"))?;
         header::assert_all(
             consensus_parameters,
             block_header.header(),
             to_cbor(&block_header.header_body()).as_slice(),
-            &summaries,
-            era_history,
-            &epoch_nonce.active,
+            last_opcert_sequence_number,
+            &pool_summary,
+            &nonces.active,
         )
         .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
     }
+
+    chain_store.store_validated_header(&block_header, &nonces)?;
 
     // Verify block content
     block_validator
@@ -209,8 +215,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .as_global_parameters()
         .ok_or_else(|| anyhow!("missing default GlobalParameters for network: {network}"))?;
 
-    let consensus_parameters =
-        Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history, Default::default()));
+    let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), era_history));
 
     let chain_store: Arc<dyn ChainStore> = Arc::new(RocksDBStore::open(&RocksDbConfig::new(chain_dir))?);
     let praos_chain_store = create_praos_chain_store(global_parameters.clone(), chain_store.clone(), era_history);

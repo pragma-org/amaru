@@ -12,4 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::Multiasset;
+use std::collections::BTreeMap;
+
+use crate::{AssetName, Hash, NonEmptyKeyValuePairs, size::SCRIPT};
+
+pub type Multiasset<A> = BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>;

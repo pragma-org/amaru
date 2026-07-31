@@ -12,16 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::RedeemerTag;
+use std::fmt;
 
-// TODO: replace with IntoString instance
-pub fn redeemer_tag_to_string(purpose: &RedeemerTag) -> String {
-    match purpose {
-        RedeemerTag::Spend => "Spend".to_string(),
-        RedeemerTag::Mint => "Mint".to_string(),
-        RedeemerTag::Cert => "Cert".to_string(),
-        RedeemerTag::Reward => "Reward".to_string(),
-        RedeemerTag::Vote => "Vote".to_string(),
-        RedeemerTag::Propose => "Propose".to_string(),
+use crate::cbor;
+
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode,
+)]
+#[cbor(index_only)]
+pub enum RedeemerTag {
+    #[n(0)]
+    Spend,
+    #[n(1)]
+    Mint,
+    #[n(2)]
+    Cert,
+    #[n(3)]
+    Reward,
+    #[n(4)]
+    Vote,
+    #[n(5)]
+    Propose,
+}
+
+impl fmt::Display for RedeemerTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Spend => "Spend",
+            Self::Mint => "Mint",
+            Self::Cert => "Cert",
+            Self::Reward => "Reward",
+            Self::Vote => "Vote",
+            Self::Propose => "Propose",
+        })
     }
 }

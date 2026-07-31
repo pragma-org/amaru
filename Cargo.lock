@@ -292,24 +292,24 @@ version = "0.1.2"
 dependencies = [
  "amaru-deps",
  "amaru-minicbor-extra",
+ "anyhow",
+ "base58",
  "bech32 0.12.0",
  "bytes",
  "cbor4ii",
  "clap",
+ "crc",
  "criterion",
+ "cryptoxide 0.6.1",
  "dashu-base",
  "dashu-int",
+ "ed25519-dalek 3.0.0",
  "getrandom 0.3.4",
  "hex",
  "insta",
  "itertools 0.15.0",
  "minicbor",
  "num",
- "pallas-addresses",
- "pallas-codec",
- "pallas-crypto",
- "pallas-primitives",
- "pallas-traverse",
  "proptest",
  "rand 0.9.5",
  "serde",
@@ -520,12 +520,10 @@ dependencies = [
  "amaru-pure-stage",
  "amaru-vrf-dalek",
  "ctor",
- "ed25519-dalek 3.0.0",
  "getrandom 0.3.4",
  "hex",
  "insta",
  "num",
- "pallas-traverse",
  "proptest",
  "rand 0.9.5",
  "rayon",
@@ -1490,9 +1488,9 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcdb4c7013139a150f9fc55d123186dbfaba0d912817466282c73ac49e71fb45"
+checksum = "c20659f9bbee16cbbd2f7393e40ab6309f5a98f76a2eb57a995ec508b72387fe"
 dependencies = [
  "cc",
  "glob",
@@ -2038,9 +2036,9 @@ checksum = "0c567dc35857fdfce3f1f0b9f843e6481820c043614ca0db3872ca9df340ba4b"
 
 [[package]]
 name = "ctor"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2e30e509674ef0ec91e21a7735766db37d163d46151b6a361d8b83dd79116bd"
+checksum = "e9bb72bb94fdc1bd619f4c18cc91ecf6302aeb333d31b3c6ec0bb841cd920209"
 dependencies = [
  "link-section",
  "linktime-proc-macro",

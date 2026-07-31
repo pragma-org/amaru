@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, fmt::Debug, ops::Deref};
 
-use crate::{KeepRaw, cbor};
+use crate::cbor;
 
 /// A read-only non-empty vector: an ordered set of values with at least one element.
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -70,13 +70,6 @@ impl<T: Eq + Debug> TryFrom<Vec<T>> for NonEmptyVec<T> {
         }
 
         Ok(Self(vec))
-    }
-}
-
-impl<T: Eq> From<NonEmptyVec<KeepRaw<'_, T>>> for NonEmptyVec<T> {
-    fn from(value: NonEmptyVec<KeepRaw<'_, T>>) -> Self {
-        let inner = value.0.into_iter().map(|x| x.unwrap()).collect();
-        Self(inner)
     }
 }
 

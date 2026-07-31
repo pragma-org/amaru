@@ -352,7 +352,7 @@ mod tests {
 
     impl HasTransactionId for Tx {
         fn tx_id(&self) -> TransactionId {
-            TransactionId::new(Hasher::<{ TRANSACTION_BODY * 8 }>::hash_cbor(self))
+            TransactionId::new(Hasher::<{ TRANSACTION_BODY * 8 }>::hash(&to_cbor(self)))
         }
     }
 }

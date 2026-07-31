@@ -12,13 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::RationalNumber;
+use std::fmt;
+
+use crate::cbor;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct RationalNumber {
+    pub numerator: u64,
+    pub denominator: u64,
+}
+
+impl fmt::Display for RationalNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.numerator, self.denominator)
+    }
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for RationalNumber {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        // TODO: Enforce tag == 30 & array of size 2
+        d.tag()?;
+        d.array()?;
+        Ok(RationalNumber { numerator: d.decode_with(ctx)?, denominator: d.decode_with(ctx)? })
+    }
+}
+
+impl<C> cbor::encode::Encode<C> for RationalNumber {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.tag(cbor::Tag::new(30))?;
+        e.array(2)?;
+        e.encode_with(self.numerator, ctx)?;
+        e.encode_with(self.denominator, ctx)?;
+        Ok(())
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
-
-pub fn fmt(r: &RationalNumber) -> String {
-    format!("{}/{}", r.numerator, r.denominator)
-}
 
 #[cfg(any(test, feature = "test-utils"))]
 mod tests {

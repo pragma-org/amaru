@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer,
-    ProposalsRootsRc, StakeCredential,
+    CertificatePointer, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalsRootsRc,
+    StakeCredential,
 };
 
 use crate::{
@@ -35,7 +35,7 @@ use crate::{
 };
 
 mod iter_pools;
-mod iter_unregistered_accounts;
+mod iter_unreachable_accounts;
 
 // ------------------------------------------------------------------------------------ VolatileView
 
@@ -47,7 +47,7 @@ pub struct VolatileView<'volatile, 'store, DB: ReadStore> {
     proposal_lifetime: u64,
     db: &'store DB,
     pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>>,
-    proposals: BTreeMap<&'volatile ComparableProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
+    proposals: BTreeMap<&'volatile ProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
     accounts: Option<AccountVolatileView<'volatile>>,
 }
 
@@ -106,7 +106,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
                 // ever happens, this line might save us from hours of debugging.
                 unreachable!(".iter_pools() called twice on the same VolatileView! Don't do that.")
             }
-            Some(mut pools) => Ok(iter_pools::IterPools::new(self.epoch, self.db.iter_pools()?, &mut pools)),
+            Some(mut pools) => Ok(iter_pools::IterPools::new(self.db.iter_pools()?, &mut pools)),
         }
     }
 
@@ -114,30 +114,55 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     /// from the aggregated volatile state.
     ///
     /// IMPORTANT: Yields proposals in no particular order.
-    pub fn iter_proposals(&self) -> Result<impl Iterator<Item = (ComparableProposalId, proposals::Row)>, StoreError> {
+    pub fn iter_proposals(&self) -> Result<impl Iterator<Item = (ProposalId, proposals::Row)>, StoreError> {
         Ok(self.db.iter_proposals()?.chain(add_proposals(
-            self.proposals.iter().map(|(k, v)| ((*k).clone(), (*v).clone())),
+            self.proposals.iter().map(|(k, v)| (*(*k), (*v).clone())),
             self.epoch + self.proposal_lifetime,
         )))
     }
 
-    /// Provides an iterator for accounts on top of the stable store, also applying any pending
-    /// registration or deregistration from the aggregated volatile state.
+    /// Provides an iterator for accounts on top of the stable store, tracking accounts that are "no
+    /// longer reachable" and cannot receive rewards they've been allocated.
+    ///
+    /// Payability is resolved from two complementary sources, because the rewarded accounts come
+    /// from two places:
+    ///
+    /// - Delegators: registered when the stake distribution was taken but that have since
+    ///   unregistered. We track a rolling 'recently_unregistered_accounts' over the past few epochs
+    ///   that allows us to recover this information.
+    ///
+    /// - Pool leaders: pools are paid on their pool's reward account, an arbitrary stake credential
+    ///   which the protocol never requires to be registered so a pool can earn a reward payable to a
+    ///   credential that has never had an account at all. Such an account may be missing despite no
+    ///   unregistration to have ever been recorded .
     ///
     /// IMPORTANT: Yields accounts in no particular order.
-    pub fn iter_unregistered_accounts(&mut self) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
-        match mem::take(&mut self.accounts) {
+    #[expect(clippy::panic)]
+    pub fn iter_unreachable_accounts(
+        &mut self,
+        pools_rewards_accounts: BTreeSet<StakeCredential>,
+    ) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
+        let AccountVolatileView { mut registered, mut unregistered } = match mem::take(&mut self.accounts) {
             None => {
                 // Just being careful here. There's no reason to ever call this twice; but if it
                 // ever happens, this line might save us from hours of debugging.
-                unreachable!(".iter_unregistered_accounts() called twice on the same VolatileView! Don't do that.")
+                unreachable!(".iter_unreachable_accounts() called twice on the same VolatileView! Don't do that.")
             }
-            Some(mut accounts) => Ok(iter_unregistered_accounts::IterUnregisteredAccounts::new(
-                self.db.iter_recently_unregistered_accounts()?,
-                &mut accounts.registered,
-                &mut accounts.unregistered,
-            )),
-        }
+            Some(accounts) => accounts,
+        };
+
+        Ok(iter_unreachable_accounts::IterUnreachableAccounts::new(
+            |account| {
+                self.db
+                    .account(account)
+                    .unwrap_or_else(|err| panic!("unexpected database error while iterating: {err}"))
+                    .is_some()
+            },
+            self.db.iter_recently_unregistered_accounts()?,
+            &mut registered,
+            &mut unregistered,
+            pools_rewards_accounts,
+        ))
     }
 
     /// A view on the proposal roots; this doesn't really require any volatile update but is
@@ -155,4 +180,111 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
 struct AccountVolatileView<'volatile> {
     registered: BTreeSet<&'volatile StakeCredential>,
     unregistered: BTreeSet<&'volatile StakeCredential>,
+}
+
+#[cfg(test)]
+mod test {
+    use amaru_kernel::{BlockHeight, Hash, Point, Slot, Tip};
+
+    use super::*;
+    use crate::state::VolatileFragment;
+
+    /// A pool's reward account may never have been registered, in which case no unregistration was
+    /// ever recorded for it. It must still be reported as unclaimed.
+    #[test]
+    fn pool_reward_accounts_without_an_account_are_unclaimed() {
+        let stable = Stable { accounts: BTreeSet::from([credential(1)]), recently_unregistered: BTreeSet::new() };
+        let volatile = VolatileDB::default();
+        let mut view = VolatileView::new(&volatile, &stable);
+
+        let pool_reward_accounts = BTreeSet::from([credential(1), credential(2)]);
+
+        assert_eq!(
+            unreachable_accounts(&mut view, pool_reward_accounts),
+            BTreeSet::from([credential(2)]),
+            "credential(1) has an account and is payable; credential(2) never had one",
+        );
+    }
+
+    /// Accounts registered when the stake distribution was taken are covered by the unregistration
+    /// index rather than by a lookup.
+    #[test]
+    fn recently_unregistered_accounts_are_unclaimed() {
+        let stable = Stable {
+            accounts: BTreeSet::from([credential(1), credential(2)]),
+            recently_unregistered: BTreeSet::from([credential(2)]),
+        };
+        let volatile = VolatileDB::default();
+        let mut view = VolatileView::new(&volatile, &stable);
+
+        assert_eq!(unreachable_accounts(&mut view, BTreeSet::new()), BTreeSet::from([credential(2)]));
+    }
+
+    /// The volatile window overrides both sources: a re-registration makes a credential payable
+    /// again even though the deregistration index still lists it and the stable store hasn't caught up,
+    /// while a deregistration makes one unpayable even though the stable store still holds it.
+    #[test]
+    fn the_volatile_window_overrides_the_stable_verdict() {
+        let stable = Stable {
+            accounts: BTreeSet::from([credential(1), credential(2)]),
+            recently_unregistered: BTreeSet::from([credential(3), credential(4)]),
+        };
+
+        let mut fragment = VolatileFragment::default();
+        // Re-registered within the window: no longer unclaimed, despite being in the index.
+        fragment.accounts.register(credential(3), 0, None, None).unwrap();
+        // Registered within the window, and a pool reward account: payable despite having no stable row.
+        fragment.accounts.register(credential(5), 0, None, None).unwrap();
+        // Unregistered within the window: unclaimed, despite still having a stable row.
+        fragment.accounts.unregister(credential(2));
+
+        let mut volatile = VolatileDB::default();
+        volatile.push_back(fragment.anchor(tip(), Hash::new([0; 28])));
+
+        let mut view = VolatileView::new(&volatile, &stable);
+
+        let pool_reward_accounts = BTreeSet::from([credential(1), credential(5)]);
+
+        assert_eq!(
+            unreachable_accounts(&mut view, pool_reward_accounts),
+            BTreeSet::from([credential(2), credential(4)])
+        );
+    }
+
+    // HELPERS
+
+    /// The unclaimed credentials a view yields, gathered into a set so that the order they come in
+    /// and any repetition don't matter.
+    fn unreachable_accounts(
+        view: &mut VolatileView<'_, '_, Stable>,
+        pool_reward_accounts: BTreeSet<StakeCredential>,
+    ) -> BTreeSet<StakeCredential> {
+        view.iter_unreachable_accounts(pool_reward_accounts).unwrap().collect()
+    }
+
+    fn credential(tag: u8) -> StakeCredential {
+        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    }
+
+    fn tip() -> Tip {
+        Tip::new(Point::Specific(Slot::from(1), Hash::new([0; 32])), BlockHeight::from(1))
+    }
+
+    /// A stable store holding a set of accounts and a set of recently unregistered ones.
+    struct Stable {
+        accounts: BTreeSet<StakeCredential>,
+        recently_unregistered: BTreeSet<StakeCredential>,
+    }
+
+    impl ReadStore for Stable {
+        fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError> {
+            Ok(self.accounts.contains(credential).then(accounts::Row::default))
+        }
+
+        fn iter_recently_unregistered_accounts(
+            &self,
+        ) -> Result<impl Iterator<Item = recently_unregistered_accounts::Key>, StoreError> {
+            Ok(self.recently_unregistered.clone().into_iter())
+        }
+    }
 }

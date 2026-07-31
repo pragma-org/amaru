@@ -746,6 +746,12 @@ define_schemas! {
                     required point: amaru_kernel::Point
                 }
             }
+            opcert_sequence_numbers {
+                /// Import initial opcert sequence numbers into the chain store
+                public IMPORT {
+                    required point: amaru_kernel::Point
+                }
+            }
             peer {
                 /// Failed to connect to a peer while bootstrapping
                 public FAILED_TO_CONNECT {

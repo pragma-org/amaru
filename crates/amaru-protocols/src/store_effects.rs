@@ -108,8 +108,12 @@ impl Store {
         self.effects.external(SetBestChainHashEffect::new(*hash))
     }
 
-    pub fn store_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(StoreHeaderEffect::new(header.clone()))
+    pub fn store_validated_header(
+        &self,
+        header: &BlockHeader,
+        nonces: &Nonces,
+    ) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(StoreValidatedHeaderEffect::new(header.clone(), nonces.clone()))
     }
 
     pub fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> BoxFuture<'static, Result<(), StoreError>> {
@@ -187,7 +191,7 @@ pub type ResourceParameters = GlobalParameters;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
-        amaru_pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SetBestChainHashEffect>().boxed(),
@@ -221,28 +225,31 @@ pub fn register_deserializers() -> DeserializerGuards {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StoreHeaderEffect {
+pub struct StoreValidatedHeaderEffect {
     header: BlockHeader,
+    nonces: Nonces,
 }
 
-impl StoreHeaderEffect {
-    pub fn new(header: BlockHeader) -> Self {
-        Self { header }
+impl StoreValidatedHeaderEffect {
+    pub fn new(header: BlockHeader, nonces: Nonces) -> Self {
+        Self { header, nonces }
     }
 }
 
-impl ExternalEffect for StoreHeaderEffect {
+impl ExternalEffect for StoreValidatedHeaderEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store =
-                resources.get::<ResourceHeaderStore>().expect("StoreHeaderEffect requires a chain store").clone();
-            store.store_header(&self.header)
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("StoreValidatedHeaderEffect requires a chain store")
+                .clone();
+            store.store_validated_header(&self.header, &self.nonces)
         })
     }
 }
 
-impl ExternalEffectAPI for StoreHeaderEffect {
+impl ExternalEffectAPI for StoreValidatedHeaderEffect {
     type Response = Result<(), StoreError>;
 }
 

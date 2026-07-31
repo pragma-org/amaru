@@ -216,4 +216,3 @@ jobs:
           path: |
             amaru.log
             ${{ matrix.tool.output }}
-

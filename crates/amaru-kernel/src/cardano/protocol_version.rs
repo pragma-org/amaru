@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::ProtocolVersion;
-
 use crate::HasMajorVersion;
 
+pub type ProtocolVersion = (u64, u64);
+
 pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
+
 pub const PROTOCOL_VERSION_11: ProtocolVersion = (11, 0);
 
 pub const DEFAULT: ProtocolVersion = PROTOCOL_VERSION_11;

@@ -24,8 +24,8 @@ use amaru_kernel::{
 };
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
-use amaru_ouroboros::{ConnectionId, praos::header::AssertHeaderError};
-use amaru_ouroboros_traits::has_stake_distribution::GetPoolError;
+use amaru_ouroboros::ConnectionId;
+use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, HeaderContent},
     metrics_effects::{Metrics, MetricsOps},
@@ -39,7 +39,6 @@ use crate::{
     effects::{Ledger, LedgerOps, VolatileTipEffect},
     errors::{ConsensusError, InvalidHeaderParentData, InvalidHeaderPoint},
     stages::select_chain::PerfHeaderForwardOutcome,
-    validate_header::ValidateHeaderError,
 };
 
 /// Poll interval while headers are deferred on applied ledger height.
@@ -382,9 +381,17 @@ impl TrackPeers {
         });
     }
 
-    /// Validate an incoming header for protocol conformance and store it in the chain store.
+    /// Validate an incoming header for protocol conformance.
     ///
     /// The received `tip` is the highest advertised tip for the peer as part of the RollForward message.
+    ///
+    /// If the store already holds evolved nonces for this header, it went through full validation
+    /// before (nonces are only stored together with a validated header), so the header is skipped
+    /// and `None` is returned. Otherwise the header is validated and the point of its parent is
+    /// returned, together with the nonces to store alongside it.
+    ///
+    /// Note: a header can already sit in the chain store without carrying any nonces, as is the
+    /// case for headers imported during bootstrap. Those still need to be validated.
     #[expect(clippy::too_many_arguments)]
     async fn validate_header(
         &mut self,
@@ -394,8 +401,9 @@ impl TrackPeers {
         header: &BlockHeader,
         tip: Tip,
         ledger: &Ledger,
+        store: &Store,
         current_time: Instant,
-    ) -> Result<Point, ConsensusError> {
+    ) -> Result<Option<(Point, Nonces)>, ConsensusError> {
         let era_name = self.era_history.slot_to_era_tag(header.slot())?;
         if era_name != variant {
             return Err(ConsensusError::EraNameMismatch { from_raw_header: variant, from_slot: era_name });
@@ -448,8 +456,16 @@ impl TrackPeers {
             return Err(ConsensusError::HeaderSlotInNearFuture(header.slot()));
         }
 
-        ledger.validate_header(header).await.map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
-        Ok(current.point())
+        // Stored nonces are the durable proof that a header was fully validated: they are only
+        // written together with the header they belong to, once it passed all the Praos checks.
+        if store.get_nonces(&header.hash()).await.is_some() {
+            return Ok(None);
+        }
+        let nonces = ledger
+            .validate_header(header)
+            .await
+            .map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
+        Ok(Some((current.point(), nonces)))
     }
 
     async fn roll_forward(&mut self, conn_id: ConnectionId, header: &BlockHeader, tip: Tip) {
@@ -458,16 +474,6 @@ impl TrackPeers {
         };
         *current = header.tip();
         *highest = tip;
-    }
-
-    async fn maybe_store_header(&mut self, header: BlockHeader, store: &Store) -> Result<bool, ConsensusError> {
-        let hash = header.hash();
-        if store.has_header(&hash).await {
-            Ok(false)
-        } else {
-            store.store_header(&header).await.map_err(|e| ConsensusError::StoreHeaderFailed(hash, e))?;
-            Ok(true)
-        }
     }
 
     async fn roll_backward(
@@ -500,12 +506,8 @@ impl TrackPeers {
     /// Returns true if deferred (and not adversarial).
     /// Rejects (returns false to let caller do adversarial) if the missing dist is >1 epoch ahead.
     fn try_defer_for_stake(&mut self, args: &RollForwardArgs, error: &ConsensusError) -> Option<DeferredHeader> {
-        let Some(ValidateHeaderError::Assert(AssertHeaderError::PoolError(
-            GetPoolError::StakeDistributionNotAvailable(_, Some(target)),
-        ))) = error.as_invalid_header()
-        else {
-            return None;
-        };
+        let validate_error = error.as_invalid_header()?;
+        let target = validate_error.missing_stake_distribution()?;
 
         // target more than one epoch ahead of known stake dists → adversarial; otherwise defer.
         // Use checked_sub so target < max_epoch does not panic (treat as defer / retry).
@@ -517,7 +519,7 @@ impl TrackPeers {
             conn_id: args.conn_id,
             handler: args.handler.clone(),
             reason: DeferReason::StakeDistribution {
-                epoch: *target,
+                epoch: target,
                 header: args.header.clone(),
                 tip: args.tip,
                 variant: args.variant,
@@ -621,9 +623,9 @@ impl TrackPeers {
         let ledger = Ledger::new(eff.clone()).with_trace_context(trace_context);
         let store = Store::new(eff.clone()).with_trace_context(trace_context);
 
-        let result = self.validate_header(peer, *conn_id, *variant, header, *tip, &ledger, now).await;
-        let parent = match result {
-            Ok(parent) => parent,
+        let result = self.validate_header(peer, *conn_id, *variant, header, *tip, &ledger, &store, now).await;
+        let validated = match result {
+            Ok(validated) => validated,
             Err(error) => {
                 if let Some(dh) = self.try_defer_for_stake(&args, &error) {
                     return Err(dh);
@@ -644,38 +646,43 @@ impl TrackPeers {
                 return Ok(());
             }
         };
-        // at this point the evolved nonces have been stored and follow-up headers can be validated
         self.roll_forward(*conn_id, header, *tip).await;
 
         // now we can destructure to consume the pieces
         let RollForwardArgs { peer, header, tip, sent_request_next, handler, trace_context, received_at, .. } = args;
         let header_tip = header.tip();
         let current = header_tip.point();
-        let new = self
-            .maybe_store_header(header, &store)
-            .or_terminate_with(eff, async |error| {
-                error!(
+        match validated {
+            None => {
+                tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward, header already stored");
+                debug!(
                     consensus::perf::header::LIFECYCLE,
                     peer = peer.clone(),
                     header_hash = current.hash(),
-                    error = %error,
-                    outcome = PerfHeaderForwardOutcome::StoreHeaderError.as_str()
+                    outcome = PerfHeaderForwardOutcome::DuplicateHeader.as_str()
                 );
-                record_header_rejected(eff, PerfHeaderForwardOutcome::StoreHeaderError).await;
-            })
-            .await;
-        if new {
-            tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward with new header");
-            eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context, received_at }).await;
-        } else {
-            tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward, header already stored");
-            debug!(
-                consensus::perf::header::LIFECYCLE,
-                peer = peer.clone(),
-                header_hash = current.hash(),
-                outcome = PerfHeaderForwardOutcome::DuplicateHeader.as_str()
-            );
-            record_header_rejected(eff, PerfHeaderForwardOutcome::DuplicateHeader).await;
+                record_header_rejected(eff, PerfHeaderForwardOutcome::DuplicateHeader).await;
+            }
+            Some((parent, nonces)) => {
+                // the header and its nonces are stored atomically, so that stored nonces always
+                // denote a fully validated header, and follow-up headers can be validated
+                store
+                    .store_validated_header(&header, &nonces)
+                    .or_terminate_with(eff, async |e| {
+                        let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
+                        error!(
+                            consensus::perf::header::LIFECYCLE,
+                            peer = peer.clone(),
+                            header_hash = current.hash(),
+                            error = %error,
+                            outcome = PerfHeaderForwardOutcome::StoreHeaderError.as_str()
+                        );
+                        record_header_rejected(eff, PerfHeaderForwardOutcome::StoreHeaderError).await;
+                    })
+                    .await;
+                tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward with new header");
+                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context, received_at }).await;
+            }
         }
 
         if !sent_request_next {
@@ -751,7 +758,7 @@ impl TrackPeers {
                                 &self.peer_selection,
                                 PeerSelectionMsg::Adversarial(peer, trace_context.clone()),
                             )
-                            .await;
+                                .await;
                             return;
                         }
                     };
@@ -776,7 +783,7 @@ impl TrackPeers {
                     // maybe update ledger applied block height (rate-limited to 500ms or initial)
                     if limit > self.ledger_applied_block_height
                         && (now.saturating_since(self.ledger_last_checked_at) > Duration::from_millis(500)
-                            || self.ledger_applied_block_height == BlockHeight::from(0))
+                        || self.ledger_applied_block_height == BlockHeight::from(0))
                     {
                         self.ledger_last_checked_at = now;
                         self.ledger_applied_block_height = eff.external(VolatileTipEffect).await.block_height();
@@ -819,8 +826,8 @@ impl TrackPeers {
                         self.ensure_recheck_armed(&eff).await;
                     }
                 }
-                .instrument(span)
-                .await
+                    .instrument(span)
+                    .await
             }
             RollBackward(current, tip) => {
                 tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");

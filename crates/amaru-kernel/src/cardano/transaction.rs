@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_crypto::key::ed25519;
-
-use crate::{AuxiliaryData, Bytes, TransactionBody, TransactionId, WitnessSet, cbor};
+use crate::{AuxiliaryData, Bytes, TransactionBody, TransactionId, WitnessSet, cbor, ed25519};
 
 const CHAIN_CODE_SIZE: usize = 32;
 
@@ -76,15 +74,15 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Transaction {
 fn assert_sized_witnesses(witnesses: &WitnessSet) -> Result<(), cbor::decode::Error> {
     if let Some(vkey_witnesses) = witnesses.vkeywitness.as_deref() {
         for witness in vkey_witnesses {
-            assert_bytes_len("verification key", &witness.vkey, ed25519::PublicKey::SIZE)?;
-            assert_bytes_len("verification key signature", &witness.signature, ed25519::Signature::SIZE)?;
+            assert_bytes_len("verification key", &witness.vkey, ed25519::PUBLIC_KEY_LENGTH)?;
+            assert_bytes_len("verification key signature", &witness.signature, ed25519::SIGNATURE_LENGTH)?;
         }
     }
 
     if let Some(bootstrap_witnesses) = witnesses.bootstrap_witness.as_deref() {
         for witness in bootstrap_witnesses {
-            assert_bytes_len("bootstrap public key", &witness.public_key, ed25519::PublicKey::SIZE)?;
-            assert_bytes_len("bootstrap signature", &witness.signature, ed25519::Signature::SIZE)?;
+            assert_bytes_len("bootstrap public key", &witness.public_key, ed25519::PUBLIC_KEY_LENGTH)?;
+            assert_bytes_len("bootstrap signature", &witness.signature, ed25519::SIGNATURE_LENGTH)?;
             assert_bytes_len("bootstrap chain code", &witness.chain_code, CHAIN_CODE_SIZE)?;
         }
     }

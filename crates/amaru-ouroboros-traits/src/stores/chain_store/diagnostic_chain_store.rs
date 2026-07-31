@@ -14,7 +14,7 @@
 
 use std::{iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, RawBlock};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, PoolId, RawBlock, Slot};
 
 use crate::{Nonces, ReadChainStore};
 
@@ -29,6 +29,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
 
     /// Load all nonces in the store.
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_>;
+    fn load_opcert_sequence_numbers(&self) -> Box<dyn Iterator<Item = (PoolId, Slot, HeaderHash, u64)> + '_>;
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_>;
     fn load_parents_children(&self) -> Box<dyn Iterator<Item = (HeaderHash, Vec<HeaderHash>)> + '_>;
 
@@ -129,6 +130,10 @@ impl<T: DiagnosticChainStore + ?Sized> DiagnosticChainStore for Arc<T> {
 
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_> {
         self.as_ref().load_nonces()
+    }
+
+    fn load_opcert_sequence_numbers(&self) -> Box<dyn Iterator<Item = (PoolId, Slot, HeaderHash, u64)> + '_> {
+        self.as_ref().load_opcert_sequence_numbers()
     }
 
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {

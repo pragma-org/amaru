@@ -15,9 +15,9 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    AsShelley, BorrowedScript, Certificate, GovernanceAction, HasOwnership, Hash, Nullable, OutputReference,
-    PlutusData, PlutusMint, PlutusVotes, PlutusWithdrawals, Proposal, RedeemerKey, RedeemerTag, StakeCredential,
-    StakePayload, TransactionInput, Voter,
+    AsShelley, BorrowedScript, Certificate, GovernanceAction, HasOwnership, Hash, OutputReference, PlutusData,
+    PlutusMint, PlutusVotes, PlutusWithdrawals, Proposal, RedeemerKey, RedeemerTag, StakeCredential, StakePayload,
+    TransactionInput, Voter,
     size::{CREDENTIAL, SCRIPT},
 };
 
@@ -102,8 +102,8 @@ impl<'a> ScriptPurpose<'a> {
                 use GovernanceAction::*;
 
                 let script_hash = match proposal.gov_action {
-                    ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
-                    TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+                    ParameterChange(_, _, Some(gov_proposal_hash)) => Some(gov_proposal_hash),
+                    TreasuryWithdrawals(_, Some(gov_proposal_hash)) => Some(gov_proposal_hash),
                     ParameterChange(..)
                     | HardForkInitiation(..)
                     | TreasuryWithdrawals(..)
@@ -124,7 +124,7 @@ impl<'a> ScriptPurpose<'a> {
         match self {
             ScriptInfo::Spending(input, _) => ScriptInfo::Spending(input, data),
             ScriptInfo::Minting(p) => ScriptInfo::Minting(*p),
-            ScriptInfo::Rewarding(s) => ScriptInfo::Rewarding(s.clone()),
+            ScriptInfo::Rewarding(s) => ScriptInfo::Rewarding(*s),
             ScriptInfo::Certifying(i, c) => ScriptInfo::Certifying(*i, c),
             ScriptInfo::Voting(v) => ScriptInfo::Voting(v),
             ScriptInfo::Proposing(i, p) => ScriptInfo::Proposing(*i, p),

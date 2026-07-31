@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cell::RefCell;
-
 pub use decode::*;
 use minicbor::{self as cbor, data::Tag};
 mod decode;
@@ -29,16 +27,12 @@ pub static TAG_MAP_259: Tag = Tag::new(259);
 
 /// Encode any serialisable value `T` into bytes.
 pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
-    thread_local! {
-        static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-    }
-    BUFFER.with_borrow_mut(|buffer| {
-        #[expect(clippy::expect_used)]
-        cbor::encode(value, &mut *buffer).expect("serialization should not fail");
-        let ret = buffer.as_slice().to_vec();
-        buffer.clear();
-        ret
-    })
+    to_cbor_with(value, &mut ())
+}
+
+/// Encode any serialisable value `T` into bytes.
+pub fn to_cbor_with<C, T: cbor::Encode<C>>(value: &T, ctx: &mut C) -> Vec<u8> {
+    cbor::to_vec_with(value, ctx).unwrap_or_else(|e| unreachable!("serialization in vector should not fail: {e}"))
 }
 
 /// Decode raw bytes into a structured type `T`, assuming no context.

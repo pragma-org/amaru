@@ -14,8 +14,8 @@
 
 use std::path::Path;
 
-use amaru_kernel::{IsHeader, ORIGIN_HASH, Point};
-use amaru_ouroboros_traits::{BaseReadChainStore, StoreError, WriteChainStore};
+use amaru_kernel::{IsHeader, ORIGIN_HASH, Point, to_cbor};
+use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, StoreError, WriteChainStore};
 use rocksdb::DB;
 use tracing::info;
 
@@ -23,6 +23,7 @@ use crate::rocksdb::{
     RocksDbConfig,
     consensus::{
         RocksDBStore,
+        base_read_chain_store::opcert_key,
         util::{CHAIN_DB_VERSION, CHAIN_PREFIX, open_db},
     },
 };
@@ -37,7 +38,7 @@ pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
 /// DB schema, create migration function and add it to this array
 /// bumping its length.
 static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
-    [migrate_to_v1, migrate_to_v2, migrate_to_v3];
+    [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4];
 
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
@@ -115,6 +116,23 @@ fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     tracing::info!(prev_best_chain = %original_best_chain_point, new_best_chain = %anchor_point, "found back best chain to revalidate");
 
     set_version(store, 3)
+}
+
+fn migrate_to_v4(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    tracing::warn!(
+        "migrating chain DB to version 4: opcert sequence numbers are reconstructed from stored \
+           headers only; counters from before this database was bootstrapped are unknown, which can \
+           lead to incorrectly rejected headers from pools that have not produced a block since. \
+           Re-bootstrapping from a snapshot is the reliable option."
+    );
+
+    for header in store.load_headers() {
+        store
+            .db
+            .put(opcert_key(&header), to_cbor(&header.op_cert_seq()))
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+    }
+    set_version(store, 4)
 }
 
 /// Check the version stored in the `store` matches `CHAIN_DB_VERSION`.

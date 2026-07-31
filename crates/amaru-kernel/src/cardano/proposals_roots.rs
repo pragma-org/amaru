@@ -14,11 +14,11 @@
 
 use std::rc::Rc;
 
-use crate::{ComparableProposalId, cbor};
+use crate::{ProposalId, cbor};
 
-pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;
+pub type ProposalsRoots = GenericProposalsRoots<ProposalId>;
 
-pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ComparableProposalId>>;
+pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ProposalId>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericProposalsRoots<T> {
@@ -56,7 +56,7 @@ impl<T> From<GenericProposalsRoots<T>> for GenericProposalsRoots<Rc<T>> {
     }
 }
 
-impl<C, T: AsRef<ComparableProposalId>> cbor::encode::Encode<C> for GenericProposalsRoots<T> {
+impl<C> cbor::encode::Encode<C> for GenericProposalsRoots<ProposalId> {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -64,19 +64,19 @@ impl<C, T: AsRef<ComparableProposalId>> cbor::encode::Encode<C> for GenericPropo
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.begin_map()?;
         e.u8(0)?;
-        e.encode_with(self.protocol_parameters.as_ref().map(AsRef::as_ref), ctx)?;
+        e.encode_with(self.protocol_parameters.as_ref(), ctx)?;
         e.u8(1)?;
-        e.encode_with(self.hard_fork.as_ref().map(AsRef::as_ref), ctx)?;
+        e.encode_with(self.hard_fork.as_ref(), ctx)?;
         e.u8(2)?;
-        e.encode_with(self.constitutional_committee.as_ref().map(AsRef::as_ref), ctx)?;
+        e.encode_with(self.constitutional_committee.as_ref(), ctx)?;
         e.u8(3)?;
-        e.encode_with(self.constitution.as_ref().map(AsRef::as_ref), ctx)?;
+        e.encode_with(self.constitution.as_ref(), ctx)?;
         e.end()?;
         Ok(())
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ComparableProposalId> {
+impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ProposalId> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         // NOTE: This type is only ever created by *us*, so it is okay-ish to not check for the map
         // keys values and expect keys in the right order.
@@ -105,16 +105,16 @@ mod tests {
     use proptest::{option, prop_compose};
 
     use super::ProposalsRoots;
-    use crate::{any_comparable_proposal_id, prop_cbor_roundtrip};
+    use crate::{any_proposal_id, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(ProposalsRoots, any_proposals_roots());
 
     prop_compose! {
         pub fn any_proposals_roots()(
-            protocol_parameters in option::of(any_comparable_proposal_id()),
-            hard_fork in option::of(any_comparable_proposal_id()),
-            constitutional_committee in option::of(any_comparable_proposal_id()),
-            constitution in option::of(any_comparable_proposal_id()),
+            protocol_parameters in option::of(any_proposal_id()),
+            hard_fork in option::of(any_proposal_id()),
+            constitutional_committee in option::of(any_proposal_id()),
+            constitution in option::of(any_proposal_id()),
         ) -> ProposalsRoots  {
             ProposalsRoots {
                 protocol_parameters,
