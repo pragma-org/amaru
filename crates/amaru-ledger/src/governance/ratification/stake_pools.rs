@@ -14,11 +14,11 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{DRep, PoolId, PoolVotingThresholds, ProtocolParamUpdate, Vote, expect_stake_credential};
+use amaru_kernel::{DRep, PoolId, PoolVotingThresholds, ProtocolParamUpdate, Vote};
 use num::Zero;
 
 use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
-use crate::summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution};
+use crate::summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeSummary};
 
 // Voting Thresholds
 // ----------------------------------------------------------------------------
@@ -89,7 +89,7 @@ fn any_update_in_security_group(update: &ProtocolParamUpdate) -> bool {
 pub fn tally(
     proposal: &ProposalEnum,
     votes: BTreeMap<&PoolId, &Vote>,
-    stake_distribution: &StakeDistribution,
+    stake_distribution: &StakeSummary,
 ) -> SafeRatio {
     if stake_distribution.pools_voting_stake == 0 {
         return SafeRatio::zero();
@@ -106,17 +106,11 @@ pub fn tally(
             // Starting from v10, the fallback is given to the DRep chosen by the pool's
             // reward account (?!), if any. If there's no drep, then the vote is considered
             // to be "no" by default.
-            None => {
-                let reward_account = expect_stake_credential(&pool.parameters.reward_account);
-
-                let drep = stake_distribution.accounts.get(&reward_account).and_then(|st| st.drep.as_ref());
-
-                match drep {
-                    Some(DRep::NoConfidence) if proposal.is_no_confidence() => (yes + pool.voting_stake, abstain),
-                    Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
-                    Some(..) | None => (yes, abstain),
-                }
-            }
+            None => match pool.fallback_drep.as_ref() {
+                Some(DRep::NoConfidence) if proposal.is_no_confidence() => (yes + pool.voting_stake, abstain),
+                Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
+                Some(..) | None => (yes, abstain),
+            },
         }
     });
 
@@ -153,7 +147,7 @@ mod tests {
         governance::ratification::{ProposalEnum, any_proposal_enum},
         summary::{
             SafeRatio,
-            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
+            stake_distribution::{StakeSummary, tests::any_stake_summary_no_dreps},
         },
     };
 
@@ -296,17 +290,14 @@ mod tests {
         })
     }
 
-    pub fn any_tally() -> impl Strategy<Value = (ProposalEnum, BTreeMap<PoolId, &'static Vote>, Rc<StakeDistribution>)>
-    {
-        any_stake_distribution_no_dreps().prop_flat_map(|stake_distribution| {
+    pub fn any_tally() -> impl Strategy<Value = (ProposalEnum, BTreeMap<PoolId, &'static Vote>, Rc<StakeSummary>)> {
+        any_stake_summary_no_dreps().prop_flat_map(|stake_distribution| {
             (any_proposal_enum(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
                 .prop_map(move |(proposal, votes, stake_distribution)| (proposal, votes, stake_distribution))
         })
     }
 
-    pub fn any_votes(
-        stake_distribution: &StakeDistribution,
-    ) -> impl Strategy<Value = BTreeMap<PoolId, &'static Vote>> + use<> {
+    pub fn any_votes(stake_distribution: &StakeSummary) -> impl Strategy<Value = BTreeMap<PoolId, &'static Vote>> + use<> {
         let pools: Vec<PoolId> = stake_distribution.pools.keys().cloned().collect();
 
         let upper_bound = pools.len() - 1;

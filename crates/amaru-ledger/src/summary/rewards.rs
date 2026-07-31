@@ -692,6 +692,7 @@ mod test {
                 relays: Vec::new(),
                 metadata: None,
             },
+            fallback_drep: None,
         }
     }
 

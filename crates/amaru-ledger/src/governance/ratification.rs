@@ -23,9 +23,9 @@ use num::Zero;
 use tracing::{Span, field};
 
 use crate::{
-    state::StakeDistributionView,
+    state::StakeSummaryView,
     store::{Snapshot, StoreError},
-    summary::{SafeRatio, into_safe_ratio, stake_distribution::StakeDistribution},
+    summary::{SafeRatio, into_safe_ratio, stake_distribution::StakeSummary},
 };
 
 mod constitutional_committee;
@@ -52,7 +52,7 @@ pub struct RatificationContext<'distr> {
     pub treasury: Lovelace,
 
     /// The computed stake distribution for the epoch
-    pub stake_distribution: StakeDistributionView<'distr>,
+    pub stake_distribution: StakeSummaryView<'distr>,
 
     /// Last enacted protocol parameters for this epoch.
     pub protocol_parameters: ProtocolParameters,
@@ -89,7 +89,7 @@ pub enum RatificationInternalError {
 impl<'distr> RatificationContext<'distr> {
     pub fn new(
         snapshot: impl Snapshot,
-        stake_distribution: StakeDistributionView<'distr>,
+        stake_distribution: StakeSummaryView<'distr>,
         protocol_parameters: ProtocolParameters,
         treasury: Lovelace,
     ) -> Result<Self, StoreError> {
@@ -298,7 +298,7 @@ impl<'distr> RatificationContext<'distr> {
         &self,
         id: &ProposalId,
         proposal: &ProposalEnum,
-        stake_distribution: &StakeDistribution,
+        stake_distribution: &StakeSummary,
     ) -> bool {
         let span = Span::current();
 
@@ -358,7 +358,7 @@ impl<'distr> RatificationContext<'distr> {
         &self,
         proposal: &ProposalEnum,
         votes: BTreeMap<&PoolId, &Vote>,
-        stake_distribution: &StakeDistribution,
+        stake_distribution: &StakeSummary,
     ) -> bool {
         match stake_pools::voting_threshold(
             self.constitutional_committee.is_none(),
@@ -380,7 +380,7 @@ impl<'distr> RatificationContext<'distr> {
         &self,
         proposal: &ProposalEnum,
         votes: BTreeMap<DRep, &Vote>,
-        stake_distribution: &StakeDistribution,
+        stake_distribution: &StakeSummary,
     ) -> bool {
         match dreps::voting_threshold(
             self.constitutional_committee.is_none(),

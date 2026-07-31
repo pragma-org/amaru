@@ -20,7 +20,7 @@ use num::Zero;
 use super::{OrphanProposal, ProposalEnum};
 use crate::{
     governance::ratification::CommitteeUpdate,
-    summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution},
+    summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeSummary},
 };
 
 // Voting Thresholds
@@ -143,7 +143,7 @@ pub fn tally(
     epoch: Epoch,
     proposal: &ProposalEnum,
     votes: BTreeMap<DRep, &Vote>,
-    stake_distribution: &StakeDistribution,
+    stake_distribution: &StakeSummary,
 ) -> SafeRatio {
     let (yes, denominator) = stake_distribution.dreps.iter().fold((0, 0), |(yes, denominator), (drep, st)| {
         if st.is_active(epoch) {
@@ -195,7 +195,7 @@ mod tests {
         },
         summary::{
             SafeRatio,
-            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_pools},
+            stake_distribution::{StakeSummary, tests::any_stake_summary_no_pools},
         },
     };
     proptest! {
@@ -236,7 +236,7 @@ mod tests {
         #[test]
         fn prop_expired_dreps_do_not_influence_tally((epoch, proposal, votes, stake_distribution) in any_tally()) {
             let result = tally(epoch, &proposal, votes.clone(), &stake_distribution);
-            let mut stake_distribution: StakeDistribution = stake_distribution.as_ref().clone();
+            let mut stake_distribution: StakeSummary = stake_distribution.as_ref().clone();
             stake_distribution.dreps.retain(|_, drep| drep.is_active(epoch));
             let result_no_expired = tally(epoch, &proposal, votes, &stake_distribution);
             prop_assert_eq!(result, result_no_expired)
@@ -254,15 +254,13 @@ mod tests {
     }
 
     pub fn any_tally()
-    -> impl Strategy<Value = (Epoch, ProposalEnum, BTreeMap<DRep, &'static Vote>, Rc<StakeDistribution>)> {
-        any_stake_distribution_no_pools(MIN_ARBITRARY_EPOCH, MAX_ARBITRARY_EPOCH).prop_flat_map(|stake_distribution| {
+    -> impl Strategy<Value = (Epoch, ProposalEnum, BTreeMap<DRep, &'static Vote>, Rc<StakeSummary>)> {
+        any_stake_summary_no_pools(MIN_ARBITRARY_EPOCH, MAX_ARBITRARY_EPOCH).prop_flat_map(|stake_distribution| {
             (any_epoch(), any_proposal_enum(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
         })
     }
 
-    pub fn any_votes(
-        stake_distribution: &StakeDistribution,
-    ) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> + use<> {
+    pub fn any_votes(stake_distribution: &StakeSummary) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> + use<> {
         let dreps: Vec<DRep> = stake_distribution.dreps.keys().cloned().collect();
 
         let upper_bound = dreps.len() - 1;
