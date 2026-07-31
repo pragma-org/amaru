@@ -107,7 +107,7 @@ impl GovernanceSummary {
                 // been processed; so this gap is only observed for stake pools.
                 if current_epoch <= row.valid_until && recently_pruned.is_none() {
                     pools_deposits
-                        .entry(stake_credential.clone())
+                        .entry(stake_credential)
                         .and_modify(|total| *total += deposit)
                         .or_insert(deposit);
                 }

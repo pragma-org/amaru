@@ -318,7 +318,7 @@ impl DRepsSlice for DefaultValidationContext {
         let _span =
             trace_span!(ledger::transaction::CERTIFICATE_DREP_RETIREMENT, drep = format!("{drep:?}"), refund = refund);
         let _guard = _span.enter();
-        self.state.dreps_deregistrations.insert(drep.clone(), pointer);
+        self.state.dreps_deregistrations.insert(drep, pointer);
         self.state.dreps.unregister(drep)
     }
 }
@@ -332,7 +332,7 @@ impl CommitteeSlice for DefaultValidationContext {
         match self.state.committee.produced.get(cc_member) {
             Some(hot_credential) => {
                 let base = base?;
-                Some(CCMember { hot_credential: Some(hot_credential.clone()), valid_until: base.valid_until })
+                Some(CCMember { hot_credential: Some(*hot_credential), valid_until: base.valid_until })
             }
             // resigned in-block; gone
             None if self.state.committee.consumed.contains(cc_member) => None,

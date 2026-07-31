@@ -73,10 +73,10 @@ where
                 };
 
                 let account =
-                    context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential.clone()))?;
+                    context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential))?;
 
                 if matches!(credential, StakeCredential::AddrKeyhash(_)) && account.drep.is_none() {
-                    return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential.clone()));
+                    return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential));
                 }
 
                 if amount != account.rewards {

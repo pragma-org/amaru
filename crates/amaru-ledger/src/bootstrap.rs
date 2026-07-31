@@ -1494,7 +1494,7 @@ mod tests {
         let credential = StakeCredential::AddrKeyhash(Hash::new(
             hex::decode("e3af434a5516854f20191807cc5ea85b57b4fd0f050f3eab28af19ee").unwrap().try_into().unwrap(),
         ));
-        let bytes = cbor::to_vec(&credential).unwrap();
+        let bytes = cbor::to_vec(credential).unwrap();
         let mut decoder = cbor::Decoder::new(bytes.as_slice());
         let mut network = NetworkName::Mainnet;
 

@@ -181,7 +181,7 @@ impl GovernanceUpdates {
                         let return_account = proposal.return_account;
                         let deposit = proposal.deposit;
                         payouts
-                            .entry(return_account.clone())
+                            .entry(return_account)
                             .and_modify(|balance| {
                                 *balance += deposit;
                                 trace_return_account(&mut payouts_str, &return_account, *balance);

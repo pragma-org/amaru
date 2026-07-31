@@ -85,7 +85,7 @@ pub mod tests {
 
         // accounts
         let account_key = any_stake_credential().new_tree(runner).unwrap().current();
-        let account_key_clone = account_key.clone();
+        let account_key_clone = account_key;
 
         let account_row =
             amaru_ledger::store::columns::accounts::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
@@ -132,7 +132,7 @@ pub mod tests {
         let registered_at = drep_row.registered_at;
 
         let drep_iter = std::iter::once((
-            drep_key.clone(),
+            drep_key,
             (
                 Resettable::Set(anchor),
                 Some(DRepRegistration { deposit, registered_at, valid_until: drep_row.valid_until }),
@@ -161,10 +161,10 @@ pub mod tests {
         // Ensure hot_credential is always Some
         cc_member_row.hot_credential.get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current());
 
-        let hot_credential = cc_member_row.hot_credential.clone().unwrap();
+        let hot_credential = cc_member_row.hot_credential.unwrap();
 
         let cc_members_iter =
-            std::iter::once((cc_member_key.clone(), (Resettable::Set(hot_credential), Resettable::Unchanged)));
+            std::iter::once((cc_member_key, (Resettable::Set(hot_credential), Resettable::Unchanged)));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot, Hash::from([0u8; 32]));
@@ -326,7 +326,7 @@ pub mod tests {
         let remove = Columns {
             utxo: std::iter::empty(),
             pools: std::iter::empty(),
-            accounts: std::iter::once(fixture.account_key.clone()),
+            accounts: std::iter::once(fixture.account_key),
             dreps: std::iter::empty(),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
@@ -398,7 +398,7 @@ pub mod tests {
             utxo: std::iter::empty(),
             pools: std::iter::empty(),
             accounts: std::iter::empty(),
-            dreps: std::iter::once((fixture.drep_key.clone(), drep_registered_at)),
+            dreps: std::iter::once((fixture.drep_key, drep_registered_at)),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
             votes: std::iter::empty(),

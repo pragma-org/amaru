@@ -66,7 +66,7 @@ pub fn committee_members(
         .into_iter()
         .map(|(cold_credential, valid_until)| {
             let hot_credential = match hot_cold_delegations.get(&cold_credential) {
-                Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot)) => Some(hot.clone()),
+                Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot)) => Some(*hot),
                 None | Some(ConstitutionalCommitteeMemberStatus::Resigned(..)) => None,
             };
             (cold_credential, CCMember { hot_credential, valid_until: Some(valid_until) })

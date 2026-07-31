@@ -244,7 +244,7 @@ impl<'distr> RatificationContext<'distr> {
                         CommitteeUpdate::ChangeMembers { removed, added, threshold } => {
                             let added_as_inactive = added
                                 .iter()
-                                .map(|(cold_cred, valid_until)| (cold_cred.clone(), (None, *valid_until)))
+                                .map(|(cold_cred, valid_until)| (*cold_cred, (None, *valid_until)))
                                 .collect();
 
                             if let Some(committee) = &mut self.constitutional_committee {

@@ -124,7 +124,7 @@ impl<'a> ScriptPurpose<'a> {
         match self {
             ScriptInfo::Spending(input, _) => ScriptInfo::Spending(input, data),
             ScriptInfo::Minting(p) => ScriptInfo::Minting(*p),
-            ScriptInfo::Rewarding(s) => ScriptInfo::Rewarding(s.clone()),
+            ScriptInfo::Rewarding(s) => ScriptInfo::Rewarding(*s),
             ScriptInfo::Certifying(i, c) => ScriptInfo::Certifying(*i, c),
             ScriptInfo::Voting(v) => ScriptInfo::Voting(v),
             ScriptInfo::Proposing(i, p) => ScriptInfo::Proposing(*i, p),

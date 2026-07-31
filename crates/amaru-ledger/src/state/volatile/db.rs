@@ -1228,7 +1228,7 @@ mod tests {
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
     /// observable state (its pending reward credit surfaces through `resolve_account`).
     fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential.clone(), amount)]));
+        let computed = Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential, amount)]));
         Rewards::<Effective>::new(computed, BTreeSet::new())
     }
 

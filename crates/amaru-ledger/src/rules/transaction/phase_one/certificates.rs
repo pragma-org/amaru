@@ -279,11 +279,11 @@ where
             };
 
             let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
             if account.rewards != 0 {
                 return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential: credential.clone(),
+                    credential,
                     rewards: account.rewards,
                 });
             }
@@ -301,7 +301,7 @@ where
             };
 
             let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
             if refund != account.deposit {
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: account.deposit });
@@ -309,7 +309,7 @@ where
 
             if account.rewards != 0 {
                 return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential: credential.clone(),
+                    credential,
                     rewards: account.rewards,
                 });
             }
@@ -420,30 +420,30 @@ where
         }
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
-            let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
+            let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
-            let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
+            let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)

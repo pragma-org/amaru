@@ -70,7 +70,7 @@ impl HasOwnership for Certificate {
             | Self::ResignCommitteeCold(stake_credential, _)
             | Self::RegDRepCert(stake_credential, _, _)
             | Self::UnRegDRepCert(stake_credential, _)
-            | Self::UpdateDRepCert(stake_credential, _) => stake_credential.clone(),
+            | Self::UpdateDRepCert(stake_credential, _) => *stake_credential,
             Self::PoolRegistration { operator: id, .. } | Self::PoolRetirement(id, _) => {
                 StakeCredential::AddrKeyhash(*id)
             }

@@ -414,7 +414,7 @@ fn resolve_committee<'block, 'volatile>(
             };
 
             if let Some(member) = member_opt {
-                cc_members.insert(credential.clone(), member);
+                cc_members.insert(*credential, member);
             }
 
             Ok(cc_members)

@@ -95,7 +95,7 @@ impl ConstitutionalCommittee {
                 .iter()
                 .filter_map(|(cold_cred, (hot_cred, valid_until))| {
                     if valid_until >= &current_epoch {
-                        Some((cold_cred.clone(), hot_cred.as_ref()?.clone()))
+                        Some((*cold_cred, *hot_cred.as_ref()?))
                     } else {
                         None
                     }
@@ -211,7 +211,7 @@ mod tests {
             // If no active members, let's add one.
             if active_members.is_empty() {
                 let cold_credential = StakeCredential::AddrKeyhash(Hash::from(NULL_HASH));
-                let hot_credential = cold_credential.clone();
+                let hot_credential = cold_credential;
                 committee.update(
                     committee.threshold().clone(),
                     BTreeMap::from([
@@ -260,8 +260,8 @@ mod tests {
                 committee.update(
                     committee.threshold().clone(),
                     BTreeMap::from([(
-                        any_active_member.clone(),
-                        any_member_state.clone(),
+                        *any_active_member,
+                        any_member_state,
                     )]),
                     BTreeSet::from([any_active_member]),
                 );
