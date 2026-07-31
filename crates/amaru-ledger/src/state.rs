@@ -515,11 +515,8 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
             .map(|distr| distr.epoch < snapshot.epoch())
             .unwrap_or(true);
 
-        let new_summary = if should_push_summary {
-            Some(compute_stake_summary(&snapshot, &self.era_history)?)
-        } else {
-            None
-        };
+        let new_summary =
+            if should_push_summary { Some(compute_stake_summary(&snapshot, &self.era_history)?) } else { None };
 
         let mut pushed_new = false;
 
@@ -1041,10 +1038,7 @@ where
         .map_err(|err| StoreError::Internal(err.into()))
 }
 
-pub fn compute_stake_summary(
-    snapshot: &impl Snapshot,
-    era_history: &EraHistory,
-) -> Result<StakeSummary, StateError> {
+pub fn compute_stake_summary(snapshot: &impl Snapshot, era_history: &EraHistory) -> Result<StakeSummary, StateError> {
     info_span!(ledger::stake_distribution::COMPUTE, epoch = snapshot.epoch(),).in_scope(|| {
         StakeSummary::new(snapshot, GovernanceSummary::new(snapshot, era_history)?).map_err(StateError::Storage)
     })
@@ -1201,9 +1195,6 @@ impl BackwardErrorDetails {
 pub enum StateError {
     #[error("error accessing storage: {0}")]
     Storage(#[from] StoreError),
-
-    #[error("no stake distribution available for rewards calculation.")]
-    StakeDistributionNotAvailableForRewards,
 
     #[error("failed to acquire stake distribution shared lock")]
     FailedToAcquireStakeDistrLock,

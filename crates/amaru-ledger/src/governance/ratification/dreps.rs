@@ -253,14 +253,16 @@ mod tests {
         }
     }
 
-    pub fn any_tally()
-    -> impl Strategy<Value = (Epoch, ProposalEnum, BTreeMap<DRep, &'static Vote>, Rc<StakeSummary>)> {
+    pub fn any_tally() -> impl Strategy<Value = (Epoch, ProposalEnum, BTreeMap<DRep, &'static Vote>, Rc<StakeSummary>)>
+    {
         any_stake_summary_no_pools(MIN_ARBITRARY_EPOCH, MAX_ARBITRARY_EPOCH).prop_flat_map(|stake_distribution| {
             (any_epoch(), any_proposal_enum(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
         })
     }
 
-    pub fn any_votes(stake_distribution: &StakeSummary) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> + use<> {
+    pub fn any_votes(
+        stake_distribution: &StakeSummary,
+    ) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> + use<> {
         let dreps: Vec<DRep> = stake_distribution.dreps.keys().cloned().collect();
 
         let upper_bound = dreps.len() - 1;

@@ -109,10 +109,7 @@ impl StakeDistribution {
     /// Compute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new(
-        db: &impl Snapshot,
-        governance_summary: GovernanceSummary,
-    ) -> Result<Self, StoreError> {
+    pub fn new(db: &impl Snapshot, governance_summary: GovernanceSummary) -> Result<Self, StoreError> {
         StakeDistributionBuilder::new(db, governance_summary).map(StakeDistributionBuilder::into_distribution)
     }
 }
@@ -121,10 +118,7 @@ impl StakeSummary {
     /// Compute the slim stake distribution summary used by the ledger runtime.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new(
-        db: &impl Snapshot,
-        governance_summary: GovernanceSummary,
-    ) -> Result<Self, StoreError> {
+    pub fn new(db: &impl Snapshot, governance_summary: GovernanceSummary) -> Result<Self, StoreError> {
         StakeDistributionBuilder::new(db, governance_summary).map(StakeDistributionBuilder::into_summary)
     }
 }

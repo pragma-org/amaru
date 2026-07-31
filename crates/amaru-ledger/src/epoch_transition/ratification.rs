@@ -415,9 +415,7 @@ mod tests {
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
 
     use super::*;
-    use crate::{
-        state::StakeSummaryView, store::columns::proposals, summary::stake_distribution::StakeSummary,
-    };
+    use crate::{state::StakeSummaryView, store::columns::proposals, summary::stake_distribution::StakeSummary};
 
     fn empty_stake_distribution(epoch: Epoch) -> StakeSummary {
         StakeSummary {
