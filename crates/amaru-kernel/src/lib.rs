@@ -58,7 +58,8 @@ pub mod cbor {
         data::{self, IanaTag, Tag, Type},
         decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
     };
-    pub use pallas_codec::utils::AnyCbor as Any;
+
+    pub use super::utils::cbor::Skip;
 }
 pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 

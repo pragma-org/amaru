@@ -21,12 +21,14 @@ pub use serialised_as_cbor::SerialisedAsCbor;
 pub use serialised_as_millis::SerialisedAsMillis;
 pub use serialised_as_pico::SerialisedAsPico;
 pub use serialised_as_set::SerialisedAsSet;
+pub use skip::Skip;
 
 mod serialised_as_array;
 mod serialised_as_cbor;
 mod serialised_as_millis;
 mod serialised_as_pico;
 mod serialised_as_set;
+mod skip;
 
 #[cfg(any(test, feature = "test-utils"))]
 mod cbor_array;

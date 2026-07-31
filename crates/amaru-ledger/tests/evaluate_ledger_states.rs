@@ -69,11 +69,11 @@ pub mod tests {
     #[allow(dead_code)]
     struct TestVector {
         #[n(0)]
-        config: cbor::Any,
+        config: cbor::Skip,
         #[n(1)]
-        initial_state: cbor::Any,
+        initial_state: cbor::Skip,
         #[n(2)]
-        final_state: cbor::Any,
+        final_state: cbor::Skip,
         #[n(3)]
         events: Vec<TestVectorEvent>,
         #[n(4)]
