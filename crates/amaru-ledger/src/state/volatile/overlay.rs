@@ -434,8 +434,13 @@ mod test {
     /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during
     /// the epoch, so its rewards are unclaimed and returned to the treasury.
     fn effective_rewards() -> Rewards<Effective> {
-        let computed =
-            Rewards::<Computed>::new(1_000, 7, 142, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
+        let computed = Rewards::<Computed>::new(
+            1_000,
+            7,
+            142,
+            BTreeMap::from([(credential(1), 100), (credential(2), 42)]),
+            Default::default(),
+        );
         Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))
     }
 }

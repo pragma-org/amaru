@@ -153,6 +153,13 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
     /// shares this map rather than copying it.
     accounts: Arc<BTreeMap<StakeCredential, Lovelace>>,
 
+    /// Credentials credited a *leader* reward, as named by the stake distribution the rewards were
+    /// computed from. A pool's reward account is an arbitrary stake credential the protocol never
+    /// requires to be registered, and the pool may have changed or dropped it since; so this is the
+    /// only record of who is actually owed the leader reward, and payability has to be resolved
+    /// against it rather than against the pool registry as it stands when the rewards are paid out.
+    leader_recipients: Arc<BTreeSet<StakeCredential>>,
+
     /// The accounts whose rewards are unclaimed because they were no longer registered at the epoch
     /// boundary. For `Effective` this is the set of such account keys (their amounts stay in
     /// `accounts` and are summed back into the treasury); for `Computed` it is `()`. Rolling an
@@ -161,18 +168,28 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
     unclaimed: STEP::UnclaimedRewards,
 }
 
+impl<STEP: KnownRewardState + Clone> Rewards<STEP> {
+    /// The credentials credited a leader reward, against which payability must be resolved. See
+    /// the note on the field itself.
+    pub fn leader_recipients(&self) -> &BTreeSet<StakeCredential> {
+        &self.leader_recipients
+    }
+}
+
 impl Rewards<Computed> {
     pub fn new(
         delta_reserves: Lovelace,
         delta_treasury: Lovelace,
         total_rewards: Lovelace,
         accounts: BTreeMap<StakeCredential, Lovelace>,
+        leader_recipients: BTreeSet<StakeCredential>,
     ) -> Self {
         Self {
             delta_reserves,
             delta_treasury,
             total_rewards,
             accounts: Arc::new(accounts),
+            leader_recipients: Arc::new(leader_recipients),
             unclaimed: (),
             step: PhantomData,
         }
@@ -208,6 +225,7 @@ impl Rewards<Effective> {
             delta_treasury: computed_rewards.delta_treasury,
             total_rewards: computed_rewards.total_rewards,
             accounts,
+            leader_recipients: computed_rewards.leader_recipients,
             unclaimed: Arc::new(unclaimed),
         }
     }
@@ -249,6 +267,7 @@ impl Rewards<Effective> {
             delta_treasury: self.delta_treasury,
             total_rewards: self.total_rewards,
             accounts: self.accounts,
+            leader_recipients: self.leader_recipients,
             unclaimed: (),
         }
     }
@@ -277,8 +296,14 @@ mod test {
 
         let delta_reserves = 1_000;
         let delta_treasury = 7;
-        let computed_rewards =
-            Rewards::<Computed>::new(delta_reserves, delta_treasury, accounts.values().sum(), accounts);
+        let leader_recipients = BTreeSet::from([registered]);
+        let computed_rewards = Rewards::<Computed>::new(
+            delta_reserves,
+            delta_treasury,
+            accounts.values().sum(),
+            accounts,
+            leader_recipients.clone(),
+        );
         let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered]));
 
         // The still-registered account is paid its reward; the unregistered one is not (its reward
@@ -287,10 +312,12 @@ mod test {
         assert_eq!(effective_rewards.reward_of(&unregistered), 0);
         assert_eq!(effective_rewards.delta_reserves(), delta_reserves);
         assert_eq!(effective_rewards.delta_treasury(), delta_treasury + 42);
+        assert_eq!(effective_rewards.leader_recipients(), &leader_recipients);
 
         // Rolling back drops the unclaimed markers, restoring the original computed rewards.
         let rolled_back = effective_rewards.clone().to_computed();
         assert_eq!(rolled_back, computed_rewards, "rollback");
+        assert_eq!(rolled_back.leader_recipients(), &leader_recipients);
     }
 
     /// Unregistered credentials that are owed no reward are dropped: they cannot change what is paid
@@ -301,7 +328,7 @@ mod test {
         let rewardless = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
 
         let accounts = BTreeMap::from([(rewarded, 42)]);
-        let computed_rewards = Rewards::<Computed>::new(1_000, 7, 42, accounts);
+        let computed_rewards = Rewards::<Computed>::new(1_000, 7, 42, accounts, Default::default());
 
         // The same credentials repeated, as chaining the unregistration sources may well do.
         let unregistered = [rewarded, rewardless, rewarded, rewardless];

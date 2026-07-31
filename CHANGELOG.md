@@ -54,6 +54,7 @@ Other guiding principles:
 - **amaru-ledger**: debit the treasury when enacted withdrawals are paid out at the epoch boundary ([#1118][])
 - **amaru-ledger**: preserve the `Ratified` status of proposals pruned during ratification ([#1118][])
 - **amaru-kernel**: reduce memory footprint of various types on the critical path.
+- **amaru-ledger**: when a leader changes it reward account, the rewards owed to the previous account must return to the treasury ([#1125](https://github.com/pragma-org/amaru/pull/1125)).
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 

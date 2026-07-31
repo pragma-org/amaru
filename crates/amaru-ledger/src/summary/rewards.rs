@@ -107,7 +107,7 @@ the system at a certain point in time. We always take snapshots _at the end of e
 certain mutations are applied to the system.
 */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, StakeCredential, expect_stake_credential,
@@ -327,6 +327,9 @@ pub struct RewardsSummary {
 
     /// Per-account rewards, determined from their relative stake and their delegatee.
     accounts: BTreeMap<StakeCredential, Lovelace>,
+
+    /// Credentials credited a leader reward, as named by the stake distribution's pool parameters.
+    leader_recipients: BTreeSet<StakeCredential>,
 }
 
 impl RewardsSummary {
@@ -369,11 +372,14 @@ impl RewardsSummary {
 
         let mut accounts: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
+        let mut leader_recipients: BTreeSet<StakeCredential> = BTreeSet::new();
+
         let mut pools: BTreeMap<PoolId, PoolRewards> = BTreeMap::new();
 
         let mut effective_rewards = stake_distribution.pools.iter().fold(0, |effective_rewards, (pool_id, pool)| {
             let pool_rewards = RewardsSummary::apply_leader_rewards(
                 &mut accounts,
+                &mut leader_recipients,
                 &mut blocks_per_pool,
                 blocks_count,
                 available_rewards,
@@ -431,6 +437,7 @@ impl RewardsSummary {
             effective_rewards,
             pots,
             accounts,
+            leader_recipients,
         })
     }
 
@@ -513,6 +520,7 @@ impl RewardsSummary {
     #[expect(clippy::too_many_arguments)]
     fn apply_leader_rewards(
         accounts: &mut BTreeMap<StakeCredential, Lovelace>,
+        leader_recipients: &mut BTreeSet<StakeCredential>,
         blocks_per_pool: &mut BTreeMap<PoolId, u64>,
         blocks_count: u64,
         available_rewards: Lovelace,
@@ -541,11 +549,12 @@ impl RewardsSummary {
             // *owners* and the performance against its *delegators*. So a pool can perfectly well
             // earn a leader reward payable to a credential that has no account, in which case the
             // reward is unclaimed and goes to the treasury instead. That is settled at the epoch
-            // boundary, from the reward accounts collected while ticking the pools.
-            accounts
-                .entry(expect_stake_credential(&pool.parameters.reward_account))
-                .and_modify(|rewards| *rewards += rewards_leader)
-                .or_insert(rewards_leader);
+            // boundary, against the recipients recorded here: the pool may change or drop its
+            // reward account before the payout, so the registry as it stands then no longer knows
+            // who was owed the reward.
+            let credential = expect_stake_credential(&pool.parameters.reward_account);
+            leader_recipients.insert(credential);
+            accounts.entry(credential).and_modify(|rewards| *rewards += rewards_leader).or_insert(rewards_leader);
         }
 
         PoolRewards { leader: rewards_leader, pot: rewards_pot }
@@ -560,6 +569,16 @@ impl RewardsSummary {
     pub fn delta_treasury(&self) -> Lovelace {
         self.treasury_tax
     }
+
+    /// Rewards owed to each credential, whether or not that credential still has an account.
+    pub fn accounts(&self) -> &BTreeMap<StakeCredential, Lovelace> {
+        &self.accounts
+    }
+
+    /// Total rewards actually given out, across all credentials.
+    pub fn effective_rewards(&self) -> Lovelace {
+        self.effective_rewards
+    }
 }
 
 impl From<RewardsSummary> for Rewards<Computed> {
@@ -569,6 +588,7 @@ impl From<RewardsSummary> for Rewards<Computed> {
             summary.delta_treasury(),
             summary.effective_rewards,
             summary.accounts,
+            summary.leader_recipients,
         )
     }
 }
@@ -586,7 +606,7 @@ mod test {
     #[test]
     fn a_leader_reward_is_credited_to_an_unregistered_reward_account() {
         let pool = pool(1);
-        let accounts = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
+        let (accounts, _) = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
         assert!(accounts.contains_key(&credential(1)));
     }
 
@@ -600,9 +620,47 @@ mod test {
             AccountState { balance: STAKE, pool: Some(pool.parameters.id), drep: None },
         )]);
 
-        let accounts = apply_leader_rewards(&pool, &stake_distribution(&pool, delegators));
+        let (accounts, _) = apply_leader_rewards(&pool, &stake_distribution(&pool, delegators));
 
         assert!(accounts.contains_key(&credential(1)));
+    }
+
+    /// Crediting a leader reward also records its recipient, so that payability can later be
+    /// resolved against the credentials actually owed a reward rather than against the pool
+    /// registry as it stands at payout time.
+    #[test]
+    fn a_leader_reward_records_its_recipient() {
+        let pool = pool(1);
+        let (_, leader_recipients) = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
+        assert_eq!(leader_recipients, BTreeSet::from([credential(1)]));
+    }
+
+    /// A pool earning no leader reward records no recipient: anything else would be a wasted
+    /// database lookup at the epoch boundary.
+    #[test]
+    fn a_pool_earning_no_leader_reward_records_no_recipient() {
+        let pool = pool(1);
+        let stake_distribution = stake_distribution(&pool, BTreeMap::new());
+
+        let mut accounts = BTreeMap::new();
+        let mut leader_recipients = BTreeSet::new();
+        let mut blocks_per_pool = BTreeMap::new();
+
+        let rewards = RewardsSummary::apply_leader_rewards(
+            &mut accounts,
+            &mut leader_recipients,
+            &mut blocks_per_pool,
+            1,
+            1_000_000_000,
+            STAKE,
+            &stake_distribution,
+            &pool,
+            &MAINNET_DEFAULT_PROTOCOL_PARAMETERS,
+        );
+
+        assert_eq!(rewards.leader, 0, "a pool with no block should earn no leader reward");
+        assert!(leader_recipients.is_empty());
+        assert!(accounts.is_empty());
     }
 
     // HELPERS
@@ -651,16 +709,19 @@ mod test {
         }
     }
 
-    /// Credit a leader reward to `pool`, and report which accounts were credited.
+    /// Credit a leader reward to `pool`, and report which accounts were credited and which
+    /// recipients were recorded.
     fn apply_leader_rewards(
         pool: &PoolState,
         stake_distribution: &StakeDistribution,
-    ) -> BTreeMap<StakeCredential, Lovelace> {
+    ) -> (BTreeMap<StakeCredential, Lovelace>, BTreeSet<StakeCredential>) {
         let mut accounts = BTreeMap::new();
+        let mut leader_recipients = BTreeSet::new();
         let mut blocks_per_pool = BTreeMap::from([(pool.parameters.id, 1)]);
 
         let rewards = RewardsSummary::apply_leader_rewards(
             &mut accounts,
+            &mut leader_recipients,
             &mut blocks_per_pool,
             1,
             1_000_000_000,
@@ -671,6 +732,6 @@ mod test {
         );
 
         assert!(rewards.leader > 0, "the fixture should reward the leader");
-        accounts
+        (accounts, leader_recipients)
     }
 }
