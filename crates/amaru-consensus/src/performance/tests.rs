@@ -42,7 +42,7 @@ fn peer(name: &str) -> Peer {
 }
 
 fn select(need: Vec<HeaderHash>, max_peers: usize) -> SelectPeersParams {
-    SelectPeersParams { need, max_peers, min_peers: 1, now: t(100) }
+    SelectPeersParams { need, max_peers, now: t(100) }
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +286,7 @@ fn prefix_only_peer_not_selected_for_range() {
 
 #[test]
 fn cold_start_empty_map_returns_weak_empty_selection() {
-    let mut peers = PeerPerformance::new();
+    let peers = PeerPerformance::new();
     let set = peers.apply_select_peers_for_fetch(select(vec![hash(1)], 5));
     assert!(set.weak);
     assert!(set.peers.is_empty());
@@ -448,4 +448,18 @@ fn dropping_last_performance_handle_joins_worker() {
     let clone = perf.clone();
     drop(perf);
     drop(clone);
+}
+
+/// Queue-depth rate limiting calls [`tokio::time::Instant::now`] from stage threads that may
+/// not be running a Tokio runtime. This guards that assumption.
+#[test]
+fn tokio_time_instant_now_works_outside_tokio_thread() {
+    let result = std::panic::catch_unwind(|| {
+        let a = tokio::time::Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let b = tokio::time::Instant::now();
+        assert!(b >= a);
+        assert!(b.duration_since(a) >= std::time::Duration::from_millis(1));
+    });
+    assert!(result.is_ok(), "tokio::time::Instant::now panicked outside a Tokio runtime/thread: {result:?}");
 }

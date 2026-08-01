@@ -9,6 +9,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - `cargo check-amaru`: `check --workspace --all-targets`
 - `cargo clippy-amaru`: `clippy --workspace --all-targets -- -D warnings`
 - `cargo fmt-amaru`: `fmt --all -- --check`
+- `cargo doc --no-deps`: must be free of rustdoc warnings (use `RUSTDOCFLAGS="-D warnings"` when checking)
 - Use nightly toolchain: `nightly-2026-04-17` (see rust-toolchain.toml)
 
 ### Common Commands
@@ -58,6 +59,7 @@ Run `make help` for all targets.
 - Never reference the implementation plan, step numbers, ticket IDs, or in-progress refactor names in commit messages or code comments.
 - Describe what the code does and why it exists, not where it sits in the current work.
 - All code must compile and pass clippy/fmt
+- Documentation must build without warnings: `cargo doc --no-deps` (treat rustdoc warnings as failures)
 - main branch must always be working (compiles + tests pass)
 
 ### Formatting (rustfmt.toml)

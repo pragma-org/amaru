@@ -86,7 +86,7 @@ pub struct SelectPeersParams {
     /// Oldest-first chain fragment to fetch (parent before child).
     pub need: Vec<HeaderHash>,
     pub max_peers: usize,
-    pub min_peers: usize,
+    /// Wall-clock for selection (reserved for future staleness-aware ranking).
     pub now: Instant,
 }
 
@@ -188,7 +188,7 @@ impl PeerPerformance {
         self.prune_below(min_height);
     }
 
-    pub fn apply_select_peers_for_fetch(&mut self, params: SelectPeersParams) -> FetchPeerSet {
+    pub fn apply_select_peers_for_fetch(&self, params: SelectPeersParams) -> FetchPeerSet {
         self.select_peers_for_fetch(params)
     }
 
@@ -204,6 +204,7 @@ impl PeerPerformance {
         self.direct_claimants(hash)
     }
 
+    /// Rank candidates for churn (worst first). `now` is reserved for future staleness ranking.
     pub fn apply_rank_peers_for_churn(&self, candidates: &[Peer], _now: Instant) -> Vec<(Peer, PeerScores)> {
         self.rank_peers_for_churn(candidates)
     }
@@ -308,7 +309,7 @@ impl PeerPerformance {
     }
 
     fn select_peers_for_fetch(&self, params: SelectPeersParams) -> FetchPeerSet {
-        let SelectPeersParams { need, max_peers, min_peers: _, now: _ } = params;
+        let SelectPeersParams { need, max_peers, now: _ } = params;
         if need.is_empty() || max_peers == 0 {
             return FetchPeerSet { peers: Vec::new(), weak: true };
         }
@@ -374,10 +375,10 @@ impl PeerPerformance {
 
     fn prune_below(&mut self, min_height: BlockHeight) {
         self.parents.retain(|_, info| info.height >= min_height);
-        let kept_parents = self.parents.clone();
-        self.direct.retain(|hash, claimants| kept_parents.contains_key(hash) && !claimants.is_empty());
+        let parents = &self.parents;
+        self.direct.retain(|hash, claimants| parents.contains_key(hash) && !claimants.is_empty());
         for state in self.peers.values_mut() {
-            state.tips.retain(|hash, meta| meta.height >= min_height && kept_parents.contains_key(hash));
+            state.tips.retain(|hash, meta| meta.height >= min_height && parents.contains_key(hash));
         }
     }
 }
@@ -437,10 +438,6 @@ fn walk_reaches(
         let Some(parent) = info.parent else {
             return false;
         };
-        // FIXME track &ParentInfo and check only once
-        if parent == target {
-            return true;
-        }
         let Some(parent_info) = parents.get(&parent).copied() else {
             return false;
         };
@@ -502,9 +499,9 @@ fn ewma_duration(prev: Option<Duration>, sample: Duration) -> Duration {
     match prev {
         None => sample,
         Some(p) => {
-            let p_ns = p.as_secs_f64();
-            let s_ns = sample.as_secs_f64();
-            let next = (1.0 - EWMA_ALPHA) * p_ns + EWMA_ALPHA * s_ns;
+            let prev_secs = p.as_secs_f64();
+            let sample_secs = sample.as_secs_f64();
+            let next = (1.0 - EWMA_ALPHA) * prev_secs + EWMA_ALPHA * sample_secs;
             Duration::from_secs_f64(next.max(0.0))
         }
     }

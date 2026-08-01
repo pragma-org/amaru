@@ -20,11 +20,11 @@ use amaru_kernel::{HeaderHash, Tip};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
 use amaru_observability::debug;
 use amaru_pure_stage::Instant;
-use serde::{Deserialize, Serialize};
 
 /// Tracks the processing of headers to emit a single `perf.header.lifecycle` event per header when
-/// its block reaches a terminal state (adopted, invalidated or abandoned). The event covers the four
-/// network-health processing points of a header's lifecycle and carries the intervals between them:
+/// its block reaches a terminal state (adopted, invalidated, abandoned, or pruned). The event covers
+/// the four network-health processing points of a header's lifecycle and carries the intervals
+/// between them:
 ///
 /// - `block_fetch_wait_micros`: from the header's reception to the request of its block.
 /// - `block_fetch_micros`: from the request of the block to its reception.
@@ -44,7 +44,7 @@ pub struct HeaderPerformance {
 }
 
 /// The processing timestamps accumulated for a header until its block reaches a terminal state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct HeaderLifecycle {
     /// Time when the header was first received from an upstream peer.
     received_at: Instant,
@@ -62,7 +62,7 @@ impl HeaderLifecycle {
 
 /// The in-progress switch to a new fork, with the hash of its expected new best tip and the
 /// time it was detected.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 struct ForkSwitch {
     hash: HeaderHash,
     started_at: Instant,
@@ -78,6 +78,9 @@ pub enum HeaderLifecycleOutcome {
     InvalidBlock,
     /// The block was retrieved and validated.
     ValidBlock,
+    /// Tracking was dropped because the header fell outside the retained consensus window
+    /// (horizon / immutable tip).
+    Pruned,
     /// The header for a given block has already been received.
     DuplicateHeader,
     /// The header cannot be decoded.
@@ -94,10 +97,11 @@ impl HeaderLifecycleOutcome {
             Self::AbandonedBlock => "abandoned",
             Self::InvalidBlock => "invalid",
             Self::ValidBlock => "valid",
-            Self::DuplicateHeader => "duplicate header",
-            Self::InvalidHeader => "invalid header",
-            Self::UndecodableHeader => "undecodable header",
-            Self::StoreHeaderError => "store header error",
+            Self::Pruned => "pruned",
+            Self::DuplicateHeader => "duplicate_header",
+            Self::InvalidHeader => "invalid_header",
+            Self::UndecodableHeader => "undecodable_header",
+            Self::StoreHeaderError => "store_header_error",
         }
     }
 }
@@ -122,7 +126,7 @@ impl ForkSwitchOutcome {
             Self::AbandonedBlock => "abandoned",
             Self::InvalidBlock => "invalid",
             Self::ValidBlock => "valid",
-            Self::Superseded => "superseded fork",
+            Self::Superseded => "superseded_fork",
         }
     }
 }
@@ -183,7 +187,7 @@ impl HeaderPerformance {
 
     /// A header has been pruned after a block validation.
     ///
-    /// `invalid == true` means that the block that was found invalid; otherwise this header/block
+    /// `invalid == true` means that the block was found invalid; otherwise this header/block
     /// has been abandoned because a better chain is available.
     pub fn apply_block_pruned(&mut self, hash: &HeaderHash, invalid: bool, now: Instant, meter: Option<&Meter>) {
         let (header_outcome, fork_outcome) = if invalid {
