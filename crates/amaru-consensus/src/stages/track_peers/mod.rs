@@ -493,6 +493,20 @@ impl TrackPeers {
         self.deferred.retain(|d| d.conn_id != conn_id);
     }
 
+    /// True if this peer still has an upstream session or deferred work.
+    fn peer_still_tracked(&self, peer: &Peer) -> bool {
+        self.upstream.values().any(|pp| match pp {
+            PerPeer::Connecting { peer: p } | PerPeer::Established { peer: p, .. } => p == peer,
+        }) || self.deferred.iter().any(|d| &d.peer == peer)
+    }
+
+    /// Drop availability claims when the peer has no remaining sessions (scores kept).
+    async fn clear_availability_if_gone(&self, peer: &Peer, eff: &Effects<TrackPeersMsg>) {
+        if !self.peer_still_tracked(peer) {
+            eff.external(Performance::clear_peer_availability(peer.clone())).await;
+        }
+    }
+
     /// Try to defer this header validation due to missing stake distribution.
     /// Returns true if deferred (and not adversarial).
     /// Rejects (returns false to let caller do adversarial) if the missing dist is >1 epoch ahead.
@@ -729,6 +743,7 @@ impl TrackPeers {
             Terminated => {
                 tracing::info!(%peer, %conn_id, "chainsync terminated, purging connection state");
                 self.purge_connection(conn_id);
+                self.clear_availability_if_gone(&peer, &eff).await;
             }
             IntersectFound(current, tip) => {
                 let current_tip = Store::new(eff.clone()).load_tip(&current.hash()).await;
@@ -746,6 +761,7 @@ impl TrackPeers {
                 tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
                 eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                 self.purge_connection(conn_id);
+                self.clear_availability_if_gone(&peer, &eff).await;
             }
             RollForward(header_content, tip) => {
                 let peer_clone = peer.clone();

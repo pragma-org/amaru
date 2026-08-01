@@ -136,7 +136,7 @@ pub(crate) enum PerformanceOp {
     RecordKeepaliveRtt { effect: RecordKeepaliveRttEffect },
     ClearPeerAvailability { effect: ClearPeerAvailabilityEffect },
     ForgetPeer { effect: ForgetPeerEffect },
-    PruneBelow { effect: PruneBelowEffect },
+    PruneBelow { effect: PruneBelowEffect, meter: Option<Arc<Meter>> },
     SelectPeersForFetch { effect: SelectPeersForFetchEffect, reply: oneshot::Sender<FetchPeerSet> },
     PeerCoversFragment { effect: PeerCoversFragmentEffect, reply: oneshot::Sender<bool> },
     DirectClaimants { effect: DirectClaimantsEffect, reply: oneshot::Sender<Vec<(Peer, Instant, ClaimKind)>> },
@@ -281,8 +281,9 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
         PerformanceOp::ForgetPeer { effect } => {
             peers.apply_forget_peer(&effect.peer);
         }
-        PerformanceOp::PruneBelow { effect } => {
+        PerformanceOp::PruneBelow { effect, meter } => {
             peers.apply_prune_below(effect.min_height);
+            headers.apply_prune_below(effect.min_height, effect.now, meter.as_deref());
         }
         PerformanceOp::SelectPeersForFetch { effect, reply } => {
             let result = peers.apply_select_peers_for_fetch(effect.params);

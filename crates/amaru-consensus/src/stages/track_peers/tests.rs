@@ -37,10 +37,10 @@ use crate::{
             test_setup::{
                 HEIGHT_RECHECK_INTERVAL, SIM_INITIAL_CLOCK_SECS, build_store, build_store_with_nonces,
                 height_recheck_schedule_id, make_block_header, new_tip, schedule_id_at, setup, setup_base,
-                setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clock, te_clock_suspend,
-                te_get_nonces, te_load_header, te_load_tip, te_record_header_announcement, te_record_rollback,
-                te_schedule, te_store_validated_header, te_validate_header, test_prep, test_prep_with_max_peer_lead,
-                tm_volatile_tip,
+                setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clear_peer_availability,
+                te_clock, te_clock_suspend, te_get_nonces, te_load_header, te_load_tip, te_record_header_announcement,
+                te_record_rollback, te_schedule, te_store_validated_header, te_validate_header, test_prep,
+                test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
     },
@@ -143,7 +143,12 @@ fn test_terminated_purges_upstream_and_deferred() {
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
         &running,
-        &[te_state("tp-1", &state).into(), te_input("tp-1", &msg).into(), te_state("tp-1", &expected).into()],
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clear_peer_availability("tp-1", peer).into(),
+            te_state("tp-1", &expected).into(),
+        ],
     );
     logs.assert_and_remove(Level::INFO, &["chainsync terminated"]).assert_no_remaining_at([
         Level::INFO,
@@ -172,13 +177,15 @@ fn test_terminated_only_purges_matching_connection() {
     });
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer, conn_b, prep.headers[0].tip(), prep.headers[0].tip());
+    expected.insert_peer(peer.clone(), conn_b, prep.headers[0].tip(), prep.headers[0].tip());
 
     let (running, _guards, mut logs) = setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(&[]));
     assert_trace_contains(
         &running,
         &[te_state("tp-1", &state).into(), te_input("tp-1", &msg).into(), te_state("tp-1", &expected).into()],
     );
+    // Other connection still tracked for this peer ⇒ no clear_peer_availability.
+    assert_trace_does_not_contain(&running, &[te_clear_peer_availability("tp-1", peer).into()]);
     logs.assert_and_remove(Level::INFO, &["chainsync terminated"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,

@@ -255,9 +255,17 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderRejectedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordIntersectionEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordRollbackEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::metrics_effects::RecordMetricsEffect>()
             .boxed(),
     ]
+}
+
+pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::clear_peer_availability(peer)),
+    ))
 }
 
 pub fn setup(

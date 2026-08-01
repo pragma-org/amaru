@@ -128,7 +128,20 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ScheduleId>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GenerateRandomSeed>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::ForgetPeerEffect>().boxed(),
     ]
+}
+
+pub fn te_forget_peer(at_stage: &str, peer: Peer) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::performance::Performance::forget_peer(peer))))
+}
+
+pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::clear_peer_availability(peer)),
+    ))
 }
 
 pub fn setup(prep: &TestPrep, msg: PeerSelectionMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
@@ -171,7 +184,11 @@ fn setup_preload_with_mode(
             network.preload(&ps, messages).unwrap();
             network
         },
-        |_resources| {},
+        |resources| {
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
+                crate::performance::Performance::new(),
+            ));
+        },
         |running| {
             running.use_virtual_child_stages(true);
 

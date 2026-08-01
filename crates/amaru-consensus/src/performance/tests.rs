@@ -440,6 +440,18 @@ fn slot_start_metric_omitted_while_syncing() {
     assert_eq!(headers.lifecycle_count(), 0);
 }
 
+#[test]
+fn prune_below_closes_open_lifecycles_as_pruned() {
+    let mut headers = HeaderPerformance::new();
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
+    headers.apply_header_received(peer("alice"), tip(5, 5), t(2), 0);
+    assert_eq!(headers.lifecycle_count(), 2);
+    headers.apply_prune_below(BlockHeight::from(5), t(3), None);
+    assert_eq!(headers.lifecycle_count(), 1);
+    headers.apply_prune_below(BlockHeight::from(6), t(4), None);
+    assert_eq!(headers.lifecycle_count(), 0);
+}
+
 // ---------------------------------------------------------------------------
 // Resource handle + external effects (smoke)
 // ---------------------------------------------------------------------------

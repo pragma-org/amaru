@@ -115,8 +115,8 @@ impl Performance {
         ForgetPeerEffect { peer }
     }
 
-    pub fn prune_below(min_height: BlockHeight) -> PruneBelowEffect {
-        PruneBelowEffect { min_height }
+    pub fn prune_below(min_height: BlockHeight, now: Instant) -> PruneBelowEffect {
+        PruneBelowEffect { min_height, now }
     }
 
     pub fn select_peers_for_fetch(params: SelectPeersParams) -> SelectPeersForFetchEffect {
@@ -346,13 +346,15 @@ impl ExternalEffectAPI for ForgetPeerEffect {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PruneBelowEffect {
     pub(crate) min_height: BlockHeight,
+    pub(crate) now: Instant,
 }
 
 impl ExternalEffect for PruneBelowEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let perf = require_perf(&resources);
-            enqueue(&perf, PerformanceOp::PruneBelow { effect: *self });
+            let meter = optional_meter(&resources);
+            enqueue(&perf, PerformanceOp::PruneBelow { effect: *self, meter });
         })
     }
 }

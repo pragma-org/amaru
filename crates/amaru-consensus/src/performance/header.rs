@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{HeaderHash, Peer, Tip};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Tip};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
 use amaru_observability::debug;
 use amaru_pure_stage::Instant;
@@ -56,6 +56,8 @@ struct HeaderLifecycle {
     peer: Peer,
     /// Interval from virtual slot start to header reception, computed by the announcing stage.
     slot_start_to_header_micros: u64,
+    /// Block height of the header (for immutable-horizon pruning).
+    height: BlockHeight,
     /// Time when the header was first received from an upstream peer.
     received_at: Instant,
     /// Time when its block was first requested, if it was requested.
@@ -65,8 +67,8 @@ struct HeaderLifecycle {
 }
 
 impl HeaderLifecycle {
-    fn new(peer: Peer, slot_start_to_header_micros: u64, received_at: Instant) -> Self {
-        Self { peer, slot_start_to_header_micros, received_at, requested_at: None, downloaded_at: None }
+    fn new(peer: Peer, slot_start_to_header_micros: u64, height: BlockHeight, received_at: Instant) -> Self {
+        Self { peer, slot_start_to_header_micros, height, received_at, requested_at: None, downloaded_at: None }
     }
 }
 
@@ -159,9 +161,21 @@ impl HeaderPerformance {
         received_at: Instant,
         slot_start_to_header_micros: u64,
     ) {
-        self.lifecycles
-            .entry(tip.hash())
-            .or_insert_with(|| HeaderLifecycle::new(peer, slot_start_to_header_micros, received_at));
+        self.lifecycles.entry(tip.hash()).or_insert_with(|| {
+            HeaderLifecycle::new(peer, slot_start_to_header_micros, tip.block_height(), received_at)
+        });
+    }
+
+    /// Close open lifecycles (and any matching fork switch) for headers that have fallen behind
+    /// the immutable horizon (`height < min_height`). Emits `HeaderLifecycleOutcome::Pruned`.
+    pub fn apply_prune_below(&mut self, min_height: BlockHeight, now: Instant, meter: Option<&Meter>) {
+        let to_prune: Vec<HeaderHash> =
+            self.lifecycles.iter().filter(|(_, lc)| lc.height < min_height).map(|(h, _)| *h).collect();
+        for hash in to_prune {
+            // Not a sync-path decision; always include the slot-start interval when available.
+            self.emit_lifecycle(&hash, HeaderLifecycleOutcome::Pruned, now, false, meter);
+            self.close_fork(&hash, ForkSwitchOutcome::AbandonedBlock, now, meter);
+        }
     }
 
     /// The fetch stage requested the blocks for these headers: record their request time.
