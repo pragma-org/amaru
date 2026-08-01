@@ -25,7 +25,7 @@ use divan::Bencher;
 mod benches;
 mod common;
 
-static MEMORY_USAGE: LazyLock<Arc<RwLock<BTreeMap<Scenario, u64>>>> =
+static MEMORY_USAGE: LazyLock<Arc<RwLock<BTreeMap<Scenario, i64>>>> =
     LazyLock::new(|| Arc::new(RwLock::new(BTreeMap::new())));
 
 pub fn main() {

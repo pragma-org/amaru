@@ -21,10 +21,14 @@ use amaru::{
     panic::panic_handler,
     version,
 };
+use mimalloc::MiMalloc;
 
 mod cli;
 mod cmd;
 mod pid;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() -> ExitCode {
     panic_handler();

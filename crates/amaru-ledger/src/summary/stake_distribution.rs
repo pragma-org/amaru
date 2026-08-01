@@ -59,7 +59,7 @@ impl Deref for StakeSummary {
 ///
 /// Unlike [`StakeSummary`], this deliberately omits the full accounts mapping. The only
 /// account-derived information needed on the hot path is captured in `PoolState::fallback_drep`.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 #[cfg_attr(test, derive(Clone))]
 pub struct StakeDistribution {
     /// Epoch number for this snapshot (taken at the end of the epoch)

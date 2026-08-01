@@ -595,7 +595,7 @@ mod test {
     use amaru_kernel::{CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PoolParams, RationalNumber};
 
     use super::*;
-    use crate::summary::stake_distribution::StakeSummary;
+    use crate::summary::stake_distribution::{StakeDistribution, StakeSummary};
 
     /// A leader reward is credited to the pool's reward account whether or not that credential is a
     /// registered account. Whether it can actually be paid is settled at the epoch boundary, against
