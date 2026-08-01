@@ -1095,7 +1095,7 @@ mod tests {
     fn reward_balance_folds_in_the_pending_overlay_credit_during_the_straddle() {
         let mut db = VolatileDB::default();
         let accounts = BTreeMap::from([(cred(1), 5_000_000)]);
-        let computed = Rewards::<Computed>::new(0, 0, accounts.values().sum(), accounts);
+        let computed = Rewards::<Computed>::new(0, 0, accounts.values().sum(), accounts, Default::default());
         let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
 
         // The pending boundary credit is added on top of the stable base.
@@ -1134,7 +1134,7 @@ mod tests {
     #[test_case(None, None => Existence::Unknown; "untouched everywhere defers to the stable store")]
     fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Existence<bool> {
         let mut db = VolatileDB::default();
-        let computed = Rewards::<Computed>::new(0, 0, 0, BTreeMap::new());
+        let computed = Rewards::<Computed>::new(0, 0, 0, BTreeMap::new(), Default::default());
         let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
         if let Some(act) = draining {
             db.push_back(committee_block(10, act));
@@ -1227,7 +1227,8 @@ mod tests {
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
     /// observable state (its pending reward credit surfaces through `resolve_account`).
     fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential, amount)]));
+        let computed =
+            Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential, amount)]), Default::default());
         Rewards::<Effective>::new(computed, BTreeSet::new())
     }
 

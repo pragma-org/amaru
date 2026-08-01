@@ -132,15 +132,16 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     ///   that allows us to recover this information.
     ///
     /// - Pool leaders: pools are paid on their pool's reward account, an arbitrary stake credential
-    ///   which the protocol never requires to be registered so a pool can earn a reward payable to a
-    ///   credential that has never had an account at all. Such an account may be missing despite no
-    ///   unregistration to have ever been recorded .
+    ///   which the protocol never requires to be registered, as named by the stake distribution the
+    ///   rewards were computed from. The pool may have changed or dropped that account since, and
+    ///   the credential may never have had an account at all. So such an account may be missing
+    ///   despite no unregistration to have ever been recorded.
     ///
     /// IMPORTANT: Yields accounts in no particular order.
     #[expect(clippy::panic)]
     pub fn iter_unreachable_accounts(
         &mut self,
-        pools_rewards_accounts: BTreeSet<StakeCredential>,
+        pools_owners: BTreeSet<&'_ StakeCredential>,
     ) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
         let AccountVolatileView { mut registered, mut unregistered } = match mem::take(&mut self.accounts) {
             None => {
@@ -161,7 +162,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
             self.db.iter_recently_unregistered_accounts()?,
             &mut registered,
             &mut unregistered,
-            pools_rewards_accounts,
+            pools_owners,
         ))
     }
 
@@ -197,12 +198,31 @@ mod test {
         let volatile = VolatileDB::default();
         let mut view = VolatileView::new(&volatile, &stable);
 
-        let pool_reward_accounts = BTreeSet::from([credential(1), credential(2)]);
+        let pool_reward_accounts = [credential(1), credential(2)];
 
         assert_eq!(
-            unreachable_accounts(&mut view, pool_reward_accounts),
+            unreachable_accounts(&mut view, pool_reward_accounts.iter().collect()),
             BTreeSet::from([credential(2)]),
             "credential(1) has an account and is payable; credential(2) never had one",
+        );
+    }
+
+    /// A pool can change or drop its reward account between the stake distribution snapshot and the
+    /// payout: the credential owed the leader reward is then named by no pool in the registry, and
+    /// if it was deregistered long enough ago, its unregistration marker has been pruned too. As
+    /// long as it is fed in as a leader reward account, it is still yielded as unreachable: neither
+    /// the registry nor the unregistration index is needed to catch it.
+    #[test]
+    fn leader_reward_accounts_no_longer_named_by_any_pool_are_unclaimed() {
+        let stable = Stable { accounts: BTreeSet::new(), recently_unregistered: BTreeSet::new() };
+        let volatile = VolatileDB::default();
+        let mut view = VolatileView::new(&volatile, &stable);
+
+        let leader_reward_accounts = [credential(1)];
+
+        assert_eq!(
+            unreachable_accounts(&mut view, leader_reward_accounts.iter().collect()),
+            BTreeSet::from(leader_reward_accounts),
         );
     }
 
@@ -243,10 +263,10 @@ mod test {
 
         let mut view = VolatileView::new(&volatile, &stable);
 
-        let pool_reward_accounts = BTreeSet::from([credential(1), credential(5)]);
+        let pool_reward_accounts = [credential(1), credential(5)];
 
         assert_eq!(
-            unreachable_accounts(&mut view, pool_reward_accounts),
+            unreachable_accounts(&mut view, pool_reward_accounts.iter().collect()),
             BTreeSet::from([credential(2), credential(4)])
         );
     }
@@ -257,7 +277,7 @@ mod test {
     /// and any repetition don't matter.
     fn unreachable_accounts(
         view: &mut VolatileView<'_, '_, Stable>,
-        pool_reward_accounts: BTreeSet<StakeCredential>,
+        pool_reward_accounts: BTreeSet<&StakeCredential>,
     ) -> BTreeSet<StakeCredential> {
         view.iter_unreachable_accounts(pool_reward_accounts).unwrap().collect()
     }

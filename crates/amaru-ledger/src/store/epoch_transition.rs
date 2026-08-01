@@ -62,7 +62,7 @@ pub fn pay_rewards<'store>(
             }
 
             let expected_total_rewards = effective_rewards.total_rewards();
-            let actual_total_rewards = rewards_paid + effective_rewards.unclaimed_rewards();
+            let actual_total_rewards = rewards_paid + effective_rewards.total_unclaimed_rewards();
 
             // Technically, if we did everything *right*, there should be no accounts with rewards that
             // cannot be paid out (i.e. accounts that no longer exists). This has been taken care of during
