@@ -415,10 +415,12 @@ mod tests {
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
 
     use super::*;
-    use crate::{state::StakeSummaryView, store::columns::proposals, summary::stake_distribution::StakeSummary};
+    use crate::{
+        state::StakeDistributionView, store::columns::proposals, summary::stake_distribution::StakeDistribution,
+    };
 
-    fn empty_stake_distribution(epoch: Epoch) -> StakeSummary {
-        StakeSummary {
+    fn empty_stake_distribution(epoch: Epoch) -> StakeDistribution {
+        StakeDistribution {
             epoch,
             treasury: 0,
             reserves: 0,
@@ -455,7 +457,7 @@ mod tests {
         let ctx = RatificationContext {
             epoch,
             treasury: 1_000_000_000,
-            stake_distribution: StakeSummaryView::new(distributions.lock().unwrap(), epoch).unwrap(),
+            stake_distribution: StakeDistributionView::new(distributions.lock().unwrap(), epoch).unwrap(),
             protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
             pruned_proposals: BTreeMap::from([(Rc::new(ratified_id), RatificationStatus::Ratified)]),
             withdrawals: BTreeMap::from([(withdrawal_account, 70_000)]),

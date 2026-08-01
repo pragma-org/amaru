@@ -286,7 +286,7 @@ define_schemas! {
                 /// Compute rewards for epoch
                 public COMPUTE {
                     required for_epoch: amaru_kernel::Epoch
-                    optional using_stake_distribution_epoch_from: amaru_kernel::Epoch
+                    required using_stake_distribution_from_epoch: amaru_kernel::Epoch
                 }
                 /// Summary of the rewards calculation for an epoch
                 public SUMMARIZE {

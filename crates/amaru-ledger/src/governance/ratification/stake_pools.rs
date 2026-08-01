@@ -18,7 +18,7 @@ use amaru_kernel::{DRep, PoolId, PoolVotingThresholds, ProtocolParamUpdate, Vote
 use num::Zero;
 
 use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
-use crate::summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeSummary};
+use crate::summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution};
 
 // Voting Thresholds
 // ----------------------------------------------------------------------------
@@ -86,7 +86,11 @@ fn any_update_in_security_group(update: &ProtocolParamUpdate) -> bool {
 // ----------------------------------------------------------------------------
 
 /// Count the ratio of yes votes amongst pool operators.
-pub fn tally(proposal: &ProposalEnum, votes: BTreeMap<&PoolId, &Vote>, stake_distribution: &StakeSummary) -> SafeRatio {
+pub fn tally(
+    proposal: &ProposalEnum,
+    votes: BTreeMap<&PoolId, &Vote>,
+    stake_distribution: &StakeDistribution,
+) -> SafeRatio {
     if stake_distribution.pools_voting_stake == 0 {
         return SafeRatio::zero();
     }
@@ -143,7 +147,7 @@ mod tests {
         governance::ratification::{ProposalEnum, any_proposal_enum},
         summary::{
             PoolState, SafeRatio, safe_ratio,
-            stake_distribution::{StakeSummary, tests::any_stake_summary_no_dreps},
+            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
         },
     };
 
@@ -312,15 +316,16 @@ mod tests {
         })
     }
 
-    pub fn any_tally() -> impl Strategy<Value = (ProposalEnum, BTreeMap<PoolId, &'static Vote>, Rc<StakeSummary>)> {
-        any_stake_summary_no_dreps().prop_flat_map(|stake_distribution| {
+    pub fn any_tally() -> impl Strategy<Value = (ProposalEnum, BTreeMap<PoolId, &'static Vote>, Rc<StakeDistribution>)>
+    {
+        any_stake_distribution_no_dreps().prop_flat_map(|stake_distribution| {
             (any_proposal_enum(), any_votes(&stake_distribution), Just(Rc::new(stake_distribution)))
                 .prop_map(move |(proposal, votes, stake_distribution)| (proposal, votes, stake_distribution))
         })
     }
 
     pub fn any_votes(
-        stake_distribution: &StakeSummary,
+        stake_distribution: &StakeDistribution,
     ) -> impl Strategy<Value = BTreeMap<PoolId, &'static Vote>> + use<> {
         let pools: Vec<PoolId> = stake_distribution.pools.keys().cloned().collect();
 
@@ -336,8 +341,8 @@ mod tests {
             .prop_map(|kvs| kvs.into_iter().collect())
     }
 
-    fn stake_summary_with_fallback(pool_id: PoolId, fallback_drep: Option<DRep>) -> StakeSummary {
-        StakeSummary {
+    fn stake_summary_with_fallback(pool_id: PoolId, fallback_drep: Option<DRep>) -> StakeDistribution {
+        StakeDistribution {
             epoch: 0.into(),
             treasury: 0,
             reserves: 0,
