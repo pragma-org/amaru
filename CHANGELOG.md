@@ -42,6 +42,7 @@ Other guiding principles:
 
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 - **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
+- **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.
 
 ### Removed
 

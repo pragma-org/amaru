@@ -34,7 +34,7 @@ use anyhow::anyhow;
 fn rollback_to<S, HS>(state: &mut State<S, HS>, point: &Point) -> Result<(), anyhow::Error>
 where
     S: Store,
-    HS: HistoricalStores + Send,
+    HS: HistoricalStores + Send + Sync + 'static,
 {
     match state.switch_to_fork(point, std::iter::empty(), &ArenaPool::new(1024, 0)) {
         BlockValidation::Valid(..) => Ok(()),
@@ -47,7 +47,7 @@ where
 fn assert_no_rollback_to<S, HS, E>(state: &mut State<S, HS>, point: &Point, assert: impl FnOnce(&E))
 where
     S: Store,
-    HS: HistoricalStores + Send,
+    HS: HistoricalStores + Send + Sync + 'static,
     E: Display + Debug + Send + Sync + 'static,
 {
     assert_no_rollback_to_with_blocks(state, point, std::iter::empty(), assert)
@@ -61,7 +61,7 @@ fn assert_no_rollback_to_with_blocks<I, S, HS, E>(
     assert: impl FnOnce(&E),
 ) where
     S: Store,
-    HS: HistoricalStores + Send,
+    HS: HistoricalStores + Send + Sync + 'static,
     E: Display + Debug + Send + Sync + 'static,
     I: IntoIterator<Item = anyhow::Result<(Point, Block)>>,
     I::IntoIter: ExactSizeIterator,
