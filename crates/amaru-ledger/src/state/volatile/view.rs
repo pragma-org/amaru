@@ -141,7 +141,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     #[expect(clippy::panic)]
     pub fn iter_unreachable_accounts(
         &mut self,
-        pools_rewards_accounts: BTreeSet<StakeCredential>,
+        pools_owners: BTreeSet<&'_ StakeCredential>,
     ) -> Result<impl Iterator<Item = StakeCredential>, StoreError> {
         let AccountVolatileView { mut registered, mut unregistered } = match mem::take(&mut self.accounts) {
             None => {
@@ -162,7 +162,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
             self.db.iter_recently_unregistered_accounts()?,
             &mut registered,
             &mut unregistered,
-            pools_rewards_accounts,
+            pools_owners,
         ))
     }
 
@@ -198,10 +198,10 @@ mod test {
         let volatile = VolatileDB::default();
         let mut view = VolatileView::new(&volatile, &stable);
 
-        let pool_reward_accounts = BTreeSet::from([credential(1), credential(2)]);
+        let pool_reward_accounts = [credential(1), credential(2)];
 
         assert_eq!(
-            unreachable_accounts(&mut view, pool_reward_accounts),
+            unreachable_accounts(&mut view, pool_reward_accounts.iter().collect()),
             BTreeSet::from([credential(2)]),
             "credential(1) has an account and is payable; credential(2) never had one",
         );
@@ -218,9 +218,12 @@ mod test {
         let volatile = VolatileDB::default();
         let mut view = VolatileView::new(&volatile, &stable);
 
-        let leader_reward_accounts = BTreeSet::from([credential(1)]);
+        let leader_reward_accounts = [credential(1)];
 
-        assert_eq!(unreachable_accounts(&mut view, leader_reward_accounts), BTreeSet::from([credential(1)]));
+        assert_eq!(
+            unreachable_accounts(&mut view, leader_reward_accounts.iter().collect()),
+            BTreeSet::from(leader_reward_accounts),
+        );
     }
 
     /// Accounts registered when the stake distribution was taken are covered by the unregistration
@@ -260,10 +263,10 @@ mod test {
 
         let mut view = VolatileView::new(&volatile, &stable);
 
-        let pool_reward_accounts = BTreeSet::from([credential(1), credential(5)]);
+        let pool_reward_accounts = [credential(1), credential(5)];
 
         assert_eq!(
-            unreachable_accounts(&mut view, pool_reward_accounts),
+            unreachable_accounts(&mut view, pool_reward_accounts.iter().collect()),
             BTreeSet::from([credential(2), credential(4)])
         );
     }
@@ -274,7 +277,7 @@ mod test {
     /// and any repetition don't matter.
     fn unreachable_accounts(
         view: &mut VolatileView<'_, '_, Stable>,
-        pool_reward_accounts: BTreeSet<StakeCredential>,
+        pool_reward_accounts: BTreeSet<&StakeCredential>,
     ) -> BTreeSet<StakeCredential> {
         view.iter_unreachable_accounts(pool_reward_accounts).unwrap().collect()
     }

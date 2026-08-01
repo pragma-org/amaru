@@ -153,12 +153,13 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
     /// shares this map rather than copying it.
     accounts: Arc<BTreeMap<StakeCredential, Lovelace>>,
 
-    /// Credentials credited a *leader* reward, as named by the stake distribution the rewards were
-    /// computed from. A pool's reward account is an arbitrary stake credential the protocol never
-    /// requires to be registered, and the pool may have changed or dropped it since; so this is the
-    /// only record of who is actually owed the leader reward, and payability has to be resolved
-    /// against it rather than against the pool registry as it stands when the rewards are paid out.
-    leader_recipients: Arc<BTreeSet<StakeCredential>>,
+    /// Known (paid) pools owners at the time the rewards were calculated that received non-zero
+    /// rewards.
+    ///
+    /// A pool's reward account is an arbitrary stake credential the protocol never requires to be
+    /// registered, and the pool may have changed or dropped it between the moment the rewards were
+    /// computed and the moment they need to be paid;
+    pools_owners: Arc<BTreeSet<StakeCredential>>,
 
     /// The accounts whose rewards are unclaimed because they were no longer registered at the epoch
     /// boundary. For `Effective` this is the set of such account keys (their amounts stay in
@@ -169,10 +170,10 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
 }
 
 impl<STEP: KnownRewardState + Clone> Rewards<STEP> {
-    /// The credentials credited a leader reward, against which payability must be resolved. See
+    /// The credentials credited a pool owner, against which payability must be resolved. See
     /// the note on the field itself.
-    pub fn leader_recipients(&self) -> &BTreeSet<StakeCredential> {
-        &self.leader_recipients
+    pub fn pools_owners(&self) -> BTreeSet<&StakeCredential> {
+        self.pools_owners.iter().collect()
     }
 }
 
@@ -182,17 +183,29 @@ impl Rewards<Computed> {
         delta_treasury: Lovelace,
         total_rewards: Lovelace,
         accounts: BTreeMap<StakeCredential, Lovelace>,
-        leader_recipients: BTreeSet<StakeCredential>,
+        pools_owners: BTreeSet<StakeCredential>,
     ) -> Self {
         Self {
             delta_reserves,
             delta_treasury,
             total_rewards,
             accounts: Arc::new(accounts),
-            leader_recipients: Arc::new(leader_recipients),
+            pools_owners: Arc::new(pools_owners),
             unclaimed: (),
             step: PhantomData,
         }
+    }
+
+    // Resolve all accounts that have received rewards but aren't payable because they no longer
+    // exist or have never existed. This can happen because of two reasons:
+    //
+    // - The account was simply unregistered.
+    // - The account was configured as pool owner but was never registered.
+    pub fn unclaimed_rewards(
+        &self,
+        unreachable_accounts: impl IntoIterator<Item = StakeCredential>,
+    ) -> BTreeSet<StakeCredential> {
+        unreachable_accounts.into_iter().filter(|credential| self.accounts.contains_key(credential)).collect()
     }
 }
 
@@ -210,22 +223,14 @@ impl Rewards<Effective> {
     ///
     /// What we hold onto is thus bounded by the rewarded accounts rather than by the number of
     /// accounts that are unreachable at the end of the epoch.
-    pub fn new(
-        computed_rewards: Rewards<Computed>,
-        unreachable_accounts: impl IntoIterator<Item = StakeCredential>,
-    ) -> Self {
-        let accounts = computed_rewards.accounts;
-
-        let unclaimed =
-            unreachable_accounts.into_iter().filter(|credential| accounts.contains_key(credential)).collect();
-
+    pub fn new(computed_rewards: Rewards<Computed>, unclaimed: BTreeSet<StakeCredential>) -> Self {
         Self {
             step: PhantomData,
             delta_reserves: computed_rewards.delta_reserves,
             delta_treasury: computed_rewards.delta_treasury,
             total_rewards: computed_rewards.total_rewards,
-            accounts,
-            leader_recipients: computed_rewards.leader_recipients,
+            accounts: computed_rewards.accounts,
+            pools_owners: computed_rewards.pools_owners,
             unclaimed: Arc::new(unclaimed),
         }
     }
@@ -238,7 +243,7 @@ impl Rewards<Effective> {
 
     /// Total amount of rewards that couldn't be paid to accounts because they unregistered between
     /// the moment the rewards were calculated and the moment they needed to be paid out.
-    pub fn unclaimed_rewards(&self) -> Lovelace {
+    pub fn total_unclaimed_rewards(&self) -> Lovelace {
         self.unclaimed.iter().filter_map(|account| self.accounts.get(account)).sum()
     }
 
@@ -255,7 +260,7 @@ impl Rewards<Effective> {
     /// Amount to be paid to the treasury, including the rewards left unclaimed by accounts that
     /// unregistered during the epoch.
     pub fn delta_treasury(&self) -> Lovelace {
-        self.delta_treasury + self.unclaimed_rewards()
+        self.delta_treasury + self.total_unclaimed_rewards()
     }
 
     /// Roll an effective rewards summary back to a computed one by dropping the unclaimed markers.
@@ -267,7 +272,7 @@ impl Rewards<Effective> {
             delta_treasury: self.delta_treasury,
             total_rewards: self.total_rewards,
             accounts: self.accounts,
-            leader_recipients: self.leader_recipients,
+            pools_owners: self.pools_owners,
             unclaimed: (),
         }
     }
@@ -296,13 +301,13 @@ mod test {
 
         let delta_reserves = 1_000;
         let delta_treasury = 7;
-        let leader_recipients = BTreeSet::from([registered]);
+        let pools_owners = BTreeSet::from([registered]);
         let computed_rewards = Rewards::<Computed>::new(
             delta_reserves,
             delta_treasury,
             accounts.values().sum(),
             accounts,
-            leader_recipients.clone(),
+            pools_owners.clone(),
         );
         let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered]));
 
@@ -312,12 +317,12 @@ mod test {
         assert_eq!(effective_rewards.reward_of(&unregistered), 0);
         assert_eq!(effective_rewards.delta_reserves(), delta_reserves);
         assert_eq!(effective_rewards.delta_treasury(), delta_treasury + 42);
-        assert_eq!(effective_rewards.leader_recipients(), &leader_recipients);
+        assert_eq!(effective_rewards.pools_owners(), pools_owners.iter().collect());
 
         // Rolling back drops the unclaimed markers, restoring the original computed rewards.
         let rolled_back = effective_rewards.clone().to_computed();
         assert_eq!(rolled_back, computed_rewards, "rollback");
-        assert_eq!(rolled_back.leader_recipients(), &leader_recipients);
+        assert_eq!(rolled_back.pools_owners(), pools_owners.iter().collect());
     }
 
     /// Unregistered credentials that are owed no reward are dropped: they cannot change what is paid
@@ -331,11 +336,10 @@ mod test {
         let computed_rewards = Rewards::<Computed>::new(1_000, 7, 42, accounts, Default::default());
 
         // The same credentials repeated, as chaining the unregistration sources may well do.
-        let unregistered = [rewarded, rewardless, rewarded, rewardless];
+        let unclaimed = computed_rewards.unclaimed_rewards([rewarded, rewardless, rewarded, rewardless]);
+        let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed);
 
-        let effective_rewards = Rewards::<Effective>::new(computed_rewards, unregistered);
-
-        assert_eq!(effective_rewards.unclaimed_rewards(), 42);
+        assert_eq!(effective_rewards.total_unclaimed_rewards(), 42);
         assert_eq!(effective_rewards.reward_of(&rewarded), 0);
         assert_eq!(*effective_rewards.unclaimed, BTreeSet::from([rewarded]));
     }

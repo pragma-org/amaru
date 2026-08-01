@@ -424,15 +424,10 @@ impl<S: Store, HS: HistoricalStores + Send> State<S, HS> {
                 // the ledger if we don't.
                 let computed_rewards = computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?;
 
-                // Payability is resolved against the credentials the rewards computation actually
-                // credited leader rewards to; the pool registry as it stands now may no longer name
-                // them. The clone is required: `unclaimed` is a lazy iterator only consumed inside
-                // `Rewards::<Effective>::new`, which moves `computed_rewards`, so it cannot borrow
-                // from it.
-                let pools_rewards_accounts = computed_rewards.leader_recipients().clone();
-                let unclaimed = volatile_view.iter_unreachable_accounts(pools_rewards_accounts)?;
+                let unclaimed_rewards = computed_rewards
+                    .unclaimed_rewards(volatile_view.iter_unreachable_accounts(computed_rewards.pools_owners())?);
 
-                let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed);
+                let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed_rewards);
 
                 (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
             } else {
