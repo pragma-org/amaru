@@ -1,0 +1,28 @@
+lints.workspace = true
+
+[package]
+name = "amaru-tui"
+version = "0.1.2"
+edition.workspace = true
+description = "Embedded terminal observability dashboard for the Amaru Cardano node"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+crossterm.workspace = true
+libc.workspace = true
+ratatui.workspace = true
+signal-hook.workspace = true
+sysinfo.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = []

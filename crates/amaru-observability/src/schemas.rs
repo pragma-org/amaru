@@ -208,6 +208,19 @@ define_schemas! {
                 /// Forward ledger state with new volatile state
                 public PUSH {}
             }
+            tip {
+                /// Updated view of the locally adopted chain tip and its derived ledger health.
+                public UPDATE {
+                    required slot: amaru_kernel::Slot
+                    required header_hash: amaru_kernel::HeaderHash
+                    required block_height: u64
+                    required epoch: amaru_kernel::Epoch
+                    required slot_in_epoch: amaru_kernel::Slot
+                    required density: f64
+                    required current_kes_period: u64
+                    required remaining_kes_periods: u64
+                }
+            }
             stake_distribution {
                 /// Compute stake distribution for epoch
                 public COMPUTE {
@@ -1361,6 +1374,14 @@ define_schemas! {
                 }
             }
             keepalive {
+                peer {
+                    /// Measured round-trip time for a keepalive exchange on an established peer connection.
+                    public ROUND_TRIP {
+                        required peer: amaru_kernel::Peer
+                        required conn_id: String
+                        required round_trip_micros: u64
+                    }
+                }
                 initiator {
                     /// Handle keepalive initiator stage messages
                     KEEPALIVE_INITIATOR_STAGE {

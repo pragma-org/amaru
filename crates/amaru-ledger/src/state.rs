@@ -29,7 +29,7 @@ use amaru_kernel::{
     utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::{debug_span, info, info_span, trace, warn};
+use amaru_observability::{debug, debug_span, info, info_span, trace, warn};
 use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
@@ -783,7 +783,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let remaining_kes_periods =
             (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
 
-        LedgerMetrics {
+        let metrics = LedgerMetrics {
             block_height,
             slot: u64::from(slot),
             slot_in_epoch: u64::from(slot_in_epoch),
@@ -794,7 +794,21 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             block_header_hash: hex::encode(point.hash()),
             parent_block_header_hash: prev_hash.map(hex::encode).unwrap_or_default(),
             issuer_verification_key_hash: hex::encode(issuer),
-        }
+        };
+
+        debug!(
+            ledger::tip::UPDATE,
+            slot = slot,
+            header_hash = point.hash(),
+            block_height = metrics.block_height,
+            epoch = epoch,
+            slot_in_epoch = slot_in_epoch,
+            density = metrics.density,
+            current_kes_period = metrics.current_kes_period,
+            remaining_kes_periods = metrics.remaining_kes_periods,
+        );
+
+        metrics
     }
 
     /// Try to rollback the volatile state to a given point and roll forward a number of block by applying

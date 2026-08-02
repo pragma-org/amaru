@@ -18,6 +18,8 @@ mod responder;
 #[cfg(test)]
 mod tests;
 
+use amaru_kernel::Peer;
+use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, StageRef, Void};
 pub use messages::{Cookie, Message};
 
@@ -55,12 +57,14 @@ where
 
 pub async fn register_keepalive(
     role: crate::protocol::Role,
+    peer: Peer,
+    conn_id: ConnectionId,
     muxer: StageRef<crate::mux::MuxMessage>,
     eff: &Effects<ConnectionMessage>,
     tombstone: ConnectionMessage,
 ) -> StageRef<crate::mux::HandlerMessage> {
     let keepalive = if role == crate::protocol::Role::Initiator {
-        let (state, stage) = initiator::KeepAliveInitiator::new(muxer.clone());
+        let (state, stage) = initiator::KeepAliveInitiator::new(peer, conn_id, muxer.clone());
         let keepalive = eff.stage("keepalive", initiator::initiator()).await;
         let keepalive = eff.supervise(keepalive, tombstone);
         let keepalive = eff.wire_up(keepalive, (state, stage)).await;

@@ -27,8 +27,9 @@ use amaru::{
     DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
     lifecycle::{Runnable, RuntimeKind, ShutdownHandle},
     metrics::track_system_metrics,
+    version,
 };
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
+use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, protocol_version};
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_node::{
@@ -43,6 +44,10 @@ use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
+use amaru_tui::{
+    Config as TuiConfig, ConfigEntry as TuiConfigEntry, ConfigSection as TuiConfigSection, ProcessInfo,
+    StartupContext as TuiStartupContext,
+};
 use anyhow::anyhow;
 use clap::{self, ArgAction, Parser};
 use opentelemetry::metrics::MeterProvider;
@@ -119,6 +124,25 @@ pub struct Args {
         display_order = 0,
     )]
     submit_api_address: Option<String>,
+
+    /// Disable the embedded terminal dashboard, even in an interactive terminal.
+    #[arg(
+        long,
+        env = amaru::env_vars::NO_TUI,
+        action = ArgAction::SetTrue,
+        default_value_t = false,
+        help_heading = "TUI",
+    )]
+    no_tui: bool,
+
+    /// Comma-separated rolling windows used by the embedded terminal dashboard.
+    #[arg(
+        long,
+        env = amaru::env_vars::TUI_WINDOWS,
+        value_name = "DURATION[,DURATION...]",
+        help_heading = "TUI",
+    )]
+    tui_windows: Option<String>,
 
     /// Upstream peer addresses to synchronize from.
     ///
@@ -263,6 +287,278 @@ impl Args {
     pub fn listen_address(&self) -> &str {
         &self.listen_address
     }
+
+    pub fn no_tui(&self) -> bool {
+        self.no_tui
+    }
+
+    pub fn tui_windows(&self) -> Option<&str> {
+        self.tui_windows.as_deref()
+    }
+
+    pub fn tui_startup_context(&self) -> TuiStartupContext {
+        let protocol_version = self
+            .network
+            .as_protocol_parameters()
+            .map(|parameters| protocol_version::fmt(&parameters.protocol_version))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let trusted_peers = self.trusted_peers();
+        let global_parameters = self.effective_global_parameters();
+
+        TuiStartupContext {
+            process: ProcessInfo {
+                network: self.network.to_string(),
+                software_version: version::display_version().to_string(),
+                target: format!("{}/{}", version::target_os(), version::target_arch()),
+            },
+            protocol_version,
+            epoch_length: global_parameters.epoch_length(),
+            active_slot_coeff_inverse: global_parameters.active_slot_coeff_inverse,
+            system_start_millis: global_parameters.system_start,
+            trusted_peers,
+            runtime_sections: self.runtime_config_sections(),
+            global_sections: self.global_config_sections(&global_parameters),
+        }
+    }
+
+    fn effective_global_parameters(&self) -> GlobalParameters {
+        self.network.as_global_parameters().cloned().unwrap_or_else(|| self.global_parameters.clone())
+    }
+
+    fn trusted_peers(&self) -> BTreeSet<String> {
+        if self.peer_address.is_empty() {
+            BTreeSet::from([default_peer_for_network(self.network).to_string()])
+        } else {
+            self.peer_address.iter().cloned().collect()
+        }
+    }
+
+    fn runtime_config_sections(&self) -> Vec<TuiConfigSection> {
+        vec![
+            TuiConfigSection::new(
+                "Storage and Chain",
+                vec![
+                    config_entry(
+                        "chain dir",
+                        "--chain-dir",
+                        amaru::env_vars::CHAIN_DIR,
+                        self.chain_dir.as_deref().map(path_value).unwrap_or_else(|| default_chain_dir(self.network)),
+                    ),
+                    config_entry(
+                        "ledger dir",
+                        "--ledger-dir",
+                        amaru::env_vars::LEDGER_DIR,
+                        self.ledger_dir.as_deref().map(path_value).unwrap_or_else(|| default_ledger_dir(self.network)),
+                    ),
+                    config_entry(
+                        "migrate chain db",
+                        "--migrate-chain-db",
+                        amaru::env_vars::MIGRATE_CHAIN_DB,
+                        bool_value(self.migrate_chain_db),
+                    ),
+                    config_entry(
+                        "extra ledger snapshots",
+                        "--max-extra-ledger-snapshots",
+                        amaru::env_vars::MAX_EXTRA_LEDGER_SNAPSHOTS,
+                        self.max_extra_ledger_snapshots.to_string(),
+                    ),
+                    config_entry(
+                        "era history",
+                        "--era-history",
+                        amaru::env_vars::ERA_HISTORY,
+                        self.era_history.as_deref().map(path_value).unwrap_or_else(|| era_history_value(self.network)),
+                    ),
+                ],
+            ),
+            TuiConfigSection::new(
+                "Networking",
+                vec![
+                    config_entry("network", "--network", amaru::env_vars::NETWORK, self.network.to_string()),
+                    config_entry(
+                        "listen address",
+                        "--listen-address",
+                        amaru::env_vars::LISTEN_ADDRESS,
+                        self.listen_address.clone(),
+                    ),
+                    config_entry(
+                        "submit api",
+                        "--submit-api-address",
+                        amaru::env_vars::SUBMIT_API_ADDRESS,
+                        self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string()),
+                    ),
+                    config_entry(
+                        "peer address",
+                        "--peer-address",
+                        amaru::env_vars::PEER_ADDRESS,
+                        peer_addresses_value(self),
+                    ),
+                    config_entry(
+                        "peer snapshot",
+                        "--peer-snapshot",
+                        amaru::env_vars::PEER_SNAPSHOT,
+                        peer_snapshot_value(self),
+                    ),
+                    config_entry(
+                        "upstream peers",
+                        "--upstream-peers",
+                        amaru::env_vars::UPSTREAM_PEERS,
+                        self.upstream_peers.to_string(),
+                    ),
+                    config_entry(
+                        "downstream peers",
+                        "--downstream-peers",
+                        amaru::env_vars::DOWNSTREAM_PEERS,
+                        self.downstream_peers.to_string(),
+                    ),
+                    config_entry(
+                        "peer cooldown",
+                        "--peer-removal-cooldown-secs",
+                        amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
+                        format!("{}s", self.peer_removal_cooldown_secs),
+                    ),
+                ],
+            ),
+            TuiConfigSection::new(
+                "Process and Observability",
+                vec![
+                    config_entry("no tui", "--no-tui", amaru::env_vars::NO_TUI, bool_value(self.no_tui)),
+                    config_entry(
+                        "tui windows",
+                        "--tui-windows",
+                        amaru::env_vars::TUI_WINDOWS,
+                        self.tui_windows.clone().unwrap_or_else(default_tui_windows_value),
+                    ),
+                    config_entry(
+                        "pid file",
+                        "--pid-file",
+                        amaru::env_vars::PID_FILE,
+                        self.pid_file.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string()),
+                    ),
+                    config_entry(
+                        "trace buffer",
+                        "--trace-buffer",
+                        amaru::env_vars::TRACE_BUFFER,
+                        self.trace_buffer.clone().unwrap_or_else(|| "disabled".to_string()),
+                    ),
+                    config_entry(
+                        "dump trace buffer",
+                        "--dump-trace-buffer",
+                        amaru::env_vars::DUMP_TRACE_BUFFER,
+                        self.dump_trace_buffer.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string()),
+                    ),
+                ],
+            ),
+        ]
+    }
+
+    fn global_config_sections(&self, global_parameters: &GlobalParameters) -> Vec<TuiConfigSection> {
+        vec![TuiConfigSection::new(
+            "Global Parameters",
+            vec![
+                config_entry(
+                    "security param k",
+                    "--consensus-security-param",
+                    "AMARU_GLOBAL_CONSENSUS_SECURITY_PARAM",
+                    global_parameters.consensus_security_param.to_string(),
+                ),
+                config_entry(
+                    "epoch length factor",
+                    "--epoch-length-scale-factor",
+                    "AMARU_GLOBAL_EPOCH_LENGTH_SCALE_FACTOR",
+                    global_parameters.epoch_length_scale_factor.to_string(),
+                ),
+                config_entry(
+                    "active slot coeff inverse",
+                    "--active-slot-coeff-inverse",
+                    "AMARU_GLOBAL_ACTIVE_SLOT_COEFF_INVERSE",
+                    global_parameters.active_slot_coeff_inverse.to_string(),
+                ),
+                config_entry(
+                    "max lovelace supply",
+                    "--max-lovelace-supply",
+                    "AMARU_GLOBAL_MAX_LOVELACE_SUPPLY",
+                    global_parameters.max_lovelace_supply.to_string(),
+                ),
+                config_entry(
+                    "slots per KES period",
+                    "--slots-per-kes-period",
+                    "AMARU_GLOBAL_SLOTS_PER_KES_PERIOD",
+                    global_parameters.slots_per_kes_period.to_string(),
+                ),
+                config_entry(
+                    "max KES evolution",
+                    "--max-kes-evolution",
+                    "AMARU_GLOBAL_MAX_KES_EVOLUTION",
+                    global_parameters.max_kes_evolution.to_string(),
+                ),
+                config_entry(
+                    "system start",
+                    "--system-start",
+                    "AMARU_GLOBAL_SYSTEM_START",
+                    global_parameters.system_start.to_string(),
+                ),
+            ],
+        )]
+    }
+}
+
+fn config_entry(
+    label: &'static str,
+    option: &'static str,
+    env_var: &'static str,
+    value: impl Into<String>,
+) -> TuiConfigEntry {
+    TuiConfigEntry::new(label, Some(option), Some(env_var), value)
+}
+
+fn bool_value(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
+}
+
+fn default_tui_windows_value() -> String {
+    TuiConfig::default().windows.iter().map(|window| format_window(*window)).collect::<Vec<_>>().join(", ")
+}
+
+fn era_history_value(network: NetworkName) -> String {
+    if network.as_era_history().is_some() { format!("builtin for {network}") } else { "not set".to_string() }
+}
+
+fn format_window(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3_600 {
+        format!("{}m", seconds / 60)
+    } else {
+        format!("{}h", seconds / 3_600)
+    }
+}
+
+fn path_value(path: &Path) -> String {
+    path.display().to_string()
+}
+
+fn peer_addresses_value(args: &Args) -> String {
+    if args.peer_address.is_empty() {
+        default_peer_for_network(args.network).to_string()
+    } else {
+        args.peer_address.join(", ")
+    }
+}
+
+fn peer_snapshot_value(args: &Args) -> String {
+    if let Some(path) = args.peer_snapshot.as_deref() {
+        return path_value(path);
+    }
+
+    if PEER_SNAPSHOT_NETWORKS.contains(&args.network) {
+        return embedded_configs_commit()
+            .map(|commit| format!("embedded ({commit})"))
+            .unwrap_or_else(|| "none".to_string());
+    }
+
+    "none".to_string()
 }
 
 const SUBMIT_API_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
