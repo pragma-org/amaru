@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeight, IsHeader};
+use amaru_kernel::{BlockHeight, IsHeader, Peer};
 use amaru_ouroboros_traits::MissingBlocks;
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
@@ -27,8 +27,8 @@ use super::*;
 use crate::stages::{
     fetch_blocks::test_setup::{
         TestPrep, make_block_header, setup, te_ancestors_between, te_cancel_schedule, te_clock, te_find_missing_blocks,
-        te_has_block, te_load_header, te_record_block_delivery, te_record_blocks_requested, te_schedule,
-        te_store_block, test_peer, test_prep,
+        te_has_block, te_load_header, te_record_block_delivery, te_record_blocks_requested, te_record_fetch_failure,
+        te_schedule, te_store_block, test_peer, test_prep,
     },
     test_utils::{
         assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated, tm_state,
@@ -201,6 +201,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
                 state.missing = None;
                 state.timeout = None;
                 state.trace_context = None;
+                state.fetch_started_at = None;
                 state
             }),
         ],
@@ -241,6 +242,7 @@ fn test_new_tip_blocks_to_fetch() {
         state.missing = None;
         state.timeout = None;
         state.trace_context = None;
+        state.fetch_started_at = None;
         state
     };
     assert_trace(
@@ -486,6 +488,156 @@ fn test_timeout_stale_is_ignored() {
 
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &prep.state).into()]);
 
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_timeout_records_fetch_failure_for_asked_peers() {
+    use std::collections::BTreeSet;
+
+    let mut prep = test_prep();
+    let schedule_id = prep.schedule_at(Duration::from_secs(5));
+    let peer = test_peer();
+    prep.state = {
+        let mut state = prep.state_with_request(
+            MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
+            1,
+            schedule_id,
+        );
+        state.fetch_peers = BTreeSet::from([peer.clone()]);
+        state.fetch_started_at = Some(Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time));
+        state.trace_context = Some(Default::default());
+        state
+    };
+
+    let msg = FetchBlocksMsg::Timeout(1);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let failed_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let expected = {
+        let mut state = prep.state.clone();
+        state.missing = None;
+        state.timeout = None;
+        state.trace_context = None;
+        state.fetch_started_at = None;
+        state.fetch_peers.clear();
+        state
+    };
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &msg).into(),
+            te_clock_read("fb-1").into(),
+            te_record_fetch_failure("fb-1", vec![peer], failed_at).into(),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h0.point())).into(),
+            te_state("fb-1", &expected).into(),
+        ],
+    );
+    logs.assert_and_remove(Level::WARN, &["timeout fetching blocks"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_no_blocks_records_fetch_failure() {
+    use std::collections::BTreeSet;
+
+    let mut prep = test_prep();
+    let peer = test_peer();
+    let other = Peer::new("other");
+    prep.state = {
+        let mut state = prep.state_with_request(
+            MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
+            1,
+            prep.schedule_at(Duration::from_secs(5)),
+        );
+        state.fetch_peers = BTreeSet::from([peer.clone(), other.clone()]);
+        state
+    };
+
+    let msg = FetchBlocksMsg::NoBlocks(1, peer.clone());
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let failed_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let expected = {
+        let mut state = prep.state.clone();
+        state.fetch_peers.remove(&peer);
+        state.fetch_settled.insert(peer.clone());
+        state
+    };
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &msg).into(),
+            te_clock_read("fb-1").into(),
+            te_record_fetch_failure("fb-1", vec![peer], failed_at).into(),
+            te_state("fb-1", &expected).into(),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_peers_asked_stores_peer_set() {
+    use std::collections::BTreeSet;
+
+    let mut prep = test_prep();
+    let peer = test_peer();
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
+        1,
+        prep.schedule_at(Duration::from_secs(5)),
+    );
+
+    let msg = FetchBlocksMsg::PeersAsked(1, vec![peer.clone()]);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let expected = {
+        let mut state = prep.state.clone();
+        state.fetch_peers = BTreeSet::from([peer]);
+        state
+    };
+    assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &expected).into()]);
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// Regression: `NoBlocks` may arrive before `PeersAsked` (no cross-stage order). A late
+/// `PeersAsked` must not put a settled peer back into the timeout set (would double-count
+/// `fetch_timeouts` on batch timeout).
+#[test]
+fn test_peers_asked_does_not_resurrect_no_blocks_peer() {
+    use std::collections::BTreeSet;
+
+    use crate::stages::fetch_blocks::test_setup::setup_preload;
+
+    let mut prep = test_prep();
+    let alice = test_peer();
+    let bob = Peer::new("bob");
+    prep.state = prep.state_with_request(
+        MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
+        1,
+        prep.schedule_at(Duration::from_secs(5)),
+    );
+
+    let no_blocks = FetchBlocksMsg::NoBlocks(1, alice.clone());
+    let peers_asked = FetchBlocksMsg::PeersAsked(1, vec![alice.clone(), bob.clone()]);
+    let (running, _guards, mut logs) = setup_preload(&prep, [no_blocks.clone(), peers_asked.clone()]);
+    let failed_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let expected = {
+        let mut state = prep.state.clone();
+        state.fetch_settled = BTreeSet::from([alice.clone()]);
+        state.fetch_peers = BTreeSet::from([bob]);
+        state
+    };
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &no_blocks).into(),
+            te_clock_read("fb-1").into(),
+            te_record_fetch_failure("fb-1", vec![alice], failed_at).into(),
+            te_input("fb-1", &peers_asked).into(),
+            te_state("fb-1", &expected).into(),
+        ],
+    );
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 

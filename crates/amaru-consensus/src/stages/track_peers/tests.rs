@@ -31,15 +31,16 @@ use crate::{
     errors::ConsensusError,
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{start_in_era, te_input, te_send, te_state, tm_state},
+        test_utils::{start_in_era, te_clock_read, te_input, te_send, te_state, tm_state},
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
                 HEIGHT_RECHECK_INTERVAL, SIM_INITIAL_CLOCK_SECS, build_store, build_store_with_nonces,
                 height_recheck_schedule_id, make_block_header, new_tip, schedule_id_at, setup, setup_base,
                 setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clock, te_clock_suspend,
-                te_get_nonces, te_load_tip, te_record_header_announcement, te_schedule, te_store_validated_header,
-                te_validate_header, test_prep, test_prep_with_max_peer_lead, tm_volatile_tip,
+                te_get_nonces, te_load_header, te_load_tip, te_record_header_announcement, te_record_rollback,
+                te_schedule, te_store_validated_header, te_validate_header, test_prep, test_prep_with_max_peer_lead,
+                tm_volatile_tip,
             },
         },
     },
@@ -882,8 +883,9 @@ fn test_roll_backward_updates_peer() {
     state.insert_peer(peer.clone(), prep.conn_id, Tip::origin(), Tip::origin());
 
     let mut expected = prep.state.clone();
-    expected.insert_peer(peer, prep.conn_id, header.tip(), tip);
+    expected.insert_peer(peer.clone(), prep.conn_id, header.tip(), tip);
 
+    let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let (running, _guards, mut logs) =
         setup(&prep.rt_handle(), state.clone(), msg.clone(), build_store(slice::from_ref(header)));
     assert_trace_contains(
@@ -893,6 +895,9 @@ fn test_roll_backward_updates_peer() {
             te_input("tp-1", &msg).into(),
             te_send("tp-1", &prep.handler, RequestNext).into(),
             te_load_tip("tp-1", current.hash()).into(),
+            te_load_header("tp-1", current.hash()).into(),
+            te_clock_read("tp-1").into(),
+            te_record_rollback("tp-1", peer, header.tip(), header.parent_hash(), now).into(),
             te_state("tp-1", &expected).into(),
         ],
     );

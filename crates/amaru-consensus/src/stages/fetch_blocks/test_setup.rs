@@ -143,6 +143,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlocksRequestedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockDeliveryEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordFetchFailureEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
@@ -171,6 +172,13 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_preload(prep, [msg])
+}
+
+pub fn setup_preload(
+    prep: &TestPrep,
+    messages: impl IntoIterator<Item = FetchBlocksMsg>,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
     run_simulation(
@@ -179,7 +187,7 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
         |mut network| {
             let fb = network.stage("fb", stage);
             let fb = network.wire_up(fb, prep.state.clone());
-            network.preload(&fb, [msg]).unwrap();
+            network.preload(&fb, messages).unwrap();
             network
         },
         |resources| {
@@ -265,5 +273,12 @@ pub fn te_record_block_delivery(
         Box::new(crate::performance::Performance::record_block_delivery(
             peer, hash, height, parent, at, response, bytes,
         )),
+    ))
+}
+
+pub fn te_record_fetch_failure(at_stage: &str, peers: Vec<Peer>, at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_fetch_failure(peers, at)),
     ))
 }
