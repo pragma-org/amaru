@@ -144,6 +144,8 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlocksRequestedEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockDeliveryEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordFetchFailureEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectPeersForFetchEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::performance::FetchPeerSet>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
@@ -172,12 +174,20 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
-    setup_preload(prep, [msg])
+    setup_with_overrides(prep, [msg], |_| {})
 }
 
 pub fn setup_preload(
     prep: &TestPrep,
     messages: impl IntoIterator<Item = FetchBlocksMsg>,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_with_overrides(prep, messages, |_| {})
+}
+
+pub fn setup_with_overrides(
+    prep: &TestPrep,
+    messages: impl IntoIterator<Item = FetchBlocksMsg>,
+    overrides: impl FnOnce(&mut SimulationRunning),
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
@@ -196,10 +206,7 @@ pub fn setup_preload(
                 crate::performance::Performance::new(),
             ));
         },
-        |_running| {
-            // No additional external effect overrides needed for basic fetch_blocks tests.
-            // Virtual child stages are enabled by default in run_simulation.
-        },
+        overrides,
     )
 }
 
@@ -254,6 +261,17 @@ pub fn te_record_blocks_requested(at_stage: &str, hashes: Vec<HeaderHash>, reque
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::record_blocks_requested(hashes, requested_at)),
+    ))
+}
+
+pub fn te_select_peers_for_fetch(at_stage: &str, need: Vec<HeaderHash>, max_peers: usize, now: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::select_peers_for_fetch(crate::performance::SelectPeersParams {
+            need,
+            max_peers,
+            now,
+        })),
     ))
 }
 

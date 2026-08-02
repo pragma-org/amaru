@@ -113,7 +113,13 @@ async fn start_next_fetch(state: &mut StoreFetchedBlocks, eff: &Effects<StoreFet
     state.current = Some(PendingFetch { id, remaining_points: batch.expected_points, handler: batch.handler });
     eff.send(
         &state.manager,
-        ManagerMessage::FetchBlocks { from: batch.from, through: batch.through, cr: state.blocks.clone(), id },
+        ManagerMessage::FetchBlocks {
+            from: batch.from,
+            through: batch.through,
+            cr: state.blocks.clone(),
+            id,
+            peers: None,
+        },
     )
     .await;
 }

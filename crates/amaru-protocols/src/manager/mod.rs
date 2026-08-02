@@ -72,8 +72,11 @@ pub enum ManagerMessage {
     Disconnect(Peer, ConnectionId),
     /// Start listening for incoming connections on the given socket address.
     Listen(SocketAddr),
-    /// Fetch all blocks on the given chain fragment
-    FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64 },
+    /// Fetch blocks on the given chain fragment.
+    ///
+    /// When `peers` is `Some`, only those peers' initiating connections are asked.
+    /// When `None`, every initiating connection is asked (cold-start / empty-selection fallback).
+    FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64, peers: Option<Vec<Peer>> },
     /// Advertise this new tip to all downstream peers.
     NewTip(Tip, TraceContext),
     /// INTERNAL message sent by the connector stage after a connection attempt completes.
@@ -576,23 +579,37 @@ impl Manager {
         through: Point,
         cr: StageRef<Blocks>,
         id: u64,
+        peers: Option<Vec<Peer>>,
         eff: &Effects<ManagerMessage>,
     ) {
-        tracing::debug!(?from, ?through, "fetching blocks");
-        let mut peers = Vec::new();
-        for conn in self.connections.values() {
-            if !conn.may_initiate {
-                continue;
+        tracing::debug!(?from, ?through, ?peers, "fetching blocks");
+        let mut contacted = Vec::new();
+        match peers {
+            None => {
+                for conn in self.connections.values() {
+                    if !conn.may_initiate {
+                        continue;
+                    }
+                    contacted.push(conn.peer.clone());
+                    eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+                }
             }
-            peers.push(conn.peer.clone());
-            eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+            Some(wanted) => {
+                for peer in wanted {
+                    let Some(conn) = self.connections.values().find(|c| c.may_initiate && c.peer == peer) else {
+                        continue;
+                    };
+                    contacted.push(peer);
+                    eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+                }
+            }
         }
-        if peers.is_empty() {
+        if contacted.is_empty() {
             tracing::debug!(%id, "no connections available to fetch blocks");
             eff.send(&cr, Blocks::NoPeersAvailable(id)).await;
         } else {
-            tracing::debug!(%id, sent = peers.len(), "fetch blocks request sent to connections");
-            eff.send(&cr, Blocks::PeersAsked(id, peers)).await;
+            tracing::debug!(%id, sent = contacted.len(), "fetch blocks request sent to connections");
+            eff.send(&cr, Blocks::PeersAsked(id, contacted)).await;
         }
     }
 }
@@ -650,8 +667,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     eff.send(&conn.stage, ConnectionMessage::NewTip(tip, trace_context.clone())).await;
                 }
             }
-            ManagerMessage::FetchBlocks { from, through, cr, id } => {
-                manager.fetch_blocks(from, through, cr, id, &eff).await;
+            ManagerMessage::FetchBlocks { from, through, cr, id, peers } => {
+                manager.fetch_blocks(from, through, cr, id, peers, &eff).await;
             }
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;

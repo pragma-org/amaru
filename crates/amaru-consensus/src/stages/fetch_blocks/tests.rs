@@ -18,20 +18,25 @@ use amaru_kernel::{BlockHeight, IsHeader, Peer};
 use amaru_ouroboros_traits::MissingBlocks;
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
-    Instant, ScheduleIds, assert_trace_contains, tm_add_stage, trace_buffer::TerminationReason,
-    trace_match::tm_wire_stage_state,
+    Instant, ScheduleIds, assert_trace_contains, simulation::running::OverrideResult, tm_add_stage,
+    trace_buffer::TerminationReason, trace_match::tm_wire_stage_state,
 };
 use tracing::Level;
 
 use super::*;
-use crate::stages::{
-    fetch_blocks::test_setup::{
-        TestPrep, make_block_header, setup, te_ancestors_between, te_cancel_schedule, te_clock, te_find_missing_blocks,
-        te_has_block, te_load_header, te_record_block_delivery, te_record_blocks_requested, te_record_fetch_failure,
-        te_schedule, te_store_block, test_peer, test_prep,
-    },
-    test_utils::{
-        assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated, tm_state,
+use crate::{
+    performance::FetchPeerSet,
+    stages::{
+        fetch_blocks::test_setup::{
+            TestPrep, make_block_header, setup, setup_with_overrides, te_ancestors_between, te_cancel_schedule,
+            te_clock, te_find_missing_blocks, te_has_block, te_load_header, te_record_block_delivery,
+            te_record_blocks_requested, te_record_fetch_failure, te_schedule, te_select_peers_for_fetch,
+            te_store_block, test_peer, test_prep,
+        },
+        test_utils::{
+            assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated,
+            tm_state,
+        },
     },
 };
 
@@ -179,6 +184,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
             // The tail of the replay path is the batch to fetch, so no second search of the store.
             te_has_block("fb-1", prep.headers.h2.hash()),
             te_clock_read("fb-1"),
+            te_select_peers_for_fetch("fb-1", vec![prep.headers.h2.hash(), h3.hash()], 3, requested_at),
             te_send(
                 "fb-1",
                 "manager",
@@ -187,6 +193,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
                     through: h3.point(),
                     id: 1,
                     cr: prep.cleanup_replies.clone(),
+                    peers: None,
                 },
             ),
             te_record_blocks_requested("fb-1", vec![prep.headers.h2.hash(), h3.hash()], requested_at),
@@ -209,6 +216,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
     logs.assert_and_remove(Level::DEBUG, &["recovering stored blocks"])
         .assert_and_remove(Level::DEBUG, &["validating stored block"])
         .assert_and_remove(Level::DEBUG, &["requesting blocks"])
+        .assert_and_remove(Level::DEBUG, &["no covering peers selected"])
         .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -252,6 +260,7 @@ fn test_new_tip_blocks_to_fetch() {
             te_input("fb-1", &msg),
             te_find_missing_blocks("fb-1", tip.hash(), 25),
             te_clock_read("fb-1"),
+            te_select_peers_for_fetch("fb-1", vec![prep.headers.h1.hash(), prep.headers.h2.hash()], 3, requested_at),
             te_send(
                 "fb-1",
                 "manager",
@@ -260,6 +269,7 @@ fn test_new_tip_blocks_to_fetch() {
                     through: prep.headers.h2.point(),
                     id: 1,
                     cr: prep.cleanup_replies.clone(),
+                    peers: None,
                 },
             ),
             te_record_blocks_requested("fb-1", vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at),
@@ -272,6 +282,7 @@ fn test_new_tip_blocks_to_fetch() {
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
+        .assert_and_remove(Level::DEBUG, &["no covering peers selected"])
         .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -298,6 +309,7 @@ fn test_block_received() {
     let expected = {
         let mut state = prep.state.clone();
         state.missing = Some(MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point()]));
+        state.fetch_contributors.insert(test_peer());
         state
     };
     let raw = TestPrep::raw_block(&prep.headers.h1);
@@ -520,6 +532,7 @@ fn test_timeout_records_fetch_failure_for_asked_peers() {
         state.trace_context = None;
         state.fetch_started_at = None;
         state.fetch_peers.clear();
+        state.fetch_contributors.clear();
         state
     };
     assert_trace_contains(
@@ -530,6 +543,107 @@ fn test_timeout_records_fetch_failure_for_asked_peers() {
             te_record_fetch_failure("fb-1", vec![peer], failed_at).into(),
             te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h0.point())).into(),
             te_state("fb-1", &expected).into(),
+        ],
+    );
+    logs.assert_and_remove(Level::WARN, &["timeout fetching blocks"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_strong_selection_passes_peers_to_manager() {
+    use std::collections::BTreeSet;
+
+    use crate::performance::SelectPeersForFetchEffect;
+
+    let prep = test_prep();
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let selected = Peer::new("alice");
+    let tip = prep.headers.h2.tip();
+    let parent = prep.headers.h1.point();
+    let msg = FetchBlocksMsg::new_tip(tip, parent);
+    let selected_clone = selected.clone();
+    let (running, _guards, mut logs) = setup_with_overrides(&prep, [msg.clone()], move |running| {
+        running.override_external_effect::<SelectPeersForFetchEffect>(usize::MAX, move |_| {
+            OverrideResult::handled(FetchPeerSet { peers: vec![selected_clone.clone()], weak: false })
+        });
+    });
+
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &msg).into(),
+            te_find_missing_blocks("fb-1", tip.hash(), 25).into(),
+            te_clock_read("fb-1").into(),
+            te_select_peers_for_fetch("fb-1", vec![prep.headers.h1.hash(), prep.headers.h2.hash()], 3, requested_at)
+                .into(),
+            te_send(
+                "fb-1",
+                "manager",
+                ManagerMessage::FetchBlocks {
+                    from: prep.headers.h1.point(),
+                    through: prep.headers.h2.point(),
+                    id: 1,
+                    cr: prep.cleanup_replies.clone(),
+                    peers: Some(vec![selected]),
+                },
+            )
+            .into(),
+            te_record_blocks_requested("fb-1", vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at)
+                .into(),
+            // fetch_peers is filled only by PeersAsked, not by selection prefill.
+            te_state_match_fetch_peers(&BTreeSet::new()),
+        ],
+    );
+    // Sim advances the 5s timeout after the request; ignore that tail.
+    logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
+        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+fn te_state_match_fetch_peers(
+    expected: &std::collections::BTreeSet<Peer>,
+) -> amaru_pure_stage::trace_match::TraceMatch<'static> {
+    let expected = expected.clone();
+    tm_state("fb-1", move |s: &FetchBlocks| s.fetch_peers == expected, "state with selected fetch_peers")
+}
+
+#[test]
+fn test_timeout_skips_fetch_failure_for_contributors() {
+    use std::collections::BTreeSet;
+
+    let mut prep = test_prep();
+    let schedule_id = prep.schedule_at(Duration::from_secs(5));
+    let good = test_peer();
+    let bad = Peer::new("silent");
+    prep.state = {
+        let mut state = prep.state_with_request(
+            MissingBlocks::new(prep.headers.h0.point(), vec![prep.headers.h1.point()]),
+            1,
+            schedule_id,
+        );
+        state.fetch_peers = BTreeSet::from([good.clone(), bad.clone()]);
+        state.fetch_contributors = BTreeSet::from([good]);
+        state.fetch_started_at = Some(Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time));
+        state.trace_context = Some(Default::default());
+        state
+    };
+
+    let msg = FetchBlocksMsg::Timeout(1);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let failed_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("fb-1", &msg).into(),
+            te_clock_read("fb-1").into(),
+            te_record_fetch_failure("fb-1", vec![bad], failed_at).into(),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h0.point())).into(),
         ],
     );
     logs.assert_and_remove(Level::WARN, &["timeout fetching blocks"]).assert_no_remaining_at([
