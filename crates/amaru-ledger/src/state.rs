@@ -25,8 +25,8 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProposalId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer,
-    protocol_version, to_cbor, utils::string::display_collection,
+    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
+    utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug, debug_span, info, info_span, trace, warn};
@@ -46,6 +46,7 @@ use crate::{
         self,
         block::{BlockValidation, TransactionInvalid},
     },
+    startup::{Database as StartupDatabase, Hook as StartupHook},
     state::volatile::{
         AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
@@ -160,6 +161,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
+        on_startup: Option<&dyn StartupHook<S>>,
     ) -> Result<Self, StoreError> {
         let protocol_parameters = stable.protocol_parameters()?;
 
@@ -171,6 +173,10 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let stake_distributions = initial_stake_distributions(&snapshots, &era_history)?;
 
         let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
+
+        if let Some(on_startup) = on_startup {
+            on_startup.on_startup(&StartupDatabase::new(&stable, epoch, &protocol_parameters))?;
+        }
 
         Ok(Self::new_with(
             stable,
@@ -240,19 +246,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         #[expect(clippy::unwrap_used)]
         let guard = self.stake_distributions.lock().unwrap();
         pool_summaries_for(guard.iter())
-    }
-
-    pub fn current_pots(&self) -> Result<crate::store::columns::pots::Row, StateError> {
-        #[expect(clippy::unwrap_used)]
-        let db = self.stable.lock().unwrap();
-        Ok(db.pots()?)
-    }
-
-    pub fn active_proposals(&self) -> Result<Vec<(ProposalId, crate::store::columns::proposals::Row)>, StateError> {
-        #[expect(clippy::unwrap_used)]
-        let db = self.stable.lock().unwrap();
-        let view = VolatileView::new(&self.volatile, &*db);
-        Ok(view.iter_proposals()?.collect())
     }
 
     pub fn network(&self) -> NetworkName {

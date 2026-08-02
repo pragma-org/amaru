@@ -22,11 +22,11 @@ use amaru_consensus::{
     },
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{
-    ConsensusParameters, EraHistory, GlobalParameters, GovernanceAction, ORIGIN_HASH, Point, Transaction,
-    protocol_version,
+use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
+use amaru_ledger::{
+    startup::{EmitTelemetry, Hook as StartupHook},
+    state::State,
 };
-use amaru_ledger::state::State;
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_network::connection::TokioConnections;
 use amaru_observability::{debug, info, info_record};
@@ -117,8 +117,7 @@ pub fn build_node(
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
     // Make the ledger state and get its tip
-    let state = make_state(&config.ledger_config)?;
-    emit_startup_telemetry(&state)?;
+    let state = make_state(&config.ledger_config, Some(&EmitTelemetry))?;
     let ledger_tip = state.tip().into_owned();
     tracing::info!(
         tip.hash = %ledger_tip.hash(),
@@ -203,92 +202,6 @@ pub fn build_node(
     Ok(node_stages)
 }
 
-fn emit_startup_telemetry(state: &State<RocksDB, RocksDBHistoricalStores>) -> anyhow::Result<()> {
-    emit_protocol_parameters(state);
-    emit_current_pots(state)?;
-    emit_active_proposals(state)?;
-    Ok(())
-}
-
-fn emit_protocol_parameters(state: &State<RocksDB, RocksDBHistoricalStores>) {
-    let protocol_parameters = state.protocol_parameters();
-
-    info!(
-        ledger::protocol_parameters::LOAD,
-        protocol_version = protocol_version::fmt(&protocol_parameters.protocol_version),
-        max_block_body_size = protocol_parameters.max_block_body_size.to_string(),
-        max_transaction_size = protocol_parameters.max_transaction_size.to_string(),
-        max_tx_ex_units = protocol_parameters.max_tx_ex_units.to_string(),
-        max_block_ex_units = protocol_parameters.max_block_ex_units.to_string(),
-        min_fee_a = protocol_parameters.min_fee_a.to_string(),
-        min_fee_b = protocol_parameters.min_fee_b.to_string(),
-        stake_credential_deposit = protocol_parameters.stake_credential_deposit.to_string(),
-        stake_pool_deposit = protocol_parameters.stake_pool_deposit.to_string(),
-        lovelace_per_utxo_byte = protocol_parameters.lovelace_per_utxo_byte.to_string(),
-        collateral_percentage = protocol_parameters.collateral_percentage.to_string(),
-        gov_action_lifetime = protocol_parameters.gov_action_lifetime.to_string(),
-        gov_action_deposit = protocol_parameters.gov_action_deposit.to_string(),
-        drep_deposit = protocol_parameters.drep_deposit.to_string(),
-        drep_expiry = protocol_parameters.drep_expiry.to_string(),
-    );
-}
-
-fn emit_current_pots(state: &State<RocksDB, RocksDBHistoricalStores>) -> anyhow::Result<()> {
-    let pots = state.current_pots()?;
-
-    info!(
-        ledger::pots::LOAD,
-        treasury = pots.treasury,
-        reserves = pots.reserves,
-        fees = pots.fees,
-        donations = pots.donations,
-    );
-
-    Ok(())
-}
-
-fn emit_active_proposals(state: &State<RocksDB, RocksDBHistoricalStores>) -> anyhow::Result<()> {
-    for (id, row) in state.active_proposals()? {
-        let proposal_kind = proposal_kind(&row.proposal.gov_action);
-        let detail = proposal_detail(&row.proposal.gov_action);
-
-        if let Some(detail) = detail {
-            info!(ledger::proposal::ACTIVE, id = id.to_string(), proposal_kind, valid_until = row.valid_until, detail,);
-        } else {
-            info!(ledger::proposal::ACTIVE, id = id.to_string(), proposal_kind, valid_until = row.valid_until,);
-        }
-    }
-
-    Ok(())
-}
-
-fn proposal_kind(proposal: &GovernanceAction) -> &'static str {
-    match proposal {
-        GovernanceAction::ParameterChange(..) => "protocol-parameters",
-        GovernanceAction::HardForkInitiation(..) => "hard-fork",
-        GovernanceAction::TreasuryWithdrawals(..) => "treasury-withdrawal",
-        GovernanceAction::NoConfidence(..) => "motion-of-no-confidence",
-        GovernanceAction::UpdateCommittee(..) => "constitutional-committee",
-        GovernanceAction::NewConstitution(..) => "constitution",
-        GovernanceAction::Information => "nice-poll",
-    }
-}
-
-fn proposal_detail(proposal: &GovernanceAction) -> Option<String> {
-    match proposal {
-        GovernanceAction::HardForkInitiation(_, version) => Some(protocol_version::fmt(version)),
-        GovernanceAction::TreasuryWithdrawals(withdrawals, _) => {
-            Some(format!("{} lovelace", withdrawals.iter().map(|(_, amount)| *amount).sum::<u64>()))
-        }
-        GovernanceAction::UpdateCommittee(_, removed, added, threshold) => {
-            Some(format!("removed={}, added={}, threshold={threshold}", removed.len(), added.len()))
-        }
-        GovernanceAction::NewConstitution(..) => Some("new constitution".to_string()),
-        GovernanceAction::ParameterChange(..) => Some("protocol parameters".to_string()),
-        GovernanceAction::NoConfidence(..) | GovernanceAction::Information => None,
-    }
-}
-
 /// Register the resources required by the external effects invoked by the stages in the stage graph.
 /// It is possible to override those resources later on.
 #[allow(clippy::too_many_arguments)]
@@ -346,10 +259,20 @@ pub fn make_block_validator(
     ))
 }
 
-pub fn make_state(config: &LedgerConfig) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
+pub fn make_state(
+    config: &LedgerConfig,
+    on_startup: Option<&dyn StartupHook<RocksDB>>,
+) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
     let store = RocksDB::new(&config.ledger_store)?;
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
-    Ok(State::new(store, snapshots, config.network, config.era_history().clone(), config.global_parameters.clone())?)
+    Ok(State::new(
+        store,
+        snapshots,
+        config.network,
+        config.era_history().clone(),
+        config.global_parameters.clone(),
+        on_startup,
+    )?)
 }
 
 fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {
