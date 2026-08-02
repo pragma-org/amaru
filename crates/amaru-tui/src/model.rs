@@ -315,6 +315,7 @@ pub struct Model {
     pub stake_snapshot: Option<StakeSnapshotState>,
     pub treasury: Option<u64>,
     pub reserves: Option<u64>,
+    pub fees: Option<u64>,
     pub protocol_version: String,
     pub governance: GovernanceSummary,
     pub peers: BTreeMap<String, PeerState>,
@@ -346,6 +347,7 @@ impl Model {
             stake_snapshot: None,
             treasury: None,
             reserves: None,
+            fees: None,
             governance: GovernanceSummary::default(),
             peers: BTreeMap::default(),
             logs: VecDeque::default(),
@@ -591,6 +593,7 @@ impl Model {
     fn update_pots(&mut self, record: RecordFields<'_>) {
         self.treasury = record.as_u64("pots_treasury").or_else(|| record.as_u64("treasury"));
         self.reserves = record.as_u64("pots_reserves").or_else(|| record.as_u64("reserves"));
+        self.fees = record.as_u64("pots_fees").or_else(|| record.as_u64("fees"));
     }
 
     fn update_peer_connected(&mut self, record: RecordFields<'_>) {
@@ -705,10 +708,12 @@ mod tests {
             protocol_version: "10.11".into(),
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
+            protocol_sections: Vec::default(),
         };
         let mut model = Model::new(Config::default(), startup);
 
@@ -744,10 +749,12 @@ mod tests {
             protocol_version: "10.11".into(),
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             trusted_peers: BTreeSet::from(["1.2.3.4:3001".into()]),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
+            protocol_sections: Vec::default(),
         };
         let mut model = Model::new(Config::default(), startup);
 

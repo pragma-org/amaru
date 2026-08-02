@@ -25,7 +25,11 @@ pub(super) fn accent_primary() -> Color {
 }
 
 pub(super) fn block_title(title: &str) -> Line<'static> {
-    Line::from(Span::styled(format!(" {title} "), emphasis_primary()))
+    Line::from(vec![
+        Span::styled("─ ", emphasis_primary()),
+        Span::styled(title.to_string(), emphasis_primary()),
+        Span::styled(" ─", emphasis_primary()),
+    ])
 }
 
 pub(super) fn border_primary() -> Style {
@@ -34,10 +38,6 @@ pub(super) fn border_primary() -> Style {
 
 pub(super) fn border_secondary() -> Style {
     Style::default().fg(Color::Rgb(57, 108, 75))
-}
-
-pub(super) fn border_muted() -> Style {
-    Style::default().fg(Color::Rgb(52, 87, 104))
 }
 
 pub(super) fn emphasis_primary() -> Style {

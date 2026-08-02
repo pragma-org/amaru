@@ -20,10 +20,12 @@ pub struct StartupContext {
     pub protocol_version: String,
     pub epoch_length: u64,
     pub active_slot_coeff_inverse: u64,
+    pub max_lovelace_supply: u64,
     pub system_start_millis: u64,
     pub trusted_peers: BTreeSet<String>,
     pub runtime_sections: Vec<ConfigSection>,
     pub global_sections: Vec<ConfigSection>,
+    pub protocol_sections: Vec<ConfigSection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

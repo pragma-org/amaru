@@ -31,7 +31,7 @@ use self::{
         format_ratio, format_slot_ratio, target_slot,
     },
     theme::{
-        accent_primary, block_title, border_muted, border_primary, border_secondary, emphasis_primary, emphasis_white,
+        accent_primary, block_title, border_primary, border_secondary, emphasis_primary, emphasis_white,
         emphasis_white_color, muted, muted_color, striped_row_style, style_for_level, style_for_level_filter,
         style_for_target, table_header_style,
     },
@@ -75,39 +75,58 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, hotspots: &mut Hotspots, now
     frame.render_widget(shell, shell_area);
     populate_shell_hotspots(hotspots, shell_area, model);
 
-    if model.log_pane_mode.is_maximized() {
+    if model.log_pane_mode.is_maximized() && model.page != Page::Config {
         render_logs(frame, inner, model, hotspots);
         return;
     }
 
     let available_height = inner.height.saturating_sub(progress_height);
-    let max_content_height = available_height.saturating_sub(10);
-    let desired_content_height = if model.is_ready(now) { page_content_height(model) } else { max_content_height };
-    let content_height = desired_content_height.min(max_content_height);
-    let log_height = available_height.saturating_sub(content_height);
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(content_height),
-            Constraint::Length(log_height),
-            Constraint::Length(progress_height),
-        ])
-        .split(inner);
+    let show_logs = model.page != Page::Config;
 
-    if model.is_ready(now) {
-        match model.page {
-            Page::Amaru => render_amaru(frame, layout[0], model, hotspots, now),
-            Page::Cardano => render_cardano(frame, layout[0], model, hotspots, now),
-            Page::Config => render_config(frame, layout[0], model),
+    if show_logs {
+        let max_content_height = available_height.saturating_sub(10);
+        let desired_content_height = if model.is_ready(now) { page_content_height(model) } else { max_content_height };
+        let content_height = desired_content_height.min(max_content_height);
+        let log_height = available_height.saturating_sub(content_height);
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(content_height),
+                Constraint::Length(log_height),
+                Constraint::Length(progress_height),
+            ])
+            .split(inner);
+
+        if model.is_ready(now) {
+            match model.page {
+                Page::Amaru => render_amaru(frame, layout[0], model, hotspots, now),
+                Page::Cardano => render_cardano(frame, layout[0], model, hotspots, now),
+                Page::Config => render_config(frame, layout[0], model),
+            }
+        } else {
+            render_splash(frame, layout[0], model);
+        }
+
+        render_logs(frame, layout[1], model, hotspots);
+
+        if progress_height > 0 {
+            render_epoch_progress(frame, layout[2], model);
         }
     } else {
-        render_splash(frame, layout[0], model);
-    }
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(available_height), Constraint::Length(progress_height)])
+            .split(inner);
 
-    render_logs(frame, layout[1], model, hotspots);
+        if model.is_ready(now) {
+            render_config(frame, layout[0], model);
+        } else {
+            render_splash(frame, layout[0], model);
+        }
 
-    if progress_height > 0 {
-        render_epoch_progress(frame, layout[2], model);
+        if progress_height > 0 {
+            render_epoch_progress(frame, layout[1], model);
+        }
     }
 }
 
@@ -122,7 +141,7 @@ fn shell_block(model: &Model) -> Block<'static> {
 }
 
 fn populate_shell_hotspots(hotspots: &mut Hotspots, area: Rect, model: &Model) {
-    let mut x = area.x + 2;
+    let mut x = area.x + 2 + border_title_prefix_width();
     let y = area.y;
     for (index, page) in Page::ALL.into_iter().enumerate() {
         let label = button_label(page.label());
@@ -135,8 +154,9 @@ fn populate_shell_hotspots(hotspots: &mut Hotspots, area: Rect, model: &Model) {
 
     let labels = model.windows().iter().map(|window| button_label(&format_duration_short(*window))).collect::<Vec<_>>();
     let total_width =
-        labels.iter().map(|label| label.len() as u16).sum::<u16>() + labels.len().saturating_sub(1) as u16;
-    let mut x = area.x + area.width.saturating_sub(total_width + 1);
+        spans_width(labels.iter().map(|label| label.len() as u16)) + labels.len().saturating_sub(1) as u16;
+    let mut x =
+        area.x + area.width.saturating_sub(total_width + border_title_chrome_width() + 1) + border_title_prefix_width();
     let y = area.y;
 
     for label in labels {
@@ -175,9 +195,9 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
     let cards = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(35),
-            Constraint::Percentage(20),
+            Constraint::Percentage(23),
+            Constraint::Percentage(37),
+            Constraint::Percentage(18),
             Constraint::Percentage(20),
         ])
         .split(layout[0]);
@@ -199,7 +219,7 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
             ("Epoch", format_count(tip.epoch)),
             ("Slot", format_slot_ratio(tip.slot, target_slot(model.startup.system_start_millis))),
             ("Height", format_count(tip.block_height)),
-            ("Hash", elide(&tip.header_hash, 24)),
+            ("Hash", elide(&tip.header_hash, 40)),
             ("Density", format_density(tip.density, model.startup.active_slot_coeff_inverse)),
         ])
     } else {
@@ -272,10 +292,11 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &m
     render_card(
         frame,
         cards[1],
-        "Treasury",
+        "Money Pots",
         aligned_pair_lines(vec![
-            ("Current", model.treasury.map(format_lovelace).unwrap_or_else(|| "—".into())),
+            ("Treasury", model.treasury.map(format_lovelace).unwrap_or_else(|| "—".into())),
             ("Reserves", model.reserves.map(format_lovelace).unwrap_or_else(|| "—".into())),
+            ("Fees", model.fees.map(format_lovelace).unwrap_or_else(|| "—".into())),
         ]),
     );
 
@@ -284,7 +305,7 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &m
             ("Accounts", format_count(snapshot.accounts)),
             ("Pools", format_count(snapshot.pools)),
             ("DReps", format_count(snapshot.dreps)),
-            ("Active", format_lovelace(snapshot.active_stake)),
+            ("Active", format_stake_distribution(snapshot.active_stake, model.startup.max_lovelace_supply)),
         ])
     } else {
         vec![Line::from(Span::styled("No stake snapshot telemetry yet", muted()))]
@@ -296,11 +317,11 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &m
 fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Model) {
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(56), Constraint::Percentage(44)])
+        .constraints([Constraint::Percentage(46), Constraint::Percentage(54)])
         .split(area);
 
-    render_section_column(frame, columns[0], &model.startup.runtime_sections);
-    render_section_column(frame, columns[1], &model.startup.global_sections);
+    render_section_groups(frame, columns[0], &[&model.startup.runtime_sections, &model.startup.global_sections]);
+    render_section_groups(frame, columns[1], &[&model.startup.protocol_sections]);
 }
 
 fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
@@ -317,22 +338,36 @@ fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
         .label(format_ratio(slot_in_epoch, epoch_length))
         .block(
             Block::default()
-                .title_top(Line::from(format!(" Epoch {} ", format_count(tip.epoch))).left_aligned())
-                .title_top(Line::from(format!(" {:.1}% ", ratio * 100.0)).right_aligned())
+                .title_top(
+                    Line::from(vec![
+                        Span::styled(" Epoch ", emphasis_primary()),
+                        Span::styled(format_count(tip.epoch), emphasis_white()),
+                        Span::styled(" ", emphasis_primary()),
+                    ])
+                    .left_aligned(),
+                )
+                .title_top(
+                    Line::from(vec![
+                        Span::styled(" ", emphasis_primary()),
+                        Span::styled(format!("{:.1}%", ratio * 100.0), emphasis_white()),
+                        Span::styled(" ", emphasis_primary()),
+                    ])
+                    .right_aligned(),
+                )
                 .borders(Borders::TOP)
-                .border_style(border_muted()),
+                .border_style(border_primary()),
         );
     frame.render_widget(gauge, area);
 }
 
 fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots) {
     hotspots.logs_area = area;
-    let title = Line::from(vec![
-        Span::styled(" Logs ", emphasis_primary()),
+    let title = border_title_line(vec![
+        Span::styled("Logs", emphasis_primary()),
         Span::styled(format!(" dropped={} ", model.dropped_logs), Style::default().fg(muted_color())),
     ]);
     let toggle_label = button_label(log_toggle_label(model));
-    let toggle = Line::from(Span::styled(toggle_label.clone(), emphasis_primary()));
+    let toggle = border_title_line(vec![Span::styled(toggle_label.clone(), emphasis_primary())]);
     let block = Block::default()
         .title(title)
         .title_top(toggle.right_aligned())
@@ -341,7 +376,9 @@ fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut 
     let inner = block.inner(area);
     frame.render_widget(block, area);
     hotspots.log_toggle = Rect {
-        x: area.x + area.width.saturating_sub(toggle_label.len() as u16 + 1),
+        x: area.x
+            + area.width.saturating_sub(toggle_label.len() as u16 + border_title_chrome_width() + 1)
+            + border_title_prefix_width(),
         y: area.y,
         width: toggle_label.len() as u16,
         height: 1,
@@ -400,32 +437,28 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspot
     let targets = Paragraph::new(Line::from(target_spans)).alignment(Alignment::Right);
     frame.render_widget(targets, layout[1]);
 
-    let level_width = (layout[0].width / LevelFilter::ALL.len() as u16).max(1);
-    for (index, (_, rect)) in hotspots.level_tabs.iter_mut().enumerate() {
-        *rect = Rect {
-            x: layout[0].x + level_width * index as u16,
-            y: layout[0].y,
-            width: level_width,
-            height: layout[0].height,
-        };
+    let level_labels = LevelFilter::ALL.into_iter().map(|filter| button_label(filter.label())).collect::<Vec<_>>();
+    let mut level_x = layout[0].x;
+    for ((_, rect), label) in hotspots.level_tabs.iter_mut().zip(level_labels.iter()) {
+        *rect = Rect { x: level_x, y: layout[0].y, width: label.len() as u16, height: layout[0].height };
+        level_x += label.len() as u16;
     }
 
-    let target_width = (layout[1].width / TargetFilter::ALL.len() as u16).max(1);
-    for (index, (_, rect)) in hotspots.target_tabs.iter_mut().enumerate() {
-        *rect = Rect {
-            x: layout[1].x + target_width * index as u16,
-            y: layout[1].y,
-            width: target_width,
-            height: layout[1].height,
-        };
+    let target_labels = TargetFilter::ALL.into_iter().map(|filter| button_label(filter.label())).collect::<Vec<_>>();
+    let mut target_x =
+        layout[1].x + layout[1].width.saturating_sub(spans_width(target_labels.iter().map(|label| label.len() as u16)));
+    for ((_, rect), label) in hotspots.target_tabs.iter_mut().zip(target_labels.iter()) {
+        *rect = Rect { x: target_x, y: layout[1].y, width: label.len() as u16, height: layout[1].height };
+        target_x += label.len() as u16;
     }
 }
 
-fn render_section_column(frame: &mut Frame<'_>, area: Rect, sections: &[ConfigSection]) {
-    if sections.is_empty() {
+fn render_section_groups(frame: &mut Frame<'_>, area: Rect, groups: &[&[ConfigSection]]) {
+    if groups.iter().all(|sections| sections.is_empty()) {
         return;
     }
 
+    let sections = groups.iter().flat_map(|group| group.iter()).collect::<Vec<_>>();
     let constraints = sections
         .iter()
         .enumerate()
@@ -536,7 +569,7 @@ fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hots
         .enumerate()
         .map(|(index, proposal)| {
             Row::new(vec![
-                Cell::from(elide(&proposal.id, 18)).style(Style::default().fg(emphasis_white_color())),
+                Cell::from(proposal.id.clone()).style(Style::default().fg(emphasis_white_color())),
                 Cell::from(proposal.kind.clone()).style(Style::default().fg(accent_primary())),
                 Cell::from(proposal.detail.clone().unwrap_or_else(|| "—".into()))
                     .style(Style::default().fg(emphasis_white_color())),
@@ -558,12 +591,10 @@ fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hots
         .borders(Borders::ALL)
         .border_style(border_primary());
     let inner = block.inner(area);
-    let table = Table::new(
-        rows,
-        [Constraint::Length(20), Constraint::Length(18), Constraint::Percentage(100), Constraint::Length(12)],
-    )
-    .header(Row::new(vec!["Proposal", "Kind", "Detail", "Status"]).style(table_header_style()))
-    .block(block);
+    let table =
+        Table::new(rows, [Constraint::Length(40), Constraint::Length(28), Constraint::Min(10), Constraint::Length(12)])
+            .header(Row::new(vec!["id", "Kind", "Detail", "Status"]).style(table_header_style()))
+            .block(block);
     frame.render_widget(table, area);
     render_scrollbar(frame, inner, model.recent_proposals.len(), visible, start);
 }
@@ -674,11 +705,11 @@ fn page_tabs_line(model: &Model) -> Line<'static> {
         spans.push(Span::styled(button_label(page.label()), style));
     }
 
-    Line::from(spans)
+    border_title_line(spans)
 }
 
 fn shell_title(model: &Model) -> Line<'static> {
-    Line::from(vec![
+    border_title_line(vec![
         Span::styled("AMARU", emphasis_primary()),
         Span::raw("  "),
         Span::styled(model.startup.process.software_version.clone(), emphasis_white()),
@@ -688,7 +719,7 @@ fn shell_title(model: &Model) -> Line<'static> {
 }
 
 fn shell_hint() -> Line<'static> {
-    Line::from(vec![
+    border_title_line(vec![
         Span::styled("<q>", emphasis_primary()),
         Span::styled("quit  ", muted()),
         Span::styled("<tab>", emphasis_primary()),
@@ -715,7 +746,7 @@ fn window_controls_line(model: &Model) -> Line<'static> {
         spans.push(Span::styled(button_label(&format_duration_short(*window)), style));
     }
 
-    Line::from(spans)
+    border_title_line(spans)
 }
 
 fn log_toggle_label(model: &Model) -> &'static str {
@@ -765,6 +796,14 @@ fn button_label(label: &str) -> String {
     format!("[ {label} ]")
 }
 
+fn border_title_line(spans: Vec<Span<'static>>) -> Line<'static> {
+    let mut line = Vec::with_capacity(spans.len() + 2);
+    line.push(Span::styled("─ ", muted()));
+    line.extend(spans);
+    line.push(Span::styled(" ─", muted()));
+    Line::from(line)
+}
+
 fn page_content_height(model: &Model) -> u16 {
     match model.page {
         Page::Amaru => 14 + peers_panel_height(model),
@@ -786,7 +825,9 @@ fn panel_height(rows: usize, min_rows: usize, max_rows: usize) -> u16 {
 }
 
 fn config_panel_height(model: &Model) -> u16 {
-    config_column_height(&model.startup.runtime_sections).max(config_column_height(&model.startup.global_sections))
+    config_column_height(&model.startup.runtime_sections)
+        .saturating_add(config_column_height(&model.startup.global_sections))
+        .max(config_column_height(&model.startup.protocol_sections))
 }
 
 fn config_column_height(sections: &[crate::startup::ConfigSection]) -> u16 {
@@ -814,4 +855,22 @@ fn splash_logo_line(left_pad: usize) -> Line<'static> {
         Span::raw(" ".repeat(left_pad)),
         Span::styled("            ", Style::default().bg(accent_primary())),
     ])
+}
+
+fn border_title_prefix_width() -> u16 {
+    2
+}
+
+fn border_title_chrome_width() -> u16 {
+    4
+}
+
+fn spans_width(lengths: impl Iterator<Item = u16>) -> u16 {
+    lengths.sum()
+}
+
+fn format_stake_distribution(active_stake: u64, max_lovelace_supply: u64) -> String {
+    let percentage =
+        if max_lovelace_supply == 0 { 0.0 } else { active_stake as f64 / max_lovelace_supply as f64 * 100.0 };
+    format!("{} ({percentage:.1}%)", format_lovelace(active_stake))
 }
