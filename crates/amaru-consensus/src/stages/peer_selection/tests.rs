@@ -138,7 +138,7 @@ fn test_regulate_prefers_static_before_snapshot_before_ledger() {
     prep.state.ledger_candidates.insert(l1.clone());
     // Start with empty outbound and trigger regulate via CheckCooldowns.
     let dummy = TestPrep::peer("dummy:9");
-    prep.state.cooldown_until.insert(dummy.clone(), cooldown_instant());
+    prep.state.cooldowns.cooldown_until.insert(dummy.clone(), cooldown_instant());
 
     let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CheckCooldowns]);
 
@@ -474,7 +474,7 @@ fn test_adversarial_twice_extends_cooldown_single_timer() {
     // Second ban at the same simulation time reuses the armed timer; heap gets another entry.
     let after_second = {
         let mut s = after_first.clone();
-        s.cooldown_heap.push(std::cmp::Reverse((cooldown_instant(), p.clone())));
+        s.cooldowns.add_and_is_first(p.clone(), cooldown_instant());
         s
     };
     let (running, _guards, mut logs) =
@@ -541,9 +541,9 @@ fn test_reban_later_deadline_survives_early_timer() {
             tm_state(
                 "ps-1",
                 move |s: &PeerSelection| {
-                    s.cooldown_until.get(&p) == Some(&later_when)
+                    s.cooldowns.cooldown_until.get(&p) == Some(&later_when)
                         && s.cooldown_timer == Some(sid1)
-                        && s.cooldown_heap.len() == 1
+                        && s.cooldowns.cooldown_heap.len() == 1
                 },
                 "re-ban deadline preserved after early CheckCooldowns; timer re-armed",
             ),
@@ -554,7 +554,9 @@ fn test_reban_later_deadline_survives_early_timer() {
             tm_state(
                 "ps-1",
                 |s: &PeerSelection| {
-                    s.cooldown_until.is_empty() && s.cooldown_timer.is_none() && s.cooldown_heap.is_empty()
+                    s.cooldowns.cooldown_until.is_empty()
+                        && s.cooldown_timer.is_none()
+                        && s.cooldowns.cooldown_heap.is_empty()
                 },
                 "ban lifted only at the later deadline",
             ),
@@ -654,7 +656,7 @@ fn test_regulate_prefers_static_before_ledger() {
 
     // Trigger regulate via CheckCooldowns of a non-existent peer (cheap way to call it)
     let dummy = TestPrep::peer("dummy:9");
-    prep.state.cooldown_until.insert(dummy.clone(), cooldown_instant());
+    prep.state.cooldowns.cooldown_until.insert(dummy.clone(), cooldown_instant());
 
     let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CheckCooldowns]);
 
@@ -689,7 +691,7 @@ fn test_regulate_skips_peers_in_cooldown() {
 
     // Put one static peer in cooldown
     let banned = TestPrep::peer("static1:1");
-    prep.state.cooldown_until.insert(banned.clone(), cooldown_instant());
+    prep.state.cooldowns.cooldown_until.insert(banned.clone(), cooldown_instant());
 
     // Have a ledger candidate
     let ledger = TestPrep::peer("ledger1:1");
@@ -697,7 +699,7 @@ fn test_regulate_skips_peers_in_cooldown() {
 
     // Trigger regulate
     let dummy = TestPrep::peer("dummy:9");
-    prep.state.cooldown_until.insert(dummy.clone(), cooldown_instant());
+    prep.state.cooldowns.cooldown_until.insert(dummy.clone(), cooldown_instant());
 
     let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CheckCooldowns]);
 
@@ -713,7 +715,7 @@ fn test_regulate_skips_peers_in_cooldown() {
                 |s: &PeerSelection| {
                     s.outbound_peers.len() == 2
                         && !s.outbound_peers.contains_key(&banned)
-                        && s.cooldown_until.contains_key(&banned)
+                        && s.cooldowns.is_cooling(&banned)
                 },
                 "final state with two new outbound peers; banned static still cooling down",
             ),
@@ -786,7 +788,9 @@ fn test_many_cooldowns_arm_only_one_schedule() {
             tm_state(
                 "ps-1",
                 |s: &PeerSelection| {
-                    s.cooldown_until.len() == 15 && s.cooldown_timer.is_some() && s.cooldown_heap.len() == 15
+                    s.cooldowns.cooldown_until.len() == 15
+                        && s.cooldown_timer.is_some()
+                        && s.cooldowns.cooldown_heap.len() == 15
                 },
                 "all 15 peers cooling down under a single armed timer",
             ),
@@ -794,7 +798,7 @@ fn test_many_cooldowns_arm_only_one_schedule() {
             te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
             tm_state(
                 "ps-1",
-                |s: &PeerSelection| s.cooldown_until.is_empty() && s.cooldown_timer.is_none(),
+                |s: &PeerSelection| s.cooldowns.cooldown_until.is_empty() && s.cooldown_timer.is_none(),
                 "all cool-downs drained when the single timer fires",
             ),
         ],
@@ -819,9 +823,7 @@ fn test_second_cooldown_does_not_schedule_again() {
     };
     let after_second = {
         let mut s = after_first.clone();
-        let when = cooldown_instant();
-        s.cooldown_until.insert(p2.clone(), when);
-        s.cooldown_heap.push(std::cmp::Reverse((when, p2.clone())));
+        s.cooldowns.add_and_is_first(p2.clone(), cooldown_instant());
         s
     };
 
@@ -884,10 +886,10 @@ fn test_earlier_cooldown_reschedules_timer() {
             tm_state(
                 "ps-1",
                 |s: &PeerSelection| {
-                    s.cooldown_until.len() == 2
+                    s.cooldowns.cooldown_until.len() == 2
                         && s.cooldown_timer == Some(sid_other)
-                        && s.cooldown_heap.peek().map(|std::cmp::Reverse((t, _))| *t) == Some(cooldown_instant())
-                        && s.cooldown_until.get(&static_peer).copied() == Some(static_cooldown_instant())
+                        && s.cooldowns.peek().map(|(t, _)| t) == Some(cooldown_instant())
+                        && s.cooldowns.cooldown_until.get(&static_peer).copied() == Some(static_cooldown_instant())
                 },
                 "timer re-armed to the earlier non-static cool-down",
             ),

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Reverse, collections::BTreeSet, time::Duration};
+use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{Peer, Tip};
 use amaru_protocols::manager::ManagerMessage;
@@ -90,9 +90,7 @@ pub fn second_schedule_id_at(when: Instant) -> ScheduleId {
 
 /// Build the cool-down fields after a single non-static ban armed at `cooldown_instant()`.
 pub fn with_single_cooldown(state: &mut PeerSelection, peer: Peer, schedule_id: ScheduleId) {
-    let when = cooldown_instant();
-    state.cooldown_until.insert(peer.clone(), when);
-    state.cooldown_heap.push(Reverse((when, peer)));
+    state.cooldowns.add_and_is_first(peer, cooldown_instant());
     state.cooldown_timer = Some(schedule_id);
 }
 
@@ -184,7 +182,7 @@ fn setup_preload_with_mode(
                 OverrideResult::handled(Ok(BTreeSet::new()))
             });
 
-            // NOTE: Make peer selection's random choices fully deterministic in tests.
+            // NOTE: This makes peer selection's random choices fully deterministic in tests.
             running
                 .override_external_effect::<GenerateRandomSeed>(usize::MAX, |_| OverrideResult::handled([0x42u8; 32]));
         },

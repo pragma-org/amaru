@@ -198,7 +198,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 /// trace helpers) and `tests.rs` (covering Initialize, every `PeerSelectionMsg`
 /// arm, double-adversarial timer replacement, regulate preference/skipping,
 /// will_retry vs. normal disconnect, inbound caps, etc.).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PeerSelection {
     target_upstream_peers: usize,
     target_downstream_peers: usize,
@@ -207,34 +207,10 @@ pub struct PeerSelection {
     snapshot_candidates: BTreeSet<Peer>,
     ledger_candidates: BTreeSet<Peer>,
     peer_removal_cooldown: Duration,
-    cooldown_until: BTreeMap<Peer, Instant>,
-    cooldown_heap: BinaryHeap<Reverse<(Instant, Peer)>>,
+    cooldowns: Cooldowns,
     cooldown_timer: Option<ScheduleId>,
     inbound_peers: BTreeMap<Peer, Connection>,
     outbound_peers: BTreeMap<Peer, PeerState>,
-}
-
-impl PartialEq for PeerSelection {
-    fn eq(&self, other: &Self) -> bool {
-        self.target_upstream_peers == other.target_upstream_peers
-            && self.target_downstream_peers == other.target_downstream_peers
-            && self.manager == other.manager
-            && self.static_peers == other.static_peers
-            && self.snapshot_candidates == other.snapshot_candidates
-            && self.ledger_candidates == other.ledger_candidates
-            && self.peer_removal_cooldown == other.peer_removal_cooldown
-            && self.cooldown_until == other.cooldown_until
-            && self.cooldown_timer == other.cooldown_timer
-            && self.inbound_peers == other.inbound_peers
-            && self.outbound_peers == other.outbound_peers
-            && {
-                let mut left: Vec<_> = self.cooldown_heap.iter().collect();
-                let mut right: Vec<_> = other.cooldown_heap.iter().collect();
-                left.sort();
-                right.sort();
-                left == right
-            }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -307,8 +283,7 @@ impl PeerSelection {
             static_peers,
             snapshot_candidates,
             peer_removal_cooldown: Duration::from_secs(peer_removal_cooldown_secs),
-            cooldown_until: BTreeMap::new(),
-            cooldown_heap: BinaryHeap::new(),
+            cooldowns: Cooldowns::default(),
             cooldown_timer: None,
             inbound_peers: BTreeMap::new(),
             outbound_peers: BTreeMap::new(),
@@ -344,9 +319,7 @@ impl PeerSelection {
         let now = eff.clock().await;
         let when = now + ban_period;
 
-        let was_empty = self.cooldown_until.is_empty();
-        self.cooldown_until.insert(peer.clone(), when);
-        self.cooldown_heap.push(Reverse((when, peer)));
+        let was_empty = self.cooldowns.add_and_is_first(peer.clone(), when);
 
         match self.cooldown_timer {
             None if was_empty => {
@@ -366,31 +339,10 @@ impl PeerSelection {
     }
 
     async fn arm_next_cooldown(&mut self, eff: &Effects<PeerSelectionMsg>) {
-        while let Some(Reverse((when, peer))) = self.cooldown_heap.peek() {
-            if let Some(until) = self.cooldown_until.get(peer)
-                && until == when
-            {
-                break; // stop discarding when we find the next valid entry
-            }
-            self.cooldown_heap.pop();
-        }
-        if let Some(Reverse((when, _))) = self.cooldown_heap.peek() {
-            let id = eff.schedule_at(PeerSelectionMsg::CheckCooldowns, *when).await;
+        self.cooldowns.discard_stale();
+        if let Some((when, _)) = self.cooldowns.peek() {
+            let id = eff.schedule_at(PeerSelectionMsg::CheckCooldowns, when).await;
             self.cooldown_timer = Some(id);
-        }
-    }
-
-    fn drain_due_cooldowns(&mut self, now: Instant) {
-        while let Some(Reverse((when, _))) = self.cooldown_heap.peek() {
-            if *when > now {
-                break;
-            }
-            let Some(Reverse((_when, peer))) = self.cooldown_heap.pop() else {
-                break;
-            };
-            if self.cooldown_until.get(&peer).is_some_and(|until| *until <= now) {
-                self.cooldown_until.remove(&peer);
-            }
         }
     }
 
@@ -411,7 +363,7 @@ impl PeerSelection {
             let candidates = self
                 .static_peers
                 .iter()
-                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_until.contains_key(p))
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldowns.is_cooling(p))
                 .cloned()
                 .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
@@ -426,7 +378,7 @@ impl PeerSelection {
             let candidates = self
                 .snapshot_candidates
                 .iter()
-                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_until.contains_key(p))
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldowns.is_cooling(p))
                 .cloned()
                 .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
@@ -441,7 +393,7 @@ impl PeerSelection {
             let candidates = self
                 .ledger_candidates
                 .iter()
-                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldown_until.contains_key(p))
+                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldowns.is_cooling(p))
                 .cloned()
                 .choose_multiple(&mut rng, target_upstream_peers - outbound);
             for peer in candidates {
@@ -449,6 +401,78 @@ impl PeerSelection {
                 eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
                 self.outbound_peers.insert(peer, PeerState::Connecting);
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct Cooldowns {
+    cooldown_until: BTreeMap<Peer, Instant>,
+    cooldown_heap: BinaryHeap<Reverse<(Instant, Peer)>>,
+}
+
+impl Cooldowns {
+    /// Adds a peer to the cooldowns, returning true if this was the first entry.
+    fn add_and_is_first(&mut self, peer: Peer, until: Instant) -> bool {
+        let was_empty = self.cooldown_until.is_empty();
+        self.cooldown_until.insert(peer.clone(), until);
+        self.cooldown_heap.push(Reverse((until, peer)));
+        was_empty
+    }
+
+    fn discard_stale(&mut self) {
+        while let Some(Reverse((when, peer))) = self.cooldown_heap.peek() {
+            if let Some(until) = self.cooldown_until.get(peer)
+                && until == when
+            {
+                break; // stop discarding when we find the next valid entry
+            }
+            self.cooldown_heap.pop();
+        }
+    }
+
+    fn peek(&self) -> Option<(Instant, Peer)> {
+        self.cooldown_heap.peek().map(|Reverse((when, peer))| (*when, peer.clone()))
+    }
+
+    fn drain_due(&mut self, now: Instant) {
+        while let Some(Reverse((when, _))) = self.cooldown_heap.peek() {
+            if *when > now {
+                break;
+            }
+            let Some(Reverse((_when, peer))) = self.cooldown_heap.pop() else {
+                break;
+            };
+            if self.cooldown_until.get(&peer).is_some_and(|until| *until <= now) {
+                self.cooldown_until.remove(&peer);
+            }
+        }
+    }
+
+    fn is_cooling(&self, peer: &Peer) -> bool {
+        self.cooldown_until.contains_key(peer)
+    }
+
+    /// Removes a peer from the cooldowns, returning true if this empties the cooldowns.
+    fn remove_and_was_last(&mut self, peer: &Peer) -> bool {
+        let was_banned = self.cooldown_until.remove(peer).is_some();
+        if self.cooldown_until.is_empty() {
+            self.cooldown_heap.clear();
+            was_banned
+        } else {
+            false
+        }
+    }
+}
+
+impl PartialEq for Cooldowns {
+    fn eq(&self, other: &Self) -> bool {
+        self.cooldown_until == other.cooldown_until && {
+            let mut left: Vec<_> = self.cooldown_heap.iter().collect();
+            let mut right: Vec<_> = other.cooldown_heap.iter().collect();
+            left.sort();
+            right.sort();
+            left == right
         }
     }
 }
@@ -486,17 +510,16 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.cancel_schedule(id).await;
             }
             let now = eff.clock().await;
-            state.drain_due_cooldowns(now);
+            state.cooldowns.drain_due(now);
             state.regulate_peers(&eff).await;
             state.arm_next_cooldown(&eff).await;
         }
         PeerSelectionMsg::AddPeer(peer) => {
-            let was_banned = state.cooldown_until.remove(&peer).is_some();
-            if was_banned && state.cooldown_until.is_empty() {
-                if let Some(id) = state.cooldown_timer.take() {
-                    eff.cancel_schedule(id).await;
-                }
-                state.cooldown_heap.clear();
+            let was_banned = state.cooldowns.is_cooling(&peer);
+            if state.cooldowns.remove_and_was_last(&peer)
+                && let Some(id) = state.cooldown_timer.take()
+            {
+                eff.cancel_schedule(id).await;
             }
 
             if !state.outbound_peers.contains_key(&peer) {
