@@ -55,6 +55,7 @@ Other guiding principles:
 - **amaru-ledger**: preserve the `Ratified` status of proposals pruned during ratification ([#1118][])
 - **amaru-kernel**: reduce memory footprint of various types on the critical path.
 - **amaru-ledger**: when a leader changes it reward account, the rewards owed to the previous account must return to the treasury ([#1125](https://github.com/pragma-org/amaru/pull/1125)).
+- **amaru-consensus**: fix peer_selection to only schedule a single cool-down timer and thus properly bound priority mailbox usage. ([#1112](https://github.com/pragma-org/amaru/issues/1112))
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 

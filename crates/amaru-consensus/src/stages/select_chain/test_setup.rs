@@ -156,10 +156,11 @@ pub fn setup(prep: &TestPrep, msg: SelectChainMsg) -> (SimulationRunning, Deseri
     run_simulation(
         prep.rt.handle(),
         register_guards(),
-        |network| {
+        |mut network| {
             let sc = network.stage("sc", stage);
             let sc = network.wire_up(sc, prep.state.clone());
             network.preload(&sc, [msg]).unwrap();
+            network
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
