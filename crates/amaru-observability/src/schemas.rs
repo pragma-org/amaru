@@ -589,6 +589,15 @@ define_schemas! {
                     required tx_count: usize
                 }
             }
+            pots {
+                /// Load the current ledger pots
+                public LOAD {
+                    required treasury: amaru_kernel::Lovelace
+                    required reserves: amaru_kernel::Lovelace
+                    required fees: amaru_kernel::Lovelace
+                    required donations: amaru_kernel::Lovelace
+                }
+            }
             overlay {
                 /// No pools updates found in the epoch transition overlay
                 public NO_POOLS_UPDATES {}
@@ -596,6 +605,13 @@ define_schemas! {
                 public NO_GOVERNANCE_UPDATES {}
             }
             proposal {
+                /// Observe a governance proposal that is currently active
+                public ACTIVE {
+                    required id: String
+                    required proposal_kind: String
+                    required valid_until: amaru_kernel::Epoch
+                    optional detail: String
+                }
                 /// Drop an expired or ratified governance proposal
                 public DROP {
                     required id: String
@@ -630,6 +646,44 @@ define_schemas! {
                 }
             }
             protocol_parameters {
+                /// Load the current protocol parameters
+                public LOAD {
+                    optional protocol_version: String
+                    optional max_block_body_size: String
+                    optional max_transaction_size: String
+                    optional max_block_header_size: String
+                    optional max_tx_ex_units: String
+                    optional max_block_ex_units: String
+                    optional max_value_size: String
+                    optional max_collateral_inputs: String
+                    optional min_fee_a: String
+                    optional min_fee_b: String
+                    optional stake_credential_deposit: String
+                    optional stake_pool_deposit: String
+                    optional monetary_expansion_rate: String
+                    optional treasury_expansion_rate: String
+                    optional min_pool_cost: String
+                    optional lovelace_per_utxo_byte: String
+                    optional prices: String
+                    optional min_fee_ref_script_lovelace_per_byte: String
+                    optional max_ref_script_size_per_tx: String
+                    optional max_ref_script_size_per_block: String
+                    optional ref_script_cost_stride: String
+                    optional ref_script_cost_multiplier: String
+                    optional stake_pool_max_retirement_epoch: String
+                    optional optimal_stake_pools_count: String
+                    optional pledge_influence: String
+                    optional collateral_percentage: String
+                    optional cost_models: String
+                    optional pool_voting_thresholds: String
+                    optional drep_voting_thresholds: String
+                    optional min_committee_size: String
+                    optional max_committee_term_length: String
+                    optional gov_action_lifetime: String
+                    optional gov_action_deposit: String
+                    optional drep_deposit: String
+                    optional drep_expiry: String
+                }
                 /// Ratify a protocol parameters update; only changed parameters are recorded
                 public RATIFY {
                     optional protocol_version: String

@@ -322,6 +322,7 @@ pub struct Model {
     pub dropped_logs: u64,
     pub system_samples: VecDeque<SystemSample>,
     pub recent_blocks: VecDeque<Instant>,
+    pub recent_transactions: VecDeque<(Instant, u64)>,
     pub recent_peer_events: VecDeque<Instant>,
     pub recent_proposals: VecDeque<ProposalActivity>,
     config: Config,
@@ -351,6 +352,7 @@ impl Model {
             dropped_logs: 0,
             system_samples: VecDeque::default(),
             recent_blocks: VecDeque::default(),
+            recent_transactions: VecDeque::default(),
             recent_peer_events: VecDeque::default(),
             recent_proposals: VecDeque::default(),
             config,
@@ -482,6 +484,14 @@ impl Model {
         self.tip.as_ref().map(|tip| now.duration_since(tip.updated_at))
     }
 
+    pub fn transactions_in_window(&self, now: Instant) -> u64 {
+        self.recent_transactions
+            .iter()
+            .filter(|(at, _)| now.duration_since(*at) <= self.current_window())
+            .map(|(_, count)| *count)
+            .sum()
+    }
+
     fn record_telemetry(&mut self, record: TelemetryRecord) {
         self.update_state(TelemetryEvent::from_record(&record), RecordFields::from(&record));
         self.logs.push_back(record);
@@ -497,8 +507,11 @@ impl Model {
 
         match event {
             TelemetryEvent::TipUpdate => self.update_tip(record),
+            TelemetryEvent::NonEmptyBlock => self.push_recent_transactions(record),
             TelemetryEvent::StakeSnapshot => self.update_stake_snapshot(record),
-            TelemetryEvent::RewardsSummarize | TelemetryEvent::BootstrapPotsImport => self.update_pots(record),
+            TelemetryEvent::RewardsSummarize | TelemetryEvent::BootstrapPotsImport | TelemetryEvent::PotsLoad => {
+                self.update_pots(record)
+            }
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
             TelemetryEvent::PeerDisconnected => self.update_peer_disconnected(record),
@@ -510,9 +523,11 @@ impl Model {
             }
             TelemetryEvent::GovernanceRatifying => self.push_proposal(record, "ratifying", None),
             TelemetryEvent::GovernanceEnacting => self.push_proposal(record, "enacting", None),
+            TelemetryEvent::ProposalActive => {
+                self.push_active_proposal(record);
+            }
             TelemetryEvent::ProposalDrop => {
-                let detail = record.as_str("expired").map(|expired| format!("expired={expired}"));
-                self.push_proposal(record, "dropped", detail);
+                self.push_dropped_proposal(record);
             }
             TelemetryEvent::ProposalSkip => {
                 self.push_proposal(record, "skipped", record.as_str("reason").map(ToOwned::to_owned));
@@ -522,7 +537,7 @@ impl Model {
                     self.protocol_version = new_version;
                 }
             }
-            TelemetryEvent::ProtocolParametersRatify => {
+            TelemetryEvent::ProtocolParametersLoad | TelemetryEvent::ProtocolParametersRatify => {
                 if let Some(version) = record.as_str("protocol_version").map(ToOwned::to_owned) {
                     self.protocol_version = version;
                 }
@@ -544,6 +559,33 @@ impl Model {
 
     fn update_stake_snapshot(&mut self, record: RecordFields<'_>) {
         self.stake_snapshot = StakeSnapshotState::from_record(record);
+    }
+
+    fn push_recent_transactions(&mut self, record: RecordFields<'_>) {
+        let Some(tx_count) = record.as_u64("tx_count") else {
+            return;
+        };
+
+        let at = record.at();
+        let max_window = self.max_window();
+        self.recent_transactions.push_back((at, tx_count));
+
+        while self.recent_transactions.front().is_some_and(|(entry_at, _)| at.duration_since(*entry_at) > max_window) {
+            self.recent_transactions.pop_front();
+        }
+    }
+
+    fn push_active_proposal(&mut self, record: RecordFields<'_>) {
+        self.push_proposal(record, "active", record.as_str("detail").map(ToOwned::to_owned));
+        self.governance.proposal_count_in_scope = Some(self.governance.proposal_count_in_scope.unwrap_or_default() + 1);
+    }
+
+    fn push_dropped_proposal(&mut self, record: RecordFields<'_>) {
+        let detail = record.as_str("expired").map(|expired| format!("expired={expired}"));
+        self.push_proposal(record, "dropped", detail);
+        if let Some(count) = self.governance.proposal_count_in_scope.as_mut() {
+            *count = count.saturating_sub(1);
+        }
     }
 
     fn update_pots(&mut self, record: RecordFields<'_>) {

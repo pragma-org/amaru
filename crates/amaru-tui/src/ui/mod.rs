@@ -32,8 +32,8 @@ use self::{
     },
     theme::{
         accent_primary, block_title, border_muted, border_primary, border_secondary, emphasis_primary, emphasis_white,
-        emphasis_white_color, label_style, muted, muted_color, striped_row_style, style_for_level,
-        style_for_level_filter, style_for_target, table_header_style,
+        emphasis_white_color, muted, muted_color, striped_row_style, style_for_level, style_for_level_filter,
+        style_for_target, table_header_style,
     },
 };
 use crate::{
@@ -67,8 +67,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, hotspots: &mut Hotspots, now
     hotspots.peers_area = Rect::default();
     hotspots.proposals_area = Rect::default();
 
-    let log_height = 12;
-    let progress_height = u16::from(model.tip.is_some()) * 3;
+    let progress_height = u16::from(model.tip.is_some()) * 2;
     let shell = shell_block(model);
     let shell_area = frame.area();
     let inner = shell.inner(shell_area);
@@ -81,9 +80,18 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, hotspots: &mut Hotspots, now
         return;
     }
 
+    let available_height = inner.height.saturating_sub(progress_height);
+    let max_content_height = available_height.saturating_sub(10);
+    let desired_content_height = if model.is_ready(now) { page_content_height(model) } else { max_content_height };
+    let content_height = desired_content_height.min(max_content_height);
+    let log_height = available_height.saturating_sub(content_height);
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(12), Constraint::Length(log_height), Constraint::Length(progress_height)])
+        .constraints([
+            Constraint::Length(content_height),
+            Constraint::Length(log_height),
+            Constraint::Length(progress_height),
+        ])
         .split(inner);
 
     if model.is_ready(now) {
@@ -117,7 +125,7 @@ fn populate_shell_hotspots(hotspots: &mut Hotspots, area: Rect, model: &Model) {
     let mut x = area.x + 2;
     let y = area.y;
     for (index, page) in Page::ALL.into_iter().enumerate() {
-        let label = format!(" {} ", page.label());
+        let label = button_label(page.label());
         hotspots.page_tabs.push((page, Rect { x, y, width: label.len() as u16, height: 1 }));
         x += label.len() as u16;
         if index + 1 != Page::ALL.len() {
@@ -125,8 +133,7 @@ fn populate_shell_hotspots(hotspots: &mut Hotspots, area: Rect, model: &Model) {
         }
     }
 
-    let labels =
-        model.windows().iter().map(|window| format!(" {} ", format_duration_short(*window))).collect::<Vec<_>>();
+    let labels = model.windows().iter().map(|window| button_label(&format_duration_short(*window))).collect::<Vec<_>>();
     let total_width =
         labels.iter().map(|label| label.len() as u16).sum::<u16>() + labels.len().saturating_sub(1) as u16;
     let mut x = area.x + area.width.saturating_sub(total_width + 1);
@@ -140,26 +147,29 @@ fn populate_shell_hotspots(hotspots: &mut Hotspots, area: Rect, model: &Model) {
 
 fn render_splash(frame: &mut Frame<'_>, area: Rect, _model: &Model) {
     let lines = vec![
-        Line::from(Span::styled("▗██▖ ▗██▖", emphasis_primary())),
-        Line::from(Span::styled(" ▜██████▛ ", emphasis_primary())),
+        splash_logo_line(18),
+        splash_logo_line(26),
+        splash_logo_line(34),
         Line::from(Span::raw("")),
         Line::from(Span::styled("AMARU", emphasis_primary())),
         Line::from(Span::raw("")),
         Line::from(Span::styled("Loading initial stake distributions...", muted().add_modifier(Modifier::ITALIC))),
     ];
 
+    let content_height = lines.len() as u16 + 2;
+    let popup = centered_rect(area, 68, content_height);
     let paragraph = Paragraph::new(lines)
         .alignment(Alignment::Center)
-        .wrap(Wrap { trim: true })
+        .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::ALL).border_style(border_primary()));
-    frame.render_widget(Clear, area);
-    frame.render_widget(paragraph, area);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(paragraph, popup);
 }
 
 fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots, now: Instant) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Length(7), Constraint::Min(8)])
+        .constraints([Constraint::Length(7), Constraint::Length(7), Constraint::Min(peers_panel_height(model))])
         .split(area);
 
     let cards = Layout::default()
@@ -188,7 +198,8 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
         aligned_pair_lines(vec![
             ("Epoch", format_count(tip.epoch)),
             ("Slot", format_slot_ratio(tip.slot, target_slot(model.startup.system_start_millis))),
-            ("Rel. slot", format_count(tip.slot_in_epoch)),
+            ("Height", format_count(tip.block_height)),
+            ("Hash", elide(&tip.header_hash, 24)),
             ("Density", format_density(tip.density, model.startup.active_slot_coeff_inverse)),
         ])
     } else {
@@ -197,6 +208,7 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
     render_card(frame, cards[1], "Tip", tip_lines);
 
     let block_rate = blocks_per_second(model, now);
+    let transaction_rate = transactions_per_second(model, now);
     render_card(
         frame,
         cards[2],
@@ -204,7 +216,9 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
         aligned_pair_lines(vec![
             ("Window", model.window_label()),
             ("Blocks", format_count(model.blocks_in_window(now))),
-            ("Rate", format!("{block_rate:.2} / s")),
+            ("Txs", format_count(model.transactions_in_window(now))),
+            ("Blocks/s", format!("{block_rate:.2}")),
+            ("Tx/s", format!("{transaction_rate:.2}")),
         ]),
     );
 
@@ -216,7 +230,7 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
             "Last block",
             model
                 .last_block_elapsed(now)
-                .map(|duration| format!("ago {}", format_duration(duration)))
+                .map(|duration| format!("{} ago", format_duration(duration)))
                 .unwrap_or_else(|| "—".into()),
         ),
     ]);
@@ -236,17 +250,12 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
 fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots, _now: Instant) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Length(7), Constraint::Min(8)])
+        .constraints([Constraint::Length(7), Constraint::Min(proposals_panel_height(model))])
         .split(area);
 
     let cards = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-        ])
+        .constraints([Constraint::Percentage(28), Constraint::Percentage(28), Constraint::Percentage(44)])
         .split(layout[0]);
 
     render_card(
@@ -256,7 +265,7 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &m
         aligned_pair_lines(vec![
             ("Version", model.protocol_version.clone()),
             ("Epoch", model.tip.as_ref().map(|tip| format_count(tip.epoch)).unwrap_or_else(|| "—".into())),
-            ("Rel. slot", model.tip.as_ref().map(|tip| format_count(tip.slot_in_epoch)).unwrap_or_else(|| "—".into())),
+            ("Slot", model.tip.as_ref().map(|tip| format_count(tip.slot)).unwrap_or_else(|| "—".into())),
         ]),
     );
 
@@ -281,45 +290,7 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &m
         vec![Line::from(Span::styled("No stake snapshot telemetry yet", muted()))]
     };
     render_card(frame, cards[2], "Stake distribution", stake_lines);
-
-    render_card(
-        frame,
-        cards[3],
-        "Governance",
-        aligned_pair_lines(vec![
-            ("In scope", model.governance.proposal_count_in_scope.map(format_count).unwrap_or_else(|| "—".into())),
-            ("Dormant epochs", model.governance.dormant_epochs.map(format_count).unwrap_or_else(|| "—".into())),
-        ]),
-    );
-
-    let middle = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(layout[1]);
-
-    let latest =
-        model.governance.latest_ratification.clone().unwrap_or_else(|| "No ratification summary telemetry yet".into());
-    let ratification = Paragraph::new(latest).wrap(Wrap { trim: true }).block(
-        Block::default()
-            .title(block_title("Latest ratification"))
-            .borders(Borders::ALL)
-            .border_style(border_secondary()),
-    );
-    frame.render_widget(ratification, middle[0]);
-
-    let telemetry_note = Paragraph::new(
-        "Recent proposals are reconstructed from ratification-time telemetry only. When the relevant events are filtered out, this panel stays intentionally incomplete.",
-    )
-    .wrap(Wrap { trim: true })
-    .block(
-        Block::default()
-            .title(block_title("Telemetry note"))
-            .borders(Borders::ALL)
-            .border_style(border_secondary()),
-    );
-    frame.render_widget(telemetry_note, middle[1]);
-
-    render_proposals_table(frame, layout[2], model, hotspots);
+    render_proposals_table(frame, layout[1], model, hotspots);
 }
 
 fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Model) {
@@ -340,29 +311,18 @@ fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
     let epoch_length = model.startup.epoch_length.max(1);
     let slot_in_epoch = tip.slot_in_epoch.min(epoch_length);
     let ratio = slot_in_epoch as f64 / epoch_length as f64;
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(2)])
-        .split(area);
-
-    let summary = Line::from(vec![
-        Span::styled("Epoch ", label_style()),
-        Span::styled(format_count(tip.epoch), emphasis_primary()),
-        Span::raw("  "),
-        Span::styled("Slot ", label_style()),
-        Span::styled(format_ratio(slot_in_epoch, epoch_length), emphasis_white()),
-        Span::raw("  "),
-        Span::styled("Progress ", label_style()),
-        Span::styled(format!("{:.1}%", ratio * 100.0), emphasis_primary()),
-    ]);
-    frame.render_widget(Paragraph::new(summary), layout[0]);
-
     let gauge = Gauge::default()
         .gauge_style(Style::default().fg(accent_primary()).bg(Color::Rgb(12, 22, 18)))
         .ratio(ratio)
-        .label(format!("{} slots", format_count(slot_in_epoch)))
-        .block(Block::default().borders(Borders::TOP).border_style(border_muted()));
-    frame.render_widget(gauge, layout[1]);
+        .label(format_ratio(slot_in_epoch, epoch_length))
+        .block(
+            Block::default()
+                .title_top(Line::from(format!(" Epoch {} ", format_count(tip.epoch))).left_aligned())
+                .title_top(Line::from(format!(" {:.1}% ", ratio * 100.0)).right_aligned())
+                .borders(Borders::TOP)
+                .border_style(border_muted()),
+        );
+    frame.render_widget(gauge, area);
 }
 
 fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots) {
@@ -371,7 +331,8 @@ fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut 
         Span::styled(" Logs ", emphasis_primary()),
         Span::styled(format!(" dropped={} ", model.dropped_logs), Style::default().fg(muted_color())),
     ]);
-    let toggle = Line::from(Span::styled(format!(" {} ", log_toggle_label(model)), emphasis_primary()));
+    let toggle_label = button_label(log_toggle_label(model));
+    let toggle = Line::from(Span::styled(toggle_label.clone(), emphasis_primary()));
     let block = Block::default()
         .title(title)
         .title_top(toggle.right_aligned())
@@ -379,7 +340,12 @@ fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut 
         .border_style(border_primary());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    hotspots.log_toggle = Rect { x: area.x + area.width.saturating_sub(4), y: area.y, width: 3, height: 1 };
+    hotspots.log_toggle = Rect {
+        x: area.x + area.width.saturating_sub(toggle_label.len() as u16 + 1),
+        y: area.y,
+        width: toggle_label.len() as u16,
+        height: 1,
+    };
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -415,7 +381,7 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspot
                 muted()
             };
             hotspots.level_tabs.push((filter, Rect::default()));
-            Span::styled(format!(" {} ", filter.label()), style)
+            Span::styled(button_label(filter.label()), style)
         })
         .collect::<Vec<_>>();
     let levels = Paragraph::new(Line::from(level_spans))
@@ -428,7 +394,7 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspot
         .map(|filter| {
             let style = if filter == model.target_filter { emphasis_primary() } else { muted() };
             hotspots.target_tabs.push((filter, Rect::default()));
-            Span::styled(format!(" {} ", filter.label()), style)
+            Span::styled(button_label(filter.label()), style)
         })
         .collect::<Vec<_>>();
     let targets = Paragraph::new(Line::from(target_spans)).alignment(Alignment::Right);
@@ -479,6 +445,32 @@ fn render_section_column(frame: &mut Frame<'_>, area: Rect, sections: &[ConfigSe
 }
 
 fn render_config_section(frame: &mut Frame<'_>, area: Rect, section: &ConfigSection) {
+    if section.entries.iter().all(|entry| entry.option.is_none() && entry.env_var.is_none()) {
+        let rows = section
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                Row::new(vec![
+                    Cell::from(entry.label).style(Style::default().fg(Color::Rgb(215, 225, 235))),
+                    Cell::from(entry.value.clone()).style(Style::default().fg(emphasis_white_color())),
+                ])
+                .style(striped_row_style(index))
+            })
+            .collect::<Vec<_>>();
+
+        let table = Table::new(rows, [Constraint::Length(28), Constraint::Min(10)])
+            .header(Row::new(vec!["Parameter", "Value"]).style(table_header_style()))
+            .block(
+                Block::default()
+                    .title(block_title(section.title))
+                    .borders(Borders::ALL)
+                    .border_style(border_secondary()),
+            );
+        frame.render_widget(table, area);
+        return;
+    }
+
     let rows = section
         .entries
         .iter()
@@ -555,7 +547,14 @@ fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hots
         })
         .collect::<Vec<_>>();
     let block = Block::default()
-        .title(block_title("Recent governance proposals"))
+        .title(block_title(&format!(
+            "Governance proposals ({})",
+            model
+                .governance
+                .proposal_count_in_scope
+                .map(format_count)
+                .unwrap_or_else(|| format_count(model.recent_proposals.len()))
+        )))
         .borders(Borders::ALL)
         .border_style(border_primary());
     let inner = block.inner(area);
@@ -646,6 +645,12 @@ fn blocks_per_second(model: &Model, now: Instant) -> f64 {
     if seconds == 0.0 { 0.0 } else { blocks / seconds }
 }
 
+fn transactions_per_second(model: &Model, now: Instant) -> f64 {
+    let transactions = model.transactions_in_window(now) as f64;
+    let seconds = model.current_window().as_secs_f64();
+    if seconds == 0.0 { 0.0 } else { transactions / seconds }
+}
+
 fn elide(value: &str, max: usize) -> String {
     if value.len() <= max {
         value.into()
@@ -666,7 +671,7 @@ fn page_tabs_line(model: &Model) -> Line<'static> {
         } else {
             Style::default().fg(Color::Rgb(185, 198, 214)).add_modifier(Modifier::BOLD)
         };
-        spans.push(Span::styled(format!(" {} ", page.label()), style));
+        spans.push(Span::styled(button_label(page.label()), style));
     }
 
     Line::from(spans)
@@ -678,7 +683,7 @@ fn shell_title(model: &Model) -> Line<'static> {
         Span::raw("  "),
         Span::styled(model.startup.process.software_version.clone(), emphasis_white()),
         Span::raw("  "),
-        Span::styled(model.startup.process.network.clone(), emphasis_primary()),
+        Span::styled(format!("network={}", model.startup.process.network), emphasis_primary()),
     ])
 }
 
@@ -707,14 +712,14 @@ fn window_controls_line(model: &Model) -> Line<'static> {
         } else {
             Style::default().fg(Color::Rgb(210, 220, 235))
         };
-        spans.push(Span::styled(format!(" {} ", format_duration_short(*window)), style));
+        spans.push(Span::styled(button_label(&format_duration_short(*window)), style));
     }
 
     Line::from(spans)
 }
 
 fn log_toggle_label(model: &Model) -> &'static str {
-    if model.log_pane_mode.is_maximized() { "↓" } else { "↑" }
+    if model.log_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
 fn log_record_line(record: &crate::events::TelemetryRecord) -> Line<'static> {
@@ -754,4 +759,59 @@ fn render_scrollbar(frame: &mut Frame<'_>, area: Rect, total: usize, visible: us
         area,
         &mut state,
     );
+}
+
+fn button_label(label: &str) -> String {
+    format!("[ {label} ]")
+}
+
+fn page_content_height(model: &Model) -> u16 {
+    match model.page {
+        Page::Amaru => 14 + peers_panel_height(model),
+        Page::Cardano => 7 + proposals_panel_height(model),
+        Page::Config => config_panel_height(model),
+    }
+}
+
+fn peers_panel_height(model: &Model) -> u16 {
+    panel_height(model.peers.len(), 4, 10)
+}
+
+fn proposals_panel_height(model: &Model) -> u16 {
+    panel_height(model.recent_proposals.len(), 4, 10)
+}
+
+fn panel_height(rows: usize, min_rows: usize, max_rows: usize) -> u16 {
+    rows.clamp(min_rows, max_rows).saturating_add(3) as u16
+}
+
+fn config_panel_height(model: &Model) -> u16 {
+    config_column_height(&model.startup.runtime_sections).max(config_column_height(&model.startup.global_sections))
+}
+
+fn config_column_height(sections: &[crate::startup::ConfigSection]) -> u16 {
+    sections.iter().map(section_height).sum()
+}
+
+fn section_height(section: &crate::startup::ConfigSection) -> u16 {
+    section.entries.len().saturating_add(3) as u16
+}
+
+fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
+fn splash_logo_line(left_pad: usize) -> Line<'static> {
+    Line::from(vec![
+        Span::raw(" ".repeat(left_pad)),
+        Span::styled("            ", Style::default().bg(accent_primary())),
+    ])
 }

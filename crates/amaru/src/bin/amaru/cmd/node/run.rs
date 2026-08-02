@@ -297,9 +297,8 @@ impl Args {
     }
 
     pub fn tui_startup_context(&self) -> TuiStartupContext {
-        let protocol_version = self
-            .network
-            .as_protocol_parameters()
+        let protocol_parameters = self.network.as_protocol_parameters();
+        let protocol_version = protocol_parameters
             .map(|parameters| protocol_version::fmt(&parameters.protocol_version))
             .unwrap_or_else(|| "unknown".to_string());
 
@@ -318,7 +317,7 @@ impl Args {
             system_start_millis: global_parameters.system_start,
             trusted_peers,
             runtime_sections: self.runtime_config_sections(),
-            global_sections: self.global_config_sections(&global_parameters),
+            global_sections: self.global_config_sections(&global_parameters, protocol_parameters),
         }
     }
 
@@ -452,8 +451,12 @@ impl Args {
         ]
     }
 
-    fn global_config_sections(&self, global_parameters: &GlobalParameters) -> Vec<TuiConfigSection> {
-        vec![TuiConfigSection::new(
+    fn global_config_sections(
+        &self,
+        global_parameters: &GlobalParameters,
+        protocol_parameters: Option<&amaru_kernel::ProtocolParameters>,
+    ) -> Vec<TuiConfigSection> {
+        let mut sections = vec![TuiConfigSection::new(
             "Global Parameters",
             vec![
                 config_entry(
@@ -499,7 +502,72 @@ impl Args {
                     global_parameters.system_start.to_string(),
                 ),
             ],
-        )]
+        )];
+
+        let Some(protocol_parameters) = protocol_parameters else {
+            return sections;
+        };
+
+        sections.extend([
+            TuiConfigSection::new(
+                "Protocol Parameters · Network",
+                vec![
+                    label_entry("protocol version", protocol_version::fmt(&protocol_parameters.protocol_version)),
+                    label_entry("max block body size", protocol_parameters.max_block_body_size.to_string()),
+                    label_entry("max transaction size", protocol_parameters.max_transaction_size.to_string()),
+                    label_entry("max block header size", protocol_parameters.max_block_header_size.to_string()),
+                    label_entry("max tx ex units", protocol_parameters.max_tx_ex_units.to_string()),
+                    label_entry("max block ex units", protocol_parameters.max_block_ex_units.to_string()),
+                    label_entry("max value size", protocol_parameters.max_value_size.to_string()),
+                    label_entry("max collateral inputs", protocol_parameters.max_collateral_inputs.to_string()),
+                ],
+            ),
+            TuiConfigSection::new(
+                "Protocol Parameters · Economic",
+                vec![
+                    label_entry("min fee a", protocol_parameters.min_fee_a.to_string()),
+                    label_entry("min fee b", protocol_parameters.min_fee_b.to_string()),
+                    label_entry("stake credential deposit", protocol_parameters.stake_credential_deposit.to_string()),
+                    label_entry("stake pool deposit", protocol_parameters.stake_pool_deposit.to_string()),
+                    label_entry("monetary expansion", protocol_parameters.monetary_expansion_rate.to_string()),
+                    label_entry("treasury expansion", protocol_parameters.treasury_expansion_rate.to_string()),
+                    label_entry("min pool cost", protocol_parameters.min_pool_cost.to_string()),
+                    label_entry("lovelace per UTxO byte", protocol_parameters.lovelace_per_utxo_byte.to_string()),
+                    label_entry("collateral percentage", protocol_parameters.collateral_percentage.to_string()),
+                    label_entry(
+                        "ref script fee per byte",
+                        protocol_parameters.min_fee_ref_script_lovelace_per_byte.to_string(),
+                    ),
+                    label_entry(
+                        "max ref script size per tx",
+                        protocol_parameters.max_ref_script_size_per_tx.to_string(),
+                    ),
+                    label_entry(
+                        "max ref script size per block",
+                        protocol_parameters.max_ref_script_size_per_block.to_string(),
+                    ),
+                ],
+            ),
+            TuiConfigSection::new(
+                "Protocol Parameters · Governance",
+                vec![
+                    label_entry(
+                        "pool max retirement epoch",
+                        protocol_parameters.stake_pool_max_retirement_epoch.to_string(),
+                    ),
+                    label_entry("optimal stake pools", protocol_parameters.optimal_stake_pools_count.to_string()),
+                    label_entry("pledge influence", protocol_parameters.pledge_influence.to_string()),
+                    label_entry("min committee size", protocol_parameters.min_committee_size.to_string()),
+                    label_entry("max committee term length", protocol_parameters.max_committee_term_length.to_string()),
+                    label_entry("gov action lifetime", protocol_parameters.gov_action_lifetime.to_string()),
+                    label_entry("gov action deposit", protocol_parameters.gov_action_deposit.to_string()),
+                    label_entry("drep deposit", protocol_parameters.drep_deposit.to_string()),
+                    label_entry("drep expiry", protocol_parameters.drep_expiry.to_string()),
+                ],
+            ),
+        ]);
+
+        sections
     }
 }
 
@@ -510,6 +578,10 @@ fn config_entry(
     value: impl Into<String>,
 ) -> TuiConfigEntry {
     TuiConfigEntry::new(label, Some(option), Some(env_var), value)
+}
+
+fn label_entry(label: &'static str, value: impl Into<String>) -> TuiConfigEntry {
+    TuiConfigEntry::new(label, None, None, value)
 }
 
 fn bool_value(value: bool) -> &'static str {

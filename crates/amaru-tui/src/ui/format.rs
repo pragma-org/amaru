@@ -25,7 +25,7 @@ pub(super) fn aligned_pair_lines(entries: Vec<(&'static str, String)>) -> Vec<Li
         .into_iter()
         .map(|(label, value)| {
             Line::from(vec![
-                Span::styled(format!("{label:<label_width$}: "), label_style()),
+                Span::styled(format!("{label:<label_width$}    "), label_style()),
                 Span::styled(value, emphasis_white()),
             ])
         })

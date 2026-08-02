@@ -25,8 +25,8 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
-    utils::string::display_collection,
+    PoolId, ProposalId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer,
+    protocol_version, to_cbor, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug, debug_span, info, info_span, trace, warn};
@@ -240,6 +240,19 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         #[expect(clippy::unwrap_used)]
         let guard = self.stake_distributions.lock().unwrap();
         pool_summaries_for(guard.iter())
+    }
+
+    pub fn current_pots(&self) -> Result<crate::store::columns::pots::Row, StateError> {
+        #[expect(clippy::unwrap_used)]
+        let db = self.stable.lock().unwrap();
+        Ok(db.pots()?)
+    }
+
+    pub fn active_proposals(&self) -> Result<Vec<(ProposalId, crate::store::columns::proposals::Row)>, StateError> {
+        #[expect(clippy::unwrap_used)]
+        let db = self.stable.lock().unwrap();
+        let view = VolatileView::new(&self.volatile, &*db);
+        Ok(view.iter_proposals()?.collect())
     }
 
     pub fn network(&self) -> NetworkName {
