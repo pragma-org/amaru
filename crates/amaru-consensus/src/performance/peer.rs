@@ -113,8 +113,11 @@ struct PeerState {
 /// Peer performance map (availability + scores). Owned by the performance worker thread.
 #[derive(Debug, Default)]
 pub struct PeerPerformance {
+    /// header tree link edges
     parents: BTreeMap<HeaderHash, ParentInfo>,
+    /// announcements and deliveries by peer, per hash
     direct: BTreeMap<HeaderHash, BTreeMap<Peer, ClaimMeta>>,
+    /// announcements by peer, with EWMA scores and tip claims
     peers: BTreeMap<Peer, PeerState>,
 }
 

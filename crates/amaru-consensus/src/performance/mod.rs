@@ -23,8 +23,8 @@
 //! Unit tests for peer/header logic should construct those types directly without spawning this
 //! handle; the resource thread is only needed when exercising the effect path.
 //!
-//! Channel depth is monitored: WARN (rate-limited to once per second) when the queue exceeds 100
-//! pending ops; ERROR and panic above 1000 (design invariant violation).
+//! Channel depth is monitored: WARN (rate-limited) when the queue exceeds normally expected
+//! depth, ERROR + panic when it grows beyond reasonable bounds.
 //!
 //! OTel events and metrics are emitted inside the worker when terminal outcomes are recorded.
 
@@ -62,9 +62,9 @@ use tracing::{error, warn};
 pub type ResourcePerformance = Arc<Performance>;
 
 /// Depth at which a WARN is logged for the performance op queue.
-pub const QUEUE_WARN_THRESHOLD: usize = 100;
+pub const QUEUE_WARN_THRESHOLD: usize = 1000;
 /// Depth at which an ERROR is logged for the performance op queue.
-pub const QUEUE_ERROR_THRESHOLD: usize = 1000;
+pub const QUEUE_ERROR_THRESHOLD: usize = 100_000;
 /// Minimum interval between successive queue-depth WARN logs.
 const QUEUE_WARN_MIN_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -197,7 +197,7 @@ impl Performance {
             warn!(
                 target: "amaru_consensus::performance",
                 queue_depth = depth,
-                "performance op queue exceeded {QUEUE_WARN_THRESHOLD}"
+                "observability system lagging behind"
             );
         }
         #[expect(clippy::panic)]

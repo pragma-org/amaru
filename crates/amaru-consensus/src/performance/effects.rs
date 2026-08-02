@@ -17,6 +17,9 @@
 //! Stages use factory methods on [`Performance`] and pass the result to `eff.external(...)`.
 //! Each effect is enqueued as a [`PerformanceOp`] on the worker thread.
 
+// wrap_sync type safety requires this -- clippy be damned
+#![expect(clippy::unit_arg)]
+
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Tip};
@@ -182,9 +185,10 @@ pub struct RecordIntersectionEffect {
 
 impl ExternalEffect for RecordIntersectionEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::RecordIntersection { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordIntersection { effect: *self });
+        })
     }
 }
 
@@ -202,9 +206,10 @@ pub struct RecordHeaderAnnouncementEffect {
 
 impl ExternalEffect for RecordHeaderAnnouncementEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::RecordHeaderAnnouncement { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordHeaderAnnouncement { effect: *self });
+        })
     }
 }
 
@@ -220,9 +225,10 @@ pub struct RecordBlocksRequestedEffect {
 
 impl ExternalEffect for RecordBlocksRequestedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::RecordBlocksRequested { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordBlocksRequested { effect: *self });
+        })
     }
 }
 
@@ -243,9 +249,10 @@ pub struct RecordBlockDeliveryEffect {
 
 impl ExternalEffect for RecordBlockDeliveryEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::RecordBlockDelivery { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordBlockDelivery { effect: *self });
+        })
     }
 }
 
@@ -261,9 +268,10 @@ pub struct RecordFetchFailureEffect {
 
 impl ExternalEffect for RecordFetchFailureEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::RecordFetchFailure { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordFetchFailure { effect: *self });
+        })
     }
 }
 
@@ -280,9 +288,10 @@ pub struct RecordKeepaliveRttEffect {
 
 impl ExternalEffect for RecordKeepaliveRttEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::RecordKeepaliveRtt { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordKeepaliveRtt { effect: *self });
+        })
     }
 }
 
@@ -297,9 +306,10 @@ pub struct ClearPeerAvailabilityEffect {
 
 impl ExternalEffect for ClearPeerAvailabilityEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::ClearPeerAvailability { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::ClearPeerAvailability { effect: *self });
+        })
     }
 }
 
@@ -314,9 +324,10 @@ pub struct ForgetPeerEffect {
 
 impl ExternalEffect for ForgetPeerEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::ForgetPeer { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::ForgetPeer { effect: *self });
+        })
     }
 }
 
@@ -331,9 +342,10 @@ pub struct PruneBelowEffect {
 
 impl ExternalEffect for PruneBelowEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::PruneBelow { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::PruneBelow { effect: *self });
+        })
     }
 }
 
@@ -475,9 +487,10 @@ pub struct RecordRollbackEffect {
 
 impl ExternalEffect for RecordRollbackEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        enqueue(&perf, PerformanceOp::RecordRollback { effect: *self });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordRollback { effect: *self });
+        })
     }
 }
 
@@ -492,10 +505,11 @@ pub struct RecordHeaderRejectedEffect {
 
 impl ExternalEffect for RecordHeaderRejectedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
-        enqueue(&perf, PerformanceOp::RecordHeaderRejected { effect: *self, meter });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            let meter = optional_meter(&resources);
+            enqueue(&perf, PerformanceOp::RecordHeaderRejected { effect: *self, meter });
+        })
     }
 }
 
@@ -511,10 +525,11 @@ pub struct RecordHeaderAbandonedEffect {
 
 impl ExternalEffect for RecordHeaderAbandonedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
-        enqueue(&perf, PerformanceOp::RecordHeaderAbandoned { effect: *self, meter });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            let meter = optional_meter(&resources);
+            enqueue(&perf, PerformanceOp::RecordHeaderAbandoned { effect: *self, meter });
+        })
     }
 }
 
@@ -530,10 +545,11 @@ pub struct RecordForkStartedEffect {
 
 impl ExternalEffect for RecordForkStartedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
-        enqueue(&perf, PerformanceOp::RecordForkStarted { effect: *self, meter });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            let meter = optional_meter(&resources);
+            enqueue(&perf, PerformanceOp::RecordForkStarted { effect: *self, meter });
+        })
     }
 }
 
@@ -549,10 +565,11 @@ pub struct RecordBlockValidEffect {
 
 impl ExternalEffect for RecordBlockValidEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
-        enqueue(&perf, PerformanceOp::RecordBlockValid { effect: *self, meter });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            let meter = optional_meter(&resources);
+            enqueue(&perf, PerformanceOp::RecordBlockValid { effect: *self, meter });
+        })
     }
 }
 
@@ -569,10 +586,11 @@ pub struct RecordBlockPrunedEffect {
 
 impl ExternalEffect for RecordBlockPrunedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let perf = require_perf(&resources);
-        let meter = optional_meter(&resources);
-        enqueue(&perf, PerformanceOp::RecordBlockPruned { effect: *self, meter });
-        Self::wrap_sync(())
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            let meter = optional_meter(&resources);
+            enqueue(&perf, PerformanceOp::RecordBlockPruned { effect: *self, meter });
+        })
     }
 }
 
