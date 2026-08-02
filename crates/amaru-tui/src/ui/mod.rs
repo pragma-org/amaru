@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use ratatui::{
     Frame,
@@ -24,13 +24,26 @@ use ratatui::{
         Table, Wrap,
     },
 };
-use tracing::Level;
 
+use self::{
+    format::{
+        aligned_pair_lines, format_count, format_density, format_duration, format_log_wall_time, format_lovelace,
+        format_ratio, format_slot_ratio, target_slot,
+    },
+    theme::{
+        accent_primary, block_title, border_muted, border_primary, border_secondary, emphasis_primary, emphasis_white,
+        emphasis_white_color, label_style, muted, muted_color, striped_row_style, style_for_level,
+        style_for_level_filter, style_for_target, table_header_style,
+    },
+};
 use crate::{
     config::format_duration_short,
     model::{LevelFilter, Model, Page, PeerState, TargetFilter},
     startup::ConfigSection,
 };
+
+mod format;
+mod theme;
 
 #[derive(Debug, Default, Clone)]
 pub struct Hotspots {
@@ -627,61 +640,10 @@ fn peer_row(index: usize, peer: &PeerState) -> Row<'static> {
     .style(striped_row_style(index))
 }
 
-fn style_for_level(level: Level) -> Style {
-    match level {
-        Level::ERROR => Style::default().fg(Color::Rgb(244, 86, 86)),
-        Level::WARN => Style::default().fg(Color::Rgb(242, 196, 72)),
-        Level::INFO => Style::default().fg(Color::Rgb(96, 171, 255)),
-        Level::DEBUG => Style::default().fg(Color::Rgb(184, 122, 255)),
-        Level::TRACE => Style::default().fg(Color::Rgb(135, 145, 165)),
-    }
-}
-
-fn style_for_level_filter(filter: LevelFilter) -> Style {
-    match filter {
-        LevelFilter::All => emphasis_white(),
-        LevelFilter::Error => style_for_level(Level::ERROR),
-        LevelFilter::Warn => style_for_level(Level::WARN),
-        LevelFilter::Info => style_for_level(Level::INFO),
-        LevelFilter::Debug => style_for_level(Level::DEBUG),
-    }
-}
-
-fn aligned_pair_lines(entries: Vec<(&'static str, String)>) -> Vec<Line<'static>> {
-    let label_width = entries.iter().map(|(label, _)| label.len()).max().unwrap_or_default();
-
-    entries
-        .into_iter()
-        .map(|(label, value)| {
-            Line::from(vec![
-                Span::styled(format!("{label:<label_width$}: "), label_style()),
-                Span::styled(value, emphasis_white()),
-            ])
-        })
-        .collect()
-}
-
 fn blocks_per_second(model: &Model, now: Instant) -> f64 {
     let blocks = model.blocks_in_window(now) as f64;
     let seconds = model.current_window().as_secs_f64();
     if seconds == 0.0 { 0.0 } else { blocks / seconds }
-}
-
-fn format_duration(duration: Duration) -> String {
-    let seconds = duration.as_secs();
-    if seconds < 60 {
-        format!("{seconds}s")
-    } else if seconds < 3_600 {
-        format!("{}m {}s", seconds / 60, seconds % 60)
-    } else {
-        format!("{}h {}m", seconds / 3_600, (seconds % 3_600) / 60)
-    }
-}
-
-fn format_lovelace(value: u64) -> String {
-    let ada = value / 1_000_000;
-    let lovelace = value % 1_000_000;
-    format!("₳{}.{lovelace:06}", format_count(ada))
 }
 
 fn elide(value: &str, max: usize) -> String {
@@ -755,19 +717,6 @@ fn log_toggle_label(model: &Model) -> &'static str {
     if model.log_pane_mode.is_maximized() { "↓" } else { "↑" }
 }
 
-fn block_title(title: &str) -> Line<'static> {
-    Line::from(Span::styled(format!(" {title} "), emphasis_primary()))
-}
-
-fn table_header_style() -> Style {
-    Style::default().fg(Color::Rgb(246, 250, 247)).bg(Color::Rgb(22, 48, 33)).add_modifier(Modifier::BOLD)
-}
-
-fn striped_row_style(index: usize) -> Style {
-    let bg = if index.is_multiple_of(2) { Color::Rgb(8, 17, 14) } else { Color::Rgb(12, 24, 19) };
-    Style::default().bg(bg)
-}
-
 fn log_record_line(record: &crate::events::TelemetryRecord) -> Line<'static> {
     let fields = crate::model::render_fields(record);
     let mut spans = vec![
@@ -805,90 +754,4 @@ fn render_scrollbar(frame: &mut Frame<'_>, area: Rect, total: usize, visible: us
         area,
         &mut state,
     );
-}
-
-fn format_log_wall_time(wall_time: std::time::SystemTime) -> String {
-    let seconds =
-        wall_time.duration_since(std::time::UNIX_EPOCH).map(|duration| duration.as_secs() % 86_400).unwrap_or_default();
-    let hours = seconds / 3_600;
-    let minutes = (seconds % 3_600) / 60;
-    let secs = seconds % 60;
-    format!("{hours:02}:{minutes:02}:{secs:02}")
-}
-
-fn style_for_target(target: &str) -> Style {
-    let _ = target;
-    Style::default().fg(muted_color())
-}
-
-fn border_primary() -> Style {
-    Style::default().fg(Color::Rgb(80, 156, 105))
-}
-
-fn border_secondary() -> Style {
-    Style::default().fg(Color::Rgb(57, 108, 75))
-}
-
-fn border_muted() -> Style {
-    Style::default().fg(Color::Rgb(52, 87, 104))
-}
-
-fn muted() -> Style {
-    Style::default().fg(muted_color())
-}
-
-fn label_style() -> Style {
-    Style::default().fg(Color::Rgb(150, 170, 190)).add_modifier(Modifier::BOLD)
-}
-
-fn emphasis_white() -> Style {
-    Style::default().fg(emphasis_white_color()).add_modifier(Modifier::BOLD)
-}
-
-fn emphasis_primary() -> Style {
-    Style::default().fg(accent_primary()).add_modifier(Modifier::BOLD)
-}
-
-fn muted_color() -> Color {
-    Color::Rgb(145, 160, 180)
-}
-
-fn emphasis_white_color() -> Color {
-    Color::Rgb(235, 242, 248)
-}
-
-fn accent_primary() -> Color {
-    Color::Rgb(110, 228, 150)
-}
-
-fn format_count(value: impl TryInto<u64>) -> String {
-    let value = value.try_into().ok().unwrap_or_default();
-    let digits = value.to_string();
-    let mut formatted = String::with_capacity(digits.len() + digits.len() / 3);
-
-    for (index, ch) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            formatted.push(',');
-        }
-        formatted.push(ch);
-    }
-
-    formatted
-}
-
-fn format_ratio(left: u64, right: u64) -> String {
-    format!("{} / {}", format_count(left), format_count(right))
-}
-
-fn format_slot_ratio(slot: u64, target: Option<u64>) -> String {
-    target.map(|target| format_ratio(slot, target)).unwrap_or_else(|| format_count(slot))
-}
-
-fn format_density(density: f64, active_slot_coeff_inverse: u64) -> String {
-    format!("{:.2}%", density * active_slot_coeff_inverse as f64 * 100.0)
-}
-
-fn target_slot(system_start_millis: u64) -> Option<u64> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
-    Some(now.saturating_sub(system_start_millis) / 1_000)
 }
