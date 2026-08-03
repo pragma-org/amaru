@@ -341,15 +341,25 @@ impl CommitteeSlice for DefaultValidationContext {
         }
     }
 
-    /// Candidates are the members hydration resolved, plus the ones this block authorized; the
-    /// latter because an authorizing cold credential need not hold a seat, and so need not have been
-    /// resolvable at block start. Each candidate is re-read through [`Self::lookup`], so a rotation or
-    /// resignation in this block invalidates the stale entry.
-    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> Option<CCMember> {
-        self.committee.keys().chain(self.state.committee.produced.keys()).find_map(|cc_member| {
-            let member = CommitteeSlice::lookup(self, cc_member)?;
-            (member.hot_credential.as_ref() == Some(hot_credential)).then_some(member)
-        })
+    /// Lookup CC members, based on a hot key, inlcuding those introduced in the current block.
+    ///
+    /// Notably, there is no restriction on the hot credentials,
+    /// so a single hot credential could be used by many cold credentials.
+    /// See also [`authorizedHotCommitteeCredentials`][haskell] from the Haskell.
+    ///
+    /// The length of this set is *NOT* an authoritative count as CCMembers with the same hot key
+    /// and expiration collapse into one.
+    ///
+    /// [haskell]: https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/libs/cardano-ledger-core/src/Cardano/Ledger/State/CertState.hs#L335-L337
+    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> BTreeSet<CCMember> {
+        self.committee
+            .keys()
+            .chain(self.state.committee.produced.keys())
+            .filter_map(|cc_member| {
+                let member = CommitteeSlice::lookup(self, cc_member)?;
+                (member.hot_credential.as_ref() == Some(hot_credential)).then_some(member)
+            })
+            .collect()
     }
 
     fn delegate_cold_key(
@@ -600,19 +610,15 @@ mod tests {
     /// `lookup` on everything the ongoing block changes. In particular, a rotation must retire the
     /// previous hot credential rather than leave both live, and an authorization is reachable whether
     /// or not its cold credential held a seat at block start.
-    #[test_case(Some(cc_member(Some(2))), InBlock::Nothing, 2 => Some(cred(2)) ; "authorized at block start")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Nothing, 3 => None ; "not authorized by anyone")]
-    #[test_case(Some(cc_member(None)), InBlock::Authorize(2), 2 => Some(cred(2)) ; "authorized by this block")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Authorize(3), 3 => Some(cred(3)) ; "rotated to in this block")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Authorize(3), 2 => None ; "rotated away from in this block")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Resign, 2 => None ; "resigned in this block")]
-    #[test_case(None, InBlock::Authorize(2), 2 => Some(cred(2)) ; "authorized by a cold credential holding no seat")]
-    #[test_case(None, InBlock::Nothing, 2 => None ; "no members at all")]
-    fn committee_lookup_by_hot_credential(
-        member: Option<CCMember>,
-        in_block: InBlock,
-        queried: u8,
-    ) -> Option<StakeCredential> {
+    #[test_case(Some(cc_member(Some(2))), InBlock::Nothing, 2 => 1 ; "authorized at block start")]
+    #[test_case(Some(cc_member(Some(2))), InBlock::Nothing, 3 => 0 ; "not authorized by anyone")]
+    #[test_case(Some(cc_member(None)), InBlock::Authorize(2), 2 => 1 ; "authorized by this block")]
+    #[test_case(Some(cc_member(Some(2))), InBlock::Authorize(3), 3 => 1 ; "rotated to in this block")]
+    #[test_case(Some(cc_member(Some(2))), InBlock::Authorize(3), 2 => 0 ; "rotated away from in this block")]
+    #[test_case(Some(cc_member(Some(2))), InBlock::Resign, 2 => 0 ; "resigned in this block")]
+    #[test_case(None, InBlock::Authorize(2), 2 => 1 ; "authorized by a cold credential holding no seat")]
+    #[test_case(None, InBlock::Nothing, 2 => 0 ; "no members at all")]
+    fn committee_lookup_by_hot_credential(member: Option<CCMember>, in_block: InBlock, queried: u8) -> usize {
         let mut ctx = ctx_with_committee(member.into_iter().map(|member| (cred(1), member)).collect());
 
         match in_block {
@@ -621,6 +627,17 @@ mod tests {
             InBlock::Resign => ctx.resign(cred(1), None).unwrap(),
         }
 
-        CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(queried)).and_then(|m| m.hot_credential)
+        CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(queried)).len()
+    }
+
+    /// Nothing stops two seats from authorizing the same hot credential, and nothing resolves that
+    /// back to one of them, so both are returned.
+    #[test]
+    fn committee_lookup_by_hot_credential_returns_every_authorizing_member() {
+        let first = CCMember { hot_credential: Some(cred(9)), valid_until: Some(Epoch::from(10)) };
+        let second = CCMember { hot_credential: Some(cred(9)), valid_until: Some(Epoch::from(20)) };
+        let ctx = ctx_with_committee(BTreeMap::from([(cred(1), first.clone()), (cred(2), second.clone())]));
+
+        assert_eq!(CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(9)), BTreeSet::from([first, second]));
     }
 }

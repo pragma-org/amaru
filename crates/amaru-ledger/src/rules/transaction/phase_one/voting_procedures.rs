@@ -76,7 +76,7 @@ where
         // A vote identifies its member by the hot credential the member authorized, never by the cold
         // credential that identifies the seat.
         Voter::ConstitutionalCommitteeKey(_) | Voter::ConstitutionalCommitteeScript(_) => {
-            CommitteeSlice::lookup_by_hot_credential(context, &voter.owner()).is_some()
+            !CommitteeSlice::lookup_by_hot_credential(context, &voter.owner()).is_empty()
         }
         Voter::DRepKey(_) | Voter::DRepScript(_) => DRepsSlice::lookup(context, &voter.owner()).is_some(),
         Voter::StakePoolKey(pool) => PoolsSlice::exists(context, *pool),

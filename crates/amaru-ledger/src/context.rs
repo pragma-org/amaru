@@ -286,7 +286,7 @@ pub trait PrepareDRepsSlice<'a> {
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CCMember {
     /// The authorized hot credential, if the member has declared one.
     pub hot_credential: Option<StakeCredential>,
@@ -300,10 +300,12 @@ pub trait CommitteeSlice {
     /// hot-key change folded in, or `None` once it has resigned.
     fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember>;
 
-    /// The member currently authorizing this hot credential, which is the identity a vote carries.
-    /// `None` when no member does -- including when one authorized it earlier but has since rotated
-    /// to another hot key or resigned.
-    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> Option<CCMember>;
+    /// Every member currently authorizing this hot credential, which is the identity a vote carries.
+    /// Empty when none does, including when one authorized it earlier but has since rotated to
+    /// another hot key or resigned.
+    ///
+    /// Set-valued because a hot credential is not unique to a member.
+    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> BTreeSet<CCMember>;
 
     fn delegate_cold_key(
         &mut self,
