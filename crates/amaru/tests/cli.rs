@@ -115,9 +115,32 @@ fn top_level_help_shows_visible_commands() -> Result<(), Box<dyn Error>> {
     let help = amaru_help(&[])?;
     assert!(help.contains("node"), "top-level help should show 'node'");
     assert!(help.contains("snapshot"), "top-level help should show 'snapshot'");
+    assert!(help.contains("mithril"), "top-level help should show 'mithril'");
     assert!(!help.contains("dev"), "top-level help should NOT show hidden 'dev'");
     assert!(!help.contains("dump-chain-db"), "top-level help should NOT show legacy commands");
     assert!(!help.contains("remove-validation-status"), "top-level help should NOT show legacy commands");
+    Ok(())
+}
+
+#[test]
+fn mithril_sync_help_shows_all_options() -> Result<(), Box<dyn Error>> {
+    let help = amaru_help(&["mithril", "sync"])?;
+    assert!(help.contains("--network"), "mithril sync should accept --network");
+    assert!(help.contains("--ledger-dir"), "mithril sync should accept --ledger-dir");
+    assert!(help.contains("--chain-dir"), "mithril sync should accept --chain-dir");
+    assert!(help.contains("--snapshots-dir"), "mithril sync should accept --snapshots-dir");
+    assert!(help.contains("--ingest-until-slot"), "mithril sync should accept --ingest-until-slot");
+    assert!(help.contains("--ingest-maximum-blocks"), "mithril sync should accept --ingest-maximum-blocks");
+    Ok(())
+}
+
+#[test]
+fn removed_dev_ledger_mithril_commands_are_rejected() -> Result<(), Box<dyn Error>> {
+    let amaru = cargo_bin("amaru");
+    for command in ["mithril", "sync"] {
+        let output = Command::new(&amaru).args(["dev", "ledger", command, "--help"]).output()?;
+        assert!(!output.status.success(), "removed 'dev ledger {command}' command should be rejected");
+    }
     Ok(())
 }
 

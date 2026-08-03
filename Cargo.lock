@@ -398,12 +398,10 @@ version = "0.1.2"
 dependencies = [
  "amaru-deps",
  "amaru-kernel",
+ "amaru-progress-bar",
  "anyhow",
  "async-trait",
- "flate2",
- "indicatif",
  "mithril-client",
- "tar",
  "tokio",
  "tracing",
 ]

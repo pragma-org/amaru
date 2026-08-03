@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260806 _[unreleased; planned for 2026-08-06]_
 
+### Added
+
+- **amaru**: add `amaru mithril sync` to download verified Mithril immutable files and replay their blocks directly into the chain and ledger stores.
+
 ### Changed
 
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
@@ -46,6 +50,7 @@ Other guiding principles:
 
 ### Removed
 
+- **amaru**: remove `amaru dev ledger mithril` and `amaru dev ledger sync` in favor of `amaru mithril sync`.
 - **amaru-kernel**: dependency on `pallas-*`
 
 ### Fixed
