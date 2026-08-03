@@ -267,7 +267,7 @@ pub enum TracingSubscriber<S> {
     WithTui(TuiLayer<S>),
     WithTuiAndOpenTelemetry(TuiLayer<OpenTelemetryLayer<S>>),
     WithJson(JsonLayer<S>),
-    WithBoth(JsonLayer<OpenTelemetryLayer<S>>),
+    WithJsonAndOpenTelemetry(JsonLayer<OpenTelemetryLayer<S>>),
 }
 
 impl TracingSubscriber<Registry> {
@@ -275,55 +275,38 @@ impl TracingSubscriber<Registry> {
         Self::Registry(tracing_subscriber::registry())
     }
 
+    #[expect(clippy::panic)]
+    #[expect(clippy::wildcard_enum_match_arm)]
     pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>, log_bridge: LogBridgeFilter<Registry>) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
                 *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer).with(log_bridge));
             }
-            subscriber @ Self::Empty
-            | subscriber @ Self::WithOpenTelemetry(_)
-            | subscriber @ Self::WithTui(_)
-            | subscriber @ Self::WithTuiAndOpenTelemetry(_)
-            | subscriber @ Self::WithJson(_)
-            | subscriber @ Self::WithBoth(_) => {
-                debug_assert!(
-                    matches!(
-                        subscriber,
-                        Self::Empty
-                            | Self::WithOpenTelemetry(_)
-                            | Self::WithTui(_)
-                            | Self::WithTuiAndOpenTelemetry(_)
-                            | Self::WithJson(_)
-                            | Self::WithBoth(_)
-                    ),
-                    "'with_open_telemetry' called after 'with_json'"
-                );
-                *self = subscriber;
-            }
+            _ => panic!("'with_open_telemetry' called after 'with_json' or 'with_tui'"),
         }
     }
 
-    pub fn with_json<F, G>(&mut self, layer_json: F, layer_both: G) -> DelayedWarning
+    pub fn with_json<F, G>(&mut self, registry_layer: F, otel_layer: G) -> DelayedWarning
     where
         F: FnOnce() -> (JsonFilter<Registry>, DelayedWarning),
         G: FnOnce() -> (JsonFilter<OpenTelemetryLayer<Registry>>, DelayedWarning),
     {
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                let (layer, warning) = layer_json();
+                let (layer, warning) = registry_layer();
                 *self = TracingSubscriber::WithJson(registry.with(layer));
                 warning
             }
             Self::WithOpenTelemetry(layered) => {
-                let (layer, warning) = layer_both();
-                *self = TracingSubscriber::WithBoth(layered.with(layer));
+                let (layer, warning) = otel_layer();
+                *self = TracingSubscriber::WithJsonAndOpenTelemetry(layered.with(layer));
                 warning
             }
             subscriber @ Self::Empty
             | subscriber @ Self::WithTui(_)
             | subscriber @ Self::WithTuiAndOpenTelemetry(_)
             | subscriber @ Self::WithJson(_)
-            | subscriber @ Self::WithBoth(_) => {
+            | subscriber @ Self::WithJsonAndOpenTelemetry(_) => {
                 debug_assert!(
                     matches!(
                         subscriber,
@@ -331,7 +314,7 @@ impl TracingSubscriber<Registry> {
                             | Self::WithTui(_)
                             | Self::WithTuiAndOpenTelemetry(_)
                             | Self::WithJson(_)
-                            | Self::WithBoth(_)
+                            | Self::WithJsonAndOpenTelemetry(_)
                     ),
                     "'with_json' called after 'with_json'"
                 );
@@ -341,25 +324,19 @@ impl TracingSubscriber<Registry> {
         }
     }
 
-    pub fn with_tui(&mut self, layer: TuiTracingLayer) -> DelayedWarning {
-        let layer_for_registry = layer.clone();
-        let layer_registry = || {
-            let (default_filter, warning) = new_trace_filter();
-            (layer_for_registry.clone().with_filter(default_filter), warning)
-        };
-        let layer_otel = || {
-            let (default_filter, warning) = new_trace_filter();
-            (layer.with_filter(default_filter), warning)
-        };
-
+    pub fn with_tui<F, G>(&mut self, registry_layer: F, otel_layer: G) -> DelayedWarning
+    where
+        F: FnOnce() -> (TuiFilter<Registry>, DelayedWarning),
+        G: FnOnce() -> (TuiFilter<OpenTelemetryLayer<Registry>>, DelayedWarning),
+    {
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                let (layer, warning) = layer_registry();
+                let (layer, warning) = registry_layer();
                 *self = TracingSubscriber::WithTui(registry.with(layer));
                 warning
             }
             Self::WithOpenTelemetry(layered) => {
-                let (layer, warning) = layer_otel();
+                let (layer, warning) = otel_layer();
                 *self = TracingSubscriber::WithTuiAndOpenTelemetry(layered.with(layer));
                 warning
             }
@@ -367,7 +344,7 @@ impl TracingSubscriber<Registry> {
             | subscriber @ Self::WithTui(_)
             | subscriber @ Self::WithTuiAndOpenTelemetry(_)
             | subscriber @ Self::WithJson(_)
-            | subscriber @ Self::WithBoth(_) => {
+            | subscriber @ Self::WithJsonAndOpenTelemetry(_) => {
                 debug_assert!(
                     matches!(
                         subscriber,
@@ -375,7 +352,7 @@ impl TracingSubscriber<Registry> {
                             | Self::WithTui(_)
                             | Self::WithTuiAndOpenTelemetry(_)
                             | Self::WithJson(_)
-                            | Self::WithBoth(_)
+                            | Self::WithJsonAndOpenTelemetry(_)
                     ),
                     "'with_tui' called after 'with_json'"
                 );
@@ -428,12 +405,32 @@ impl TracingSubscriber<Registry> {
                 layered.init();
                 None
             }
-            TracingSubscriber::WithBoth(layered) => {
+            TracingSubscriber::WithJsonAndOpenTelemetry(layered) => {
                 layered.init();
                 None
             }
         }
     }
+}
+
+// -----------------------------------------------------------------------------
+// TUI TRACES
+// -----------------------------------------------------------------------------
+
+pub fn setup_tui_traces(subscriber: &mut TracingSubscriber<Registry>, layer: TuiTracingLayer) -> DelayedWarning {
+    let registry_layer = {
+        let layer = layer.clone();
+        move || {
+            let (default_filter, warning) = new_trace_filter();
+            (layer.clone().with_filter(default_filter), warning)
+        }
+    };
+    let otel_layer = move || {
+        let (default_filter, warning) = new_trace_filter();
+        (layer.with_filter(default_filter), warning)
+    };
+
+    subscriber.with_tui(registry_layer, otel_layer)
 }
 
 // -----------------------------------------------------------------------------
@@ -740,7 +737,7 @@ pub fn setup_observability(
         (OpenTelemetryHandle::default(), None)
     };
 
-    let warning_tui = tui_layer.and_then(|layer| subscriber.with_tui(layer));
+    let warning_tui = tui_layer.and_then(|layer| setup_tui_traces(&mut subscriber, layer));
     let warning_json = if with_json_traces { setup_json_traces(&mut subscriber) } else { None };
 
     let warning_log = subscriber.init(color);
