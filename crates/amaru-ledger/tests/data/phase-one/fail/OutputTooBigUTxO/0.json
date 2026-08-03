@@ -19,6 +19,8 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
+    "committee": [],
+    "proposals": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
     }

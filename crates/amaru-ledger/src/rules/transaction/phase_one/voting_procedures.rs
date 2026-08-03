@@ -12,19 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RedeemerTag, RequiredScript, StakeCredential,
     Voter, VotingProcedure,
 };
+use thiserror::Error;
 
 use crate::context::{ProposalsSlice, WitnessSlice};
+
+#[derive(Debug, Error)]
+pub enum InvalidVotingProcedures {
+    #[error("voters do not exist: {0:?}")]
+    VotersDoNotExist(BTreeSet<Voter>),
+}
 
 pub(crate) fn execute<C>(
     context: &mut C,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
-) where
+) -> Result<(), InvalidVotingProcedures>
+where
     C: WitnessSlice + ProposalsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
@@ -48,4 +56,6 @@ pub(crate) fn execute<C>(
             },
         );
     }
+
+    Ok(())
 }

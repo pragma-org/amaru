@@ -46,7 +46,7 @@ UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 ### Initial state
 
 Initial state represents the state on which the transaction is validated. Currently,
-it is made up of five fields:
+it is made up of seven fields:
 
 
 - `pools`: array of hex-encoded pool key hashes, does not contain pool's parameters.
@@ -58,6 +58,14 @@ it is made up of five fields:
 - `dreps`: `[{ credential, deposit, registeredAt, validUntil }]`, with the same
   `credential` encoding, a `registeredAt` certificate pointer, and a `validUntil`
   epoch.
+- `committee`: `[{ coldCredential, hotCredential?, validUntil? }]`, the constitutional
+  committee keyed by cold credential, both credentials hex-encoded CBOR of a
+  `StakeCredential`. `hotCredential` is absent for a member that has never authorized
+  one or has resigned; `validUntil` is absent for a member holding no term, which is
+  still a state a member can authorize a hot credential from. Note that a vote
+  identifies its committee member by *hot* credential.
+- `proposals`: array of hex-encoded CBOR `GovActionId`, the governance actions that are
+  already on the chain and can therefore be voted on or referenced as an ancestor.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:

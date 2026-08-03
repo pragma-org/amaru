@@ -1,0 +1,48 @@
+{
+  "title": "vote cast by a drep whose registration has expired",
+  "description": "A DRep voter registered with a validUntil already behind the current epoch; existence ignores expiry, which only bears on voting power at ratification.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "82582079a1feff47319691aa09a630e592080973919453bf6ceac533146b154e1c775500",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 500000000,
+        "registeredAt": {
+          "transaction": {
+            "slot": 0,
+            "transactionIndex": 0
+          },
+          "certificateIndex": 0
+        },
+        "validUntil": 0
+      }
+    ],
+    "committee": [],
+    "proposals": [
+      "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00"
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d901028182582079a1feff47319691aa09a630e592080973919453bf6ceac533146b154e1c7755000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b39ee87e82d42c626089d90dd90b5ca375ee72825237acc51aa7f2e8da1a4ef04cc4b042e5731d0f18d4b29279e45c2c73e8f03935c6d4647bdd4283b33e4607f5f6",
+  "expected": "Pass"
+}

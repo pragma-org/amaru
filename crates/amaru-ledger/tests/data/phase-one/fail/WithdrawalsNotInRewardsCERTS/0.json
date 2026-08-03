@@ -16,6 +16,8 @@
       }
     ],
     "accounts": [],
+    "committee": [],
+    "proposals": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
     }
