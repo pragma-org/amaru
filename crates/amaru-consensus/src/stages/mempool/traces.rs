@@ -16,7 +16,7 @@ use amaru_kernel::{Slot, TransactionId};
 use amaru_metrics::mempool::{
     MempoolMetricEvent, MempoolMetrics, TxEvictedReason, TxInsertionOrigin, TxInsertionResult,
 };
-use amaru_observability::{debug_record, info, trace_record};
+use amaru_observability::{debug, debug_record, trace_record};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{MempoolState, TxInsertResult, TxOrigin, TxRejectReason};
 
@@ -31,7 +31,15 @@ pub(super) fn emit_tx_received(tx_id: &TransactionId, origin: &TxOrigin) {
 }
 
 fn emit_state(mempool_state: MempoolState) {
-    info!(mempool::state::UPDATE, tx_count = mempool_state.tx_count, size_bytes = mempool_state.size_bytes);
+    debug!(mempool::state::UPDATE, tx_count = mempool_state.tx_count, size_bytes = mempool_state.size_bytes);
+}
+
+fn should_emit_state_after_insert(result: &TxInsertResult) -> bool {
+    matches!(result, TxInsertResult::Accepted { .. })
+}
+
+fn should_emit_state_after_revalidation(outcome: &RevalidationOutcome) -> bool {
+    !outcome.evicted_tx_ids.is_empty()
 }
 
 /// Add a trace to register the result of a mempool insertion (successful or not).
@@ -75,7 +83,9 @@ pub(super) async fn record_insert(
         MempoolMetricEvent::TxInsertion { origin: tx_origin_metric(origin), result: insertion_result_metric(result) },
     )
     .await;
-    emit_state(mempool_state);
+    if should_emit_state_after_insert(result) {
+        emit_state(mempool_state);
+    }
 }
 
 /// When a new tip is adopted, add a trace recording the result of the transactions revalidations,
@@ -109,7 +119,9 @@ pub(super) async fn record_revalidation(
 
     emit_metrics(mempool_state, metrics, MempoolMetricEvent::Revalidated { duration_micros: outcome.duration_micros })
         .await;
-    emit_state(mempool_state);
+    if should_emit_state_after_revalidation(outcome) {
+        emit_state(mempool_state);
+    }
 }
 
 pub(super) struct RevalidationOutcome {
@@ -156,5 +168,45 @@ fn insertion_result_metric(result: &TxInsertResult) -> TxInsertionResult {
             TxRejectReason::Duplicate => TxInsertionResult::RejectedDuplicate,
             TxRejectReason::MempoolFull => TxInsertionResult::RejectedFull,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{Hash, Slot, TransactionId};
+    use amaru_ouroboros_traits::{MempoolSeqNo, TxRejectReason};
+
+    use super::*;
+
+    #[test]
+    fn state_updates_are_only_emitted_for_accepted_insertions() {
+        assert!(should_emit_state_after_insert(&TxInsertResult::Accepted {
+            tx_id: TransactionId::new(Hash::new([1; 32])),
+            seq_no: MempoolSeqNo(1),
+        }));
+
+        assert!(!should_emit_state_after_insert(&TxInsertResult::Rejected {
+            tx_id: TransactionId::new(Hash::new([2; 32])),
+            reason: TxRejectReason::Duplicate,
+        }));
+    }
+
+    #[test]
+    fn state_updates_are_only_emitted_when_revalidation_evicts_transactions() {
+        let no_evictions = RevalidationOutcome {
+            tip_slot: Slot::new(0),
+            total_before: 2,
+            evicted_tx_ids: Vec::new(),
+            duration_micros: 10,
+        };
+        assert!(!should_emit_state_after_revalidation(&no_evictions));
+
+        let with_evictions = RevalidationOutcome {
+            tip_slot: Slot::new(0),
+            total_before: 2,
+            evicted_tx_ids: vec![TransactionId::new(Hash::new([3; 32]))],
+            duration_micros: 10,
+        };
+        assert!(should_emit_state_after_revalidation(&with_evictions));
     }
 }

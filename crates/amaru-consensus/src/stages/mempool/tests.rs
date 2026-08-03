@@ -72,6 +72,7 @@ fn insert_batch_returns_one_result_per_transaction() {
     logs.assert_and_remove(Level::INFO, &["transaction accepted into mempool"])
         .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "transaction rejected for testing"])
         .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "Transaction is a duplicate"])
+        .assert_and_remove(Level::INFO, &["state.update", "tx_count=1", "size_bytes=51"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -94,6 +95,7 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
     let (_running, _guards, mut logs) = setup(&prep);
 
     assert_eq!(mempool.mempool_txs(), vec![tx_0, tx_2]);
+    logs.assert_and_remove(Level::INFO, &["state.update", "tx_count=2", "size_bytes=102"]);
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
