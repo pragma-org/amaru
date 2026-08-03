@@ -17,11 +17,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use amaru_metrics::{LedgerMetrics, MempoolMetrics, MetricsEvent, SystemMetrics};
 use tracing::Level;
 
 use crate::{
     config::{Config, TimeWindow},
-    events::{Message, SystemSample, TelemetryRecord},
+    events::{Message, MetricRecord, SystemSample, TelemetryRecord},
     startup::StartupContext,
 };
 
@@ -487,6 +488,7 @@ impl Model {
     pub fn handle_message(&mut self, message: Message) {
         match message {
             Message::Telemetry(record) => self.record_telemetry(record),
+            Message::Metrics(record) => self.record_metrics(record),
         }
     }
 
@@ -683,6 +685,15 @@ impl Model {
         }
     }
 
+    fn record_metrics(&mut self, record: MetricRecord) {
+        match record.event {
+            MetricsEvent::LedgerMetrics(metrics) => self.record_ledger_metrics(record.at, metrics),
+            MetricsEvent::MempoolMetrics(metrics) => self.record_mempool_metrics(record.at, metrics),
+            MetricsEvent::SystemMetrics(metrics) => self.record_system_metrics(record.at, metrics),
+            MetricsEvent::ProtocolMetrics(_) | MetricsEvent::ConsensusMetrics(_) => {}
+        }
+    }
+
     fn update_state(&mut self, event: Option<TelemetryEvent>, record: RecordFields<'_>) {
         let Some(event) = event else {
             return;
@@ -746,8 +757,6 @@ impl Model {
         };
 
         self.tip = Some(tip);
-        self.push_recent_block(record.at());
-        self.push_recent_transactions(record);
     }
 
     fn update_stake_snapshot(&mut self, record: RecordFields<'_>) {
@@ -809,18 +818,36 @@ impl Model {
         }
     }
 
-    fn push_recent_transactions(&mut self, record: RecordFields<'_>) {
-        let Some(tx_count) = record.as_u64("tx_count") else {
-            return;
-        };
-
-        let at = record.at();
+    fn push_recent_transaction_count(&mut self, at: Instant, tx_count: u64) {
         let max_window = self.max_window();
         self.recent_transactions.push_back((at, tx_count));
 
         while self.recent_transactions.front().is_some_and(|(entry_at, _)| at.duration_since(*entry_at) > max_window) {
             self.recent_transactions.pop_front();
         }
+    }
+
+    fn record_ledger_metrics(&mut self, at: Instant, metrics: LedgerMetrics) {
+        self.push_recent_block(at);
+        self.push_recent_transaction_count(at, metrics.tx_count);
+    }
+
+    fn record_mempool_metrics(&mut self, at: Instant, metrics: MempoolMetrics) {
+        self.mempool = MempoolState { tx_count: metrics.tx_count, size_bytes: metrics.size_bytes, updated_at: at };
+    }
+
+    fn record_system_metrics(&mut self, at: Instant, metrics: SystemMetrics) {
+        self.push_system_sample(SystemSample {
+            at,
+            cpu_percent: metrics.cpu_percent,
+            process_memory_bytes: metrics.process_memory_bytes,
+            rss_bytes: metrics.rss_bytes,
+            virtual_bytes: metrics.virtual_bytes,
+            memory_used_bytes: metrics.memory_used_bytes,
+            memory_total_bytes: metrics.memory_total_bytes,
+            disk_read_bytes: metrics.disk_read_bytes,
+            disk_write_bytes: metrics.disk_write_bytes,
+        });
     }
 
     fn push_active_proposal(&mut self, record: RecordFields<'_>) {
@@ -972,6 +999,8 @@ pub fn render_fields(record: &TelemetryRecord) -> String {
 mod tests {
     use std::collections::BTreeSet;
 
+    use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics, system::SystemMetrics};
+
     use super::*;
     use crate::{
         events::{FieldValue, TelemetryKind, TelemetryRecord},
@@ -988,6 +1017,10 @@ mod tests {
             wall_time: std::time::SystemTime::UNIX_EPOCH,
             fields: fields.iter().map(|(name, value)| ((*name).into(), value.clone())).collect(),
         }
+    }
+
+    fn metric(at: Instant, event: MetricsEvent) -> Message {
+        Message::Metrics(crate::events::MetricRecord { at, event })
     }
 
     #[test]
@@ -1031,6 +1064,68 @@ mod tests {
         assert_eq!(tip.slot, 1);
         assert_eq!(tip.epoch, 3);
         assert_eq!(tip.block_height, 2);
+    }
+
+    #[test]
+    fn records_throughput_and_system_samples_from_metrics() {
+        let startup = StartupContext {
+            process: ProcessInfo {
+                network: "preview".into(),
+                software_version: "10.11.0 (abc123)".into(),
+                target: "darwin/aarch64".into(),
+            },
+            protocol_version: "10.11".into(),
+            mempool_max_bytes: 180_224,
+            epoch_length: 86_400,
+            active_slot_coeff_inverse: 20,
+            max_lovelace_supply: 45_000_000_000_000_000,
+            system_start_millis: 1_666_656_000_000,
+            era_history: None,
+            trusted_peers: BTreeSet::default(),
+            runtime_sections: Vec::default(),
+            global_sections: Vec::default(),
+            protocol_sections: Vec::default(),
+        };
+        let mut model = Model::new(Config::default(), startup);
+        let at = Instant::now();
+
+        model.handle_message(metric(
+            at,
+            MetricsEvent::LedgerMetrics(LedgerMetrics {
+                block_height: 42,
+                tx_count: 7,
+                slot: 100,
+                slot_in_epoch: 10,
+                epoch: 1,
+                density: 0.5,
+                current_kes_period: 2,
+                remaining_kes_periods: 3,
+                block_header_hash: "abc".into(),
+                parent_block_header_hash: "def".into(),
+                issuer_verification_key_hash: "ghi".into(),
+            }),
+        ));
+        model.handle_message(metric(
+            at,
+            MetricsEvent::SystemMetrics(SystemMetrics {
+                runtime_seconds: 1,
+                cpu_percent: 12.5,
+                process_memory_bytes: 10_000,
+                rss_bytes: 9_000,
+                virtual_bytes: 12_000,
+                memory_used_bytes: 100_000,
+                memory_total_bytes: 200_000,
+                disk_read_bytes: 300,
+                disk_write_bytes: 400,
+                disk_live_read_bytes: 30,
+                disk_live_write_bytes: 40,
+                open_files: 5,
+            }),
+        ));
+
+        assert_eq!(model.blocks_in_window(at + Duration::from_secs(1)), 1);
+        assert_eq!(model.transactions_in_window(at + Duration::from_secs(1)), 7);
+        assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(10_000));
     }
 
     #[test]

@@ -21,6 +21,7 @@ use amaru::{
     panic::panic_handler,
     version,
 };
+use amaru_metrics::subscribe;
 use amaru_tui as tui;
 use mimalloc::MiMalloc;
 
@@ -76,6 +77,7 @@ fn try_main() -> Result<(), Box<dyn Error>> {
             })
             .transpose()?
     };
+    let _metrics_subscription = tui.as_ref().map(|session| subscribe(session.metrics_subscriber()));
 
     let (metrics, teardown) = if skip_logging {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn Error>> + Send>)

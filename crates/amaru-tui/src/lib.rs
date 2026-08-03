@@ -14,23 +14,26 @@
 
 use std::{
     io::{self, IsTerminal, Stdout},
-    mem::MaybeUninit,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
     thread::{self, JoinHandle},
     time::Instant,
 };
 
+use amaru_metrics::MetricsSubscriber;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 mod capture;
 mod config;
 mod events;
+mod metrics;
 mod model;
 mod settings;
 mod startup;
@@ -38,7 +41,8 @@ mod ui;
 
 pub use capture::TracingLayer;
 pub use config::{Config, TimeWindow, format_windows};
-use events::{Message, SystemSample};
+use events::Message;
+use metrics::MetricsLayer;
 use model::Model;
 pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
 pub use settings::Settings;
@@ -47,6 +51,7 @@ use ui::Hotspots;
 
 pub struct Session {
     layer: TracingLayer,
+    metrics: Arc<MetricsLayer>,
     control_tx: Sender<Control>,
     join: Option<JoinHandle<io::Result<()>>>,
 }
@@ -56,17 +61,22 @@ impl Session {
         let (telemetry_tx, telemetry_rx) = mpsc::sync_channel(config.channel_capacity);
         let (control_tx, control_rx) = mpsc::channel();
         let layer = TracingLayer::new(telemetry_tx);
+        let metrics = Arc::new(MetricsLayer::new(layer.sender()));
 
         let join = thread::Builder::new()
             .name("amaru-tui".into())
             .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx))
             .map_err(|err| io::Error::other(format!("failed to spawn tui thread: {err}")))?;
 
-        Ok(Self { layer, control_tx, join: Some(join) })
+        Ok(Self { layer, metrics, control_tx, join: Some(join) })
     }
 
     pub fn layer(&self) -> TracingLayer {
         self.layer.clone()
+    }
+
+    pub fn metrics_subscriber(&self) -> Arc<dyn MetricsSubscriber> {
+        self.metrics.clone()
     }
 
     pub fn shutdown(mut self) -> io::Result<()> {
@@ -114,13 +124,6 @@ fn run_terminal(
     let mut terminal = TerminalGuard::enter()?;
     let mut model = Model::new(config.clone(), startup);
     let mut hotspots = Hotspots::default();
-    let mut system = System::new_with_specifics(
-        RefreshKind::nothing()
-            .with_cpu(CpuRefreshKind::everything().without_frequency())
-            .with_memory(MemoryRefreshKind::everything().without_swap()),
-    );
-    let own_pid = sysinfo::get_current_pid().ok();
-    let mut last_sample = Instant::now().checked_sub(config.sample_interval).unwrap_or_else(Instant::now);
 
     loop {
         if control_rx.try_recv().is_ok() {
@@ -130,14 +133,7 @@ fn run_terminal(
         while let Ok(message) = telemetry_rx.try_recv() {
             model.handle_message(message);
         }
-
         let now = Instant::now();
-        if !model.is_copy_mode() && now.duration_since(last_sample) >= config.sample_interval {
-            if let Some(sample) = collect_sample(&mut system, own_pid) {
-                model.push_system_sample(sample);
-            }
-            last_sample = now;
-        }
 
         if !model.is_copy_mode() {
             terminal.terminal.draw(|frame| ui::render(frame, &model, &mut hotspots, now))?;
@@ -302,44 +298,6 @@ fn enter_copy_mode(
 
 fn intersects(a: Rect, b: Rect) -> bool {
     b.x >= a.x && b.x < a.x + a.width && b.y >= a.y && b.y < a.y + a.height
-}
-
-fn collect_sample(system: &mut System, own_pid: Option<sysinfo::Pid>) -> Option<SystemSample> {
-    let pid = own_pid?;
-    system.refresh_memory();
-    system.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&[pid]),
-        true,
-        ProcessRefreshKind::nothing().with_cpu().with_disk_usage().with_memory(),
-    );
-    let process = system.process(pid)?;
-    let disk = process.disk_usage();
-
-    Some(SystemSample {
-        at: Instant::now(),
-        cpu_percent: process.cpu_usage() as f64,
-        process_memory_bytes: process_memory_bytes(pid, process.memory()),
-        rss_bytes: process.memory(),
-        virtual_bytes: process.virtual_memory(),
-        memory_used_bytes: system.used_memory(),
-        memory_total_bytes: system.total_memory(),
-        disk_read_bytes: disk.total_read_bytes,
-        disk_write_bytes: disk.total_written_bytes,
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn process_memory_bytes(pid: sysinfo::Pid, fallback: u64) -> u64 {
-    let mut info = MaybeUninit::<libc::rusage_info_v4>::zeroed();
-    let result =
-        unsafe { libc::proc_pid_rusage(pid.as_u32() as libc::c_int, libc::RUSAGE_INFO_V4, info.as_mut_ptr().cast()) };
-
-    if result == 0 { unsafe { info.assume_init().ri_phys_footprint } } else { fallback }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn process_memory_bytes(_pid: sysinfo::Pid, fallback: u64) -> u64 {
-    fallback
 }
 
 #[cfg(unix)]

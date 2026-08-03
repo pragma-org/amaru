@@ -21,6 +21,7 @@ use std::{
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
     thread::JoinHandle,
+    time::{Duration, Instant},
 };
 
 use amaru_kernel::{
@@ -64,6 +65,30 @@ pub mod volatile;
 /// The minimum number of past (from the current epoch) snapshots required for the ledger to
 /// operate.
 pub const MIN_LEDGER_SNAPSHOTS: u64 = 3;
+const TIP_UPDATE_DEBOUNCE: Duration = Duration::from_millis(800);
+
+#[derive(Debug, Default)]
+struct TipUpdateEmitter {
+    last_emitted_at: Option<Instant>,
+    pending_tx_count: u64,
+}
+
+impl TipUpdateEmitter {
+    fn observe(&mut self, now: Instant, tx_count: u64) -> Option<u64> {
+        self.pending_tx_count = self.pending_tx_count.saturating_add(tx_count);
+
+        let should_emit = self
+            .last_emitted_at
+            .is_none_or(|last_emitted_at| now.duration_since(last_emitted_at) >= TIP_UPDATE_DEBOUNCE);
+
+        if !should_emit {
+            return None;
+        }
+
+        self.last_emitted_at = Some(now);
+        Some(mem::take(&mut self.pending_tx_count))
+    }
+}
 
 // State
 // ----------------------------------------------------------------------------
@@ -116,6 +141,8 @@ where
 
     /// Background computation calculating rewards and stake distributions
     rewards_join_handle: Option<JoinHandle<Result<RewardsSummary, StateError>>>,
+
+    tip_update_emitter: TipUpdateEmitter,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
@@ -231,6 +258,8 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             on_stake_dist_updated: None,
 
             rewards_join_handle: None,
+
+            tip_update_emitter: TipUpdateEmitter::default(),
         }
     }
 
@@ -763,6 +792,8 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // 7. Flush the epoch transition
             BlockValidation::from(self.apply_transition())?;
 
+            self.emit_tip_update(point, &metrics);
+
             BlockValidation::Valid(metrics)
         })
     }
@@ -792,6 +823,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
         let metrics = LedgerMetrics {
             block_height,
+            tx_count: block.transaction_bodies.len() as u64,
             slot: u64::from(slot),
             slot_in_epoch: u64::from(slot_in_epoch),
             epoch: u64::from(epoch),
@@ -803,20 +835,34 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             issuer_verification_key_hash: hex::encode(issuer),
         };
 
+        metrics
+    }
+
+    fn emit_tip_update(&mut self, point: &Point, metrics: &LedgerMetrics) {
+        let Some(tx_count) = self.tip_update_emitter.observe(Instant::now(), metrics.tx_count) else {
+            return;
+        };
+        let slot = point.slot_or_default();
+        let epoch = self
+            .era_history()
+            .slot_to_epoch(slot, slot)
+            .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from current slot ({slot}): {e}"));
+        let slot_in_epoch = self.era_history().slot_in_epoch(slot, slot).unwrap_or_else(|e| {
+            unreachable!("impossible; failed to compute relative slot from current slot ({slot}): {e}")
+        });
+
         debug!(
             ledger::tip::UPDATE,
             slot = slot,
             header_hash = point.hash(),
             block_height = metrics.block_height,
-            tx_count = block.transaction_bodies.len(),
+            tx_count = tx_count as usize,
             epoch = epoch,
             slot_in_epoch = slot_in_epoch,
             density = metrics.density,
             current_kes_period = metrics.current_kes_period,
             remaining_kes_periods = metrics.remaining_kes_periods,
         );
-
-        metrics
     }
 
     /// Try to rollback the volatile state to a given point and roll forward a number of block by applying
@@ -1371,5 +1417,20 @@ impl From<governance::Error> for StateError {
             governance::Error::EraHistoryError(slot, err) => StateError::ErrorComputingEpoch(slot, err),
             governance::Error::StoreError(err) => StateError::Storage(err),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TIP_UPDATE_DEBOUNCE, TipUpdateEmitter};
+
+    #[test]
+    fn tip_update_emitter_batches_until_debounce_elapses() {
+        let mut emitter = TipUpdateEmitter::default();
+        let start = std::time::Instant::now();
+
+        assert_eq!(emitter.observe(start, 3), Some(3));
+        assert_eq!(emitter.observe(start + TIP_UPDATE_DEBOUNCE / 2, 5), None);
+        assert_eq!(emitter.observe(start + TIP_UPDATE_DEBOUNCE, 7), Some(12));
     }
 }

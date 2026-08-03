@@ -38,6 +38,10 @@ impl TracingLayer {
         Self { tx }
     }
 
+    pub fn sender(&self) -> SyncSender<Message> {
+        self.tx.clone()
+    }
+
     fn emit(&self, record: TelemetryRecord) {
         match self.tx.try_send(Message::Telemetry(record)) {
             Ok(()) => {}

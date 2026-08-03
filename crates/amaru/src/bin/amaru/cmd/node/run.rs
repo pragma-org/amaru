@@ -415,7 +415,7 @@ async fn run(
     let submit_api_address = config.submit_api_address()?;
     pre_flight_checks()?;
 
-    let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
+    let metrics = track_system_metrics(meter_provider.clone())?;
     let meter = meter_provider.map(|mp| mp.meter(METRICS_METER_NAME));
     let running = build_and_run_node(config, meter)?;
 

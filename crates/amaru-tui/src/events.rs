@@ -18,6 +18,7 @@ use std::{
     time::{Instant, SystemTime},
 };
 
+use amaru_metrics::MetricsEvent;
 use tracing::Level;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +114,12 @@ impl TelemetryRecord {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MetricRecord {
+    pub at: Instant,
+    pub event: MetricsEvent,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SystemSample {
     pub at: Instant,
     pub cpu_percent: f64,
@@ -128,4 +135,5 @@ pub struct SystemSample {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Telemetry(TelemetryRecord),
+    Metrics(MetricRecord),
 }

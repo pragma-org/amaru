@@ -103,6 +103,7 @@ dependencies = [
  "hex",
  "include_dir",
  "indoc",
+ "libc",
  "mimalloc",
  "minicbor",
  "opentelemetry",
@@ -671,12 +672,11 @@ name = "amaru-tui"
 version = "0.1.2"
 dependencies = [
  "amaru-kernel",
+ "amaru-metrics",
  "clap",
  "crossterm 0.29.0",
- "libc",
  "ratatui",
  "signal-hook",
- "sysinfo",
  "tracing",
  "tracing-subscriber",
 ]
