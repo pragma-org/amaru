@@ -41,7 +41,7 @@ pub struct BlockValidator<S: Store, HS: HistoricalStores> {
     chain_store: Arc<dyn ChainStore>,
 }
 
-impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateTxs for BlockValidator<S, HS> {
+impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanValidateTxs for BlockValidator<S, HS> {
     fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
         let state = self.state.lock().map_err(|error| {
             TransactionValidationError::from(anyhow!("failed to acquire ledger state lock: {error}"))
@@ -52,7 +52,7 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateTxs 
     }
 }
 
-impl<S: Store, HS: HistoricalStores + Send> BlockValidator<S, HS> {
+impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> BlockValidator<S, HS> {
     pub fn new(state: State<S, HS>, vm_eval_pool: ArenaPool, chain_store: Arc<dyn ChainStore>) -> Self {
         Self { state: Arc::new(Mutex::new(state)), vm_eval_pool, chain_store }
     }
@@ -67,7 +67,7 @@ impl<S: Store, HS: HistoricalStores + Send> BlockValidator<S, HS> {
 }
 
 #[async_trait::async_trait]
-impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBlocks for BlockValidator<S, HS> {
+impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanValidateBlocks for BlockValidator<S, HS> {
     #[expect(clippy::unwrap_used)]
     async fn roll_forward_block(
         &self,
@@ -137,7 +137,7 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync> CanValidateBloc
 impl<S, HS> HasStakePools for BlockValidator<S, HS>
 where
     S: Store + Send,
-    HS: HistoricalStores + Send,
+    HS: HistoricalStores + Send + Sync + 'static,
 {
     fn registered_relay_socket_addrs(&self) -> Result<BTreeSet<SocketAddr>, BlockValidationError> {
         #[expect(clippy::unwrap_used)]

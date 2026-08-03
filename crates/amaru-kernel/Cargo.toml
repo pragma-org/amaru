@@ -59,6 +59,7 @@ cbor4ii.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true
+sysinfo.workspace = true
 
 [target.'cfg(target_family="wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }

@@ -1094,7 +1094,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `compute` | `TRACE` | public | Compute rewards for epoch | for_epoch | using_stake_distribution_epoch_from |
+| `compute` | `TRACE` | public | Compute rewards for epoch | for_epoch, using_stake_distribution_from_epoch |  |
 | `summarize` | `TRACE` | public | Summary of the rewards calculation for an epoch | efficiency, incentives, treasury_tax, total_rewards, available_rewards, effective_rewards, pots_reserves, pots_treasury, pots_fees |  |
 
 <details><summary>span: `compute`</summary>
@@ -1102,7 +1102,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `for_epoch` | `string` | ✓ |
-| `using_stake_distribution_epoch_from` | `string` |  |
+| `using_stake_distribution_from_epoch` | `string` | ✓ |
 
 </details>
 

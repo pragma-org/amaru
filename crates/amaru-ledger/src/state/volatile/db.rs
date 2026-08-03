@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, mem, sync::Arc};
+use std::{iter, mem};
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
@@ -21,7 +21,7 @@ use amaru_kernel::{
 
 use crate::{
     epoch_transition::{
-        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
     state::{
         AnchoredVolatileFragment, StateError,
@@ -289,16 +289,6 @@ impl VolatileDB {
     /// Whether the rewards for the in-flight epoch are still to be computed.
     pub fn rewards_not_ready(&self) -> bool {
         matches!(self.overlay.rewards(), RewardsState::NotReady)
-    }
-
-    /// Take the rewards summary computed earlier in the epoch, marking the rewards as not-ready.
-    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
-        self.overlay.take_computed_rewards()
-    }
-
-    /// Stash the freshly computed rewards summary, to be applied at the next epoch boundary.
-    pub fn set_computed_rewards(&mut self, rewards: impl Into<Rewards<Computed>>) {
-        *self.overlay.rewards_mut() = RewardsState::Computed(Arc::new(rewards.into()));
     }
 
     /// Ensure that the 'draining' sequence is empty before we cross an epoch boundary. Note that

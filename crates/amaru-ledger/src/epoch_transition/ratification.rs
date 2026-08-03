@@ -427,7 +427,6 @@ mod tests {
             active_stake: 0,
             pools_voting_stake: 0,
             dreps_voting_stake: 0,
-            accounts: BTreeMap::new(),
             pools: BTreeMap::new(),
             dreps: BTreeMap::new(),
         }

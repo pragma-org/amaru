@@ -13,23 +13,32 @@
 // limitations under the License.
 
 use std::{
+    alloc::System,
     collections::BTreeMap,
+    env,
+    fmt::Write,
     fs::File,
     io::Read,
     path::PathBuf,
     sync::{Arc, LazyLock, Mutex},
 };
 
-use amaru_kernel::{Epoch, NetworkName};
+use amaru::env_vars;
+use amaru_kernel::{Epoch, NetworkName, PREPROD_ERA_HISTORY, utils::memory};
 use amaru_ledger::{
     store::Snapshot,
-    summary::{governance::GovernanceSummary, stake_distribution::StakeDistribution},
+    summary::{governance::GovernanceSummary, stake_distribution::StakeSummary},
 };
-use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDBSnapshot, RocksDbConfig};
 use anyhow::anyhow;
 use zstd::stream::read::Decoder as ZstdDecoder;
 
 const DEFAULT_AMARU_MAX_DIFFS: usize = 10;
+const REPORT_COLUMN_WIDTH: usize = 14;
+const REPORT_LABEL_WIDTH: usize = 20;
+
+#[global_allocator]
+static GLOBAL_ALLOCATOR: memory::CountingAllocator<System> = memory::CountingAllocator::new(System);
 
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
@@ -77,9 +86,153 @@ fn compare_stake_distribution_with_haskell_node(
 
     let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history)?;
 
-    let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps)?;
+    let stake_summary = StakeSummary::new(snapshot.as_ref(), dreps)?;
 
-    assert_json_snapshot(network, epoch, &stake_distr)
+    assert_json_snapshot(network, epoch, &stake_summary)
+}
+
+#[test]
+// NOTE: To see the output of this test, pass `--no-capture` to the test runner.
+fn measure_new_snapshot_summary_memory() -> Result<(), Box<dyn std::error::Error>> {
+    let network = env::var(env_vars::NETWORK)
+        .ok()
+        .map(|network| network.parse::<NetworkName>())
+        .transpose()?
+        .unwrap_or(NetworkName::Preprod);
+
+    let era_history = network.as_era_history().unwrap_or(&PREPROD_ERA_HISTORY);
+
+    let ledger_dir = PathBuf::from(format!("../../{}", default_ledger_dir(network)));
+    if !ledger_dir.is_dir() {
+        eprintln!("skipping summary memory measurement; ledger directory {} does not exist", ledger_dir.display());
+        return Ok(());
+    }
+
+    let Some(epoch) = RocksDB::snapshots(&ledger_dir)?.into_iter().next_back() else {
+        eprintln!(
+            "skipping summary memory measurement; ledger directory {} does not contain any epoch snapshots",
+            ledger_dir.display()
+        );
+        return Ok(());
+    };
+
+    let snapshot = RocksDBHistoricalStores::for_epoch_with(&RocksDbConfig::new(ledger_dir), epoch)?;
+
+    let allocated_before = GLOBAL_ALLOCATOR.snapshot();
+
+    let (mut summary, summary_rss_mib) = memory::rss_delta(|| {
+        let governance = GovernanceSummary::new(&snapshot, era_history).unwrap_or_else(|e| panic!("{e}"));
+        StakeSummary::new(&snapshot, governance).unwrap_or_else(|e| panic!("{e}"))
+    });
+    let summary_allocated_bytes =
+        GLOBAL_ALLOCATOR.current_allocated_bytes().saturating_sub(allocated_before.current_allocated_bytes);
+    let summary_peak_allocated_bytes =
+        GLOBAL_ALLOCATOR.peak_allocated_bytes().saturating_sub(allocated_before.peak_allocated_bytes);
+
+    let accounts_len = summary.accounts.len();
+    let pools_len = summary.pools.len();
+    let dreps_len = summary.dreps.len();
+
+    let (mut stake_distribution, accounts_rss_mib) = std::hint::black_box(memory::rss_delta(move || {
+        let stake_distribution = std::mem::take(&mut summary.stake_distribution);
+        drop(summary);
+        stake_distribution
+    }));
+    let stake_distribution_allocated_bytes =
+        GLOBAL_ALLOCATOR.current_allocated_bytes().saturating_sub(allocated_before.current_allocated_bytes);
+    let stake_distribution_rss_mib = summary_rss_mib - accounts_rss_mib.abs();
+    let accounts_allocated_bytes = summary_allocated_bytes.saturating_sub(stake_distribution_allocated_bytes);
+
+    let (mut stake_distribution, pools_rss_mib) = std::hint::black_box(memory::rss_delta(move || {
+        drop(std::mem::take(&mut stake_distribution.pools));
+        stake_distribution
+    }));
+    let without_pools_allocated_bytes =
+        GLOBAL_ALLOCATOR.current_allocated_bytes().saturating_sub(allocated_before.current_allocated_bytes);
+    let pools_allocated_bytes = stake_distribution_allocated_bytes.saturating_sub(without_pools_allocated_bytes);
+
+    let (stake_distribution, dreps_rss_mib) = std::hint::black_box(memory::rss_delta(move || {
+        drop(std::mem::take(&mut stake_distribution.dreps));
+        stake_distribution
+    }));
+    let without_dreps_allocated_bytes =
+        GLOBAL_ALLOCATOR.current_allocated_bytes().saturating_sub(allocated_before.current_allocated_bytes);
+    let dreps_allocated_bytes = without_pools_allocated_bytes.saturating_sub(without_dreps_allocated_bytes);
+
+    drop(stake_distribution);
+
+    let mut report = String::new();
+
+    let _ = writeln!(report, "=============== STAKE SUMMARY MEMORY USAGE REPORT ===============");
+    let _ = writeln!(report, "network{:<width$} {}", "", network, width = REPORT_LABEL_WIDTH - "network".len());
+    let _ = writeln!(report, "epoch{:<width$} {}", "", epoch, width = REPORT_LABEL_WIDTH - "epoch".len());
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "{:<label_width$} {:<width$} {:<width$} {:<width$}",
+        "summary",
+        format!("rss={summary_rss_mib}MiB"),
+        format!("alloc={}", format_bytes(summary_allocated_bytes)),
+        format!("peak={}", format_bytes(summary_peak_allocated_bytes)),
+        label_width = REPORT_LABEL_WIDTH,
+        width = REPORT_COLUMN_WIDTH,
+    );
+    let _ = writeln!(
+        report,
+        "{:<label_width$} {:<width$} {:<width$}",
+        "stake_distribution",
+        format!("rss={stake_distribution_rss_mib}MiB"),
+        format!("alloc={}", format_bytes(stake_distribution_allocated_bytes)),
+        label_width = REPORT_LABEL_WIDTH,
+        width = REPORT_COLUMN_WIDTH,
+    );
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "{:<label_width$} {:<width$} {:<width$} {:<width$}",
+        "accounts",
+        format!("rss={}MiB", accounts_rss_mib.abs()),
+        format!("alloc={}", format_bytes(accounts_allocated_bytes)),
+        format!("count={accounts_len}"),
+        label_width = REPORT_LABEL_WIDTH,
+        width = REPORT_COLUMN_WIDTH,
+    );
+    let _ = writeln!(
+        report,
+        "{:<label_width$} {:<width$} {:<width$} {:<width$}",
+        "pools",
+        format!("rss={}MiB", pools_rss_mib.abs()),
+        format!("alloc={}", format_bytes(pools_allocated_bytes)),
+        format!("count={pools_len}"),
+        label_width = REPORT_LABEL_WIDTH,
+        width = REPORT_COLUMN_WIDTH,
+    );
+    let _ = writeln!(
+        report,
+        "{:<label_width$} {:<width$} {:<width$} {:<width$}",
+        "dreps",
+        format!("rss={}MiB", dreps_rss_mib.abs()),
+        format!("alloc={}", format_bytes(dreps_allocated_bytes)),
+        format!("count={dreps_len}"),
+        label_width = REPORT_LABEL_WIDTH,
+        width = REPORT_COLUMN_WIDTH,
+    );
+    eprintln!("{report}");
+
+    Ok(())
+}
+
+fn format_bytes(bytes: usize) -> String {
+    const KIB: usize = 1024;
+    const MIB: usize = 1024 * 1024;
+
+    if bytes >= MIB {
+        format!("{}MiB", bytes / MIB)
+    } else if bytes >= KIB {
+        format!("{}KiB", bytes / KIB)
+    } else {
+        format!("{bytes}B")
+    }
 }
 
 fn read_expected_snapshot(network: NetworkName, epoch: Epoch) -> Result<String, Box<dyn std::error::Error>> {
