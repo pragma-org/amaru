@@ -32,15 +32,17 @@ mod capture;
 mod config;
 mod events;
 mod model;
+mod settings;
 mod startup;
 mod ui;
 
 pub use capture::TracingLayer;
-pub use config::{Config, parse_windows};
+pub use config::{Config, TimeWindow, format_windows};
 use events::{Message, SystemSample};
 use model::Model;
-pub use model::{LevelFilter, LogPaneMode, Page, TargetFilter};
-pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, StartupContext};
+pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
+pub use settings::Settings;
+pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};
 use ui::Hotspots;
 
 pub struct Session {
@@ -130,14 +132,16 @@ fn run_terminal(
         }
 
         let now = Instant::now();
-        if now.duration_since(last_sample) >= config.sample_interval {
+        if !model.is_copy_mode() && now.duration_since(last_sample) >= config.sample_interval {
             if let Some(sample) = collect_sample(&mut system, own_pid) {
                 model.push_system_sample(sample);
             }
             last_sample = now;
         }
 
-        terminal.terminal.draw(|frame| ui::render(frame, &model, &mut hotspots, now))?;
+        if !model.is_copy_mode() {
+            terminal.terminal.draw(|frame| ui::render(frame, &model, &mut hotspots, now))?;
+        }
 
         let timeout = config.tick_interval;
         if !event::poll(timeout)? {
@@ -145,37 +149,52 @@ fn run_terminal(
         }
 
         match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Char('q') => request_shutdown()?,
-                KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => request_shutdown()?,
-                KeyCode::Tab | KeyCode::Right => model.next_page(),
-                KeyCode::BackTab => model.previous_page(),
-                KeyCode::Left => model.previous_page(),
-                KeyCode::Char('+') | KeyCode::Char('=') => model.cycle_log_pane(),
-                KeyCode::Up => model.scroll_logs(-1),
-                KeyCode::Down => model.scroll_logs(1),
-                KeyCode::PageUp => model.scroll_logs(-(model.logs.len().min(10) as isize)),
-                KeyCode::PageDown => model.scroll_logs(model.logs.len().min(10) as isize),
-                KeyCode::Backspace
-                | KeyCode::Enter
-                | KeyCode::Home
-                | KeyCode::End
-                | KeyCode::Delete
-                | KeyCode::Insert
-                | KeyCode::F(_)
-                | KeyCode::Char(_)
-                | KeyCode::Null
-                | KeyCode::Esc
-                | KeyCode::CapsLock
-                | KeyCode::ScrollLock
-                | KeyCode::NumLock
-                | KeyCode::PrintScreen
-                | KeyCode::Pause
-                | KeyCode::Menu
-                | KeyCode::KeypadBegin
-                | KeyCode::Media(_)
-                | KeyCode::Modifier(_) => {}
-            },
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                if model.is_copy_mode() {
+                    if key.code == KeyCode::Esc {
+                        terminal.set_mouse_capture(true)?;
+                        model.exit_copy_mode();
+                    }
+                    continue;
+                }
+
+                match key.code {
+                    KeyCode::Esc => enter_copy_mode(&mut terminal, &mut model, &mut hotspots, now)?,
+                    KeyCode::Char('q') => request_shutdown()?,
+                    KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => request_shutdown()?,
+                    KeyCode::Tab | KeyCode::Right => model.next_page(),
+                    KeyCode::BackTab => model.previous_page(),
+                    KeyCode::Left => model.previous_page(),
+                    KeyCode::Char('f') => model.next_scroll_focus(),
+                    KeyCode::Char('+') | KeyCode::Char('=') => match (model.page, model.scroll_focus) {
+                        (model::Page::Cardano, ScrollFocus::Proposals) => model.cycle_proposal_pane(),
+                        (model::Page::Amaru, ScrollFocus::Peers) => model.cycle_peer_pane(),
+                        _ => model.cycle_log_pane(),
+                    },
+                    KeyCode::Up => model.scroll_focused(-1),
+                    KeyCode::Down => model.scroll_focused(1),
+                    KeyCode::PageUp => model.scroll_focused(-10),
+                    KeyCode::PageDown => model.scroll_focused(10),
+                    KeyCode::Backspace
+                    | KeyCode::Enter
+                    | KeyCode::Home
+                    | KeyCode::End
+                    | KeyCode::Delete
+                    | KeyCode::Insert
+                    | KeyCode::F(_)
+                    | KeyCode::Char(_)
+                    | KeyCode::Null
+                    | KeyCode::CapsLock
+                    | KeyCode::ScrollLock
+                    | KeyCode::NumLock
+                    | KeyCode::PrintScreen
+                    | KeyCode::Pause
+                    | KeyCode::Menu
+                    | KeyCode::KeypadBegin
+                    | KeyCode::Media(_)
+                    | KeyCode::Modifier(_) => {}
+                }
+            }
             Event::Mouse(mouse) => match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
                     let point = Rect { x: mouse.column, y: mouse.row, width: 1, height: 1 };
@@ -212,6 +231,21 @@ fn handle_click(model: &mut Model, hotspots: &Hotspots, point: Rect) {
     if intersects(hotspots.log_toggle, point) {
         model.cycle_log_pane();
         return;
+    }
+    if intersects(hotspots.peer_toggle, point) {
+        model.cycle_peer_pane();
+        return;
+    }
+    if intersects(hotspots.proposal_toggle, point) {
+        model.cycle_proposal_pane();
+        return;
+    }
+    if intersects(hotspots.logs_area, point) {
+        model.focus_logs();
+    } else if intersects(hotspots.peers_area, point) {
+        model.focus_peers();
+    } else if intersects(hotspots.proposals_area, point) {
+        model.focus_proposals();
     }
 
     for (index, rect) in hotspots.window_tabs.iter().enumerate() {
@@ -253,6 +287,17 @@ fn handle_scroll(model: &mut Model, hotspots: &Hotspots, point: Rect, delta: isi
     }
 
     model.scroll_logs(delta);
+}
+
+fn enter_copy_mode(
+    terminal: &mut TerminalGuard,
+    model: &mut Model,
+    hotspots: &mut Hotspots,
+    now: Instant,
+) -> io::Result<()> {
+    model.enter_copy_mode();
+    terminal.terminal.draw(|frame| ui::render(frame, model, hotspots, now))?;
+    terminal.set_mouse_capture(false)
 }
 
 fn intersects(a: Rect, b: Rect) -> bool {
@@ -310,6 +355,7 @@ fn request_shutdown() -> io::Result<()> {
 
 struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<Stdout>>,
+    mouse_capture_enabled: bool,
 }
 
 impl TerminalGuard {
@@ -319,14 +365,30 @@ impl TerminalGuard {
         execute!(stdout, EnterAlternateScreen, event::EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
-        Ok(Self { terminal })
+        Ok(Self { terminal, mouse_capture_enabled: true })
+    }
+
+    fn set_mouse_capture(&mut self, enabled: bool) -> io::Result<()> {
+        if self.mouse_capture_enabled == enabled {
+            return Ok(());
+        }
+
+        if enabled {
+            execute!(self.terminal.backend_mut(), event::EnableMouseCapture)?;
+        } else {
+            execute!(self.terminal.backend_mut(), event::DisableMouseCapture)?;
+        }
+
+        self.mouse_capture_enabled = enabled;
+        Ok(())
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen, event::DisableMouseCapture);
+        let _ = self.set_mouse_capture(false);
+        let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
         let _ = self.terminal.show_cursor();
     }
 }

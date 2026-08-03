@@ -21,7 +21,7 @@ use amaru::{
     panic::panic_handler,
     version,
 };
-use amaru_tui::{Config as TuiConfig, Session as TuiSession, parse_windows};
+use amaru_tui as tui;
 use mimalloc::MiMalloc;
 
 mod cli;
@@ -69,16 +69,10 @@ fn try_main() -> Result<(), Box<dyn Error>> {
         None
     } else {
         tui_settings
-            .filter(|settings| amaru_tui::should_enable(settings.no_tui, with_json_traces))
+            .filter(|settings| tui::should_enable(settings.no_tui, with_json_traces))
             .map(|settings| {
-                let mut config = TuiConfig::default();
-                if let Some(windows) = settings.windows.as_deref() {
-                    config = config.with_windows(
-                        parse_windows(windows)
-                            .map_err(|err| std::io::Error::other(format!("invalid --tui-windows value: {err}")))?,
-                    );
-                }
-                TuiSession::spawn(config, settings.startup)
+                let (_, config, startup) = settings.into_parts();
+                tui::Session::spawn(config, startup)
             })
             .transpose()?
     };
@@ -93,7 +87,7 @@ fn try_main() -> Result<(), Box<dyn Error>> {
             with_json_traces,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
-            tui.as_ref().map(TuiSession::layer),
+            tui.as_ref().map(tui::Session::layer),
         )
     };
 

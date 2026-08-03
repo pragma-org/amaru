@@ -670,6 +670,8 @@ dependencies = [
 name = "amaru-tui"
 version = "0.1.2"
 dependencies = [
+ "amaru-kernel",
+ "clap",
  "crossterm 0.29.0",
  "libc",
  "ratatui",

@@ -120,6 +120,15 @@ impl NetworkName {
             NetworkName::Testnet(_) => None,
         }
     }
+
+    pub fn estimated_utxo_size(self) -> usize {
+        match self {
+            Self::Mainnet => 11_000_000,
+            Self::Preview => 3_000_000,
+            Self::Preprod => 4_000_000,
+            Self::Testnet(..) => 1,
+        }
+    }
 }
 
 #[cfg(any(test, feature = "test-utils"))]

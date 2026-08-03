@@ -17,17 +17,21 @@ use crate::events::TelemetryRecord;
 pub const BOOTSTRAP_TARGET: &str = "amaru::bootstrap";
 pub const CONSENSUS_TARGET: &str = "amaru::consensus";
 pub const LEDGER_TARGET: &str = "amaru::ledger";
+pub const MEMPOOL_TARGET: &str = "amaru::mempool";
 pub const PROTOCOLS_TARGET: &str = "amaru::protocols";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TelemetryEvent {
     BootstrapPotsImport,
+    EpochTransitionApply,
+    EpochTransitionCompute,
+    EpochTransitionRecord,
     GovernanceActivityUpdate,
     GovernanceEnacting,
     GovernanceRatifying,
     KeepaliveRoundTrip,
+    MempoolStateUpdate,
     NewGovernanceUpdates,
-    NonEmptyBlock,
     PeerConnected,
     PeerDisconnected,
     PotsLoad,
@@ -39,6 +43,10 @@ pub enum TelemetryEvent {
     ProtocolUpgrade,
     RatificationSummarize,
     RewardsSummarize,
+    StakeDistributionInitialBegin,
+    StakeDistributionInitialProgress,
+    StakeDistributionInitialReady,
+    StateSwitchToFork,
     StakeSnapshot,
     TipUpdate,
 }
@@ -47,11 +55,18 @@ impl TelemetryEvent {
     pub fn from_record(record: &TelemetryRecord) -> Option<Self> {
         match (record.target.as_str(), record.name.as_str()) {
             (LEDGER_TARGET, "tip.update") => Some(Self::TipUpdate),
+            (LEDGER_TARGET, "stake_distribution.initial_begin") => Some(Self::StakeDistributionInitialBegin),
+            (LEDGER_TARGET, "stake_distribution.initial_progress") => Some(Self::StakeDistributionInitialProgress),
+            (LEDGER_TARGET, "stake_distribution.initial_ready") => Some(Self::StakeDistributionInitialReady),
             (LEDGER_TARGET, "stake_distribution.snapshot") => Some(Self::StakeSnapshot),
             (LEDGER_TARGET, "rewards.summarize") => Some(Self::RewardsSummarize),
-            (LEDGER_TARGET, "non_empty_block.found") => Some(Self::NonEmptyBlock),
             (LEDGER_TARGET, "pots.load") => Some(Self::PotsLoad),
+            (LEDGER_TARGET, "state.switch_to_fork") => Some(Self::StateSwitchToFork),
+            (LEDGER_TARGET, "epoch_transition.compute") => Some(Self::EpochTransitionCompute),
+            (LEDGER_TARGET, "epoch_transition.record") => Some(Self::EpochTransitionRecord),
+            (LEDGER_TARGET, "epoch_transition.apply") => Some(Self::EpochTransitionApply),
             (BOOTSTRAP_TARGET, "pots.import") => Some(Self::BootstrapPotsImport),
+            (MEMPOOL_TARGET, "state.update") => Some(Self::MempoolStateUpdate),
             (PROTOCOLS_TARGET, "keepalive.peer.round_trip") => Some(Self::KeepaliveRoundTrip),
             (PROTOCOLS_TARGET, "peer_selection.peer.connected") => Some(Self::PeerConnected),
             (PROTOCOLS_TARGET, "peer_selection.peer.disconnected") => Some(Self::PeerDisconnected),

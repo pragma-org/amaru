@@ -16,7 +16,7 @@ use amaru_kernel::{Slot, TransactionId};
 use amaru_metrics::mempool::{
     MempoolMetricEvent, MempoolMetrics, TxEvictedReason, TxInsertionOrigin, TxInsertionResult,
 };
-use amaru_observability::trace_record;
+use amaru_observability::{debug_record, info, trace_record};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{MempoolState, TxInsertResult, TxOrigin, TxRejectReason};
 
@@ -24,10 +24,14 @@ use crate::effects::{Metrics, MetricsOps};
 
 /// Add traces for a transaction that is candidate for mempool insertion.
 pub(super) fn emit_tx_received(tx_id: &TransactionId, origin: &TxOrigin) {
-    trace_record!(mempool::transaction::RECEIVED, tx_id = tx_id, origin = tx_origin_label(origin));
+    debug_record!(mempool::transaction::RECEIVED, tx_id = tx_id, origin = tx_origin_label(origin));
     if let TxOrigin::Remote(peer) = origin {
-        trace_record!(mempool::transaction::RECEIVED_DETAIL, tx_id = tx_id, peer = peer);
+        debug_record!(mempool::transaction::RECEIVED_DETAIL, tx_id = tx_id, peer = peer);
     }
+}
+
+fn emit_state(mempool_state: MempoolState) {
+    info!(mempool::state::UPDATE, tx_count = mempool_state.tx_count, size_bytes = mempool_state.size_bytes);
 }
 
 /// Add a trace to register the result of a mempool insertion (successful or not).
@@ -71,6 +75,7 @@ pub(super) async fn record_insert(
         MempoolMetricEvent::TxInsertion { origin: tx_origin_metric(origin), result: insertion_result_metric(result) },
     )
     .await;
+    emit_state(mempool_state);
 }
 
 /// When a new tip is adopted, add a trace recording the result of the transactions revalidations,
@@ -104,6 +109,7 @@ pub(super) async fn record_revalidation(
 
     emit_metrics(mempool_state, metrics, MempoolMetricEvent::Revalidated { duration_micros: outcome.duration_micros })
         .await;
+    emit_state(mempool_state);
 }
 
 pub(super) struct RevalidationOutcome {

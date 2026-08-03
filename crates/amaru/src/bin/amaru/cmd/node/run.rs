@@ -29,7 +29,7 @@ use amaru::{
     metrics::track_system_metrics,
     version,
 };
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, protocol_version};
+use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::METRICS_METER_NAME;
 use amaru_node::{
@@ -44,10 +44,7 @@ use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
-use amaru_tui::{
-    Config as TuiConfig, ConfigEntry as TuiConfigEntry, ConfigSection as TuiConfigSection, ProcessInfo,
-    StartupContext as TuiStartupContext,
-};
+use amaru_tui as tui;
 use anyhow::anyhow;
 use clap::{self, ArgAction, Parser};
 use opentelemetry::metrics::MeterProvider;
@@ -138,11 +135,12 @@ pub struct Args {
     /// Comma-separated rolling windows used by the embedded terminal dashboard.
     #[arg(
         long,
-        env = amaru::env_vars::TUI_WINDOWS,
+        env = amaru::env_vars::TUI_TIME_WINDOWS,
         value_name = "DURATION[,DURATION...]",
         help_heading = "TUI",
+        value_delimiter = ',',
     )]
-    tui_windows: Option<String>,
+    tui_windows: Option<Vec<tui::TimeWindow>>,
 
     /// Upstream peer addresses to synchronize from.
     ///
@@ -288,39 +286,24 @@ impl Args {
         &self.listen_address
     }
 
-    pub fn no_tui(&self) -> bool {
-        self.no_tui
-    }
-
-    pub fn tui_windows(&self) -> Option<&str> {
-        self.tui_windows.as_deref()
-    }
-
-    pub fn tui_startup_context(&self) -> TuiStartupContext {
-        let protocol_parameters = self.network.as_protocol_parameters();
-        let protocol_version = protocol_parameters
-            .map(|parameters| protocol_version::fmt(&parameters.protocol_version))
-            .unwrap_or_else(|| "unknown".to_string());
-
-        let trusted_peers = self.trusted_peers();
+    pub fn tui_settings(&self) -> tui::Settings {
         let global_parameters = self.effective_global_parameters();
 
-        TuiStartupContext {
-            process: ProcessInfo {
-                network: self.network.to_string(),
-                software_version: version::display_version().to_string(),
-                target: format!("{}/{}", version::target_os(), version::target_arch()),
-            },
-            protocol_version,
-            epoch_length: global_parameters.epoch_length(),
-            active_slot_coeff_inverse: global_parameters.active_slot_coeff_inverse,
-            max_lovelace_supply: global_parameters.max_lovelace_supply,
-            system_start_millis: global_parameters.system_start,
-            trusted_peers,
-            runtime_sections: self.runtime_config_sections(),
-            global_sections: self.global_config_sections(&global_parameters),
-            protocol_sections: self.protocol_config_sections(protocol_parameters),
-        }
+        tui::Settings::new(
+            self.no_tui,
+            self.tui_windows.clone(),
+            tui::StartupContext::new(
+                self.network.to_string(),
+                version::display_version(),
+                format!("{}/{}", version::target_os(), version::target_arch()),
+                MempoolConfig::default().max_bytes,
+                &global_parameters,
+                self.network.as_protocol_parameters(),
+                self.network.as_era_history().cloned().or_else(|| load_era_history(self.era_history.as_deref()).ok()),
+                self.trusted_peers(),
+                tui::ConfigSection::from_runtime_settings(self),
+            ),
+        )
     }
 
     fn effective_global_parameters(&self) -> GlobalParameters {
@@ -334,280 +317,58 @@ impl Args {
             self.peer_address.iter().cloned().collect()
         }
     }
+}
 
-    fn runtime_config_sections(&self) -> Vec<TuiConfigSection> {
-        vec![
-            TuiConfigSection::new(
-                "Storage and Chain",
-                vec![
-                    config_entry(
-                        "chain dir",
-                        "--chain-dir",
-                        amaru::env_vars::CHAIN_DIR,
-                        self.chain_dir.as_deref().map(path_value).unwrap_or_else(|| default_chain_dir(self.network)),
-                    ),
-                    config_entry(
-                        "ledger dir",
-                        "--ledger-dir",
-                        amaru::env_vars::LEDGER_DIR,
-                        self.ledger_dir.as_deref().map(path_value).unwrap_or_else(|| default_ledger_dir(self.network)),
-                    ),
-                    config_entry(
-                        "migrate chain db",
-                        "--migrate-chain-db",
-                        amaru::env_vars::MIGRATE_CHAIN_DB,
-                        bool_value(self.migrate_chain_db),
-                    ),
-                    config_entry(
-                        "extra ledger snapshots",
-                        "--max-extra-ledger-snapshots",
-                        amaru::env_vars::MAX_EXTRA_LEDGER_SNAPSHOTS,
-                        self.max_extra_ledger_snapshots.to_string(),
-                    ),
-                    config_entry(
-                        "era history",
-                        "--era-history",
-                        amaru::env_vars::ERA_HISTORY,
-                        self.era_history.as_deref().map(path_value).unwrap_or_else(|| era_history_value(self.network)),
-                    ),
-                ],
+impl tui::RuntimeSettingsSource for Args {
+    fn value_for(&self, id: &str) -> Option<String> {
+        let global_parameters = self.effective_global_parameters();
+
+        match id {
+            "network" => Some(self.network.to_string()),
+            "chain_dir" => {
+                Some(self.chain_dir.as_deref().map(path_value).unwrap_or_else(|| default_chain_dir(self.network)))
+            }
+            "migrate_chain_db" => Some(self.migrate_chain_db.to_string()),
+            "ledger_dir" => {
+                Some(self.ledger_dir.as_deref().map(path_value).unwrap_or_else(|| default_ledger_dir(self.network)))
+            }
+            "listen_address" => Some(self.listen_address.clone()),
+            "submit_api_address" => Some(self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string())),
+            "no_tui" => Some(self.no_tui.to_string()),
+            "tui_windows" => Some(
+                self.tui_windows
+                    .as_deref()
+                    .map(tui::format_windows)
+                    .unwrap_or_else(|| tui::format_windows(&tui::Config::default().windows)),
             ),
-            TuiConfigSection::new(
-                "Networking",
-                vec![
-                    config_entry("network", "--network", amaru::env_vars::NETWORK, self.network.to_string()),
-                    config_entry(
-                        "listen address",
-                        "--listen-address",
-                        amaru::env_vars::LISTEN_ADDRESS,
-                        self.listen_address.clone(),
-                    ),
-                    config_entry(
-                        "submit api",
-                        "--submit-api-address",
-                        amaru::env_vars::SUBMIT_API_ADDRESS,
-                        self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string()),
-                    ),
-                    config_entry(
-                        "peer address",
-                        "--peer-address",
-                        amaru::env_vars::PEER_ADDRESS,
-                        peer_addresses_value(self),
-                    ),
-                    config_entry(
-                        "peer snapshot",
-                        "--peer-snapshot",
-                        amaru::env_vars::PEER_SNAPSHOT,
-                        peer_snapshot_value(self),
-                    ),
-                    config_entry(
-                        "upstream peers",
-                        "--upstream-peers",
-                        amaru::env_vars::UPSTREAM_PEERS,
-                        self.upstream_peers.to_string(),
-                    ),
-                    config_entry(
-                        "downstream peers",
-                        "--downstream-peers",
-                        amaru::env_vars::DOWNSTREAM_PEERS,
-                        self.downstream_peers.to_string(),
-                    ),
-                    config_entry(
-                        "peer cooldown",
-                        "--peer-removal-cooldown-secs",
-                        amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-                        format!("{}s", self.peer_removal_cooldown_secs),
-                    ),
-                ],
-            ),
-            TuiConfigSection::new(
-                "Process and Observability",
-                vec![
-                    config_entry("no tui", "--no-tui", amaru::env_vars::NO_TUI, bool_value(self.no_tui)),
-                    config_entry(
-                        "tui windows",
-                        "--tui-windows",
-                        amaru::env_vars::TUI_WINDOWS,
-                        self.tui_windows.clone().unwrap_or_else(default_tui_windows_value),
-                    ),
-                    config_entry(
-                        "pid file",
-                        "--pid-file",
-                        amaru::env_vars::PID_FILE,
-                        self.pid_file.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string()),
-                    ),
-                    config_entry(
-                        "trace buffer",
-                        "--trace-buffer",
-                        amaru::env_vars::TRACE_BUFFER,
-                        self.trace_buffer.clone().unwrap_or_else(|| "disabled".to_string()),
-                    ),
-                    config_entry(
-                        "dump trace buffer",
-                        "--dump-trace-buffer",
-                        amaru::env_vars::DUMP_TRACE_BUFFER,
-                        self.dump_trace_buffer.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string()),
-                    ),
-                ],
-            ),
-        ]
+            "peer_address" => Some(peer_addresses_value(self)),
+            "peer_snapshot" => Some(peer_snapshot_value(self)),
+            "upstream_peers" => Some(self.upstream_peers.to_string()),
+            "downstream_peers" => Some(self.downstream_peers.to_string()),
+            "max_extra_ledger_snapshots" => Some(self.max_extra_ledger_snapshots.to_string()),
+            "peer_removal_cooldown_secs" => Some(self.peer_removal_cooldown_secs.to_string()),
+            "pid_file" => Some(self.pid_file.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string())),
+            "trace_buffer" => Some(self.trace_buffer.clone().unwrap_or_else(|| "disabled".to_string())),
+            "dump_trace_buffer" => {
+                Some(self.dump_trace_buffer.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string()))
+            }
+            "era_history" => {
+                Some(self.era_history.as_deref().map(path_value).unwrap_or_else(|| era_history_value(self.network)))
+            }
+            "consensus_security_param" => Some(global_parameters.consensus_security_param.to_string()),
+            "epoch_length_scale_factor" => Some(global_parameters.epoch_length_scale_factor.to_string()),
+            "active_slot_coeff_inverse" => Some(global_parameters.active_slot_coeff_inverse.to_string()),
+            "max_lovelace_supply" => Some(global_parameters.max_lovelace_supply.to_string()),
+            "slots_per_kes_period" => Some(global_parameters.slots_per_kes_period.to_string()),
+            "max_kes_evolution" => Some(global_parameters.max_kes_evolution.to_string()),
+            "system_start" => Some(global_parameters.system_start.to_string()),
+            _ => None,
+        }
     }
-
-    fn global_config_sections(&self, global_parameters: &GlobalParameters) -> Vec<TuiConfigSection> {
-        vec![TuiConfigSection::new(
-            "Global Parameters",
-            vec![
-                config_entry(
-                    "security param k",
-                    "--consensus-security-param",
-                    "AMARU_GLOBAL_CONSENSUS_SECURITY_PARAM",
-                    global_parameters.consensus_security_param.to_string(),
-                ),
-                config_entry(
-                    "epoch length factor",
-                    "--epoch-length-scale-factor",
-                    "AMARU_GLOBAL_EPOCH_LENGTH_SCALE_FACTOR",
-                    global_parameters.epoch_length_scale_factor.to_string(),
-                ),
-                config_entry(
-                    "active slot coeff inverse",
-                    "--active-slot-coeff-inverse",
-                    "AMARU_GLOBAL_ACTIVE_SLOT_COEFF_INVERSE",
-                    global_parameters.active_slot_coeff_inverse.to_string(),
-                ),
-                config_entry(
-                    "max lovelace supply",
-                    "--max-lovelace-supply",
-                    "AMARU_GLOBAL_MAX_LOVELACE_SUPPLY",
-                    global_parameters.max_lovelace_supply.to_string(),
-                ),
-                config_entry(
-                    "slots per KES period",
-                    "--slots-per-kes-period",
-                    "AMARU_GLOBAL_SLOTS_PER_KES_PERIOD",
-                    global_parameters.slots_per_kes_period.to_string(),
-                ),
-                config_entry(
-                    "max KES evolution",
-                    "--max-kes-evolution",
-                    "AMARU_GLOBAL_MAX_KES_EVOLUTION",
-                    global_parameters.max_kes_evolution.to_string(),
-                ),
-                config_entry(
-                    "system start",
-                    "--system-start",
-                    "AMARU_GLOBAL_SYSTEM_START",
-                    global_parameters.system_start.to_string(),
-                ),
-            ],
-        )]
-    }
-
-    fn protocol_config_sections(
-        &self,
-        protocol_parameters: Option<&amaru_kernel::ProtocolParameters>,
-    ) -> Vec<TuiConfigSection> {
-        let Some(protocol_parameters) = protocol_parameters else {
-            return Vec::default();
-        };
-
-        vec![
-            TuiConfigSection::new(
-                "Protocol Parameters · Network",
-                vec![
-                    label_entry("max block body size", protocol_parameters.max_block_body_size.to_string()),
-                    label_entry("max transaction size", protocol_parameters.max_transaction_size.to_string()),
-                    label_entry("max block header size", protocol_parameters.max_block_header_size.to_string()),
-                    label_entry("max tx ex units", protocol_parameters.max_tx_ex_units.to_string()),
-                    label_entry("max block ex units", protocol_parameters.max_block_ex_units.to_string()),
-                    label_entry("max value size", protocol_parameters.max_value_size.to_string()),
-                    label_entry("max collateral inputs", protocol_parameters.max_collateral_inputs.to_string()),
-                ],
-            ),
-            TuiConfigSection::new(
-                "Protocol Parameters · Economic",
-                vec![
-                    label_entry("min fee a", protocol_parameters.min_fee_a.to_string()),
-                    label_entry("min fee b", protocol_parameters.min_fee_b.to_string()),
-                    label_entry("stake credential deposit", protocol_parameters.stake_credential_deposit.to_string()),
-                    label_entry("stake pool deposit", protocol_parameters.stake_pool_deposit.to_string()),
-                    label_entry("monetary expansion", protocol_parameters.monetary_expansion_rate.to_string()),
-                    label_entry("treasury expansion", protocol_parameters.treasury_expansion_rate.to_string()),
-                    label_entry("min pool cost", protocol_parameters.min_pool_cost.to_string()),
-                    label_entry("lovelace per UTxO byte", protocol_parameters.lovelace_per_utxo_byte.to_string()),
-                    label_entry("prices", protocol_parameters.prices.to_string()),
-                    label_entry("collateral percentage", protocol_parameters.collateral_percentage.to_string()),
-                    label_entry(
-                        "ref script fee per byte",
-                        protocol_parameters.min_fee_ref_script_lovelace_per_byte.to_string(),
-                    ),
-                    label_entry(
-                        "max ref script size per tx",
-                        protocol_parameters.max_ref_script_size_per_tx.to_string(),
-                    ),
-                    label_entry(
-                        "max ref script size per block",
-                        protocol_parameters.max_ref_script_size_per_block.to_string(),
-                    ),
-                    label_entry("ref script stride", protocol_parameters.ref_script_cost_stride.to_string()),
-                    label_entry("ref script multiplier", protocol_parameters.ref_script_cost_multiplier.to_string()),
-                ],
-            ),
-            TuiConfigSection::new(
-                "Protocol Parameters · Governance",
-                vec![
-                    label_entry(
-                        "pool max retirement epoch",
-                        protocol_parameters.stake_pool_max_retirement_epoch.to_string(),
-                    ),
-                    label_entry("optimal stake pools", protocol_parameters.optimal_stake_pools_count.to_string()),
-                    label_entry("pledge influence", protocol_parameters.pledge_influence.to_string()),
-                    label_entry("min committee size", protocol_parameters.min_committee_size.to_string()),
-                    label_entry("max committee term length", protocol_parameters.max_committee_term_length.to_string()),
-                    label_entry("gov action lifetime", protocol_parameters.gov_action_lifetime.to_string()),
-                    label_entry("gov action deposit", protocol_parameters.gov_action_deposit.to_string()),
-                    label_entry("drep deposit", protocol_parameters.drep_deposit.to_string()),
-                    label_entry("drep expiry", protocol_parameters.drep_expiry.to_string()),
-                ],
-            ),
-        ]
-    }
-}
-
-fn config_entry(
-    label: &'static str,
-    option: &'static str,
-    env_var: &'static str,
-    value: impl Into<String>,
-) -> TuiConfigEntry {
-    TuiConfigEntry::new(label, Some(option), Some(env_var), value)
-}
-
-fn label_entry(label: &'static str, value: impl Into<String>) -> TuiConfigEntry {
-    TuiConfigEntry::new(label, None, None, value)
-}
-
-fn bool_value(value: bool) -> &'static str {
-    if value { "true" } else { "false" }
-}
-
-fn default_tui_windows_value() -> String {
-    TuiConfig::default().windows.iter().map(|window| format_window(*window)).collect::<Vec<_>>().join(", ")
 }
 
 fn era_history_value(network: NetworkName) -> String {
     if network.as_era_history().is_some() { format!("builtin for {network}") } else { "not set".to_string() }
-}
-
-fn format_window(duration: Duration) -> String {
-    let seconds = duration.as_secs();
-    if seconds < 60 {
-        format!("{seconds}s")
-    } else if seconds < 3_600 {
-        format!("{}m", seconds / 60)
-    } else {
-        format!("{}h", seconds / 3_600)
-    }
 }
 
 fn path_value(path: &Path) -> String {

@@ -46,7 +46,7 @@ use crate::{
         self,
         block::{BlockValidation, TransactionInvalid},
     },
-    startup::{Database as StartupDatabase, Hook as StartupHook},
+    startup::{Database as StartupDatabase, StartupHook},
     state::volatile::{
         AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
@@ -161,7 +161,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
-        on_startup: Option<&dyn StartupHook<S>>,
+        on_startup: Option<StartupHook<S>>,
     ) -> Result<Self, StoreError> {
         let protocol_parameters = stable.protocol_parameters()?;
 
@@ -170,12 +170,12 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
         let governance_activity = stable.governance_activity()?;
 
-        let stake_distributions = initial_stake_distributions(&snapshots, &era_history)?;
+        let stake_distributions = initial_stake_distributions(network, &snapshots, &era_history)?;
 
         let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
 
         if let Some(on_startup) = on_startup {
-            on_startup.on_startup(&StartupDatabase::new(&stable, epoch, &protocol_parameters))?;
+            on_startup(&StartupDatabase::new(&stable, epoch, &protocol_parameters, &era_history))?;
         }
 
         Ok(Self::new_with(
@@ -491,6 +491,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             let tasks = BackgroundTasks {
                 snapshots: self.snapshots.clone(),
                 epoch: current_epoch,
+                network: self.network,
                 global_parameters: self.global_parameters().clone(),
                 protocol_parameters: self.protocol_parameters().clone(),
                 era_history: self.era_history().clone(),
@@ -807,6 +808,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             slot = slot,
             header_hash = point.hash(),
             block_height = metrics.block_height,
+            tx_count = block.transaction_bodies.len(),
             epoch = epoch,
             slot_in_epoch = slot_in_epoch,
             density = metrics.density,
@@ -832,26 +834,36 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let blocks = blocks.into_iter();
         let count = blocks.len();
 
-        info_span!(ledger::state::SWITCH_TO_FORK, fork_point = *fork_point, fork_length = count).in_scope(|| {
+        info_span!(
+            ledger::state::SWITCH_TO_FORK,
+            fork_point = *fork_point,
+            fork_length = count,
+            rollback_length = 0usize
+        )
+        .in_scope(|| {
             let recover = match self.rollback_to(fork_point) {
-                Ok(state_recovery) => move |st: &mut Self| {
-                    let immutable_tip = st.immutable_tip();
+                Ok(state_recovery) => {
+                    Span::current().record("rollback_length", state_recovery.rollback_length());
 
-                    assert_eq!(
-                        immutable_tip, state_recovery.immutable_tip,
-                        "cannot recover: immutable tip moved from {} to {} during the replay",
-                        state_recovery.immutable_tip, immutable_tip,
-                    );
+                    move |st: &mut Self| {
+                        let immutable_tip = st.immutable_tip();
 
-                    match state_recovery.kind {
-                        StateRecovery::RecoverWholeVolatileDB { volatile } => {
-                            st.volatile = *volatile;
-                        }
-                        StateRecovery::RecoverVolatileDBPart { recovery } => {
-                            st.volatile.undo_rollback(*recovery);
+                        assert_eq!(
+                            immutable_tip, state_recovery.immutable_tip,
+                            "cannot recover: immutable tip moved from {} to {} during the replay",
+                            state_recovery.immutable_tip, immutable_tip,
+                        );
+
+                        match state_recovery.kind {
+                            StateRecovery::RecoverWholeVolatileDB { volatile } => {
+                                st.volatile = *volatile;
+                            }
+                            StateRecovery::RecoverVolatileDBPart { recovery } => {
+                                st.volatile.undo_rollback(*recovery);
+                            }
                         }
                     }
-                },
+                }
 
                 Err(error) => return BlockValidation::Err(error.into()),
             };
@@ -996,6 +1008,7 @@ where
 // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
 // the ongoing epoch, not yet finished (and so, not available as snapshot).
 pub fn initial_stake_distributions<HS>(
+    network: NetworkName,
     snapshots: &HS,
     era_history: &EraHistory,
 ) -> Result<VecDeque<StakeDistribution>, StoreError>
@@ -1004,22 +1017,48 @@ where
 {
     use rayon::prelude::*;
 
-    let latest_epoch = snapshots.most_recent_snapshot();
-    let epoch_for_leader_schedule = latest_epoch.checked_sub(Epoch::ONE);
+    let epochs = {
+        let latest_epoch = snapshots.most_recent_snapshot();
+        let epoch_for_leader_schedule = latest_epoch.checked_sub(Epoch::ONE);
+        [Some(latest_epoch), epoch_for_leader_schedule].into_iter().flatten().collect::<Vec<_>>()
+    };
 
-    [Some(latest_epoch), epoch_for_leader_schedule]
+    for epoch in &epochs {
+        info!(ledger::stake_distribution::INITIAL_BEGIN, epoch = *epoch);
+    }
+
+    let stake_distributions = epochs
         .into_iter()
-        .filter_map(|epoch| epoch.map(|e| snapshots.for_epoch(e)))
+        .map(|epoch| snapshots.for_epoch(epoch))
         .collect::<Result<Vec<_>, _>>()?
         .into_par_iter()
-        .map(|snapshot| compute_stake_summary(&snapshot, era_history).map(|summary| summary.stake_distribution))
+        .map(|snapshot| {
+            let epoch = snapshot.epoch();
+            compute_stake_summary(&snapshot, network, era_history, |progress| {
+                info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch = epoch, progress);
+            })
+            .map(|summary| summary.stake_distribution)
+        })
         .collect::<Result<VecDeque<_>, _>>()
-        .map_err(|err| StoreError::Internal(err.into()))
+        .map_err(|err| StoreError::Internal(err.into()))?;
+
+    info!(
+        ledger::stake_distribution::INITIAL_READY,
+        epochs = display_collection(stake_distributions.iter().map(|distribution| distribution.epoch)),
+    );
+
+    Ok(stake_distributions)
 }
 
-fn compute_stake_summary(snapshot: &impl Snapshot, era_history: &EraHistory) -> Result<StakeSummary, StateError> {
+fn compute_stake_summary(
+    snapshot: &impl Snapshot,
+    network: NetworkName,
+    era_history: &EraHistory,
+    notify: impl FnMut(f64),
+) -> Result<StakeSummary, StateError> {
     info_span!(ledger::stake_distribution::COMPUTE, epoch = snapshot.epoch(),).in_scope(|| {
-        StakeSummary::new(snapshot, GovernanceSummary::new(snapshot, era_history)?).map_err(StateError::Storage)
+        StakeSummary::new(snapshot, GovernanceSummary::new(snapshot, era_history)?, network, notify)
+            .map_err(StateError::Storage)
     })
 }
 
@@ -1044,6 +1083,7 @@ fn pool_summaries_for<'iter>(stake_distributions: impl Iterator<Item = &'iter St
 struct BackgroundTasks<HS: HistoricalStores> {
     snapshots: Arc<HS>,
     epoch: Epoch,
+    network: NetworkName,
     global_parameters: GlobalParameters,
     protocol_parameters: ProtocolParameters,
     era_history: EraHistory,
@@ -1068,7 +1108,7 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
             .unwrap_or(true);
 
         if should_push_summary {
-            let distr = compute_stake_summary(&snapshot, &self.era_history)?.stake_distribution;
+            let distr = compute_stake_summary(&snapshot, self.network, &self.era_history, |_| {})?.stake_distribution;
 
             let mut stake_distributions = self.stake_distributions.lock().unwrap();
 
@@ -1102,8 +1142,12 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
             using_stake_distribution_from_epoch = stake_distribution_from
         )
         .in_scope(|| {
-            let stake_distribution =
-                compute_stake_summary(&self.snapshots.for_epoch(stake_distribution_from)?, &self.era_history)?;
+            let stake_distribution = compute_stake_summary(
+                &self.snapshots.for_epoch(stake_distribution_from)?,
+                self.network,
+                &self.era_history,
+                |_| {},
+            )?;
 
             let previous_epoch = self.snapshots.for_epoch(self.epoch - 1)?;
 
@@ -1190,6 +1234,12 @@ struct RollbackGuard<'a> {
     kind: StateRecovery<'a>,
 }
 
+impl RollbackGuard<'_> {
+    fn rollback_length(&self) -> usize {
+        self.kind.rollback_length()
+    }
+}
+
 #[derive(Debug)]
 enum StateRecovery<'a> {
     /// A rollback to the immutable tip cleared the whole window; the entire pre-rollback volatile
@@ -1197,6 +1247,15 @@ enum StateRecovery<'a> {
     RecoverWholeVolatileDB { volatile: Box<VolatileDB> },
     /// A rollback within the volatile window; only the discarded parts are captured.
     RecoverVolatileDBPart { recovery: Box<volatile::RollbackGuard<'a>> },
+}
+
+impl StateRecovery<'_> {
+    fn rollback_length(&self) -> usize {
+        match self {
+            Self::RecoverWholeVolatileDB { volatile } => volatile.len(),
+            Self::RecoverVolatileDBPart { recovery } => recovery.rollback_length(),
+        }
+    }
 }
 
 // Errors

@@ -24,7 +24,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
 use amaru_ledger::{
-    startup::{EmitTelemetry, Hook as StartupHook},
+    startup::{StartupHook, with_startup_hook},
     state::State,
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
@@ -117,7 +117,7 @@ pub fn build_node(
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
     // Make the ledger state and get its tip
-    let state = make_state(&config.ledger_config, Some(&EmitTelemetry))?;
+    let state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
     let ledger_tip = state.tip().into_owned();
     tracing::info!(
         tip.hash = %ledger_tip.hash(),
@@ -261,7 +261,7 @@ pub fn make_block_validator(
 
 pub fn make_state(
     config: &LedgerConfig,
-    on_startup: Option<&dyn StartupHook<RocksDB>>,
+    on_startup: Option<StartupHook<RocksDB>>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
     let store = RocksDB::new(&config.ledger_store)?;
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));

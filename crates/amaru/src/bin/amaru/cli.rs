@@ -17,7 +17,7 @@ use amaru::{
     observability::{Color, ObservabilityHints},
 };
 use amaru_kernel::GlobalParameters;
-use amaru_tui::StartupContext as TuiStartupContext;
+use amaru_tui as tui;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::cmd;
@@ -77,12 +77,6 @@ pub(crate) enum Command {
 
     #[command(hide = true, name = "dump-traces-schema")]
     LegacyDumpTracesSchema(cmd::dev::traces::dump::Args),
-}
-
-pub(crate) struct TuiSettings {
-    pub(crate) no_tui: bool,
-    pub(crate) windows: Option<String>,
-    pub(crate) startup: TuiStartupContext,
 }
 
 impl Command {
@@ -146,15 +140,11 @@ impl Command {
     }
 
     #[allow(clippy::wildcard_enum_match_arm)]
-    pub(crate) fn tui_settings(&self) -> Option<TuiSettings> {
+    pub(crate) fn tui_settings(&self) -> Option<tui::Settings> {
         match self {
             Command::Node(cmd::node::NodeCommand::Run(args))
             | Command::LegacyRun(args)
-            | Command::LegacyDaemon(args) => Some(TuiSettings {
-                no_tui: args.no_tui(),
-                windows: args.tui_windows().map(ToOwned::to_owned),
-                startup: args.tui_startup_context(),
-            }),
+            | Command::LegacyDaemon(args) => Some(args.tui_settings()),
             _ => None,
         }
     }

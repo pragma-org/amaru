@@ -18,30 +18,39 @@ use ratatui::{
 };
 use tracing::Level;
 
-use crate::model::LevelFilter;
+use crate::model::{InteractionMode, LevelFilter};
 
-pub(super) fn accent_primary() -> Color {
-    Color::Rgb(110, 228, 150)
+pub(super) fn accent_primary(mode: InteractionMode) -> Color {
+    match mode {
+        InteractionMode::Normal => Color::Rgb(110, 228, 150),
+        InteractionMode::Copy => Color::Rgb(96, 171, 255),
+    }
 }
 
-pub(super) fn block_title(title: &str) -> Line<'static> {
+pub(super) fn block_title(mode: InteractionMode, title: &str) -> Line<'static> {
     Line::from(vec![
-        Span::styled("─ ", emphasis_primary()),
-        Span::styled(title.to_string(), emphasis_primary()),
-        Span::styled(" ─", emphasis_primary()),
+        Span::styled("─ ", border_secondary(mode)),
+        Span::styled(title.to_string(), emphasis_primary(mode)),
+        Span::styled(" ─", border_secondary(mode)),
     ])
 }
 
-pub(super) fn border_primary() -> Style {
-    Style::default().fg(Color::Rgb(80, 156, 105))
+pub(super) fn border_primary(mode: InteractionMode) -> Style {
+    match mode {
+        InteractionMode::Normal => Style::default().fg(Color::Rgb(80, 156, 105)),
+        InteractionMode::Copy => Style::default().fg(Color::Rgb(71, 126, 186)),
+    }
 }
 
-pub(super) fn border_secondary() -> Style {
-    Style::default().fg(Color::Rgb(57, 108, 75))
+pub(super) fn border_secondary(mode: InteractionMode) -> Style {
+    match mode {
+        InteractionMode::Normal => Style::default().fg(Color::Rgb(57, 108, 75)),
+        InteractionMode::Copy => Style::default().fg(Color::Rgb(50, 92, 141)),
+    }
 }
 
-pub(super) fn emphasis_primary() -> Style {
-    Style::default().fg(accent_primary()).add_modifier(Modifier::BOLD)
+pub(super) fn emphasis_primary(mode: InteractionMode) -> Style {
+    Style::default().fg(accent_primary(mode)).add_modifier(Modifier::BOLD)
 }
 
 pub(super) fn emphasis_white() -> Style {
@@ -81,11 +90,10 @@ pub(super) fn style_for_level(level: Level) -> Style {
 
 pub(super) fn style_for_level_filter(filter: LevelFilter) -> Style {
     match filter {
-        LevelFilter::All => emphasis_white(),
-        LevelFilter::Error => style_for_level(Level::ERROR),
-        LevelFilter::Warn => style_for_level(Level::WARN),
-        LevelFilter::Info => style_for_level(Level::INFO),
         LevelFilter::Debug => style_for_level(Level::DEBUG),
+        LevelFilter::Info => style_for_level(Level::INFO),
+        LevelFilter::Warn => style_for_level(Level::WARN),
+        LevelFilter::Error => style_for_level(Level::ERROR),
     }
 }
 
@@ -93,6 +101,11 @@ pub(super) fn style_for_target(_target: &str) -> Style {
     Style::default().fg(muted_color())
 }
 
-pub(super) fn table_header_style() -> Style {
-    Style::default().fg(Color::Rgb(246, 250, 247)).bg(Color::Rgb(22, 48, 33)).add_modifier(Modifier::BOLD)
+pub(super) fn table_header_style(mode: InteractionMode) -> Style {
+    let background = match mode {
+        InteractionMode::Normal => Color::Rgb(22, 48, 33),
+        InteractionMode::Copy => Color::Rgb(19, 39, 68),
+    };
+
+    Style::default().fg(Color::Rgb(246, 250, 247)).bg(background).add_modifier(Modifier::BOLD)
 }

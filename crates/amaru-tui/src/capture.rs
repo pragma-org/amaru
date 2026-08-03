@@ -41,9 +41,7 @@ impl TracingLayer {
     fn emit(&self, record: TelemetryRecord) {
         match self.tx.try_send(Message::Telemetry(record)) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
-                let _ = self.tx.try_send(Message::DroppedTelemetry);
-            }
+            Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => {}
         }
     }

@@ -14,7 +14,9 @@
 
 use std::{collections::BTreeMap, ops::Deref};
 
-use amaru_kernel::{DRep, Epoch, HasLovelace, Hash, Lovelace, PoolId, StakeCredential, expect_stake_credential};
+use amaru_kernel::{
+    DRep, Epoch, HasLovelace, Hash, Lovelace, NetworkName, PoolId, StakeCredential, expect_stake_credential,
+};
 use amaru_observability::info;
 use serde::ser::SerializeStruct;
 
@@ -89,6 +91,8 @@ pub struct StakeDistribution {
     pub dreps: BTreeMap<DRep, DRepState>,
 }
 
+const PROGRESS_BATCH_SIZE: usize = 1_000;
+
 impl StakeSummary {
     /// Compute a new stake summary snapshot using data available in the `Store`.
     ///
@@ -96,6 +100,8 @@ impl StakeSummary {
     pub fn new(
         db: &impl Snapshot,
         GovernanceSummary { mut dreps, pools_deposits, dreps_deposits }: GovernanceSummary,
+        network: NetworkName,
+        mut notify: impl FnMut(f64),
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
         let stake_pool_deposit = db.protocol_parameters()?.stake_pool_deposit;
@@ -156,16 +162,34 @@ impl StakeSummary {
             })
             .collect::<BTreeMap<StakeCredential, AccountState>>();
 
-        // TODO: This is the most expensive call in this whole function. It could be made
-        // significantly cheaper if we only partially deserialize the UTxOs here. We only need the
-        // output's address and *lovelace* value, so we can skip on deserializing the rest of the value, as
-        // well as the datum and/or script references if any.
+        let accounts_len = accounts.len();
+        let total_work = network.estimated_utxo_size().saturating_add(accounts_len.saturating_mul(2)).max(1);
+        let progress_after_accounts = (accounts_len as f64 / total_work as f64).clamp(0.0, 1.0);
+        notify(progress_after_accounts);
+
+        let mut processed_utxos = 0_usize;
+        let mut last_reported_utxos = 0_usize;
+        let mut notify_progress = |processed_utxos: usize| {
+            let progress =
+                ((accounts_len.saturating_add(processed_utxos)) as f64 / total_work as f64).clamp(0.0, 0.999);
+            notify(progress);
+        };
+
         db.iter_utxos()?.for_each(|(_, output)| {
             if let Some(credential) = output.delegate() {
                 let balance = output.lovelace();
                 accounts.entry(credential).and_modify(|account| account.balance += balance);
             }
+
+            processed_utxos += 1;
+            if processed_utxos.saturating_sub(last_reported_utxos) >= PROGRESS_BATCH_SIZE {
+                last_reported_utxos = processed_utxos;
+                notify_progress(processed_utxos);
+            }
         });
+        if processed_utxos != last_reported_utxos {
+            notify_progress(processed_utxos);
+        }
 
         let mut active_stake: Lovelace = 0;
         let mut pools_voting_stake: Lovelace = 0;

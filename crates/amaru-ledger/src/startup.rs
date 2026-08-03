@@ -12,24 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, GovernanceAction, ProtocolParameters, protocol_version};
+use amaru_kernel::{Epoch, EraHistory, GovernanceAction, ProtocolParameters, protocol_version};
 use amaru_observability::info;
 
 use crate::store::{self, ReadStore, StoreError};
 
-pub trait Hook<S: ReadStore> {
-    fn on_startup(&self, database: &Database<'_, S>) -> Result<(), StoreError>;
-}
+pub type StartupHook<S> = fn(&Database<'_, S>) -> Result<(), StoreError>;
 
 pub struct Database<'a, S: ReadStore> {
     stable: &'a S,
     epoch: Epoch,
     protocol_parameters: &'a ProtocolParameters,
+    era_history: &'a EraHistory,
 }
 
 impl<'a, S: ReadStore> Database<'a, S> {
-    pub(crate) fn new(stable: &'a S, epoch: Epoch, protocol_parameters: &'a ProtocolParameters) -> Self {
-        Self { stable, epoch, protocol_parameters }
+    pub(crate) fn new(
+        stable: &'a S,
+        epoch: Epoch,
+        protocol_parameters: &'a ProtocolParameters,
+        era_history: &'a EraHistory,
+    ) -> Self {
+        Self { stable, epoch, protocol_parameters, era_history }
     }
 
     pub fn epoch(&self) -> Epoch {
@@ -38,6 +42,10 @@ impl<'a, S: ReadStore> Database<'a, S> {
 
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         self.protocol_parameters
+    }
+
+    pub fn era_history(&self) -> &EraHistory {
+        self.era_history
     }
 
     pub fn pots(&self) -> Result<store::columns::pots::Row, StoreError> {
@@ -52,15 +60,15 @@ impl<'a, S: ReadStore> Database<'a, S> {
     }
 }
 
-pub struct EmitTelemetry;
+pub fn with_startup_hook<S: ReadStore>(database: &Database<'_, S>) -> Result<(), StoreError> {
+    emit_protocol_parameters(database);
+    emit_current_pots(database)?;
+    emit_active_proposals(database)?;
+    Ok(())
+}
 
-impl<S: ReadStore> Hook<S> for EmitTelemetry {
-    fn on_startup(&self, database: &Database<'_, S>) -> Result<(), StoreError> {
-        emit_protocol_parameters(database);
-        emit_current_pots(database)?;
-        emit_active_proposals(database)?;
-        Ok(())
-    }
+pub fn no_startup_hook<S: ReadStore>(_: &Database<'_, S>) -> Result<(), StoreError> {
+    Ok(())
 }
 
 fn emit_protocol_parameters<S: ReadStore>(database: &Database<'_, S>) {
@@ -104,11 +112,28 @@ fn emit_active_proposals<S: ReadStore>(database: &Database<'_, S>) -> Result<(),
     for (id, row) in database.iter_proposals()? {
         let proposal_kind = proposal_kind(&row.proposal.gov_action);
         let detail = proposal_detail(&row.proposal.gov_action);
+        let proposed_in = database
+            .era_history()
+            .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
+            .map_err(|error| StoreError::Internal(Box::new(error)))?;
 
         if let Some(detail) = detail {
-            info!(ledger::proposal::ACTIVE, id = id.to_string(), proposal_kind, valid_until = row.valid_until, detail,);
+            info!(
+                ledger::proposal::ACTIVE,
+                id = id.to_string(),
+                proposal_kind,
+                proposed_in,
+                valid_until = row.valid_until,
+                detail,
+            );
         } else {
-            info!(ledger::proposal::ACTIVE, id = id.to_string(), proposal_kind, valid_until = row.valid_until,);
+            info!(
+                ledger::proposal::ACTIVE,
+                id = id.to_string(),
+                proposal_kind,
+                proposed_in,
+                valid_until = row.valid_until,
+            );
         }
     }
 

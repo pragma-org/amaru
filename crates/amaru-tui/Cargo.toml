@@ -16,6 +16,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+amaru-kernel.workspace = true
+clap.workspace = true
 crossterm.workspace = true
 libc.workspace = true
 ratatui.workspace = true

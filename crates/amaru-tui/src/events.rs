@@ -128,5 +128,4 @@ pub struct SystemSample {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Telemetry(TelemetryRecord),
-    DroppedTelemetry,
 }

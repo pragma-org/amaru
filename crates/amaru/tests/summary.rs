@@ -86,7 +86,7 @@ fn compare_stake_distribution_with_haskell_node(
 
     let dreps = GovernanceSummary::new(snapshot.as_ref(), era_history)?;
 
-    let stake_summary = StakeSummary::new(snapshot.as_ref(), dreps)?;
+    let stake_summary = StakeSummary::new(snapshot.as_ref(), dreps, network, |_| {})?;
 
     assert_json_snapshot(network, epoch, &stake_summary)
 }
@@ -122,7 +122,7 @@ fn measure_new_snapshot_summary_memory() -> Result<(), Box<dyn std::error::Error
 
     let (mut summary, summary_rss_mib) = memory::rss_delta(|| {
         let governance = GovernanceSummary::new(&snapshot, era_history).unwrap_or_else(|e| panic!("{e}"));
-        StakeSummary::new(&snapshot, governance).unwrap_or_else(|e| panic!("{e}"))
+        StakeSummary::new(&snapshot, governance, network, |_| {}).unwrap_or_else(|e| panic!("{e}"))
     });
     let summary_allocated_bytes =
         GLOBAL_ALLOCATOR.current_allocated_bytes().saturating_sub(allocated_before.current_allocated_bytes);

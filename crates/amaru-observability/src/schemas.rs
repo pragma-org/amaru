@@ -204,6 +204,7 @@ define_schemas! {
                 public SWITCH_TO_FORK {
                     required fork_point: amaru_kernel::Point
                     required fork_length: usize
+                    required rollback_length: usize
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}
@@ -214,6 +215,7 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required header_hash: amaru_kernel::HeaderHash
                     required block_height: u64
+                    required tx_count: usize
                     required epoch: amaru_kernel::Epoch
                     required slot_in_epoch: amaru_kernel::Slot
                     required density: f64
@@ -222,6 +224,19 @@ define_schemas! {
                 }
             }
             stake_distribution {
+                /// Start computing one of the initial stake distributions loaded on startup
+                public INITIAL_BEGIN {
+                    required epoch: amaru_kernel::Epoch
+                }
+                /// Report progress for one of the initial stake distributions loaded on startup
+                public INITIAL_PROGRESS {
+                    required epoch: amaru_kernel::Epoch
+                    required progress: f64
+                }
+                /// Finished computing all initial stake distributions loaded on startup
+                public INITIAL_READY {
+                    required epochs: String
+                }
                 /// Compute stake distribution for epoch
                 public COMPUTE {
                     required epoch: amaru_kernel::Epoch
@@ -609,6 +624,7 @@ define_schemas! {
                 public ACTIVE {
                     required id: String
                     required proposal_kind: String
+                    required proposed_in: amaru_kernel::Epoch
                     required valid_until: amaru_kernel::Epoch
                     optional detail: String
                 }
@@ -1258,6 +1274,13 @@ define_schemas! {
             }
         }
         mempool {
+            state {
+                /// Compact view of the mempool occupancy for terminal dashboards.
+                public UPDATE {
+                    required tx_count: u64
+                    required size_bytes: u64
+                }
+            }
             transaction {
                 /// Transaction received by the mempool stage, before validation.
                 public RECEIVED {

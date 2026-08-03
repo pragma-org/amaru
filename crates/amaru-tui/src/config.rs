@@ -12,11 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{fmt, str::FromStr, time::Duration};
+
+use amaru_kernel::utils::duration::{format_duration_short, parse_duration};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TimeWindow(Duration);
+
+impl TimeWindow {
+    pub const fn from_secs(secs: u64) -> Self {
+        Self(Duration::from_secs(secs))
+    }
+
+    pub fn as_duration(self) -> Duration {
+        self.0
+    }
+}
+
+impl fmt::Display for TimeWindow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&format_duration_short(self.0))
+    }
+}
+
+impl FromStr for TimeWindow {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        parse_duration(raw).map(Self)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    pub windows: Vec<Duration>,
+    pub windows: Vec<TimeWindow>,
     pub log_capacity: usize,
     pub proposal_capacity: usize,
     pub sample_interval: Duration,
@@ -28,7 +57,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            windows: vec![Duration::from_secs(60), Duration::from_secs(600), Duration::from_secs(3600)],
+            windows: vec![TimeWindow::from_secs(300), TimeWindow::from_secs(3_600), TimeWindow::from_secs(21_600)],
             log_capacity: 1_024,
             proposal_capacity: 24,
             sample_interval: Duration::from_secs(1),
@@ -40,61 +69,13 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn with_windows(self, windows: Vec<Duration>) -> Self {
+    pub fn with_windows(self, windows: Vec<TimeWindow>) -> Self {
         Self { windows, ..self }
     }
 }
 
-pub fn parse_windows(raw: &str) -> Result<Vec<Duration>, String> {
-    let mut windows = Vec::new();
-
-    for item in raw.split(',').map(str::trim).filter(|item| !item.is_empty()) {
-        windows.push(parse_duration(item)?);
-    }
-
-    if windows.is_empty() {
-        return Err("at least one window must be provided".into());
-    }
-
-    windows.sort_unstable();
-    windows.dedup();
-
-    Ok(windows)
-}
-
-pub fn format_duration_short(duration: Duration) -> String {
-    let seconds = duration.as_secs();
-    if seconds < 60 {
-        format!("{seconds}s")
-    } else if seconds < 3_600 {
-        format!("{}m", seconds / 60)
-    } else {
-        format!("{}h", seconds / 3_600)
-    }
-}
-
-fn parse_duration(raw: &str) -> Result<Duration, String> {
-    let split = raw.find(|c: char| !c.is_ascii_digit()).unwrap_or(raw.len());
-    let (digits, unit) = raw.split_at(split);
-
-    if digits.is_empty() {
-        return Err(format!("invalid duration '{raw}': missing number"));
-    }
-
-    let value = digits.parse::<u64>().map_err(|_| format!("invalid duration '{raw}': invalid number"))?;
-
-    let duration = match unit {
-        "" | "s" | "sec" | "secs" | "second" | "seconds" => Duration::from_secs(value),
-        "m" | "min" | "mins" | "minute" | "minutes" => Duration::from_secs(value.saturating_mul(60)),
-        "h" | "hr" | "hrs" | "hour" | "hours" => Duration::from_secs(value.saturating_mul(3_600)),
-        _ => return Err(format!("invalid duration '{raw}': unsupported unit '{unit}'")),
-    };
-
-    if duration.is_zero() {
-        return Err(format!("invalid duration '{raw}': zero is not allowed"));
-    }
-
-    Ok(duration)
+pub fn format_windows(windows: &[TimeWindow]) -> String {
+    windows.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
 #[cfg(test)]
@@ -102,22 +83,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_duration_list() {
-        assert_eq!(
-            parse_windows("30s, 1min, 6h").unwrap(),
-            vec![Duration::from_secs(30), Duration::from_secs(60), Duration::from_secs(21_600)]
-        );
+    fn parses_time_window() {
+        assert_eq!("30s".parse::<TimeWindow>().unwrap(), TimeWindow::from_secs(30));
+        assert_eq!("1min".parse::<TimeWindow>().unwrap(), TimeWindow::from_secs(60));
+        assert_eq!("6h".parse::<TimeWindow>().unwrap(), TimeWindow::from_secs(21_600));
     }
 
     #[test]
-    fn rejects_empty_list() {
-        assert!(parse_windows(" , ").is_err());
-    }
-
-    #[test]
-    fn formats_durations() {
-        assert_eq!(format_duration_short(Duration::from_secs(30)), "30s");
-        assert_eq!(format_duration_short(Duration::from_secs(300)), "5m");
-        assert_eq!(format_duration_short(Duration::from_secs(7_200)), "2h");
+    fn formats_time_window() {
+        assert_eq!(TimeWindow::from_secs(30).to_string(), "30s");
+        assert_eq!(TimeWindow::from_secs(300).to_string(), "5min");
+        assert_eq!(TimeWindow::from_secs(7_200).to_string(), "2h");
     }
 }

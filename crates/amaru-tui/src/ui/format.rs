@@ -83,8 +83,3 @@ pub(super) fn format_ratio(left: u64, right: u64) -> String {
 pub(super) fn format_slot_ratio(slot: u64, target: Option<u64>) -> String {
     target.map(|target| format_ratio(slot, target)).unwrap_or_else(|| format_count(slot))
 }
-
-pub(super) fn target_slot(system_start_millis: u64) -> Option<u64> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as u64;
-    Some(now.saturating_sub(system_start_millis) / 1_000)
-}
