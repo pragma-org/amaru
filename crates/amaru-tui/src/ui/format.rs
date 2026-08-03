@@ -32,6 +32,30 @@ pub(super) fn aligned_pair_lines(entries: Vec<(&'static str, String)>) -> Vec<Li
         .collect()
 }
 
+pub(super) fn format_secs_frequency(frequency: f64) -> String {
+    if frequency == 0.0 {
+        return "none so far".to_string();
+    }
+
+    if frequency >= 1.0 {
+        return format!("{} per second", frequency.round());
+    }
+
+    if frequency >= 1.0 / 60.0 {
+        return format!("1 every {} second", (1.0 / frequency).round());
+    }
+
+    if frequency >= 1.0 / 3600.0 {
+        return format!("1 every {} minutes", (1.0 / (frequency * 60.0)).round());
+    }
+
+    if frequency >= 1.0 / 86.400 {
+        return format!("1 every {} days", (1.0 / (frequency * 3600.0)).round());
+    }
+
+    format!("1 every {} hours", (1.0 / (frequency * 86400.0)).round())
+}
+
 pub(super) fn format_count(value: impl TryInto<u64>) -> String {
     let value = value.try_into().ok().unwrap_or_default();
     let digits = value.to_string();

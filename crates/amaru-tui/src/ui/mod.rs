@@ -38,6 +38,7 @@ use crate::{
     config::TimeWindow,
     model::{InteractionMode, LevelFilter, Model, Page, PeerState, ScrollFocus, TargetFilter},
     startup::ConfigSection,
+    ui::format::format_secs_frequency,
 };
 
 mod format;
@@ -50,7 +51,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
     views.reset();
 
     let is_ready = model.is_ready(now);
-    let progress_height = u16::from(model.tip.is_some()) * 2;
+    let progress_height = u16::from(model.tip.is_some()) * 3;
     let shell = shell_block(model, is_ready);
     let shell_area = frame.area();
     let inner = shell.inner(shell_area);
@@ -78,52 +79,44 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
         return;
     }
 
-    let available_height = inner.height.saturating_sub(progress_height);
     let show_logs = model.page != Page::Config;
 
     if show_logs {
-        let max_content_height = available_height.saturating_sub(10);
-        let desired_content_height = if is_ready { page_content_height(model) } else { max_content_height };
-        let content_height = desired_content_height.min(max_content_height);
-        let log_height = available_height.saturating_sub(content_height);
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(content_height),
-                Constraint::Length(log_height),
                 Constraint::Length(progress_height),
+                Constraint::Length(page_content_height(model)),
+                Constraint::Fill(1),
             ])
             .split(inner);
 
+        if progress_height > 0 {
+            render_epoch_progress(frame, layout[0], model);
+        }
+
         if is_ready {
             match model.page {
-                Page::Amaru => render_amaru(frame, layout[0], model, views, now),
-                Page::Cardano => render_cardano(frame, layout[0], model, views, now),
-                Page::Config => render_config(frame, layout[0], model, views),
+                Page::Amaru => render_amaru(frame, layout[1], model, views, now),
+                Page::Cardano => render_cardano(frame, layout[1], model, views, now),
+                Page::Config => render_config(frame, layout[1], model, views),
             }
         } else {
-            render_splash(frame, layout[0], model);
+            render_splash(frame, layout[1], model);
         }
 
-        render_logs(frame, layout[1], model, views);
-
-        if progress_height > 0 {
-            render_epoch_progress(frame, layout[2], model);
-        }
+        render_logs(frame, layout[2], model, views);
     } else {
+        let available_height = inner.height;
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(available_height), Constraint::Length(progress_height)])
+            .constraints([Constraint::Length(available_height)])
             .split(inner);
 
         if is_ready {
             render_config(frame, layout[0], model, views);
         } else {
             render_splash(frame, layout[0], model);
-        }
-
-        if progress_height > 0 {
-            render_epoch_progress(frame, layout[1], model);
         }
     }
 }
@@ -136,7 +129,7 @@ fn shell_block(model: &Model, is_ready: bool) -> Block<'static> {
             .title_top(page_tabs_line(model).left_aligned())
             .title_top(shell_title(model).centered())
             .title_top(window_controls_line(model).right_aligned())
-            .title_bottom(shell_hint(model).left_aligned())
+            .title_bottom(shell_hint(model).right_aligned())
     } else {
         block.title_top(shell_title(model).centered())
     }
@@ -196,74 +189,10 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Vi
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(7),
-            Constraint::Length(7),
-            Constraint::Min(peers_panel_height(model).max(mempool_panel_height())),
+            Constraint::Length(6),
+            Constraint::Length(peers_panel_height(model).max(mempool_panel_height())),
         ])
         .split(area);
-
-    let cards = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(24), Constraint::Percentage(20), Constraint::Percentage(56)])
-        .split(layout[0]);
-
-    render_card(
-        frame,
-        cards[0],
-        "Node",
-        aligned_pair_lines(vec![
-            ("Version", model.startup.process.software_version.clone()),
-            ("Target", model.startup.process.target.clone()),
-            ("Protocol", model.protocol_version.clone()),
-            ("Uptime", format_duration(now.duration_since(model.created_at))),
-        ]),
-        model.interaction_mode,
-    );
-
-    let block_rate = blocks_per_second(model, now);
-    let transaction_rate = transactions_per_second(model, now);
-    render_card(
-        frame,
-        cards[1],
-        "Throughput",
-        aligned_pair_lines(vec![
-            ("Blocks", format_count(model.blocks_in_window(now))),
-            ("Txs", format_count(model.transactions_in_window(now))),
-            ("Blocks/s", format!("{block_rate:.2}")),
-            ("Tx/s", format!("{transaction_rate:.2}")),
-        ]),
-        model.interaction_mode,
-    );
-
-    render_card(
-        frame,
-        cards[2],
-        "Chain quality",
-        aligned_pair_lines(vec![
-            (
-                "Last block",
-                model
-                    .last_block_elapsed(now)
-                    .map(|duration| format!("{} ago", format_duration(duration)))
-                    .unwrap_or_else(|| "—".into()),
-            ),
-            (
-                "Chain Density",
-                model
-                    .tip
-                    .as_ref()
-                    .map(|tip| format_density(tip.density, model.startup.active_slot_coeff_inverse))
-                    .unwrap_or_else(|| "—".into()),
-            ),
-            (
-                "Avg rollback",
-                model
-                    .average_rollback_length(now)
-                    .map(|value| format!("{value:.1} blocks"))
-                    .unwrap_or_else(|| "—".into()),
-            ),
-        ]),
-        model.interaction_mode,
-    );
 
     let charts = Layout::default()
         .direction(Direction::Horizontal)
@@ -273,7 +202,7 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Vi
             Constraint::Percentage(25),
             Constraint::Percentage(25),
         ])
-        .split(layout[1]);
+        .split(layout[0]);
     render_series_card(
         frame,
         charts[0],
@@ -300,6 +229,87 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Vi
         sample_disk_write_kib(model),
         "KiB/s",
         disk_write_detail(model),
+        model.interaction_mode,
+    );
+
+    let cards = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Fill(1), Constraint::Fill(1), Constraint::Fill(1), Constraint::Fill(1)])
+        .split(layout[1]);
+
+    render_card(
+        frame,
+        cards[0],
+        "Node",
+        aligned_pair_lines(vec![
+            ("Network", model.startup.process.network.clone()),
+            ("Platform", model.startup.process.target.clone()),
+            ("Protocol", model.protocol_version.clone()),
+            ("Uptime", format_duration(now.duration_since(model.created_at))),
+        ]),
+        model.interaction_mode,
+    );
+
+    let block_rate = blocks_per_second(model, now);
+    let transaction_rate = transactions_per_second(model, now);
+
+    render_card(
+        frame,
+        cards[1],
+        "Throughput",
+        aligned_pair_lines(vec![
+            ("Blocks", format_count(model.blocks_in_window(now))),
+            ("Blocks/s", format!("{block_rate:.2}")),
+            ("Txs", format_count(model.transactions_in_window(now))),
+            ("Tx/s", format!("{transaction_rate:.2}")),
+        ]),
+        model.interaction_mode,
+    );
+
+    if let Some(tip) = &model.tip {
+        render_card(
+            frame,
+            cards[2],
+            "Last Block",
+            aligned_pair_lines(vec![
+                ("Hash", tip.header_hash.chars().take(12).collect()),
+                ("Slot", format_slot_ratio(tip.slot, model.startup.target_slot())),
+                ("Height", format_count(tip.block_height)),
+                (
+                    "When",
+                    model
+                        .last_block_elapsed(now)
+                        .map(|duration| format!("{} ago", format_duration(duration)))
+                        .unwrap_or_else(|| "—".into()),
+                ),
+            ]),
+            model.interaction_mode,
+        );
+    }
+
+    render_card(
+        frame,
+        cards[3],
+        "Chain quality",
+        aligned_pair_lines(vec![
+            ("Chain Growth", "-".into()),
+            (
+                "Chain Density",
+                model
+                    .tip
+                    .as_ref()
+                    .map(|tip| format_density(tip.density, model.startup.active_slot_coeff_inverse))
+                    .unwrap_or_else(|| "—".into()),
+            ),
+            (
+                "Rollback depth",
+                model
+                    .average_rollback_length(now)
+                    .map(|value| if value == 1.0 { "~1 block".into() } else { format!("~{value:.1} blocks") })
+                    .unwrap_or_else(|| "—".into()),
+            ),
+            ("Rollback freq.", model.rollback_frequency(now).map(format_secs_frequency).unwrap_or_else(|| "—".into())),
+        ]),
         model.interaction_mode,
     );
 
@@ -333,12 +343,7 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut 
 
     let cards = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(22),
-            Constraint::Percentage(22),
-            Constraint::Percentage(20),
-            Constraint::Percentage(36),
-        ])
+        .constraints([Constraint::Fill(1), Constraint::Fill(1), Constraint::Fill(1), Constraint::Fill(1)])
         .split(layout[0]);
 
     render_card(
@@ -436,26 +441,11 @@ fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
     let epoch_length = model.startup.epoch_length.max(1);
     let slot_in_epoch = tip.slot_in_epoch.min(epoch_length);
     let ratio = slot_in_epoch as f64 / epoch_length as f64;
+
     let block = Block::default()
         .title_top(
             border_title_line(
-                vec![
-                    Span::styled("Epoch", emphasis_primary(model.interaction_mode)),
-                    Span::raw(" "),
-                    Span::styled(format_count(tip.epoch), emphasis_white()),
-                    Span::raw(" · "),
-                    Span::styled("Slot", emphasis_primary(model.interaction_mode)),
-                    Span::raw(" "),
-                    Span::styled(format_slot_ratio(tip.slot, model.startup.target_slot()), emphasis_white()),
-                    Span::raw(" · "),
-                    Span::styled("Height", emphasis_primary(model.interaction_mode)),
-                    Span::raw(" "),
-                    Span::styled(format_count(tip.block_height), emphasis_white()),
-                    Span::raw(" · "),
-                    Span::styled("Hash", emphasis_primary(model.interaction_mode)),
-                    Span::raw(" "),
-                    Span::styled(tip.header_hash.clone(), emphasis_white()),
-                ],
+                vec![Span::styled("Epoch", emphasis_primary(model.interaction_mode))],
                 model.interaction_mode,
                 false,
             )
@@ -469,11 +459,13 @@ fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
             )
             .right_aligned(),
         )
-        .borders(Borders::TOP)
+        .borders(Borders::ALL)
         .border_style(border_primary(model.interaction_mode));
+
     let inner = block.inner(area);
 
     frame.render_widget(block, area);
+
     render_gradient_progress_bar(frame, inner, ratio, &format_ratio(slot_in_epoch, epoch_length));
 }
 
@@ -979,11 +971,6 @@ fn shell_title(model: &Model) -> Line<'static> {
             Span::styled("AMARU", emphasis_primary(model.interaction_mode)),
             Span::raw("  "),
             Span::styled(model.startup.process.software_version.clone(), emphasis_white()),
-            Span::raw("  "),
-            Span::styled(
-                format!("network={}", model.startup.process.network),
-                emphasis_primary(model.interaction_mode),
-            ),
         ],
         model.interaction_mode,
         false,
@@ -993,7 +980,10 @@ fn shell_title(model: &Model) -> Line<'static> {
 fn shell_hint(model: &Model) -> Line<'static> {
     if model.is_copy_mode() {
         return border_title_line(
-            vec![Span::styled("<esc>", emphasis_primary(model.interaction_mode)), Span::styled("return", muted())],
+            vec![
+                Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
+                Span::styled(" NORMAL MODE", muted()),
+            ],
             model.interaction_mode,
             false,
         );
@@ -1001,22 +991,22 @@ fn shell_hint(model: &Model) -> Line<'static> {
 
     border_title_line(
         vec![
-            Span::styled("<q>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" quit  ", muted()),
-            Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" copy  ", muted()),
-            Span::styled("<tab>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" next  ", muted()),
-            Span::styled("<S-tab>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" prev  ", muted()),
-            Span::styled("<←→>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" focus  ", muted()),
-            Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" scroll  ", muted()),
-            Span::styled("<enter>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" max  ", muted()),
             Span::styled("<mouse>", emphasis_primary(model.interaction_mode)),
-            Span::styled(" navigate ", muted()),
+            Span::styled(" NAVIGATE  ", muted()),
+            Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" COPY MODE  ", muted()),
+            Span::styled("<tab>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" NEXT  ", muted()),
+            Span::styled("<S-tab>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" PREV  ", muted()),
+            Span::styled("<←→>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" FOCUS  ", muted()),
+            Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" SCROLL  ", muted()),
+            Span::styled("<enter>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" MAXIMIZE  ", muted()),
+            Span::styled("<q>", emphasis_primary(model.interaction_mode)),
+            Span::styled(" QUIT", muted()),
         ],
         model.interaction_mode,
         false,
@@ -1132,7 +1122,7 @@ fn blit_buffer(frame: &mut Frame<'_>, area: Rect, source: &Buffer, scroll: usize
 }
 
 fn button_label(label: &str) -> String {
-    format!("[ {label} ]")
+    format!("[ {} ]", label.to_uppercase())
 }
 
 fn window_label(window: &TimeWindow) -> String {
@@ -1151,26 +1141,22 @@ fn border_title_line(spans: Vec<Span<'static>>, mode: InteractionMode, focused: 
 
 fn page_content_height(model: &Model) -> u16 {
     match model.page {
-        Page::Amaru => 14 + peers_panel_height(model).max(mempool_panel_height()),
+        Page::Amaru => 13 + peers_panel_height(model).max(mempool_panel_height()),
         Page::Cardano => 7 + proposals_panel_height(model),
         Page::Config => config_panel_height(model),
     }
 }
 
 fn peers_panel_height(model: &Model) -> u16 {
-    panel_height(model.peers.len(), 4, 10)
+    3 + model.peers.len().min(10) as u16
 }
 
 fn proposals_panel_height(model: &Model) -> u16 {
-    panel_height(model.proposal_order.len(), 4, 10)
-}
-
-fn panel_height(rows: usize, min_rows: usize, max_rows: usize) -> u16 {
-    rows.clamp(min_rows, max_rows).saturating_add(3) as u16
+    3 + model.proposal_order.len().min(10) as u16
 }
 
 fn mempool_panel_height() -> u16 {
-    6
+    4
 }
 
 fn config_panel_height(model: &Model) -> u16 {
@@ -1351,7 +1337,7 @@ fn render_splash_progress(
         let (ratio, label) = if let Some(state) = progress_states.get(index) {
             (
                 state.progress.clamp(0.0, 1.0),
-                format!("Epoch {} · {:.0}%", format_count(state.epoch), state.progress * 100.0),
+                format!("Epoch {} ({:.0}%)", format_count(state.epoch), state.progress * 100.0),
             )
         } else {
             (0.0, "Pending...".to_string())

@@ -395,6 +395,15 @@ impl Model {
         (count > 0).then_some(total as f64 / count as f64)
     }
 
+    pub fn rollback_frequency(&self, now: Instant) -> Option<f64> {
+        let count =
+            self.recent_rollbacks.iter().filter(|(at, _)| now.duration_since(*at) <= self.current_window()).count();
+
+        let window = now.duration_since(self.created_at).max(self.current_window());
+
+        (window > Duration::ZERO).then_some(count as f64 / window.as_secs_f64())
+    }
+
     pub fn proposals(&self) -> impl Iterator<Item = &ProposalActivity> {
         self.proposal_order.iter().filter_map(|id| self.proposals_by_id.get(id))
     }
