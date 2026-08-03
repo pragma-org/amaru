@@ -62,6 +62,8 @@ Other guiding principles:
 - **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.
 - **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
 - **amaru**: metrics are now (also) exported through gRPC on `:4317` by default instead of `:4318` over HTTP.
+- **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
+- **amaru-ledger**: validate the governance actions a transaction votes on actually exist, counting proposals submitted earlier in the same block. ([#924][])
 
 ### Removed
 
@@ -272,6 +274,7 @@ Other guiding principles:
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#923]: https://github.com/pragma-org/amaru/issues/923
 [#928]: https://github.com/pragma-org/amaru/issues/928
+[#924]: https://github.com/pragma-org/amaru/issues/924
 [#929]: https://github.com/pragma-org/amaru/issues/929
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
