@@ -1,7 +1,1 @@
-{
-  "well_formed": true,
-  "era": "conway",
-  "network": "preprod",
-  "description": "duplicate metadatum map key",
-  "known_amaru_divergence": false
-}
+{"well_formed":true,"era":"conway","network":"preprod","description":"duplicate metadatum map key","exact_re_encoding":true,"known_amaru_divergence":true}

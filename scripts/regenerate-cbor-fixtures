@@ -116,6 +116,9 @@ with open(path, "w") as f:
         "description": desc,
         "source": source,
         "seed": int(seed),
+        # Positives declare the strict round-trip contract; negatives are expected to fail
+        # decoding, so exactness is meaningless for them.
+        "exact_re_encoding": well_formed == "true",
     }, f, separators=(",", ":"))
     f.write("\n")
 PY

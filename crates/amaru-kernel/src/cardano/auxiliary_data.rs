@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, PlutusScript, NULL_HASH32};
+use crate::{Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_HASH32, PlutusScript, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuxiliaryData {
@@ -249,7 +249,7 @@ mod tests {
     use test_case::test_case;
 
     use super::AuxiliaryData;
-    use crate::{from_cbor_no_leftovers, to_cbor, Hasher};
+    use crate::{Hasher, from_cbor_no_leftovers, to_cbor};
 
     // metadata = {721: 42}
     const METADATA: &str = "a11902d1182a";
