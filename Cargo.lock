@@ -223,6 +223,7 @@ dependencies = [
  "log",
  "memchr",
  "miniz_oxide",
+ "mio",
  "num",
  "num-bigint",
  "num-complex",

@@ -41,4 +41,16 @@ impl ScrollFocus {
             (Page::Config, focus) => focus,
         }
     }
+
+    pub fn previous_for(self, page: Page) -> Self {
+        match (page, self) {
+            (Page::Amaru, Self::Logs) => Self::Peers,
+            (Page::Amaru, Self::Peers) => Self::Logs,
+            (Page::Amaru, Self::Proposals) => Self::Logs,
+            (Page::Cardano, Self::Logs) => Self::Proposals,
+            (Page::Cardano, Self::Proposals) => Self::Logs,
+            (Page::Cardano, Self::Peers) => Self::Logs,
+            (Page::Config, focus) => focus,
+        }
+    }
 }

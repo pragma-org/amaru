@@ -244,6 +244,10 @@ impl Model {
         self.scroll_focus = self.scroll_focus.next_for(self.page);
     }
 
+    pub fn previous_scroll_focus(&mut self) {
+        self.scroll_focus = self.scroll_focus.previous_for(self.page);
+    }
+
     pub fn set_window(&mut self, index: usize) {
         if index < self.config.windows.len() {
             self.selected_window = index;
@@ -393,6 +397,26 @@ impl Model {
 
     pub fn proposals(&self) -> impl Iterator<Item = &ProposalActivity> {
         self.proposal_order.iter().filter_map(|id| self.proposals_by_id.get(id))
+    }
+
+    pub fn toggle_focused_pane(&mut self) -> bool {
+        match (self.page, self.scroll_focus) {
+            (Page::Amaru | Page::Cardano, ScrollFocus::Logs) => {
+                self.cycle_log_pane();
+                true
+            }
+            (Page::Amaru, ScrollFocus::Peers) => {
+                self.cycle_peer_pane();
+                true
+            }
+            (Page::Cardano, ScrollFocus::Proposals) => {
+                self.cycle_proposal_pane();
+                true
+            }
+            (Page::Amaru, ScrollFocus::Proposals)
+            | (Page::Cardano, ScrollFocus::Peers)
+            | (Page::Config, _) => false,
+        }
     }
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
@@ -709,24 +733,28 @@ impl Model {
             KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                 TerminalEventOutcome::Shutdown
             }
-            KeyCode::Tab | KeyCode::Right => {
+            KeyCode::Tab => {
                 self.next_page();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::BackTab | KeyCode::Left => {
+            KeyCode::BackTab => {
                 self.previous_page();
                 TerminalEventOutcome::Continue
             }
-            KeyCode::Char('f') => {
+            KeyCode::Right => {
                 self.next_scroll_focus();
                 TerminalEventOutcome::Continue
             }
+            KeyCode::Left => {
+                self.previous_scroll_focus();
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Enter => {
+                let _ = self.toggle_focused_pane();
+                TerminalEventOutcome::Continue
+            }
             KeyCode::Char('+') | KeyCode::Char('=') => {
-                match (self.page, self.scroll_focus) {
-                    (Page::Cardano, ScrollFocus::Proposals) => self.cycle_proposal_pane(),
-                    (Page::Amaru, ScrollFocus::Peers) => self.cycle_peer_pane(),
-                    _ => self.cycle_log_pane(),
-                }
+                let _ = self.toggle_focused_pane();
                 TerminalEventOutcome::Continue
             }
             KeyCode::Up => {
