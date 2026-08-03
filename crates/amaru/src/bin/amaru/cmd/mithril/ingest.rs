@@ -176,8 +176,9 @@ pub(super) async fn run(
     }
 
     let duration = Instant::now().saturating_duration_since(before);
-    let processed_per_seconds = processed as u64 / duration.as_secs().max(1);
-    info!(processed_per_seconds, processed, duration = duration.as_secs(), "Finished processing blocks");
+    let duration_seconds = duration.as_secs_f64();
+    let processed_per_seconds = processed as f64 / duration_seconds;
+    info!(processed_per_seconds, processed, duration = duration_seconds, "Finished processing blocks");
 
     Ok(())
 }

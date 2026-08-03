@@ -21,7 +21,7 @@ use amaru_kernel::NetworkName;
 use amaru_ledger::store::ReadStore;
 use amaru_mithril::{download_from_mithril, from_chunk_for_resume_point, get_latest_chunk};
 use amaru_progress_bar::TerminalProgressBar;
-use amaru_stores::rocksdb::{RocksDB, RocksDbConfig};
+use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use tracing::info;
 
 pub(super) async fn run(
@@ -34,7 +34,7 @@ pub(super) async fn run(
 
     let immutable_dir = target_dir.join("immutable");
 
-    let store = RocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
+    let store = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
     let tip = store.tip()?;
 
     let latest_chunk = get_latest_chunk(&immutable_dir)?;
