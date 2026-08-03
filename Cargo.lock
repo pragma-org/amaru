@@ -103,7 +103,6 @@ dependencies = [
  "hex",
  "include_dir",
  "indoc",
- "libc",
  "mimalloc",
  "minicbor",
  "opentelemetry",
@@ -673,6 +672,7 @@ version = "0.1.2"
 dependencies = [
  "amaru-kernel",
  "amaru-metrics",
+ "amaru-observability",
  "clap",
  "crossterm 0.29.0",
  "ratatui",

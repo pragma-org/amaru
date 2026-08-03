@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{mem::MaybeUninit, sync::LazyLock, time::Duration};
+use std::{sync::LazyLock, time::Duration};
 
 use amaru_metrics::{METRICS_METER_NAME, MetricRecorder, SystemMetrics, has_subscribers, notify_subscribers};
 use anyhow::anyhow;
@@ -65,7 +65,7 @@ pub fn track_system_metrics(
                     let metrics = SystemMetrics {
                         runtime_seconds: process.run_time(),
                         cpu_percent: process.cpu_usage() as f64 / number_of_cpus as f64,
-                        process_memory_bytes: process_memory_bytes(own_pid, process.memory()),
+                        process_memory_bytes: process.memory(),
                         rss_bytes: process.memory(),
                         virtual_bytes: process.virtual_memory(),
                         memory_used_bytes: sys.used_memory(),
@@ -132,18 +132,4 @@ fn record_build_info(provider: &SdkMeterProvider) {
     if let Some(patch) = version_parts.get(2).and_then(|v| v.split('-').next()?.parse::<u64>().ok()) {
         version_patch.record(patch, &[]);
     }
-}
-
-#[cfg(target_os = "macos")]
-fn process_memory_bytes(pid: sysinfo::Pid, fallback: u64) -> u64 {
-    let mut info = MaybeUninit::<libc::rusage_info_v4>::zeroed();
-    let result =
-        unsafe { libc::proc_pid_rusage(pid.as_u32() as libc::c_int, libc::RUSAGE_INFO_V4, info.as_mut_ptr().cast()) };
-
-    if result == 0 { unsafe { info.assume_init().ri_phys_footprint } } else { fallback }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn process_memory_bytes(_pid: sysinfo::Pid, fallback: u64) -> u64 {
-    fallback
 }

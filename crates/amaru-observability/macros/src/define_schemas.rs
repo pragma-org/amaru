@@ -29,8 +29,7 @@ use syn::Type;
 use crate::utils::{
     format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_assign_macro_name,
     make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_required_field_check_macro_name, make_schema_field_const_name,
-    make_schema_field_count_const_name, make_schema_public_const_name,
+    make_require_macro_name, make_required_field_check_macro_name,
 };
 
 // =============================================================================
@@ -146,6 +145,20 @@ impl Schema {
         let required = format_field_list(&self.required_fields);
         let optional = format_field_list(&self.optional_fields);
         format!("R|{required}|O|{optional}")
+    }
+
+    fn event_name(&self) -> String {
+        self.categories
+            .iter()
+            .skip(2)
+            .map(|part| part.to_lowercase())
+            .chain(std::iter::once(self.name.to_lowercase()))
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+
+    fn event_target(&self) -> String {
+        self.categories.iter().take(2).map(|part| part.as_str()).collect::<Vec<_>>().join("::")
     }
 }
 
@@ -733,6 +746,65 @@ fn format_field_list(fields: &[SchemaField]) -> String {
     fields.iter().map(|f| format_field_spec(&f.name, &f.ty)).collect::<Vec<_>>().join(",")
 }
 
+enum AccessorKind {
+    Bool,
+    F64,
+    I64,
+    U16,
+    U32,
+    U64,
+    Usize,
+    Str,
+}
+
+impl AccessorKind {
+    fn return_type(&self) -> proc_macro2::TokenStream {
+        match self {
+            Self::Bool => quote! { bool },
+            Self::F64 => quote! { f64 },
+            Self::I64 => quote! { i64 },
+            Self::U16 => quote! { u16 },
+            Self::U32 => quote! { u32 },
+            Self::U64 => quote! { u64 },
+            Self::Usize => quote! { usize },
+            Self::Str => quote! { &'record str },
+        }
+    }
+
+    fn optional_return_type(&self) -> proc_macro2::TokenStream {
+        let return_type = self.return_type();
+        quote! { ::std::option::Option<#return_type> }
+    }
+
+    fn trait_call(&self, field_name: &str) -> proc_macro2::TokenStream {
+        match self {
+            Self::Bool => quote! { ::amaru_observability::RecordFields::bool(record, #field_name) },
+            Self::F64 => quote! { ::amaru_observability::RecordFields::f64(record, #field_name) },
+            Self::I64 => quote! { ::amaru_observability::RecordFields::i64(record, #field_name) },
+            Self::U16 => quote! { ::amaru_observability::RecordFields::u16(record, #field_name) },
+            Self::U32 => quote! { ::amaru_observability::RecordFields::u32(record, #field_name) },
+            Self::U64 => quote! { ::amaru_observability::RecordFields::u64(record, #field_name) },
+            Self::Usize => quote! { ::amaru_observability::RecordFields::usize(record, #field_name) },
+            Self::Str => quote! { ::amaru_observability::RecordFields::str(record, #field_name) },
+        }
+    }
+}
+
+fn accessor_kind(field: &SchemaField) -> AccessorKind {
+    match field.ty.as_str() {
+        "bool" => AccessorKind::Bool,
+        "f64" => AccessorKind::F64,
+        "i64" => AccessorKind::I64,
+        "u16" => AccessorKind::U16,
+        "u32" => AccessorKind::U32,
+        "u64" => AccessorKind::U64,
+        "usize" => AccessorKind::Usize,
+        "String" => AccessorKind::Str,
+        "amaru_kernel::Epoch" | "amaru_kernel::Lovelace" | "amaru_kernel::Slot" => AccessorKind::U64,
+        _ => AccessorKind::Str,
+    }
+}
+
 // =============================================================================
 // Macro Generation
 // =============================================================================
@@ -1293,6 +1365,14 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
     }
 }
 
+fn record_fields_trait_path() -> proc_macro2::TokenStream {
+    if is_observability_lib() {
+        quote! { crate::RecordFields }
+    } else {
+        quote! { ::amaru_observability::RecordFields }
+    }
+}
+
 /// Generate global schema listing helper macros.
 fn generate_schema_help_macros(
     schema_paths: &[String],
@@ -1447,14 +1527,14 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
 }
 
 /// Recursively build minimal module structures (noop mode - no validation).
-fn build_modules_noop(tree: &BTreeMap<String, TreeNode>) -> Vec<proc_macro2::TokenStream> {
+fn build_modules_noop(tree: &BTreeMap<String, TreeNode>, config: &GenerationConfig) -> Vec<proc_macro2::TokenStream> {
     let mut modules = Vec::new();
 
     for (name, node) in tree {
         match node {
             TreeNode::Category { name: _, children } => {
                 let mod_ident = make_ident(name);
-                let child_modules = build_modules_noop(children);
+                let child_modules = build_modules_noop(children, config);
 
                 modules.push(quote! {
                     pub mod #mod_ident {
@@ -1463,17 +1543,7 @@ fn build_modules_noop(tree: &BTreeMap<String, TreeNode>) -> Vec<proc_macro2::Tok
                 });
             }
             TreeNode::Schema(schema) => {
-                let schema_ident = make_ident(&schema.name);
-                let schema_name_lowercase = schema.name.to_lowercase();
-                let public_const_name = make_schema_public_const_name(&schema.categories, &schema.name);
-                let public_const_ident = make_ident(&public_const_name);
-                let is_public = schema.public;
-
-                modules.push(quote! {
-                    pub const #schema_ident: &str = #schema_name_lowercase;
-                    #[doc(hidden)]
-                    pub const #public_const_ident: bool = #is_public;
-                });
+                modules.push(generate_schema_item(schema, config));
             }
         }
     }
@@ -1482,14 +1552,14 @@ fn build_modules_noop(tree: &BTreeMap<String, TreeNode>) -> Vec<proc_macro2::Tok
 }
 
 /// Recursively build module structures from the category tree.
-fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) -> Vec<proc_macro2::TokenStream> {
+fn build_modules(tree: &BTreeMap<String, TreeNode>, config: &GenerationConfig) -> Vec<proc_macro2::TokenStream> {
     let mut modules = Vec::new();
 
     for (name, node) in tree {
         match node {
             TreeNode::Category { name: _, children } => {
                 let mod_ident = make_ident(name);
-                let child_modules = build_modules(children, _config);
+                let child_modules = build_modules(children, config);
 
                 modules.push(quote! {
                     pub mod #mod_ident {
@@ -1498,36 +1568,91 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, _config: &GenerationConfig) 
                 });
             }
             TreeNode::Schema(schema) => {
-                let schema_ident = make_ident(&schema.name);
-                let schema_name_lowercase = schema.name.to_lowercase();
-                let validation_string = schema.validation_string();
-                let validation_const_name = make_schema_field_const_name(&schema.categories, &schema.name);
-                let validation_const_ident = make_ident(&validation_const_name);
-                let field_count_const_name = make_schema_field_count_const_name(&schema.categories, &schema.name);
-                let field_count_const_ident = make_ident(&field_count_const_name);
-                let public_const_name = make_schema_public_const_name(&schema.categories, &schema.name);
-                let public_const_ident = make_ident(&public_const_name);
-                let field_count = schema.required_fields.len() + schema.optional_fields.len();
-                let is_public = schema.public;
-
-                modules.push(quote! {
-                    pub const #schema_ident: &str = #schema_name_lowercase;
-
-                    /// Compile-time validation constant for the `debug_span!` macro.
-                    /// Format: R|required_field:type,...|O|optional_field:type,...
-                    pub const #validation_const_ident: &str = #validation_string;
-
-                    #[doc(hidden)]
-                    pub const #field_count_const_ident: usize = #field_count;
-
-                    #[doc(hidden)]
-                    pub const #public_const_ident: bool = #is_public;
-                });
+                modules.push(generate_schema_item(schema, config));
             }
         }
     }
 
     modules
+}
+
+fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
+    let schema_ident = make_ident(&schema.name);
+    let schema_name = schema.event_name();
+    let schema_target = schema.event_target();
+    let schema_path = schema.full_path();
+    let validation_string = schema.validation_string();
+    let field_count = schema.required_fields.len() + schema.optional_fields.len();
+    let is_public = schema.public;
+    let record_fields = record_fields_trait_path();
+
+    let accessors = if config.export_macros {
+        let required_accessors = schema.required_fields.iter().map(|field| {
+            let accessor_ident = make_ident(&field.name);
+            let field_name = field.name.as_str();
+            let accessor_kind = accessor_kind(field);
+            let return_type = accessor_kind.return_type();
+            let field_access = accessor_kind.trait_call(field_name);
+            let message =
+                format!("missing or invalid required field '{}' for schema {}", field_name, schema.full_path());
+
+            quote! {
+                pub fn #accessor_ident<'record, R>(record: &'record R) -> #return_type
+                where
+                    R: #record_fields + ?Sized,
+                {
+                    #field_access.expect(#message)
+                }
+            }
+        });
+
+        let optional_accessors = schema.optional_fields.iter().map(|field| {
+            let accessor_ident = make_ident(&field.name);
+            let field_name = field.name.as_str();
+            let accessor_kind = accessor_kind(field);
+            let return_type = accessor_kind.optional_return_type();
+            let field_access = accessor_kind.trait_call(field_name);
+
+            quote! {
+                pub fn #accessor_ident<'record, R>(record: &'record R) -> #return_type
+                where
+                    R: #record_fields + ?Sized,
+                {
+                    #field_access
+                }
+            }
+        });
+
+        quote! {
+            #(#required_accessors)*
+            #(#optional_accessors)*
+        }
+    } else {
+        quote! {}
+    };
+
+    quote! {
+        pub struct #schema_ident;
+
+        impl #schema_ident {
+            pub const NAME: &str = #schema_name;
+            pub const TARGET: &str = #schema_target;
+            pub const PATH: &str = #schema_path;
+            pub const VALIDATION: &str = #validation_string;
+
+            #[doc(hidden)]
+            pub const FIELD_COUNT: usize = #field_count;
+
+            #[doc(hidden)]
+            pub const PUBLIC: bool = #is_public;
+
+            pub fn matches(target: &str, name: &str) -> bool {
+                target == Self::TARGET && name == Self::NAME
+            }
+
+            #accessors
+        }
+    }
 }
 
 /// Collect category validators recursively.
@@ -1576,7 +1701,8 @@ fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
 
         // Generate only the module structure with constants (no validation macros)
         let tree = build_category_tree(&schemas);
-        let modules = build_modules_noop(&tree);
+        let config = GenerationConfig { export_macros };
+        let modules = build_modules_noop(&tree, &config);
         return quote! { #(#modules)* }.into();
     }
 

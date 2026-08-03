@@ -1737,6 +1737,73 @@
       "description": "No pools updates found in the epoch transition overlay",
       "public": true
     },
+    "amaru::ledger::pots::LOAD": {
+      "type": "object",
+      "properties": {
+        "treasury": {
+          "type": "integer"
+        },
+        "reserves": {
+          "type": "integer"
+        },
+        "fees": {
+          "type": "integer"
+        },
+        "donations": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "treasury",
+        "reserves",
+        "fees",
+        "donations"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "load",
+      "level": "TRACE",
+      "target": "amaru::ledger::pots",
+      "description": "Load the current ledger pots",
+      "public": true
+    },
+    "amaru::ledger::proposal::ACTIVE": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "proposal_kind": {
+          "type": "string"
+        },
+        "proposed_in": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Epoch"
+        },
+        "valid_until": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Epoch"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "proposal_kind",
+        "proposed_in",
+        "valid_until"
+      ],
+      "optional": [
+        "detail"
+      ],
+      "additionalProperties": false,
+      "name": "active",
+      "level": "TRACE",
+      "target": "amaru::ledger::proposal",
+      "description": "Observe a governance proposal that is currently active",
+      "public": true
+    },
     "amaru::ledger::proposal::DROP": {
       "type": "object",
       "properties": {
@@ -1857,6 +1924,160 @@
       "level": "TRACE",
       "target": "amaru::ledger::protocol",
       "description": "Upgrade to a new protocol version",
+      "public": true
+    },
+    "amaru::ledger::protocol_parameters::LOAD": {
+      "type": "object",
+      "properties": {
+        "protocol_version": {
+          "type": "string"
+        },
+        "max_block_body_size": {
+          "type": "string"
+        },
+        "max_transaction_size": {
+          "type": "string"
+        },
+        "max_block_header_size": {
+          "type": "string"
+        },
+        "max_tx_ex_units": {
+          "type": "string"
+        },
+        "max_block_ex_units": {
+          "type": "string"
+        },
+        "max_value_size": {
+          "type": "string"
+        },
+        "max_collateral_inputs": {
+          "type": "string"
+        },
+        "min_fee_a": {
+          "type": "string"
+        },
+        "min_fee_b": {
+          "type": "string"
+        },
+        "stake_credential_deposit": {
+          "type": "string"
+        },
+        "stake_pool_deposit": {
+          "type": "string"
+        },
+        "monetary_expansion_rate": {
+          "type": "string"
+        },
+        "treasury_expansion_rate": {
+          "type": "string"
+        },
+        "min_pool_cost": {
+          "type": "string"
+        },
+        "lovelace_per_utxo_byte": {
+          "type": "string"
+        },
+        "prices": {
+          "type": "string"
+        },
+        "min_fee_ref_script_lovelace_per_byte": {
+          "type": "string"
+        },
+        "max_ref_script_size_per_tx": {
+          "type": "string"
+        },
+        "max_ref_script_size_per_block": {
+          "type": "string"
+        },
+        "ref_script_cost_stride": {
+          "type": "string"
+        },
+        "ref_script_cost_multiplier": {
+          "type": "string"
+        },
+        "stake_pool_max_retirement_epoch": {
+          "type": "string"
+        },
+        "optimal_stake_pools_count": {
+          "type": "string"
+        },
+        "pledge_influence": {
+          "type": "string"
+        },
+        "collateral_percentage": {
+          "type": "string"
+        },
+        "cost_models": {
+          "type": "string"
+        },
+        "pool_voting_thresholds": {
+          "type": "string"
+        },
+        "drep_voting_thresholds": {
+          "type": "string"
+        },
+        "min_committee_size": {
+          "type": "string"
+        },
+        "max_committee_term_length": {
+          "type": "string"
+        },
+        "gov_action_lifetime": {
+          "type": "string"
+        },
+        "gov_action_deposit": {
+          "type": "string"
+        },
+        "drep_deposit": {
+          "type": "string"
+        },
+        "drep_expiry": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "optional": [
+        "protocol_version",
+        "max_block_body_size",
+        "max_transaction_size",
+        "max_block_header_size",
+        "max_tx_ex_units",
+        "max_block_ex_units",
+        "max_value_size",
+        "max_collateral_inputs",
+        "min_fee_a",
+        "min_fee_b",
+        "stake_credential_deposit",
+        "stake_pool_deposit",
+        "monetary_expansion_rate",
+        "treasury_expansion_rate",
+        "min_pool_cost",
+        "lovelace_per_utxo_byte",
+        "prices",
+        "min_fee_ref_script_lovelace_per_byte",
+        "max_ref_script_size_per_tx",
+        "max_ref_script_size_per_block",
+        "ref_script_cost_stride",
+        "ref_script_cost_multiplier",
+        "stake_pool_max_retirement_epoch",
+        "optimal_stake_pools_count",
+        "pledge_influence",
+        "collateral_percentage",
+        "cost_models",
+        "pool_voting_thresholds",
+        "drep_voting_thresholds",
+        "min_committee_size",
+        "max_committee_term_length",
+        "gov_action_lifetime",
+        "gov_action_deposit",
+        "drep_deposit",
+        "drep_expiry"
+      ],
+      "additionalProperties": false,
+      "name": "load",
+      "level": "TRACE",
+      "target": "amaru::ledger::protocol_parameters",
+      "description": "Load the current protocol parameters",
       "public": true
     },
     "amaru::ledger::protocol_parameters::RATIFY": {
@@ -2467,6 +2688,66 @@
       "description": "Compute stake distribution for epoch",
       "public": true
     },
+    "amaru::ledger::stake_distribution::INITIAL_BEGIN": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Epoch"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "initial_begin",
+      "level": "TRACE",
+      "target": "amaru::ledger::stake_distribution",
+      "description": "Start computing one of the initial stake distributions loaded on startup",
+      "public": true
+    },
+    "amaru::ledger::stake_distribution::INITIAL_PROGRESS": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Epoch"
+        },
+        "progress": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "epoch",
+        "progress"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "initial_progress",
+      "level": "TRACE",
+      "target": "amaru::ledger::stake_distribution",
+      "description": "Report progress for one of the initial stake distributions loaded on startup",
+      "public": true
+    },
+    "amaru::ledger::stake_distribution::INITIAL_READY": {
+      "type": "object",
+      "properties": {
+        "epochs": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epochs"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "initial_ready",
+      "level": "TRACE",
+      "target": "amaru::ledger::stake_distribution",
+      "description": "Finished computing all initial stake distributions loaded on startup",
+      "public": true
+    },
     "amaru::ledger::stake_distribution::ROTATE": {
       "type": "object",
       "properties": {
@@ -2568,11 +2849,15 @@
         },
         "fork_length": {
           "type": "integer"
+        },
+        "rollback_length": {
+          "type": "integer"
         }
       },
       "required": [
         "fork_point",
-        "fork_length"
+        "fork_length",
+        "rollback_length"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -2580,6 +2865,60 @@
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Switching to an alternative chain fork",
+      "public": true
+    },
+    "amaru::ledger::tip::UPDATE": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "block_height": {
+          "type": "integer"
+        },
+        "tx_count": {
+          "type": "integer"
+        },
+        "epoch": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Epoch"
+        },
+        "slot_in_epoch": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
+        "density": {
+          "type": "number"
+        },
+        "current_kes_period": {
+          "type": "integer"
+        },
+        "remaining_kes_periods": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slot",
+        "header_hash",
+        "block_height",
+        "tx_count",
+        "epoch",
+        "slot_in_epoch",
+        "density",
+        "current_kes_period",
+        "remaining_kes_periods"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "update",
+      "level": "TRACE",
+      "target": "amaru::ledger::tip",
+      "description": "Updated view of the locally adopted chain tip and its derived ledger health.",
       "public": true
     },
     "amaru::ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE": {
@@ -3056,6 +3395,28 @@
       "description": "The volatile db is still warming up and hasn't reached a stable point yet",
       "public": true
     },
+    "amaru::mempool::state::UPDATE": {
+      "type": "object",
+      "properties": {
+        "tx_count": {
+          "type": "integer"
+        },
+        "size_bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tx_count",
+        "size_bytes"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "update",
+      "level": "TRACE",
+      "target": "amaru::mempool::state",
+      "description": "Compact view of the mempool occupancy for terminal dashboards.",
+      "public": true
+    },
     "amaru::mempool::transaction::ACCEPTED": {
       "type": "object",
       "properties": {
@@ -3155,6 +3516,33 @@
       "level": "TRACE",
       "target": "amaru::mempool::transaction",
       "description": "Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.",
+      "public": true
+    },
+    "amaru::protocols::keepalive::peer::ROUND_TRIP": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "string"
+        },
+        "round_trip_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "round_trip_micros"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "round_trip",
+      "level": "TRACE",
+      "target": "amaru::protocols::keepalive::peer",
+      "description": "Measured round-trip time for a keepalive exchange on an established peer connection.",
       "public": true
     },
     "amaru::protocols::manager::message::PROCESS": {

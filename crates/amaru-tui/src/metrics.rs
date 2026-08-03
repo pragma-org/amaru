@@ -12,25 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::mpsc::SyncSender, time::Instant};
+use std::{
+    sync::{Arc, mpsc::SyncSender},
+    time::Instant,
+};
 
-use amaru_metrics::{MetricsEvent, MetricsSubscriber};
+use amaru_metrics::{MetricsEvent, subscribe};
 
 use crate::events::{Message, MetricRecord};
 
 #[derive(Debug)]
-pub struct MetricsLayer {
+pub struct Subscriber {
     tx: SyncSender<Message>,
 }
 
-impl MetricsLayer {
+impl Subscriber {
     pub fn new(tx: SyncSender<Message>) -> Self {
         Self { tx }
     }
+
+    pub fn emit(&self, event: &MetricsEvent) {
+        let _ = self.tx.try_send(Message::Metrics(MetricRecord { at: Instant::now(), event: event.clone() }));
+    }
 }
 
-impl MetricsSubscriber for MetricsLayer {
-    fn record(&self, event: &MetricsEvent) {
-        let _ = self.tx.try_send(Message::Metrics(MetricRecord { at: Instant::now(), event: event.clone() }));
+#[derive(Debug)]
+pub struct Subscription {
+    _inner: amaru_metrics::Subscription,
+}
+
+impl Subscription {
+    pub fn new(subscriber: Arc<Subscriber>) -> Self {
+        let inner = subscribe(Arc::new(move |event| subscriber.emit(event)));
+        Self { _inner: inner }
     }
 }

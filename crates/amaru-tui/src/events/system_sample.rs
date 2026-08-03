@@ -12,20 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod capture;
-mod config;
-mod events;
-mod metrics;
-mod model;
-mod session;
-mod settings;
-mod startup;
-mod terminal_guard;
-mod ui;
+use std::time::Instant;
 
-pub use capture::TracingLayer;
-pub use config::{Config, TimeWindow, format_windows};
-pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
-pub use session::{Session, should_enable};
-pub use settings::Settings;
-pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};
+#[derive(Debug, Clone, PartialEq)]
+pub struct SystemSample {
+    pub at: Instant,
+    pub cpu_percent: f64,
+    pub process_memory_bytes: u64,
+    pub rss_bytes: u64,
+    pub virtual_bytes: u64,
+    pub memory_used_bytes: u64,
+    pub memory_total_bytes: u64,
+    pub disk_read_bytes: u64,
+    pub disk_write_bytes: u64,
+}

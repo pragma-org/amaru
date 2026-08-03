@@ -26,6 +26,10 @@ The crate should not become a backdoor into Amaru internals. Prefer deriving
 new state from telemetry or shared metrics over introducing direct database or
 store access.
 
+For telemetry, prefer the schema-generated helpers exported by
+`amaru-observability` for both event matching and field decoding. Avoid raw
+field-name strings in reducers when a generated accessor exists.
+
 ## Useful commands
 
 - `cargo check -p amaru-tui -p amaru`

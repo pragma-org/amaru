@@ -12,36 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, str::FromStr, time::Duration};
+use std::time::Duration;
 
-use amaru_kernel::utils::duration::{format_duration_short, parse_duration};
+mod time_window;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TimeWindow(Duration);
-
-impl TimeWindow {
-    pub const fn from_secs(secs: u64) -> Self {
-        Self(Duration::from_secs(secs))
-    }
-
-    pub fn as_duration(self) -> Duration {
-        self.0
-    }
-}
-
-impl fmt::Display for TimeWindow {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&format_duration_short(self.0))
-    }
-}
-
-impl FromStr for TimeWindow {
-    type Err = String;
-
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        parse_duration(raw).map(Self)
-    }
-}
+pub use self::time_window::TimeWindow;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {

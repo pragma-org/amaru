@@ -41,32 +41,12 @@ use crate::{
 
 mod format;
 mod theme;
+mod views;
 
-#[derive(Debug, Default, Clone)]
-pub struct Hotspots {
-    pub page_tabs: Vec<(Page, Rect)>,
-    pub log_toggle: Rect,
-    pub peer_toggle: Rect,
-    pub proposal_toggle: Rect,
-    pub window_tabs: Vec<Rect>,
-    pub level_tabs: Vec<(LevelFilter, Rect)>,
-    pub target_tabs: Vec<(TargetFilter, Rect)>,
-    pub logs_area: Rect,
-    pub peers_area: Rect,
-    pub proposals_area: Rect,
-}
+pub use self::views::Views;
 
-pub fn render(frame: &mut Frame<'_>, model: &Model, hotspots: &mut Hotspots, now: Instant) {
-    hotspots.page_tabs.clear();
-    hotspots.window_tabs.clear();
-    hotspots.level_tabs.clear();
-    hotspots.target_tabs.clear();
-    hotspots.log_toggle = Rect::default();
-    hotspots.peer_toggle = Rect::default();
-    hotspots.proposal_toggle = Rect::default();
-    hotspots.logs_area = Rect::default();
-    hotspots.peers_area = Rect::default();
-    hotspots.proposals_area = Rect::default();
+pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Instant) {
+    views.reset();
 
     let is_ready = model.is_ready(now);
     let progress_height = u16::from(model.tip.is_some()) * 2;
@@ -80,20 +60,20 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, hotspots: &mut Hotspots, now
         return;
     }
 
-    populate_shell_hotspots(hotspots, shell_area, model);
+    populate_shell_hotspots(views, shell_area, model);
 
     if model.page == Page::Amaru && model.peer_pane_mode.is_maximized() {
-        render_peers_table(frame, inner, model, hotspots);
+        render_peers_table(frame, inner, model, views);
         return;
     }
 
     if model.page == Page::Cardano && model.proposal_pane_mode.is_maximized() {
-        render_proposals_table(frame, inner, model, hotspots);
+        render_proposals_table(frame, inner, model, views);
         return;
     }
 
     if model.log_pane_mode.is_maximized() && model.page != Page::Config {
-        render_logs(frame, inner, model, hotspots);
+        render_logs(frame, inner, model, views);
         return;
     }
 
@@ -116,15 +96,15 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, hotspots: &mut Hotspots, now
 
         if is_ready {
             match model.page {
-                Page::Amaru => render_amaru(frame, layout[0], model, hotspots, now),
-                Page::Cardano => render_cardano(frame, layout[0], model, hotspots, now),
+                Page::Amaru => render_amaru(frame, layout[0], model, views, now),
+                Page::Cardano => render_cardano(frame, layout[0], model, views, now),
                 Page::Config => render_config(frame, layout[0], model),
             }
         } else {
             render_splash(frame, layout[0], model);
         }
 
-        render_logs(frame, layout[1], model, hotspots);
+        render_logs(frame, layout[1], model, views);
 
         if progress_height > 0 {
             render_epoch_progress(frame, layout[2], model);
@@ -161,12 +141,12 @@ fn shell_block(model: &Model, is_ready: bool) -> Block<'static> {
     }
 }
 
-fn populate_shell_hotspots(hotspots: &mut Hotspots, area: Rect, model: &Model) {
+fn populate_shell_hotspots(views: &mut Views, area: Rect, model: &Model) {
     let mut x = area.x + 2 + border_title_prefix_width();
     let y = area.y;
     for (index, page) in Page::ALL.into_iter().enumerate() {
         let label = button_label(page.label());
-        hotspots.page_tabs.push((page, Rect { x, y, width: label.len() as u16, height: 1 }));
+        views.page_tabs.push((page, Rect { x, y, width: label.len() as u16, height: 1 }));
         x += label.len() as u16;
         if index + 1 != Page::ALL.len() {
             x += 1;
@@ -181,7 +161,7 @@ fn populate_shell_hotspots(hotspots: &mut Hotspots, area: Rect, model: &Model) {
     let y = area.y;
 
     for label in labels {
-        hotspots.window_tabs.push(Rect { x, y, width: label.len() as u16, height: 1 });
+        views.window_tabs.push(Rect { x, y, width: label.len() as u16, height: 1 });
         x += label.len() as u16 + 1;
     }
 }
@@ -210,7 +190,7 @@ fn render_splash(frame: &mut Frame<'_>, area: Rect, model: &Model) {
     render_splash_progress(frame, layout[3], model, &progress_states);
 }
 
-fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots, now: Instant) {
+fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views, now: Instant) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -313,7 +293,7 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(54), Constraint::Percentage(23), Constraint::Percentage(23)])
         .split(layout[2]);
-    render_peers_table(frame, bottom[0], model, hotspots);
+    render_peers_table(frame, bottom[0], model, views);
     render_card(
         frame,
         bottom[1],
@@ -337,9 +317,9 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut
     );
 }
 
-fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots, _now: Instant) {
+fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views, _now: Instant) {
     if model.proposal_pane_mode.is_maximized() {
-        render_proposals_table(frame, area, model, hotspots);
+        render_proposals_table(frame, area, model, views);
         return;
     }
 
@@ -405,7 +385,7 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &m
         vec![Line::from(Span::styled("No stake snapshot telemetry yet", muted()))]
     };
     render_card(frame, cards[3], "Stake distribution", stake_lines, model.interaction_mode);
-    render_proposals_table(frame, layout[1], model, hotspots);
+    render_proposals_table(frame, layout[1], model, views);
 }
 
 fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Model) {
@@ -461,8 +441,8 @@ fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
     render_gradient_progress_bar(frame, inner, ratio, &format_ratio(slot_in_epoch, epoch_length));
 }
 
-fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots) {
-    hotspots.logs_area = area;
+fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
+    views.logs_area = area;
     let focused = model.scroll_focus == ScrollFocus::Logs;
     let title = border_title_line(
         vec![Span::styled("Logs", emphasis_primary(model.interaction_mode))],
@@ -483,7 +463,7 @@ fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut 
         .border_type(scroll_panel_border_type(focused));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    hotspots.log_toggle = Rect {
+    views.log_toggle = Rect {
         x: area.x
             + area.width.saturating_sub(toggle_label.len() as u16 + border_title_chrome_width() + 1)
             + border_title_prefix_width(),
@@ -497,7 +477,7 @@ fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut 
         .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)])
         .split(inner);
 
-    render_log_controls(frame, layout[0], model, hotspots);
+    render_log_controls(frame, layout[0], model, views);
     render_horizontal_separator(frame, layout[1], model.interaction_mode, focused);
 
     let logs = model.filtered_logs();
@@ -513,7 +493,7 @@ fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut 
     render_scrollbar(frame, layout[2], logs.len(), visible, start, model.interaction_mode);
 }
 
-fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots) {
+fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
     let level_width = level_controls_width();
     let layout = Layout::default()
         .direction(Direction::Horizontal)
@@ -528,7 +508,7 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspot
             } else {
                 muted()
             };
-            hotspots.level_tabs.push((filter, Rect::default()));
+            views.level_tabs.push((filter, Rect::default()));
             Span::styled(button_label(filter.label()), style)
         })
         .collect::<Vec<_>>();
@@ -539,7 +519,7 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspot
         .into_iter()
         .map(|filter| {
             let style = if filter == model.target_filter { emphasis_primary(model.interaction_mode) } else { muted() };
-            hotspots.target_tabs.push((filter, Rect::default()));
+            views.target_tabs.push((filter, Rect::default()));
             Span::styled(button_label(filter.label()), style)
         })
         .collect::<Vec<_>>();
@@ -548,7 +528,7 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspot
 
     let level_labels = LevelFilter::ALL.into_iter().map(|filter| button_label(filter.label())).collect::<Vec<_>>();
     let mut level_x = layout[0].x;
-    for ((_, rect), label) in hotspots.level_tabs.iter_mut().zip(level_labels.iter()) {
+    for ((_, rect), label) in views.level_tabs.iter_mut().zip(level_labels.iter()) {
         *rect = Rect { x: level_x, y: layout[0].y, width: label.len() as u16, height: layout[0].height };
         level_x += label.len() as u16;
     }
@@ -556,7 +536,7 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspot
     let target_labels = TargetFilter::ALL.into_iter().map(|filter| button_label(filter.label())).collect::<Vec<_>>();
     let mut target_x =
         layout[2].x + layout[2].width.saturating_sub(spans_width(target_labels.iter().map(|label| label.len() as u16)));
-    for ((_, rect), label) in hotspots.target_tabs.iter_mut().zip(target_labels.iter()) {
+    for ((_, rect), label) in views.target_tabs.iter_mut().zip(target_labels.iter()) {
         *rect = Rect { x: target_x, y: layout[2].y, width: label.len() as u16, height: layout[2].height };
         target_x += label.len() as u16;
     }
@@ -666,8 +646,8 @@ fn render_config_section(frame: &mut Frame<'_>, area: Rect, section: &ConfigSect
     frame.render_widget(table, area);
 }
 
-fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots) {
-    hotspots.peers_area = area;
+fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
+    views.peers_area = area;
     let focused = model.scroll_focus == ScrollFocus::Peers;
     let toggle_label = button_label(peer_toggle_label(model));
     let block = Block::default()
@@ -695,7 +675,7 @@ fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots
         .enumerate()
         .map(|(index, peer)| peer_row(start + index, peer, model.interaction_mode))
         .collect::<Vec<_>>();
-    hotspots.peer_toggle = Rect {
+    views.peer_toggle = Rect {
         x: area.x
             + area.width.saturating_sub(toggle_label.len() as u16 + border_title_chrome_width() + 1)
             + border_title_prefix_width(),
@@ -720,8 +700,8 @@ fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots
     render_scrollbar(frame, body, model.peers.len(), visible, start, model.interaction_mode);
 }
 
-fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hotspots: &mut Hotspots) {
-    hotspots.proposals_area = area;
+fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
+    views.proposals_area = area;
     let proposals = model.proposals().collect::<Vec<_>>();
     let toggle_label = button_label(proposal_toggle_label(model));
     let focused = model.scroll_focus == ScrollFocus::Proposals;
@@ -776,7 +756,7 @@ fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, model: &Model, hots
             .style(striped_row_style(start + index))
         })
         .collect::<Vec<_>>();
-    hotspots.proposal_toggle = Rect {
+    views.proposal_toggle = Rect {
         x: area.x
             + area.width.saturating_sub(toggle_label.len() as u16 + border_title_chrome_width() + 1)
             + border_title_prefix_width(),
@@ -1238,7 +1218,7 @@ fn render_splash_progress(
         return;
     }
 
-    let block_width = area.width.min(76).max(24);
+    let block_width = area.width.clamp(24, 76);
     let block_area = Rect {
         x: area.x + area.width.saturating_sub(block_width) / 2,
         y: area.y,

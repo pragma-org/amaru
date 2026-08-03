@@ -12,20 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod capture;
-mod config;
-mod events;
-mod metrics;
-mod model;
-mod session;
-mod settings;
-mod startup;
-mod terminal_guard;
-mod ui;
+use super::{MetricRecord, TelemetryRecord};
 
-pub use capture::TracingLayer;
-pub use config::{Config, TimeWindow, format_windows};
-pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
-pub use session::{Session, should_enable};
-pub use settings::Settings;
-pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};
+#[derive(Debug, Clone, PartialEq)]
+pub enum Message {
+    Telemetry(TelemetryRecord),
+    Metrics(MetricRecord),
+}

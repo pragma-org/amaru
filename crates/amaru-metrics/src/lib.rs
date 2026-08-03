@@ -63,24 +63,21 @@ impl MetricRecorder for MetricsEvent {
     }
 }
 
-pub trait MetricsSubscriber: Send + Sync {
-    fn record(&self, event: &MetricsEvent);
-}
-
 #[derive(Debug)]
 pub struct Subscription {
     id: u64,
 }
 
 static NEXT_SUBSCRIBER_ID: AtomicU64 = AtomicU64::new(1);
-static SUBSCRIBERS: LazyLock<Mutex<BTreeMap<u64, Arc<dyn MetricsSubscriber>>>> =
-    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+type Subscriber = dyn Fn(&MetricsEvent) + Send + Sync;
 
-fn subscribers() -> MutexGuard<'static, BTreeMap<u64, Arc<dyn MetricsSubscriber>>> {
+static SUBSCRIBERS: LazyLock<Mutex<BTreeMap<u64, Arc<Subscriber>>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+fn subscribers() -> MutexGuard<'static, BTreeMap<u64, Arc<Subscriber>>> {
     SUBSCRIBERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-pub fn subscribe(subscriber: Arc<dyn MetricsSubscriber>) -> Subscription {
+pub fn subscribe(subscriber: Arc<Subscriber>) -> Subscription {
     let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
     subscribers().insert(id, subscriber);
     Subscription { id }
@@ -94,7 +91,7 @@ pub fn notify_subscribers(event: &MetricsEvent) {
     let subscribers = subscribers().values().cloned().collect::<Vec<_>>();
 
     for subscriber in subscribers {
-        subscriber.record(event);
+        subscriber(event);
     }
 }
 

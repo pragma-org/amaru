@@ -73,6 +73,10 @@ The intended maintenance boundary is:
 - `amaru-tui` captures and reduces them
 - `amaru-tui` renders from its own model only
 
+Where possible, that telemetry contract should be consumed through
+schema-generated identity constants and field accessors rather than raw string
+keys, so schema drift causes compile failures instead of silently blank widgets.
+
 ### Model the UI as a fold over events
 
 The TUI maintains a bounded in-memory model that is updated from:

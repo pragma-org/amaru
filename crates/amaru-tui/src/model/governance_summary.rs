@@ -12,20 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod capture;
-mod config;
-mod events;
-mod metrics;
-mod model;
-mod session;
-mod settings;
-mod startup;
-mod terminal_guard;
-mod ui;
-
-pub use capture::TracingLayer;
-pub use config::{Config, TimeWindow, format_windows};
-pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
-pub use session::{Session, should_enable};
-pub use settings::Settings;
-pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GovernanceSummary {
+    pub proposal_count_in_scope: Option<u64>,
+    pub dormant_epochs: Option<u64>,
+    pub latest_ratification: Option<String>,
+}

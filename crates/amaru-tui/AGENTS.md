@@ -73,12 +73,15 @@ Avoid bespoke TUI-only channels.
 Touch the crate in the following order:
 
 1. `src/model/telemetry_event.rs`
-2. `src/model/record_fields.rs`
-3. the relevant reducer code in `src/model.rs` or its leaf modules
-4. tests covering the affected behavior
+2. the relevant reducer code in `src/model.rs` or its leaf modules
+3. tests covering the affected behavior
 
-Be suspicious of raw string matching. Reuse schema-generated constants from
-`amaru-observability` whenever they exist.
+Be suspicious of raw string matching. Reuse schema-generated identity constants
+and field accessors from `amaru-observability` whenever they exist.
+
+If you find yourself typing `"slot"`, `"peer"`, `"proposal_id"`, or similar
+inside a reducer, stop and check whether the corresponding schema already
+generates a typed accessor.
 
 ### When metrics changes
 

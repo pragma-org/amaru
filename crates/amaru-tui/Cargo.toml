@@ -18,6 +18,7 @@ categories.workspace = true
 [dependencies]
 amaru-kernel.workspace = true
 amaru-metrics.workspace = true
+amaru-observability.workspace = true
 clap.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true

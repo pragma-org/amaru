@@ -18,362 +18,46 @@ use std::{
 };
 
 use amaru_metrics::{LedgerMetrics, MempoolMetrics, MetricsEvent, SystemMetrics};
-use tracing::Level;
+use amaru_observability::amaru::{bootstrap, ledger, mempool, protocols};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
+use ratatui::layout::Rect;
 
 use crate::{
     config::{Config, TimeWindow},
     events::{Message, MetricRecord, SystemSample, TelemetryRecord},
     startup::StartupContext,
+    ui::Views,
 };
 
-mod record_fields;
+mod governance_summary;
+mod initial_stake_distribution_state;
+mod interaction_mode;
+mod level_filter;
+mod mempool_state;
+mod page;
+mod pane_mode;
+mod peer_state;
+mod proposal_activity;
+mod scroll_focus;
+mod stake_snapshot_state;
+mod target_filter;
 mod telemetry_event;
+mod terminal_event_outcome;
+mod tip_state;
 
 use self::{
-    record_fields::RecordFields,
-    telemetry_event::{CONSENSUS_TARGET, LEDGER_TARGET, PROTOCOLS_TARGET, TelemetryEvent},
+    governance_summary::GovernanceSummary,
+    mempool_state::MempoolState,
+    proposal_activity::{ProposalActivity, proposal_id},
+    stake_snapshot_state::StakeSnapshotState,
+    telemetry_event::TelemetryEvent,
+    tip_state::TipState,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Page {
-    Amaru,
-    Cardano,
-    Config,
-}
-
-impl Page {
-    pub const ALL: [Self; 3] = [Self::Amaru, Self::Cardano, Self::Config];
-
-    pub fn next(self) -> Self {
-        match self {
-            Self::Amaru => Self::Cardano,
-            Self::Cardano => Self::Config,
-            Self::Config => Self::Amaru,
-        }
-    }
-
-    pub fn previous(self) -> Self {
-        match self {
-            Self::Amaru => Self::Config,
-            Self::Cardano => Self::Amaru,
-            Self::Config => Self::Cardano,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Amaru => "Amaru",
-            Self::Cardano => "Cardano",
-            Self::Config => "Config",
-        }
-    }
-
-    pub fn index(self) -> usize {
-        match self {
-            Self::Amaru => 0,
-            Self::Cardano => 1,
-            Self::Config => 2,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneMode {
-    Normal,
-    Maximized,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InteractionMode {
-    Normal,
-    Copy,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScrollFocus {
-    Logs,
-    Peers,
-    Proposals,
-}
-
-impl ScrollFocus {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Logs => "logs",
-            Self::Peers => "peers",
-            Self::Proposals => "proposals",
-        }
-    }
-}
-
-impl PaneMode {
-    pub fn toggle(self) -> Self {
-        match self {
-            Self::Normal => Self::Maximized,
-            Self::Maximized => Self::Normal,
-        }
-    }
-
-    pub fn is_maximized(self) -> bool {
-        matches!(self, Self::Maximized)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LevelFilter {
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-impl LevelFilter {
-    pub const ALL: [Self; 4] = [Self::Debug, Self::Info, Self::Warn, Self::Error];
-
-    pub fn allows(self, level: Level) -> bool {
-        match self {
-            Self::Debug => matches!(level, Level::DEBUG | Level::INFO | Level::WARN | Level::ERROR),
-            Self::Info => matches!(level, Level::INFO | Level::WARN | Level::ERROR),
-            Self::Warn => matches!(level, Level::WARN | Level::ERROR),
-            Self::Error => level == Level::ERROR,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Debug => "debug",
-            Self::Info => "info",
-            Self::Warn => "warn",
-            Self::Error => "error",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TargetFilter {
-    All,
-    Ledger,
-    Consensus,
-    Protocols,
-    Other,
-}
-
-impl TargetFilter {
-    pub const ALL: [Self; 5] = [Self::All, Self::Ledger, Self::Consensus, Self::Protocols, Self::Other];
-
-    pub fn allows(self, target: &str) -> bool {
-        match self {
-            Self::All => true,
-            Self::Ledger => target == LEDGER_TARGET,
-            Self::Consensus => target == CONSENSUS_TARGET,
-            Self::Protocols => target == PROTOCOLS_TARGET,
-            Self::Other => !matches!(target, LEDGER_TARGET | CONSENSUS_TARGET | PROTOCOLS_TARGET),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::Ledger => "ledger",
-            Self::Consensus => "consensus",
-            Self::Protocols => "protocols",
-            Self::Other => "other",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TipState {
-    pub slot: u64,
-    pub header_hash: String,
-    pub block_height: u64,
-    pub epoch: u64,
-    pub slot_in_epoch: u64,
-    pub density: f64,
-    pub current_kes_period: u64,
-    pub remaining_kes_periods: u64,
-    pub updated_at: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct StakeSnapshotState {
-    pub accounts: usize,
-    pub pools: usize,
-    pub dreps: usize,
-    pub active_stake: u64,
-    pub pools_voting_stake: u64,
-    pub dreps_voting_stake: u64,
-    pub updated_at: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct MempoolState {
-    pub tx_count: u64,
-    pub size_bytes: u64,
-    pub updated_at: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct InitialStakeDistributionState {
-    pub epoch: u64,
-    pub progress: f64,
-    pub completed: bool,
-    pub updated_at: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PeerState {
-    pub address: String,
-    pub inbound: bool,
-    pub outbound: bool,
-    pub connected: bool,
-    pub trusted: bool,
-    pub last_conn_id: Option<String>,
-    pub last_rtt_micros: Option<u64>,
-    pub last_reason: Option<String>,
-    pub full_duplex: Option<bool>,
-    pub full_duplex_capable: Option<bool>,
-    pub updated_at: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProposalActivity {
-    pub id: String,
-    pub kind: String,
-    pub status: String,
-    pub detail: Option<String>,
-    pub proposed_in: Option<u64>,
-    pub valid_until: Option<u64>,
-    pub constitutional_committee: Option<bool>,
-    pub delegate_representatives: Option<bool>,
-    pub stake_pool_operators: Option<bool>,
-    pub seen_at: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct GovernanceSummary {
-    pub proposal_count_in_scope: Option<u64>,
-    pub dormant_epochs: Option<u64>,
-    pub latest_ratification: Option<String>,
-}
-
-impl TipState {
-    fn from_record(record: RecordFields<'_>) -> Option<Self> {
-        Some(Self {
-            slot: record.as_u64("slot")?,
-            header_hash: record.as_str("header_hash")?.to_owned(),
-            block_height: record.as_u64("block_height")?,
-            epoch: record.as_u64("epoch")?,
-            slot_in_epoch: record.as_u64("slot_in_epoch")?,
-            density: record.as_f64("density")?,
-            current_kes_period: record.as_u64("current_kes_period")?,
-            remaining_kes_periods: record.as_u64("remaining_kes_periods")?,
-            updated_at: record.at(),
-        })
-    }
-}
-
-impl StakeSnapshotState {
-    fn from_record(record: RecordFields<'_>) -> Option<Self> {
-        Some(Self {
-            accounts: record.as_u64("accounts")? as usize,
-            pools: record.as_u64("pools")? as usize,
-            dreps: record.as_u64("dreps")? as usize,
-            active_stake: record.as_u64("active_stake")?,
-            pools_voting_stake: record.as_u64("pools_voting_stake")?,
-            dreps_voting_stake: record.as_u64("dreps_voting_stake")?,
-            updated_at: record.at(),
-        })
-    }
-}
-
-impl PeerState {
-    fn new(address: String, trusted: bool, updated_at: Instant) -> Self {
-        Self {
-            address,
-            inbound: false,
-            outbound: false,
-            connected: false,
-            trusted,
-            last_conn_id: None,
-            last_rtt_micros: None,
-            last_reason: None,
-            full_duplex: None,
-            full_duplex_capable: None,
-            updated_at,
-        }
-    }
-
-    fn mark_connected(&mut self, record: RecordFields<'_>) {
-        let direction = record.as_str("direction");
-        self.connected = true;
-        self.inbound |= matches!(direction, Some("Inbound"));
-        self.outbound |= matches!(direction, Some("Outbound"));
-        self.last_conn_id = record.conn_id();
-        self.full_duplex = record.as_bool("full_duplex");
-        self.full_duplex_capable = record.as_bool("full_duplex_capable");
-        self.last_reason = None;
-        self.updated_at = record.at();
-    }
-
-    fn mark_disconnected(&mut self, record: RecordFields<'_>) {
-        self.connected = false;
-        self.last_reason = record.as_str("reason").map(ToOwned::to_owned);
-        self.last_conn_id = record.conn_id();
-        self.updated_at = record.at();
-    }
-
-    fn update_rtt(&mut self, record: RecordFields<'_>, round_trip_micros: u64) {
-        self.last_rtt_micros = Some(round_trip_micros);
-        self.last_conn_id = record.conn_id();
-        self.updated_at = record.at();
-    }
-}
-
-impl ProposalActivity {
-    fn from_record(record: RecordFields<'_>, status: &str, detail: Option<String>) -> Self {
-        let mut proposal = Self {
-            id: proposal_id(record).unwrap_or_else(|| "unknown".to_owned()),
-            kind: proposal_kind(record).unwrap_or("unknown").to_owned(),
-            status: status.to_owned(),
-            detail: None,
-            proposed_in: None,
-            valid_until: None,
-            constitutional_committee: None,
-            delegate_representatives: None,
-            stake_pool_operators: None,
-            seen_at: record.at(),
-        };
-        proposal.merge_from_record(record, status, detail);
-        proposal
-    }
-
-    fn merge_from_record(&mut self, record: RecordFields<'_>, status: &str, detail: Option<String>) {
-        if let Some(kind) = proposal_kind(record) {
-            self.kind = kind.to_owned();
-        }
-        self.status = status.to_owned();
-        if let Some(detail) = detail {
-            self.detail = Some(detail);
-        }
-        if let Some(proposed_in) = record.as_u64("proposed_in") {
-            self.proposed_in = Some(proposed_in);
-        }
-        if let Some(valid_until) = record.as_u64("valid_until") {
-            self.valid_until = Some(valid_until);
-        }
-        if let Some(approved) = record.as_bool("approved_by_constitutional_committee") {
-            self.constitutional_committee = Some(approved);
-        }
-        if let Some(approved) = record.as_bool("approved_by_dreps") {
-            self.delegate_representatives = Some(approved);
-        }
-        if let Some(approved) = record.as_bool("approved_by_pools") {
-            self.stake_pool_operators = Some(approved);
-        }
-        self.seen_at = record.at();
-    }
-}
+pub use self::{
+    initial_stake_distribution_state::InitialStakeDistributionState, interaction_mode::InteractionMode,
+    level_filter::LevelFilter, page::Page, pane_mode::PaneMode, peer_state::PeerState, scroll_focus::ScrollFocus,
+    target_filter::TargetFilter, terminal_event_outcome::TerminalEventOutcome,
+};
 
 #[derive(Debug)]
 pub struct Model {
@@ -492,6 +176,15 @@ impl Model {
         }
     }
 
+    pub fn handle_terminal_event(&mut self, event: Event, views: &Views) -> TerminalEventOutcome {
+        match event {
+            Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key_event(key),
+            Event::Mouse(mouse) => self.handle_mouse_event(mouse, views),
+            Event::Resize(_, _) => TerminalEventOutcome::Continue,
+            Event::FocusGained | Event::FocusLost | Event::Paste(_) | Event::Key(_) => TerminalEventOutcome::Continue,
+        }
+    }
+
     pub fn push_system_sample(&mut self, sample: SystemSample) {
         self.system_samples.push_back(sample);
         while self.system_samples.len() > self.system_capacity() {
@@ -548,15 +241,7 @@ impl Model {
     }
 
     pub fn next_scroll_focus(&mut self) {
-        self.scroll_focus = match (self.page, self.scroll_focus) {
-            (Page::Amaru, ScrollFocus::Logs) => ScrollFocus::Peers,
-            (Page::Amaru, ScrollFocus::Peers) => ScrollFocus::Logs,
-            (Page::Amaru, ScrollFocus::Proposals) => ScrollFocus::Logs,
-            (Page::Cardano, ScrollFocus::Logs) => ScrollFocus::Proposals,
-            (Page::Cardano, ScrollFocus::Proposals) => ScrollFocus::Logs,
-            (Page::Cardano, ScrollFocus::Peers) => ScrollFocus::Logs,
-            (Page::Config, focus) => focus,
-        };
+        self.scroll_focus = self.scroll_focus.next_for(self.page);
     }
 
     pub fn set_window(&mut self, index: usize) {
@@ -575,18 +260,6 @@ impl Model {
         self.target_filter = filter;
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
-    }
-
-    pub fn focus_logs(&mut self) {
-        self.scroll_focus = ScrollFocus::Logs;
-    }
-
-    pub fn focus_peers(&mut self) {
-        self.scroll_focus = ScrollFocus::Peers;
-    }
-
-    pub fn focus_proposals(&mut self) {
-        self.scroll_focus = ScrollFocus::Proposals;
     }
 
     pub fn scroll_focused(&mut self, delta: isize) {
@@ -619,6 +292,51 @@ impl Model {
         } else {
             self.proposal_scroll = self.proposal_scroll.saturating_add(delta as usize);
         }
+    }
+
+    pub fn handle_click(&mut self, views: &Views, point: Rect) {
+        if let Some(page) = views.page_at(point) {
+            self.set_page(page);
+            return;
+        }
+
+        if views.toggles_logs(point) {
+            self.cycle_log_pane();
+            return;
+        }
+
+        if views.toggles_peers(point) {
+            self.cycle_peer_pane();
+            return;
+        }
+
+        if views.toggles_proposals(point) {
+            self.cycle_proposal_pane();
+            return;
+        }
+
+        if let Some(focus) = views.focus_at(point) {
+            self.set_scroll_focus(focus);
+        }
+
+        if let Some(index) = views.window_at(point) {
+            self.set_window(index);
+            return;
+        }
+
+        if let Some(level) = views.level_filter_at(point) {
+            self.set_level_filter(level);
+            return;
+        }
+
+        if let Some(filter) = views.target_filter_at(point) {
+            self.set_target_filter(filter);
+        }
+    }
+
+    pub fn handle_scroll(&mut self, views: &Views, point: Rect, delta: isize) {
+        self.set_scroll_focus(views.scroll_focus_at(point));
+        self.scroll_focused(delta);
     }
 
     pub fn filtered_logs(&self) -> Vec<&TelemetryRecord> {
@@ -678,7 +396,7 @@ impl Model {
     }
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
-        self.update_state(TelemetryEvent::from_record(&record), RecordFields::from(&record));
+        self.update_state(TelemetryEvent::from_record(&record), &record);
         self.logs.push_back(record);
         while self.logs.len() > self.config.log_capacity {
             self.logs.pop_front();
@@ -694,7 +412,7 @@ impl Model {
         }
     }
 
-    fn update_state(&mut self, event: Option<TelemetryEvent>, record: RecordFields<'_>) {
+    fn update_state(&mut self, event: Option<TelemetryEvent>, record: &TelemetryRecord) {
         let Some(event) = event else {
             return;
         };
@@ -705,7 +423,7 @@ impl Model {
             TelemetryEvent::MempoolStateUpdate => self.update_mempool(record),
             TelemetryEvent::StakeDistributionInitialBegin => self.begin_initial_stake_distribution(record),
             TelemetryEvent::StakeDistributionInitialProgress => self.advance_initial_stake_distribution(record),
-            TelemetryEvent::StakeDistributionInitialReady => self.complete_initial_stake_distributions(record.at()),
+            TelemetryEvent::StakeDistributionInitialReady => self.complete_initial_stake_distributions(record.at),
             TelemetryEvent::RewardsSummarize => {
                 self.update_pots(record);
                 self.rewards_ready = true;
@@ -719,10 +437,12 @@ impl Model {
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
             TelemetryEvent::PeerDisconnected => self.update_peer_disconnected(record),
             TelemetryEvent::GovernanceActivityUpdate => {
-                self.governance.dormant_epochs = record.as_u64("consecutive_dormant_epochs");
+                self.governance.dormant_epochs =
+                    Some(u64::from(ledger::governance_activity::UPDATE::consecutive_dormant_epochs(record)));
             }
             TelemetryEvent::NewGovernanceUpdates => {
-                self.governance.proposal_count_in_scope = record.as_u64("proposals_count");
+                self.governance.proposal_count_in_scope =
+                    Some(ledger::epoch_transition::NEW_GOVERNANCE_UPDATES::proposals_count(record));
             }
             TelemetryEvent::GovernanceRatifying => self.upsert_proposal(record, "ratifying", None),
             TelemetryEvent::GovernanceEnacting => self.upsert_proposal(record, "enacted", None),
@@ -733,15 +453,18 @@ impl Model {
                 self.push_dropped_proposal(record);
             }
             TelemetryEvent::ProposalSkip => {
-                self.upsert_proposal(record, "skipped", record.as_str("reason").map(ToOwned::to_owned))
+                self.upsert_proposal(record, "skipped", Some(ledger::proposal::SKIP::reason(record).to_owned()))
             }
             TelemetryEvent::ProtocolUpgrade => {
-                if let Some(new_version) = record.as_str("new_version").map(ToOwned::to_owned) {
-                    self.protocol_version = new_version;
-                }
+                self.protocol_version = ledger::protocol::UPGRADE::new_version(record).to_string();
             }
             TelemetryEvent::ProtocolParametersLoad | TelemetryEvent::ProtocolParametersRatify => {
-                if let Some(version) = record.as_str("protocol_version").map(ToOwned::to_owned) {
+                let version = if ledger::protocol_parameters::LOAD::matches(&record.target, &record.name) {
+                    ledger::protocol_parameters::LOAD::protocol_version(record)
+                } else {
+                    ledger::protocol_parameters::RATIFY::protocol_version(record)
+                };
+                if let Some(version) = version.map(ToOwned::to_owned) {
                     self.protocol_version = version;
                 }
             }
@@ -751,7 +474,7 @@ impl Model {
         }
     }
 
-    fn update_tip(&mut self, record: RecordFields<'_>) {
+    fn update_tip(&mut self, record: &TelemetryRecord) {
         let Some(tip) = TipState::from_record(record) else {
             return;
         };
@@ -759,25 +482,20 @@ impl Model {
         self.tip = Some(tip);
     }
 
-    fn update_stake_snapshot(&mut self, record: RecordFields<'_>) {
+    fn update_stake_snapshot(&mut self, record: &TelemetryRecord) {
         self.stake_snapshot = StakeSnapshotState::from_record(record);
     }
 
-    fn update_mempool(&mut self, record: RecordFields<'_>) {
-        let Some(tx_count) = record.as_u64("tx_count") else {
-            return;
+    fn update_mempool(&mut self, record: &TelemetryRecord) {
+        self.mempool = MempoolState {
+            tx_count: mempool::state::UPDATE::tx_count(record),
+            size_bytes: mempool::state::UPDATE::size_bytes(record),
+            updated_at: record.at,
         };
-        let Some(size_bytes) = record.as_u64("size_bytes") else {
-            return;
-        };
-
-        self.mempool = MempoolState { tx_count, size_bytes, updated_at: record.at() };
     }
 
-    fn begin_initial_stake_distribution(&mut self, record: RecordFields<'_>) {
-        let Some(epoch) = record.as_u64("epoch") else {
-            return;
-        };
+    fn begin_initial_stake_distribution(&mut self, record: &TelemetryRecord) {
+        let epoch = ledger::stake_distribution::INITIAL_BEGIN::epoch(record);
 
         self.initial_stake_distributions_ready = false;
         if !self.initial_stake_distribution_order.contains(&epoch) {
@@ -789,22 +507,18 @@ impl Model {
             epoch,
             progress: 0.0,
             completed: false,
-            updated_at: record.at(),
+            updated_at: record.at,
         });
     }
 
-    fn advance_initial_stake_distribution(&mut self, record: RecordFields<'_>) {
-        let Some(epoch) = record.as_u64("epoch") else {
-            return;
-        };
-        let Some(progress) = record.as_f64("progress") else {
-            return;
-        };
+    fn advance_initial_stake_distribution(&mut self, record: &TelemetryRecord) {
+        let epoch = ledger::stake_distribution::INITIAL_PROGRESS::epoch(record);
+        let progress = ledger::stake_distribution::INITIAL_PROGRESS::progress(record);
 
         self.begin_initial_stake_distribution(record);
         if let Some(state) = self.initial_stake_distributions.get_mut(&epoch) {
             state.progress = progress.clamp(0.0, 1.0);
-            state.updated_at = record.at();
+            state.updated_at = record.at;
         }
     }
 
@@ -850,18 +564,18 @@ impl Model {
         });
     }
 
-    fn push_active_proposal(&mut self, record: RecordFields<'_>) {
-        self.upsert_proposal(record, "-", record.as_str("detail").map(ToOwned::to_owned));
+    fn push_active_proposal(&mut self, record: &TelemetryRecord) {
+        self.upsert_proposal(record, "-", ledger::proposal::ACTIVE::detail(record).map(ToOwned::to_owned));
         self.governance.proposal_count_in_scope = Some(self.governance.proposal_count_in_scope.unwrap_or_default() + 1);
     }
 
-    fn push_dropped_proposal(&mut self, record: RecordFields<'_>) {
+    fn push_dropped_proposal(&mut self, record: &TelemetryRecord) {
         let status = if proposal_id(record)
             .and_then(|id| self.proposals_by_id.get(&id))
             .is_some_and(|proposal| proposal.status == "enacted")
         {
             "enacted"
-        } else if record.as_bool("expired").unwrap_or(false) {
+        } else if ledger::proposal::DROP::expired(record) {
             "expired"
         } else {
             "dropped"
@@ -869,7 +583,7 @@ impl Model {
 
         let detail = if status == "expired" {
             Some("expired".to_string())
-        } else if record.as_bool("ratified_or_evicted").unwrap_or(false) {
+        } else if ledger::proposal::DROP::ratified_or_evicted(record) {
             Some("superseded".to_string())
         } else {
             None
@@ -880,39 +594,42 @@ impl Model {
         }
     }
 
-    fn update_pots(&mut self, record: RecordFields<'_>) {
-        self.treasury = record.as_u64("pots_treasury").or_else(|| record.as_u64("treasury"));
-        self.reserves = record.as_u64("pots_reserves").or_else(|| record.as_u64("reserves"));
-        self.fees = record.as_u64("pots_fees").or_else(|| record.as_u64("fees"));
-        self.donations = record.as_u64("pots_donations").or_else(|| record.as_u64("donations"));
+    fn update_pots(&mut self, record: &TelemetryRecord) {
+        if ledger::rewards::SUMMARIZE::matches(&record.target, &record.name) {
+            self.treasury = Some(ledger::rewards::SUMMARIZE::pots_treasury(record));
+            self.reserves = Some(ledger::rewards::SUMMARIZE::pots_reserves(record));
+            self.fees = Some(ledger::rewards::SUMMARIZE::pots_fees(record));
+            self.donations = self.donations.or(Some(0));
+        } else if ledger::pots::LOAD::matches(&record.target, &record.name) {
+            self.treasury = Some(ledger::pots::LOAD::treasury(record));
+            self.reserves = Some(ledger::pots::LOAD::reserves(record));
+            self.fees = Some(ledger::pots::LOAD::fees(record));
+            self.donations = Some(ledger::pots::LOAD::donations(record));
+        } else if bootstrap::pots::IMPORT::matches(&record.target, &record.name) {
+            self.treasury = Some(bootstrap::pots::IMPORT::treasury(record));
+            self.reserves = Some(bootstrap::pots::IMPORT::reserves(record));
+            self.fees = Some(bootstrap::pots::IMPORT::fees(record));
+            self.donations = Some(bootstrap::pots::IMPORT::donations(record));
+        }
     }
 
-    fn update_peer_connected(&mut self, record: RecordFields<'_>) {
-        let Some(address) = record.as_str("peer") else {
-            return;
-        };
-        let peer = self.peer_mut(address, record.at());
+    fn update_peer_connected(&mut self, record: &TelemetryRecord) {
+        let peer = self.peer_mut(protocols::peer_selection::peer::CONNECTED::peer(record), record.at);
         peer.mark_connected(record);
     }
 
-    fn update_peer_disconnected(&mut self, record: RecordFields<'_>) {
-        let Some(address) = record.as_str("peer") else {
-            return;
-        };
+    fn update_peer_disconnected(&mut self, record: &TelemetryRecord) {
+        let address = protocols::peer_selection::peer::DISCONNECTED::peer(record);
         if let Some(peer) = self.peers.get_mut(address) {
             peer.mark_disconnected(record);
         }
     }
 
-    fn update_peer_rtt(&mut self, record: RecordFields<'_>) {
-        let Some(address) = record.as_str("peer") else {
-            return;
-        };
-        let Some(round_trip_micros) = record.as_u64("round_trip_micros") else {
-            return;
-        };
+    fn update_peer_rtt(&mut self, record: &TelemetryRecord) {
+        let address = protocols::keepalive::peer::ROUND_TRIP::peer(record);
+        let round_trip_micros = protocols::keepalive::peer::ROUND_TRIP::round_trip_micros(record);
 
-        let peer = self.peer_mut(address, record.at());
+        let peer = self.peer_mut(address, record.at);
         peer.connected = true;
         if !peer.inbound && !peer.outbound {
             peer.outbound = true;
@@ -931,21 +648,18 @@ impl Model {
         prune_recent(&mut self.recent_blocks, at, max_window);
     }
 
-    fn push_recent_rollback(&mut self, record: RecordFields<'_>) {
-        let Some(rollback_length) = record.as_u64("rollback_length") else {
-            return;
-        };
-
+    fn push_recent_rollback(&mut self, record: &TelemetryRecord) {
+        let rollback_length = ledger::state::SWITCH_TO_FORK::rollback_length(record);
         let max_window = self.max_window();
-        let at = record.at();
-        self.recent_rollbacks.push_back((at, rollback_length as usize));
+        let at = record.at;
+        self.recent_rollbacks.push_back((at, rollback_length));
 
         while self.recent_rollbacks.front().is_some_and(|(entry_at, _)| at.duration_since(*entry_at) > max_window) {
             self.recent_rollbacks.pop_front();
         }
     }
 
-    fn upsert_proposal(&mut self, record: RecordFields<'_>, status: &str, detail: Option<String>) {
+    fn upsert_proposal(&mut self, record: &TelemetryRecord, status: &str, detail: Option<String>) {
         let Some(id) = proposal_id(record) else {
             return;
         };
@@ -975,6 +689,104 @@ impl Model {
         let sample_interval = self.config.sample_interval.as_secs().max(1);
         (max_window / sample_interval).max(1) as usize + 2
     }
+
+    fn handle_key_event(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        if self.is_copy_mode() {
+            return if key.code == KeyCode::Esc {
+                self.exit_copy_mode();
+                TerminalEventOutcome::ExitCopyMode
+            } else {
+                TerminalEventOutcome::Continue
+            };
+        }
+
+        match key.code {
+            KeyCode::Esc => {
+                self.enter_copy_mode();
+                TerminalEventOutcome::EnterCopyMode
+            }
+            KeyCode::Char('q') => TerminalEventOutcome::Shutdown,
+            KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                TerminalEventOutcome::Shutdown
+            }
+            KeyCode::Tab | KeyCode::Right => {
+                self.next_page();
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::BackTab | KeyCode::Left => {
+                self.previous_page();
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Char('f') => {
+                self.next_scroll_focus();
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                match (self.page, self.scroll_focus) {
+                    (Page::Cardano, ScrollFocus::Proposals) => self.cycle_proposal_pane(),
+                    (Page::Amaru, ScrollFocus::Peers) => self.cycle_peer_pane(),
+                    _ => self.cycle_log_pane(),
+                }
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Up => {
+                self.scroll_focused(-1);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Down => {
+                self.scroll_focused(1);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::PageUp => {
+                self.scroll_focused(-10);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::PageDown => {
+                self.scroll_focused(10);
+                TerminalEventOutcome::Continue
+            }
+            KeyCode::Backspace
+            | KeyCode::Enter
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::Delete
+            | KeyCode::Insert
+            | KeyCode::F(_)
+            | KeyCode::Char(_)
+            | KeyCode::Null
+            | KeyCode::CapsLock
+            | KeyCode::ScrollLock
+            | KeyCode::NumLock
+            | KeyCode::PrintScreen
+            | KeyCode::Pause
+            | KeyCode::Menu
+            | KeyCode::KeypadBegin
+            | KeyCode::Media(_)
+            | KeyCode::Modifier(_) => TerminalEventOutcome::Continue,
+        }
+    }
+
+    fn handle_mouse_event(&mut self, mouse: event::MouseEvent, views: &Views) -> TerminalEventOutcome {
+        let point = Rect { x: mouse.column, y: mouse.row, width: 1, height: 1 };
+
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.handle_click(views, point),
+            MouseEventKind::ScrollDown => self.handle_scroll(views, point, 3),
+            MouseEventKind::ScrollUp => self.handle_scroll(views, point, -3),
+            MouseEventKind::Down(_)
+            | MouseEventKind::Up(_)
+            | MouseEventKind::Drag(_)
+            | MouseEventKind::Moved
+            | MouseEventKind::ScrollLeft
+            | MouseEventKind::ScrollRight => {}
+        }
+
+        TerminalEventOutcome::Continue
+    }
+
+    fn set_scroll_focus(&mut self, focus: ScrollFocus) {
+        self.scroll_focus = focus;
+    }
 }
 
 fn prune_recent(entries: &mut VecDeque<Instant>, now: Instant, max_window: Duration) {
@@ -983,16 +795,8 @@ fn prune_recent(entries: &mut VecDeque<Instant>, now: Instant, max_window: Durat
     }
 }
 
-fn proposal_id(record: RecordFields<'_>) -> Option<String> {
-    record.as_str("proposal_id").or_else(|| record.as_str("id")).map(ToOwned::to_owned)
-}
-
-fn proposal_kind(record: RecordFields<'_>) -> Option<&str> {
-    record.as_str("proposal_kind").or_else(|| record.as_str("proposal_type"))
-}
-
 pub fn render_fields(record: &TelemetryRecord) -> String {
-    RecordFields::from(record).to_fields_string()
+    record.to_fields_string()
 }
 
 #[cfg(test)]
@@ -1000,10 +804,12 @@ mod tests {
     use std::collections::BTreeSet;
 
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics, system::SystemMetrics};
+    use tracing::Level;
 
     use super::*;
     use crate::{
         events::{FieldValue, TelemetryKind, TelemetryRecord},
+        model::telemetry_event::{LEDGER_TARGET, PROTOCOLS_TARGET},
         startup::ProcessInfo,
     };
 
