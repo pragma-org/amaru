@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::{Duration, Instant};
+
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
@@ -34,7 +36,13 @@ use crate::{
     ui::Views,
 };
 
-pub(in crate::ui) fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
+pub(in crate::ui) fn render_peers_table(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    model: &Model,
+    views: &mut Views,
+    now: Instant,
+) {
     views.peers_area = area;
     let focused = model.scroll_focus == ScrollFocus::Peers;
     let toggle_label = button_label(peer_toggle_label(model));
@@ -61,7 +69,7 @@ pub(in crate::ui) fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model
         .skip(start)
         .take(visible)
         .enumerate()
-        .map(|(index, peer)| peer_row(start + index, peer, model.interaction_mode))
+        .map(|(index, peer)| peer_row(start + index, peer, model.interaction_mode, now, model.current_window()))
         .collect::<Vec<_>>();
     views.peer_toggle = Rect {
         x: area.x
@@ -74,18 +82,22 @@ pub(in crate::ui) fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model
     let table = Table::new(
         rows,
         [
-            Constraint::Length(4),
-            Constraint::Min(22),
-            Constraint::Length(10),
-            Constraint::Length(10),
-            Constraint::Length(10),
-            Constraint::Length(10),
-            Constraint::Length(11),
-            Constraint::Length(5),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Fill(4),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
         ],
     )
     .header(
-        Row::new(vec!["", "Peer", "RTT", "Hdr", "Blk", "Adopt", "Can duplex?", "Dir"])
+        Row::new(vec!["", "Dir", "Peer", "Duplex?", "RTT", "Observe", "→", "Fetch", "→", "Sync", "→", "Adopt"])
             .style(table_header_style(model.interaction_mode)),
     )
     .column_spacing(1)
@@ -98,7 +110,7 @@ fn peer_toggle_label(model: &Model) -> &'static str {
     if model.peer_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
-fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'static> {
+fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode, now: Instant, window: Duration) -> Row<'static> {
     let direction = if peer.full_duplex == Some(true) {
         "↕"
     } else {
@@ -112,9 +124,11 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
     let state_dot = " ●";
     let rtt =
         peer.last_rtt_micros.map(|value| format!("{:.1} ms", value as f64 / 1_000.0)).unwrap_or_else(|| "—".into());
-    let query_header = peer.mean_query_header_micros().map(format_micros).unwrap_or_else(|| "—".into());
-    let get_block = peer.mean_get_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
-    let adopt_block = peer.mean_adopt_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let slot_start_to_header =
+        peer.mean_slot_start_to_header_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
+    let query_header = peer.mean_query_header_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
+    let get_block = peer.mean_get_block_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
+    let adopt_block = peer.mean_adopt_block_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
     let can_duplex = match peer.full_duplex_capable {
         Some(true) => "yes",
         Some(false) => "no",
@@ -127,13 +141,17 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
         } else {
             Color::Rgb(244, 86, 86)
         })),
-        Cell::from(peer.address.clone()).style(Style::default().fg(emphasis_white_color())),
-        Cell::from(rtt).style(Style::default().fg(emphasis_white_color())),
-        Cell::from(query_header).style(Style::default().fg(emphasis_white_color())),
-        Cell::from(get_block).style(Style::default().fg(emphasis_white_color())),
-        Cell::from(adopt_block).style(Style::default().fg(emphasis_white_color())),
-        Cell::from(can_duplex).style(Style::default().fg(muted_color())),
         Cell::from(direction).style(Style::default().fg(accent_primary(mode))),
+        Cell::from(peer.address.clone()).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(can_duplex).style(Style::default().fg(muted_color())),
+        Cell::from(rtt).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(slot_start_to_header).style(Style::default().fg(emphasis_white_color())),
+        Cell::from("→"),
+        Cell::from(query_header).style(Style::default().fg(emphasis_white_color())),
+        Cell::from("→"),
+        Cell::from(get_block).style(Style::default().fg(emphasis_white_color())),
+        Cell::from("→"),
+        Cell::from(adopt_block).style(Style::default().fg(emphasis_white_color())),
     ])
     .style(striped_row_style(index))
 }

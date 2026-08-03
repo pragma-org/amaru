@@ -154,6 +154,16 @@ define_schemas! {
                     required header_hash: amaru_kernel::HeaderHash
                 }
             }
+            tip {
+                /// Adopt a tip as the next tip in the best chain
+                public ADOPT {
+                    required slot: amaru_kernel::Slot
+                    required header_hash: amaru_kernel::HeaderHash
+                    required block_height: u64
+                    required max_block_height: u64
+                    required suppressed: u32
+                }
+            }
             peer {
                 tags: cpu
                 /// A peer behaves like an adversary, ban it
@@ -177,6 +187,7 @@ define_schemas! {
                         optional header_hash: amaru_kernel::HeaderHash
                         optional outcome: String
                         optional error: String
+                        optional slot_start_to_header_micros: u64
                         optional block_fetch_wait_micros: u64
                         optional block_fetch_micros: u64
                         optional forward_micros: u64

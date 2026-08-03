@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Instant;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use amaru_observability::amaru::protocols;
 
@@ -20,18 +23,39 @@ use crate::events::TelemetryRecord;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct MeanMicros {
-    total_micros: u128,
-    samples: u64,
+    samples: VecDeque<(Instant, u64)>,
 }
 
 impl MeanMicros {
-    fn record(&mut self, micros: u64) {
-        self.total_micros += u128::from(micros);
-        self.samples += 1;
+    fn record(&mut self, at: Instant, micros: u64, max_window: Duration) {
+        self.samples.push_back((at, micros));
+        self.prune(at, max_window);
     }
 
-    fn mean(&self) -> Option<u64> {
-        (self.samples > 0).then(|| (self.total_micros / u128::from(self.samples)) as u64)
+    fn mean(&self, now: Instant, window: Duration) -> Option<u64> {
+        let mut total_micros = 0u128;
+        let mut sample_count = 0u64;
+
+        for (at, micros) in self.samples.iter().rev() {
+            if now.saturating_duration_since(*at) > window {
+                break;
+            }
+
+            total_micros += u128::from(*micros);
+            sample_count += 1;
+        }
+
+        (sample_count > 0).then(|| (total_micros / u128::from(sample_count)) as u64)
+    }
+
+    fn clear(&mut self) {
+        self.samples.clear();
+    }
+
+    fn prune(&mut self, now: Instant, max_window: Duration) {
+        while self.samples.front().is_some_and(|(at, _)| now.saturating_duration_since(*at) > max_window) {
+            self.samples.pop_front();
+        }
     }
 }
 
@@ -47,6 +71,7 @@ pub struct PeerState {
     pub last_reason: Option<String>,
     pub full_duplex: Option<bool>,
     pub full_duplex_capable: Option<bool>,
+    slot_start_to_header: MeanMicros,
     query_header: MeanMicros,
     get_block: MeanMicros,
     adopt_block: MeanMicros,
@@ -66,6 +91,7 @@ impl PeerState {
             last_reason: None,
             full_duplex: None,
             full_duplex_capable: None,
+            slot_start_to_header: MeanMicros::default(),
             query_header: MeanMicros::default(),
             get_block: MeanMicros::default(),
             adopt_block: MeanMicros::default(),
@@ -98,34 +124,54 @@ impl PeerState {
         self.updated_at = record.at;
     }
 
+    pub fn clear_slot_start_to_header(&mut self) {
+        self.slot_start_to_header.clear();
+    }
+
+    pub fn prune_header_lifecycle_samples(&mut self, now: Instant, max_window: Duration) {
+        self.slot_start_to_header.prune(now, max_window);
+        self.query_header.prune(now, max_window);
+        self.get_block.prune(now, max_window);
+        self.adopt_block.prune(now, max_window);
+    }
+
     pub fn record_header_lifecycle(
         &mut self,
-        record: &TelemetryRecord,
+        at: Instant,
+        max_window: Duration,
+        slot_start_to_header_micros: Option<u64>,
         query_header_micros: Option<u64>,
         get_block_micros: Option<u64>,
         adopt_block_micros: Option<u64>,
     ) {
+        if let Some(micros) = slot_start_to_header_micros {
+            self.slot_start_to_header.record(at, micros, max_window);
+        }
         if let Some(micros) = query_header_micros {
-            self.query_header.record(micros);
+            self.query_header.record(at, micros, max_window);
         }
         if let Some(micros) = get_block_micros {
-            self.get_block.record(micros);
+            self.get_block.record(at, micros, max_window);
         }
         if let Some(micros) = adopt_block_micros {
-            self.adopt_block.record(micros);
+            self.adopt_block.record(at, micros, max_window);
         }
-        self.updated_at = record.at;
+        self.updated_at = at;
     }
 
-    pub fn mean_query_header_micros(&self) -> Option<u64> {
-        self.query_header.mean()
+    pub fn mean_query_header_micros(&self, now: Instant, window: Duration) -> Option<u64> {
+        self.query_header.mean(now, window)
     }
 
-    pub fn mean_get_block_micros(&self) -> Option<u64> {
-        self.get_block.mean()
+    pub fn mean_slot_start_to_header_micros(&self, now: Instant, window: Duration) -> Option<u64> {
+        self.slot_start_to_header.mean(now, window)
     }
 
-    pub fn mean_adopt_block_micros(&self) -> Option<u64> {
-        self.adopt_block.mean()
+    pub fn mean_get_block_micros(&self, now: Instant, window: Duration) -> Option<u64> {
+        self.get_block.mean(now, window)
+    }
+
+    pub fn mean_adopt_block_micros(&self, now: Instant, window: Duration) -> Option<u64> {
+        self.adopt_block.mean(now, window)
     }
 }

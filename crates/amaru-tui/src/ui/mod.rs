@@ -60,7 +60,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
     populate_shell_hotspots(views, shell_area, model);
 
     if model.page == Page::Amaru && model.peer_pane_mode.is_maximized() {
-        render_peers_table(frame, inner, model, views);
+        render_peers_table(frame, inner, model, views, now);
         return;
     }
 

@@ -69,6 +69,7 @@ pub struct Model {
     pub level_filter: LevelFilter,
     pub target_filter: TargetFilter,
     pub selected_window: usize,
+    pub catching_up: bool,
     pub log_scroll: usize,
     pub peer_scroll: usize,
     pub proposal_scroll: usize,
@@ -113,6 +114,7 @@ impl Model {
             level_filter: LevelFilter::Debug,
             target_filter: TargetFilter::All,
             selected_window: 0,
+            catching_up: true,
             log_scroll: 0,
             peer_scroll: 0,
             proposal_scroll: 0,
@@ -190,12 +192,16 @@ mod tests {
     };
 
     fn telemetry(target: &str, name: &str, fields: &[(&str, FieldValue)]) -> TelemetryRecord {
+        telemetry_at(Instant::now(), target, name, fields)
+    }
+
+    fn telemetry_at(at: Instant, target: &str, name: &str, fields: &[(&str, FieldValue)]) -> TelemetryRecord {
         TelemetryRecord {
             kind: TelemetryKind::Event,
             level: Level::INFO,
             target: target.into(),
             name: name.into(),
-            at: Instant::now(),
+            at,
             wall_time: std::time::SystemTime::UNIX_EPOCH,
             fields: fields.iter().map(|(name, value)| ((*name).into(), value.clone())).collect(),
         }
@@ -373,22 +379,40 @@ mod tests {
     #[test]
     fn tracks_peer_header_lifecycle_means() {
         let mut model = Model::new(Config::default(), startup_context());
+        let now = model.created_at;
 
-        model.handle_message(Message::Telemetry(telemetry(
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now,
+            "amaru::consensus",
+            "tip.adopt",
+            &[
+                ("slot", FieldValue::U64(1)),
+                ("header_hash", FieldValue::String("abc".into())),
+                ("block_height", FieldValue::U64(10)),
+                ("max_block_height", FieldValue::U64(10)),
+                ("suppressed", FieldValue::U64(0)),
+            ],
+        )));
+
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now,
             "amaru::consensus",
             "perf.header.lifecycle",
             &[
                 ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("slot_start_to_header_micros", FieldValue::U64(9_000)),
                 ("block_fetch_wait_micros", FieldValue::U64(2_000)),
                 ("block_fetch_micros", FieldValue::U64(5_000)),
                 ("forward_micros", FieldValue::U64(11_000)),
             ],
         )));
-        model.handle_message(Message::Telemetry(telemetry(
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now + Duration::from_secs(1),
             "amaru::consensus",
             "perf.header.lifecycle",
             &[
                 ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("slot_start_to_header_micros", FieldValue::U64(15_000)),
                 ("block_fetch_wait_micros", FieldValue::U64(4_000)),
                 ("block_fetch_micros", FieldValue::U64(7_000)),
                 ("forward_micros", FieldValue::U64(15_000)),
@@ -396,9 +420,134 @@ mod tests {
         )));
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
-        assert_eq!(peer.mean_query_header_micros(), Some(3_000));
-        assert_eq!(peer.mean_get_block_micros(), Some(6_000));
-        assert_eq!(peer.mean_adopt_block_micros(), Some(4_000));
+        assert_eq!(
+            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(1), model.current_window()),
+            Some(12_000)
+        );
+        assert_eq!(peer.mean_query_header_micros(now + Duration::from_secs(1), model.current_window()), Some(3_000));
+        assert_eq!(peer.mean_get_block_micros(now + Duration::from_secs(1), model.current_window()), Some(6_000));
+        assert_eq!(peer.mean_adopt_block_micros(now + Duration::from_secs(1), model.current_window()), Some(4_000));
+    }
+
+    #[test]
+    fn peer_header_lifecycle_means_follow_the_selected_window() {
+        let config = Config::default().with_windows(vec![TimeWindow::from_secs(5), TimeWindow::from_secs(20)]);
+        let mut model = Model::new(config, startup_context());
+        let now = model.created_at;
+
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now,
+            "amaru::consensus",
+            "tip.adopt",
+            &[
+                ("slot", FieldValue::U64(1)),
+                ("header_hash", FieldValue::String("abc".into())),
+                ("block_height", FieldValue::U64(10)),
+                ("max_block_height", FieldValue::U64(10)),
+                ("suppressed", FieldValue::U64(0)),
+            ],
+        )));
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now,
+            "amaru::consensus",
+            "perf.header.lifecycle",
+            &[
+                ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("slot_start_to_header_micros", FieldValue::U64(9_000)),
+                ("block_fetch_wait_micros", FieldValue::U64(2_000)),
+                ("block_fetch_micros", FieldValue::U64(5_000)),
+                ("forward_micros", FieldValue::U64(11_000)),
+            ],
+        )));
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now + Duration::from_secs(10),
+            "amaru::consensus",
+            "perf.header.lifecycle",
+            &[
+                ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("slot_start_to_header_micros", FieldValue::U64(15_000)),
+                ("block_fetch_wait_micros", FieldValue::U64(4_000)),
+                ("block_fetch_micros", FieldValue::U64(7_000)),
+                ("forward_micros", FieldValue::U64(15_000)),
+            ],
+        )));
+
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(peer.mean_query_header_micros(now + Duration::from_secs(10), model.current_window()), Some(4_000));
+        assert_eq!(
+            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(10), model.current_window()),
+            Some(15_000)
+        );
+        assert_eq!(peer.mean_query_header_micros(now + Duration::from_secs(10), Duration::from_secs(20)), Some(3_000));
+        assert_eq!(
+            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(10), Duration::from_secs(20)),
+            Some(12_000)
+        );
+    }
+
+    #[test]
+    fn slot_start_timing_is_hidden_while_catching_up() {
+        let mut model = Model::new(Config::default(), startup_context());
+        let now = model.created_at;
+
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now,
+            "amaru::consensus",
+            "perf.header.lifecycle",
+            &[
+                ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("slot_start_to_header_micros", FieldValue::U64(9_000)),
+                ("block_fetch_wait_micros", FieldValue::U64(2_000)),
+                ("block_fetch_micros", FieldValue::U64(5_000)),
+                ("forward_micros", FieldValue::U64(11_000)),
+            ],
+        )));
+
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(peer.mean_slot_start_to_header_micros(now, model.current_window()), None);
+
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now + Duration::from_secs(1),
+            "amaru::consensus",
+            "tip.adopt",
+            &[
+                ("slot", FieldValue::U64(1)),
+                ("header_hash", FieldValue::String("abc".into())),
+                ("block_height", FieldValue::U64(10)),
+                ("max_block_height", FieldValue::U64(100)),
+                ("suppressed", FieldValue::U64(0)),
+            ],
+        )));
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now + Duration::from_secs(2),
+            "amaru::consensus",
+            "tip.adopt",
+            &[
+                ("slot", FieldValue::U64(1)),
+                ("header_hash", FieldValue::String("abc".into())),
+                ("block_height", FieldValue::U64(100)),
+                ("max_block_height", FieldValue::U64(100)),
+                ("suppressed", FieldValue::U64(0)),
+            ],
+        )));
+        model.handle_message(Message::Telemetry(telemetry_at(
+            now + Duration::from_secs(3),
+            "amaru::consensus",
+            "perf.header.lifecycle",
+            &[
+                ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("slot_start_to_header_micros", FieldValue::U64(3_000)),
+                ("block_fetch_wait_micros", FieldValue::U64(1_000)),
+                ("block_fetch_micros", FieldValue::U64(2_000)),
+                ("forward_micros", FieldValue::U64(5_000)),
+            ],
+        )));
+
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(
+            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(3), model.current_window()),
+            Some(3_000)
+        );
     }
 
     #[test]

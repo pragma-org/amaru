@@ -23,6 +23,7 @@ pub const PROTOCOLS_TARGET: &str = protocols::peer_selection::peer::CONNECTED::T
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TelemetryEvent {
     BootstrapPotsImport,
+    BlockAdopt,
     EpochTransitionApply,
     EpochTransitionCompute,
     EpochTransitionRecord,
@@ -56,6 +57,8 @@ impl TelemetryEvent {
     pub fn from_record(record: &TelemetryRecord) -> Option<Self> {
         if ledger::tip::UPDATE::matches(&record.target, &record.name) {
             Some(Self::TipUpdate)
+        } else if consensus::tip::ADOPT::matches(&record.target, &record.name) {
+            Some(Self::BlockAdopt)
         } else if ledger::stake_distribution::INITIAL_BEGIN::matches(&record.target, &record.name) {
             Some(Self::StakeDistributionInitialBegin)
         } else if ledger::stake_distribution::INITIAL_PROGRESS::matches(&record.target, &record.name) {

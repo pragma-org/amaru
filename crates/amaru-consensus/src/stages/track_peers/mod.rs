@@ -922,6 +922,7 @@ async fn record_header_rejected<T: amaru_pure_stage::SendData + Sync>(
         .record(
             ConsensusMetrics::HeaderLifecycle {
                 outcome: outcome.as_str().to_string(),
+                slot_start_to_header_micros: None,
                 block_fetch_wait_micros: None,
                 block_fetch_micros: None,
                 forward_micros: None,

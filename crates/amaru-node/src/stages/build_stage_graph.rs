@@ -157,7 +157,7 @@ pub fn build_stage_graph(
         FetchBlocksMsg::NewTip { tip, parent, trace_context }
     });
 
-    let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));
+    let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input, era_history.clone()));
     #[expect(clippy::expect_used)]
     stage_graph
         .preload(&select_chain, [SelectChainMsg::Initialize(recovery_best_hash)])

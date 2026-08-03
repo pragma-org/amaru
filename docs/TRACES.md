@@ -664,7 +664,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, block_fetch_wait_micros, block_fetch_micros, forward_micros |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros |
 
 <details><summary>span: `lifecycle`</summary>
 
@@ -674,9 +674,28 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `header_hash` | `string` |  |
 | `outcome` | `string` |  |
 | `error` | `string` |  |
+| `slot_start_to_header_micros` | `integer` |  |
 | `block_fetch_wait_micros` | `integer` |  |
 | `block_fetch_micros` | `integer` |  |
 | `forward_micros` | `integer` |  |
+
+</details>
+
+## target: `amaru::consensus::tip`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `adopt` | `TRACE` | public | Adopt a tip as the next tip in the best chain | slot, header_hash, block_height, max_block_height, suppressed |  |
+
+<details><summary>span: `adopt`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `block_height` | `integer` | ✓ |
+| `max_block_height` | `integer` | ✓ |
+| `suppressed` | `integer` | ✓ |
 
 </details>
 

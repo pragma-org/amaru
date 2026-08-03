@@ -22,8 +22,21 @@ use crate::events::{Message, TelemetryRecord};
 impl Model {
     pub fn handle_message(&mut self, message: Message) {
         match message {
-            Message::Telemetry(record) => self.record_telemetry(record),
-            Message::Metrics(record) => self.record_metrics(record),
+            Message::Telemetry(record) => {
+                self.prune_peer_timings(record.at);
+                self.record_telemetry(record);
+            }
+            Message::Metrics(record) => {
+                self.prune_peer_timings(record.at);
+                self.record_metrics(record);
+            }
+        }
+    }
+
+    fn prune_peer_timings(&mut self, now: Instant) {
+        let max_window = self.max_window();
+        for peer in self.peers.values_mut() {
+            peer.prune_header_lifecycle_samples(now, max_window);
         }
     }
 
@@ -41,6 +54,7 @@ impl Model {
         };
 
         match event {
+            TelemetryEvent::BlockAdopt => self.update_catch_up(record),
             TelemetryEvent::TipUpdate => self.update_tip(record),
             TelemetryEvent::StakeSnapshot => self.update_stake_snapshot(record),
             TelemetryEvent::MempoolStateUpdate => self.update_mempool(record),
@@ -102,6 +116,18 @@ impl Model {
         };
 
         self.tip = Some(tip);
+    }
+
+    fn update_catch_up(&mut self, record: &TelemetryRecord) {
+        let catching_up = consensus::tip::ADOPT::max_block_height(record) > consensus::tip::ADOPT::block_height(record);
+
+        if catching_up {
+            for peer in self.peers.values_mut() {
+                peer.clear_slot_start_to_header();
+            }
+        }
+
+        self.catching_up = catching_up;
     }
 
     fn update_stake_snapshot(&mut self, record: &TelemetryRecord) {
@@ -232,6 +258,9 @@ impl Model {
             return;
         };
 
+        let slot_start_to_header_micros = (!self.catching_up)
+            .then(|| consensus::perf::header::LIFECYCLE::slot_start_to_header_micros(record))
+            .flatten();
         let query_header_micros = consensus::perf::header::LIFECYCLE::block_fetch_wait_micros(record);
         let get_block_micros = consensus::perf::header::LIFECYCLE::block_fetch_micros(record);
         let adopt_block_micros = consensus::perf::header::LIFECYCLE::forward_micros(record)
@@ -241,8 +270,16 @@ impl Model {
                 forward_micros.saturating_sub(query_header_micros.saturating_add(get_block_micros))
             });
 
+        let max_window = self.max_window();
         let peer = self.peer_mut(peer.as_ref(), record.at);
-        peer.record_header_lifecycle(record, query_header_micros, get_block_micros, adopt_block_micros);
+        peer.record_header_lifecycle(
+            record.at,
+            max_window,
+            slot_start_to_header_micros,
+            query_header_micros,
+            get_block_micros,
+            adopt_block_micros,
+        );
     }
 
     fn peer_mut(&mut self, address: &str, updated_at: Instant) -> &mut PeerState {

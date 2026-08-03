@@ -53,6 +53,7 @@ fn te_header_rejected(outcome: &str) -> TraceEntry {
         "tp-1",
         ConsensusMetrics::HeaderLifecycle {
             outcome: outcome.into(),
+            slot_start_to_header_micros: None,
             block_fetch_wait_micros: None,
             block_fetch_micros: None,
             forward_micros: None,

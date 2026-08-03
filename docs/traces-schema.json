@@ -1150,6 +1150,9 @@
         "error": {
           "type": "string"
         },
+        "slot_start_to_header_micros": {
+          "type": "integer"
+        },
         "block_fetch_wait_micros": {
           "type": "integer"
         },
@@ -1166,6 +1169,7 @@
         "header_hash",
         "outcome",
         "error",
+        "slot_start_to_header_micros",
         "block_fetch_wait_micros",
         "block_fetch_micros",
         "forward_micros"
@@ -1175,6 +1179,42 @@
       "level": "TRACE",
       "target": "amaru::consensus::perf::header",
       "description": "Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. `outcome` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
+      "public": true
+    },
+    "amaru::consensus::tip::ADOPT": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "block_height": {
+          "type": "integer"
+        },
+        "max_block_height": {
+          "type": "integer"
+        },
+        "suppressed": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slot",
+        "header_hash",
+        "block_height",
+        "max_block_height",
+        "suppressed"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "adopt",
+      "level": "TRACE",
+      "target": "amaru::consensus::tip",
+      "description": "Adopt a tip as the next tip in the best chain",
       "public": true
     },
     "amaru::ledger::account::PAY_OR_REFUND": {
@@ -4472,7 +4512,7 @@
       "properties": {
         "epoch": {
           "type": "string",
-          "description": "Custom type: Epoch"
+          "description": "Custom type: amaru_kernel::Epoch"
         }
       },
       "required": [

@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Instant;
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use ratatui::{
     Frame,
@@ -25,7 +28,7 @@ use super::super::{
         aligned_pair_lines, format_count, format_density, format_duration, format_secs_frequency, format_slot_ratio,
     },
 };
-use crate::{model::Model, ui::Views};
+use crate::{events::SystemSample, model::Model, ui::Views};
 
 pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views, now: Instant) {
     let layout = Layout::default()
@@ -50,17 +53,25 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         frame,
         charts[0],
         "Memory (RSS)",
-        sample_memory_mib(model),
+        sample_memory_mib(model, now, charts[0].width),
         "MiB",
         memory_detail(model),
         model.interaction_mode,
     );
-    render_series_card(frame, charts[1], "CPU", sample_cpu_tenths(model), "%", None, model.interaction_mode);
+    render_series_card(
+        frame,
+        charts[1],
+        "CPU",
+        sample_cpu_tenths(model, now, charts[1].width),
+        "%",
+        None,
+        model.interaction_mode,
+    );
     render_series_card(
         frame,
         charts[2],
         "Disk Read",
-        sample_disk_read_kib(model),
+        sample_disk_read_kib(model, now, charts[2].width),
         "KiB/s",
         disk_read_detail(model),
         model.interaction_mode,
@@ -69,7 +80,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         frame,
         charts[3],
         "Disk Write",
-        sample_disk_write_kib(model),
+        sample_disk_write_kib(model, now, charts[3].width),
         "KiB/s",
         disk_write_detail(model),
         model.interaction_mode,
@@ -159,7 +170,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(78), Constraint::Percentage(22)])
         .split(layout[2]);
-    render_peers_table(frame, bottom[0], model, views);
+    render_peers_table(frame, bottom[0], model, views, now);
     render_card(
         frame,
         bottom[1],
@@ -184,20 +195,59 @@ fn mempool_panel_height() -> u16 {
     4
 }
 
-fn sample_memory_mib(model: &Model) -> Vec<u64> {
-    model.system_samples.iter().map(|sample| sample.process_memory_bytes / 1_048_576).collect()
+fn sample_memory_mib(model: &Model, now: Instant, width: u16) -> Vec<Option<u64>> {
+    sample_series(model, now, width, |sample| sample.process_memory_bytes / 1_048_576)
 }
 
-fn sample_cpu_tenths(model: &Model) -> Vec<u64> {
-    model.system_samples.iter().map(|sample| sample.cpu_percent.round() as u64).collect()
+fn sample_cpu_tenths(model: &Model, now: Instant, width: u16) -> Vec<Option<u64>> {
+    sample_series(model, now, width, |sample| sample.cpu_percent.round() as u64)
 }
 
-fn sample_disk_read_kib(model: &Model) -> Vec<u64> {
-    model.system_samples.iter().map(|sample| sample.disk_live_read_bytes.div_ceil(1_024)).collect()
+fn sample_disk_read_kib(model: &Model, now: Instant, width: u16) -> Vec<Option<u64>> {
+    sample_series(model, now, width, |sample| sample.disk_live_read_bytes.div_ceil(1_024))
 }
 
-fn sample_disk_write_kib(model: &Model) -> Vec<u64> {
-    model.system_samples.iter().map(|sample| sample.disk_live_write_bytes.div_ceil(1_024)).collect()
+fn sample_disk_write_kib(model: &Model, now: Instant, width: u16) -> Vec<Option<u64>> {
+    sample_series(model, now, width, |sample| sample.disk_live_write_bytes.div_ceil(1_024))
+}
+
+fn sample_series(model: &Model, now: Instant, width: u16, project: impl Fn(&SystemSample) -> u64) -> Vec<Option<u64>> {
+    sample_series_windowed(
+        &model.system_samples,
+        now,
+        model.current_window(),
+        width.saturating_sub(2) as usize,
+        project,
+    )
+}
+
+fn sample_series_windowed(
+    samples: &VecDeque<SystemSample>,
+    now: Instant,
+    window: Duration,
+    width: usize,
+    project: impl Fn(&SystemSample) -> u64,
+) -> Vec<Option<u64>> {
+    if width == 0 {
+        return Vec::new();
+    }
+
+    if window.is_zero() {
+        return vec![None; width];
+    }
+
+    let start = now.checked_sub(window).unwrap_or(now);
+    let mut buckets = vec![None; width];
+    let window_seconds = window.as_secs_f64();
+
+    for sample in samples.iter().filter(|sample| sample.at <= now && sample.at >= start) {
+        let elapsed = sample.at.saturating_duration_since(start).as_secs_f64();
+        let ratio = (elapsed / window_seconds).clamp(0.0, 1.0);
+        let index = ((ratio * width as f64).floor() as usize).min(width.saturating_sub(1));
+        buckets[index] = Some(project(sample));
+    }
+
+    buckets
 }
 
 fn blocks_per_second(model: &Model, now: Instant) -> f64 {
@@ -250,4 +300,103 @@ fn format_kib(bytes: u64) -> String {
 
 fn format_kib_ratio(bytes: u64, capacity_bytes: u64) -> String {
     format!("{} / {}", format_kib(bytes), format_kib(capacity_bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_series_windowed_slides_with_the_current_window() {
+        let start = Instant::now();
+        let samples = VecDeque::from([
+            SystemSample {
+                at: start + Duration::from_secs(1),
+                cpu_percent: 0.0,
+                process_memory_bytes: 1,
+                rss_bytes: 0,
+                virtual_bytes: 0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
+                disk_read_bytes: 0,
+                disk_write_bytes: 0,
+                disk_live_read_bytes: 0,
+                disk_live_write_bytes: 0,
+                processes_live_read_bytes: 0,
+                processes_live_write_bytes: 0,
+            },
+            SystemSample {
+                at: start + Duration::from_secs(3),
+                cpu_percent: 3.0,
+                process_memory_bytes: 3,
+                rss_bytes: 0,
+                virtual_bytes: 0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
+                disk_read_bytes: 0,
+                disk_write_bytes: 0,
+                disk_live_read_bytes: 0,
+                disk_live_write_bytes: 0,
+                processes_live_read_bytes: 0,
+                processes_live_write_bytes: 0,
+            },
+            SystemSample {
+                at: start + Duration::from_secs(5),
+                cpu_percent: 5.0,
+                process_memory_bytes: 5,
+                rss_bytes: 0,
+                virtual_bytes: 0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
+                disk_read_bytes: 0,
+                disk_write_bytes: 0,
+                disk_live_read_bytes: 0,
+                disk_live_write_bytes: 0,
+                processes_live_read_bytes: 0,
+                processes_live_write_bytes: 0,
+            },
+            SystemSample {
+                at: start + Duration::from_secs(7),
+                cpu_percent: 7.0,
+                process_memory_bytes: 7,
+                rss_bytes: 0,
+                virtual_bytes: 0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
+                disk_read_bytes: 0,
+                disk_write_bytes: 0,
+                disk_live_read_bytes: 0,
+                disk_live_write_bytes: 0,
+                processes_live_read_bytes: 0,
+                processes_live_write_bytes: 0,
+            },
+            SystemSample {
+                at: start + Duration::from_secs(8),
+                cpu_percent: 8.0,
+                process_memory_bytes: 8,
+                rss_bytes: 0,
+                virtual_bytes: 0,
+                memory_used_bytes: 0,
+                memory_total_bytes: 0,
+                disk_read_bytes: 0,
+                disk_write_bytes: 0,
+                disk_live_read_bytes: 0,
+                disk_live_write_bytes: 0,
+                processes_live_read_bytes: 0,
+                processes_live_write_bytes: 0,
+            },
+        ]);
+
+        let before_slide =
+            sample_series_windowed(&samples, start + Duration::from_secs(8), Duration::from_secs(8), 4, |sample| {
+                sample.process_memory_bytes
+            });
+        let after_slide =
+            sample_series_windowed(&samples, start + Duration::from_secs(9), Duration::from_secs(8), 4, |sample| {
+                sample.process_memory_bytes
+            });
+
+        assert_eq!(before_slide, vec![Some(1), Some(3), Some(5), Some(8)]);
+        assert_eq!(after_slide, vec![Some(1), Some(3), Some(5), Some(8)]);
+    }
 }

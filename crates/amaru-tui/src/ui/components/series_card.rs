@@ -15,7 +15,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Style,
+    symbols,
     widgets::{Block, Borders, Sparkline},
 };
 
@@ -30,19 +30,29 @@ pub(in crate::ui) fn render_series_card(
     frame: &mut Frame<'_>,
     area: Rect,
     title: &str,
-    data: Vec<u64>,
+    data: Vec<Option<u64>>,
     unit: &str,
     detail: Option<String>,
     mode: InteractionMode,
 ) {
-    let latest = data.last().copied().unwrap_or_default();
-    let max = data.iter().copied().max().unwrap_or(1);
+    let latest = data.iter().rev().flatten().copied().next().unwrap_or_default();
     let detail = detail.map(|detail| format!(" ({detail})")).unwrap_or_default();
     let block = Block::default()
         .title(block_title(mode, &format!("{title} · {} {unit}{detail}", format_count(latest))))
         .borders(Borders::ALL)
         .border_style(border_secondary(mode));
-    let sparkline =
-        Sparkline::default().data(&data).style(Style::default().fg(accent_primary(mode))).max(max).block(block);
+    if data.is_empty() {
+        frame.render_widget(block, area);
+        return;
+    }
+
+    let max = data.iter().flatten().copied().max().unwrap_or(1);
+    let sparkline = Sparkline::default()
+        .block(block)
+        .data(data)
+        .max(max)
+        .bar_set(symbols::bar::NINE_LEVELS)
+        .style(accent_primary(mode))
+        .absent_value_symbol(" ");
     frame.render_widget(sparkline, area);
 }

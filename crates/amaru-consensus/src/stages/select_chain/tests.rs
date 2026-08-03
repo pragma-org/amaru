@@ -324,6 +324,11 @@ fn test_upstream_tip_depends_on_invalid_block() {
     // Use the simulation clock as the reception time so the forward duration measured at
     // abandonment (which reads the same clock) is zero.
     let received_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let slot_start_to_header_micros = start_in_era()
+        .relative_time
+        .saturating_add(Duration::from_secs(10))
+        .saturating_sub(Duration::from_secs(tip.slot().as_u64()))
+        .as_micros() as u64;
     let msg = SelectChainMsg::TipFromUpstream {
         peer: amaru_kernel::Peer::new("upstream"),
         tip,
@@ -333,7 +338,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
     };
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
-    let mut expected = SelectChain::new(prep.downstream.clone());
+    let mut expected = SelectChain::new(prep.downstream.clone(), EraHistory::default());
     expected.may_fetch_blocks = true;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -348,6 +353,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
                 "sc-1",
                 ConsensusMetrics::HeaderLifecycle {
                     outcome: "abandoned".into(),
+                    slot_start_to_header_micros: Some(slot_start_to_header_micros),
                     block_fetch_wait_micros: None,
                     block_fetch_micros: None,
                     forward_micros: Some(0),

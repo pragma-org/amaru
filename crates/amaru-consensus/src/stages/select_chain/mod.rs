@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, collections::BTreeMap, time::Duration};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
@@ -109,13 +109,13 @@ pub struct SelectChain {
 }
 
 impl SelectChain {
-    pub fn new(downstream: StageRef<NewBestTip>) -> Self {
+    pub fn new(downstream: StageRef<NewBestTip>, era_history: EraHistory) -> Self {
         Self {
             downstream,
             best_tip: None,
             tips: BTreeMap::new(),
             may_fetch_blocks: false,
-            headers_performance: HeadersPerformance::new(),
+            headers_performance: HeadersPerformance::new(era_history),
         }
     }
 }
@@ -206,6 +206,7 @@ impl SelectChain {
     ///
     /// The `tip` and `parent` refer to headers that are guaranteed to be stored in the chain store
     /// by the track_peers stage.
+    #[expect(clippy::too_many_arguments)]
     async fn handle_tip_from_upstream(
         &mut self,
         peer: Peer,

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
-use amaru_kernel::{HeaderHash, Peer, Tip};
+use amaru_kernel::{EraHistory, HeaderHash, Peer, Tip};
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::debug;
 use amaru_protocols::metrics_effects::{Metrics, MetricsOps};
@@ -22,9 +22,12 @@ use amaru_pure_stage::{Effects, Instant, Void};
 use serde::{Deserialize, Serialize};
 
 /// Tracks the processing of headers to emit a single `perf.header.lifecycle` event per header when
-/// its block reaches a terminal state (adopted, invalidated or abandoned). The event covers the four
-/// network-health processing points of a header's lifecycle and carries the intervals between them:
+/// its block reaches a terminal state (adopted, invalidated or abandoned). The event covers the
+/// virtual slot start followed by the four network-health processing points of a header's lifecycle
+/// and carries the intervals between them:
 ///
+/// - `slot_start_to_header_micros`: from the virtual beginning of the slot to the header's
+///   reception.
 /// - `block_fetch_wait_micros`: from the header's reception to the request of its block.
 /// - `block_fetch_micros`: from the request of the block to its reception.
 /// - `forward_micros`: from the header's reception to the adoption of its block.
@@ -32,6 +35,7 @@ use serde::{Deserialize, Serialize};
 /// Fork switches are tracked independently and emitted as `perf.fork.switch`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HeadersPerformance {
+    era_history: EraHistory,
     /// The lifecycle timestamps of each header whose block has not yet reached a terminal state.
     lifecycles: BTreeMap<HeaderHash, HeaderLifecycle>,
     /// An in-progress fork switch, if any.
@@ -43,6 +47,8 @@ pub struct HeadersPerformance {
 struct HeaderLifecycle {
     /// Peer from which the header was first received.
     peer: Peer,
+    /// Virtual start of the header's slot, relative to the network global epoch.
+    slot_start: Duration,
     /// Time when the header was first received from an upstream peer.
     received_at: Instant,
     /// Time when its block was first requested, if it was requested.
@@ -52,8 +58,8 @@ struct HeaderLifecycle {
 }
 
 impl HeaderLifecycle {
-    fn new(peer: Peer, received_at: Instant) -> Self {
-        Self { peer, received_at, requested_at: None, downloaded_at: None }
+    fn new(peer: Peer, slot_start: Duration, received_at: Instant) -> Self {
+        Self { peer, slot_start, received_at, requested_at: None, downloaded_at: None }
     }
 }
 
@@ -66,13 +72,14 @@ struct ForkSwitch {
 }
 
 impl HeadersPerformance {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(era_history: EraHistory) -> Self {
+        Self { era_history, ..Self::default() }
     }
 
     /// A header has been accepted from upstream: start tracking its lifecycle from `received_at`.
     pub fn header_received(&mut self, peer: Peer, tip: Tip, received_at: Instant) {
-        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(peer, received_at));
+        let slot_start = self.era_history.slot_to_relative_time_unchecked_horizon(tip.slot()).unwrap_or_default();
+        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(peer, slot_start, received_at));
     }
 
     /// The fetch_blocks stage requested the blocks for these headers: record their request time.
@@ -143,6 +150,8 @@ impl HeadersPerformance {
             return;
         };
 
+        let slot_start_to_header_micros =
+            duration_micros_since(lifecycle.slot_start, lifecycle.received_at.duration_since_global_epoch());
         let block_fetch_wait_micros =
             lifecycle.requested_at.map(|requested_at| duration_micros(lifecycle.received_at, requested_at));
         let block_fetch_micros = lifecycle
@@ -156,6 +165,7 @@ impl HeadersPerformance {
             peer = lifecycle.peer.clone(),
             header_hash = hash,
             outcome = outcome.as_str(),
+            slot_start_to_header_micros = @slot_start_to_header_micros,
             block_fetch_wait_micros = @block_fetch_wait_micros,
             block_fetch_micros = @block_fetch_micros,
             forward_micros = @forward_micros
@@ -165,6 +175,7 @@ impl HeadersPerformance {
         ops.record(
             ConsensusMetrics::HeaderLifecycle {
                 outcome: outcome.as_str().to_string(),
+                slot_start_to_header_micros: Some(slot_start_to_header_micros),
                 block_fetch_wait_micros,
                 block_fetch_micros,
                 forward_micros: Some(forward_micros),
@@ -202,6 +213,10 @@ impl PartialEq for HeadersPerformance {
 /// Number of microseconds elapsed between `started` and `now` (0 if `now` precedes `started`).
 fn duration_micros(started: Instant, now: Instant) -> u64 {
     now.saturating_since(started).as_micros() as u64
+}
+
+fn duration_micros_since(started: Duration, now: Duration) -> u64 {
+    now.saturating_sub(started).as_micros() as u64
 }
 
 /// Emit a `perf.fork.switch` event for a fork switch that started at `started_at` and ended now,
@@ -285,6 +300,7 @@ impl HeadersPerformance {
                 hash,
                 HeaderLifecycle::new(
                     Peer::new("upstream"),
+                    std::time::Duration::ZERO,
                     Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO),
                 ),
             );
