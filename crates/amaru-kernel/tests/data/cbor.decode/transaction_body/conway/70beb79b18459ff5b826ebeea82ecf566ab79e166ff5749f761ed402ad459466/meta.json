@@ -1,1 +1,1 @@
-{"well_formed":true,"description":"simple transaction body; one input -> one output"}
+{"well_formed":true,"description":"simple transaction body; one input -> one output","exact_re_encoding":true}

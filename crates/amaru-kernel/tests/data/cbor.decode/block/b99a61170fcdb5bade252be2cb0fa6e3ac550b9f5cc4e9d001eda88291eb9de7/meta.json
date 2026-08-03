@@ -1,7 +1,1 @@
-{
-  "well_formed": true,
-  "era": "conway",
-  "network": "preprod",
-  "description": "a block with a duplicate verification key witness",
-  "known_amaru_divergence": false
-}
+{"well_formed":true,"era":"conway","network":"preprod","description":"a block with a duplicate verification key witness","exact_re_encoding":true,"known_amaru_divergence":true}

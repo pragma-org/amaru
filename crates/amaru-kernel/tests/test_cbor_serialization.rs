@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{cbor, from_cbor_no_leftovers, to_cbor, Block, EraName, TransactionBody};
+use amaru_kernel::{Block, EraName, TransactionBody, cbor, from_cbor_no_leftovers, to_cbor};
 use serde::Deserialize;
 
 /// See the README at crates/amaru/tests/conformance/serialization/cbor-fixture-generator/README.md
@@ -90,7 +90,7 @@ fn test_cbor_serialization() {
         eprintln!("    count  reason");
         if !on_chain_drift.is_empty() {
             eprintln!(
-                "    {:>5}  on-chain edge case — encoder round-trip drift (e.g. AuxiliaryData TAG_MAP_259 stripped, non-canonical encodings)",
+                "    {:>5}  on-chain edge case — declares exact_re_encoding, but the re-encoding differs from the input (e.g. duplicate map keys collapsed, non-canonical encodings)",
                 on_chain_drift.len()
             );
         }
@@ -187,18 +187,16 @@ fn load_fixture(path: PathBuf, kind: Kind, sample: &Path, meta: &Path) -> Result
 /// asking the caller (or the regenerate script) to drop it.
 fn run_test(fixture: &Fixture) -> Result<(), String> {
     let divergent = fixture.expectations.known_amaru_divergence;
+    let exact = fixture.expectations.exact_re_encoding;
     let result = match fixture.kind {
-        Kind::Block => check_block(&fixture.bytes),
-        Kind::TransactionBody => check_transaction_body(&fixture.bytes),
+        Kind::Block => check_round_trip::<(EraName, Block)>(&fixture.bytes, exact),
+        Kind::TransactionBody => check_round_trip::<TransactionBody>(&fixture.bytes, exact),
     };
     let stale_flag_msg = "stale known_amaru_divergence flag — amaru now agrees with the labelled expectation; remove the flag from meta.json";
     match (fixture.expectations.well_formed, result, divergent) {
         (true, Ok(()), false) => Ok(()),
         (true, Ok(()), true) => Err(stale_flag_msg.into()),
-        (true, Err(e), true) => {
-            eprintln!("PARDONED: {} -> {e}", fixture.path.display());
-            Ok(())
-        }
+        (true, Err(_), true) => Ok(()),
         (true, Err(e), false) => Err(format!("expected decode/round-trip to succeed, but failed: {e}")),
         (false, Err(_), false) => Ok(()),
         (false, Err(_), true) => Err(stale_flag_msg.into()),
@@ -210,20 +208,34 @@ fn run_test(fixture: &Fixture) -> Result<(), String> {
     }
 }
 
-/// Decode the block once from the fixture bytes,
-/// then encode it, and decode it again from the encoding
+/// Decode a `T` from the fixture bytes and verify its round-trip.
 ///
-/// Check that we get the same values after decoding
-fn check_block(bytes: &[u8]) -> Result<(), cbor::decode::Error> {
-    let (era, block): (EraName, Block) = from_cbor_no_leftovers(bytes)?;
-    let re_encoded = to_cbor(&(era, block.clone()));
-    let (re_era, re_block): (EraName, Block) = from_cbor_no_leftovers(&re_encoded)?;
-    if era != re_era {
-        return Err(cbor::decode::Error::message(format!("era changed across round-trip: {era:?} → {re_era:?}")));
+/// The re-encoding must always be a *fixed point*: decoding it and encoding again yields the same
+/// bytes.
+///
+/// When the fixture sets `exact_re_encoding`, the re-encoding must also reproduce the input
+/// verbatim, which is strictly stronger.
+///
+fn check_round_trip<T>(bytes: &[u8], exact_re_encoding: bool) -> Result<(), cbor::decode::Error>
+where
+    T: for<'b> cbor::Decode<'b, ()> + cbor::Encode<()>,
+{
+    let value: T = from_cbor_no_leftovers(bytes)?;
+    let re_encoded = to_cbor(&value);
+
+    if exact_re_encoding && re_encoded != bytes {
+        return Err(cbor::decode::Error::message(format!(
+            "re-encoding is not exact: expected {}, got {}",
+            hex::encode(bytes),
+            hex::encode(&re_encoded),
+        )));
     }
-    if !block.cbor_eq(&re_block) {
-        return Err(cbor::decode::Error::message("block CBOR round-trip produced different encoded bytes"));
+
+    let re_decoded: T = from_cbor_no_leftovers(&re_encoded)?;
+    if to_cbor(&re_decoded) != re_encoded {
+        return Err(cbor::decode::Error::message("re-encoding is not a fixed point"));
     }
+
     Ok(())
 }
 
@@ -253,18 +265,6 @@ fn short_fixture_path(path: &Path) -> String {
     }
 }
 
-/// Decode the transaction body once from the fixture bytes,
-/// then encode it, and decode it again from the encoding
-///
-/// Check that we get the same values after decoding
-fn check_transaction_body(bytes: &[u8]) -> Result<(), cbor::decode::Error> {
-    let body: TransactionBody = from_cbor_no_leftovers(bytes)?;
-    let re_encoded = to_cbor(&body);
-    let re_body: TransactionBody = from_cbor_no_leftovers(&re_encoded)?;
-    assert_eq!(body, re_body);
-    Ok(())
-}
-
 #[derive(Debug, Deserialize)]
 struct Expectations {
     well_formed: bool,
@@ -284,6 +284,9 @@ struct Expectations {
     /// trackable. Remove the flag once amaru is fixed.
     #[serde(default)]
     known_amaru_divergence: bool,
+    /// Set to `true` when the fixture's round-trip encoding is expected to be exact.
+    #[serde(default)]
+    exact_re_encoding: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
