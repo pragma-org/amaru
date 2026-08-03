@@ -40,6 +40,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: add `amaru mithril sync` to download verified Mithril immutable files and replay their blocks directly into the chain and ledger stores.
 - **amaru**: add `amaru node rm --wipe-all-dbs` to remove the ledger and chain databases resolved from the selected network.
 
 ### Changed
@@ -50,6 +51,7 @@ Other guiding principles:
 
 ### Removed
 
+- **amaru**: remove `amaru dev ledger mithril` and `amaru dev ledger sync` in favor of `amaru mithril sync`.
 - **amaru-kernel**: dependency on `pallas-*`
 
 ### Fixed

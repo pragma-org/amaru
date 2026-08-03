@@ -234,6 +234,7 @@ impl ReadOnlyRocksDB {
         let dir = config.dir.clone();
         assert_sufficient_snapshots(&dir)?;
         let live_dir = dir.join(DIR_LIVE_DB);
+        fs::metadata(&live_dir).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(&live_dir, err)))?;
         let opts = set_default_opts(config.into());
         rocksdb::DB::open_for_read_only(&opts, &live_dir, false)
             .map(|db| ReadOnlyRocksDB { db })
@@ -1033,7 +1034,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     use crate::tests::test_read_proposal;
     use crate::{
-        rocksdb::{ReadOnlyRocksDB, RocksDB, RocksDbConfig, split_continuous},
+        rocksdb::{DIR_LIVE_DB, ReadOnlyRocksDB, RocksDB, RocksDbConfig, split_continuous},
         tests::{
             Fixture, add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep, test_read_pool,
             test_read_utxo, test_refund_account, test_remove_account, test_remove_drep, test_remove_pool,
@@ -1066,6 +1067,20 @@ mod tests {
 
         let ro_db = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into())).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
+    }
+
+    #[test]
+    fn read_only_open_does_not_create_missing_live_database() {
+        use std::fs::File;
+
+        let dir = TempDir::new().unwrap();
+        let _fake_snapshot = File::create(dir.path().join("0")).unwrap();
+        let live_dir = dir.path().join(DIR_LIVE_DB);
+
+        let result = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into()));
+
+        assert!(result.is_err());
+        assert!(!live_dir.exists());
     }
 
     #[test]

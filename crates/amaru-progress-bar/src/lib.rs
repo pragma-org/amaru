@@ -17,7 +17,7 @@
 /// The main use case is to allow decoupling certain long-running functions from their UI elements,
 /// so that they can be re-used in tests and be part of crates that must compile irrespective of
 /// the platform
-pub trait ProgressBar {
+pub trait ProgressBar: Send + Sync {
     fn tick(&self, size: usize);
     fn clear(&self);
 }

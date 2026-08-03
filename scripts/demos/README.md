@@ -75,8 +75,8 @@ are demo-specific; see each demo's README. Defaults written as `<demo>` depend o
 ### Mithril refresh and databases
 
 A refresh bootstraps fresh Amaru chain and ledger databases from the latest epoch snapshots, downloads
-the Mithril immutable chunks covering the blocks after the bootstrap tip, packages those blocks, and
-replays them into the databases. The result lands in `MITHRIL_REFRESH_DIR` together with a metadata
+the Mithril immutable chunks covering the blocks after the bootstrap tip, and replays those blocks
+directly into the databases. The result lands in `MITHRIL_REFRESH_DIR` together with a metadata
 file recording the Mithril snapshot hash, so running a refresh again exits quickly when the databases
 already match the latest snapshot. On startup, `initialize` copies the refreshed databases into
 isolated per-node run directories and re-synchronizes a copy only after a node has run against it or
