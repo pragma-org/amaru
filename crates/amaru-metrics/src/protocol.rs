@@ -158,7 +158,7 @@ impl MetricRecorder for ServedBlockCountMetrics {
 
         let served_block_count = SERVED_BLOCK_COUNT.get_or_init(|| {
             meter
-                .u64_counter("cardano_node_metrics_served_block_count_int")
+                .u64_counter("cardano_node_metrics_served_block_counter")
                 .with_description("total number of blocks served to peers")
                 .with_unit("int")
                 .build()

@@ -109,6 +109,7 @@ impl MetricRecorder for MempoolMetrics {
         static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
         static TXS_SYNC_DURATION: OnceLock<Gauge<u64>> = OnceLock::new();
         static TXS_SYNC_DURATION_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+        static TXS_SYNC_DURATION_TOTAL_COUNTER: OnceLock<Counter<u64>> = OnceLock::new();
         static TX_INSERTIONS: OnceLock<Counter<u64>> = OnceLock::new();
 
         // Metrics common to amaru and cardano-node
@@ -154,6 +155,14 @@ impl MetricRecorder for MempoolMetrics {
                 .build()
         });
 
+        let txs_sync_duration_total_counter = TXS_SYNC_DURATION_TOTAL_COUNTER.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_txsSyncDurationTotal_counter")
+                .with_description("cumulative time spent syncing the mempool in ms after block adoption")
+                .with_unit("int")
+                .build()
+        });
+
         // Amaru-specific metrics
 
         let tx_insertions = TX_INSERTIONS.get_or_init(|| {
@@ -182,6 +191,7 @@ impl MetricRecorder for MempoolMetrics {
                 let duration_ms = (duration_micros + 500) / 1_000;
                 txs_sync_duration.record(duration_ms, &[]);
                 txs_sync_duration_total.add(duration_ms, &[]);
+                txs_sync_duration_total_counter.add(duration_ms, &[]);
             }
         }
     }
