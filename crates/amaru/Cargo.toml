@@ -37,7 +37,6 @@ aws-sdk-s3.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
-flate2.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 http-body-util.workspace = true

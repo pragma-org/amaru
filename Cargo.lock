@@ -98,7 +98,6 @@ dependencies = [
  "clap_complete",
  "clap_mangen",
  "diff_json",
- "flate2",
  "futures-util",
  "hex",
  "http-body-util",

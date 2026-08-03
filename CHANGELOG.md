@@ -48,6 +48,7 @@ Other guiding principles:
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 - **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
 - **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.
+- **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
 
 ### Removed
 
@@ -82,7 +83,6 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
 - **amaru**: use `zst` compression for all individual stake distribution snapshots.
 - **amaru**: removed `#[tokio::main]`; each subcommand builds its own Tokio runtime; signals are handled via `signal-hook` on the main thread (EDR 019). Unexpected consensus stage-graph death now exits non-zero. OpenTelemetry teardown is time-bounded.
 - **amaru-ledger**: track account unregistrations to avoid O(n) scan on all accounts during epoch transition calculations.
