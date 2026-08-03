@@ -801,6 +801,7 @@ fn accessor_kind(field: &SchemaField) -> AccessorKind {
         "usize" => AccessorKind::Usize,
         "String" => AccessorKind::Str,
         "amaru_kernel::Epoch" | "amaru_kernel::Lovelace" | "amaru_kernel::Slot" => AccessorKind::U64,
+        "Epoch" | "Lovelace" | "Slot" => AccessorKind::U64,
         _ => AccessorKind::Str,
     }
 }

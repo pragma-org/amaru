@@ -1175,7 +1175,7 @@ define_schemas! {
                     public REMOVE {}
                     /// Prune recently unregistered accounts
                     public PRUNE {
-                        required epoch: Epoch
+                        required epoch: amaru_kernel::Epoch
                     }
                 }
                 dreps {

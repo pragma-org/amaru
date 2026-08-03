@@ -43,7 +43,7 @@ pub fn track_system_metrics(
             .with_memory(MemoryRefreshKind::everything().without_swap()),
     );
     let number_of_cpus = sys.cpus().len() as u64;
-    let meter = provider.as_ref().map(|provider| provider.meter("amaru"));
+    let meter = provider.as_ref().map(|provider| provider.meter(METRICS_METER_NAME));
 
     let own_pid = sysinfo::get_current_pid().map_err(|err| anyhow!("unable to retrieve own pid: {err}"))?;
 
@@ -53,7 +53,7 @@ pub fn track_system_metrics(
 
             sys.refresh_memory_specifics(MemoryRefreshKind::everything().without_swap());
             sys.refresh_processes_specifics(
-                ProcessesToUpdate::Some(&[own_pid]),
+                ProcessesToUpdate::All,
                 true,
                 ProcessRefreshKind::nothing().with_cpu().with_disk_usage().with_memory(),
             );
@@ -62,6 +62,14 @@ pub fn track_system_metrics(
                 None => error!("unable to find amaru's own process (pid={own_pid}) ?!"),
                 Some(process) => {
                     let disk_usage = process.disk_usage();
+                    let (processes_live_read_bytes, processes_live_write_bytes) =
+                        sys.processes().values().fold((0u64, 0u64), |(read_total, write_total), process| {
+                            let disk_usage = process.disk_usage();
+                            (
+                                read_total.saturating_add(disk_usage.read_bytes),
+                                write_total.saturating_add(disk_usage.written_bytes),
+                            )
+                        });
                     let metrics = SystemMetrics {
                         runtime_seconds: process.run_time(),
                         cpu_percent: process.cpu_usage() as f64 / number_of_cpus as f64,
@@ -74,6 +82,8 @@ pub fn track_system_metrics(
                         disk_write_bytes: disk_usage.total_written_bytes,
                         disk_live_read_bytes: disk_usage.read_bytes,
                         disk_live_write_bytes: disk_usage.written_bytes,
+                        processes_live_read_bytes,
+                        processes_live_write_bytes,
                         open_files: process.open_files().map_or(0, |files| files as u64),
                     };
 

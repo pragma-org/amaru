@@ -25,4 +25,8 @@ pub struct SystemSample {
     pub memory_total_bytes: u64,
     pub disk_read_bytes: u64,
     pub disk_write_bytes: u64,
+    pub disk_live_read_bytes: u64,
+    pub disk_live_write_bytes: u64,
+    pub processes_live_read_bytes: u64,
+    pub processes_live_write_bytes: u64,
 }

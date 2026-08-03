@@ -18,7 +18,7 @@ use std::{
 };
 
 use amaru_metrics::{LedgerMetrics, MempoolMetrics, MetricsEvent, SystemMetrics};
-use amaru_observability::amaru::{bootstrap, ledger, mempool, protocols};
+use amaru_observability::amaru::{bootstrap, consensus, ledger, mempool, protocols};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
 
@@ -74,6 +74,7 @@ pub struct Model {
     pub log_scroll: usize,
     pub peer_scroll: usize,
     pub proposal_scroll: usize,
+    pub config_scroll: usize,
     pub created_at: Instant,
     pub tip: Option<TipState>,
     pub stake_snapshot: Option<StakeSnapshotState>,
@@ -117,6 +118,7 @@ impl Model {
             log_scroll: 0,
             peer_scroll: 0,
             proposal_scroll: 0,
+            config_scroll: 0,
             created_at: Instant::now(),
             tip: None,
             stake_snapshot: None,
@@ -193,15 +195,23 @@ impl Model {
     }
 
     pub fn next_page(&mut self) {
-        self.page = self.page.next();
+        self.set_page(self.page.next());
     }
 
     pub fn previous_page(&mut self) {
-        self.page = self.page.previous();
+        self.set_page(self.page.previous());
     }
 
     pub fn set_page(&mut self, page: Page) {
         self.page = page;
+        self.scroll_focus = match self.page {
+            Page::Amaru if matches!(self.scroll_focus, ScrollFocus::Logs | ScrollFocus::Peers) => self.scroll_focus,
+            Page::Cardano if matches!(self.scroll_focus, ScrollFocus::Logs | ScrollFocus::Proposals) => {
+                self.scroll_focus
+            }
+            Page::Config => ScrollFocus::Config,
+            Page::Amaru | Page::Cardano => ScrollFocus::Logs,
+        };
     }
 
     pub fn enter_copy_mode(&mut self) {
@@ -271,6 +281,7 @@ impl Model {
             ScrollFocus::Logs => self.scroll_logs(delta),
             ScrollFocus::Peers => self.scroll_peers(delta),
             ScrollFocus::Proposals => self.scroll_proposals(delta),
+            ScrollFocus::Config => self.scroll_config(delta),
         }
     }
 
@@ -295,6 +306,14 @@ impl Model {
             self.proposal_scroll = self.proposal_scroll.saturating_sub(delta.unsigned_abs());
         } else {
             self.proposal_scroll = self.proposal_scroll.saturating_add(delta as usize);
+        }
+    }
+
+    pub fn scroll_config(&mut self, delta: isize) {
+        if delta.is_negative() {
+            self.config_scroll = self.config_scroll.saturating_sub(delta.unsigned_abs());
+        } else {
+            self.config_scroll = self.config_scroll.saturating_add(delta as usize);
         }
     }
 
@@ -354,25 +373,6 @@ impl Model {
         self.recent_blocks.iter().filter(|at| now.duration_since(**at) <= self.current_window()).count()
     }
 
-    pub fn average_rtt_millis(&self) -> Option<f64> {
-        let (count, total) = self
-            .peers
-            .values()
-            .filter(|peer| peer.connected)
-            .filter_map(|peer| peer.last_rtt_micros)
-            .fold((0_u64, 0_u64), |(count, total), micros| (count + 1, total + micros));
-
-        (count > 0).then_some(total as f64 / count as f64 / 1_000.0)
-    }
-
-    pub fn inbound_peer_count(&self) -> usize {
-        self.peers.values().filter(|peer| peer.connected && peer.inbound).count()
-    }
-
-    pub fn outbound_peer_count(&self) -> usize {
-        self.peers.values().filter(|peer| peer.connected && peer.outbound).count()
-    }
-
     pub fn last_block_elapsed(&self, now: Instant) -> Option<Duration> {
         self.tip.as_ref().map(|tip| now.duration_since(tip.updated_at))
     }
@@ -413,7 +413,9 @@ impl Model {
                 self.cycle_proposal_pane();
                 true
             }
-            (Page::Amaru, ScrollFocus::Proposals) | (Page::Cardano, ScrollFocus::Peers) | (Page::Config, _) => false,
+            (Page::Amaru, ScrollFocus::Proposals | ScrollFocus::Config)
+            | (Page::Cardano, ScrollFocus::Peers | ScrollFocus::Config)
+            | (Page::Config, _) => false,
         }
     }
 
@@ -455,6 +457,7 @@ impl Model {
             TelemetryEvent::EpochTransitionRecord => self.epoch_overlay_exists = true,
             TelemetryEvent::EpochTransitionApply => self.epoch_overlay_exists = false,
             TelemetryEvent::StateSwitchToFork => self.push_recent_rollback(record),
+            TelemetryEvent::HeaderLifecycle => self.update_peer_header_lifecycle(record),
             TelemetryEvent::KeepaliveRoundTrip => self.update_peer_rtt(record),
             TelemetryEvent::PeerConnected => self.update_peer_connected(record),
             TelemetryEvent::PeerDisconnected => self.update_peer_disconnected(record),
@@ -583,6 +586,10 @@ impl Model {
             memory_total_bytes: metrics.memory_total_bytes,
             disk_read_bytes: metrics.disk_read_bytes,
             disk_write_bytes: metrics.disk_write_bytes,
+            disk_live_read_bytes: metrics.disk_live_read_bytes,
+            disk_live_write_bytes: metrics.disk_live_write_bytes,
+            processes_live_read_bytes: metrics.processes_live_read_bytes,
+            processes_live_write_bytes: metrics.processes_live_write_bytes,
         });
     }
 
@@ -657,6 +664,24 @@ impl Model {
             peer.outbound = true;
         }
         peer.update_rtt(record, round_trip_micros);
+    }
+
+    fn update_peer_header_lifecycle(&mut self, record: &TelemetryRecord) {
+        let Some(peer) = consensus::perf::header::LIFECYCLE::peer(record) else {
+            return;
+        };
+
+        let query_header_micros = consensus::perf::header::LIFECYCLE::block_fetch_wait_micros(record);
+        let get_block_micros = consensus::perf::header::LIFECYCLE::block_fetch_micros(record);
+        let adopt_block_micros = consensus::perf::header::LIFECYCLE::forward_micros(record)
+            .zip(query_header_micros)
+            .zip(get_block_micros)
+            .map(|((forward_micros, query_header_micros), get_block_micros)| {
+                forward_micros.saturating_sub(query_header_micros.saturating_add(get_block_micros))
+            });
+
+        let peer = self.peer_mut(peer.as_ref(), record.at);
+        peer.record_header_lifecycle(record, query_header_micros, get_block_micros, adopt_block_micros);
     }
 
     fn peer_mut(&mut self, address: &str, updated_at: Instant) -> &mut PeerState {
@@ -972,6 +997,8 @@ mod tests {
                 disk_write_bytes: 400,
                 disk_live_read_bytes: 30,
                 disk_live_write_bytes: 40,
+                processes_live_read_bytes: 300,
+                processes_live_write_bytes: 400,
                 open_files: 5,
             }),
         ));
@@ -1016,6 +1043,37 @@ mod tests {
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
         assert_eq!(peer.last_rtt_micros, Some(12_345));
         assert!(peer.trusted);
+    }
+
+    #[test]
+    fn tracks_peer_header_lifecycle_means() {
+        let mut model = Model::new(Config::default(), startup_context());
+
+        model.handle_message(Message::Telemetry(telemetry(
+            "amaru::consensus",
+            "perf.header.lifecycle",
+            &[
+                ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("block_fetch_wait_micros", FieldValue::U64(2_000)),
+                ("block_fetch_micros", FieldValue::U64(5_000)),
+                ("forward_micros", FieldValue::U64(11_000)),
+            ],
+        )));
+        model.handle_message(Message::Telemetry(telemetry(
+            "amaru::consensus",
+            "perf.header.lifecycle",
+            &[
+                ("peer", FieldValue::String("1.2.3.4:3001".into())),
+                ("block_fetch_wait_micros", FieldValue::U64(4_000)),
+                ("block_fetch_micros", FieldValue::U64(7_000)),
+                ("forward_micros", FieldValue::U64(15_000)),
+            ],
+        )));
+
+        let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
+        assert_eq!(peer.mean_query_header_micros(), Some(3_000));
+        assert_eq!(peer.mean_get_block_micros(), Some(6_000));
+        assert_eq!(peer.mean_adopt_block_micros(), Some(4_000));
     }
 
     #[test]
@@ -1291,5 +1349,42 @@ mod tests {
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.proposal_pane_mode, PaneMode::Maximized);
+    }
+
+    #[test]
+    fn config_page_uses_its_own_scroll_focus() {
+        let mut model = Model::new(Config::default(), startup_context());
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+
+        assert_eq!(model.page, Page::Config);
+        assert_eq!(model.scroll_focus, ScrollFocus::Config);
+        assert_eq!(model.config_scroll, 0);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.config_scroll, 1);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.scroll_focus, ScrollFocus::Config);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.page, Page::Cardano);
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
     }
 }

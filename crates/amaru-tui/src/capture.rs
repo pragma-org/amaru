@@ -28,6 +28,8 @@ use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 use crate::events::{FieldValue, Message, TelemetryKind, TelemetryRecord};
 
+const TAG_FIELD_PREFIX: &str = "amaru.tag.";
+
 #[derive(Debug, Clone)]
 pub struct TracingLayer {
     tx: SyncSender<Message>,
@@ -140,6 +142,10 @@ struct FieldVisitor {
 
 impl FieldVisitor {
     fn insert(&mut self, field: &Field, value: FieldValue) {
+        if field.name().starts_with(TAG_FIELD_PREFIX) {
+            return;
+        }
+
         self.fields.insert(field.name().to_string(), value);
     }
 }
@@ -179,5 +185,49 @@ impl Visit for FieldVisitor {
 
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         self.insert(field, FieldValue::String(format!("{value:?}")));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::sync_channel;
+
+    use tracing_subscriber::prelude::*;
+
+    use super::*;
+
+    #[test]
+    fn event_telemetry_drops_tag_fields() {
+        let (tx, rx) = sync_channel(1);
+        let subscriber = tracing_subscriber::registry().with(TracingLayer::new(tx));
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(message = "hello", transaction_id = "abc", "amaru.tag.cpu" = true);
+        });
+
+        let Message::Telemetry(record) = rx.recv().expect("telemetry event") else {
+            panic!("expected telemetry event")
+        };
+
+        assert_eq!(record.kind, TelemetryKind::Event);
+        assert_eq!(record.fields.get("transaction_id"), Some(&FieldValue::String("abc".into())));
+        assert!(!record.fields.contains_key("amaru.tag.cpu"));
+    }
+
+    #[test]
+    fn span_telemetry_drops_tag_fields() {
+        let (tx, rx) = sync_channel(1);
+        let subscriber = tracing_subscriber::registry().with(TracingLayer::new(tx));
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!("test_span", slot = 42u64, "amaru.tag.cpu" = true);
+            let _guard = span.enter();
+        });
+
+        let Message::Telemetry(record) = rx.recv().expect("telemetry span") else { panic!("expected telemetry span") };
+
+        assert_eq!(record.kind, TelemetryKind::SpanClose);
+        assert_eq!(record.fields.get("slot"), Some(&FieldValue::U64(42)));
+        assert!(!record.fields.contains_key("amaru.tag.cpu"));
     }
 }

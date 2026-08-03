@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{HeaderHash, Tip};
+use amaru_kernel::{HeaderHash, Peer, Tip};
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::debug;
 use amaru_protocols::metrics_effects::{Metrics, MetricsOps};
@@ -41,6 +41,8 @@ pub struct HeadersPerformance {
 /// The processing timestamps accumulated for a header until its block reaches a terminal state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HeaderLifecycle {
+    /// Peer from which the header was first received.
+    peer: Peer,
     /// Time when the header was first received from an upstream peer.
     received_at: Instant,
     /// Time when its block was first requested, if it was requested.
@@ -50,8 +52,8 @@ struct HeaderLifecycle {
 }
 
 impl HeaderLifecycle {
-    fn new(received_at: Instant) -> Self {
-        Self { received_at, requested_at: None, downloaded_at: None }
+    fn new(peer: Peer, received_at: Instant) -> Self {
+        Self { peer, received_at, requested_at: None, downloaded_at: None }
     }
 }
 
@@ -69,8 +71,8 @@ impl HeadersPerformance {
     }
 
     /// A header has been accepted from upstream: start tracking its lifecycle from `received_at`.
-    pub fn header_received(&mut self, tip: Tip, received_at: Instant) {
-        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(received_at));
+    pub fn header_received(&mut self, peer: Peer, tip: Tip, received_at: Instant) {
+        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(peer, received_at));
     }
 
     /// The fetch_blocks stage requested the blocks for these headers: record their request time.
@@ -151,6 +153,7 @@ impl HeadersPerformance {
 
         debug!(
             consensus::perf::header::LIFECYCLE,
+            peer = lifecycle.peer.clone(),
             header_hash = hash,
             outcome = outcome.as_str(),
             block_fetch_wait_micros = @block_fetch_wait_micros,
@@ -280,7 +283,10 @@ impl HeadersPerformance {
         for hash in hashes {
             self.lifecycles.insert(
                 hash,
-                HeaderLifecycle::new(Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO)),
+                HeaderLifecycle::new(
+                    Peer::new("upstream"),
+                    Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO),
+                ),
             );
         }
         self

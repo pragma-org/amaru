@@ -324,7 +324,13 @@ fn test_upstream_tip_depends_on_invalid_block() {
     // Use the simulation clock as the reception time so the forward duration measured at
     // abandonment (which reads the same clock) is zero.
     let received_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
-    let msg = SelectChainMsg::TipFromUpstream { tip, parent, trace_context: Default::default(), received_at };
+    let msg = SelectChainMsg::TipFromUpstream {
+        peer: amaru_kernel::Peer::new("upstream"),
+        tip,
+        parent,
+        trace_context: Default::default(),
+        received_at,
+    };
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
     let mut expected = SelectChain::new(prep.downstream.clone());

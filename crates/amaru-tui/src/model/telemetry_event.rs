@@ -29,6 +29,7 @@ pub enum TelemetryEvent {
     GovernanceActivityUpdate,
     GovernanceEnacting,
     GovernanceRatifying,
+    HeaderLifecycle,
     KeepaliveRoundTrip,
     MempoolStateUpdate,
     NewGovernanceUpdates,
@@ -79,6 +80,8 @@ impl TelemetryEvent {
             Some(Self::BootstrapPotsImport)
         } else if mempool::state::UPDATE::matches(&record.target, &record.name) {
             Some(Self::MempoolStateUpdate)
+        } else if consensus::perf::header::LIFECYCLE::matches(&record.target, &record.name) {
+            Some(Self::HeaderLifecycle)
         } else if protocols::keepalive::peer::ROUND_TRIP::matches(&record.target, &record.name) {
             Some(Self::KeepaliveRoundTrip)
         } else if protocols::peer_selection::peer::CONNECTED::matches(&record.target, &record.name) {

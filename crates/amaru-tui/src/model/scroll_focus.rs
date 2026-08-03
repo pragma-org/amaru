@@ -19,6 +19,7 @@ pub enum ScrollFocus {
     Logs,
     Peers,
     Proposals,
+    Config,
 }
 
 impl ScrollFocus {
@@ -27,6 +28,7 @@ impl ScrollFocus {
             Self::Logs => "logs",
             Self::Peers => "peers",
             Self::Proposals => "proposals",
+            Self::Config => "config",
         }
     }
 
@@ -35,10 +37,12 @@ impl ScrollFocus {
             (Page::Amaru, Self::Logs) => Self::Peers,
             (Page::Amaru, Self::Peers) => Self::Logs,
             (Page::Amaru, Self::Proposals) => Self::Logs,
+            (Page::Amaru, Self::Config) => Self::Logs,
             (Page::Cardano, Self::Logs) => Self::Proposals,
             (Page::Cardano, Self::Proposals) => Self::Logs,
             (Page::Cardano, Self::Peers) => Self::Logs,
-            (Page::Config, focus) => focus,
+            (Page::Cardano, Self::Config) => Self::Logs,
+            (Page::Config, _) => Self::Config,
         }
     }
 
@@ -47,10 +51,12 @@ impl ScrollFocus {
             (Page::Amaru, Self::Logs) => Self::Peers,
             (Page::Amaru, Self::Peers) => Self::Logs,
             (Page::Amaru, Self::Proposals) => Self::Logs,
+            (Page::Amaru, Self::Config) => Self::Logs,
             (Page::Cardano, Self::Logs) => Self::Proposals,
             (Page::Cardano, Self::Proposals) => Self::Logs,
             (Page::Cardano, Self::Peers) => Self::Logs,
-            (Page::Config, focus) => focus,
+            (Page::Cardano, Self::Config) => Self::Logs,
+            (Page::Config, _) => Self::Config,
         }
     }
 }

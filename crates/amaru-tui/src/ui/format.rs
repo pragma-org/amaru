@@ -62,6 +62,16 @@ pub(super) fn format_duration(duration: Duration) -> String {
     }
 }
 
+pub(super) fn format_micros(micros: u64) -> String {
+    if micros < 1_000 {
+        format!("{micros}µs")
+    } else if micros < 1_000_000 {
+        format!("{:.1}ms", micros as f64 / 1_000.0)
+    } else {
+        format!("{:.2}s", micros as f64 / 1_000_000.0)
+    }
+}
+
 pub(super) fn format_log_wall_time(wall_time: SystemTime) -> String {
     let seconds = wall_time.duration_since(UNIX_EPOCH).map(|duration| duration.as_secs() % 86_400).unwrap_or_default();
     let hours = seconds / 3_600;

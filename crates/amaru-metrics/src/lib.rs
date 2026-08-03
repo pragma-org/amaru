@@ -16,7 +16,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         Arc, LazyLock, Mutex, MutexGuard,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, Ordering},
     },
 };
 
@@ -65,15 +65,15 @@ impl MetricRecorder for MetricsEvent {
 
 #[derive(Debug)]
 pub struct Subscription {
-    id: u64,
+    id: u32,
 }
 
-static NEXT_SUBSCRIBER_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_SUBSCRIBER_ID: AtomicU32 = AtomicU32::new(1);
 type Subscriber = dyn Fn(&MetricsEvent) + Send + Sync;
 
-static SUBSCRIBERS: LazyLock<Mutex<BTreeMap<u64, Arc<Subscriber>>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
+static SUBSCRIBERS: LazyLock<Mutex<BTreeMap<u32, Arc<Subscriber>>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
-fn subscribers() -> MutexGuard<'static, BTreeMap<u64, Arc<Subscriber>>> {
+fn subscribers() -> MutexGuard<'static, BTreeMap<u32, Arc<Subscriber>>> {
     SUBSCRIBERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 

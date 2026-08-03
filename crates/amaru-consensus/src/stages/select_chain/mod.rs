@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, collections::BTreeMap, time::Duration};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tip};
+use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
@@ -123,7 +123,7 @@ impl SelectChain {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SelectChainMsg {
     Initialize(HeaderHash),
-    TipFromUpstream { tip: Tip, parent: Point, trace_context: TraceContext, received_at: Instant },
+    TipFromUpstream { peer: Peer, tip: Tip, parent: Point, trace_context: TraceContext, received_at: Instant },
     BlockValidationResult(Tip, bool),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
@@ -139,6 +139,7 @@ pub enum SelectChainMsg {
 impl SelectChainMsg {
     pub fn tip_from_upstream(tip: Tip, parent: Point) -> Self {
         SelectChainMsg::TipFromUpstream {
+            peer: Peer::new("upstream"),
             tip,
             parent,
             trace_context: Default::default(),
@@ -162,7 +163,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 state.tips.insert(best_hash, to_validate);
             }
         }
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context, received_at } => {
+        SelectChainMsg::TipFromUpstream { peer, tip, parent, trace_context, received_at } => {
             let span = debug_span!(
                 parent_context: &trace_context,
                 consensus::chain::SELECT_FROM_TIP,
@@ -171,7 +172,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
             );
             let child_trace_context = (&span).into();
             state
-                .handle_tip_from_upstream(tip, parent, eff, trace_context, child_trace_context, received_at)
+                .handle_tip_from_upstream(peer, tip, parent, eff, trace_context, child_trace_context, received_at)
                 .instrument(span)
                 .await;
         }
@@ -207,6 +208,7 @@ impl SelectChain {
     /// by the track_peers stage.
     async fn handle_tip_from_upstream(
         &mut self,
+        peer: Peer,
         tip: Tip,
         parent: Point,
         eff: Effects<SelectChainMsg>,
@@ -214,7 +216,7 @@ impl SelectChain {
         stage_context: TraceContext,
         received_at: Instant,
     ) {
-        self.headers_performance.header_received(tip, received_at);
+        self.headers_performance.header_received(peer, tip, received_at);
 
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
 

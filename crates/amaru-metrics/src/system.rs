@@ -32,6 +32,8 @@ pub struct SystemMetrics {
     pub disk_write_bytes: u64,
     pub disk_live_read_bytes: u64,
     pub disk_live_write_bytes: u64,
+    pub processes_live_read_bytes: u64,
+    pub processes_live_write_bytes: u64,
     pub open_files: u64,
 }
 
@@ -48,6 +50,8 @@ impl MetricRecorder for SystemMetrics {
         static DISK_TOTAL_WRITE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static DISK_LIVE_READ_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static DISK_LIVE_WRITE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
+        static PROCESSES_LIVE_READ_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
+        static PROCESSES_LIVE_WRITE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static CPU_PERCENT: OnceLock<Gauge<f64>> = OnceLock::new();
         static PROCESS_MEMORY_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static RSS_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
@@ -95,6 +99,20 @@ impl MetricRecorder for SystemMetrics {
             meter
                 .u64_gauge("process_disk_live_write")
                 .with_description("Number of written bytes since the last refresh (in bytes)")
+                .with_unit("bytes")
+                .build()
+        });
+        let processes_live_read_bytes = PROCESSES_LIVE_READ_BYTES.get_or_init(|| {
+            meter
+                .u64_gauge("amaru_metrics_processes_live_read_bytes")
+                .with_description("Observed bytes read by all refreshed processes since the last refresh (in bytes)")
+                .with_unit("bytes")
+                .build()
+        });
+        let processes_live_write_bytes = PROCESSES_LIVE_WRITE_BYTES.get_or_init(|| {
+            meter
+                .u64_gauge("amaru_metrics_processes_live_write_bytes")
+                .with_description("Observed bytes written by all refreshed processes since the last refresh (in bytes)")
                 .with_unit("bytes")
                 .build()
         });
@@ -146,6 +164,8 @@ impl MetricRecorder for SystemMetrics {
         disk_total_write_bytes.record(self.disk_write_bytes, &[]);
         disk_live_read_bytes.record(self.disk_live_read_bytes, &[]);
         disk_live_write_bytes.record(self.disk_live_write_bytes, &[]);
+        processes_live_read_bytes.record(self.processes_live_read_bytes, &[]);
+        processes_live_write_bytes.record(self.processes_live_write_bytes, &[]);
         cpu_percent.record(self.cpu_percent, &[]);
         process_memory_bytes.record(self.process_memory_bytes, &[]);
         rss_bytes.record(self.rss_bytes, &[]);

@@ -28,6 +28,7 @@ pub struct Views {
     pub logs_area: Rect,
     pub peers_area: Rect,
     pub proposals_area: Rect,
+    pub config_area: Rect,
 }
 
 impl Views {
@@ -42,6 +43,7 @@ impl Views {
         self.logs_area = Rect::default();
         self.peers_area = Rect::default();
         self.proposals_area = Rect::default();
+        self.config_area = Rect::default();
     }
 
     pub fn page_at(&self, point: Rect) -> Option<Page> {
@@ -79,6 +81,8 @@ impl Views {
             Some(ScrollFocus::Peers)
         } else if contains(self.proposals_area, point) {
             Some(ScrollFocus::Proposals)
+        } else if contains(self.config_area, point) {
+            Some(ScrollFocus::Config)
         } else {
             None
         }

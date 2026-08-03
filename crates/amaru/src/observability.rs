@@ -286,6 +286,8 @@ impl TracingSubscriber<Registry> {
         }
     }
 
+    #[expect(clippy::panic)]
+    #[expect(clippy::wildcard_enum_match_arm)]
     pub fn with_json<F, G>(&mut self, registry_layer: F, otel_layer: G) -> DelayedWarning
     where
         F: FnOnce() -> (JsonFilter<Registry>, DelayedWarning),
@@ -302,28 +304,12 @@ impl TracingSubscriber<Registry> {
                 *self = TracingSubscriber::WithJsonAndOpenTelemetry(layered.with(layer));
                 warning
             }
-            subscriber @ Self::Empty
-            | subscriber @ Self::WithTui(_)
-            | subscriber @ Self::WithTuiAndOpenTelemetry(_)
-            | subscriber @ Self::WithJson(_)
-            | subscriber @ Self::WithJsonAndOpenTelemetry(_) => {
-                debug_assert!(
-                    matches!(
-                        subscriber,
-                        Self::Empty
-                            | Self::WithTui(_)
-                            | Self::WithTuiAndOpenTelemetry(_)
-                            | Self::WithJson(_)
-                            | Self::WithJsonAndOpenTelemetry(_)
-                    ),
-                    "'with_json' called after 'with_json'"
-                );
-                *self = subscriber;
-                None
-            }
+            _ => panic!("'with_json' called after as third layer"),
         }
     }
 
+    #[expect(clippy::panic)]
+    #[expect(clippy::wildcard_enum_match_arm)]
     pub fn with_tui<F, G>(&mut self, registry_layer: F, otel_layer: G) -> DelayedWarning
     where
         F: FnOnce() -> (TuiFilter<Registry>, DelayedWarning),
@@ -340,25 +326,7 @@ impl TracingSubscriber<Registry> {
                 *self = TracingSubscriber::WithTuiAndOpenTelemetry(layered.with(layer));
                 warning
             }
-            subscriber @ Self::Empty
-            | subscriber @ Self::WithTui(_)
-            | subscriber @ Self::WithTuiAndOpenTelemetry(_)
-            | subscriber @ Self::WithJson(_)
-            | subscriber @ Self::WithJsonAndOpenTelemetry(_) => {
-                debug_assert!(
-                    matches!(
-                        subscriber,
-                        Self::Empty
-                            | Self::WithTui(_)
-                            | Self::WithTuiAndOpenTelemetry(_)
-                            | Self::WithJson(_)
-                            | Self::WithJsonAndOpenTelemetry(_)
-                    ),
-                    "'with_tui' called after 'with_json'"
-                );
-                *self = subscriber;
-                None
-            }
+            _ => panic!("'with_tui' called after as third layer"),
         }
     }
 

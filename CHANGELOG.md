@@ -46,6 +46,7 @@ Other guiding principles:
 ### Added
 
 - **amaru-tui**: `node run` now launches a richful TUI that feeds from the emitted traces and metrics to provide an out-of-the-box dashboard for Amaru. Can be disabled with `--no-tui`.
+- **amaru-tui**: `node run` now launches a feature-rich TUI that feeds from the emitted traces and metrics to provide an out-of-the-box dashboard for Amaru. Can be disabled with `--no-tui`.
 
 ### Changed
 

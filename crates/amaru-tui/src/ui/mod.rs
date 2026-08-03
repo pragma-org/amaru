@@ -16,16 +16,17 @@ use std::time::Instant;
 
 use ratatui::{
     Frame,
+    buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, Wrap},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Sparkline, Table, Widget, Wrap},
 };
 
 use self::{
     format::{
         aligned_pair_lines, format_count, format_density, format_duration, format_log_wall_time, format_lovelace,
-        format_ratio, format_slot_ratio,
+        format_micros, format_ratio, format_slot_ratio,
     },
     theme::{
         accent_primary, block_title, border_primary, border_secondary, emphasis_primary, emphasis_white,
@@ -98,7 +99,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
             match model.page {
                 Page::Amaru => render_amaru(frame, layout[0], model, views, now),
                 Page::Cardano => render_cardano(frame, layout[0], model, views, now),
-                Page::Config => render_config(frame, layout[0], model),
+                Page::Config => render_config(frame, layout[0], model, views),
             }
         } else {
             render_splash(frame, layout[0], model);
@@ -116,7 +117,7 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
             .split(inner);
 
         if is_ready {
-            render_config(frame, layout[0], model);
+            render_config(frame, layout[0], model, views);
         } else {
             render_splash(frame, layout[0], model);
         }
@@ -196,18 +197,13 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Vi
         .constraints([
             Constraint::Length(7),
             Constraint::Length(7),
-            Constraint::Min(peers_panel_height(model).max(health_panel_height()).max(mempool_panel_height())),
+            Constraint::Min(peers_panel_height(model).max(mempool_panel_height())),
         ])
         .split(area);
 
     let cards = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(22),
-            Constraint::Percentage(34),
-            Constraint::Percentage(18),
-            Constraint::Percentage(26),
-        ])
+        .constraints([Constraint::Percentage(24), Constraint::Percentage(20), Constraint::Percentage(56)])
         .split(layout[0]);
 
     render_card(
@@ -223,23 +219,11 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Vi
         model.interaction_mode,
     );
 
-    let tip_lines = if let Some(tip) = &model.tip {
-        aligned_pair_lines(vec![
-            ("Epoch", format_count(tip.epoch)),
-            ("Slot", format_slot_ratio(tip.slot, model.startup.target_slot())),
-            ("Height", format_count(tip.block_height)),
-            ("Hash", tip.header_hash.clone()),
-        ])
-    } else {
-        vec![Line::from(Span::styled("No tip telemetry yet", muted()))]
-    };
-    render_card(frame, cards[1], "Tip", tip_lines, model.interaction_mode);
-
     let block_rate = blocks_per_second(model, now);
     let transaction_rate = transactions_per_second(model, now);
     render_card(
         frame,
-        cards[2],
+        cards[1],
         "Throughput",
         aligned_pair_lines(vec![
             ("Blocks", format_count(model.blocks_in_window(now))),
@@ -252,7 +236,7 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Vi
 
     render_card(
         frame,
-        cards[3],
+        cards[2],
         "Chain quality",
         aligned_pair_lines(vec![
             (
@@ -283,31 +267,50 @@ fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Vi
 
     let charts = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(34), Constraint::Percentage(33), Constraint::Percentage(33)])
+        .constraints([
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+        ])
         .split(layout[1]);
-    render_series_card(frame, charts[0], "Memory", sample_memory_mib(model), "MiB", model.interaction_mode);
-    render_series_card(frame, charts[1], "CPU", sample_cpu_tenths(model), "%", model.interaction_mode);
-    render_series_card(frame, charts[2], "Disk I/O", sample_disk_kib(model), "KiB/s", model.interaction_mode);
+    render_series_card(
+        frame,
+        charts[0],
+        "Memory (RSS)",
+        sample_memory_mib(model),
+        "MiB",
+        memory_detail(model),
+        model.interaction_mode,
+    );
+    render_series_card(frame, charts[1], "CPU", sample_cpu_tenths(model), "%", None, model.interaction_mode);
+    render_series_card(
+        frame,
+        charts[2],
+        "Disk Read",
+        sample_disk_read_kib(model),
+        "KiB/s",
+        disk_read_detail(model),
+        model.interaction_mode,
+    );
+    render_series_card(
+        frame,
+        charts[3],
+        "Disk Write",
+        sample_disk_write_kib(model),
+        "KiB/s",
+        disk_write_detail(model),
+        model.interaction_mode,
+    );
 
     let bottom = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(54), Constraint::Percentage(23), Constraint::Percentage(23)])
+        .constraints([Constraint::Percentage(78), Constraint::Percentage(22)])
         .split(layout[2]);
     render_peers_table(frame, bottom[0], model, views);
     render_card(
         frame,
         bottom[1],
-        "Network health",
-        aligned_pair_lines(vec![
-            ("RTT", model.average_rtt_millis().map(|value| format!("{value:.1} ms")).unwrap_or_else(|| "—".into())),
-            ("Inbound", format_count(model.inbound_peer_count())),
-            ("Outbound", format_count(model.outbound_peer_count())),
-        ]),
-        model.interaction_mode,
-    );
-    render_card(
-        frame,
-        bottom[2],
         "Mempool",
         aligned_pair_lines(vec![
             ("Txs", format_count(model.mempool.tx_count)),
@@ -388,20 +391,41 @@ fn render_cardano(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut 
     render_proposals_table(frame, layout[1], model, views);
 }
 
-fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Model) {
-    let left_width = if show_config_env_column(area) { 60 } else { 64 };
+fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
+    views.config_area = area;
+    frame.render_widget(Clear, area);
+    let total_height = config_panel_height(model) as usize;
+    let visible_height = area.height as usize;
+    let scroll = model.config_scroll.min(total_height.saturating_sub(visible_height));
+    let overflowing = total_height > visible_height && area.width > 1;
+    let (content_area, scrollbar_area) = if overflowing {
+        let layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+        (layout[0], layout[1])
+    } else {
+        (area, Rect::default())
+    };
+
+    let left_width = if show_config_env_column(content_area) { 60 } else { 64 };
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(left_width), Constraint::Percentage(100 - left_width)])
-        .split(area);
+        .split(content_area);
 
     render_section_groups(
         frame,
         columns[0],
         &[&model.startup.runtime_sections, &model.startup.global_sections],
+        scroll,
         model.interaction_mode,
     );
-    render_section_groups(frame, columns[1], &[&model.startup.protocol_sections], model.interaction_mode);
+    render_section_groups(frame, columns[1], &[&model.startup.protocol_sections], scroll, model.interaction_mode);
+
+    if overflowing {
+        render_scrollbar(frame, scrollbar_area, total_height, visible_height, scroll, model.interaction_mode);
+    }
 }
 
 fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
@@ -419,6 +443,18 @@ fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, model: &Model) {
                     Span::styled("Epoch", emphasis_primary(model.interaction_mode)),
                     Span::raw(" "),
                     Span::styled(format_count(tip.epoch), emphasis_white()),
+                    Span::raw(" · "),
+                    Span::styled("Slot", emphasis_primary(model.interaction_mode)),
+                    Span::raw(" "),
+                    Span::styled(format_slot_ratio(tip.slot, model.startup.target_slot()), emphasis_white()),
+                    Span::raw(" · "),
+                    Span::styled("Height", emphasis_primary(model.interaction_mode)),
+                    Span::raw(" "),
+                    Span::styled(format_count(tip.block_height), emphasis_white()),
+                    Span::raw(" · "),
+                    Span::styled("Hash", emphasis_primary(model.interaction_mode)),
+                    Span::raw(" "),
+                    Span::styled(tip.header_hash.clone(), emphasis_white()),
                 ],
                 model.interaction_mode,
                 false,
@@ -542,12 +578,26 @@ fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, views: 
     }
 }
 
-fn render_section_groups(frame: &mut Frame<'_>, area: Rect, groups: &[&[ConfigSection]], mode: InteractionMode) {
+fn render_section_groups(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    groups: &[&[ConfigSection]],
+    scroll: usize,
+    mode: InteractionMode,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
     if groups.iter().all(|sections| sections.is_empty()) {
         return;
     }
 
     let sections = groups.iter().flat_map(|group| group.iter()).collect::<Vec<_>>();
+    let total_height = sections.iter().map(|section| section_height(section) as usize).sum::<usize>();
+    let scroll = scroll.min(total_height.saturating_sub(area.height as usize));
+    let offscreen_area = Rect::new(0, 0, area.width, total_height.min(u16::MAX as usize) as u16);
+    let mut offscreen = Buffer::empty(offscreen_area);
     let constraints = sections
         .iter()
         .enumerate()
@@ -559,14 +609,16 @@ fn render_section_groups(frame: &mut Frame<'_>, area: Rect, groups: &[&[ConfigSe
             }
         })
         .collect::<Vec<_>>();
-    let chunks = Layout::default().direction(Direction::Vertical).constraints(constraints).split(area);
+    let chunks = Layout::default().direction(Direction::Vertical).constraints(constraints).split(offscreen_area);
 
     for (chunk, section) in chunks.iter().copied().zip(sections.iter()) {
-        render_config_section(frame, chunk, section, mode);
+        render_config_section(&mut offscreen, chunk, section, mode);
     }
+
+    blit_buffer(frame, area, &offscreen, scroll);
 }
 
-fn render_config_section(frame: &mut Frame<'_>, area: Rect, section: &ConfigSection, mode: InteractionMode) {
+fn render_config_section(buffer: &mut Buffer, area: Rect, section: &ConfigSection, mode: InteractionMode) {
     if section.entries.iter().all(|entry| entry.option.is_none() && entry.env_var.is_none()) {
         let rows = section
             .entries
@@ -589,7 +641,7 @@ fn render_config_section(frame: &mut Frame<'_>, area: Rect, section: &ConfigSect
                     .borders(Borders::ALL)
                     .border_style(border_secondary(mode)),
             );
-        frame.render_widget(table, area);
+        table.render(area, buffer);
         return;
     }
 
@@ -643,7 +695,7 @@ fn render_config_section(frame: &mut Frame<'_>, area: Rect, section: &ConfigSect
             )
     };
 
-    frame.render_widget(table, area);
+    table.render(area, buffer);
 }
 
 fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
@@ -686,14 +738,20 @@ fn render_peers_table(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &
     let table = Table::new(
         rows,
         [
-            Constraint::Length(4),
-            Constraint::Min(24),
-            Constraint::Length(10),
-            Constraint::Length(11),
-            Constraint::Length(5),
+            Constraint::Length(3),
+            Constraint::Fill(4),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Length(3),
         ],
     )
-    .header(Row::new(vec!["", "Peer", "RTT", "Can duplex?", "Dir"]).style(table_header_style(model.interaction_mode)))
+    .header(
+        Row::new(vec!["", "Peer", "RTT", "Fetch Header", "Fetch Block", "Adopt Block", "Can Duplex?", "Dir"])
+            .style(table_header_style(model.interaction_mode)),
+    )
     .column_spacing(1)
     .block(block);
     frame.render_widget(table, area);
@@ -767,14 +825,14 @@ fn render_proposals_table(frame: &mut Frame<'_>, area: Rect, model: &Model, view
     let table = Table::new(
         rows,
         [
-            Constraint::Min(42),
-            Constraint::Length(26),
-            Constraint::Length(13),
-            Constraint::Length(13),
-            Constraint::Length(4),
-            Constraint::Length(6),
-            Constraint::Length(5),
-            Constraint::Length(10),
+            Constraint::Min(66),
+            Constraint::Fill(2),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Max(4),
+            Constraint::Max(4),
+            Constraint::Max(4),
+            Constraint::Max(8),
         ],
     )
     .header(
@@ -793,12 +851,14 @@ fn render_series_card(
     title: &str,
     data: Vec<u64>,
     unit: &str,
+    detail: Option<String>,
     mode: InteractionMode,
 ) {
     let latest = data.last().copied().unwrap_or_default();
     let max = data.iter().copied().max().unwrap_or(1);
+    let detail = detail.map(|detail| format!(" ({detail})")).unwrap_or_default();
     let block = Block::default()
-        .title(block_title(mode, &format!("{title} · {} {unit}", format_count(latest))))
+        .title(block_title(mode, &format!("{title} · {} {unit}{detail}", format_count(latest))))
         .borders(Borders::ALL)
         .border_style(border_secondary(mode));
     let sparkline =
@@ -821,20 +881,12 @@ fn sample_cpu_tenths(model: &Model) -> Vec<u64> {
     model.system_samples.iter().map(|sample| sample.cpu_percent.round() as u64).collect()
 }
 
-fn sample_disk_kib(model: &Model) -> Vec<u64> {
-    let mut previous: Option<&crate::events::SystemSample> = None;
-    let mut rates = Vec::new();
-    for sample in &model.system_samples {
-        if let Some(prev) = previous {
-            let read = sample.disk_read_bytes.saturating_sub(prev.disk_read_bytes);
-            let write = sample.disk_write_bytes.saturating_sub(prev.disk_write_bytes);
-            rates.push((read + write) / 1_024);
-        } else {
-            rates.push(0);
-        }
-        previous = Some(sample);
-    }
-    rates
+fn sample_disk_read_kib(model: &Model) -> Vec<u64> {
+    model.system_samples.iter().map(|sample| sample.disk_live_read_bytes.div_ceil(1_024)).collect()
+}
+
+fn sample_disk_write_kib(model: &Model) -> Vec<u64> {
+    model.system_samples.iter().map(|sample| sample.disk_live_write_bytes.div_ceil(1_024)).collect()
 }
 
 fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'static> {
@@ -851,6 +903,9 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
     let state_dot = " ●";
     let rtt =
         peer.last_rtt_micros.map(|value| format!("{:.1} ms", value as f64 / 1_000.0)).unwrap_or_else(|| "—".into());
+    let query_header = peer.mean_query_header_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let get_block = peer.mean_get_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let adopt_block = peer.mean_adopt_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let can_duplex = match peer.full_duplex_capable {
         Some(true) => "yes",
         Some(false) => "no",
@@ -865,6 +920,9 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'stati
         })),
         Cell::from(peer.address.clone()).style(Style::default().fg(emphasis_white_color())),
         Cell::from(rtt).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(query_header).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(get_block).style(Style::default().fg(emphasis_white_color())),
+        Cell::from(adopt_block).style(Style::default().fg(emphasis_white_color())),
         Cell::from(can_duplex).style(Style::default().fg(muted_color())),
         Cell::from(direction).style(Style::default().fg(accent_primary(mode))),
     ])
@@ -944,21 +1002,21 @@ fn shell_hint(model: &Model) -> Line<'static> {
     border_title_line(
         vec![
             Span::styled("<q>", emphasis_primary(model.interaction_mode)),
-            Span::styled("quit  ", muted()),
+            Span::styled(" quit  ", muted()),
             Span::styled("<esc>", emphasis_primary(model.interaction_mode)),
-            Span::styled("copy  ", muted()),
+            Span::styled(" copy  ", muted()),
             Span::styled("<tab>", emphasis_primary(model.interaction_mode)),
-            Span::styled("next  ", muted()),
+            Span::styled(" next  ", muted()),
             Span::styled("<S-tab>", emphasis_primary(model.interaction_mode)),
-            Span::styled("prev  ", muted()),
+            Span::styled(" prev  ", muted()),
             Span::styled("<←→>", emphasis_primary(model.interaction_mode)),
-            Span::styled("focus  ", muted()),
+            Span::styled(" focus  ", muted()),
             Span::styled("<↑↓>", emphasis_primary(model.interaction_mode)),
-            Span::styled("scroll  ", muted()),
+            Span::styled(" scroll  ", muted()),
             Span::styled("<enter>", emphasis_primary(model.interaction_mode)),
-            Span::styled("max  ", muted()),
+            Span::styled(" max  ", muted()),
             Span::styled("<mouse>", emphasis_primary(model.interaction_mode)),
-            Span::styled("navigate ", muted()),
+            Span::styled(" navigate ", muted()),
         ],
         model.interaction_mode,
         false,
@@ -1052,6 +1110,27 @@ fn render_scrollbar(
     }
 }
 
+fn blit_buffer(frame: &mut Frame<'_>, area: Rect, source: &Buffer, scroll: usize) {
+    let target = frame.buffer_mut();
+
+    for y in 0..area.height {
+        let source_y = y as usize + scroll;
+        if source_y >= source.area.height as usize {
+            break;
+        }
+
+        for x in 0..area.width {
+            let Some(cell) = source.cell((x, source_y as u16)) else {
+                continue;
+            };
+            let Some(target_cell) = target.cell_mut((area.x + x, area.y + y)) else {
+                continue;
+            };
+            *target_cell = cell.clone();
+        }
+    }
+}
+
 fn button_label(label: &str) -> String {
     format!("[ {label} ]")
 }
@@ -1063,16 +1142,16 @@ fn window_label(window: &TimeWindow) -> String {
 fn border_title_line(spans: Vec<Span<'static>>, mode: InteractionMode, focused: bool) -> Line<'static> {
     let style = scroll_panel_border(focused, mode);
     let horizontal = if focused { "═" } else { "─" };
-    let mut line = Vec::with_capacity(spans.len() + 2);
+    let mut line = Vec::with_capacity(spans.len() + 3);
     line.push(Span::styled(format!("{horizontal} "), style));
     line.extend(spans);
-    line.push(Span::styled(format!(" {horizontal}"), style));
+    line.push(Span::styled(" ", style));
     Line::from(line)
 }
 
 fn page_content_height(model: &Model) -> u16 {
     match model.page {
-        Page::Amaru => 14 + peers_panel_height(model).max(health_panel_height()).max(mempool_panel_height()),
+        Page::Amaru => 14 + peers_panel_height(model).max(mempool_panel_height()),
         Page::Cardano => 7 + proposals_panel_height(model),
         Page::Config => config_panel_height(model),
     }
@@ -1088,10 +1167,6 @@ fn proposals_panel_height(model: &Model) -> u16 {
 
 fn panel_height(rows: usize, min_rows: usize, max_rows: usize) -> u16 {
     rows.clamp(min_rows, max_rows).saturating_add(3) as u16
-}
-
-fn health_panel_height() -> u16 {
-    6
 }
 
 fn mempool_panel_height() -> u16 {
@@ -1144,6 +1219,38 @@ fn format_stake_distribution(active_stake: u64, max_lovelace_supply: u64) -> Str
     let percentage =
         if max_lovelace_supply == 0 { 0.0 } else { active_stake as f64 / max_lovelace_supply as f64 * 100.0 };
     format!("{} ({percentage:.1}%)", format_lovelace(active_stake))
+}
+
+fn memory_detail(model: &Model) -> Option<String> {
+    let sample = model.system_samples.back()?;
+    if sample.memory_total_bytes == 0 {
+        return None;
+    }
+
+    let percentage = sample.process_memory_bytes as f64 / sample.memory_total_bytes as f64 * 100.0;
+    Some(format!("{percentage:.1}%"))
+}
+
+fn disk_read_detail(model: &Model) -> Option<String> {
+    let sample = model.system_samples.back()?;
+    let total = sample.processes_live_read_bytes;
+    if total == 0 {
+        return Some("0.0%".into());
+    }
+
+    let share = sample.disk_live_read_bytes as f64 / total as f64 * 100.0;
+    Some(format!("{share:.1}%"))
+}
+
+fn disk_write_detail(model: &Model) -> Option<String> {
+    let sample = model.system_samples.back()?;
+    let total = sample.processes_live_write_bytes;
+    if total == 0 {
+        return Some("0.0%".into());
+    }
+
+    let share = sample.disk_live_write_bytes as f64 / total as f64 * 100.0;
+    Some(format!("{share:.1}%"))
 }
 
 fn format_kib(bytes: u64) -> String {

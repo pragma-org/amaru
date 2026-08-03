@@ -18,6 +18,23 @@ use amaru_observability::amaru::protocols;
 
 use crate::events::TelemetryRecord;
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MeanMicros {
+    total_micros: u128,
+    samples: u64,
+}
+
+impl MeanMicros {
+    fn record(&mut self, micros: u64) {
+        self.total_micros += u128::from(micros);
+        self.samples += 1;
+    }
+
+    fn mean(&self) -> Option<u64> {
+        (self.samples > 0).then(|| (self.total_micros / u128::from(self.samples)) as u64)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PeerState {
     pub address: String,
@@ -30,6 +47,9 @@ pub struct PeerState {
     pub last_reason: Option<String>,
     pub full_duplex: Option<bool>,
     pub full_duplex_capable: Option<bool>,
+    query_header: MeanMicros,
+    get_block: MeanMicros,
+    adopt_block: MeanMicros,
     pub updated_at: Instant,
 }
 
@@ -46,6 +66,9 @@ impl PeerState {
             last_reason: None,
             full_duplex: None,
             full_duplex_capable: None,
+            query_header: MeanMicros::default(),
+            get_block: MeanMicros::default(),
+            adopt_block: MeanMicros::default(),
             updated_at,
         }
     }
@@ -73,5 +96,36 @@ impl PeerState {
         self.last_rtt_micros = Some(round_trip_micros);
         self.last_conn_id = record.conn_id();
         self.updated_at = record.at;
+    }
+
+    pub fn record_header_lifecycle(
+        &mut self,
+        record: &TelemetryRecord,
+        query_header_micros: Option<u64>,
+        get_block_micros: Option<u64>,
+        adopt_block_micros: Option<u64>,
+    ) {
+        if let Some(micros) = query_header_micros {
+            self.query_header.record(micros);
+        }
+        if let Some(micros) = get_block_micros {
+            self.get_block.record(micros);
+        }
+        if let Some(micros) = adopt_block_micros {
+            self.adopt_block.record(micros);
+        }
+        self.updated_at = record.at;
+    }
+
+    pub fn mean_query_header_micros(&self) -> Option<u64> {
+        self.query_header.mean()
+    }
+
+    pub fn mean_get_block_micros(&self) -> Option<u64> {
+        self.get_block.mean()
+    }
+
+    pub fn mean_adopt_block_micros(&self) -> Option<u64> {
+        self.adopt_block.mean()
     }
 }
