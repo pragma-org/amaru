@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix sync-from-mithril refresh
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -82,10 +82,6 @@ download-haskell-config: ## &start Download Haskell node configuration files for
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/peer-snapshot.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/shelley-genesis.json"
 	curl -fsSL -O --output-dir "$(HASKELL_NODE_CONFIG_DIR)" "$(HASKELL_NODE_CONFIG_REPOSITORY)/$(CARDANO_NODE_CONFIG_COMMIT)/$(HASKELL_NODE_CONFIG_DIRECTORY)/$(AMARU_NETWORK)/topology.json"
-
-sync-from-mithril: ## &build Fast synchronization from a Mithril snapshot, for $BUILD_PROFILE
-	@cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) dev ledger mithril
-	@cargo run --profile $(BUILD_PROFILE) -- $(COMMON_ARGS) dev ledger sync
 
 refresh: ## &start Refresh chain and ledger databases from the latest Mithril snapshot, moving the current ones to *.backup
 	AMARU_NETWORK="$(AMARU_NETWORK)" BUILD_PROFILE="$(BUILD_PROFILE)" INSTALL=true REPLACE_EXISTING=true ./scripts/refresh-from-mithril

@@ -31,6 +31,11 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Snapshot(cmd::snapshot::SnapshotCommand),
 
+    /// Synchronize Amaru using Mithril snapshots.
+    #[cfg(feature = "mithril")]
+    #[command(subcommand)]
+    Mithril(cmd::mithril::MithrilCommand),
+
     /// Developer and debugging tools.
     #[command(subcommand, hide = true)]
     Dev(cmd::dev::DevCommand),
@@ -82,6 +87,8 @@ impl Command {
         match self {
             Command::Node(cmd) => cmd.into_runnable(),
             Command::Snapshot(cmd) => cmd.into_runnable(),
+            #[cfg(feature = "mithril")]
+            Command::Mithril(cmd) => cmd.into_runnable(),
             Command::Dev(cmd) => cmd.into_runnable(),
             Command::ShellCompletions(args) => cmd::shell_completions::runnable(args),
             // Legacy top-level aliases: same behaviour as their modern counterparts.

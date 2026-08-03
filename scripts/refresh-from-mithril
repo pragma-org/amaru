@@ -197,17 +197,12 @@ latest_bootstrap_metadata_available() {
 sync_refresh() {
   local chain_dir="$1" ledger_dir="$2"
 
-  echo "[mithril-refresh] downloading missing Mithril immutable chunks and packaging blocks"
-  cargo run --profile "$BUILD_PROFILE" --bin amaru -- dev ledger mithril \
+  echo "[mithril-refresh] downloading Mithril blocks and syncing Amaru stores"
+  cargo run --profile "$BUILD_PROFILE" --bin amaru -- mithril sync \
     --network "$NETWORK" \
     --ledger-dir "$ledger_dir" \
-    --snapshots-dir "$SNAPSHOTS_DIR"
-
-  echo "[mithril-refresh] syncing Amaru chain and ledger databases from packaged blocks"
-  cargo run --profile "$BUILD_PROFILE" --bin amaru -- dev ledger sync \
-    --network "$NETWORK" \
     --chain-dir "$chain_dir" \
-    --ledger-dir "$ledger_dir"
+    --snapshots-dir "$SNAPSHOTS_DIR"
 }
 
 cd "$AMARU_DIR" || exit
