@@ -344,11 +344,11 @@ impl TracingSubscriber<Registry> {
     pub fn with_tui(&mut self, layer: TuiTracingLayer) -> DelayedWarning {
         let layer_for_registry = layer.clone();
         let layer_registry = || {
-            let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+            let (default_filter, warning) = new_trace_filter();
             (layer_for_registry.clone().with_filter(default_filter), warning)
         };
         let layer_otel = || {
-            let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+            let (default_filter, warning) = new_trace_filter();
             (layer.with_filter(default_filter), warning)
         };
 
@@ -389,7 +389,7 @@ impl TracingSubscriber<Registry> {
         match self {
             TracingSubscriber::Empty => unreachable!(),
             TracingSubscriber::Registry(registry) => {
-                let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+                let (default_filter, warning) = new_log_filter();
                 registry
                     .with(
                         tracing_subscriber::fmt::layer()
@@ -403,7 +403,7 @@ impl TracingSubscriber<Registry> {
                 warning
             }
             TracingSubscriber::WithOpenTelemetry(layered) => {
-                let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+                let (default_filter, warning) = new_log_filter();
                 layered
                     .with(
                         tracing_subscriber::fmt::layer()
@@ -443,7 +443,7 @@ impl TracingSubscriber<Registry> {
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
     let format = || SpanJsonFormat(tracing_subscriber::fmt::format().json().with_span_list(false));
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
-    let filter = || new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let filter = || new_trace_filter();
 
     subscriber.with_json(
         || {
@@ -559,7 +559,7 @@ pub fn setup_open_telemetry(
 
     // Subscriber
     let opentelemetry_tracer = opentelemetry_provider.tracer(service_name);
-    let (default_filter, warning) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let (default_filter, warning) = new_trace_filter();
 
     let opentelemetry_layer =
         tracing_opentelemetry::layer().with_tracer(opentelemetry_tracer).with_level(true).with_filter(default_filter);
@@ -571,7 +571,7 @@ pub fn setup_open_telemetry(
         .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}"));
     let logs_provider = SdkLoggerProvider::builder().with_resource(resource).with_batch_exporter(logs_exporter).build();
     let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider);
-    let (log_bridge_filter, _) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let (log_bridge_filter, _) = new_trace_filter();
     let log_bridge = log_bridge.with_filter(log_bridge_filter);
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
@@ -715,6 +715,14 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
         }
     };
     (ThrottledEnvFilter::new(filter, OTEL_ERROR_THROTTLE_MS), warning)
+}
+
+fn new_log_filter() -> (ThrottledEnvFilter, DelayedWarning) {
+    new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER)
+}
+
+fn new_trace_filter() -> (ThrottledEnvFilter, DelayedWarning) {
+    new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER)
 }
 
 pub fn setup_observability(
