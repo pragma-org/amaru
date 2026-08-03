@@ -20,7 +20,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{ProposalsSlice, WitnessSlice};
+use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidVotingProcedures {
@@ -33,29 +33,52 @@ pub(crate) fn execute<C>(
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 ) -> Result<(), InvalidVotingProcedures>
 where
-    C: WitnessSlice + ProposalsSlice,
+    C: WitnessSlice + ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
-        voting_procedures.into_iter().collect::<BTreeMap<_, _>>().into_iter().enumerate().for_each(
-            |(index, (voter, votes))| {
-                match voter.owner() {
-                    StakeCredential::ScriptHash(hash) => {
-                        context.require_script_witness(RequiredScript {
-                            hash,
-                            index: index as u32,
-                            purpose: RedeemerTag::Vote,
-                            datum: MemoizedDatum::None,
-                        });
-                    }
-                    StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
-                }
+        let voting_procedures = voting_procedures.into_iter().collect::<BTreeMap<_, _>>();
 
-                votes.into_iter().for_each(|(proposal_id, ballot)| {
-                    context.vote(proposal_id, voter.clone(), ballot.vote, ballot.anchor);
-                })
-            },
-        );
+        let unknown_voters =
+            voting_procedures.keys().filter(|voter| !exists(context, voter)).cloned().collect::<BTreeSet<_>>();
+
+        if !unknown_voters.is_empty() {
+            return Err(InvalidVotingProcedures::VotersDoNotExist(unknown_voters));
+        }
+
+        voting_procedures.into_iter().enumerate().for_each(|(index, (voter, votes))| {
+            match voter.owner() {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: index as u32,
+                        purpose: RedeemerTag::Vote,
+                        datum: MemoizedDatum::None,
+                    });
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            }
+
+            votes.into_iter().for_each(|(proposal_id, ballot)| {
+                context.vote(proposal_id, voter.clone(), ballot.vote, ballot.anchor);
+            })
+        });
     }
 
     Ok(())
+}
+
+/// Whether the entity a vote is cast by is known at this point in the block.
+fn exists<C>(context: &C, voter: &Voter) -> bool
+where
+    C: CommitteeSlice + DRepsSlice + PoolsSlice,
+{
+    match voter {
+        // A vote identifies its member by the hot credential the member authorized, never by the cold
+        // credential that identifies the seat.
+        Voter::ConstitutionalCommitteeKey(_) | Voter::ConstitutionalCommitteeScript(_) => {
+            CommitteeSlice::lookup_by_hot_credential(context, &voter.owner()).is_some()
+        }
+        Voter::DRepKey(_) | Voter::DRepScript(_) => DRepsSlice::lookup(context, &voter.owner()).is_some(),
+        Voter::StakePoolKey(pool) => PoolsSlice::exists(context, *pool),
+    }
 }
