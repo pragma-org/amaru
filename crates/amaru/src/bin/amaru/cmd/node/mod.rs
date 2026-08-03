@@ -16,6 +16,7 @@ use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod bootstrap;
+pub(crate) mod rm;
 pub(crate) mod run;
 
 #[derive(Debug, Subcommand)]
@@ -35,6 +36,9 @@ pub(crate) enum NodeCommand {
     /// It imports snapshots, bootstrap headers and bootstrap nonces in one step.
     #[clap(verbatim_doc_comment)]
     Bootstrap(bootstrap::Args),
+
+    /// Remove the node's ledger and chain databases.
+    Rm(rm::Args),
 }
 
 impl NodeCommand {
@@ -42,6 +46,7 @@ impl NodeCommand {
         match self {
             Self::Run(args) => run::runnable(args),
             Self::Bootstrap(args) => bootstrap::runnable(args),
+            Self::Rm(args) => rm::runnable(args),
         }
     }
 }
