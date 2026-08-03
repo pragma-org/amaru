@@ -633,6 +633,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
             global_parameters,
             era_history,
             max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+            emit_initial_stake_distribution_progress_ticks: !args.no_tui,
             ..LedgerConfig::default()
         },
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
@@ -721,4 +722,43 @@ fn pre_flight_checks() -> Result<(), PreFlightError> {
 #[cfg(not(unix))]
 fn pre_flight_checks() -> Result<(), PreFlightError> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(no_tui: bool) -> Args {
+        Args {
+            network: NetworkName::Preview,
+            chain_dir: None,
+            migrate_chain_db: false,
+            ledger_dir: None,
+            listen_address: DEFAULT_LISTEN_ADDRESS.to_string(),
+            submit_api_address: None,
+            no_tui,
+            tui_windows: None,
+            peer_address: Vec::new(),
+            peer_snapshot: None,
+            upstream_peers: DEFAULT_UPSTREAM_PEERS,
+            downstream_peers: DEFAULT_DOWNSTREAM_PEERS,
+            max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
+            peer_removal_cooldown_secs: DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+            pid_file: None,
+            trace_buffer: None,
+            dump_trace_buffer: None,
+            era_history: None,
+            global_parameters: NetworkName::Preview.as_global_parameters().cloned().expect("preview global parameters"),
+            help_global_parameters: false,
+        }
+    }
+
+    #[test]
+    fn parse_args_disables_initial_stake_distribution_progress_ticks_when_tui_is_disabled() {
+        let with_tui = parse_args(args(false)).expect("config with tui");
+        let without_tui = parse_args(args(true)).expect("config without tui");
+
+        assert!(with_tui.ledger_config.emit_initial_stake_distribution_progress_ticks);
+        assert!(!without_tui.ledger_config.emit_initial_stake_distribution_progress_ticks);
+    }
 }

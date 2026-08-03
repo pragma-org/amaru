@@ -143,6 +143,7 @@ pub struct LedgerConfig {
     pub global_parameters: GlobalParameters,
     pub era_history: EraHistory,
     pub max_extra_ledger_snapshots: MaxExtraLedgerSnapshots,
+    pub emit_initial_stake_distribution_progress_ticks: bool,
     // Number of allocation arenas to keep around for performing parallel evaluation of scripts in
     // the ledger.
     pub ledger_vm_alloc_arena_count: usize,
@@ -171,6 +172,7 @@ impl Default for LedgerConfig {
             era_history: PREPROD_ERA_HISTORY.clone(),
             global_parameters: PREPROD_GLOBAL_PARAMETERS.clone(),
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
+            emit_initial_stake_distribution_progress_ticks: true,
             ledger_vm_alloc_arena_count: 3,
             ledger_vm_alloc_arena_size: 20_971_520,
         }

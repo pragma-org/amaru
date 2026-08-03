@@ -271,6 +271,7 @@ pub fn make_state(
         config.network,
         config.era_history().clone(),
         config.global_parameters.clone(),
+        config.emit_initial_stake_distribution_progress_ticks,
         on_startup,
     )?)
 }

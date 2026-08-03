@@ -413,9 +413,7 @@ impl Model {
                 self.cycle_proposal_pane();
                 true
             }
-            (Page::Amaru, ScrollFocus::Proposals)
-            | (Page::Cardano, ScrollFocus::Peers)
-            | (Page::Config, _) => false,
+            (Page::Amaru, ScrollFocus::Proposals) | (Page::Cardano, ScrollFocus::Peers) | (Page::Config, _) => false,
         }
     }
 
@@ -774,7 +772,6 @@ impl Model {
                 TerminalEventOutcome::Continue
             }
             KeyCode::Backspace
-            | KeyCode::Enter
             | KeyCode::Home
             | KeyCode::End
             | KeyCode::Delete
@@ -832,6 +829,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics, system::SystemMetrics};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tracing::Level;
 
     use super::*;
@@ -855,6 +853,27 @@ mod tests {
 
     fn metric(at: Instant, event: MetricsEvent) -> Message {
         Message::Metrics(crate::events::MetricRecord { at, event })
+    }
+
+    fn startup_context() -> StartupContext {
+        StartupContext {
+            process: ProcessInfo {
+                network: "preview".into(),
+                software_version: "10.11.0 (abc123)".into(),
+                target: "darwin/aarch64".into(),
+            },
+            protocol_version: "10.11".into(),
+            mempool_max_bytes: 180_224,
+            epoch_length: 86_400,
+            active_slot_coeff_inverse: 20,
+            max_lovelace_supply: 45_000_000_000_000_000,
+            system_start_millis: 1_666_656_000_000,
+            era_history: None,
+            trusted_peers: BTreeSet::default(),
+            runtime_sections: Vec::default(),
+            global_sections: Vec::default(),
+            protocol_sections: Vec::default(),
+        }
     }
 
     #[test]
@@ -1224,5 +1243,53 @@ mod tests {
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
         assert!(peer.outbound);
         assert!(!peer.inbound);
+    }
+
+    #[test]
+    fn keyboard_navigation_uses_arrows_for_focus_and_enter_for_pane_toggle() {
+        let mut model = Model::new(Config::default(), startup_context());
+
+        assert_eq!(model.page, Page::Amaru);
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+        assert_eq!(model.log_pane_mode, PaneMode::Normal);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.page, Page::Amaru);
+        assert_eq!(model.scroll_focus, ScrollFocus::Peers);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.peer_pane_mode, PaneMode::Maximized);
+        assert_eq!(model.log_pane_mode, PaneMode::Normal);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.page, Page::Cardano);
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.scroll_focus, ScrollFocus::Proposals);
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(model.proposal_pane_mode, PaneMode::Maximized);
     }
 }

@@ -167,6 +167,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
+        emit_initial_stake_distribution_progress_ticks: bool,
         on_startup: Option<StartupHook<S>>,
     ) -> Result<Self, StoreError> {
         let protocol_parameters = stable.protocol_parameters()?;
@@ -176,7 +177,12 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
         let governance_activity = stable.governance_activity()?;
 
-        let stake_distributions = initial_stake_distributions(network, &snapshots, &era_history)?;
+        let stake_distributions = initial_stake_distributions(
+            network,
+            &snapshots,
+            &era_history,
+            emit_initial_stake_distribution_progress_ticks,
+        )?;
 
         let epoch = initial_epoch(&stable, &snapshots, &era_history)?;
 
@@ -801,8 +807,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let remaining_kes_periods =
             (self.global_parameters.max_kes_evolution as u64).saturating_sub(current_kes_period);
 
-        
-
         LedgerMetrics {
             block_height,
             tx_count: block.transaction_bodies.len() as u64,
@@ -1010,6 +1014,7 @@ pub fn initial_stake_distributions<HS>(
     network: NetworkName,
     snapshots: &HS,
     era_history: &EraHistory,
+    emit_progress_ticks: bool,
 ) -> Result<VecDeque<StakeDistribution>, StoreError>
 where
     HS: HistoricalStores + Send,
@@ -1034,7 +1039,9 @@ where
         .map(|snapshot| {
             let epoch = snapshot.epoch();
             compute_stake_summary(&snapshot, network, era_history, |progress| {
-                info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch = epoch, progress);
+                if emit_progress_ticks {
+                    info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch = epoch, progress);
+                }
             })
             .map(|summary| summary.stake_distribution)
         })
