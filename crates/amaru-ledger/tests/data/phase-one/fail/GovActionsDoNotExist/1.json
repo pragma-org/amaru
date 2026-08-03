@@ -1,0 +1,37 @@
+{
+  "title": "vote cast on a governance action whose index does not match any proposal",
+  "description": "A proposal id sharing the seeded proposal's transaction id but naming a different action index.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820c25d414957cf674b477d9bec7c295a653f02aee955828f9ebec7a4ece7891f2900",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": ["93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"],
+    "accounts": [],
+    "dreps": [],
+    "committee": [],
+    "proposals": [
+      "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00"
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820c25d414957cf674b477d9bec7c295a653f02aee955828f9ebec7a4ece7891f29000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18204581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b018201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406d6fd3a60b8e7a94ebd0dda9f809aa4adc4c3ea24c4c29b58aae7b7a7c70f0f8543d7c8efb406a5e37ca38d3c340c681aa8e7a7ef5837327d8ecb29d58aba60bf5f6",
+  "expected": {
+    "predicate": "GovActionsDoNotExist"
+  }
+}

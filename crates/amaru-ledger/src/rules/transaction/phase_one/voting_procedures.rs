@@ -26,6 +26,9 @@ use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalsSlice, Wit
 pub enum InvalidVotingProcedures {
     #[error("voters do not exist: {0:?}")]
     VotersDoNotExist(BTreeSet<Voter>),
+
+    #[error("governance actions do not exist: {0:?}")]
+    GovActionsDoNotExist(BTreeSet<ProposalId>),
 }
 
 pub(crate) fn execute<C>(

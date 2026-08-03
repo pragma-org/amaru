@@ -243,6 +243,7 @@ pub(super) enum Predicate {
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
     FeeTooSmallUTxO,
+    GovActionsDoNotExist,
     IncorrectDepositDELEG,
     IncorrectTotalCollateralField,
     ConwayTreasuryValueMismatch,
@@ -341,6 +342,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::VotersDoNotExist(_)) => {
                 Predicate::VotersDoNotExist
+            }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
+                Predicate::GovActionsDoNotExist
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
