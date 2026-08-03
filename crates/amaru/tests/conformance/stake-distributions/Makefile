@@ -1,4 +1,4 @@
-.PHONY: help zst unzst list download upload check-aws-env check-network-dir
+.PHONY: help zst unzst list download upload check-env check-aws-env check-network-dir
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 
@@ -6,6 +6,8 @@ NETWORKS := preview preprod mainnet
 NETWORK := $(notdir $(CURDIR))
 IS_NETWORK_DIR := $(filter $(NETWORK),$(NETWORKS))
 BUCKET := cardano-stake-distributions/$(NETWORK)
+DEFAULT_ENDPOINT := https://bd7a351a104d485dcc8b921c273db90c.r2.cloudflarestorage.com
+ENDPOINT ?= $(DEFAULT_ENDPOINT)
 
 help:
 	@if [ -z "$(IS_NETWORK_DIR)" ]; then \
@@ -48,15 +50,17 @@ unzst: check-network-dir ## Uncompress individual .json.zst files using zstd com
 		zstd -d -f -q --rm "$$file"; \
 	done
 
-check-aws-env:
+check-env:
 	@test -n "$(ENDPOINT)" || { echo "Missing ENDPOINT"; exit 1; }
+
+check-aws-env: check-env
 	@test -n "$(AWS_ACCESS_KEY_ID)" || { echo "Missing AWS_ACCESS_KEY_ID"; exit 1; }
 	@test -n "$(AWS_SECRET_ACCESS_KEY)" || { echo "Missing AWS_SECRET_ACCESS_KEY"; exit 1; }
 
 list: check-network-dir check-aws-env ## List all objects in the network-specific S3 bucket
 	@aws s3 ls --recursive --human-readable --summarize --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/"
 
-download: check-network-dir check-aws-env ## Download missing 'epoch_*.json.zst' fixtures from the network-specific S3 bucket
+download: check-network-dir check-env ## Download missing 'epoch_*.json.zst' fixtures from the network-specific S3 bucket
 	@remote_files=$$(aws s3 ls --recursive --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/" | awk '{print $$4}' | sed 's@^[^/]*/@@' | grep '^epoch_.*\.json\.zst$$' || true); \
 	if [ -z "$$remote_files" ]; then \
 		echo "No epoch_*.json.zst files found in s3://$(BUCKET)/"; \
