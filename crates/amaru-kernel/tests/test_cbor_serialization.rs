@@ -13,13 +13,27 @@
 // limitations under the License.
 
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{Block, EraName, TransactionBody, cbor, from_cbor_no_leftovers, to_cbor};
+use amaru_kernel::{cbor, from_cbor_no_leftovers, to_cbor, Block, EraName, TransactionBody};
 use serde::Deserialize;
 
+/// See the README at crates/amaru/tests/conformance/serialization/cbor-fixture-generator/README.md
+/// to regenerate fixtures.
+///
+/// You can run this specific test with:
+/// ```
+/// cargo test -p amaru-kernel --test test_cbor_serialization -- --no-capture
+/// ```
+///
+/// And use the environment variable `AMARU_FIXTURE_FILTER` to only run a specific test
+/// (a substring of the file name is enough to select it):
+/// ```
+/// export AMARU_FIXTURE_FILTER="0df40008"
+/// ```
+///
 #[test]
 fn test_cbor_serialization() {
     let mut failures: Vec<String> = Vec::new();
@@ -121,6 +135,7 @@ fn collect_fixtures(errors: &mut Vec<String>) -> Vec<Fixture> {
         let Some(kind) = Kind::from_root(name) else {
             continue;
         };
+
         load_fixtures(&kind_dir, kind, &mut out, errors);
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -132,6 +147,8 @@ fn load_fixtures(dir: &Path, kind: Kind, out: &mut Vec<Fixture>, errors: &mut Ve
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
+    let filter: Option<String> = env::var("AMARU_FIXTURE_FILTER").ok();
+
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
@@ -140,9 +157,12 @@ fn load_fixtures(dir: &Path, kind: Kind, out: &mut Vec<Fixture>, errors: &mut Ve
         let sample = path.join("sample.cbor");
         let meta = path.join("meta.json");
         if sample.is_file() && meta.is_file() {
-            match load_fixture(path, kind, &sample, &meta) {
-                Ok(fx) => out.push(fx),
-                Err(e) => errors.push(e),
+            let must_load = filter.as_ref().is_none_or(|f| entry.file_name().to_string_lossy().contains(f));
+            if must_load {
+                match load_fixture(path, kind, &sample, &meta) {
+                    Ok(fx) => out.push(fx),
+                    Err(e) => errors.push(e),
+                }
             }
         } else {
             load_fixtures(&path, kind, out, errors);
@@ -175,7 +195,10 @@ fn run_test(fixture: &Fixture) -> Result<(), String> {
     match (fixture.expectations.well_formed, result, divergent) {
         (true, Ok(()), false) => Ok(()),
         (true, Ok(()), true) => Err(stale_flag_msg.into()),
-        (true, Err(_), true) => Ok(()),
+        (true, Err(e), true) => {
+            eprintln!("PARDONED: {} -> {e}", fixture.path.display());
+            Ok(())
+        }
         (true, Err(e), false) => Err(format!("expected decode/round-trip to succeed, but failed: {e}")),
         (false, Err(_), false) => Ok(()),
         (false, Err(_), true) => Err(stale_flag_msg.into()),
