@@ -89,12 +89,36 @@ This keeps the architecture simple:
 
 - `capture` converts tracing into TUI messages
 - `metrics` subscribes to the shared metrics stream
-- `model` folds incoming messages into UI state
-- `ui` renders from the model
+- `model` owns bounded UI state and folds incoming messages through focused
+  reducer slices
+- `ui` renders from the model through a thin shell plus page and component views
 - `session` owns terminal lifecycle and the TUI thread
 
 The TUI stores only the state necessary for rendering. It is not a persistence
 layer and must not grow unbounded over time.
+
+Internally, the crate should stay organized around three layers:
+
+- root orchestration:
+  - session lifecycle
+  - top-level model container
+  - thin UI compositor
+- reducer slices:
+  - interaction updates
+  - telemetry-driven updates
+  - metrics-driven updates
+  - read-only queries over bounded state
+- view slices:
+  - page-level screens
+  - reusable components
+  - shared theme and layout helpers
+
+This keeps the maintenance surface local:
+
+- changing one page should usually stay within one screen module and a handful
+  of components
+- changing one telemetry family should usually stay within one reducer slice and
+  a small number of submodels
 
 ### Provide three operator-oriented tabs
 
