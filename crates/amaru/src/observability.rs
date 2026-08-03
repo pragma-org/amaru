@@ -51,11 +51,11 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=info";
+const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=info,amaru_pure_stage=warn";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
-const DEFAULT_AMARU_TRACE_FILTER: &str = "error,amaru=debug";
+const DEFAULT_AMARU_TRACE_FILTER: &str = "error,amaru=debug,amaru_pure_stage=warn";
 
 const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
 
