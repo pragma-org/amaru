@@ -85,16 +85,34 @@ ledger_dir="ledger.${network}.db"
 chain_dir="chain.${network}.db"
 fixtures_dir="crates/amaru/tests/conformance/stake-distributions/${network}"
 require_command curl
-echo "==> Downloading missing $network E2E fixtures for epochs $bootstrap_epoch through $target_epoch"
-epoch="$bootstrap_epoch"
-while (( epoch <= target_epoch )); do
-  fixture="$fixtures_dir/epoch_${epoch}.json.zst"
-  json_fixture="${fixture%.zst}"
-  if [ ! -f "$fixture" ] && [ ! -f "$json_fixture" ]; then
-    curl -fsSL -o "$fixture" "$public_endpoint/${network}/epoch_${epoch}.json.zst"
+
+download_fixtures() {
+  local epoch="$bootstrap_epoch"
+  local fixture
+  local json_fixture
+
+  echo "==> Downloading missing $network E2E fixtures for epochs $bootstrap_epoch through $target_epoch"
+  while (( epoch <= target_epoch )); do
+    fixture="$fixtures_dir/epoch_${epoch}.json.zst"
+    json_fixture="${fixture%.zst}"
+    if [ ! -f "$fixture" ] && [ ! -f "$json_fixture" ]; then
+      curl -fsSL -o "$fixture" "$public_endpoint/${network}/epoch_${epoch}.json.zst"
+    fi
+    epoch=$((epoch + 1))
+  done
+}
+
+fixtures_pid=""
+stop_fixture_download() {
+  if [ -n "$fixtures_pid" ] && kill -0 "$fixtures_pid" 2>/dev/null; then
+    kill "$fixtures_pid" 2>/dev/null || true
+    wait "$fixtures_pid" || true
   fi
-  epoch=$((epoch + 1))
-done
+}
+
+download_fixtures &
+fixtures_pid=$!
+trap stop_fixture_download EXIT
 
 if [ "$force" = "true" ]; then
   echo "==> Removing existing $network node databases"
@@ -118,6 +136,11 @@ AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all \
 AMARU_UPSTREAM_PEERS="${AMARU_UPSTREAM_PEERS:-1}" \
 AMARU_TRACE="${AMARU_TRACE:-amaru=info}" \
 "$script_dir/run-until" "$build_profile" "$run_until_epoch"
+
+echo "==> Waiting for $network E2E fixture downloads"
+wait "$fixtures_pid"
+fixtures_pid=""
+trap - EXIT
 
 echo "==> Validating $network ledger snapshots with available E2E fixtures"
 test_filter="compare_${network}_stake_distribution_with_haskell_node"
