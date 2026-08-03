@@ -170,7 +170,14 @@ impl VolatileState for VolatileDB {
     /// overlay is eventually flushed. Outside the straddle window the overlay is empty and the
     /// stable value flows through untouched.
     fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
-        pots.treasury + self.overlay.treasury_delta()
+        let treasury = pots.treasury as i128 + self.overlay.treasury_delta();
+        Lovelace::try_from(treasury).unwrap_or_else(|e| {
+            unreachable!("treasury out of bounds after folding the boundary delta: {treasury}: {e}")
+        })
+    }
+
+    fn resolve_donations(&self) -> Lovelace {
+        self.current.resolve_donations() + self.draining.resolve_donations()
     }
 }
 
@@ -327,7 +334,7 @@ impl VolatileDB {
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
-        treasury_delta: Lovelace,
+        treasury_delta: i128,
     ) {
         // Mark the transition between two epochs by sealing the `current` series and turning it into
         // the `draining` series. This keeps each series epoch-homogeneous since, by the protocol
@@ -1138,26 +1145,44 @@ mod tests {
         assert_eq!(VolatileDB::default().resolve_treasury(&stable), stable.treasury);
     }
 
-    #[test]
-    fn resolve_treasury_folds_in_the_boundary_delta_during_the_straddle() {
-        // A pending boundary stashes its net treasury delta. During the straddle the stable pot still holds
-        // the closing epoch's value, so the delta is folded on top.
+    #[test_case(7_000_000 => 107_000_000; "credited by the boundary")]
+    #[test_case(-7_000_000 => 93_000_000; "debited by an enacted withdrawal")]
+    fn resolve_treasury_folds_in_the_boundary_delta_during_the_straddle(delta: i128) -> Lovelace {
+        db_with_pending_boundary(delta).resolve_treasury(&stable_pots(100_000_000))
+    }
+
+    #[test_case(7_000_000; "credited by the boundary")]
+    #[test_case(-7_000_000; "debited by an enacted withdrawal")]
+    fn resolve_treasury_does_not_jump_when_the_boundary_is_flushed(delta: i128) {
         let stable = stable_pots(100_000_000);
-        let db = db_with_pending_boundary(7_000_000);
-        assert_eq!(db.resolve_treasury(&stable), stable.treasury + 7_000_000);
+        let straddle = db_with_pending_boundary(delta).resolve_treasury(&stable);
+
+        let flushed = stable_pots((stable.treasury as i128 + delta) as Lovelace);
+        assert_eq!(VolatileDB::default().resolve_treasury(&flushed), straddle);
     }
 
     #[test]
-    fn resolve_treasury_does_not_jump_when_the_boundary_is_flushed() {
-        // `StateOverlay::apply` writes exactly the stashed delta into the stable pot and drains the
-        // overlay, so an overlay with no pending boundary over the flushed pot resolves to the same
-        // value the straddle window served.
-        let stable = stable_pots(100_000_000);
-        let delta = 7_000_000;
-        let straddle = db_with_pending_boundary(delta).resolve_treasury(&stable);
+    fn resolve_donations_sums_both_series_across_a_boundary() {
+        let mut db = VolatileDB::default();
+        db.push_back(donation_block(10, 1_000_000));
+        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.push_back(donation_block(20, 300_000));
 
-        let flushed = stable_pots(stable.treasury + delta);
-        assert_eq!(VolatileDB::default().resolve_treasury(&flushed), straddle);
+        assert_eq!(db.resolve_donations(), 1_300_000, "draining and current both count");
+    }
+
+    #[test]
+    fn resolve_donations_retracts_what_stabilization_and_rollback_discard() {
+        let mut db = VolatileDB::default();
+        db.push_back(donation_block(10, 1_000_000));
+        db.push_back(donation_block(20, 300_000));
+        db.push_back(donation_block(30, 70_000));
+
+        db.pop_front();
+        assert_eq!(db.resolve_donations(), 370_000, "a stabilized block's donation reached the stable pot");
+
+        db.rollback_to(&Point::Specific(Slot::from(20), Hash::new([0u8; 32]))).unwrap();
+        assert_eq!(db.resolve_donations(), 300_000, "the rolled-back block's donation is discarded");
     }
 
     #[test]
@@ -1165,7 +1190,6 @@ mod tests {
         let stable = stable_pots(100_000_000);
         let mut db = db_with_pending_boundary(7_000_000);
 
-        // Rolling back across the boundary discards the pending transition, including its delta.
         db.rollback_to(&Point::Specific(Slot::from(10), Hash::new([0u8; 32]))).unwrap();
         assert_eq!(db.resolve_treasury(&stable), stable.treasury);
     }
@@ -1307,9 +1331,13 @@ mod tests {
         Pots { treasury, reserves: 0, fees: 0, donations: 0 }
     }
 
-    /// A [`VolatileDB`] with a single-fragment closing epoch transitioned into a pending boundary
-    /// carrying the given treasury delta (the straddle window).
-    fn db_with_pending_boundary(treasury_delta: Lovelace) -> VolatileDB {
+    fn donation_block(slot: u64, donation: Lovelace) -> AnchoredVolatileFragment {
+        let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
+        block.fragment.donations = donation;
+        block
+    }
+
+    fn db_with_pending_boundary(treasury_delta: i128) -> VolatileDB {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), treasury_delta);

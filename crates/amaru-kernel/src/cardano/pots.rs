@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// This modules captures protocol-wide value pots such as treasury and reserves accounts.
+//! This modules captures protocol-wide value pots such as treasury and reserves accounts.
+
 use crate::{Lovelace, cbor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

@@ -107,6 +107,10 @@ pub trait VolatileState {
     fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
         pots.treasury
     }
+
+    /// The donations collected by blocks that are still volatile, and thus not yet reflected in the
+    /// stable pots. They are moved into the treasury at the epoch boundary.
+    fn resolve_donations(&self) -> Lovelace;
 }
 
 /// A sequence-like API used by the VolatileDB and VolatileSeries.

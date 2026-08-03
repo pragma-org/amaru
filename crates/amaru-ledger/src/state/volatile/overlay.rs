@@ -80,8 +80,9 @@ pub struct StateOverlay {
     /// The net change applied to the stable treasury when this overlay is flushed, computed once at
     /// the boundary. Held so the validation context can resolve the *new* epoch's treasury during
     /// the straddle window (before the boundary is flushed to disk), without recomputing per-account
-    /// work on the hot path. 0 when no boundary is pending.
-    treasury_delta: Lovelace,
+    /// work on the hot path. Negative when enacted treasury withdrawals outweigh the incoming
+    /// rewards tax, donations and refund leftovers. 0 when no boundary is pending.
+    treasury_delta: i128,
 }
 
 impl StateOverlay {
@@ -148,7 +149,7 @@ impl StateOverlay {
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
-        treasury_delta: Lovelace,
+        treasury_delta: i128,
     ) {
         let to = self.epoch + 1;
         debug!(ledger::epoch_transition::RECORD, from = %self.epoch, %to);
@@ -385,7 +386,7 @@ impl StateOverlay {
 
     /// The net treasury change pending at the not-yet-flushed epoch boundary. `0` outside the
     /// straddle window.
-    pub fn treasury_delta(&self) -> Lovelace {
+    pub fn treasury_delta(&self) -> i128 {
         self.treasury_delta
     }
 

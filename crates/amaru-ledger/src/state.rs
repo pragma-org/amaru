@@ -463,29 +463,32 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             //
             // The treasury only changes at the boundary, and the whole change is knowable here. It
             // mirrors exactly what `StateOverlay::apply` writes when the boundary is later flushed.
-            //
             // We stash it on the overlay so the validation context can resolve the new epoch's
-            // treasury during the straddle window, without recomputing per-account work on the hot
-            // path. Account existence is resolved on the volatile-over-stable view (the same view
-            // the boundary already works against), not a raw stable read.
-            let closing_epoch_donations = db.pots()?.donations
-                + self.volatile.iter().map(|anchored| anchored.fragment.donations).sum::<Lovelace>();
+            // treasury during the straddle window, instead of redoing this work on the hot path.
+            //
+            // Deposit refunds and treasury withdrawals whose target account is gone cannot be paid,
+            // and are absorbed by the treasury instead.
+            let unpayable = pools_updates
+                .refunds()
+                .chain(governance_updates.deposit_refunds.iter())
+                .chain(governance_updates.treasury_withdrawals.iter())
+                .try_fold(0, |leftovers, (credential, amount)| {
+                    let exists = match self.volatile.resolve_account(credential).0 {
+                        Existence::Exists(..) => true,
+                        Existence::Gone => false,
+                        Existence::Unknown => db.account(credential)?.is_some(),
+                    };
 
-            let mut refund_leftovers: Lovelace = 0;
-            for (credential, amount) in pools_updates.refunds().chain(governance_updates.deposit_refunds.iter()) {
-                let account_is_gone = match self.volatile.resolve_account(credential).0 {
-                    Existence::Exists(..) => false,
-                    Existence::Gone => true,
-                    Existence::Unknown => db.account(credential)?.is_none(),
-                };
-                if account_is_gone {
-                    refund_leftovers += amount;
-                }
-            }
+                    Ok::<_, StoreError>(if exists { leftovers } else { leftovers + amount })
+                })?;
 
-            let treasury_delta = effective_rewards.as_ref().map(|rewards| rewards.delta_treasury()).unwrap_or(0)
-                + closing_epoch_donations
-                + refund_leftovers;
+            let treasury_credits = effective_rewards.as_ref().map(|rewards| rewards.delta_treasury()).unwrap_or(0)
+                + volatile_view.donations()?
+                + unpayable;
+
+            let treasury_debits = governance_updates.treasury_withdrawals.values().sum::<Lovelace>();
+
+            let treasury_delta = treasury_credits as i128 - treasury_debits as i128;
 
             drop(db); // Dropping the *mutable reference*, not the *actual database* :)
 

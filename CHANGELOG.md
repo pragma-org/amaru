@@ -136,7 +136,6 @@ Other guiding principles:
 - **amaru-uplc**: fixed the CBOR encoding of `-2^64`.
 - **amaru-ledger**: unbind accounts from deregistered pools. ([#1030][])
 
-
 ## [v10.11.20260716](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260716)
 
 ### Added
@@ -244,8 +243,8 @@ Other guiding principles:
 [#820]: https://github.com/pragma-org/amaru/pull/820
 [#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
-[#890]: https://github.com/pragma-org/amaru/issues/890
 [#888]: https://github.com/pragma-org/amaru/issues/888
+[#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
 [#895]: https://github.com/pragma-org/amaru/issues/895
 [#896]: https://github.com/pragma-org/amaru/issues/896
