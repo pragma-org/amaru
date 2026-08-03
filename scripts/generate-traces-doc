@@ -34,54 +34,41 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 EOF
 
-# Extract and group spans by target
-TARGETS=$(jq -r '.definitions | to_entries | map(.value.target) | unique | sort | .[]' "${SCHEMAS_JSON}")
+# Render one section per target, each with a summary table of its spans and a collapsible
+# field table per span.
+jq -r '
+  # Descriptions are free-form prose, so neutralise the characters that would otherwise be read as
+  # markdown markup or split the row into extra columns.
+  def escape_table_cell: gsub("`"; "\\`") | gsub("\\|"; "\\|");
 
-for target in $TARGETS; do
-  # Add target section
-  cat >> "${OUTPUT_FILE}" << ENTRY
+  def span_row:
+    "| `\(.name)` | `\(.level)` | \(if .public then "public" else "" end) | \(.description // "" | escape_table_cell) | \((.required // []) | join(", ")) | \((.optional // []) | join(", ")) |";
 
-## target: \`${target}\`
+  def field_rows:
+    (.required // []) as $required
+    | (.properties // {})
+    | to_entries
+    | map(. as $field | "| `\($field.key)` | `\($field.value.type)` | \(if ($required | index($field.key)) then "✓" else "" end) |");
 
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-ENTRY
+  def span_details:
+    if ((.properties // {}) | length) > 0 then
+      ["", "<details><summary>span: `\(.name)`</summary>", "", "| field | type | required |", "| --- | --- | --- |"]
+      + field_rows
+      + ["", "</details>"]
+    else
+      []
+    end;
 
-  # Get all spans for this target and output table rows (sorted by name)
-  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | [.value.name, .value.level, (if .value.public then \"public\" else \"\" end), (.value.description // \"\"), (.value.required | join(\", \") // \"\"), (.value.optional | join(\", \") // \"\")] | @tsv" "${SCHEMAS_JSON}" | while IFS=$'\t' read -r name level public description required optional; do
-    # Escape backticks in description if any
-    description="${description//\`/\\\`}"
-    echo "| \`${name}\` | \`${level}\` | ${public} | ${description} | ${required} | ${optional} |" >> "${OUTPUT_FILE}"
-  done
-
-  # Add details for each span (in sorted order by name)
-  jq -r ".definitions | to_entries | sort_by(.value.name) | .[] | select(.value.target == \"${target}\") | .value.name" "${SCHEMAS_JSON}" | while read -r name; do
-    SPAN_DATA=$(jq -r ".definitions | to_entries[] | select(.value.target == \"${target}\" and .value.name == \"${name}\") | .value" "${SCHEMAS_JSON}")
-
-    HAS_FIELDS=$(echo "$SPAN_DATA" | jq -r '.properties | keys | length')
-
-    if [ "$HAS_FIELDS" -gt 0 ]; then
-      cat >> "${OUTPUT_FILE}" << ENTRY
-
-<details><summary>span: \`${name}\`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-ENTRY
-
-      # Get all properties and show with required flag
-      echo "$SPAN_DATA" | jq -r '.properties | to_entries[] | .key' | while read -r field; do
-        FIELD_TYPE=$(echo "$SPAN_DATA" | jq -r ".properties[\"${field}\"].type")
-        IS_REQUIRED=$(echo "$SPAN_DATA" | jq -r "(.required // []) | contains([\"${field}\"])")
-        REQUIRED_BADGE=$([ "$IS_REQUIRED" = "true" ] && echo "✓" || echo "")
-        echo "| \`${field}\` | \`${FIELD_TYPE}\` | ${REQUIRED_BADGE} |" >> "${OUTPUT_FILE}"
-      done
-
-      echo "" >> "${OUTPUT_FILE}"
-      echo "</details>" >> "${OUTPUT_FILE}"
-    fi
-  done
-done
+  [.definitions[]] as $spans
+  | [ ($spans | map(.target) | unique)[] as $target
+      | ($spans | map(select(.target == $target)) | sort_by(.name)) as $group
+      | ["", "## target: `\($target)`", "", "| name | level | public | description | required fields | optional fields |", "| --- | --- | --- | --- | --- | --- |"]
+        + ($group | map(span_row))
+        + ($group | map(span_details) | add // [])
+    ]
+  | flatten
+  | .[]
+' "${SCHEMAS_JSON}" >> "${OUTPUT_FILE}"
 
 # Add footer
 cat >> "${OUTPUT_FILE}" << 'EOF'

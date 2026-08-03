@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, mem, sync::Arc};
+use std::{iter, mem};
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
@@ -21,7 +21,7 @@ use amaru_kernel::{
 
 use crate::{
     epoch_transition::{
-        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
     state::{
         AnchoredVolatileFragment, StateError,
@@ -291,16 +291,6 @@ impl VolatileDB {
         matches!(self.overlay.rewards(), RewardsState::NotReady)
     }
 
-    /// Take the rewards summary computed earlier in the epoch, marking the rewards as not-ready.
-    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
-        self.overlay.take_computed_rewards()
-    }
-
-    /// Stash the freshly computed rewards summary, to be applied at the next epoch boundary.
-    pub fn set_computed_rewards(&mut self, rewards: impl Into<Rewards<Computed>>) {
-        *self.overlay.rewards_mut() = RewardsState::Computed(Arc::new(rewards.into()));
-    }
-
     /// Ensure that the 'draining' sequence is empty before we cross an epoch boundary. Note that
     /// this is a bandaid on the fact that the Haskell node (and thus Amaru) does not honour the
     /// Chain Growth property; so we can have situations where an epoch may contain less than `k`
@@ -491,8 +481,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, ProposalsRoots, Slot, StakeCredential,
-        any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Slot, StakeCredential, any_modern_output,
+        any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -1095,7 +1085,7 @@ mod tests {
     fn reward_balance_folds_in_the_pending_overlay_credit_during_the_straddle() {
         let mut db = VolatileDB::default();
         let accounts = BTreeMap::from([(cred(1), 5_000_000)]);
-        let computed = Rewards::<Computed>::new(0, 0, accounts.values().sum(), accounts);
+        let computed = Rewards::<Computed>::new(0, 0, accounts.values().sum(), accounts, Default::default());
         let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
 
         // The pending boundary credit is added on top of the stable base.
@@ -1121,7 +1111,7 @@ mod tests {
         // like a pool-deposit refund.
         let mut db = VolatileDB::default();
         let mut updates = committee_update(None);
-        updates.payouts = BTreeMap::from([(cred(1), 3_000_000)]);
+        updates.deposit_refunds = BTreeMap::from([(cred(1), 3_000_000)]);
         db.transition(None, PoolsEpochTransitionUpdates::default(), updates);
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
@@ -1134,7 +1124,7 @@ mod tests {
     #[test_case(None, None => Existence::Unknown; "untouched everywhere defers to the stable store")]
     fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Existence<bool> {
         let mut db = VolatileDB::default();
-        let computed = Rewards::<Computed>::new(0, 0, 0, BTreeMap::new());
+        let computed = Rewards::<Computed>::new(0, 0, 0, BTreeMap::new(), Default::default());
         let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
         if let Some(act) = draining {
             db.push_back(committee_block(10, act));
@@ -1227,7 +1217,8 @@ mod tests {
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
     /// observable state (its pending reward credit surfaces through `resolve_account`).
     fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
-        let computed = Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential, amount)]));
+        let computed =
+            Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential, amount)]), Default::default());
         Rewards::<Effective>::new(computed, BTreeSet::new())
     }
 
@@ -1257,13 +1248,8 @@ mod tests {
 
     fn committee_update(committee: Option<CommitteeUpdate>) -> GovernanceUpdates {
         GovernanceUpdates {
-            roots: ProposalsRoots::default(),
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::new(),
-            payouts: BTreeMap::new(),
-            is_dormant_epoch: false,
             constitutional_committee: committee,
-            new_constitution: None,
+            ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
         }
     }
 }

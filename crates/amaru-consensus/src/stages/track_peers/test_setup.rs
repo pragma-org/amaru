@@ -286,10 +286,11 @@ fn setup_inner(
     run_simulation_with(
         rt,
         register_guards(),
-        |network| {
+        |mut network| {
             let tp = network.stage("tp", stage);
             let tp = network.wire_up(tp, state);
             network.preload(&tp, msg).unwrap();
+            network
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());

@@ -14,11 +14,12 @@
 
 use std::fmt;
 
+use amaru_kernel::utils::memory;
 use amaru_ledger::state::volatile::VolatileSequence;
 use divan::Bencher;
 use rand::{SeedableRng, rngs::StdRng};
 
-use crate::common::{memory, scale::BenchScale, scenario::Scenario};
+use crate::common::{scale::BenchScale, scenario::Scenario};
 
 /// A bench scenario which insert a loaded fragment to an already filled volatile db along a
 /// particular dimension (UTxO, Account, ...). This also includes popping a fragment from the front,
@@ -41,7 +42,7 @@ impl RollForward {
         Self { scenario, scale }
     }
 
-    pub fn run(self, bencher: Bencher<'_, '_>) -> u64 {
+    pub fn run(self, bencher: Bencher<'_, '_>) -> i64 {
         let mut rng = StdRng::seed_from_u64(self.scenario.seed());
         let (db, rss) = memory::rss_delta(|| self.scenario.new_volatile_db(&mut rng, &self.scale));
         let fragment = self.scenario.new_fragment(&mut rng, &self.scale);

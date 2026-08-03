@@ -286,7 +286,7 @@ impl DRepsSlice for DefaultValidationContext {
         &mut self,
         drep: StakeCredential,
         registration: DRepRegistration,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
         let _span = trace_span!(
             ledger::transaction::CERTIFICATE_DREP_REGISTRATION,
@@ -304,7 +304,11 @@ impl DRepsSlice for DefaultValidationContext {
         Ok(())
     }
 
-    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
+    fn update(
+        &mut self,
+        drep: StakeCredential,
+        anchor: Option<Box<Anchor>>,
+    ) -> Result<(), UpdateError<StakeCredential>> {
         let _span = trace_span!(ledger::transaction::CERTIFICATE_DREP_UPDATE, drep = format!("{drep:?}"));
         if let Some(a) = &anchor {
             _span.record("anchor_url", &a.url);
@@ -362,7 +366,7 @@ impl CommitteeSlice for DefaultValidationContext {
     fn resign(
         &mut self,
         cc_member: StakeCredential,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
         let _span =
             trace_span!(ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));

@@ -30,6 +30,7 @@ test-utils = ["amaru-consensus/test-utils"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+mimalloc.workspace = true
 anyhow.workspace = true
 aws-credential-types.workspace = true
 aws-sdk-s3.workspace = true

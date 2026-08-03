@@ -91,13 +91,13 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
             // Pool is already registered, and has some updates.
             if let Some(update) = self.registrations.remove(&pool_id) {
                 for (pool_params, _, _) in update.iter() {
-                    pool.pending_certificates.append_registration(pool_params.clone());
+                    pool.pending_certificates.append(pool_params.clone());
                 }
             }
 
             // Pool has announced its retirement.
             if let Some(retirement_epoch) = self.retirements.remove(&pool_id) {
-                pool.pending_certificates.append_retirement(retirement_epoch)
+                pool.pending_certificates.append(retirement_epoch)
             }
 
             return Some((pool_id, pool));
@@ -109,12 +109,12 @@ impl<'volatile, DBIter: Iterator<Item = (PoolId, Pool)>> Iterator for IterPools<
 
             let mut pool = Pool::new(registration.1, registration.2, registration.0.clone());
             if let Some(re_registration) = re_registration {
-                pool.pending_certificates.append_registration(re_registration.0.clone());
+                pool.pending_certificates.append(re_registration.0.clone());
             }
 
             // Pool has announced its retirement.
             if let Some(retirement_epoch) = self.retirements.remove(&pool_id) {
-                pool.pending_certificates.append_retirement(retirement_epoch)
+                pool.pending_certificates.append(retirement_epoch)
             }
 
             return Some((pool_id, pool));
@@ -146,10 +146,7 @@ mod tests {
     static STABLE: LazyLock<BTreeMap<u8, (PoolId, Pool)>> = LazyLock::new(|| {
         let row = |ix| {
             let (current_params, registered_at, deposit) = mock_pool(ix);
-            (
-                mock_pool_id(ix),
-                Pool { registered_at, deposit, current_params, pending_certificates: Default::default() },
-            )
+            (mock_pool_id(ix), Pool::new(registered_at, deposit, current_params))
         };
 
         (0..MAX_POOLS).map(|ix| (ix, row(ix))).collect()
@@ -195,15 +192,15 @@ mod tests {
                     .iter()
                     .map(|(ix, row)| {
                         let (current_params, registered_at, deposit) = mock_pool(*ix);
-                        let mut pending_certificates = PoolCertificates::default();
+                        let mut pool = Pool::new(registered_at, deposit, current_params);
                         for event in row.iter() {
                             match event {
-                                Event::Registration => pending_certificates.append_registration(mock_pool_params(*ix)),
-                                Event::LateRetirement => pending_certificates.append_retirement(epoch + 10),
-                                Event::ImminentRetirement => pending_certificates.append_retirement(epoch + 1),
+                                Event::Registration => pool.pending_certificates.append(mock_pool_params(*ix)),
+                                Event::LateRetirement => pool.pending_certificates.append(epoch + 10),
+                                Event::ImminentRetirement => pool.pending_certificates.append(epoch + 1),
                             }
                         }
-                        (mock_pool_id(*ix), Pool { registered_at, deposit, current_params, pending_certificates })
+                        (mock_pool_id(*ix), pool)
                     })
                     .collect::<Vec<(PoolId, Pool)>>()
                     .into_iter(),
@@ -374,7 +371,7 @@ mod tests {
             // parameters and yet, preserve the late retirement as well. There's no diff strategy on
             // pool updates, we just replace the pool object entirely; and must therefore include
             // the late retirement.
-            updated: &[(0, Pool { pending_certificates: PoolCertificates::default().with_retirement(Epoch::from(110)), ..stable(0) })],
+            updated: &[(0, Pool { pending_certificates: PoolCertificates::default().with(Epoch::from(110)), ..stable(0) })],
             retired: &[]
         };
         "update in stable, late retirement in volatile"
@@ -410,7 +407,7 @@ mod tests {
         },
         NextEpochExpectations {
             seen: &[0],
-            updated: &[(0, Pool { pending_certificates: PoolCertificates::default().with_retirement(Epoch::from(110)), ..stable(0) })],
+            updated: &[(0, Pool { pending_certificates: PoolCertificates::default().with(Epoch::from(110)), ..stable(0) })],
             retired: &[]
         };
         "imminent retirement in stable, late retirement in volatile"

@@ -132,7 +132,7 @@ where
         match self {
             MemoizedDatum::None => constr!(0),
             MemoizedDatum::Hash(hash) => constr!(1, [hash]),
-            MemoizedDatum::Inline(data) => constr!(2, [data.as_ref()]),
+            MemoizedDatum::Inline(data) => constr!(2, [data.as_ref().as_ref()]),
         }
     }
 }
@@ -230,6 +230,16 @@ where
                 constr!(1, [hash])
             }
         }
+    }
+}
+
+impl<A, const V: u8> ToPlutusData<V> for Box<A>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+    A: ToPlutusData<V>,
+{
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        self.as_ref().to_plutus_data()
     }
 }
 

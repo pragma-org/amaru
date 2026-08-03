@@ -376,6 +376,24 @@
       "description": "Existing proposals found in the store before import",
       "public": true
     },
+    "amaru::bootstrap::recently_pruned_proposals::IMPORT": {
+      "type": "object",
+      "properties": {
+        "size": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "import",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::recently_pruned_proposals",
+      "description": "Import proposals pruned at the snapshot's epoch boundary, from its ratify state",
+      "public": true
+    },
     "amaru::bootstrap::snapshot::DOWNLOAD": {
       "type": "object",
       "properties": {
@@ -1986,7 +2004,10 @@
         "pruned_proposals": {
           "type": "string"
         },
-        "payouts": {
+        "refunds": {
+          "type": "string"
+        },
+        "withdrawals": {
           "type": "string"
         },
         "new_constitution": {
@@ -2001,7 +2022,8 @@
       ],
       "optional": [
         "pruned_proposals",
-        "payouts",
+        "refunds",
+        "withdrawals",
         "new_constitution",
         "constitutional_committee_update"
       ],
@@ -2037,17 +2059,16 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
-        "using_stake_distribution_epoch_from": {
+        "using_stake_distribution_from_epoch": {
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         }
       },
       "required": [
-        "for_epoch"
+        "for_epoch",
+        "using_stake_distribution_from_epoch"
       ],
-      "optional": [
-        "using_stake_distribution_epoch_from"
-      ],
+      "optional": [],
       "additionalProperties": false,
       "name": "compute",
       "level": "TRACE",

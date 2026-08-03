@@ -65,7 +65,7 @@ pub struct TransactionBody {
 
     pub network: Option<Network>,
 
-    pub collateral_return: Option<MemoizedTransactionOutput>,
+    pub collateral_return: Option<Box<MemoizedTransactionOutput>>,
 
     pub total_collateral: Option<Lovelace>,
 

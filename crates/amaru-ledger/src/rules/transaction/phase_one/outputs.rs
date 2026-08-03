@@ -90,7 +90,7 @@ where
         if matches!(supplemental_datum_policy, SupplementalDatumPolicy::Allow)
             && let MemoizedDatum::Hash(hash) = &output.datum
         {
-            context.allow_supplemental_datum(*hash);
+            context.allow_supplemental_datum(*hash.as_ref());
         }
 
         if let Some(script) = output.script.as_ref() {

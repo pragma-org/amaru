@@ -37,7 +37,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
             true,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
-            MemoizedDatum::Hash(decoder.hash32()?),
+            MemoizedDatum::from(decoder.hash32()?),
             None,
         ),
         2 => {
@@ -56,7 +56,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
                 true,
                 decode_address28(&mut decoder, stake)?,
                 Value::Coin(decode_compact_coin(&mut decoder)?),
-                MemoizedDatum::Hash(decoder.packed_hash32()?),
+                MemoizedDatum::from(decoder.packed_hash32()?),
                 None,
             )
         }
@@ -64,7 +64,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
             false,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
-            MemoizedDatum::Inline(decode_inline_plutus_data(&mut decoder)?),
+            MemoizedDatum::from(decode_inline_plutus_data(&mut decoder)?),
             None,
         ),
         5 => make_transaction_output(
@@ -339,8 +339,8 @@ fn decode_compact_value(decoder: &mut Decoder<'_>) -> Result<Value, String> {
 fn decode_datum(decoder: &mut Decoder<'_>) -> Result<MemoizedDatum, String> {
     match decoder.tag()? {
         0 => Ok(MemoizedDatum::None),
-        1 => Ok(MemoizedDatum::Hash(decoder.hash32()?)),
-        2 => Ok(MemoizedDatum::Inline(decode_inline_plutus_data(decoder)?)),
+        1 => Ok(MemoizedDatum::from(decoder.hash32()?)),
+        2 => Ok(MemoizedDatum::from(decode_inline_plutus_data(decoder)?)),
         other => Err(format!("unsupported datum tag {other}")),
     }
 }

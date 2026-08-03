@@ -16,6 +16,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
     iter,
+    rc::Rc,
     sync::LazyLock,
 };
 
@@ -23,8 +24,9 @@ use amaru_kernel::{
     Account, Ballot, BallotId, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal, ProposalId,
-    ProposalPointer, ProposalState, ProposalsRoots, ProtocolParameters, RationalNumber, Relay, Reward, RewardAccount,
-    Slot, StakeAddress, StakeCredential, StakePayload, TransactionPointer, Vote, Voter,
+    ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters, RatificationStatus,
+    RationalNumber, Relay, Reward, RewardAccount, Slot, StakeAddress, StakeCredential, StakePayload,
+    TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
     protocol_version, reward_account_to_stake_credential, size,
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
@@ -34,6 +36,7 @@ use amaru_progress_bar::ProgressBar;
 
 use crate::{
     epoch_transition::GovernanceActivity,
+    governance::ratification::{CandidateProposal, ProposalsForest},
     state::volatile::{DiffEpochReg, Resettable},
     store::{
         self, Store, StoreError, TransactionalContext,
@@ -59,7 +62,8 @@ enum InitialSnapshotFormatError {
     #[error("invalid initial snapshot payload: expected a previous-blocks map immediately after the epoch")]
     MissingPreviousBlocksMap,
 
-    #[error("snapshot protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.0, snapshot_version.1, minimum_version.0, minimum_version.1)]
+    #[error("snapshot protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.0, snapshot_version.1, minimum_version.0, minimum_version.1
+    )]
     ProtocolVersionTooOld {
         snapshot_version: amaru_kernel::ProtocolVersion,
         minimum_version: amaru_kernel::ProtocolVersion,
@@ -100,24 +104,48 @@ fn decode_initial_snapshot_prefix(
     Ok(epoch)
 }
 
+/// The parts of a cardano-node `NewEpochState` that Amaru's initial state is built from. Fields
+/// are listed in the order they appear in the payload.
+struct InitialSnapshot {
+    epoch: Epoch,
+    block_issuers: BTreeMap<PoolId, u64>,
+    treasury: i64,
+    reserves: i64,
+    dreps: BTreeMap<StakeCredential, DRepState>,
+    cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
+    governance_activity: GovernanceActivity,
+    pools: BTreeMap<PoolId, PoolParams>,
+    pools_updates: BTreeMap<PoolId, PoolParams>,
+    pools_retirements: BTreeMap<PoolId, Epoch>,
+    accounts: BTreeMap<StakeCredential, Account>,
+    fees: i64,
+    proposals_roots: ProposalsRoots,
+    proposals: Vec<ProposalState>,
+    cc_state: Option<ConstitutionalCommittee>,
+    constitution: Constitution,
+    protocol_parameters: ProtocolParameters,
+    enacted_proposals: Vec<ProposalState>,
+    expired_proposals: BTreeSet<ProposalId>,
+    donations: u64,
+    mark_snapshot: BTreeSet<StakeCredential>,
+    delta_treasury: i64,
+    delta_reserves: i64,
+    rewards: BTreeMap<StakeCredential, Vec<Reward>>,
+    delta_fees: i64,
+}
+
 /// (Partially) decode a cardano-node `NewEpochState` payload.
 ///
 /// -> <https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345>
 ///
-/// We rely on data present in these to bootstrap Amaru's initial state.
-#[allow(clippy::too_many_arguments)]
-pub fn import_initial_snapshot(
-    db: &impl Store,
+/// The payload is decoded in full before anything is written, so that a malformed or unsupported
+/// snapshot leaves the store untouched.
+fn decode_initial_snapshot(
     reader: &mut dyn Read,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
-    point: &Point,
-    era_history: &EraHistory,
+    expected_epoch: Epoch,
     network: NetworkName,
-    with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-) -> Result<Epoch, Box<dyn std::error::Error>> {
+) -> Result<InitialSnapshot, Box<dyn std::error::Error>> {
     let mut decoder = LazyDecoder::new(reader);
-    let tip = point.slot_or_default();
-    let expected_epoch = era_history.slot_to_epoch(tip, tip)?;
 
     let epoch: Epoch = decoder.with_decoder(|d| decode_initial_snapshot_prefix(d, expected_epoch))?;
 
@@ -197,6 +225,13 @@ pub fn import_initial_snapshot(
         Ok((d.decode()?, d.decode()?, d.decode()?, d.decode()?))
     })?;
 
+    let proposals_roots = ProposalsRoots {
+        protocol_parameters: root_params,
+        hard_fork: root_hard_fork,
+        constitutional_committee: root_cc,
+        constitution: root_constitution,
+    };
+
     let proposals: Vec<ProposalState> = decoder.decode()?;
 
     let SerialisedAsArray(cc_state) = decoder.decode()?;
@@ -204,24 +239,14 @@ pub fn import_initial_snapshot(
     let constitution: Constitution = decoder.decode()?;
 
     // Current Protocol Params — decode before any write so a stale snapshot fails cleanly.
-    let pparams: ProtocolParameters = decoder.decode()?;
+    let protocol_parameters: ProtocolParameters = decoder.decode()?;
 
-    protocol_version::validate(pparams.protocol_version, protocol_version::MINIMUM_SUPPORTED).map_err(|e| {
-        InitialSnapshotFormatError::ProtocolVersionTooOld {
+    protocol_version::validate(protocol_parameters.protocol_version, protocol_version::MINIMUM_SUPPORTED).map_err(
+        |e| InitialSnapshotFormatError::ProtocolVersionTooOld {
             snapshot_version: e.snapshot_version,
             minimum_version: e.minimum_version,
-        }
-    })?;
-
-    import_block_issuers(db, point, era_history, block_issuers)?;
-    import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
-        .map_err(|err| format!("import pool state: {err}"))?;
-    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
-    let protocol_parameters = import_protocol_parameters(db, pparams)?;
-
-    import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
-
-    import_votes(db, point, era_history, &protocol_parameters, proposals)?;
+        },
+    )?;
 
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
@@ -233,7 +258,21 @@ pub fn import_initial_snapshot(
     decoder.skip()?; // DRep distr
     decoder.skip()?; // DRep state
     decoder.skip()?; // Pool distr
-    decoder.skip()?; // Ratify state
+
+    let (enacted_proposals, SerialisedAsSet(expired_proposals)): (
+        Vec<ProposalState>,
+        SerialisedAsSet<BTreeSet<ProposalId>>,
+    ) = decoder
+        .with_decoder(|d| {
+            // Ratify state
+            d.array()?;
+            d.skip()?; // Enact state
+            let enacted = d.decode()?;
+            let expired = d.decode()?;
+            d.skip()?; // Delayed
+            Ok((enacted, expired))
+        })
+        .map_err(|err| format!("decode ratify state: {err}"))?;
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
     decoder.skip()?;
@@ -273,7 +312,7 @@ pub fn import_initial_snapshot(
         })
         .map_err(|err| format!("decode rewards update: {err}"))?;
 
-    let (delta_treasury, delta_reserves, mut rewards, delta_fees) = if is_complete {
+    let (delta_treasury, delta_reserves, rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
         let delta_reserves: i64 = decoder.decode()?;
         let rewards: BTreeMap<StakeCredential, SerialisedAsSet<Vec<Reward>>> = decoder.decode()?;
@@ -288,6 +327,92 @@ pub fn import_initial_snapshot(
     } else {
         (0_i64, 0_i64, BTreeMap::new(), 0_i64)
     };
+
+    Ok(InitialSnapshot {
+        epoch,
+        block_issuers,
+        treasury,
+        reserves,
+        dreps,
+        cc_members,
+        governance_activity,
+        pools,
+        pools_updates,
+        pools_retirements,
+        accounts,
+        fees,
+        proposals_roots,
+        proposals,
+        cc_state,
+        constitution,
+        protocol_parameters,
+        enacted_proposals,
+        expired_proposals,
+        donations,
+        mark_snapshot,
+        delta_treasury,
+        delta_reserves,
+        rewards,
+        delta_fees,
+    })
+}
+
+/// Bootstrap Amaru's initial state from a cardano-node `NewEpochState` payload.
+#[allow(clippy::too_many_arguments)]
+pub fn import_initial_snapshot(
+    db: &impl Store,
+    reader: &mut dyn Read,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    point: &Point,
+    era_history: &EraHistory,
+    network: NetworkName,
+    with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+) -> Result<Epoch, Box<dyn std::error::Error>> {
+    let tip = point.slot_or_default();
+    let expected_epoch = era_history.slot_to_epoch(tip, tip)?;
+
+    let InitialSnapshot {
+        epoch,
+        block_issuers,
+        treasury,
+        reserves,
+        dreps,
+        cc_members,
+        governance_activity,
+        pools,
+        pools_updates,
+        pools_retirements,
+        accounts,
+        fees,
+        proposals_roots,
+        proposals,
+        cc_state,
+        constitution,
+        protocol_parameters,
+        enacted_proposals,
+        expired_proposals,
+        donations,
+        mark_snapshot,
+        delta_treasury,
+        delta_reserves,
+        mut rewards,
+        delta_fees,
+    } = decode_initial_snapshot(reader, expected_epoch, network)?;
+
+    import_protocol_parameters(db, &protocol_parameters)?;
+
+    import_block_issuers(db, point, era_history, block_issuers)?;
+
+    import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
+        .map_err(|err| format!("import pool state: {err}"))?;
+
+    import_proposals_roots(db, &proposals_roots)?;
+
+    import_proposals(db, point, era_history, &protocol_parameters, &proposals)?;
+
+    import_recently_pruned_proposals(db, era_history, epoch, &proposals_roots, enacted_proposals, expired_proposals)?;
+
+    import_votes(db, point, era_history, &protocol_parameters, proposals)?;
 
     import_accounts(
         db,
@@ -365,12 +490,12 @@ fn save_point(
 
 fn import_protocol_parameters(
     db: &impl Store,
-    protocol_parameters: ProtocolParameters,
-) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
+    protocol_parameters: &ProtocolParameters,
+) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.set_protocol_parameters(&protocol_parameters)?;
+    transaction.set_protocol_parameters(protocol_parameters)?;
     transaction.commit()?;
-    Ok(protocol_parameters)
+    Ok(())
 }
 
 fn import_block_issuers(
@@ -539,6 +664,62 @@ fn import_proposals(
         Default::default(),
         iter::empty(),
     )?;
+    transaction.commit()?;
+
+    Ok(())
+}
+
+/// Record the proposals pruned at the epoch boundary the snapshot sits on, using the ratification
+/// outcome embedded in the snapshot (the `RatifyState` of the DRep pulser). Voting stake
+/// distributions computed from this snapshot rely on these markers to exclude the deposits of
+/// just-pruned proposals, and to account for just-enacted treasury withdrawals.
+///
+/// The ratify state only lists enacted and expired proposals. Conflicting siblings pruned by an
+/// enactment are recovered by replaying the enactments through a proposals forest, mirroring the
+/// regular ratification. The proposals to replay are read back from the store, so that the replay
+/// sees exactly what the node will see at the next epoch boundary. Hence this must run after
+/// `import_proposals`.
+fn import_recently_pruned_proposals(
+    db: &impl Store,
+    era_history: &EraHistory,
+    epoch: Epoch,
+    roots: &ProposalsRoots,
+    enacted: Vec<ProposalState>,
+    expired: BTreeSet<ProposalId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut pruned: BTreeMap<ProposalId, RatificationStatus> =
+        expired.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
+
+    if !enacted.is_empty() {
+        let candidates =
+            db.iter_proposals()?.map(|(id, row)| (Rc::new(id), CandidateProposal::from(row))).collect::<Vec<_>>();
+
+        // The forest's treasury is only used to refuse over-drawing withdrawals during
+        // ratification. Enactments here come from the snapshot's own ratify state, so the
+        // value is irrelevant.
+        let mut forest = ProposalsForest::new(epoch - 1, &ProposalsRootsRc::from(roots.clone()), 0)
+            .drain(era_history, candidates)
+            .map_err(|err| format!("replay enacted proposals: {err}"))?;
+        let mut compass = forest.new_compass();
+
+        for enacted_state in enacted {
+            let id = Rc::new(enacted_state.id);
+            let proposal = forest
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| format!("enacted proposal {id} not found in the imported proposals"))?;
+            for (pruned_id, status) in
+                forest.enact(id, &proposal, &mut compass).map_err(|err| format!("replay enacted proposals: {err}"))?
+            {
+                pruned.insert(*pruned_id, status);
+            }
+        }
+    }
+
+    info!(bootstrap::recently_pruned_proposals::IMPORT, size = pruned.len());
+
+    let transaction = db.create_transaction();
+    transaction.set_recently_pruned_proposals(pruned.iter().map(|(id, status)| (id, *status)))?;
     transaction.commit()?;
 
     Ok(())
@@ -747,17 +928,7 @@ fn import_accounts(
     Ok(())
 }
 
-fn import_proposals_roots(
-    db: &impl Store,
-    protocol_parameters: Option<ProposalId>,
-    hard_fork: Option<ProposalId>,
-    constitutional_committee: Option<ProposalId>,
-    constitution: Option<ProposalId>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let transaction = db.create_transaction();
-
-    let roots = ProposalsRoots { protocol_parameters, hard_fork, constitutional_committee, constitution };
-
+fn import_proposals_roots(db: &impl Store, roots: &ProposalsRoots) -> Result<(), Box<dyn std::error::Error>> {
     let roots_constitution = roots.constitution.as_ref().map(|s| s.to_string());
     let roots_constitutional_committee = roots.constitutional_committee.as_ref().map(|s| s.to_string());
     let roots_hard_fork = roots.hard_fork.as_ref().map(|s| s.to_string());
@@ -771,9 +942,9 @@ fn import_proposals_roots(
         protocol_parameters = roots_protocol_parameters.as_deref().unwrap_or("none"),
     );
 
-    transaction.set_proposals_roots(&roots)?;
+    let transaction = db.create_transaction();
+    transaction.set_proposals_roots(roots)?;
     transaction.commit()?;
-
     Ok(())
 }
 
@@ -1095,7 +1266,7 @@ impl NodePoolParams {
             cost: self.cost,
             margin: self.margin,
             reward_account: self.reward_account,
-            owners: self.owners,
+            owners: self.owners.into_iter().collect(),
             relays: self.relays,
             metadata: self.metadata,
         }

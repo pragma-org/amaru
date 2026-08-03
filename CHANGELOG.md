@@ -38,13 +38,30 @@ Other guiding principles:
 
 ## v10.11.20260806 _[unreleased; planned for 2026-08-06]_
 
+### Added
+
+- **amaru**: add `amaru node rm --wipe-all-dbs` to remove the ledger and chain databases resolved from the selected network.
+
 ### Changed
 
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
+- **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
+- **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.
 
 ### Removed
 
 - **amaru-kernel**: dependency on `pallas-*`
+
+### Fixed
+
+- **amaru-node**: invalidate peer snapshot commit metadata cache when switching to older or newer commits. ([#1114](https://github.com/pragma-org/amaru/issues/1114))
+- **amaru-kernel**: reduce memory footprint of various types on the critical path.
+- **amaru-ledger**: populate `recently_pruned_proposals` when importing a cardano-node snapshot.
+- **amaru-ledger**: debit the treasury when enacted withdrawals are paid out at the epoch boundary ([#1118][])
+- **amaru-ledger**: preserve the `Ratified` status of proposals pruned during ratification ([#1118][])
+- **amaru-kernel**: reduce memory footprint of various types on the critical path.
+- **amaru-ledger**: when a leader changes it reward account, the rewards owed to the previous account must return to the treasury ([#1125](https://github.com/pragma-org/amaru/pull/1125)).
+- **amaru-consensus**: fix peer_selection to only schedule a single cool-down timer and thus properly bound priority mailbox usage. ([#1112](https://github.com/pragma-org/amaru/issues/1112))
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 
@@ -283,3 +300,4 @@ Other guiding principles:
 [#1098]: https://github.com/pragma-org/amaru/pull/1098
 [#1101]: https://github.com/pragma-org/amaru/pull/1101
 [#1109]: https://github.com/pragma-org/amaru/pull/1109
+[#1118]: https://github.com/pragma-org/amaru/pull/1118

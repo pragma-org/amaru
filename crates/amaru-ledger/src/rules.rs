@@ -108,8 +108,8 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
             context.require_pool(pool_key_hash);
         }
 
-        Certificate::PoolRegistration { operator: pool_key_hash, .. }
-        | Certificate::PoolRetirement(pool_key_hash, _) => context.require_pool(pool_key_hash),
+        Certificate::PoolRegistration(params) => context.require_pool(&params.id),
+        Certificate::PoolRetirement(pool_id, _) => context.require_pool(pool_id),
 
         Certificate::StakeVoteDeleg(credential, pool_key_hash, drep)
         | Certificate::StakeVoteRegDeleg(credential, pool_key_hash, drep, _) => {

@@ -95,9 +95,8 @@ if ! jq -e '
   type == "object"
   and (.all_metrics | string_array)
   and (.supported_metrics | string_array)
-  and ((.supported_metrics - .all_metrics) | length == 0)
 ' "$CONFIG" >/dev/null; then
-  printf 'error: %s must contain unique string arrays "all_metrics" and "supported_metrics", with supported_metrics a subset of all_metrics\n' "$CONFIG" >&2
+  printf 'error: %s must contain unique string arrays "all_metrics" and "supported_metrics"\n' "$CONFIG" >&2
   exit 1
 fi
 

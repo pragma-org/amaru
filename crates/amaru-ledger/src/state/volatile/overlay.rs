@@ -22,7 +22,7 @@ use tracing::Span;
 
 use crate::{
     epoch_transition::{
-        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
     governance::ratification::CommitteeUpdate,
     state::{
@@ -372,23 +372,13 @@ impl StateOverlay {
     pub fn rewards(&self) -> &RewardsState {
         &self.rewards
     }
-
-    /// A mut handle on the rewards state. Use with care to replace rewards.
-    pub fn rewards_mut(&mut self) -> &mut RewardsState {
-        &mut self.rewards
-    }
-
-    /// Consume a computed summary from a previous computation and mark the rewards as 'NotReady'.
-    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
-        self.rewards.take_computed_rewards()
-    }
 }
 
 #[cfg(test)]
 mod test {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProposalsRoots};
+    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS};
 
     use super::*;
     use crate::epoch_transition::Computed;
@@ -401,7 +391,7 @@ mod test {
             most_recent_snapshot: RefCell::new(None),
             rewards: RewardsState::Effective(Arc::new(effective_rewards())),
             pools_updates: Some(Arc::new(PoolsEpochTransitionUpdates::default())),
-            governance_updates: Some(Arc::new(governance_updates())),
+            governance_updates: Some(Arc::new(GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()))),
         };
 
         overlay.rollback();
@@ -434,20 +424,13 @@ mod test {
     /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during
     /// the epoch, so its rewards are unclaimed and returned to the treasury.
     fn effective_rewards() -> Rewards<Effective> {
-        let computed =
-            Rewards::<Computed>::new(1_000, 7, 142, BTreeMap::from([(credential(1), 100), (credential(2), 42)]));
+        let computed = Rewards::<Computed>::new(
+            1_000,
+            7,
+            142,
+            BTreeMap::from([(credential(1), 100), (credential(2), 42)]),
+            Default::default(),
+        );
         Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))
-    }
-
-    fn governance_updates() -> GovernanceUpdates {
-        GovernanceUpdates {
-            roots: ProposalsRoots::default(),
-            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            pruned_proposals: BTreeMap::new(),
-            payouts: BTreeMap::new(),
-            is_dormant_epoch: true,
-            constitutional_committee: None,
-            new_constitution: None,
-        }
     }
 }

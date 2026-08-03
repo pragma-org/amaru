@@ -292,7 +292,7 @@ fn partition_scripts(
 
         let mut require_datum_preimage = || match datum {
             MemoizedDatum::Hash(hash) => {
-                required_datums.insert(*hash);
+                required_datums.insert(*hash.as_ref());
             }
             MemoizedDatum::Inline(..) | MemoizedDatum::None => {}
         };

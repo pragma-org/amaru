@@ -244,6 +244,20 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::bootstrap::recently_pruned_proposals`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `import` | `TRACE` | public | Import proposals pruned at the snapshot's epoch boundary, from its ratify state | size |  |
+
+<details><summary>span: `import`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `size` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::bootstrap::snapshot`
 
 | name | level | public | description | required fields | optional fields |
@@ -617,7 +631,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block | peer, header_hash, outcome, error, block_fetch_wait_micros, block_fetch_micros, forward_micros |  |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, block_fetch_wait_micros, block_fetch_micros, forward_micros |
 
 <details><summary>span: `lifecycle`</summary>
 
@@ -925,7 +939,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `summarize` | `TRACE` | public | Summary of the governance proposal roots after ratification | constitution, constitutional_committee, hard_fork, protocol_parameters |  |
+| `summarize` | `TRACE` | public | Summary of the governance proposal roots after ratification |  | constitution, constitutional_committee, hard_fork, protocol_parameters |
 
 <details><summary>span: `summarize`</summary>
 
@@ -957,7 +971,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `ratify` | `TRACE` | public | Ratify a protocol parameters update; only changed parameters are recorded | protocol_version, max_block_body_size, max_transaction_size, max_block_header_size, max_tx_ex_units, max_block_ex_units, max_value_size, max_collateral_inputs, min_fee_a, min_fee_b, stake_credential_deposit, stake_pool_deposit, monetary_expansion_rate, treasury_expansion_rate, min_pool_cost, lovelace_per_utxo_byte, prices, min_fee_ref_script_lovelace_per_byte, max_ref_script_size_per_tx, max_ref_script_size_per_block, ref_script_cost_stride, ref_script_cost_multiplier, stake_pool_max_retirement_epoch, optimal_stake_pools_count, pledge_influence, collateral_percentage, cost_models, pool_voting_thresholds, drep_voting_thresholds, min_committee_size, max_committee_term_length, gov_action_lifetime, gov_action_deposit, drep_deposit, drep_expiry |  |
+| `ratify` | `TRACE` | public | Ratify a protocol parameters update; only changed parameters are recorded |  | protocol_version, max_block_body_size, max_transaction_size, max_block_header_size, max_tx_ex_units, max_block_ex_units, max_value_size, max_collateral_inputs, min_fee_a, min_fee_b, stake_credential_deposit, stake_pool_deposit, monetary_expansion_rate, treasury_expansion_rate, min_pool_cost, lovelace_per_utxo_byte, prices, min_fee_ref_script_lovelace_per_byte, max_ref_script_size_per_tx, max_ref_script_size_per_block, ref_script_cost_stride, ref_script_cost_multiplier, stake_pool_max_retirement_epoch, optimal_stake_pools_count, pledge_influence, collateral_percentage, cost_models, pool_voting_thresholds, drep_voting_thresholds, min_committee_size, max_committee_term_length, gov_action_lifetime, gov_action_deposit, drep_deposit, drep_expiry |
 
 <details><summary>span: `ratify`</summary>
 
@@ -1006,7 +1020,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `skip` | `TRACE` | public | Skip the remaining proposals for this epoch | reason |  |
-| `summarize` | `TRACE` | public | Summary of the outcome of a ratification round | is_dormant_epoch | pruned_proposals, payouts, new_constitution, constitutional_committee_update |
+| `summarize` | `TRACE` | public | Summary of the outcome of a ratification round | is_dormant_epoch | pruned_proposals, refunds, withdrawals, new_constitution, constitutional_committee_update |
 
 <details><summary>span: `skip`</summary>
 
@@ -1022,7 +1036,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `is_dormant_epoch` | `boolean` | ✓ |
 | `pruned_proposals` | `string` |  |
-| `payouts` | `string` |  |
+| `refunds` | `string` |  |
+| `withdrawals` | `string` |  |
 | `new_constitution` | `string` |  |
 | `constitutional_committee_update` | `string` |  |
 
@@ -1032,7 +1047,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `collect` | `TRACE` | public | Fetch candidate relays from the immutable store | count |  |
+| `collect` | `TRACE` | public | Fetch candidate relays from the immutable store |  | count |
 
 <details><summary>span: `collect`</summary>
 
@@ -1046,7 +1061,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `compute` | `TRACE` | public | Compute rewards for epoch | for_epoch | using_stake_distribution_epoch_from |
+| `compute` | `TRACE` | public | Compute rewards for epoch | for_epoch, using_stake_distribution_from_epoch |  |
 | `summarize` | `TRACE` | public | Summary of the rewards calculation for an epoch | efficiency, incentives, treasury_tax, total_rewards, available_rewards, effective_rewards, pots_reserves, pots_treasury, pots_fees |  |
 
 <details><summary>span: `compute`</summary>
@@ -1054,7 +1069,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `for_epoch` | `string` | ✓ |
-| `using_stake_distribution_epoch_from` | `string` |  |
+| `using_stake_distribution_from_epoch` | `string` | ✓ |
 
 </details>
 
@@ -1328,7 +1343,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve accounts from the volatile db or the stable one | from_volatile, from_db |  |
+| `hydrate` | `TRACE` | public | Resolve accounts from the volatile db or the stable one |  | from_volatile, from_db |
 
 <details><summary>span: `hydrate`</summary>
 
@@ -1343,7 +1358,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve committee members from the volatile db or the stable one | from_volatile, from_db |  |
+| `hydrate` | `TRACE` | public | Resolve committee members from the volatile db or the stable one |  | from_volatile, from_db |
 
 <details><summary>span: `hydrate`</summary>
 
@@ -1358,7 +1373,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve dreps from the volatile db or the stable one | from_volatile, from_db |  |
+| `hydrate` | `TRACE` | public | Resolve dreps from the volatile db or the stable one |  | from_volatile, from_db |
 
 <details><summary>span: `hydrate`</summary>
 
@@ -1373,7 +1388,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve transaction inputs from the volatile db or the stable one | from_volatile, from_db |  |
+| `hydrate` | `TRACE` | public | Resolve transaction inputs from the volatile db or the stable one |  | from_volatile, from_db |
 
 <details><summary>span: `hydrate`</summary>
 
@@ -1388,7 +1403,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve pools from the volatile db or the stable one | from_volatile, from_db |  |
+| `hydrate` | `TRACE` | public | Resolve pools from the volatile db or the stable one |  | from_volatile, from_db |
 
 <details><summary>span: `hydrate`</summary>
 
@@ -1403,7 +1418,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve proposals from the volatile db or the stable one | from_volatile, from_db |  |
+| `hydrate` | `TRACE` | public | Resolve proposals from the volatile db or the stable one |  | from_volatile, from_db |
 
 <details><summary>span: `hydrate`</summary>
 
@@ -1743,8 +1758,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `add` | `TRACE` | public | Batch-upsert account entries |  |  |
 | `get` | `TRACE` | public | Point-read an account entry |  |  |
 | `remove` | `TRACE` | public | Batch-delete account entries |  |  |
-| `reset_many` | `TRACE` | public | Reset rewards counters for many accounts | credential, reason |  |
-| `set` | `TRACE` | public | Update rewards balance for a single account | credential_type, account, reason |  |
+| `reset_many` | `TRACE` | public | Reset rewards counters for many accounts |  | credential, reason |
+| `set` | `TRACE` | public | Update rewards balance for a single account |  | credential_type, account, reason |
 
 <details><summary>span: `reset_many`</summary>
 
@@ -1776,10 +1791,10 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `add` | `TRACE` | public | Batch-upsert DRep registrations | credential, reason |  |
+| `add` | `TRACE` | public | Batch-upsert DRep registrations |  | credential, reason |
 | `get` | `TRACE` | public | Point-read a DRep entry |  |  |
-| `remove` | `TRACE` | public | Record DRep de-registration | drep, reason |  |
-| `set_valid_until` | `TRACE` | public | Refresh DRep expiry after a vote | credential, reason |  |
+| `remove` | `TRACE` | public | Record DRep de-registration |  | drep, reason |
+| `set_valid_until` | `TRACE` | public | Refresh DRep expiry after a vote |  | credential, reason |
 
 <details><summary>span: `add`</summary>
 
@@ -1847,8 +1862,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `apply_governance_updates` | `TRACE` | public | Enact all governance updates and flush their outcome to disk |  |  |
-| `pay_or_refund_accounts` | `TRACE` | public | Pay withdrawals to accounts, or refund deposits | total_paid_or_refunded, treasury_leftovers |  |
-| `pay_rewards` | `TRACE` | public | Pay rewards to all accounts before the epoch end | accounts_paid, rewards_paid, treasury_delta, reserves_delta |  |
+| `pay_or_refund_accounts` | `TRACE` | public | Pay withdrawals to accounts, or refund deposits |  | total_paid_or_refunded, treasury_leftovers |
+| `pay_rewards` | `TRACE` | public | Pay rewards to all accounts before the epoch end |  | accounts_paid, rewards_paid, treasury_delta, reserves_delta |
 | `record_pruned_proposals` | `TRACE` | public | Pruned proposals at an epoch boundary, recorded to facilitate future stake distribution calculations. |  |  |
 | `reset_blocks_count` | `TRACE` | public | Reset blocks count to zero |  |  |
 | `reset_fees` | `TRACE` | public | Reset fees to zero |  |  |
@@ -1898,7 +1913,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `add` | `TRACE` | public | Batch-upsert pool entries |  |  |
 | `get` | `TRACE` | public | Point-read a pool entry |  |  |
-| `remove` | `TRACE` | public | Schedule pool retirement | pool, reason |  |
+| `remove` | `TRACE` | public | Schedule pool retirement |  | pool, reason |
 
 <details><summary>span: `remove`</summary>
 
@@ -1957,7 +1972,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `validate` | `TRACE` | public | Validate sufficient snapshots exist | snapshot_count, continuous_ranges |  |
+| `validate` | `TRACE` | public | Validate sufficient snapshots exist |  | snapshot_count, continuous_ranges |
 
 <details><summary>span: `validate`</summary>
 

@@ -67,9 +67,29 @@ impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
         }
     }
 
+    /// Like [`Self::extend`] but allows transforming a bind when indexing.
+    pub fn extend_with<Lsrc, Rsrc, Vsrc>(
+        &mut self,
+        diff: &DiffBind<K, Lsrc, Rsrc, Vsrc>,
+        with: impl Fn(Bind<Lsrc, Rsrc, Vsrc>) -> Bind<L, R, V>,
+    ) where
+        K: ToOwned<Owned = K>,
+        Lsrc: ToOwned<Owned = Lsrc>,
+        Rsrc: ToOwned<Owned = Rsrc>,
+        Vsrc: ToOwned<Owned = Vsrc>,
+    {
+        for (key, bind) in &diff.registered {
+            push_front_or_insert(&mut self.index, key, Existence::Exists(with(bind.to_owned())));
+        }
+
+        for key in &diff.unregistered {
+            push_front_or_insert(&mut self.index, key, Existence::Gone);
+        }
+    }
+
     /// Retract the oldest fragment's contribution for every key it touched, popping the front of
     /// each deque and dropping the key once its history empties.
-    pub fn remove(&mut self, diff: &DiffBind<K, L, R, V>) -> bool {
+    pub fn remove<Lany, Rany, Vany>(&mut self, diff: &DiffBind<K, Lany, Rany, Vany>) -> bool {
         let mut all_present = true;
 
         for key in diff.registered.keys().chain(diff.unregistered.iter()) {

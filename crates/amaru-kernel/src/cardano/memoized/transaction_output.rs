@@ -38,7 +38,7 @@ pub struct MemoizedTransactionOutput {
     pub datum: MemoizedDatum,
 
     #[serde(serialize_with = "serialize_script")]
-    pub script: Option<MemoizedScript>,
+    pub script: Option<Box<MemoizedScript>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -52,12 +52,21 @@ struct MemoizedTransactionOutputDe {
     datum: MemoizedDatum,
 
     #[serde(deserialize_with = "deserialize_script")]
-    script: Option<MemoizedScript>,
+    script: Option<Box<MemoizedScript>>,
 }
 
 impl From<MemoizedTransactionOutputDe> for MemoizedTransactionOutput {
     fn from(de: MemoizedTransactionOutputDe) -> Self {
-        Self::new(false, de.address, de.value, de.datum, de.script)
+        let mut output = Self {
+            original_size: 0,
+            is_legacy: false,
+            address: de.address,
+            value: de.value,
+            datum: de.datum,
+            script: de.script,
+        };
+        output.original_size = to_cbor(&output).len();
+        output
     }
 }
 
@@ -71,7 +80,7 @@ impl MemoizedTransactionOutput {
         datum: MemoizedDatum,
         script: Option<MemoizedScript>,
     ) -> Self {
-        let mut output = Self { original_size: 0, is_legacy, address, value, datum, script };
+        let mut output = Self { original_size: 0, is_legacy, address, value, datum, script: script.map(Box::new) };
         output.original_size = to_cbor(&output).len();
         output
     }
@@ -163,7 +172,7 @@ fn decode_modern_output<C>(
                 2 => state.2 = d.decode_with(ctx)?,
                 3 => {
                     let SerialisedAsCbor(script) = d.decode_with(ctx)?;
-                    state.3 = Some(script)
+                    state.3 = Some(Box::new(script))
                 }
                 _ => return cbor::unexpected_field::<MemoizedTransactionOutput, _>(field),
             }
@@ -195,10 +204,10 @@ impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
             e.begin_array()?;
             e.bytes(&self.address.to_vec())?;
             e.encode_with(&self.value, ctx)?;
-            match self.datum {
+            match &self.datum {
                 MemoizedDatum::None => (),
                 MemoizedDatum::Hash(hash) => {
-                    e.bytes(&hash[..])?;
+                    e.bytes(&hash.as_ref()[..])?;
                 }
                 MemoizedDatum::Inline(..) => unreachable!("legacy output with inline datum ?!"),
             }
@@ -298,7 +307,7 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
 }
 
 pub fn serialize_script<S: serde::ser::Serializer>(
-    opt: &Option<MemoizedScript>,
+    opt: &Option<Box<MemoizedScript>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     match opt {
@@ -309,10 +318,12 @@ pub fn serialize_script<S: serde::ser::Serializer>(
 
 pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
-) -> Result<Option<MemoizedScript>, D::Error> {
+) -> Result<Option<Box<MemoizedScript>>, D::Error> {
     match serde::Deserialize::deserialize(deserializer)? {
         None::<super::PlaceholderScript> => Ok(None),
-        Some(placeholder) => Ok(Some(MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?)),
+        Some(placeholder) => {
+            Ok(Some(MemoizedScript::try_from(placeholder).map(Box::new).map_err(serde::de::Error::custom)?))
+        }
     }
 }
 
@@ -337,7 +348,7 @@ pub mod tests {
     }
 
     pub fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
-        prop_oneof![Just(MemoizedDatum::None), any_hash32().prop_map(MemoizedDatum::Hash)]
+        prop_oneof![Just(MemoizedDatum::None), any_hash32().prop_map(MemoizedDatum::from)]
     }
 
     pub fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
@@ -346,7 +357,7 @@ pub mod tests {
     }
 
     pub fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
-        (any_shelley_address(), any_value(), option::of(any_hash32().prop_map(MemoizedDatum::Hash))).prop_map(
+        (any_shelley_address(), any_value(), option::of(any_hash32().prop_map(MemoizedDatum::from))).prop_map(
             |(address, value, datum_opt)| {
                 MemoizedTransactionOutput::new(true, address, value, datum_opt.unwrap_or(MemoizedDatum::None), None)
             },
@@ -358,7 +369,7 @@ pub mod tests {
         let hash_bytes = [1u8; 32];
         let datum_hash = Hash::<32>::from(hash_bytes);
 
-        let datum = MemoizedDatum::Hash(datum_hash);
+        let datum = MemoizedDatum::from(datum_hash);
 
         let original = MemoizedTransactionOutput::new(
             false,
@@ -384,7 +395,7 @@ pub mod tests {
         let hash_bytes = [1u8; 32];
         let datum_hash = Hash::<32>::from(hash_bytes);
 
-        let datum = MemoizedDatum::Hash(datum_hash);
+        let datum = MemoizedDatum::from(datum_hash);
 
         let original = MemoizedTransactionOutput::new(
             true,

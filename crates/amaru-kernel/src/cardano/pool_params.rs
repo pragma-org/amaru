@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
-
 use crate::{
     Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
     utils::cbor::SerialisedAsSet,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PoolParams {
     pub id: PoolId,
     pub vrf: Hash<VRF_KEY>,
@@ -28,7 +26,18 @@ pub struct PoolParams {
     pub cost: Lovelace,
     pub margin: RationalNumber,
     pub reward_account: RewardAccount,
-    pub owners: BTreeSet<Hash<KEY>>,
+    // NOTE: Small set too small for BTreeSet
+    //
+    // A BTreeSet allocates in nodes of ~400 bytes which can contain multiple elements. So when a
+    // set would typically be small; a BTreeSet can easily kill us memory-wise; especially when
+    // found in an object that gets reproduced many many times. Using a BTreeSet makes every pool
+    // params 400 bytes bigger; even if most will have a single owner.
+    //
+    // Plus, if the set is small anyway, doing a binary search to find elements is cheap.
+    //
+    // Here, nothing guarantees that the set is small but we know that at worse, it cannot contain
+    // much more than 500 elements due to the transaction max size.
+    pub owners: Vec<Hash<KEY>>,
     pub relays: Vec<Relay>,
     pub metadata: Option<PoolMetadata>,
 }
@@ -78,10 +87,7 @@ mod tests {
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
-    use crate::{
-        Bytes, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip,
-        size::{CREDENTIAL, KEY},
-    };
+    use crate::{Bytes, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL};
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
 
@@ -136,7 +142,7 @@ mod tests {
             cost in any::<u64>(),
             margin in 0..100u64,
             reward_account in any::<[u8; CREDENTIAL]>(),
-            owners in any::<Vec<[u8; KEY]>>(),
+            owners in proptest::collection::vec(any_hash28(), 1..3),
             relays in proptest::collection::vec(any_relay(), 0..10),
         ) -> PoolParams {
             PoolParams {
@@ -146,7 +152,7 @@ mod tests {
                 cost,
                 margin: RationalNumber { numerator: margin, denominator: 100 },
                 reward_account: [&[0xF0], &reward_account[..]].concat().into(),
-                owners: owners.into_iter().map(|h| h.into()).collect(),
+                owners,
                 relays,
                 metadata: None,
             }

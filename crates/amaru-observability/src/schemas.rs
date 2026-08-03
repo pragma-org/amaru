@@ -286,7 +286,7 @@ define_schemas! {
                 /// Compute rewards for epoch
                 public COMPUTE {
                     required for_epoch: amaru_kernel::Epoch
-                    optional using_stake_distribution_epoch_from: amaru_kernel::Epoch
+                    required using_stake_distribution_from_epoch: amaru_kernel::Epoch
                 }
                 /// Summary of the rewards calculation for an epoch
                 public SUMMARIZE {
@@ -661,7 +661,8 @@ define_schemas! {
                 public SUMMARIZE {
                     required is_dormant_epoch: bool
                     optional pruned_proposals: String
-                    optional payouts: String
+                    optional refunds: String
+                    optional withdrawals: String
                     optional new_constitution: String
                     optional constitutional_committee_update: String
                 }
@@ -781,6 +782,12 @@ define_schemas! {
                 /// Existing proposals found in the store before import
                 public IS_NOT_EMPTY {}
                 /// Import governance proposals from a snapshot
+                public IMPORT {
+                    required size: usize
+                }
+            }
+            recently_pruned_proposals {
+                /// Import proposals pruned at the snapshot's epoch boundary, from its ratify state
                 public IMPORT {
                     required size: usize
                 }

@@ -38,6 +38,15 @@ impl<A> From<Option<A>> for Resettable<A> {
 }
 
 impl<A> Resettable<A> {
+    /// Map a function onto the value if any.
+    pub fn map<B>(self, to: impl FnOnce(A) -> B) -> Resettable<B> {
+        match self {
+            Self::Set(a) => Resettable::Set(to(a)),
+            Self::Reset => Resettable::Reset,
+            Self::Unchanged => Resettable::Unchanged,
+        }
+    }
+
     /// Apply this change to `value`, returning the previous content when a change occurred.
     ///
     /// - `Unchanged` => returns `None` and leaves `value` as-is
@@ -45,9 +54,9 @@ impl<A> Resettable<A> {
     /// - `Reset`     => sets `value` to `None` and returns the old `Option<A>`
     pub fn set_or_reset(self, value: &mut Option<A>) -> Option<A> {
         match self {
-            Resettable::Set(new) => Option::replace(value, new),
-            Resettable::Reset => mem::take(value),
-            Resettable::Unchanged => None,
+            Self::Set(new) => Option::replace(value, new),
+            Self::Reset => mem::take(value),
+            Self::Unchanged => None,
         }
     }
 
@@ -64,9 +73,9 @@ impl<A> Resettable<A> {
     /// case.
     pub fn into_option(self, when_unchanged: Option<A>) -> Option<A> {
         match self {
-            Resettable::Set(value) => Some(value),
-            Resettable::Reset => None,
-            Resettable::Unchanged => when_unchanged,
+            Self::Set(value) => Some(value),
+            Self::Reset => None,
+            Self::Unchanged => when_unchanged,
         }
     }
 

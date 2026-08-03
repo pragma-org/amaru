@@ -19,15 +19,15 @@ use amaru_kernel::StakeCredential;
 /// Similar to [`crate::state::volatile::IterPools`], but for accounts; It provides an unordered
 /// iterator over recently unregistered accounts in an epoch that patches a read-only stable store
 /// with pending updates such as registrations or de-registrations.
-pub(crate) struct IterUnreachableAccounts<'volatile, F, I> {
+pub(crate) struct IterUnreachableAccounts<'volatile, 'pools, F, I> {
     account_exists: Box<F>,
     iter_recently_unregistered_accounts: Option<I>,
     registrations: BTreeSet<&'volatile StakeCredential>,
     deregistrations: BTreeSet<&'volatile StakeCredential>,
-    pools_rewards_accounts: BTreeSet<StakeCredential>,
+    pools_rewards_accounts: BTreeSet<&'pools StakeCredential>,
 }
 
-impl<'volatile, F, I> IterUnreachableAccounts<'volatile, F, I>
+impl<'volatile, 'pools, F, I> IterUnreachableAccounts<'volatile, 'pools, F, I>
 where
     F: Fn(&StakeCredential) -> bool,
     I: Iterator<Item = StakeCredential>,
@@ -37,7 +37,7 @@ where
         iter_recently_unregistered_accounts: I,
         registrations: &mut BTreeSet<&'volatile StakeCredential>,
         deregistrations: &mut BTreeSet<&'volatile StakeCredential>,
-        pools_rewards_accounts: BTreeSet<StakeCredential>,
+        pools_rewards_accounts: BTreeSet<&'pools StakeCredential>,
     ) -> Self {
         Self {
             account_exists: Box::new(account_exists),
@@ -49,7 +49,7 @@ where
     }
 }
 
-impl<'volatile, F, I> Iterator for IterUnreachableAccounts<'volatile, F, I>
+impl<'volatile, 'pools, F, I> Iterator for IterUnreachableAccounts<'volatile, 'pools, F, I>
 where
     F: Fn(&StakeCredential) -> bool,
     I: Iterator<Item = StakeCredential>,
@@ -83,7 +83,7 @@ where
                 continue;
             }
 
-            if self.account_exists.as_ref()(&account) {
+            if self.account_exists.as_ref()(account) {
                 // Here we need not to check for de-registrations because we have already
                 // removed the recently unregistered accounts from the pools_rewards_accounts
                 // just above.
@@ -92,7 +92,7 @@ where
 
             // We already check that the account was not registered recently; so if it's
             // also not in the stable store, it's definitely not there.
-            return Some(account);
+            return Some(*account);
         }
 
         None

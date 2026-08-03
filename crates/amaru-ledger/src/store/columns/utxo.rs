@@ -74,7 +74,7 @@ pub mod tests {
             #[expect(clippy::expect_used)]
             let memoized = MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
 
-            MemoizedDatum::Inline(memoized)
+            MemoizedDatum::from(memoized)
         })
     }
 

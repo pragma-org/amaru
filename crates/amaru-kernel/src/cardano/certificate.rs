@@ -12,32 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
-
-use crate::utils::cbor::SerialisedAsSet;
 pub use crate::{
     Anchor, DRep, Epoch, Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, StakeCredential,
     cbor,
     size::{KEY, VRF_KEY},
 };
+use crate::{PoolParams, utils::cbor::SerialisedAsSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Certificate {
     StakeRegistration(StakeCredential),
     StakeDeregistration(StakeCredential),
     StakeDelegation(StakeCredential, PoolId),
-    // TODO: reduce duplication with [`crate::PoolParams`]
-    PoolRegistration {
-        operator: PoolId,
-        vrf_keyhash: Hash<VRF_KEY>,
-        pledge: Lovelace,
-        cost: Lovelace,
-        margin: RationalNumber,
-        reward_account: RewardAccount,
-        pool_owners: BTreeSet<Hash<KEY>>,
-        relays: Vec<Relay>,
-        pool_metadata: Option<PoolMetadata>,
-    },
+    PoolRegistration(Box<PoolParams>),
     PoolRetirement(PoolId, Epoch),
     Reg(StakeCredential, Lovelace),
     UnReg(StakeCredential, Lovelace),
@@ -47,10 +34,10 @@ pub enum Certificate {
     VoteRegDeleg(StakeCredential, DRep, Lovelace),
     StakeVoteRegDeleg(StakeCredential, PoolId, DRep, Lovelace),
     AuthCommitteeHot(StakeCredential, StakeCredential),
-    ResignCommitteeCold(StakeCredential, Option<Anchor>),
-    RegDRepCert(StakeCredential, Lovelace, Option<Anchor>),
+    ResignCommitteeCold(StakeCredential, Option<Box<Anchor>>),
+    RegDRepCert(StakeCredential, Lovelace, Option<Box<Anchor>>),
     UnRegDRepCert(StakeCredential, Lovelace),
-    UpdateDRepCert(StakeCredential, Option<Anchor>),
+    UpdateDRepCert(StakeCredential, Option<Box<Anchor>>),
 }
 
 impl<C> cbor::encode::Encode<C> for Certificate {
@@ -79,29 +66,22 @@ impl<C> cbor::encode::Encode<C> for Certificate {
                 e.encode_with(b, ctx)?;
             }
 
-            Self::PoolRegistration {
-                operator,
-                vrf_keyhash,
-                pledge,
-                cost,
-                margin,
-                reward_account,
-                pool_owners,
-                relays,
-                pool_metadata,
-            } => {
+            Self::PoolRegistration(params) => {
+                let PoolParams { id: operator, vrf, pledge, cost, margin, reward_account, owners, relays, metadata } =
+                    params.as_ref();
+
                 e.array(10)?;
                 e.u16(3)?;
 
                 e.encode_with(operator, ctx)?;
-                e.encode_with(vrf_keyhash, ctx)?;
+                e.encode_with(vrf, ctx)?;
                 e.encode_with(pledge, ctx)?;
                 e.encode_with(cost, ctx)?;
                 e.encode_with(margin, ctx)?;
                 e.encode_with(reward_account, ctx)?;
-                e.encode_with(SerialisedAsSet(pool_owners), ctx)?;
+                e.encode_with(SerialisedAsSet(owners), ctx)?;
                 e.encode_with(relays, ctx)?;
-                e.encode_with(pool_metadata, ctx)?;
+                e.encode_with(metadata, ctx)?;
             }
 
             Self::PoolRetirement(a, b) => {
@@ -230,27 +210,27 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
             }
 
             3 => {
-                let operator = d.decode_with(ctx)?;
-                let vrf_keyhash = d.decode_with(ctx)?;
+                let id = d.decode_with(ctx)?;
+                let vrf = d.decode_with(ctx)?;
                 let pledge = d.decode_with(ctx)?;
                 let cost = d.decode_with(ctx)?;
                 let margin = d.decode_with(ctx)?;
                 let reward_account = d.decode_with(ctx)?;
-                let SerialisedAsSet(pool_owners) = d.decode_with(ctx)?;
+                let SerialisedAsSet(owners) = d.decode_with(ctx)?;
                 let relays = d.decode_with(ctx)?;
-                let pool_metadata = d.decode_with(ctx)?;
+                let metadata = d.decode_with(ctx)?;
 
-                Ok(Self::PoolRegistration {
-                    operator,
-                    vrf_keyhash,
+                Ok(Self::PoolRegistration(Box::new(PoolParams {
+                    id,
+                    vrf,
                     pledge,
                     cost,
                     margin,
                     reward_account,
-                    pool_owners,
+                    owners,
                     relays,
-                    pool_metadata,
-                })
+                    metadata,
+                })))
             }
 
             4 => {

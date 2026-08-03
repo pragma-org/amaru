@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use crate::{
     Address, HasOwnership, Hash, Network, cbor,
     size::{KEY, SCRIPT},
@@ -32,6 +34,15 @@ use crate::{
 pub enum StakeCredential {
     ScriptHash(Hash<{ SCRIPT }>),
     AddrKeyhash(Hash<{ KEY }>),
+}
+
+impl fmt::Display for StakeCredential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ScriptHash(h) => write!(f, "script({h})"),
+            Self::AddrKeyhash(h) => write!(f, "key({h})"),
+        }
+    }
 }
 
 impl<'b, C> cbor::Decode<'b, C> for StakeCredential {

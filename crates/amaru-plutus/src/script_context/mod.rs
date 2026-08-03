@@ -105,8 +105,8 @@ pub mod test_vectors {
     use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
-        Address, MemoizedDatum, MemoizedTransactionOutput, MemoizedValue, TransactionInput, Value, include_json,
-        utils::serde::hex_to_bytes,
+        Address, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedTransactionOutput, MemoizedValue, TransactionInput,
+        Value, include_json, size::DATUM, utils::serde::hex_to_bytes,
     };
     use serde::Deserialize;
 
@@ -251,13 +251,15 @@ pub mod test_vectors {
                             Field::Datum => {
                                 assert_only_datum_or_hash(&datum).map_err(serde::de::Error::custom)?;
                                 let string: String = map.next_value()?;
-                                datum = MemoizedDatum::Inline(string.try_into().map_err(serde::de::Error::custom)?);
+                                datum = MemoizedDatum::from(
+                                    MemoizedPlutusData::try_from(string).map_err(serde::de::Error::custom)?,
+                                );
                             }
                             Field::DatumHash => {
                                 assert_only_datum_or_hash(&datum).map_err(serde::de::Error::custom)?;
                                 let string: String = map.next_value()?;
                                 let bytes: Vec<u8> = hex::decode(string).map_err(serde::de::Error::custom)?;
-                                datum = MemoizedDatum::Hash(bytes.as_slice().into())
+                                datum = MemoizedDatum::from(Hash::<DATUM>::from(bytes.as_slice()))
                             }
                             Field::Script => {
                                 unimplemented!("script in UTxO not yet supported");

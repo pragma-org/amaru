@@ -27,7 +27,7 @@ use super::*;
 pub use crate::stages::test_utils::TraceMatch;
 use crate::{
     effects::{GenerateRandomSeed, RegisteredRelaySocketAddrsEffect, TipEffect, VolatileTipEffect},
-    stages::test_utils::{Logs, run_simulation},
+    stages::test_utils::{Logs, SimulationRunMode, run_simulation_with, start_in_era},
 };
 
 /// Matches an `AddStage` effect whose generated name starts with the given prefix.
@@ -60,18 +60,42 @@ pub fn cooldown_duration() -> Duration {
 ///
 /// Matches `run_simulation`: initial clock at +10s and `global_epoch_offset` from `start_in_era()`.
 pub fn cooldown_instant() -> Instant {
-    use crate::stages::test_utils::start_in_era;
     Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + cooldown_duration(), start_in_era().relative_time)
+}
+
+/// Absolute time `delay` after simulation t0.
+pub fn sim_at(delay: Duration) -> Instant {
+    Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS) + delay, start_in_era().relative_time)
 }
 
 pub fn first_schedule_id() -> ScheduleId {
     ScheduleIds::default().next_at(cooldown_instant())
 }
 
-pub fn second_schedule_id() -> ScheduleId {
+/// End time for a static-peer ban started at simulation t0 (`STATIC_PEER_BAN_PERIOD` = 10s).
+pub fn static_cooldown_instant() -> Instant {
+    Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS + 10), start_in_era().relative_time)
+}
+
+pub fn first_static_schedule_id() -> ScheduleId {
+    ScheduleIds::default().next_at(static_cooldown_instant())
+}
+
+/// Second schedule id after a prior schedule at `prior_when` (counter advances once).
+pub fn second_schedule_id_at(when: Instant) -> ScheduleId {
     let ids = ScheduleIds::default();
-    let _ = ids.next_at(cooldown_instant());
-    ids.next_at(cooldown_instant())
+    let _ = ids.next_at(when);
+    ids.next_at(when)
+}
+
+/// Build the cool-down fields after a single non-static ban armed at `cooldown_instant()`.
+pub fn with_single_cooldown(state: &mut PeerSelection, peer: Peer, schedule_id: ScheduleId) {
+    state.cooldowns.add_and_is_first(peer, cooldown_instant());
+    state.cooldown_timer = Some(schedule_id);
+}
+
+pub fn te_clock_suspend(at_stage: impl AsRef<str>) -> TraceEntry {
+    TraceEntry::suspend(Effect::Clock { at_stage: Name::from(at_stage.as_ref()) })
 }
 
 pub struct TestPrep {
@@ -115,24 +139,42 @@ pub fn setup_preload(
     prep: &TestPrep,
     messages: impl IntoIterator<Item = PeerSelectionMsg>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_preload_with_mode(prep, messages, SimulationRunMode::UntilBlocked)
+}
+
+/// Like [`setup_preload`], but stops at the first scheduled wakeup without advancing time.
+/// Used by tests that need to inject messages while a cool-down timer is still pending.
+pub fn setup_preload_until_sleeping(
+    prep: &TestPrep,
+    messages: impl IntoIterator<Item = PeerSelectionMsg>,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_preload_with_mode(prep, messages, SimulationRunMode::UntilSleeping)
+}
+
+fn setup_preload_with_mode(
+    prep: &TestPrep,
+    messages: impl IntoIterator<Item = PeerSelectionMsg>,
+    mode: SimulationRunMode,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
-    run_simulation(
+    run_simulation_with(
         prep.rt.handle(),
         guards,
         |network| {
+            // Larger bulk mailbox so tests can preload many adversarial messages without
+            // hitting the default size of 10 (the cool-down fix is about the *priority*
+            // mailbox, not bulk preload).
+            let mut network = network.with_mailbox_size(64);
             let ps = network.stage("ps", stage);
             let ps = network.wire_up(ps, prep.state.clone());
             network.preload(&ps, messages).unwrap();
+            network
         },
-        |_resources| {
-            // Resources (if any) would go here. Ledger effects are overridden below.
-        },
+        |_resources| {},
         |running| {
             running.use_virtual_child_stages(true);
 
-            // Override ledger external effects so the internal "peer-selection/ledger-check"
-            // child created on Initialize does not require a real Ledger resource.
             running
                 .override_external_effect::<VolatileTipEffect>(usize::MAX, |_| OverrideResult::handled(Tip::origin()));
             running.override_external_effect::<TipEffect>(usize::MAX, |_| OverrideResult::handled(Tip::origin()));
@@ -140,11 +182,17 @@ pub fn setup_preload(
                 OverrideResult::handled(Ok(BTreeSet::new()))
             });
 
-            // Make peer selection's random choices fully deterministic in tests.
+            // NOTE: This makes peer selection's random choices fully deterministic in tests.
             running
                 .override_external_effect::<GenerateRandomSeed>(usize::MAX, |_| OverrideResult::handled([0x42u8; 32]));
         },
+        mode,
     )
+}
+
+/// Stage ref matching the wired `ps` stage in [`setup_preload`].
+pub fn peer_selection_stage() -> StageRef<PeerSelectionMsg> {
+    StageRef::named_for_tests("ps-1")
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {
