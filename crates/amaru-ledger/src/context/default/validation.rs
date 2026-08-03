@@ -375,21 +375,19 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn exists(&self, id: &ProposalId, kind: &ProposalKind) -> bool {
-        let target = mem::discriminant(kind);
-
+    // Check whether a proposal exists. If the `kind` is specified, it must also match and be part
+    // of the same lineage.
+    fn exists(&self, id: &ProposalId, kind: Option<ProposalKind>) -> bool {
         // block-start proposals
-        if let Some(existing) = self.proposals.get(id)
-            && mem::discriminant(existing) == target
-        {
-            return true;
+        if let Some(existing) = self.proposals.get(id) {
+            return kind.is_none_or(|kind| mem::discriminant(existing) == mem::discriminant(&kind));
         }
 
         // proposals acknowledged earlier in this block
-        if let Some(existing) = self.state.proposals.get(id)
-            && mem::discriminant(&ProposalKind::from(&existing.0.gov_action)) == target
-        {
-            return true;
+        if let Some(existing) = self.state.proposals.get(id) {
+            return kind.is_none_or(|kind| {
+                mem::discriminant(&ProposalKind::from(&existing.0.gov_action)) == mem::discriminant(&kind)
+            });
         }
 
         false

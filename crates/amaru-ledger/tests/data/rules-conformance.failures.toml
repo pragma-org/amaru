@@ -29,7 +29,6 @@
 # PassEpoch event that this harness skips, so the empty prev-gov-action-id can't be rejected here.
 "conway/fail-gov-empty-prevgovid-after-the-first-constitution-was-enacted/0" = "Expected failure, got success"
 "conway/fail-gov-expired-gov-actions/0" = "Expected failure, got success"
-"conway/fail-gov-non-existent-gov-actions/0" = "Expected failure, got success"
 "conway/fail-gov-policy-is-respected-by-proposals/0" = "Expected failure, got success"
 "conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
 "conway/fail-govcert-resigning-a-non-cc-key/0" = "Expected failure, got success"

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RedeemerTag, RequiredScript, StakeCredential,
@@ -21,15 +21,31 @@ use amaru_kernel::{
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidVotingProcedures {
+    #[error("governance actions do not exist: {0:?}")]
+    GovActionsDoNotExist(BTreeSet<ProposalId>),
+}
+
 pub(crate) fn execute<C>(
     context: &mut C,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
-) where
+) -> Result<(), InvalidVotingProcedures>
+where
     C: WitnessSlice + ProposalsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
+        let mut unknown_proposals = BTreeSet::new();
+
+        // TODO: remove this intermediate collect using itertools::sorted_by_key
         voting_procedures.into_iter().collect::<BTreeMap<_, _>>().into_iter().enumerate().for_each(
             |(index, (voter, votes))| {
+                for (proposal_id, _) in votes.iter() {
+                    if !ProposalsSlice::exists(context, proposal_id, None) {
+                        unknown_proposals.insert(*proposal_id);
+                    }
+                }
+
                 match voter.owner() {
                     StakeCredential::ScriptHash(hash) => {
                         context.require_script_witness(RequiredScript {
@@ -44,8 +60,14 @@ pub(crate) fn execute<C>(
 
                 votes.into_iter().for_each(|(proposal_id, ballot)| {
                     context.vote(proposal_id, voter.clone(), ballot.vote, ballot.anchor);
-                })
+                });
             },
         );
+
+        if !unknown_proposals.is_empty() {
+            return Err(InvalidVotingProcedures::GovActionsDoNotExist(unknown_proposals));
+        }
     }
+
+    Ok(())
 }
