@@ -108,7 +108,6 @@ impl MetricRecorder for MempoolMetrics {
         static TX_COUNT: OnceLock<Gauge<u64>> = OnceLock::new();
         static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
         static TXS_SYNC_DURATION: OnceLock<Gauge<u64>> = OnceLock::new();
-        static TXS_SYNC_DURATION_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
         static TXS_SYNC_DURATION_TOTAL_COUNTER: OnceLock<Counter<u64>> = OnceLock::new();
         static TX_INSERTIONS: OnceLock<Counter<u64>> = OnceLock::new();
 
@@ -142,15 +141,6 @@ impl MetricRecorder for MempoolMetrics {
             meter
                 .u64_gauge("cardano_node_metrics_txsSyncDuration_int")
                 .with_description("latest time to sync the mempool in ms after block adoption")
-                .with_unit("int")
-                .build()
-        });
-
-        // cumulative mempool sync duration.
-        let txs_sync_duration_total = TXS_SYNC_DURATION_TOTAL.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_metrics_txsSyncDurationTotal_int")
-                .with_description("cumulative time spent syncing the mempool in ms after block adoption")
                 .with_unit("int")
                 .build()
         });
@@ -190,7 +180,6 @@ impl MetricRecorder for MempoolMetrics {
             MempoolMetricEvent::Revalidated { duration_micros } => {
                 let duration_ms = (duration_micros + 500) / 1_000;
                 txs_sync_duration.record(duration_ms, &[]);
-                txs_sync_duration_total.add(duration_ms, &[]);
                 txs_sync_duration_total_counter.add(duration_ms, &[]);
             }
         }

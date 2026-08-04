@@ -130,9 +130,6 @@ fn record_build_info(provider: &SdkMeterProvider) {
 }
 
 mod internals {
-    #[cfg(target_os = "linux")]
-    use std::fs;
-
     use opentelemetry::{
         KeyValue,
         metrics::{Gauge, MeterProvider},
@@ -141,47 +138,28 @@ mod internals {
     use sysinfo::{Networks, Process, System};
 
     pub struct ProcessMetrics {
-        /// Number of available CPUs on the machine.
         number_of_cpus: u64,
 
-        /// How much time the process has been running (in seconds).
         runtime_seconds: Gauge<u64>,
 
-        /// Total number of read bytes (in bytes).
         disk_total_read_bytes: Gauge<u64>,
-        /// Total number of written bytes (in bytes).
         disk_total_write_bytes: Gauge<u64>,
 
-        /// Number of read bytes since the last refresh (in bytes).
         disk_live_read_bytes: Gauge<u64>,
-        /// Number of written bytes since the last refresh (in bytes).
         disk_live_write_bytes: Gauge<u64>,
 
-        /// Current CPU utilization (in %).
         cpu_live_percent: Gauge<f64>,
         cpu_ticks: Gauge<u64>,
-        block_io_ticks: Gauge<u64>,
         network_read_bytes: Gauge<u64>,
         network_written_bytes: Gauge<u64>,
         filesystem_read_bytes: Gauge<u64>,
         filesystem_written_bytes: Gauge<u64>,
 
-        /// The amount of memory that the process allocated and which is currently mapped in physical RAM (in bytes).
-        ///
-        /// It does not include memory that is swapped out, or, in some operating systems, that has
-        /// been allocated but never used.
         memory_live_resident_bytes: Gauge<u64>,
         memory_resident_bytes: Gauge<u64>,
 
-        /// The amount of memory that the process can access, whether it is currently mapped in physical RAM or not (in bytes).
-        ///
-        /// It includes physical RAM, allocated but not used regions, swapped-out regions, and even
-        /// memory associated with memory-mapped files.
         memory_available_virtual_bytes: Gauge<u64>,
 
-        /// The total number of opened file descriptors.
-        ///
-        /// On Windows, this metric is not available as file descriptors per se do not exist.
         open_files: Gauge<u64>,
     }
 
@@ -247,12 +225,6 @@ mod internals {
                 .with_unit("centiseconds")
                 .build();
 
-            let block_io_ticks = meter
-                .u64_gauge("cardano_node_metrics_Stat_blkIOticks_int")
-                .with_description("total block I/O delay for the process in centiseconds")
-                .with_unit("centiseconds")
-                .build();
-
             let network_read_bytes = meter
                 .u64_gauge("cardano_node_metrics_Stat_netRd_int")
                 .with_description("total bytes received by the host's network interfaces")
@@ -311,7 +283,6 @@ mod internals {
                 disk_live_write_bytes,
                 cpu_live_percent,
                 cpu_ticks,
-                block_io_ticks,
                 network_read_bytes,
                 network_written_bytes,
                 filesystem_read_bytes,
@@ -336,7 +307,6 @@ mod internals {
 
             self.cpu_live_percent.record(proc.cpu_usage() as f64 / self.number_of_cpus as f64, &[]);
             self.cpu_ticks.record(proc.accumulated_cpu_time() / 10, &[]);
-            self.block_io_ticks.record(read_block_io_ticks(), &[]);
 
             let (network_read_bytes, network_written_bytes) =
                 networks.values().fold((0u64, 0u64), |totals, network| {
@@ -354,34 +324,6 @@ mod internals {
             self.memory_available_virtual_bytes.record(proc.virtual_memory(), &[]);
 
             self.open_files.record(proc.open_files().map_or(0, |files| files as u64), &[]);
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn read_block_io_ticks() -> u64 {
-        fs::read_to_string("/proc/self/stat").ok().and_then(|stat| parse_block_io_ticks(&stat)).unwrap_or(0)
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    fn read_block_io_ticks() -> u64 {
-        0
-    }
-
-    #[cfg(any(target_os = "linux", test))]
-    fn parse_block_io_ticks(stat: &str) -> Option<u64> {
-        stat.get(stat.rfind(')')? + 1..)?.split_whitespace().nth(39)?.parse().ok()
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::parse_block_io_ticks;
-
-        #[test]
-        fn parses_block_io_ticks_when_process_name_contains_spaces() {
-            let fields = (3..=52).map(|field| if field == 42 { "1234".to_string() } else { field.to_string() });
-            let stat = format!("1 (amaru node) {}", fields.collect::<Vec<_>>().join(" "));
-
-            assert_eq!(parse_block_io_ticks(&stat), Some(1234));
         }
     }
 }

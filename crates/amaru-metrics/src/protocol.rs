@@ -15,6 +15,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex, OnceLock};
 
+use amaru_kernel::Slot;
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
 
@@ -69,6 +70,8 @@ pub enum ProtocolMetrics {
     ConnectionManager(ConnectionManagerMetrics),
     ServedBlockCount(ServedBlockCountMetrics),
     TipBlock(TipBlockMetrics),
+    ServedBlockLatest(ServedBlockLatestMetrics),
+    ServedHeader(ServedHeaderMetrics),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -80,6 +83,16 @@ pub struct ConnectionManagerMetrics {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServedBlockCountMetrics {
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServedBlockLatestMetrics {
+    pub slot: Slot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServedHeaderMetrics {
     pub count: u64,
 }
 
@@ -102,6 +115,8 @@ impl MetricRecorder for ProtocolMetrics {
             ProtocolMetrics::ConnectionManager(metrics) => metrics.record_to_meter(meter),
             ProtocolMetrics::ServedBlockCount(metrics) => metrics.record_to_meter(meter),
             ProtocolMetrics::TipBlock(metrics) => metrics.record_to_meter(meter),
+            ProtocolMetrics::ServedBlockLatest(metrics) => metrics.record_to_meter(meter),
+            ProtocolMetrics::ServedHeader(metrics) => metrics.record_to_meter(meter),
         }
     }
 }
@@ -149,6 +164,82 @@ impl MetricRecorder for ConnectionManagerMetrics {
 #[cfg(target_arch = "wasm32")]
 impl MetricRecorder for ServedBlockCountMetrics {
     fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for ServedBlockLatestMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+struct ServedBlockLatestState {
+    max_slot: Slot,
+    count: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ServedBlockLatestState {
+    fn observe(&mut self, slot: Slot) -> u64 {
+        if slot > self.max_slot {
+            self.max_slot = slot;
+            self.count = 1;
+        } else if slot == self.max_slot {
+            self.count = self.count.saturating_add(1);
+        }
+        self.count
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MetricRecorder for ServedBlockLatestMetrics {
+    fn record_to_meter(&self, meter: &Meter) {
+        static STATE: OnceLock<Mutex<ServedBlockLatestState>> = OnceLock::new();
+        static SERVED_BLOCK_LATEST: OnceLock<Gauge<u64>> = OnceLock::new();
+
+        let served_block_latest = SERVED_BLOCK_LATEST.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_served_block_latest_int")
+                .with_description("number of blocks served at the highest slot observed so far")
+                .with_unit("int")
+                .build()
+        });
+
+        if let Ok(mut state) = STATE.get_or_init(Default::default).lock() {
+            served_block_latest.record(state.observe(self.slot), &[]);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for ServedHeaderMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MetricRecorder for ServedHeaderMetrics {
+    fn record_to_meter(&self, meter: &Meter) {
+        static SERVED_HEADER: OnceLock<Counter<u64>> = OnceLock::new();
+        static CHAIN_SYNC_HEADERS_SERVED: OnceLock<Counter<u64>> = OnceLock::new();
+
+        let served_header = SERVED_HEADER.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_served_header_counter")
+                .with_description("total number of headers served to peers")
+                .with_unit("int")
+                .build()
+        });
+        let chain_sync_headers_served = CHAIN_SYNC_HEADERS_SERVED.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_ChainSync_HeadersServed_counter")
+                .with_description("total number of headers served through chain sync")
+                .with_unit("int")
+                .build()
+        });
+
+        served_header.add(self.count, &[]);
+        chain_sync_headers_served.add(self.count, &[]);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -212,6 +303,18 @@ impl From<ConnectionManagerMetrics> for MetricsEvent {
 impl From<ServedBlockCountMetrics> for MetricsEvent {
     fn from(value: ServedBlockCountMetrics) -> Self {
         MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedBlockCount(value))
+    }
+}
+
+impl From<ServedBlockLatestMetrics> for MetricsEvent {
+    fn from(value: ServedBlockLatestMetrics) -> Self {
+        MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedBlockLatest(value))
+    }
+}
+
+impl From<ServedHeaderMetrics> for MetricsEvent {
+    fn from(value: ServedHeaderMetrics) -> Self {
+        MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedHeader(value))
     }
 }
 

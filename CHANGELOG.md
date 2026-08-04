@@ -42,6 +42,7 @@ Other guiding principles:
 
 - **amaru**: add `amaru mithril sync` to download verified Mithril immutable files and replay their blocks directly into the chain and ledger stores.
 - **amaru**: add `amaru node rm --wipe-all-dbs` to remove the ledger and chain databases resolved from the selected network.
+- **amaru**: expose process, node state, basic information as metrics.
 
 ### Changed
 
@@ -69,7 +70,6 @@ Other guiding principles:
 
 ### Added
 
-- **amaru**: expose process, node state, basic information, and cumulative mempool synchronization metrics under their Cardano metric names.
 - **amaru-ledger**: reject treasury withdrawal proposals that reference unregistered reward accounts.  ([#1032][], [#929][])
 - **amaru-ledger**: introduce `StakePoolCostTooLowPOOL` coverage. ([#1037][], [#909][])
 - **amaru-consensus**: add events and metrics to track the performance of headers processing. ([#1005][])

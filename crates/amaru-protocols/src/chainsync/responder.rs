@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{EraName, Peer, Point, Tip};
+use amaru_metrics::protocol::ServedHeaderMetrics;
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
@@ -22,6 +23,7 @@ use tracing::Instrument;
 
 use crate::{
     chainsync::messages::{HeaderContent, Message},
+    metrics_effects::{Metrics, MetricsOps},
     mux::MuxMessage,
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, Responder, StageState, miniprotocol,
@@ -90,6 +92,9 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                     .instrument(span)
                     .await
                     .context("failed to get next header")?;
+                if matches!(&action, Some(ResponderAction::RollForward(_, _))) {
+                    Metrics::new(eff).record(ServedHeaderMetrics { count: 1 }.into()).await;
+                }
                 Ok((action, self))
             }
         }
@@ -104,7 +109,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
         let message_type = input.message_type().to_string();
 
         async move {
-            match input {
+            let action = match input {
                 ResponderResult::FindIntersect(points) => {
                     let action = intersect(points, &Store::new(eff.clone()), self.upstream)
                         .await
@@ -112,19 +117,22 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                     if let ResponderAction::IntersectFound(point, _tip) = &action {
                         self.pointer = *point;
                     }
-                    Ok((Some(action), self))
+                    Some(action)
                 }
                 ResponderResult::RequestNext => {
-                    let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
+                    next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)
                         .await
-                        .context("failed to get next header")?;
-                    Ok((action, self))
+                        .context("failed to get next header")?
                 }
                 ResponderResult::Done => {
                     tracing::info!("peer stopped chainsync");
-                    Ok((None, self))
+                    None
                 }
+            };
+            if matches!(&action, Some(ResponderAction::RollForward(_, _))) {
+                Metrics::new(eff).record(ServedHeaderMetrics { count: 1 }.into()).await;
             }
+            Ok((action, self))
         }
         .instrument(debug_span!(
             protocols::chainsync::responder::CHAINSYNC_RESPONDER_STAGE,
