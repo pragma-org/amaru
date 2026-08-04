@@ -89,7 +89,9 @@ Peer maps are also cleaned on connection end (`clear_peer_availability` when no 
 The performance resource complements that with:
 
 - **decision state** (who can serve what; ranked peer sets);
-- **closed lifecycle events/metrics** (`perf.header.lifecycle` intervals, fork-switch outcomes) emitted from the worker when a lifecycle terminates, using the optional metrics meter from resources ([EDR-015][edr-metrics]).
+- **closed lifecycle telemetry** (`perf.header.lifecycle` intervals, fork-switch outcomes): the worker produces pure payloads when a lifecycle terminates; the external-effect handler emits tracing events and optional metrics ([EDR-015][edr-metrics]) on the stage effect executor.
+
+OpenTelemetry export may drop or lag under resource or connectivity pressure. That must not stall the performance worker or couple export failure modes to peer/header state. Therefore **no OTel/metric emission runs on the performance thread**.
 
 Spans answer “what path did this header take?”; the resource answers “given everything we have seen so far, whom do we ask next?” and ensures every accepted header is accounted for even when never adopted.
 Probe points should stay aligned: the same stage moments that open/close [EDR-026][edr-tracing] spans are the natural places to record performance events, avoiding divergent instrumentation.
@@ -108,7 +110,7 @@ Probe points should stay aligned: the same stage moments that open/close [EDR-02
 1. **Keepalive RTT tracking** — call `record_keepalive_rtt` from the keepalive mini-protocol handler; fold `keepalive_rtt_ewma` into fetch ranking and churn badness (and into bandwidth estimation where response time includes RTT).
 2. **Churn** — peer selection should demote/promote using `rank_peers_for_churn` (or successor) on a schedule, not only react to adversarial bans.
 3. **Scoring policy** — replace provisional EWMA heuristics with an explicit, testable policy (document knobs; avoid silent retunes).
-5. **Horizon / dual-connection edge cases** — keep pruning and clear/forget rules aligned with multi-connection peers (inbound+outbound) so availability is cleared only when no usable connection remains.
+4. **Horizon / dual-connection edge cases** — keep pruning and clear/forget rules aligned with multi-connection peers (inbound+outbound) so availability is cleared only when no usable connection remains.
 
 ## Discussion points
 

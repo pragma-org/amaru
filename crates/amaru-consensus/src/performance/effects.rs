@@ -16,6 +16,10 @@
 //!
 //! Stages use factory methods on [`Performance`] and pass the result to `eff.external(...)`.
 //! Each effect is enqueued as a [`PerformanceOp`] on the worker thread.
+//!
+//! Header/fork telemetry is produced on the worker as pure [`HeaderTelemetry`] values and
+//! **emitted here** on the pure-stage effect executor. That keeps OpenTelemetry export (which may
+//! drop or lag under resource/connectivity pressure) off the performance worker.
 
 // wrap_sync type safety requires this -- clippy be damned
 #![expect(clippy::unit_arg)]
@@ -28,8 +32,8 @@ use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Instant, Re
 use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, PeerScores, PeerSnapshot, Performance, PerformanceOp,
-    ResourcePerformance, SelectPeersParams,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerSnapshot,
+    Performance, PerformanceOp, ResourcePerformance, SelectPeersParams,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -57,6 +61,16 @@ async fn enqueue_query<T: Send + 'static>(
     {
         reply_rx.await.expect("performance worker dropped reply")
     }
+}
+
+/// Await worker telemetry, then emit on this (effect-executor) path.
+async fn enqueue_and_emit_telemetry(
+    perf: &Performance,
+    meter: Option<Arc<amaru_metrics::Meter>>,
+    make: impl FnOnce(oneshot::Sender<Vec<HeaderTelemetry>>) -> PerformanceOp,
+) {
+    let events = enqueue_query(perf, make).await;
+    HeaderTelemetry::emit_all(&events, meter.as_deref());
 }
 
 // ---------------------------------------------------------------------------
@@ -351,10 +365,10 @@ pub struct PruneBelowEffect {
 
 impl ExternalEffect for PruneBelowEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let perf = require_perf(&resources);
-            let meter = optional_meter(&resources);
-            enqueue(&perf, PerformanceOp::PruneBelow { effect: *self, meter });
+        let perf = require_perf(&resources);
+        let meter = optional_meter(&resources);
+        Self::wrap(async move {
+            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::PruneBelow { effect: *self, reply }).await
         })
     }
 }
@@ -516,9 +530,9 @@ pub struct RecordHeaderRejectedEffect {
 impl ExternalEffect for RecordHeaderRejectedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let perf = require_perf(&resources);
+            // NOTE: No worker state; emit directly on the effect path (never on the performance thread).
             let meter = optional_meter(&resources);
-            enqueue(&perf, PerformanceOp::RecordHeaderRejected { effect: *self, meter });
+            HeaderPerformance::apply_header_rejected(self.outcome).emit(meter.as_deref());
         })
     }
 }
@@ -535,10 +549,14 @@ pub struct RecordHeaderAbandonedEffect {
 
 impl ExternalEffect for RecordHeaderAbandonedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let perf = require_perf(&resources);
-            let meter = optional_meter(&resources);
-            enqueue(&perf, PerformanceOp::RecordHeaderAbandoned { effect: *self, meter });
+        let perf = require_perf(&resources);
+        let meter = optional_meter(&resources);
+        Self::wrap(async move {
+            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordHeaderAbandoned {
+                effect: *self,
+                reply,
+            })
+            .await
         })
     }
 }
@@ -555,10 +573,11 @@ pub struct RecordForkStartedEffect {
 
 impl ExternalEffect for RecordForkStartedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let perf = require_perf(&resources);
-            let meter = optional_meter(&resources);
-            enqueue(&perf, PerformanceOp::RecordForkStarted { effect: *self, meter });
+        let perf = require_perf(&resources);
+        let meter = optional_meter(&resources);
+        Self::wrap(async move {
+            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordForkStarted { effect: *self, reply })
+                .await
         })
     }
 }
@@ -577,10 +596,11 @@ pub struct RecordBlockValidEffect {
 
 impl ExternalEffect for RecordBlockValidEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let perf = require_perf(&resources);
-            let meter = optional_meter(&resources);
-            enqueue(&perf, PerformanceOp::RecordBlockValid { effect: *self, meter });
+        let perf = require_perf(&resources);
+        let meter = optional_meter(&resources);
+        Self::wrap(async move {
+            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordBlockValid { effect: *self, reply })
+                .await
         })
     }
 }
@@ -600,10 +620,11 @@ pub struct RecordBlockPrunedEffect {
 
 impl ExternalEffect for RecordBlockPrunedEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let perf = require_perf(&resources);
-            let meter = optional_meter(&resources);
-            enqueue(&perf, PerformanceOp::RecordBlockPruned { effect: *self, meter });
+        let perf = require_perf(&resources);
+        let meter = optional_meter(&resources);
+        Self::wrap(async move {
+            enqueue_and_emit_telemetry(&perf, meter, |reply| PerformanceOp::RecordBlockPruned { effect: *self, reply })
+                .await
         })
     }
 }

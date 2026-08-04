@@ -410,34 +410,53 @@ fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     headers.apply_blocks_requested(&[hash(1)], t(2));
     headers.apply_block_downloaded(&hash(1), t(3));
     assert_eq!(headers.lifecycle_count(), 1);
-    headers.apply_block_valid(&hash(1), t(4), false, None);
+    let telemetry = headers.apply_block_valid(&hash(1), t(4), false);
     assert_eq!(headers.lifecycle_count(), 0);
+    assert_eq!(telemetry.len(), 1);
+    assert!(matches!(
+        &telemetry[0],
+        super::HeaderTelemetry::Lifecycle {
+            outcome: HeaderLifecycleOutcome::ValidBlock,
+            slot_start_to_header_micros: Some(500),
+            ..
+        }
+    ));
 }
 
 #[test]
 fn header_rejected_does_not_require_lifecycle_entry() {
-    let headers = HeaderPerformance::new();
-    headers.apply_header_rejected(HeaderLifecycleOutcome::DuplicateHeader, None);
-    assert_eq!(headers.lifecycle_count(), 0);
+    let telemetry = HeaderPerformance::apply_header_rejected(HeaderLifecycleOutcome::DuplicateHeader);
+    assert!(matches!(
+        telemetry,
+        super::HeaderTelemetry::Lifecycle { outcome: HeaderLifecycleOutcome::DuplicateHeader, hash: None, .. }
+    ));
 }
 
 #[test]
 fn fork_started_and_closed_on_valid_block() {
     let mut headers = HeaderPerformance::new();
     headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
-    headers.apply_fork_started(tip(1, 1), t(1), None);
+    assert!(headers.apply_fork_started(tip(1, 1), t(1)).is_empty());
     assert!(headers.has_fork_switch(&hash(1)));
-    headers.apply_block_valid(&hash(1), t(2), false, None);
+    let telemetry = headers.apply_block_valid(&hash(1), t(2), false);
     assert!(!headers.has_fork_switch(&hash(1)));
+    assert_eq!(telemetry.len(), 2); // lifecycle + fork switch
 }
 
 #[test]
 fn slot_start_metric_omitted_while_syncing() {
     let mut headers = HeaderPerformance::new();
     headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000);
-    // Syncing path still closes the lifecycle; metric emission is covered via OTel/meter in production.
-    headers.apply_block_valid(&hash(1), t(2), true, None);
+    let telemetry = headers.apply_block_valid(&hash(1), t(2), true);
     assert_eq!(headers.lifecycle_count(), 0);
+    assert!(matches!(
+        &telemetry[0],
+        super::HeaderTelemetry::Lifecycle {
+            outcome: HeaderLifecycleOutcome::ValidBlock,
+            slot_start_to_header_micros: None,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -446,9 +465,11 @@ fn prune_below_closes_open_lifecycles_as_pruned() {
     headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0);
     headers.apply_header_received(peer("alice"), tip(5, 5), t(2), 0);
     assert_eq!(headers.lifecycle_count(), 2);
-    headers.apply_prune_below(BlockHeight::from(5), t(3), None);
+    let pruned = headers.apply_prune_below(BlockHeight::from(5), t(3));
     assert_eq!(headers.lifecycle_count(), 1);
-    headers.apply_prune_below(BlockHeight::from(6), t(4), None);
+    assert_eq!(pruned.len(), 1);
+    assert!(matches!(&pruned[0], super::HeaderTelemetry::Lifecycle { outcome: HeaderLifecycleOutcome::Pruned, .. }));
+    headers.apply_prune_below(BlockHeight::from(6), t(4));
     assert_eq!(headers.lifecycle_count(), 0);
 }
 

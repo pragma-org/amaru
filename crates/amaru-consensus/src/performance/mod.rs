@@ -26,7 +26,9 @@
 //! Channel depth is monitored: WARN (rate-limited) when the queue exceeds normally expected
 //! depth, ERROR + panic when it grows beyond reasonable bounds.
 //!
-//! OTel events and metrics are emitted inside the worker when terminal outcomes are recorded.
+//! Terminal header/fork transitions produce [`HeaderTelemetry`] on the worker; OpenTelemetry
+//! events and metrics are emitted only on the external-effect path so export drops or lag cannot
+//! stall or couple to performance state updates.
 
 mod effects;
 mod header;
@@ -43,10 +45,9 @@ use std::{
 };
 
 use amaru_kernel::Peer;
-use amaru_metrics::Meter;
 use amaru_pure_stage::Instant;
 pub use effects::*;
-pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance};
+pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
 use parking_lot::Mutex;
 pub use peer::{BlockClaim, ClaimKind, FetchPeerSet, PeerPerformance, PeerScores, PeerSnapshot, SelectPeersParams};
 use tokio::{
@@ -127,6 +128,8 @@ impl fmt::Debug for Performance {
 }
 
 /// All operations accepted by the performance worker, wrapping the corresponding effect payloads.
+///
+/// Ops that close header/fork state reply with [`HeaderTelemetry`] for emission off this thread.
 pub(crate) enum PerformanceOp {
     RecordIntersection { effect: RecordIntersectionEffect },
     RecordHeaderAnnouncement { effect: RecordHeaderAnnouncementEffect },
@@ -136,7 +139,7 @@ pub(crate) enum PerformanceOp {
     RecordKeepaliveRtt { effect: RecordKeepaliveRttEffect },
     ClearPeerAvailability { effect: ClearPeerAvailabilityEffect },
     ForgetPeer { effect: ForgetPeerEffect },
-    PruneBelow { effect: PruneBelowEffect, meter: Option<Arc<Meter>> },
+    PruneBelow { effect: PruneBelowEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     SelectPeersForFetch { effect: SelectPeersForFetchEffect, reply: oneshot::Sender<FetchPeerSet> },
     PeerCoversFragment { effect: PeerCoversFragmentEffect, reply: oneshot::Sender<bool> },
     DirectClaimants { effect: DirectClaimantsEffect, reply: oneshot::Sender<Vec<(Peer, Instant, ClaimKind)>> },
@@ -145,11 +148,10 @@ pub(crate) enum PerformanceOp {
     Scores { effect: ScoresEffect, reply: oneshot::Sender<PeerScores> },
     Snapshot { effect: SnapshotEffect, reply: oneshot::Sender<Option<PeerSnapshot>> },
     RecordRollback { effect: RecordRollbackEffect },
-    RecordHeaderRejected { effect: RecordHeaderRejectedEffect, meter: Option<Arc<Meter>> },
-    RecordHeaderAbandoned { effect: RecordHeaderAbandonedEffect, meter: Option<Arc<Meter>> },
-    RecordForkStarted { effect: RecordForkStartedEffect, meter: Option<Arc<Meter>> },
-    RecordBlockValid { effect: RecordBlockValidEffect, meter: Option<Arc<Meter>> },
-    RecordBlockPruned { effect: RecordBlockPrunedEffect, meter: Option<Arc<Meter>> },
+    RecordHeaderAbandoned { effect: RecordHeaderAbandonedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordForkStarted { effect: RecordForkStartedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordBlockValid { effect: RecordBlockValidEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
+    RecordBlockPruned { effect: RecordBlockPrunedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
 }
 
 impl Performance {
@@ -281,9 +283,10 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
         PerformanceOp::ForgetPeer { effect } => {
             peers.apply_forget_peer(&effect.peer);
         }
-        PerformanceOp::PruneBelow { effect, meter } => {
+        PerformanceOp::PruneBelow { effect, reply } => {
             peers.apply_prune_below(effect.min_height);
-            headers.apply_prune_below(effect.min_height, effect.now, meter.as_deref());
+            let telemetry = headers.apply_prune_below(effect.min_height, effect.now);
+            let _ = reply.send(telemetry);
         }
         PerformanceOp::SelectPeersForFetch { effect, reply } => {
             let result = peers.apply_select_peers_for_fetch(effect.params);
@@ -316,20 +319,21 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
         PerformanceOp::RecordRollback { effect } => {
             peers.apply_rollback(effect.peer, effect.point, effect.parent, effect.at);
         }
-        PerformanceOp::RecordHeaderRejected { effect, meter } => {
-            headers.apply_header_rejected(effect.outcome, meter.as_deref());
+        PerformanceOp::RecordHeaderAbandoned { effect, reply } => {
+            let telemetry = headers.apply_header_abandoned(&effect.hash, effect.now);
+            let _ = reply.send(telemetry);
         }
-        PerformanceOp::RecordHeaderAbandoned { effect, meter } => {
-            headers.apply_header_abandoned(&effect.hash, effect.now, meter.as_deref());
+        PerformanceOp::RecordForkStarted { effect, reply } => {
+            let telemetry = headers.apply_fork_started(effect.tip, effect.started_at);
+            let _ = reply.send(telemetry);
         }
-        PerformanceOp::RecordForkStarted { effect, meter } => {
-            headers.apply_fork_started(effect.tip, effect.started_at, meter.as_deref());
+        PerformanceOp::RecordBlockValid { effect, reply } => {
+            let telemetry = headers.apply_block_valid(&effect.hash, effect.now, effect.syncing);
+            let _ = reply.send(telemetry);
         }
-        PerformanceOp::RecordBlockValid { effect, meter } => {
-            headers.apply_block_valid(&effect.hash, effect.now, effect.syncing, meter.as_deref());
-        }
-        PerformanceOp::RecordBlockPruned { effect, meter } => {
-            headers.apply_block_pruned(&effect.hash, effect.invalid, effect.now, effect.syncing, meter.as_deref());
+        PerformanceOp::RecordBlockPruned { effect, reply } => {
+            let telemetry = headers.apply_block_pruned(&effect.hash, effect.invalid, effect.now, effect.syncing);
+            let _ = reply.send(telemetry);
         }
     }
 }
