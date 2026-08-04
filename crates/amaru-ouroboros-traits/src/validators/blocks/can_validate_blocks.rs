@@ -27,21 +27,13 @@ pub trait CanValidateBlocks: Send + Sync {
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
-    fn rollback_block(&self, to: &Point) -> Result<(), BlockValidationError>;
-
-    fn contains_point(&self, point: &Point) -> bool;
+    fn switch_to_fork(&self, to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
     fn tip(&self) -> Point;
 
     /// The chain tip of the volatile in-memory ledger view, if any (`VolatileDB::view_back`).
     /// When `None`, the applied ledger tip is entirely in stable storage.
     fn volatile_tip(&self) -> Option<Tip>;
-
-    /// Return the current (projected) pool summaries. Default impl returns empty; real impls
-    /// should return up-to-date data for header validation.
-    fn current_pool_summaries(&self) -> crate::PoolSummaries {
-        crate::PoolSummaries::default()
-    }
 }
 #[derive(Debug, Error)]
 pub struct BlockValidationError(anyhow::Error);

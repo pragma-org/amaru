@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ComparableProposalId, ConstitutionalCommitteeStatus, Lovelace, PoolId, ProtocolParameters,
-    RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind,
+    AsHash, ConstitutionalCommitteeStatus, Lovelace, PoolId, ProposalId, ProtocolParameters, RatificationStatus,
+    RationalNumber, StakeCredential, StakeCredentialKind,
 };
 use amaru_observability::{debug, debug_span};
 use num::BigUint;
@@ -38,40 +38,44 @@ use crate::{
 /// Pay rewards to all accounts before the epoch ends.
 pub fn pay_rewards<'store>(
     db: &impl TransactionalContext<'store>,
-    mut effective_rewards: Rewards<Effective>,
+    effective_rewards: &Rewards<Effective>,
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::overlay::PAY_REWARDS).in_scope(|| {
+
         // Pay rewards out to every account
         db.with_accounts(|iterator| {
             let mut rewards_paid: u64 = 0;
             let mut accounts_paid: u64 = 0;
 
-            for (account, mut row) in iterator {
-                let rewards = effective_rewards.pop_account(&account);
+            for (credential, mut row) in iterator {
+                let rewards = effective_rewards.reward_of(&credential);
 
-                // The condition avoids the mutable borrow when not needed,
-                // which will incur a db operation.
-                if rewards > 0
-                    && let Some(account) = row.borrow_mut()
-                {
-                    accounts_paid += 1;
-                    rewards_paid += rewards;
-                    account.rewards += rewards;
+                if rewards > 0 {
+                    // The condition avoids the mutable borrow when not needed,
+                    // which will incur a db operation.
+                    if let Some(account) = row.borrow_mut() {
+                        accounts_paid += 1;
+                        rewards_paid += rewards;
+                        account.rewards += rewards;
+                    }
                 }
             }
+
+            let expected_total_rewards = effective_rewards.total_rewards();
+            let actual_total_rewards = rewards_paid + effective_rewards.total_unclaimed_rewards();
+
+            // Technically, if we did everything *right*, there should be no accounts with rewards that
+            // cannot be paid out (i.e. accounts that no longer exists). This has been taken care of during
+            // the epoch transition calculations already. So at this point, this invariant must hold: every
+            // payable reward account was found while iterating the stored accounts.
+            assert!(
+                actual_total_rewards == expected_total_rewards,
+                "discrepancy between expected total rewards (={expected_total_rewards}) and actual total rewards (={actual_total_rewards})",
+            );
 
             Span::current().record("accounts_paid", accounts_paid);
             Span::current().record("rewards_paid", rewards_paid);
         })?;
-
-        // Technically, if we did everything *right*, there should be no accounts with rewards that
-        // cannot be paid out (i.e. accounts that no longer exists). This has been taken care of during
-        // the epoch transition calculations already. So at this point, this invariant must hold.
-        assert!(
-            effective_rewards.accounts().is_empty(),
-            "unclaimed rewards when applying overlay: {:#?}",
-            effective_rewards.accounts(),
-        );
 
         // Adjust treasury and reserves accordingly.
         db.with_pots(|mut row| {
@@ -94,7 +98,7 @@ pub fn pay_rewards<'store>(
 /// expiring) for the epoch, to allow resolving voting stake distribution for the epoch correctly.
 pub fn reset_recently_pruned_proposals<'store>(
     db: &impl TransactionalContext<'store>,
-    pruned_proposals: BTreeMap<&ComparableProposalId, RatificationStatus>,
+    pruned_proposals: BTreeMap<&ProposalId, RatificationStatus>,
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::overlay::RECORD_PRUNED_PROPOSALS).in_scope(|| {
         db.set_recently_pruned_proposals(pruned_proposals)?;
@@ -135,7 +139,7 @@ pub fn reset_blocks_count<'store>(db: &impl TransactionalContext<'store>) -> Res
 /// Return deposits back to reward accounts, adding leftovers to the treasury.
 pub fn pay_or_refund_accounts<'store, 'iter>(
     db: &impl TransactionalContext<'store>,
-    payouts: impl IntoIterator<Item = (&'iter StakeCredential, Lovelace)>,
+    payouts: impl IntoIterator<Item = (&'iter StakeCredential, &'iter Lovelace)>,
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::overlay::PAY_OR_REFUND_ACCOUNTS,).in_scope(|| {
         let (leftovers, paid) = payouts.into_iter().try_fold::<_, _, Result<_, StoreError>>(
@@ -148,7 +152,7 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
                     %deposit,
                 );
 
-                Ok((leftovers + db.refund(account, deposit)?, paid + deposit))
+                Ok((leftovers + db.refund(account, *deposit)?, paid + *deposit))
             },
         )?;
 
@@ -165,10 +169,10 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
 
 /// Update pool parameters now valid at an epoch boundary, and retire pools that have reached their
 /// retirement epoch.
-pub fn update_or_retire_pools<'store, 'iter>(
+pub fn update_or_retire_pools<'store>(
     db: &impl TransactionalContext<'store>,
-    mut updates: BTreeMap<PoolId, Pool>,
-    mut retirements: BTreeSet<PoolId>,
+    updates: &BTreeMap<PoolId, Pool>,
+    retirements: &BTreeSet<PoolId>,
 ) -> Result<(), StoreError> {
     debug_span!(
         stores::ledger::overlay::UPDATE_OR_RETIRE_POOLS,
@@ -186,11 +190,14 @@ pub fn update_or_retire_pools<'store, 'iter>(
         db.with_pools(|iterator| {
             // Note that we don't trace anything here since traces already happen in the
             // epoch_transition::pools_update module; when those updates are first computed.
+            //
+            // We only clone the handful of pool rows that actually changed this epoch, so the flush
+            // can borrow the (potentially recovery-shared) updates rather than consuming them.
             for (id, mut row) in iterator {
-                if retirements.remove(&id) {
+                if retirements.contains(&id) {
                     *row.borrow_mut() = None;
-                } else if let Some(pool) = updates.remove(&id) {
-                    *row.borrow_mut() = Some(pool)
+                } else if let Some(pool) = updates.get(&id) {
+                    *row.borrow_mut() = Some(pool.clone())
                 }
             }
         })
@@ -212,24 +219,34 @@ pub fn update_or_retire_pools<'store, 'iter>(
 ///
 /// Note that this also removes proposals that are now either enacted, expired or simply pruned to
 /// a parent also being pruned.
-pub fn apply_governance_updates<'store, 'iter>(
+pub fn apply_governance_updates<'store>(
     db: &impl TransactionalContext<'store>,
-    mut updates: GovernanceUpdates,
+    updates: &GovernanceUpdates,
 ) -> Result<(ProtocolParameters, GovernanceActivity), StoreError> {
     debug_span!(stores::ledger::overlay::APPLY_GOVERNANCE_UPDATES,).in_scope(|| {
         db.set_proposals_roots(&updates.roots)?;
 
-        if let Some(new_constitution) = updates.new_constitution.take() {
-            db.set_constitution(&new_constitution)?;
+        if let Some(new_constitution) = updates.new_constitution.as_ref() {
+            db.set_constitution(new_constitution)?;
         }
 
-        if let Some(committee_update) = updates.constitutional_committee.take() {
+        if let Some(committee_update) = updates.constitutional_committee.as_ref() {
             update_constitutional_committee(db, committee_update)?;
         }
 
         db.set_protocol_parameters(&updates.protocol_parameters)?;
 
-        pay_or_refund_accounts(db, updates.payouts.iter().map(|(k, v)| (k, *v)))?;
+        pay_or_refund_accounts(db, updates.deposit_refunds.iter().chain(updates.treasury_withdrawals.iter()))?;
+
+        // Withdrawals move money out of the treasury into reward accounts. Deposit refunds do
+        // not; they were never part of the treasury. Withdrawals whose target account no longer
+        // exists flow back into the treasury as leftovers just above.
+        if !updates.treasury_withdrawals.is_empty() {
+            db.with_pots(|mut row| {
+                let pots = row.borrow_mut();
+                pots.treasury -= updates.treasury_withdrawals.values().sum::<Lovelace>();
+            })?;
+        }
 
         let mut governance_activity = db.governance_activity()?;
         if updates.is_dormant_epoch {
@@ -243,14 +260,14 @@ pub fn apply_governance_updates<'store, 'iter>(
 
         db.remove_proposals(updates.pruned_proposals.keys())?;
 
-        Ok((updates.protocol_parameters, governance_activity))
+        Ok((updates.protocol_parameters.clone(), governance_activity))
     })
 }
 
 /// Flush updates to the constitutional committee.
-pub fn update_constitutional_committee<'store, 'iter>(
+pub fn update_constitutional_committee<'store>(
     db: &impl TransactionalContext<'store>,
-    committee_update: CommitteeUpdate,
+    committee_update: &CommitteeUpdate,
 ) -> Result<(), StoreError> {
     debug_span!(
         stores::ledger::overlay::UPDATE_CONSTITUTIONAL_COMMITTEE,
@@ -292,7 +309,9 @@ pub fn update_constitutional_committee<'store, 'iter>(
                     },
                 };
 
-                db.update_constitutional_committee(&committee_status, added, removed)
+                // The committee is a handful of members, so cloning the added/removed sets to hand
+                // owned values to the store is negligible and lets the caller borrow the update.
+                db.update_constitutional_committee(&committee_status, added.clone(), removed.clone())
             }
         }
     })

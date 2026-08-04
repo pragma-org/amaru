@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::observability::{Color, ObservabilityHints};
+use amaru::{
+    lifecycle::Runnable,
+    observability::{Color, ObservabilityHints},
+};
 use amaru_kernel::GlobalParameters;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
@@ -27,6 +30,11 @@ pub(crate) enum Command {
     /// Manage bootstrap snapshots.
     #[command(subcommand)]
     Snapshot(cmd::snapshot::SnapshotCommand),
+
+    /// Synchronize Amaru using Mithril snapshots.
+    #[cfg(feature = "mithril")]
+    #[command(subcommand)]
+    Mithril(cmd::mithril::MithrilCommand),
 
     /// Developer and debugging tools.
     #[command(subcommand, hide = true)]
@@ -71,6 +79,32 @@ pub(crate) enum Command {
 }
 
 impl Command {
+    /// Collapse the clap command tree into a single [`Runnable`] leaf.
+    ///
+    /// The returned value describes the runtime and work factory only; observability must be
+    /// set up on that runtime before [`amaru::lifecycle::Runnable::run_on`] is called.
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Command::Node(cmd) => cmd.into_runnable(),
+            Command::Snapshot(cmd) => cmd.into_runnable(),
+            #[cfg(feature = "mithril")]
+            Command::Mithril(cmd) => cmd.into_runnable(),
+            Command::Dev(cmd) => cmd.into_runnable(),
+            Command::ShellCompletions(args) => cmd::shell_completions::runnable(args),
+            // Legacy top-level aliases: same behaviour as their modern counterparts.
+            Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::runnable(args),
+            Command::LegacyBootstrap(args) => cmd::node::bootstrap::runnable(args),
+            Command::LegacyResetToEpoch(args) => cmd::dev::ledger::reset::runnable(args),
+            Command::LegacyCreateSnapshots(args) => cmd::snapshot::create::runnable(args),
+            Command::LegacyDumpChainDB(args) => cmd::dev::chain::dump::runnable(args),
+            Command::LegacyRemoveValidationStatus(args) => cmd::dev::chain::clear_invalid::runnable(args),
+            Command::LegacyFetchChainHeaders(args) => cmd::dev::chain::fetch::runnable(args),
+            Command::LegacyMigrateChainDB(args) => cmd::dev::chain::migrate::runnable(args),
+            Command::LegacyRemoveChain(args) => cmd::dev::chain::remove::runnable(args),
+            Command::LegacyDumpTracesSchema(args) => cmd::dev::traces::dump::runnable(args),
+        }
+    }
+
     #[allow(clippy::wildcard_enum_match_arm)]
     pub(crate) fn show_alternative_help(&self) -> Result<bool, Box<dyn std::error::Error>> {
         match self {

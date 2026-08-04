@@ -13,13 +13,14 @@
 // limitations under the License.
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use opentelemetry::metrics::{Counter, Gauge, Meter};
+pub use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     pub type Meter = ();
     pub type Gauge = ();
     pub type Counter = ();
+    pub type Histogram = ();
 }
 
 #[cfg(target_arch = "wasm32")]

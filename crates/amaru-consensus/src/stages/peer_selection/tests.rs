@@ -15,6 +15,8 @@
 // Many tests in this file were simplified to only check logs; the variables for
 // trace assertions are intentionally left for future use or documentation.
 
+use std::collections::BTreeSet;
+
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::trace_match::{assert_trace_contains, tm_send_match};
@@ -23,8 +25,10 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     peer_selection::test_setup::{
-        TestPrep, cooldown_instant, first_schedule_id, second_schedule_id, setup, setup_preload, te_cancel_schedule,
-        te_clock, te_random_seed, te_schedule, te_send, test_prep, tm_add_stage_starts_with,
+        TestPrep, cooldown_duration, cooldown_instant, first_schedule_id, first_static_schedule_id,
+        peer_selection_stage, second_schedule_id_at, setup, setup_preload, setup_preload_until_sleeping, sim_at,
+        static_cooldown_instant, te_cancel_schedule, te_clock, te_clock_suspend, te_random_seed, te_schedule, te_send,
+        test_prep, test_prep_with_snapshot, tm_add_stage_starts_with, with_single_cooldown,
     },
     test_utils::{assert_trace, te_input, te_state, tm_state},
 };
@@ -49,10 +53,12 @@ fn test_initialize_empty_static() {
     // The Initialize path creates the ledger-check child and sends it its first message.
     // We assert the observable parent state transitions and let a dedicated wiring test
     // cover the AddStage/WireStage details using TraceMatch helpers.
+    // With no candidates, regulate_peers still draws a random seed to attempt a refill.
     assert_trace_contains(
         &running,
         &[
             te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
             tm_add_stage_starts_with("peer-selection/ledger-check"),
             te_state("ps-1", &state).into(), // final parent state after child creation (child state not asserted in detail)
         ],
@@ -79,18 +85,115 @@ fn test_initialize_adds_static_peers() {
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
-    // We assert the creation of the ledger-check child (including its exact initial state)
-    // and the final state of the parent with both static peers recorded as Connecting.
+    // target_upstream_peers is 3 and only 2 static peers exist, so regulate draws a seed
+    // but finds no further candidates.
     assert_trace_contains(
         &running,
         &[
             te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
             tm_add_stage_starts_with("peer-selection/ledger-check"),
             te_state("ps-1", &state).into(), // final parent state after child creation
         ],
     );
 
     logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_initialize_fills_from_snapshot() {
+    let prep = test_prep_with_snapshot(&[], &["snap1:1", "snap2:2", "snap3:3"]);
+    let msg = PeerSelectionMsg::Initialize;
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_add_stage_starts_with("peer-selection/ledger-check"),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| s.outbound_peers.len() == 3,
+                "final state filled from snapshot candidates",
+            ),
+        ],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_regulate_prefers_static_before_snapshot_before_ledger() {
+    let mut prep = test_prep_with_snapshot(&["static1:1"], &["snap1:1", "snap2:2"]);
+    let l1 = TestPrep::peer("ledger1:1");
+    prep.state.ledger_candidates.insert(l1.clone());
+    // Start with empty outbound and trigger regulate via CheckCooldowns.
+    let dummy = TestPrep::peer("dummy:9");
+    prep.state.cooldowns.cooldown_until.insert(dummy.clone(), cooldown_instant());
+
+    let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CheckCooldowns]);
+
+    // target is 3: static first, then one snapshot, then one ledger (or two snapshots).
+    // With seed [0x42; 32], choose_multiple is deterministic; we only assert counts and that
+    // static is included.
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_send_match::<ManagerMessage>("ps-1", "manager", |m| matches!(m, ManagerMessage::AddPeer(_))),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| {
+                    s.outbound_peers.contains_key(&TestPrep::peer("static1:1")) && s.outbound_peers.len() == 3
+                },
+                "static preferred and target filled",
+            ),
+        ],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_ledger_candidates_replace_does_not_clear_snapshot() {
+    let prep = test_prep_with_snapshot(&[], &["snap1:1"]);
+    let ledger = TestPrep::peer("ledger1:1");
+    let msg = PeerSelectionMsg::LedgerCheckCandidates(BTreeSet::from([ledger.clone()]));
+
+    // After ledger update, snapshot pool is still present; regulate may pick either.
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            te_random_seed("ps-1").into(),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| {
+                    s.snapshot_candidates.contains(&TestPrep::peer("snap1:1")) && s.ledger_candidates.contains(&ledger)
+                },
+                "snapshot pool retained after ledger replace",
+            ),
+        ],
+    );
+
+    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
         .assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }
 
@@ -129,14 +232,13 @@ fn test_add_peer_during_cooldown_cancels_timer() {
     let p = TestPrep::peer("8.8.8.8:8");
     let state = prep.state.clone();
     let sid = first_schedule_id();
-    let after_remove = {
+    let after_ban = {
         let mut s = state.clone();
-        s.cooldown_timers.insert(p.clone(), sid);
+        with_single_cooldown(&mut s, p.clone(), sid);
         s
     };
     let after_add = {
-        let mut s = after_remove.clone();
-        s.cooldown_timers.remove(&p);
+        let mut s = state.clone();
         s.outbound_peers.insert(p.clone(), PeerState::Connecting);
         s
     };
@@ -147,8 +249,9 @@ fn test_add_peer_during_cooldown_cancels_timer() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
-            te_state("ps-1", &after_remove),
+            te_clock_suspend("ps-1"),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
+            te_state("ps-1", &after_ban),
             te_input("ps-1", &PeerSelectionMsg::AddPeer(p.clone())),
             te_cancel_schedule("ps-1", sid),
             te_send("ps-1", "manager", ManagerMessage::AddPeer(p.clone())),
@@ -172,7 +275,7 @@ fn test_adversarial_outbound_connected() {
     let sid = first_schedule_id();
     let after = {
         let mut s = state.clone();
-        s.cooldown_timers.insert(p.clone(), sid);
+        with_single_cooldown(&mut s, p.clone(), sid);
         s
     };
     let (running, _guards, mut logs) = setup(&prep, PeerSelectionMsg::adversarial(p.clone()));
@@ -181,10 +284,13 @@ fn test_adversarial_outbound_connected() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
+            te_clock_suspend("ps-1"),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
             te_state("ps-1", &after),
             te_clock(cooldown_instant()),
-            te_input("ps-1", &PeerSelectionMsg::CooldownEnded(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns),
+            te_cancel_schedule("ps-1", sid),
+            te_clock_suspend("ps-1"),
             te_random_seed("ps-1"),
             te_state("ps-1", &state),
         ],
@@ -194,48 +300,66 @@ fn test_adversarial_outbound_connected() {
 }
 
 // ---------------------------------------------------------------------------
-// CooldownEnded
+// CheckCooldowns
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_cooldown_ended_stale() {
+fn test_check_cooldowns_stale() {
     let prep = test_prep(&[]);
-    let p = TestPrep::peer("6.6.6.6:6");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::CooldownEnded(p);
+    let msg = PeerSelectionMsg::CheckCooldowns;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
-        &[te_state("ps-1", &state), te_input("ps-1", &msg), te_random_seed("ps-1"), te_state("ps-1", &state)],
+        &[
+            te_state("ps-1", &state),
+            te_input("ps-1", &msg),
+            te_clock_suspend("ps-1"),
+            te_random_seed("ps-1"),
+            te_state("ps-1", &state),
+        ],
     );
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
-fn test_cooldown_ended_triggers_regulate() {
+fn test_check_cooldowns_before_due_does_not_lift_ban() {
     let prep = test_prep(&[]);
     let p = TestPrep::peer("5.5.5.5:5");
     let state = prep.state.clone();
-    let sid = first_schedule_id();
-    let after_remove = {
+    let sid0 = first_schedule_id();
+    let sid1 = second_schedule_id_at(cooldown_instant());
+    let after_ban = {
         let mut s = state.clone();
-        s.cooldown_timers.insert(p.clone(), sid);
+        with_single_cooldown(&mut s, p.clone(), sid0);
+        s
+    };
+    let after_early = {
+        let mut s = after_ban.clone();
+        // Early CheckCooldowns cancels and re-arms; the ban itself stays until due.
+        s.cooldown_timer = Some(sid1);
         s
     };
     let (running, _guards, mut logs) =
-        setup_preload(&prep, [PeerSelectionMsg::adversarial(p.clone()), PeerSelectionMsg::CooldownEnded(p.clone())]);
+        setup_preload(&prep, [PeerSelectionMsg::adversarial(p.clone()), PeerSelectionMsg::CheckCooldowns]);
     assert_trace(
         &running,
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid),
-            te_state("ps-1", &after_remove),
-            te_input("ps-1", &PeerSelectionMsg::CooldownEnded(p.clone())),
+            te_clock_suspend("ps-1"),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid0),
+            te_state("ps-1", &after_ban),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns),
+            te_cancel_schedule("ps-1", sid0),
+            te_clock_suspend("ps-1"),
             te_random_seed("ps-1"),
-            te_state("ps-1", &state),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid1),
+            te_state("ps-1", &after_early),
             te_clock(cooldown_instant()),
-            te_input("ps-1", &PeerSelectionMsg::CooldownEnded(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns),
+            te_cancel_schedule("ps-1", sid1),
+            te_clock_suspend("ps-1"),
             te_random_seed("ps-1"),
             te_state("ps-1", &state),
         ],
@@ -326,14 +450,8 @@ fn test_disconnected_outbound_connecting_schedules_cooldown() {
     let mut state_conn = state.clone();
     state_conn.outbound_peers.insert(p.clone(), PeerState::Connecting);
     let msg = PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound, true);
-    let sid = first_schedule_id();
-    let _after = {
-        let mut s = state_conn.clone();
-        s.outbound_peers.remove(&p);
-        s.cooldown_timers.insert(p.clone(), sid);
-        s
-    };
     let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
+    // will_retry == true is a no-op: no cool-down, no regulation.
     assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
     logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }
@@ -343,25 +461,20 @@ fn test_disconnected_outbound_connecting_schedules_cooldown() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_adversarial_twice_cancels_and_reschedules() {
+fn test_adversarial_twice_extends_cooldown_single_timer() {
     let prep = test_prep(&[]);
     let p = TestPrep::peer("11.11.11.11:11");
     let state = prep.state.clone();
     let sid0 = first_schedule_id();
-    let sid1 = second_schedule_id();
     let after_first = {
         let mut s = state.clone();
-        s.cooldown_timers.insert(p.clone(), sid0);
+        with_single_cooldown(&mut s, p.clone(), sid0);
         s
     };
+    // Second ban at the same simulation time reuses the armed timer; heap gets another entry.
     let after_second = {
         let mut s = after_first.clone();
-        s.cooldown_timers.insert(p.clone(), sid1);
-        s
-    };
-    let final_state = {
-        let mut s = after_second.clone();
-        s.cooldown_timers.clear();
+        s.cooldowns.add_and_is_first(p.clone(), cooldown_instant());
         s
     };
     let (running, _guards, mut logs) =
@@ -371,21 +484,84 @@ fn test_adversarial_twice_cancels_and_reschedules() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid0),
+            te_clock_suspend("ps-1"),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid0),
             te_state("ps-1", &after_first),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_schedule("ps-1", PeerSelectionMsg::CooldownEnded(p.clone()), sid1),
-            te_cancel_schedule("ps-1", sid0),
+            te_clock_suspend("ps-1"),
             te_state("ps-1", &after_second),
             te_clock(cooldown_instant()),
-            te_input("ps-1", &PeerSelectionMsg::CooldownEnded(p.clone())),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns),
+            te_cancel_schedule("ps-1", sid0),
+            te_clock_suspend("ps-1"),
             te_random_seed("ps-1"),
-            te_state("ps-1", &final_state),
+            te_state("ps-1", &state),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
         .assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
         .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_reban_later_deadline_survives_early_timer() {
+    // Ban at t0 (when = t0+1s). Advance to t0+500ms and re-ban (when = t0+1.5s) while the
+    // original timer is still armed. When that timer fires at t0+1s, the extended ban must
+    // remain; only the later CheckCooldowns at t0+1.5s may lift it.
+    use std::time::Duration;
+
+    let prep = test_prep(&[]);
+    let p = TestPrep::peer("12.12.12.12:12");
+    let intermediate = sim_at(Duration::from_millis(500));
+    let first_when = cooldown_instant();
+    let later_when = intermediate + cooldown_duration();
+    let sid0 = first_schedule_id();
+    let sid1 = second_schedule_id_at(later_when);
+
+    let (mut running, _guards, _logs) = setup_preload_until_sleeping(&prep, [PeerSelectionMsg::adversarial(p.clone())]);
+
+    assert!(!running.skip_to_next_wakeup(Some(intermediate)));
+    assert_eq!(running.now(), intermediate);
+
+    running.enqueue_msg(peer_selection_stage(), [PeerSelectionMsg::adversarial(p.clone())]);
+    running.run_until_blocked_incl_effects(prep.rt.handle());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())).into(),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid0).into(),
+            te_clock(intermediate).into(),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())).into(),
+            // Original timer fires while the map still holds the later deadline.
+            te_clock(first_when).into(),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
+            te_cancel_schedule("ps-1", sid0).into(),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid1).into(),
+            tm_state(
+                "ps-1",
+                move |s: &PeerSelection| {
+                    s.cooldowns.cooldown_until.get(&p) == Some(&later_when)
+                        && s.cooldown_timer == Some(sid1)
+                        && s.cooldowns.cooldown_heap.len() == 1
+                },
+                "re-ban deadline preserved after early CheckCooldowns; timer re-armed",
+            ),
+            // Extended cool-down finally ends.
+            te_clock(later_when).into(),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
+            te_cancel_schedule("ps-1", sid1).into(),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| {
+                    s.cooldowns.cooldown_until.is_empty()
+                        && s.cooldown_timer.is_none()
+                        && s.cooldowns.cooldown_heap.is_empty()
+                },
+                "ban lifted only at the later deadline",
+            ),
+        ],
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -470,93 +646,78 @@ fn test_disconnected_outbound_connected_normal() {
 
 #[test]
 fn test_regulate_prefers_static_before_ledger() {
-    let prep = test_prep(&["static1:1", "static2:2"]);
-    let mut state = prep.state.clone();
+    let mut prep = test_prep(&["static1:1", "static2:2"]);
 
     // Seed some ledger candidates
     let l1 = TestPrep::peer("ledger1:1");
     let l2 = TestPrep::peer("ledger2:2");
-    state.ledger_candidates.insert(l1.clone());
-    state.ledger_candidates.insert(l2.clone());
+    prep.state.ledger_candidates.insert(l1.clone());
+    prep.state.ledger_candidates.insert(l2.clone());
 
-    // Trigger regulate via CooldownEnded of a non-existent peer (cheap way to call it)
+    // Trigger regulate via CheckCooldowns of a non-existent peer (cheap way to call it)
     let dummy = TestPrep::peer("dummy:9");
-    let sid = first_schedule_id();
-    state.cooldown_timers.insert(dummy.clone(), sid);
+    prep.state.cooldowns.cooldown_until.insert(dummy.clone(), cooldown_instant());
 
-    let _after = {
-        let mut s = state.clone();
-        s.cooldown_timers.remove(&dummy);
-        // regulate should first take the two static peers (they are not in outbound or cooldown)
-        s.outbound_peers.insert(TestPrep::peer("static1:1"), PeerState::Connecting);
-        s.outbound_peers.insert(TestPrep::peer("static2:2"), PeerState::Connecting);
-        s
-    };
-
-    let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CooldownEnded(dummy.clone())]);
+    let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CheckCooldowns]);
 
     // te_input + AddPeer messages to manager (via tm_send_match on the variant) + final state (count only)
     assert_trace_contains(
         &running,
         &[
-            te_input("ps-1", &PeerSelectionMsg::CooldownEnded(dummy.clone())).into(),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
             tm_send_match::<ManagerMessage>("ps-1", "manager", |msg| matches!(msg, ManagerMessage::AddPeer(_))),
             tm_send_match::<ManagerMessage>("ps-1", "manager", |msg| matches!(msg, ManagerMessage::AddPeer(_))),
             tm_state(
                 "ps-1",
-                |s: &PeerSelection| s.outbound_peers.len() == 2,
-                "final state with two new outbound peers from statics",
+                |s: &PeerSelection| {
+                    s.outbound_peers.len() == 3
+                        && s.outbound_peers.contains_key(&TestPrep::peer("static1:1"))
+                        && s.outbound_peers.contains_key(&TestPrep::peer("static2:2"))
+                },
+                "statics preferred; target filled including one ledger peer",
             ),
         ],
     );
 
     logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
         .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
 fn test_regulate_skips_peers_in_cooldown() {
-    let prep = test_prep(&["static1:1", "static2:2"]);
-    let mut state = prep.state.clone();
+    let mut prep = test_prep(&["static1:1", "static2:2"]);
 
     // Put one static peer in cooldown
     let banned = TestPrep::peer("static1:1");
-    let sid = first_schedule_id();
-    state.cooldown_timers.insert(banned.clone(), sid);
+    prep.state.cooldowns.cooldown_until.insert(banned.clone(), cooldown_instant());
 
     // Have a ledger candidate
     let ledger = TestPrep::peer("ledger1:1");
-    state.ledger_candidates.insert(ledger.clone());
+    prep.state.ledger_candidates.insert(ledger.clone());
 
     // Trigger regulate
     let dummy = TestPrep::peer("dummy:9");
-    let dsid = second_schedule_id();
-    state.cooldown_timers.insert(dummy.clone(), dsid);
+    prep.state.cooldowns.cooldown_until.insert(dummy.clone(), cooldown_instant());
 
-    let _after = {
-        let mut s = state.clone();
-        s.cooldown_timers.remove(&dummy);
-        // Should pick the non-banned static2 first? Wait, static1 is banned.
-        // Actually static2 is available. Then ledger.
-        s.outbound_peers.insert(TestPrep::peer("static2:2"), PeerState::Connecting);
-        s.outbound_peers.insert(ledger.clone(), PeerState::Connecting);
-        s
-    };
-
-    let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CooldownEnded(dummy.clone())]);
+    let (running, _guards, mut logs) = setup_preload(&prep, [PeerSelectionMsg::CheckCooldowns]);
 
     // te_input + AddPeer messages (banned peer skipped) + final state (count only)
     assert_trace_contains(
         &running,
         &[
-            te_input("ps-1", &PeerSelectionMsg::CooldownEnded(dummy.clone())).into(),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
             tm_send_match::<ManagerMessage>("ps-1", "manager", |msg| matches!(msg, ManagerMessage::AddPeer(_))),
             tm_send_match::<ManagerMessage>("ps-1", "manager", |msg| matches!(msg, ManagerMessage::AddPeer(_))),
             tm_state(
                 "ps-1",
-                |s: &PeerSelection| s.outbound_peers.len() == 2,
-                "final state with two new outbound peers",
+                |s: &PeerSelection| {
+                    s.outbound_peers.len() == 2
+                        && !s.outbound_peers.contains_key(&banned)
+                        && s.cooldowns.is_cooling(&banned)
+                },
+                "final state with two new outbound peers; banned static still cooling down",
             ),
         ],
     );
@@ -601,4 +762,142 @@ fn test_disconnected_outbound_peer_also_in_inbound() {
     );
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+// ---------------------------------------------------------------------------
+// Bounded cool-down scheduling (issue #1112)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_many_cooldowns_arm_only_one_schedule() {
+    let prep = test_prep(&[]);
+    // More peers than PRIORITY_MAILBOX_SIZE (10): per-peer schedules would panic.
+    let peers: Vec<_> = (0..15).map(|i| TestPrep::peer(&format!("9.9.9.{i}:9"))).collect();
+    let msgs: Vec<_> = peers.iter().cloned().map(PeerSelectionMsg::adversarial).collect();
+    let first = peers[0].clone();
+    let sid = first_schedule_id();
+
+    let (running, _guards, mut logs) = setup_preload(&prep, msgs);
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &PeerSelectionMsg::adversarial(first.clone())).into(),
+            te_clock_suspend("ps-1").into(),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid).into(),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| {
+                    s.cooldowns.cooldown_until.len() == 15
+                        && s.cooldown_timer.is_some()
+                        && s.cooldowns.cooldown_heap.len() == 15
+                },
+                "all 15 peers cooling down under a single armed timer",
+            ),
+            te_clock(cooldown_instant()).into(),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns).into(),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| s.cooldowns.cooldown_until.is_empty() && s.cooldown_timer.is_none(),
+                "all cool-downs drained when the single timer fires",
+            ),
+        ],
+    );
+
+    for _ in 0..15 {
+        logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"]);
+    }
+    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_second_cooldown_does_not_schedule_again() {
+    let prep = test_prep(&[]);
+    let p1 = TestPrep::peer("1.1.1.1:1");
+    let p2 = TestPrep::peer("2.2.2.2:2");
+    let sid = first_schedule_id();
+    let after_first = {
+        let mut s = prep.state.clone();
+        with_single_cooldown(&mut s, p1.clone(), sid);
+        s
+    };
+    let after_second = {
+        let mut s = after_first.clone();
+        s.cooldowns.add_and_is_first(p2.clone(), cooldown_instant());
+        s
+    };
+
+    let (running, _guards, mut logs) =
+        setup_preload(&prep, [PeerSelectionMsg::adversarial(p1.clone()), PeerSelectionMsg::adversarial(p2.clone())]);
+
+    // Only the empty→one transition schedules; the second peer only joins the heap.
+    assert_trace(
+        &running,
+        &[
+            te_state("ps-1", &prep.state),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p1.clone())),
+            te_clock_suspend("ps-1"),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
+            te_state("ps-1", &after_first),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(p2.clone())),
+            te_clock_suspend("ps-1"),
+            te_state("ps-1", &after_second),
+            te_clock(cooldown_instant()),
+            te_input("ps-1", &PeerSelectionMsg::CheckCooldowns),
+            te_cancel_schedule("ps-1", sid),
+            te_clock_suspend("ps-1"),
+            te_random_seed("ps-1"),
+            te_state("ps-1", &prep.state),
+        ],
+    );
+
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
+        .assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_earlier_cooldown_reschedules_timer() {
+    // Static ban = 10s, non-static = 1s. Ban static first, then a non-static peer so the shorter
+    // cool-down cancels and re-arms the single timer.
+    let mut prep = test_prep(&["static1:1"]);
+    let static_peer = TestPrep::peer("static1:1");
+    let other = TestPrep::peer("other:1");
+    prep.state.outbound_peers.insert(static_peer.clone(), PeerState::Connecting);
+
+    let sid_static = first_static_schedule_id();
+    let sid_other = second_schedule_id_at(cooldown_instant());
+
+    let (running, _guards, mut logs) = setup_preload(
+        &prep,
+        [PeerSelectionMsg::adversarial(static_peer.clone()), PeerSelectionMsg::adversarial(other.clone())],
+    );
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &PeerSelectionMsg::adversarial(static_peer.clone())).into(),
+            te_clock_suspend("ps-1").into(),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid_static).into(),
+            te_input("ps-1", &PeerSelectionMsg::adversarial(other.clone())).into(),
+            te_clock_suspend("ps-1").into(),
+            te_cancel_schedule("ps-1", sid_static).into(),
+            te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid_other).into(),
+            tm_state(
+                "ps-1",
+                |s: &PeerSelection| {
+                    s.cooldowns.cooldown_until.len() == 2
+                        && s.cooldown_timer == Some(sid_other)
+                        && s.cooldowns.peek().map(|(t, _)| t) == Some(cooldown_instant())
+                        && s.cooldowns.cooldown_until.get(&static_peer).copied() == Some(static_cooldown_instant())
+                },
+                "timer re-armed to the earlier non-static cool-down",
+            ),
+        ],
+    );
+
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
+        .assert_and_remove(Level::WARN, &["removing peer (outbound)"])
+        .assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }

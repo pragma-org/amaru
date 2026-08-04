@@ -134,14 +134,20 @@ done
 existing_entries="$(if [ -f "$manifest_path" ]; then cat "$manifest_path"; else echo '[]'; fi)"
 tmp_manifest="${manifest_path}.tmp"
 jq -s --argjson existing "$existing_entries" --arg base "$public_url_base" '
+  def snapshot_point:
+    if .point == null then error("snapshot metadata is missing point") else .point end;
+
   (
     sort_by(.epoch)
     | to_entries
     | map({
         epoch: .value.epoch,
-        point: "\(.value.slot).\(.value.hash)",
+        point: (.value | snapshot_point)
+      }
+      + if .value.parent_point == null then {} else { parent_point: .value.parent_point } end
+      + {
         url: ($base + "/" + (.value.archive_path | split("/") | last))
-      } + if .value.parent_point == null then {} else { parent_point: .value.parent_point } end)
+      })
   ) as $new
   | ($new | map(.epoch)) as $new_epochs
   | ($existing | map(select(.epoch as $e | ($new_epochs | index($e)) == null))) + $new

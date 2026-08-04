@@ -1,7 +1,0 @@
-# Prometheus-specific overrides: update metrics pipeline to export to prometheus
-service:
-  pipelines:
-    metrics:
-      receivers: [otlp]
-      processors: [resource/drop_prometheus_labels]
-      exporters: [prometheus]

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, Hash, Hasher, KeepRaw, PlutusData, cbor, utils::string::blanket_try_from_hex_bytes};
+use crate::{Hash, Hasher, PlutusData, cbor, utils::string::blanket_try_from_hex_bytes};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "&str")]
 #[serde(into = "String")]
 pub struct MemoizedPlutusData {
-    original_bytes: Bytes,
+    original_bytes: Vec<u8>,
     // NOTE: This field isn't meant to be public, nor should we create any direct mutable
     // references to it. Reason being that this object is mostly meant to be read-only, and any
     // change to the 'data' should be reflected onto the 'original_bytes'.
@@ -27,10 +27,10 @@ pub struct MemoizedPlutusData {
 
 impl MemoizedPlutusData {
     pub fn new(data: PlutusData) -> Result<Self, String> {
-        let mut buf = Vec::new();
-        cbor::encode(&data, &mut buf).map_err(|_| "failed to encode PlutusData".to_string())?;
+        let mut original_bytes = Vec::new();
+        cbor::encode(&data, &mut original_bytes).map_err(|_| "failed to encode PlutusData".to_string())?;
 
-        Ok(Self { original_bytes: Bytes::from(buf), data })
+        Ok(Self { original_bytes, data })
     }
 
     pub fn original_bytes(&self) -> &[u8] {
@@ -54,12 +54,6 @@ impl From<MemoizedPlutusData> for String {
     }
 }
 
-impl<'b> From<KeepRaw<'b, PlutusData>> for MemoizedPlutusData {
-    fn from(data: KeepRaw<'b, PlutusData>) -> Self {
-        Self { original_bytes: Bytes::from(data.raw_cbor().to_vec()), data: data.unwrap() }
-    }
-}
-
 impl TryFrom<&str> for MemoizedPlutusData {
     type Error = String;
 
@@ -76,19 +70,10 @@ impl TryFrom<String> for MemoizedPlutusData {
     }
 }
 
-impl TryFrom<Vec<u8>> for MemoizedPlutusData {
-    type Error = cbor::decode::Error;
-
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        let data = cbor::decode(&bytes)?;
-        Ok(Self { original_bytes: Bytes::from(bytes), data })
-    }
-}
-
 impl<'b, C> cbor::Decode<'b, C> for MemoizedPlutusData {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let keep_raw: KeepRaw<'b, PlutusData> = d.decode_with(ctx)?;
-        Ok(Self::from(keep_raw))
+        let (data, original_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
+        Ok(Self { data, original_bytes: original_bytes.to_vec() })
     }
 }
 
@@ -102,56 +87,69 @@ impl<C> cbor::Encode<C> for MemoizedPlutusData {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
-    use pallas_primitives::{self as pallas, BigInt, BoundedBytes, KeyValuePairs};
-    use proptest::{prelude::*, strategy::Just};
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    use proptest::prelude::*;
 
     use super::*;
-    use crate::{Constr, MaybeIndefArray, to_cbor};
+    use crate::{
+        PlutusData,
+        plutus_data::{BigInt, BoundedBytes, Constr, VariableEncodingConstr, any_bigint, any_bounded_bytes},
+        utils::cbor::{CborArray, CborMap},
+    };
+
+    // ---------------------------------------------------------------------------------------------
+    // VariableEncodingPlutusData
+    // ---------------------------------------------------------------------------------------------
 
     // NOTE: We do not use Pallas' PlutusData because it doesn't respect the
     // encoding expressed by the types for Map, but forces definite encoding.
     #[derive(Debug, Clone)]
-    enum PlutusData {
-        Constr(Constr<PlutusData>),
-        Map(KeyValuePairs<PlutusData, PlutusData>),
+    pub enum VariableEncodingPlutusData {
+        Constr(VariableEncodingConstr<VariableEncodingPlutusData>),
+        Map(CborMap<VariableEncodingPlutusData, VariableEncodingPlutusData>),
         BigInt(BigInt),
         BoundedBytes(BoundedBytes),
-        Array(MaybeIndefArray<PlutusData>),
+        Array(CborArray<VariableEncodingPlutusData>),
     }
-    impl From<PlutusData> for pallas::PlutusData {
-        fn from(data: PlutusData) -> Self {
-            match data {
-                PlutusData::BigInt(i) => Self::BigInt(i),
-                PlutusData::BoundedBytes(i) => Self::BoundedBytes(i),
-                PlutusData::Array(xs) => Self::Array(match xs {
-                    MaybeIndefArray::Def(xs) => MaybeIndefArray::Def(xs.into_iter().map(|x| x.into()).collect()),
-                    MaybeIndefArray::Indef(xs) => MaybeIndefArray::Indef(xs.into_iter().map(|x| x.into()).collect()),
-                }),
-                PlutusData::Map(xs) => Self::Map(match xs {
-                    KeyValuePairs::Def(xs) => {
-                        KeyValuePairs::Def(xs.into_iter().map(|(k, v)| (k.into(), v.into())).collect())
-                    }
-                    KeyValuePairs::Indef(xs) => {
-                        KeyValuePairs::Indef(xs.into_iter().map(|(k, v)| (k.into(), v.into())).collect())
+
+    impl TryFrom<VariableEncodingPlutusData> for PlutusData {
+        type Error = ();
+
+        fn try_from(data: VariableEncodingPlutusData) -> Result<Self, Self::Error> {
+            Ok(match data {
+                VariableEncodingPlutusData::BigInt(i) => Self::BigInt(i),
+                VariableEncodingPlutusData::BoundedBytes(i) => Self::BoundedBytes(i),
+                VariableEncodingPlutusData::Array(xs) => Self::Array(match xs {
+                    CborArray::Def(xs) | CborArray::Indef(xs) => {
+                        xs.into_iter().map(|x| x.try_into()).collect::<Result<_, _>>()?
                     }
                 }),
-                PlutusData::Constr(Constr { tag, any_constructor, fields }) => Self::Constr(Constr {
-                    tag,
-                    any_constructor,
-                    fields: match fields {
-                        MaybeIndefArray::Def(xs) => MaybeIndefArray::Def(xs.into_iter().map(|x| x.into()).collect()),
-                        MaybeIndefArray::Indef(xs) => {
-                            MaybeIndefArray::Indef(xs.into_iter().map(|x| x.into()).collect())
-                        }
-                    },
+                VariableEncodingPlutusData::Map(xs) => Self::Map(match xs {
+                    CborMap::Def(xs) | CborMap::Indef(xs) => xs
+                        .into_iter()
+                        .map(|(k, v)| k.try_into().and_then(|k| v.try_into().map(|v| (k, v))))
+                        .collect::<Result<Vec<_>, _>>()?,
                 }),
-            }
+                VariableEncodingPlutusData::Constr(VariableEncodingConstr { tag, any_constructor, fields }) => {
+                    Self::Constr(Constr {
+                        tag,
+                        any_constructor,
+                        fields: match fields {
+                            CborArray::Def(xs) | CborArray::Indef(xs) => {
+                                xs.into_iter().map(|x| x.try_into()).collect::<Result<_, _>>()?
+                            }
+                        },
+                    })
+                }
+            })
         }
     }
 
-    impl<C> cbor::encode::Encode<C> for PlutusData {
+    impl<C> cbor::encode::Encode<C> for VariableEncodingPlutusData {
         fn encode<W: cbor::encode::Write>(
             &self,
             e: &mut cbor::Encoder<W>,
@@ -179,91 +177,68 @@ pub(crate) mod tests {
         }
     }
 
-    prop_compose! {
-        pub(crate) fn any_bounded_bytes()(
-            bytes in any::<Vec<u8>>(),
-        ) -> BoundedBytes {
-            BoundedBytes::from(bytes)
+    impl VariableEncodingPlutusData {
+        pub fn any(depth: u8) -> impl Strategy<Value = Self> {
+            let int = any_bigint().prop_map(Self::BigInt);
+
+            let bytes = any_bounded_bytes().prop_map(Self::BoundedBytes);
+
+            if depth > 0 {
+                let constr = VariableEncodingConstr::any(depth).prop_map(Self::Constr);
+
+                let array = (any::<bool>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize)).prop_map(
+                    |(is_def, xs)| Self::Array(if is_def { CborArray::Def(xs) } else { CborArray::Indef(xs) }),
+                );
+
+                let map = (
+                    any::<bool>(),
+                    prop::collection::vec((Self::any(depth - 1), Self::any(depth - 1)), 0..depth as usize),
+                )
+                    .prop_map(|(is_def, kvs)| Self::Map(if is_def { CborMap::Def(kvs) } else { CborMap::Indef(kvs) }));
+
+                prop_oneof![int, bytes, constr, array, map].boxed()
+            } else {
+                prop_oneof![int, bytes].boxed()
+            }
         }
     }
 
-    pub(crate) fn any_bigint() -> impl Strategy<Value = BigInt> {
-        prop_oneof![
-            any::<i64>().prop_map(|i| BigInt::Int(i.into())),
-            any_bounded_bytes().prop_map(BigInt::BigUInt),
-            any_bounded_bytes().prop_map(BigInt::BigNInt),
-        ]
-    }
+    // ---------------------------------------------------------------------------------------------
+    // Tests
+    // ---------------------------------------------------------------------------------------------
 
-    fn any_constr(depth: u8) -> impl Strategy<Value = Constr<PlutusData>> {
-        let any_constr_tag = prop_oneof![
-            (Just(102), any::<u64>().prop_map(Some)),
-            (121_u64..=127, Just(None)),
-            (1280_u64..=1400, Just(None))
-        ];
+    #[cfg(test)]
+    mod internal {
+        use proptest::prelude::*;
 
-        let any_fields = prop::collection::vec(any_plutus_data(depth - 1), 0..depth as usize);
+        use super::VariableEncodingPlutusData;
+        use crate::{MemoizedPlutusData, PlutusData, from_cbor, to_cbor};
 
-        (any_constr_tag, any_fields, any::<bool>()).prop_map(|((tag, any_constructor), fields, is_def)| Constr {
-            tag,
-            any_constructor,
-            fields: if is_def { MaybeIndefArray::Def(fields) } else { MaybeIndefArray::Indef(fields) },
-        })
-    }
+        proptest! {
+            #[test]
+            fn roundtrip_hex_encoded_str(original_data in VariableEncodingPlutusData::any(3)) {
+                let original_bytes = to_cbor(&original_data);
+                let result = MemoizedPlutusData::try_from(hex::encode(&original_bytes)).unwrap();
 
-    fn any_plutus_data(depth: u8) -> BoxedStrategy<PlutusData> {
-        let int = any_bigint().prop_map(PlutusData::BigInt);
-
-        let bytes = any_bounded_bytes().prop_map(PlutusData::BoundedBytes);
-
-        if depth > 0 {
-            let constr = any_constr(depth).prop_map(PlutusData::Constr);
-
-            let array = (any::<bool>(), prop::collection::vec(any_plutus_data(depth - 1), 0..depth as usize)).prop_map(
-                |(is_def, xs)| {
-                    PlutusData::Array(if is_def { MaybeIndefArray::Def(xs) } else { MaybeIndefArray::Indef(xs) })
-                },
-            );
-
-            let map = (
-                any::<bool>(),
-                prop::collection::vec((any_plutus_data(depth - 1), any_plutus_data(depth - 1)), 0..depth as usize),
-            )
-                .prop_map(|(is_def, kvs)| {
-                    PlutusData::Map(if is_def { KeyValuePairs::Def(kvs) } else { KeyValuePairs::Indef(kvs) })
-                });
-
-            prop_oneof![int, bytes, constr, array, map].boxed()
-        } else {
-            prop_oneof![int, bytes].boxed()
+                assert_eq!(Some(result.as_ref()), PlutusData::try_from(original_data).ok().as_ref());
+                assert_eq!(result.original_bytes(), &original_bytes);
+            }
         }
-    }
 
-    proptest! {
+        proptest! {
+            #[test]
+            fn roundtrip_cbor(original_data in VariableEncodingPlutusData::any(3)) {
+                let original_bytes = to_cbor(&original_data);
+                let result: MemoizedPlutusData = from_cbor(&original_bytes).unwrap();
+
+                assert_eq!(Some(result.as_ref()), PlutusData::try_from(original_data).ok().as_ref());
+                assert_eq!(result.original_bytes(), &original_bytes);
+            }
+        }
+
         #[test]
-        fn roundtrip_hex_encoded_str(original_data in any_plutus_data(3)) {
-            let original_bytes = to_cbor(&original_data);
-            let result = MemoizedPlutusData::try_from(hex::encode(&original_bytes)).unwrap();
-
-            assert_eq!(result.as_ref(), &pallas::PlutusData::from(original_data));
-            assert_eq!(result.original_bytes(), &original_bytes);
+        fn invalid_string() {
+            assert!(MemoizedPlutusData::try_from("foo".to_string()).is_err());
         }
-    }
-
-    proptest! {
-        #[test]
-        fn roundtrip_cbor(original_data in any_plutus_data(3)) {
-            let original_bytes = to_cbor(&original_data);
-            let raw: KeepRaw<'_, pallas::PlutusData> = cbor::decode(&original_bytes).unwrap();
-            let result: MemoizedPlutusData = raw.into();
-
-            assert_eq!(result.as_ref(), &pallas::PlutusData::from(original_data));
-            assert_eq!(result.original_bytes(), &original_bytes);
-        }
-    }
-
-    #[test]
-    fn invalid_string() {
-        assert!(MemoizedPlutusData::try_from("foo".to_string()).is_err());
     }
 }

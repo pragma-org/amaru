@@ -12,40 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::array::TryFromSliceError;
+use std::ops::Deref;
 
-use pallas_crypto::key::ed25519;
-pub use pallas_primitives::conway::VKeyWitness;
 use thiserror::Error;
 
-use crate::{Bytes, utils::array::into_sized_array};
+use crate::{Bytes, cbor, ed25519};
 
-#[derive(Debug, Error)]
-pub enum InvalidEd25519Signature {
-    #[error("invalid signature size: {error:?}")]
-    InvalidSignatureSize { error: TryFromSliceError, expected: usize },
-    #[error("invalid verification key size: {error:?}")]
-    InvalidKeySize { error: TryFromSliceError, expected: usize },
-    #[error("invalid signature for given key")]
-    InvalidSignature,
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct VKeyWitness {
+    #[n(0)]
+    pub vkey: Bytes,
+
+    #[n(1)]
+    pub signature: Bytes,
 }
 
+#[derive(Debug, Error)]
+#[error("invalid signature for given key")]
+pub struct InvalidEd25519Signature;
+
+#[expect(clippy::expect_used, reason = "witness sizes are guaranteed by transaction decoding")]
 pub fn verify_ed25519_signature(
     vkey: &Bytes,
     signature: &Bytes,
     message: &[u8],
 ) -> Result<(), InvalidEd25519Signature> {
-    // TODO: vkey should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let public_key = ed25519::PublicKey::from(into_sized_array(vkey, |error, expected| {
-        InvalidEd25519Signature::InvalidKeySize { error, expected }
-    })?);
+    // Key and signature lengths are enforced when the transaction is decoded, so these sized
+    // conversions cannot fail for a witness coming from a decoded transaction.
+    let public_key = ed25519::VerifyingKey::try_from(vkey.deref().as_slice())
+        .expect("key size is guaranteed by transaction decoding");
 
-    // TODO: signature should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let signature = ed25519::Signature::from(into_sized_array(signature, |error, expected| {
-        InvalidEd25519Signature::InvalidSignatureSize { error, expected }
-    })?);
+    let signature = ed25519::Signature::try_from(signature.deref().as_slice())
+        .expect("signature size is guaranteed by transaction decoding");
 
-    if !public_key.verify(message, &signature) { Err(InvalidEd25519Signature::InvalidSignature) } else { Ok(()) }
+    public_key.verify_strict(message, &signature).map_err(|_| InvalidEd25519Signature)
 }

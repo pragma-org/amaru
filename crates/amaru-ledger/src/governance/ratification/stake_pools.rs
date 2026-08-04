@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{DRep, PoolId, PoolVotingThresholds, ProtocolParamUpdate, Vote, expect_stake_credential};
+use amaru_kernel::{DRep, PoolId, PoolVotingThresholds, ProtocolParamUpdate, Vote};
 use num::Zero;
 
 use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
@@ -106,17 +106,11 @@ pub fn tally(
             // Starting from v10, the fallback is given to the DRep chosen by the pool's
             // reward account (?!), if any. If there's no drep, then the vote is considered
             // to be "no" by default.
-            None => {
-                let reward_account = expect_stake_credential(&pool.parameters.reward_account);
-
-                let drep = stake_distribution.accounts.get(&reward_account).and_then(|st| st.drep.as_ref());
-
-                match drep {
-                    Some(DRep::NoConfidence) if proposal.is_no_confidence() => (yes + pool.voting_stake, abstain),
-                    Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
-                    Some(..) | None => (yes, abstain),
-                }
-            }
+            None => match pool.fallback_drep.as_ref() {
+                Some(DRep::NoConfidence) if proposal.is_no_confidence() => (yes + pool.voting_stake, abstain),
+                Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
+                Some(..) | None => (yes, abstain),
+            },
         }
     });
 
@@ -142,17 +136,17 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use amaru_kernel::{
-        PoolId, ProtocolParamUpdate, Vote, any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
-        any_protocol_params_update, any_rational_number, any_vote_ref,
+        CertificatePointer, DRep, Hash, PoolId, PoolParams, ProtocolParamUpdate, RationalNumber, Vote, any_ex_units,
+        any_pool_voting_thresholds, any_proposal_id, any_protocol_params_update, any_rational_number, any_vote_ref,
     };
     use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};
 
-    use super::{tally, voting_threshold};
+    use super::{CommitteeUpdate, tally, voting_threshold};
     use crate::{
         governance::ratification::{ProposalEnum, any_proposal_enum},
         summary::{
-            SafeRatio,
+            PoolState, SafeRatio, safe_ratio,
             stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
         },
     };
@@ -200,7 +194,7 @@ mod tests {
             is_no_confidence in any::<bool>(),
             update_in_security_group in any_protocol_params_update_in_security_group(),
             update_no_security_group in any_protocol_params_update_no_security_group(),
-            parent in option::of(any_comparable_proposal_id()),
+            parent in option::of(any_proposal_id()),
             thresholds in any_pool_voting_thresholds()
         ) {
             let parent = parent.map(Rc::new);
@@ -218,6 +212,32 @@ mod tests {
                 "is_null_threshold? {is_null_threshold}\nresult_in: {result_in:?}\nresult_no: {result_no:?}",
             )
         }
+    }
+
+    #[test]
+    fn tally_uses_pool_fallback_drep_when_operator_is_silent() {
+        let pool_id = PoolId::new([1; 28]);
+
+        let tally = tally(
+            &ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, None),
+            BTreeMap::new(),
+            &stake_summary_with_fallback(pool_id, Some(DRep::NoConfidence)),
+        );
+
+        assert_eq!(tally, SafeRatio::one());
+    }
+
+    #[test]
+    fn tally_treats_abstaining_fallback_drep_as_abstain() {
+        let pool_id = PoolId::new([1; 28]);
+
+        let tally = tally(
+            &ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, None),
+            BTreeMap::new(),
+            &stake_summary_with_fallback(pool_id, Some(DRep::Abstain)),
+        );
+
+        assert_eq!(tally, SafeRatio::zero());
     }
 
     fn any_protocol_params_update_in_security_group() -> impl Strategy<Value = ProtocolParamUpdate> {
@@ -319,5 +339,39 @@ mod tests {
                     .prop_map(move |votes| voters.clone().into_iter().zip(votes))
             })
             .prop_map(|kvs| kvs.into_iter().collect())
+    }
+
+    fn stake_summary_with_fallback(pool_id: PoolId, fallback_drep: Option<DRep>) -> StakeDistribution {
+        StakeDistribution {
+            epoch: 0.into(),
+            treasury: 0,
+            reserves: 0,
+            active_stake: 100,
+            pools_voting_stake: 100,
+            dreps_voting_stake: 0,
+            pools: BTreeMap::from([(
+                pool_id,
+                PoolState {
+                    registered_at: CertificatePointer::default(),
+                    blocks_count: 0,
+                    stake: 100,
+                    voting_stake: 100,
+                    margin: safe_ratio(0, 1),
+                    parameters: PoolParams {
+                        id: pool_id,
+                        vrf: Hash::new([7; 32]),
+                        pledge: 0,
+                        cost: 0,
+                        margin: RationalNumber { numerator: 0, denominator: 1 },
+                        reward_account: [&[0xF0], &[1; 28][..]].concat().into(),
+                        owners: Vec::new(),
+                        relays: Vec::new(),
+                        metadata: None,
+                    },
+                    fallback_drep,
+                },
+            )]),
+            dreps: BTreeMap::new(),
+        }
     }
 }

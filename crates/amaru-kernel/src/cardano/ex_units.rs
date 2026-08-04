@@ -12,15 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::ExUnits;
+use std::{fmt, ops::Add};
 
-/// Create a new `ExUnits` that is the sum of two `ExUnits`
-pub fn sum_ex_units(left: ExUnits, right: &ExUnits) -> ExUnits {
-    ExUnits { mem: left.mem + right.mem, steps: left.steps + right.steps }
+use crate::cbor;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct ExUnits {
+    #[n(0)]
+    pub mem: u64,
+    #[n(1)]
+    pub steps: u64,
 }
 
-pub fn fmt(units: &ExUnits) -> String {
-    format!("{{mem={}, cpu={}}}", units.mem, units.steps)
+impl Add for &ExUnits {
+    type Output = ExUnits;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        ExUnits { mem: self.mem + rhs.mem, steps: self.steps + rhs.steps }
+    }
+}
+
+impl fmt::Display for ExUnits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{mem={}, cpu={}}}", self.mem, self.steps)
+    }
 }
 
 #[cfg(any(test, feature = "test-utils"))]

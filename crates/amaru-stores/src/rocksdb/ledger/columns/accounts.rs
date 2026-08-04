@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AsHash, Lovelace, StakeCredentialKind};
+use amaru_kernel::{AsHash, Epoch, Lovelace, StakeCredentialKind};
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -23,7 +23,10 @@ use amaru_ledger::store::{
 use amaru_observability::{debug, error, trace_span};
 use rocksdb::{DBPinnableSlice, Transaction};
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use crate::rocksdb::{
+    common::{PREFIX_LEN, as_key, as_value},
+    recently_unregistered_accounts,
+};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
@@ -31,32 +34,35 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
 /// Register a new credential, with or without a stake pool.
 pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::ADD).in_scope(|| {
-        for (credential, (pool, drep, deposit, rewards)) in rows {
-            let key = as_key(&PREFIX, &credential);
+        for (credential, value) in rows {
+            let key = as_key(&PREFIX, credential);
 
-            // In case where a registration already exists, then we must only update the underlying
-            // entry, while preserving the reward amount.
-            if let Some(mut row) =
-                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
-            {
-                pool.set_or_reset(&mut row.pool);
-                drep.set_or_reset(&mut row.drep);
+            let existing =
+                db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d));
 
-                if let Some(deposit) = deposit {
-                    row.deposit = deposit;
+            let row = match (value, existing) {
+                (Value::Create { pool, drep, deposit, rewards }, _) => {
+                    let mut row = Row { deposit, pool: None, drep: None, rewards };
+                    pool.set_or_reset(&mut row.pool);
+                    drep.set_or_reset(&mut row.drep);
+
+                    recently_unregistered_accounts::remove(db, &credential)?;
+
+                    row
                 }
 
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else if let Some(deposit) = deposit {
-                let mut row = Row { deposit, pool: None, drep: None, rewards };
+                (Value::Update { pool, drep }, Some(mut row)) => {
+                    pool.set_or_reset(&mut row.pool);
+                    drep.set_or_reset(&mut row.drep);
+                    row
+                }
 
-                pool.set_or_reset(&mut row.pool);
-                drep.set_or_reset(&mut row.drep);
+                (Value::Update { .. }, None) => {
+                    unreachable!("attempted to update a non-existing account: account={:?}", credential)
+                }
+            };
 
-                db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
-            } else {
-                unreachable!("attempted to create an account without a deposit: account={:?}", credential);
-            }
+            db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
         Ok(())
@@ -67,7 +73,7 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 pub fn reset_many<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::RESET_MANY).in_scope(|| {
         for credential in rows {
-            let key = as_key(&PREFIX, &credential);
+            let key = as_key(&PREFIX, credential);
 
             if let Some(mut row) =
                 db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.map(|d| unsafe_decode::<Row>(&d))
@@ -97,7 +103,7 @@ pub fn get<'a>(
 
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
 /// amount that couldn't be allocated to the account.
-pub fn set<DB>(
+pub fn set_rewards<DB>(
     db: &Transaction<'_, DB>,
     credential: &Key,
     with_rewards: impl FnOnce(Lovelace) -> Lovelace,
@@ -126,10 +132,11 @@ pub fn set<DB>(
 }
 
 /// Clear a stake credential registration.
-pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>) -> Result<(), StoreError> {
+pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Key>, epoch: Epoch) -> Result<(), StoreError> {
     trace_span!(stores::ledger::accounts::REMOVE).in_scope(|| {
         for credential in rows {
-            db.delete(as_key(&PREFIX, &credential)).map_err(|err| StoreError::Internal(err.into()))?;
+            recently_unregistered_accounts::insert(db, &credential, epoch)?;
+            db.delete(as_key(&PREFIX, credential)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
         Ok(())

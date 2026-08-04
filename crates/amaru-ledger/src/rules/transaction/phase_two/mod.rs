@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, fmt};
 use amaru_kernel::{
     BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, RedeemerKey,
     TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    redeemer_tag_to_string, to_cbor, transaction_input_to_string,
+    to_cbor,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::{
@@ -41,7 +41,7 @@ use crate::context::UtxoSlice;
 
 #[derive(Debug, Error)]
 pub enum PhaseTwoError {
-    #[error("missing input: {}", transaction_input_to_string(.0))]
+    #[error("missing input: {0}")]
     MissingInput(TransactionInput),
     #[error("failed to translate transaction to TxInfo: {0}")]
     TransactionTranslationError(#[from] TxInfoTranslationError),
@@ -102,10 +102,8 @@ where
 
     let mut resolved_inputs = transaction_body
         .inputs
-        .into_iter()
-        .map(|input| {
-            Ok((input.clone(), context.lookup(input).ok_or(PhaseTwoError::MissingInput(input.clone()))?.clone()))
-        })
+        .iter()
+        .map(|input| Ok((*input, context.lookup(input).ok_or(PhaseTwoError::MissingInput(*input))?.clone())))
         .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()?;
 
     let mut resolved_reference_inputs = transaction_body
@@ -114,12 +112,7 @@ where
         .map(|reference_inputs| {
             reference_inputs
                 .iter()
-                .map(|input| {
-                    Ok((
-                        input.clone(),
-                        context.lookup(input).ok_or(PhaseTwoError::MissingInput(input.clone()))?.clone(),
-                    ))
-                })
+                .map(|input| Ok((*input, context.lookup(input).ok_or(PhaseTwoError::MissingInput(*input))?.clone())))
                 .collect::<Result<BTreeMap<_, _>, PhaseTwoError>>()
         })
         .transpose()?
@@ -150,8 +143,8 @@ where
             debug_span!(
                 parent: &span_execute_scripts,
                 ledger::rules::phase_two::EXECUTE_ONE_SCRIPT,
-                purpose = redeemer_tag_to_string(purpose),
-                index = *index
+                purpose = purpose.to_string(),
+                index = index
             )
             .in_scope(|| {
                 let arena = debug_span!(ledger::rules::phase_two::ACQUIRE_ARENA).in_scope(|| arena_pool.acquire());
@@ -250,7 +243,7 @@ where
                         plutus_version,
                         info: result.info,
                         err,
-                        redeemer: redeemer.clone(),
+                        redeemer: *redeemer,
                         program: encode_program(program),
                     }))
                 };
@@ -296,7 +289,7 @@ mod tests {
     use amaru_plutus::arena_pool::ArenaPool;
     use anyhow::Result;
 
-    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
+    use crate::context::DefaultValidationContext;
 
     static ARENA_POOL: LazyLock<ArenaPool> = LazyLock::new(|| ArenaPool::new(1, 1_024_000));
 
@@ -324,7 +317,15 @@ mod tests {
                 utxo
             });
 
-        let mut context = AssertValidationContext::from(AssertPreparationContext { utxo });
+        let mut context = DefaultValidationContext::new(
+            utxo,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
 
         let protocol_parameters = network.as_protocol_parameters().expect("missing network defaults");
         let protocol_parameters = ProtocolParameters {

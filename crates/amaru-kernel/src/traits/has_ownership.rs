@@ -27,7 +27,7 @@ pub trait HasOwnership {
 impl HasOwnership for StakeAddress {
     fn owner(&self) -> StakeCredential {
         match self.payload() {
-            StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
+            StakePayload::Key(hash) => StakeCredential::AddrKeyhash(*hash),
             StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
         }
     }
@@ -70,10 +70,9 @@ impl HasOwnership for Certificate {
             | Self::ResignCommitteeCold(stake_credential, _)
             | Self::RegDRepCert(stake_credential, _, _)
             | Self::UnRegDRepCert(stake_credential, _)
-            | Self::UpdateDRepCert(stake_credential, _) => stake_credential.clone(),
-            Self::PoolRegistration { operator: id, .. } | Self::PoolRetirement(id, _) => {
-                StakeCredential::AddrKeyhash(*id)
-            }
+            | Self::UpdateDRepCert(stake_credential, _) => *stake_credential,
+            Self::PoolRetirement(id, _) => StakeCredential::AddrKeyhash(*id),
+            Self::PoolRegistration(params) => StakeCredential::AddrKeyhash(params.id),
         }
     }
 }

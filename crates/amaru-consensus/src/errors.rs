@@ -14,15 +14,14 @@
 
 use std::{fmt, fmt::Display};
 
-use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point, Slot};
-use amaru_ouroboros_traits::StoreError;
+use amaru_kernel::{BlockHeight, EraName, HeaderHash, Peer, Point, PoolId, Slot};
+use amaru_ouroboros_traits::{StoreError, has_stake_distribution::GetPoolError};
 use serde::ser::SerializeStruct;
 use thiserror::Error;
 
 use crate::validate_header::ValidateHeaderError;
 
 #[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[allow(clippy::result_large_err)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
@@ -44,7 +43,10 @@ pub enum ConsensusError {
     StoreBlockFailed(Point, StoreError),
     #[error("Header point {} does not match expected point {}", actual_point, expected_point)]
     HeaderPointMismatch { actual_point: Point, expected_point: Point },
-    #[error("Failed to decode header: {} ({})", hex::encode(&header[..header.len().min(32)]), reason)]
+    #[error("Failed to decode header: {} ({})",
+        hex::encode(&header[..header.len().min(32)]),
+        reason
+    )]
     CannotDecodeHeader { header: Vec<u8>, reason: String },
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(Peer),
@@ -76,6 +78,14 @@ pub enum ConsensusError {
     EraHistoryError(#[from] amaru_kernel::EraHistoryError),
     #[error("Era name mismatch: from raw_header {from_raw_header}, from slot={from_slot}")]
     EraNameMismatch { from_raw_header: EraName, from_slot: EraName },
+    #[error("Failed to convert issuer public key")]
+    IssuerFromPublicKeyError,
+    #[error("{0}")]
+    StoreError(#[from] StoreError),
+    #[error("{0}")]
+    GetPoolError(#[from] GetPoolError),
+    #[error("Unknown pool: {}", hex::encode(&pool_id[0..7]))]
+    UnknownPool { pool_id: PoolId },
 }
 
 impl ConsensusError {

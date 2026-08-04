@@ -24,6 +24,8 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: ./.github/actions/stage-peer-snapshots
+
       - uses: ./.github/actions/cache
 
       - name: Build Amaru
@@ -250,4 +252,3 @@ jobs:
           path: |
             amaru.log
             tool-output.txt
-

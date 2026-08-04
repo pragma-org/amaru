@@ -18,10 +18,9 @@ mod store_effects;
 
 pub use amaru_protocols::metrics_effects::{Metrics, MetricsOps, RecordMetricsEffect, ResourceMeter};
 pub use ledger_effects::{
-    ContainsPointEffect, Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation,
-    ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourcePoolSummaries,
-    ResourceTxValidation, RollbackBlockEffect, TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect,
-    VolatileTipEffect,
+    Ledger, LedgerOps, RegisteredRelaySocketAddrsEffect, ResourceBlockValidation, ResourceConsensusParameters,
+    ResourceEraHistory, ResourceHasStakePools, ResourcePoolSummaries, ResourceTxValidation, SwitchToForkEffect,
+    TipEffect, ValidateBlockEffect, ValidateHeaderEffect, ValidateTxEffect, VolatileTipEffect,
 };
 pub use random_effects::GenerateRandomSeed;
 pub use store_effects::{FindBestCandidate, find_best_candidate};

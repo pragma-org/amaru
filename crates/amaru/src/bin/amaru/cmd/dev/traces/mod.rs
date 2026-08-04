@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod dump;
@@ -26,4 +27,12 @@ pub(crate) enum TracesCommand {
 
     /// Get the traces JSON schema (alias for dump).
     Schema(dump::Args),
+}
+
+impl TracesCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Dump(args) | Self::Schema(args) => dump::runnable(args),
+        }
+    }
 }

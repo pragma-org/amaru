@@ -27,3 +27,24 @@ impl DRepRegistration {
         DRepRegistration { deposit: state.deposit, registered_at, valid_until: state.expiry }
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::DRepRegistration;
+    use crate::{any_certificate_pointer, any_epoch, any_lovelace};
+
+    prop_compose! {
+        pub fn any_drep_registration()(
+            deposit in any_lovelace() ,
+            registered_at in any_certificate_pointer(u64::MAX),
+            valid_until in any_epoch(),
+        ) -> DRepRegistration {
+            DRepRegistration { deposit, registered_at, valid_until }
+        }
+    }
+}

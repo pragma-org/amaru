@@ -12,8 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod serialised_as_millis;
-mod serialised_as_pico;
-
+#[cfg(any(test, feature = "test-utils"))]
+pub use cbor_array::CborArray;
+#[cfg(any(test, feature = "test-utils"))]
+pub use cbor_map::CborMap;
+pub use serialised_as_array::SerialisedAsArray;
+pub use serialised_as_cbor::SerialisedAsCbor;
 pub use serialised_as_millis::SerialisedAsMillis;
 pub use serialised_as_pico::SerialisedAsPico;
+pub use serialised_as_set::SerialisedAsSet;
+pub use skip::Skip;
+
+mod serialised_as_array;
+mod serialised_as_cbor;
+mod serialised_as_millis;
+mod serialised_as_pico;
+mod serialised_as_set;
+mod skip;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod cbor_array;
+#[cfg(any(test, feature = "test-utils"))]
+mod cbor_map;

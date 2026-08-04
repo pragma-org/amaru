@@ -30,6 +30,7 @@ use crate::{
             InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
             InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
+            proposals::InvalidProposals,
         },
     },
 };
@@ -149,6 +150,7 @@ where
 
 pub(super) enum Expected {
     Pass,
+    DecodingFailure,
     Fail(Predicate),
 }
 
@@ -157,10 +159,11 @@ impl<'de> Deserialize<'de> for Expected {
         let value = json::Value::deserialize(d)?;
         match value {
             json::Value::String(s) if s == "Pass" => Ok(Expected::Pass),
+            json::Value::Object(ref map) if map.contains_key("decodingFailure") => Ok(Expected::DecodingFailure),
             json::Value::Object(_) => json::from_value(value).map(Expected::Fail).map_err(serde::de::Error::custom),
             json::Value::String(s) => Err(serde::de::Error::custom(format!("expected \"Pass\", got {s:?}"))),
             json::Value::Null | json::Value::Bool(_) | json::Value::Number(_) | json::Value::Array(_) => {
-                Err(serde::de::Error::custom("expected \"Pass\" or { predicate: ..., ... }"))
+                Err(serde::de::Error::custom("expected \"Pass\", { decodingFailure: ... } or { predicate: ..., ... }"))
             }
         }
     }
@@ -174,8 +177,10 @@ pub(super) enum Predicate {
     BadInputsUTxO,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
+    ConwayWdrlNotDelegatedToDRep,
     FeeTooSmallUTxO,
     IncorrectDepositDELEG,
+    IncorrectTotalCollateralField,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
@@ -186,6 +191,9 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    ScriptsNotPaidUTxO,
+    TooManyCollateralInputs,
+    TreasuryWithdrawalReturnAccountsDoNotExist,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
     DRepAlreadyRegistered,
@@ -193,7 +201,11 @@ pub(super) enum Predicate {
     StakeCredentialInvalidVoteDelegation,
     StakeKeyHasNonZeroAccountBalance,
     StakeKeyRegistered,
+    StakePoolRetirementWrongEpochPOOL,
+    StakePoolNotRegisteredOnKeyPOOL,
+    StakePoolCostTooLowPOOL,
     ValueNotConservedUTxO,
+    WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
     WrongNetworkWithdrawal,
@@ -209,6 +221,13 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::MissingVKeyWitnessesUTXOW
             }
             PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
+            PhaseOneError::Withdrawals(InvalidWithdrawals::MissingAccountDRepDelegation(_)) => {
+                Predicate::ConwayWdrlNotDelegatedToDRep
+            }
+            PhaseOneError::Withdrawals(InvalidWithdrawals::AccountNotRegistered(_))
+            | PhaseOneError::Withdrawals(InvalidWithdrawals::IncompleteWithdrawal { .. }) => {
+                Predicate::WithdrawalsNotInRewardsCERTS
+            }
             PhaseOneError::Metadata(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(_)) => {
                 Predicate::MissingTxBodyMetadataHash
             }
@@ -223,7 +242,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
             PhaseOneError::Inputs(InvalidInputs::RefScriptSizeTooBig { .. }) => Predicate::ConwayTxRefScriptsSizeTooBig,
             PhaseOneError::Fees(InvalidFees::FeeTooSmall { .. }) => Predicate::FeeTooSmallUTxO,
-            PhaseOneError::InvalidNetworkID { .. } => Predicate::WrongNetworkInTxBody,
+            PhaseOneError::InvalidNetwork { .. } => Predicate::WrongNetworkInTxBody,
             PhaseOneError::TooLarge { .. } => Predicate::MaxTxSizeUTxO,
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideValidityInterval { .. }) => {
                 Predicate::OutsideValidityIntervalUTxO
@@ -238,6 +257,9 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
+            PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
+                Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
+            }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
@@ -256,13 +278,26 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
                 Predicate::DRepAlreadyRegistered
             }
+            PhaseOneError::Certificates(InvalidCertificates::PoolRetirementWrongEpoch { .. }) => {
+                Predicate::StakePoolRetirementWrongEpochPOOL
+            }
+            PhaseOneError::Certificates(InvalidCertificates::StakePoolUnknown(_)) => {
+                Predicate::StakePoolNotRegisteredOnKeyPOOL
+            }
+            PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
+                Predicate::StakePoolCostTooLowPOOL
+            }
             PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
             PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {
                 Predicate::InsufficientCollateral
             }
             PhaseOneError::Collateral(InvalidCollateral::ValueNotConserved(..)) => Predicate::ValueNotConservedUTxO,
-            PhaseOneError::Inputs(_)
-            | PhaseOneError::Metadata(_)
+            PhaseOneError::Collateral(InvalidCollateral::TooManyInputs { .. }) => Predicate::TooManyCollateralInputs,
+            PhaseOneError::Collateral(InvalidCollateral::LockedAtScriptAddress(..)) => Predicate::ScriptsNotPaidUTxO,
+            PhaseOneError::Collateral(InvalidCollateral::DeclaredCollateralMismatch { .. }) => {
+                Predicate::IncorrectTotalCollateralField
+            }
+            PhaseOneError::Metadata(_)
             | PhaseOneError::VKeyWitness(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Withdrawals(_)

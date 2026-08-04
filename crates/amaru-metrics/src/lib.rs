@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use crate::metrics::{Counter, Gauge, Meter};
-use crate::{ledger::LedgerMetrics, mempool::MempoolMetrics, protocol::ProtocolMetrics};
+pub use crate::metrics::{Counter, Gauge, Histogram, Meter};
+use crate::{consensus::ConsensusMetrics, ledger::LedgerMetrics, mempool::MempoolMetrics, protocol::ProtocolMetrics};
+pub mod consensus;
 pub mod ledger;
 pub mod mempool;
 pub mod metrics;
@@ -26,6 +27,7 @@ pub enum MetricsEvent {
     LedgerMetrics(LedgerMetrics),
     MempoolMetrics(MempoolMetrics),
     ProtocolMetrics(ProtocolMetrics),
+    ConsensusMetrics(ConsensusMetrics),
 }
 
 pub trait MetricRecorder {
@@ -38,6 +40,7 @@ impl MetricRecorder for MetricsEvent {
             MetricsEvent::LedgerMetrics(ledger_metrics) => ledger_metrics.record_to_meter(meter),
             MetricsEvent::MempoolMetrics(mempool_metrics) => mempool_metrics.record_to_meter(meter),
             MetricsEvent::ProtocolMetrics(protocol_metrics) => protocol_metrics.record_to_meter(meter),
+            MetricsEvent::ConsensusMetrics(consensus_metrics) => consensus_metrics.record_to_meter(meter),
         }
     }
 }

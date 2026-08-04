@@ -13,34 +13,46 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeSet,
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use amaru::{
-    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_LISTEN_ADDRESS, DEFAULT_UPSTREAM_PEERS, default_chain_dir, default_ledger_dir,
-    default_peer_for_network,
+    DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
+    lifecycle::{Runnable, RuntimeKind, ShutdownHandle},
     metrics::track_system_metrics,
+};
+use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
+use amaru_mempool::MempoolConfig;
+use amaru_metrics::METRICS_METER_NAME;
+use amaru_node::{
+    DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
+    peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
     stages::{
         build_node::build_and_run_node,
-        config::{Config, MaxExtraLedgerSnapshots, StoreType},
+        config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
     },
 };
-use amaru_kernel::{EraHistory, GlobalParameters, NetworkName};
-use amaru_mempool::MempoolConfig;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::anyhow;
 use clap::{self, ArgAction, Parser};
+use opentelemetry::metrics::MeterProvider;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::pid::with_optional_pid_file;
+use crate::pid::optional_pid_file;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -124,6 +136,22 @@ pub struct Args {
     )]
     peer_address: Vec<String>,
 
+    /// Path to a Cardano ledger peer snapshot JSON file (`bigLedgerPools`).
+    ///
+    /// Supplies stake-weighted big-ledger relays for peer selection at cold start,
+    /// complementary to `--peer-address`. Compatible with cardano-node's
+    /// `mainnet-peer-snapshot.json` (and similar per-network files).
+    ///
+    /// When omitted, Amaru uses the snapshot embedded at build time for known networks
+    /// (for example mainnet, preprod, preview), if one was available when the binary was built.
+    #[arg(
+        long,
+        value_name = amaru::value_names::FILEPATH,
+        env = amaru::env_vars::PEER_SNAPSHOT,
+        display_order = 0,
+    )]
+    peer_snapshot: Option<PathBuf>,
+
     /// The number of upstream peers to connect to.
     #[arg(
         long,
@@ -167,7 +195,7 @@ pub struct Args {
         long,
         value_name = amaru::value_names::UINT,
         env = amaru::env_vars::PEER_REMOVAL_COOLDOWN_SECS,
-        default_value_t = amaru::DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
+        default_value_t = DEFAULT_PEER_REMOVAL_COOLDOWN_SECS,
         display_order = 0,
         help_heading = "Advanced Options",
     )]
@@ -237,73 +265,102 @@ impl Args {
     }
 }
 
-pub async fn run(args: Args, meter_provider: Option<SdkMeterProvider>) -> Result<(), Box<dyn std::error::Error>> {
-    with_optional_pid_file(args.pid_file.clone(), async |_pid_file| {
-        let config = parse_args(args)?;
-        let trace_dump_path = config.trace_dump_path.clone();
-        let submit_api_address = config.submit_api_address()?;
-        pre_flight_checks()?;
+const SUBMIT_API_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
-        let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
-        let running = build_and_run_node(config, meter_provider)?;
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::soft(RuntimeKind::Node, move |shutdown, meter_provider| run(args, meter_provider, shutdown))
+}
 
-        let exit = amaru::exit::hook_exit_token();
-        let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
-            Ok(handle) => handle,
-            Err(err) => {
-                let trace_buffer = running.trace_buffer().clone();
-                running.abort();
-                dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
+async fn run(
+    args: Args,
+    meter_provider: Option<SdkMeterProvider>,
+    shutdown: ShutdownHandle,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _pid_file = optional_pid_file(args.pid_file.clone());
 
-                if let Some(handle) = metrics.as_ref() {
-                    handle.abort();
-                }
+    let config = parse_args(args)?;
+    let trace_dump_path = config.trace_dump_path.clone();
+    let submit_api_address = config.submit_api_address()?;
+    pre_flight_checks()?;
 
-                return Err(err);
+    let metrics = meter_provider.clone().map(track_system_metrics).transpose()?;
+    let meter = meter_provider.map(|mp| mp.meter(METRICS_METER_NAME));
+    let running = build_and_run_node(config, meter)?;
+
+    // Main-thread signal path can abort stages without scheduling this future.
+    let running_for_abort = running.clone();
+    shutdown.register_abort(move || running_for_abort.request_abort());
+    if shutdown.is_cancelled() {
+        running.request_abort();
+    }
+
+    let exit = shutdown.token();
+    let submit_api_handle = match start_submit_api(submit_api_address, running.mempool_sender(), &exit).await {
+        Ok(handle) => handle,
+        Err(err) => {
+            let trace_buffer = running.trace_buffer().clone();
+            running.request_abort();
+            dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
+
+            if let Some(handle) = metrics.as_ref() {
+                handle.abort();
             }
-        };
 
-        let term = running.termination();
-        let exit2 = exit.clone();
-        tokio::spawn(async move {
-            term.await;
-            if !exit2.is_cancelled() {
-                tracing::error!(
-                    "Consensus died, this should not happen! Please report this incl. preceding logs to the Amaru team."
-                );
-                exit2.cancel();
-            }
-        });
-
-        let trace_buffer = running.trace_buffer().clone();
-        exit.cancelled().await;
-        running.abort();
-        dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
-
-        if let Some(handle) = submit_api_handle {
-            let _ = handle.await; // Let graceful shutdown complete
+            return Err(err);
         }
+    };
 
-        if let Some(handle) = metrics {
-            handle.abort();
+    let term = running.termination();
+    let exit_for_term = exit.clone();
+    let consensus_died = Arc::new(AtomicBool::new(false));
+    let consensus_died_flag = Arc::clone(&consensus_died);
+    tokio::spawn(async move {
+        term.await;
+        if !exit_for_term.is_cancelled() {
+            consensus_died_flag.store(true, Ordering::SeqCst);
+            tracing::error!(
+                "Consensus died, this should not happen! Please report this incl. preceding logs to the Amaru team."
+            );
+            exit_for_term.cancel();
         }
+    });
 
-        Ok(())
-    })
-    .await
+    exit.cancelled().await;
+
+    let trace_buffer = running.trace_buffer().clone();
+    running.request_abort();
+    dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
+
+    if let Some(handle) = submit_api_handle {
+        match tokio::time::timeout(SUBMIT_API_JOIN_TIMEOUT, handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => warn!(error = %err, "submit API task ended with join error"),
+            Err(_) => warn!("submit API did not shut down within timeout"),
+        }
+    }
+
+    if let Some(handle) = metrics {
+        handle.abort();
+    }
+
+    if consensus_died.load(Ordering::SeqCst) {
+        return Err("consensus stage graph terminated unexpectedly".into());
+    }
+
+    Ok(())
 }
 
 /// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
 async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
     mempool_sender: Sender<MempoolMsg>,
-    exit: &tokio_util::sync::CancellationToken,
+    exit: &CancellationToken,
 ) -> Result<Option<tokio::task::JoinHandle<()>>, Box<dyn std::error::Error>> {
     let Some(addr) = address else {
         return Ok(None);
     };
     let shutdown = exit.child_token();
-    let (handle, _) = amaru::submit_api::start(addr, mempool_sender, shutdown).await?;
+    let (handle, _) = amaru_node::submit_api::start(addr, mempool_sender, shutdown).await?;
     Ok(Some(handle))
 }
 
@@ -355,6 +412,30 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         args.peer_address
     };
 
+    let network_magic = args.network.to_network_magic();
+    let peer_snapshot_peers = match args.peer_snapshot.as_deref() {
+        Some(path) => {
+            let snapshot = load_peer_snapshot(path, network_magic)?;
+            log_loaded_snapshot(Some(path), &snapshot);
+            snapshot.peers
+        }
+        None => match load_embedded_peer_snapshot(network)? {
+            Some(snapshot) => {
+                log_loaded_snapshot(None, &snapshot);
+                snapshot.peers
+            }
+            None => {
+                if PEER_SNAPSHOT_NETWORKS.contains(&network) {
+                    warn!(
+                        network = %network,
+                        "no embedded peer snapshot for this network; continuing without snapshot peers"
+                    );
+                }
+                BTreeSet::new()
+            }
+        },
+    };
+
     let (trace_buffer_min_entries, trace_buffer_max_size) = match args.trace_buffer.as_deref() {
         None => (0usize, 0usize),
         Some(s) => parse_trace_buffer_limits(s)?,
@@ -382,6 +463,23 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
             Box::new(tracing::field::Empty)
         },
         peer_address = %peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+        peer_snapshot = %args
+            .peer_snapshot
+            .as_deref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| {
+                if peer_snapshot_peers.is_empty() {
+                    "none".to_string()
+                } else {
+                    format!(
+                        "embedded{}",
+                        embedded_configs_commit()
+                            .map(|sha| format!("@{sha}"))
+                            .unwrap_or_default()
+                    )
+                }
+            }),
+        peer_snapshot_relays = peer_snapshot_peers.len(),
         pid_file = %args.pid_file.unwrap_or_default().to_string_lossy(),
         submit_api_address = %args.submit_api_address.as_deref().unwrap_or("disabled"),
         trace_buffer_min_entries,
@@ -397,17 +495,21 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     );
 
     Ok(Config {
-        ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+        ledger_config: LedgerConfig {
+            ledger_store: RocksDbConfig::new(ledger_dir).with_shared_env(),
+            network: args.network,
+            global_parameters,
+            era_history,
+            max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
+            ..LedgerConfig::default()
+        },
         chain_store: StoreType::RocksDb(RocksDbConfig::new(chain_dir).with_shared_env()),
         upstream_peers: peer_address,
+        peer_snapshot_peers,
         target_upstream_peers: args.upstream_peers,
         target_downstream_peers: args.downstream_peers,
-        network: args.network,
         network_magic: args.network.to_network_magic(),
-        era_history,
-        global_parameters,
         listen_address: args.listen_address,
-        max_extra_ledger_snapshots: args.max_extra_ledger_snapshots,
         migrate_chain_db: args.migrate_chain_db,
         submit_api_address: args.submit_api_address,
         trace_buffer_min_entries,
@@ -424,6 +526,27 @@ fn load_era_history(path: Option<&Path>) -> Result<EraHistory, Box<dyn std::erro
     match path {
         Some(path) => Ok(serde_json::from_slice(&std::fs::read(path)?)?),
         None => Err(anyhow!("missing era history for custom network").into()),
+    }
+}
+
+fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru_node::peer_snapshot::PeerSnapshot) {
+    if snapshot.peers.is_empty() {
+        warn!(
+            path = %path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
+            point = %snapshot.point,
+            pools = snapshot.pool_count,
+            "peer snapshot loaded but contains no relays"
+        );
+    } else {
+        info!(
+            path = %path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
+            point = %snapshot.point,
+            node_to_client_version = snapshot.node_to_client_version,
+            pools = snapshot.pool_count,
+            relays = snapshot.peers.len(),
+            configs_commit = embedded_configs_commit().unwrap_or("unknown"),
+            "loaded peer snapshot"
+        );
     }
 }
 

@@ -12,8 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::TransactionInput;
+use std::fmt;
 
-pub fn transaction_input_to_string(input: &TransactionInput) -> String {
-    format!("{}#{}", input.transaction_id, input.index)
+use crate::{Hash, cbor, hash};
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    std::hash::Hash,
+    cbor::Encode,
+    cbor::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct TransactionInput {
+    #[n(0)]
+    pub transaction_id: Hash<{ hash::size::TRANSACTION_BODY }>,
+
+    #[n(1)]
+    pub index: u64,
+}
+
+impl fmt::Display for TransactionInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.transaction_id, self.index)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::TransactionInput;
+    use crate::any_hash32;
+
+    prop_compose! {
+        pub fn any_transaction_input()(
+            id in any_hash32(),
+            ix in any::<u64>(),
+        ) -> TransactionInput {
+            TransactionInput { transaction_id: id, index: ix }
+        }
+    }
 }

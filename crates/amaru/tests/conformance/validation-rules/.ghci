@@ -1,0 +1,11 @@
+:set prompt  "\ESC[1;32mλ>\ESC[m "
+:set prompt-cont "| "
+:set -fhide-source-paths
+:set -isrc
+:set -fno-warn-type-defaults
+:set -freverse-errors
+:set -fbyte-code
+:set -Wno-type-defaults
+:set -Wno-deprecations
+:set -Wno-error=type-defaults
+:set -Wno-error=deprecations

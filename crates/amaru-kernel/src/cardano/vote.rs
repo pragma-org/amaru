@@ -12,7 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::Vote;
+use crate::cbor;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Vote {
+    No,
+    Yes,
+    Abstain,
+}
+
+impl<'b, C> cbor::Decode<'b, C> for Vote {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        match d.u8()? {
+            0 => Ok(Self::No),
+            1 => Ok(Self::Yes),
+            2 => Ok(Self::Abstain),
+            _ => Err(cbor::decode::Error::message("invalid variant id for Vote kind")),
+        }
+    }
+}
+
+impl<C> cbor::Encode<C> for Vote {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match &self {
+            Self::No => e.u8(0)?,
+            Self::Yes => e.u8(1)?,
+            Self::Abstain => e.u8(2)?,
+        };
+        Ok(())
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 

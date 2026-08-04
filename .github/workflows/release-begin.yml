@@ -169,6 +169,8 @@ jobs:
         with:
           submodules: true
 
+      - uses: ./.github/actions/stage-peer-snapshots
+
       - name: cargo build
         shell: bash
         env:

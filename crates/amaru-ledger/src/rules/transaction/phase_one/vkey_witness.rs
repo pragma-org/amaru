@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    AsHash, BootstrapWitness, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness, size::KEY,
+    BootstrapWitness, ByronAddress, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness, size::KEY,
     utils::string::display_collection, verify_ed25519_signature,
 };
 use thiserror::Error;
@@ -54,7 +54,7 @@ pub fn execute(
         provided_keys_or_roots.insert(Hasher::<224>::hash(&witness.vkey));
     });
     bootstrap_witnesses.iter().for_each(|witness| {
-        provided_keys_or_roots.insert(witness.as_hash());
+        provided_keys_or_roots.insert(ByronAddress::root(witness));
     });
 
     let mut required_keys_or_roots = context.required_signers();
@@ -69,7 +69,7 @@ pub fn execute(
 
     let mut invalid_witnesses = vec![];
     vkey_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_ref().as_slice())
+        verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_slice())
             .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
     });
 
@@ -79,7 +79,7 @@ pub fn execute(
 
     let mut invalid_witnesses = vec![];
     bootstrap_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.public_key, &witness.signature, transaction_id.as_ref().as_slice())
+        verify_ed25519_signature(&witness.public_key, &witness.signature, transaction_id.as_slice())
             .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
     });
 
@@ -88,164 +88,4 @@ pub fn execute(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use amaru_kernel::{
-        HasTransactionId, InvalidEd25519Signature, TransactionBody, WitnessSet, hash, include_cbor, include_json, json,
-    };
-    use amaru_tracing_json::assert_trace;
-    use test_case::test_case;
-
-    use super::*;
-    use crate::{
-        context::assert::AssertValidationContext,
-        rules::{WithPosition, tests::fixture_context},
-    };
-
-    macro_rules! fixture {
-        ($hash:literal) => {
-            (
-                fixture_context!($hash),
-                TransactionId::new(hash!($hash)),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-            )
-        };
-        ($hash:literal, $variant:literal) => {
-            (
-                fixture_context!($hash, $variant),
-                TransactionId::new(hash!($hash)),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-            )
-        };
-    }
-
-    // TODO: add tests for voting procedures
-    // TODO: include more certificate variants
-    #[test_case(
-        fixture!("90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c");
-        "valid"
-    )]
-    #[test_case(
-        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-signature") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
-                invalid_witnesses[0].element,
-                InvalidEd25519Signature::InvalidSignature
-            );
-        "invalid signature"
-    )]
-    #[test_case(
-        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-signature-length") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
-                invalid_witnesses[0].element,
-                InvalidEd25519Signature::InvalidSignatureSize { expected: 64, .. }
-            );
-        "invalid signature size"
-    )]
-    #[test_case(
-        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-key-length") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 1 && matches!(
-                invalid_witnesses[0].element,
-                InvalidEd25519Signature::InvalidKeySize { expected: 32, .. }
-            );
-        "invalid key size"
-    )]
-    #[test_case(
-        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "missing-spending-vkey") =>
-        matches Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots })
-            if missing_keys_or_roots[..] == [hash!("00000000000000000000000000000000000000000000000000000000")];
-        "missing required witness"
-    )]
-    #[test_case(
-        fixture!("806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb") =>
-        matches Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots })
-            if missing_keys_or_roots[..] == [hash!("00000000000000000000000000000000000000000000000000000000")];
-        "missing required signer"
-    )]
-    #[test_case(
-        fixture!("bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca") =>
-        matches Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots })
-            if missing_keys_or_roots[..] == [hash!("61c083ba69ca5e6946e8ddfe34034ce84817c1b6a806b112706109da")];
-        "missing withdraw vkey"
-    )]
-    #[test_case(
-        fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2") =>
-        matches Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots })
-            if missing_keys_or_roots[..] == [hash!("112909208360fb65678272a1d6ff45cf5cccbcbb52bcb0c59bb74862")];
-        "missing certificate vkey"
-    )]
-    fn test_vkey_witness(
-        (mut ctx, transaction_id, witness_set): (AssertValidationContext, TransactionId, WitnessSet),
-    ) -> Result<(), InvalidVKeyWitness> {
-        super::execute(
-            &mut ctx,
-            transaction_id,
-            witness_set.bootstrap_witness.as_deref(),
-            witness_set.vkeywitness.as_deref(),
-        )
-    }
-
-    macro_rules! fixture_bootstrap {
-        ($hash:literal) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
-            )
-        };
-        ($hash:literal, $variant:literal) => {
-            (
-                fixture_context!($hash, $variant),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
-            )
-        };
-    }
-
-    #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a"); "happy path byron")]
-    #[test_case(fixture_bootstrap!("0c22edee0ffd7c8f32d2fe4da1f144e9ef78dfb51e1678d5198493a83d6cf8ec"); "happy path icarus")]
-    #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "missing-required-witness") =>
-        matches Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots })
-        if missing_keys_or_roots.len() == 1 && hex::encode(missing_keys_or_roots[0]) == "65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8f";
-        "Missing Required Witness")]
-    #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "invalid-signature") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-        if invalid_witnesses.len() == 1 && matches!(invalid_witnesses[0], WithPosition {
-            position: 0,
-            element: InvalidEd25519Signature::InvalidSignature});
-        "Invalid Signatures: Invalid Signature")]
-    #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "invalid-signature-size") =>
-        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
-        if invalid_witnesses.len() == 1 && matches!(invalid_witnesses[0], WithPosition {
-            position: 0,
-            element: InvalidEd25519Signature::InvalidSignatureSize { ..}});
-        "Invalid Signatures: Invalid Signature Size")]
-    // InvalidKeySize is enforced by the validation context type (Hash<KEY>).
-    // If the key in the signature is the wrong length, the execute function will fail with MissingRequiredWitness
-    fn bootstrap_witness(
-        (mut ctx, tx, witness_set, expected_traces): (
-            AssertValidationContext,
-            TransactionBody,
-            WitnessSet,
-            Vec<json::Value>,
-        ),
-    ) -> Result<(), InvalidVKeyWitness> {
-        assert_trace(
-            || {
-                super::execute(
-                    &mut ctx,
-                    tx.tx_id(),
-                    witness_set.bootstrap_witness.as_deref(),
-                    witness_set.vkeywitness.as_deref(),
-                )
-            },
-            expected_traces,
-        )
-    }
 }

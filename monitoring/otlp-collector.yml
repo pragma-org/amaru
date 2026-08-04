@@ -7,30 +7,43 @@ receivers:
         endpoint: "0.0.0.0:4318"
 
 processors:
+  batch:
   resource/drop_prometheus_labels:
     attributes:
       - key: service.name
         action: delete
       - key: service.instance.id
         action: delete
+  transform/drop_scope:
+    metric_statements:
+      - context: scope
+        statements:
+          - set(name, "")
+          - set(version, "")
 
 exporters:
-  debug:
-    verbosity: basic
+  otlp/tempo:
+    endpoint: "tempo:4317"
+    tls:
+      insecure: true
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
   prometheus:
     endpoint: "0.0.0.0:8889"
     add_metric_suffixes: false
-    without_scope_info: true
+    metric_expiration: 5s
 
 service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [resource/drop_prometheus_labels]
-      exporters: [debug]
+      processors: [resource/drop_prometheus_labels, transform/drop_scope, batch]
+      exporters: [prometheus]
     traces:
       receivers: [otlp]
-      exporters: [debug]
+      processors: [batch]
+      exporters: [otlp/tempo]
     logs:
       receivers: [otlp]
-      exporters: [debug]
+      processors: [batch]
+      exporters: [otlphttp/loki]

@@ -39,7 +39,11 @@ pub fn run_strategy_with_rng<T, RNG: Rng>(rng: &mut RNG, s: impl Strategy<Value 
 
 /// Get some random bytes vector of the given size.
 pub fn random_bytes(size: usize) -> Vec<u8> {
-    let mut rng = StdRng::from_os_rng();
+    random_bytes_with_rng(&mut StdRng::from_os_rng(), size)
+}
+
+/// Get some random bytes vector of the given size and RNG
+pub fn random_bytes_with_rng(rng: &mut impl Rng, size: usize) -> Vec<u8> {
     let mut buffer = vec![0; size];
     rng.fill_bytes(&mut buffer);
     buffer

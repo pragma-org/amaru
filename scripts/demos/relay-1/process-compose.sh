@@ -71,15 +71,16 @@ default_tx_query_source() {
 TX_QUERY_SOURCE="${TX_QUERY_SOURCE:-$(default_tx_query_source)}"
 START_TELEMETRY="${START_TELEMETRY:-true}"
 TELEMETRY_DIR="${TELEMETRY_DIR:-$AMARU_DIR/monitoring}"
-TELEMETRY_PROFILES="${TELEMETRY_PROFILES:-prometheus grafana tempo}"
+TELEMETRY_COMPOSE_OVERRIDE_FILE="${TELEMETRY_COMPOSE_OVERRIDE_FILE:-$SCRIPT_DIR/telemetry/docker-compose.yml}"
 TELEMETRY_GRAFANA_URL="${TELEMETRY_GRAFANA_URL:-http://localhost}"
 TELEMETRY_PROMETHEUS_URL="${TELEMETRY_PROMETHEUS_URL:-http://localhost:9090}"
+export AMARU_RELAY_LOGDIR="$LOGDIR"
 OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4317}"
 OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-http://localhost:4318/v1/metrics}"
 AMARU_MIDDLE_WITH_OPEN_TELEMETRY="${AMARU_MIDDLE_WITH_OPEN_TELEMETRY:-true}"
 AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY="${AMARU_DOWNSTREAM_WITH_OPEN_TELEMETRY:-true}"
-AMARU_MIDDLE_WITH_JSON_TRACES="${AMARU_MIDDLE_WITH_JSON_TRACES:-false}"
-AMARU_DOWNSTREAM_WITH_JSON_TRACES="${AMARU_DOWNSTREAM_WITH_JSON_TRACES:-false}"
+AMARU_MIDDLE_WITH_JSON_TRACES="${AMARU_MIDDLE_WITH_JSON_TRACES:-true}"
+AMARU_DOWNSTREAM_WITH_JSON_TRACES="${AMARU_DOWNSTREAM_WITH_JSON_TRACES:-true}"
 AMARU_TRACE_EMIT_PRIVATE="${AMARU_TRACE_EMIT_PRIVATE:-true}"
 AMARU_MIDDLE_LOG="${AMARU_MIDDLE_LOG:-info,amaru::ledger::state=trace}"
 AMARU_DOWNSTREAM_LOG="${AMARU_DOWNSTREAM_LOG:-info,amaru::ledger::state=trace}"
@@ -124,6 +125,12 @@ validate_config() {
   fi
   [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
   validate_network_config
+  require_configured_tx
+}
+
+validate_startup_config() {
+  [[ -n "$CARDANO_NODE_CONFIG_DIR" ]] || die "CARDANO_NODE_CONFIG_DIR must be set (directory with config.json, topology.json, etc.)"
+  [[ -d "$AMARU_DIR" ]] || die "AMARU_DIR does not exist: $AMARU_DIR"
   require_configured_tx
 }
 
@@ -210,7 +217,10 @@ run_prepare_wallet() {
 
 telemetry_urls() {
   grafana_trace_url "traces" '{ resource.service.name = "amaru-middle" && span:name = "roll_forward.process" } with (most_recent=true)'
-  grafana_mempool_dashboard_url
+  grafana_logs_url "logs" '{service_name=~"amaru-middle|amaru-downstream"}'
+  grafana_dashboard_panel_url "amaru-relay-consensus-perf" 7
+  grafana_dashboard_url "amaru-relay-mempool"
+  grafana_dashboard_url "amaru-relay-consensus-perf"
 }
 
 case "${1:-up}" in
@@ -233,13 +243,14 @@ telemetry-urls) telemetry_urls ;;
 run)
   case "${2:-}" in
   setup | 0-setup) setup ;;
+  telemetry-up | 8-telemetry-setup) telemetry_up ;;
   mithril-refresh | 1-mithril-refresh) run_mithril_refresh ;;
   initialize | 2-initialize) initialize ;;
   cardano-upstream | cardano-node | 3-cardano-node) run_cardano_upstream ;;
   amaru-middle | 4-amaru-middle) run_amaru_middle ;;
   amaru-downstream | 5-amaru-downstream) run_amaru_downstream ;;
   watch | 9-watch) run_watch ;;
-  telemetry-open | telemetry | 8-telemetry) open_telemetry ;;
+  telemetry-open | telemetry | 8-telemetry-open) open_telemetry ;;
   prepare-wallet | 6-prepare-wallet)
     run_prepare_wallet
     exit $?
@@ -252,7 +263,7 @@ run)
     run_submit_tx_batch "${3:-}"
     exit $?
     ;;
-  *) die "usage: $0 run {setup|mithril-refresh|initialize|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx|submit-tx-batch|prepare-wallet}" ;;
+  *) die "usage: $0 run {setup|telemetry-up|mithril-refresh|initialize|cardano-upstream|amaru-middle|amaru-downstream|watch|telemetry-open|submit-tx|submit-tx-batch|prepare-wallet}" ;;
   esac
   ;;
 ready)

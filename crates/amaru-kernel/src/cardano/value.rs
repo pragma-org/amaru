@@ -19,12 +19,55 @@ use std::{
     ops::{AddAssign, SubAssign},
 };
 
-pub use pallas_primitives::conway::Value;
-use pallas_primitives::conway::{Multiasset, PolicyId, PositiveCoin};
-use serde::Deserialize;
+use crate::{
+    AssetName, Hash, Lovelace, Multiasset, NonZeroInt, PositiveCoin, cbor,
+    size::{CREDENTIAL, SCRIPT},
+};
 
-use crate::{AssetName, NonEmptyKeyValuePairs, NonZeroInt};
-pub use crate::{Hash, size::CREDENTIAL};
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Value {
+    Coin(Lovelace),
+    Multiasset(Lovelace, Multiasset<PositiveCoin>),
+}
+
+impl<C> cbor::encode::Encode<C> for Value {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match self {
+            Value::Coin(coin) => {
+                e.encode_with(coin, ctx)?;
+            }
+            Value::Multiasset(coin, other) => {
+                e.array(2)?;
+                e.encode_with(coin, ctx)?;
+                e.encode_with(other, ctx)?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for Value {
+    #[expect(clippy::wildcard_enum_match_arm)]
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        match d.datatype()? {
+            cbor::data::Type::U8 | cbor::data::Type::U16 | cbor::data::Type::U32 | cbor::data::Type::U64 => {
+                Ok(Value::Coin(d.decode_with(ctx)?))
+            }
+            cbor::data::Type::Array => {
+                d.array()?;
+                let coin = d.decode_with(ctx)?;
+                let multiasset = d.decode_with(ctx)?;
+                Ok(Value::Multiasset(coin, multiasset))
+            }
+            _ => Err(cbor::decode::Error::message("unknown cbor data type for Value enum")),
+        }
+    }
+}
 
 /// An identifier for a currency in a [`Value`].
 ///
@@ -45,10 +88,11 @@ pub enum CurrencySymbol {
 #[derive(Debug, Default)]
 pub struct PlutusMint<'a>(pub BTreeMap<Hash<CREDENTIAL>, BTreeMap<Cow<'a, AssetName>, i64>>);
 
-impl<'a> From<&'a NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>>
-    for PlutusMint<'a>
-{
-    fn from(value: &'a NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>) -> Self {
+/// Signed multi-asset bundle as it appears on `TransactionBody.mint`
+pub type Mint = Multiasset<NonZeroInt>;
+
+impl<'a> From<&'a Mint> for PlutusMint<'a> {
+    fn from(value: &'a Mint) -> Self {
         let mints = value
             .iter()
             .map(|(policy, multiasset)| {
@@ -66,17 +110,14 @@ impl<'a> From<&'a NonEmptyKeyValuePairs<Hash<CREDENTIAL>, NonEmptyKeyValuePairs<
     }
 }
 
-/// Signed multi-asset bundle as it appears on `TransactionBody.mint`
-pub type Mint = NonEmptyKeyValuePairs<PolicyId, NonEmptyKeyValuePairs<AssetName, NonZeroInt>>;
-
 /// A signed representation of a value, including a multiasset and lovelace.
 ///
 /// Unlike [`Value`], entries here may be negative; allowing it to be used in value comparisons.
 /// Multiasset entires cannot be zero.
-#[derive(Default, Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct Balance {
     coin: i64,
-    multiasset: BTreeMap<(PolicyId, AssetName), i128>,
+    multiasset: BTreeMap<(Hash<{ SCRIPT }>, AssetName), i128>,
 }
 
 impl Display for Balance {
@@ -130,7 +171,7 @@ impl Balance {
 
     /// Apply a signed `delta` to the multi-asset entry at `key`. A delta of zero is a no-op; an
     /// entry that nets to zero is removed.
-    fn apply_delta(&mut self, key: (PolicyId, AssetName), delta: i128) {
+    fn apply_delta(&mut self, key: (Hash<{ SCRIPT }>, AssetName), delta: i128) {
         if delta == 0 {
             return;
         }

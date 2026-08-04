@@ -15,16 +15,15 @@
 use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
-    AsHash, RatificationStatus, StakeCredentialKind, cost_models, drep_voting_thresholds, ex_units, ex_units_prices,
-    pool_voting_thresholds, protocol_version,
-};
-use amaru_kernel::{
-    ComparableProposalId,
     Constitution,
     Epoch,
     EraHistory,
     Lovelace,
+    ProposalId,
+    ProposalsRoots,
+    ProposalsRootsRc,
     ProtocolParameters,
+    RatificationStatus,
     StakeCredential,
     cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
@@ -32,14 +31,12 @@ use amaru_kernel::{
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
     expect_stake_credential,
-    rational_number,
+    protocol_version,
 };
 use amaru_observability::{debug, info, info_span};
 
 use crate::{
-    governance::ratification::{
-        CandidateProposal, CommitteeUpdate, ProposalsRoots, ProposalsRootsRc, RatificationContext,
-    },
+    governance::ratification::{CandidateProposal, CommitteeUpdate, RatificationContext},
     state::StateError,
     store::columns::proposals::Row as Proposal,
 };
@@ -57,11 +54,15 @@ pub struct GovernanceUpdates {
 
     /// Proposals that have been ratified, have expired or have been pruned due to another
     /// conflicting proposal being dropped.
-    pub pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus>,
+    pub pruned_proposals: BTreeMap<ProposalId, RatificationStatus>,
 
-    /// Payouts done to accounts; either because of a deposit refunds or because of a treasury
-    /// withdrawal.
-    pub payouts: BTreeMap<StakeCredential, Lovelace>,
+    /// Refunds from proposals' deposits that are now being returned due to expiration, enactment or
+    /// pruning thereof.
+    pub deposit_refunds: BTreeMap<StakeCredential, Lovelace>,
+
+    /// Withdrawals from the treasury by enacted proposals. Kept separate from
+    /// `deposit_refunds` which don't come from the treasury at all.
+    pub treasury_withdrawals: BTreeMap<StakeCredential, Lovelace>,
 
     /// Captures whether the resulting epoch is considered 'dormant' (i.e. no active proposals
     /// left to vote on at the beginning of the epoch, after ratification).
@@ -94,6 +95,20 @@ struct ProposalMetadata {
 }
 
 impl GovernanceUpdates {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default(protocol_parameters: ProtocolParameters) -> Self {
+        Self {
+            roots: ProposalsRoots::default(),
+            protocol_parameters,
+            pruned_proposals: BTreeMap::default(),
+            deposit_refunds: BTreeMap::default(),
+            treasury_withdrawals: BTreeMap::default(),
+            is_dormant_epoch: true,
+            constitutional_committee: None,
+            new_constitution: None,
+        }
+    }
+
     /// Look at every still-active governance proposal and ratify them in order of priority and
     /// submission.
     ///
@@ -117,24 +132,18 @@ impl GovernanceUpdates {
     ///
     pub fn new(
         roots: ProposalsRootsRc,
-        iter_proposals: impl Iterator<Item = (ComparableProposalId, Proposal)>,
+        iter_proposals: impl Iterator<Item = (ProposalId, Proposal)>,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
         mut ctx: RatificationContext<'_>,
     ) -> Result<Self, StateError> {
-        let mut proposals_metadata: BTreeMap<Rc<ComparableProposalId>, ProposalMetadata> = BTreeMap::new();
+        let mut proposals_metadata: BTreeMap<Rc<ProposalId>, ProposalMetadata> = BTreeMap::new();
 
         // A dual fold where we split the proposal information between 'CandidateProposal' and
         // 'ProposalMetadata'; both used in different contexts.
-        let proposals: Vec<(Rc<ComparableProposalId>, CandidateProposal)> = iter_proposals
+        let proposals: Vec<(Rc<ProposalId>, CandidateProposal)> = iter_proposals
             .map(|(id, row)| {
                 let id = Rc::new(id);
-
-                let candidate = CandidateProposal {
-                    valid_until: row.valid_until,
-                    proposed_in: row.proposed_in,
-                    governance_action: row.proposal.gov_action,
-                };
 
                 let metadata = ProposalMetadata {
                     valid_until: row.valid_until,
@@ -144,7 +153,7 @@ impl GovernanceUpdates {
 
                 proposals_metadata.insert(id.clone(), metadata);
 
-                (id, candidate)
+                (id, CandidateProposal::from(row))
             })
             .collect();
 
@@ -170,27 +179,24 @@ impl GovernanceUpdates {
                 // Once ratified, we can go over each proposal and figure out refunds due to
                 // enactment, expiry or conflicts with other enacted proposals.
                 let mut is_dormant_epoch = true;
-                let mut payouts = ctx.withdrawals;
-                let mut payouts_str = String::new();
+                let mut deposit_refunds = BTreeMap::new();
                 for (id, proposal) in proposals_metadata.into_iter() {
                     let expired = ctx.epoch == proposal.valid_until;
                     let ratified_or_evicted = ctx.pruned_proposals.contains_key(&id);
 
                     if expired || ratified_or_evicted {
                         info!(ledger::proposal::DROP, id = %id, expired, ratified_or_evicted);
-                        ctx.pruned_proposals.insert(id, RatificationStatus::NotRatified); // For expired proposals
+                        // Expired proposals aren't in the pruned set yet; ratified or evicted ones
+                        // already are, and must keep the status recorded during ratification.
+                        ctx.pruned_proposals.entry(id).or_insert(RatificationStatus::NotRatified);
                         let return_account = proposal.return_account;
                         let deposit = proposal.deposit;
-                        payouts
-                            .entry(return_account.clone())
+                        deposit_refunds
+                            .entry(return_account)
                             .and_modify(|balance| {
                                 *balance += deposit;
-                                trace_return_account(&mut payouts_str, &return_account, *balance);
                             })
-                            .or_insert_with(|| {
-                                trace_return_account(&mut payouts_str, &return_account, deposit);
-                                deposit
-                            });
+                            .or_insert_with(|| deposit);
                     } else {
                         // NOTE: dormant epochs
                         //
@@ -221,7 +227,7 @@ impl GovernanceUpdates {
                 // proposal ids, so that the next 'unwrap_or_clone' should in practice results in a
                 // clean transfer of ownership without clone.
                 let mut pruned_proposals_str = String::new();
-                let pruned_proposals: BTreeMap<ComparableProposalId, RatificationStatus> = ctx
+                let pruned_proposals: BTreeMap<ProposalId, RatificationStatus> = ctx
                     .pruned_proposals
                     .into_iter()
                     .map(|(id, status)| {
@@ -248,7 +254,8 @@ impl GovernanceUpdates {
                 info!(
                     ledger::ratification::SUMMARIZE,
                     pruned_proposals = @opt_str(pruned_proposals_str),
-                    payouts = @opt_str(payouts_str),
+                    refunds = @opt_map(&deposit_refunds),
+                    withdrawals = @opt_map(&ctx.withdrawals),
                     new_constitution =
                         @opt_str(ctx.new_constitution.as_ref().map(|c| c.anchor.url.clone()).unwrap_or_default()),
                     constitutional_committee_update = @opt_str(
@@ -264,11 +271,12 @@ impl GovernanceUpdates {
                 Ok(Self {
                     roots: roots.unwrap_or_clone(),
                     pruned_proposals,
-                    payouts,
-                    is_dormant_epoch,
+                    deposit_refunds,
+                    treasury_withdrawals: ctx.withdrawals,
                     protocol_parameters: ctx.protocol_parameters,
                     new_constitution: ctx.new_constitution,
                     constitutional_committee: ctx.constitutional_committee_update,
+                    is_dormant_epoch,
                 })
             },
         )
@@ -279,21 +287,14 @@ impl GovernanceUpdates {
     /// the reward balance at the epoch boundary, so they count towards a withdrawable balance
     /// during the straddle.
     pub fn payout(&self, account: &StakeCredential) -> Lovelace {
-        self.payouts.get(account).copied().unwrap_or(0)
+        let refund = self.deposit_refunds.get(account).copied().unwrap_or(0);
+        let withdrawal = self.treasury_withdrawals.get(account).copied().unwrap_or(0);
+
+        refund + withdrawal
     }
 }
 
 // ----------------------------------------------------------------------------------------- Tracing
-
-fn trace_return_account(s: &mut String, return_account: &StakeCredential, balance: Lovelace) {
-    *s += &format!(
-        "{}({}) {}: {}",
-        if s.is_empty() { "" } else { ", " },
-        StakeCredentialKind::from(return_account),
-        return_account.as_hash(),
-        balance
-    );
-}
 
 fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) {
     // NOTE: destructuring for completeness static checks
@@ -341,8 +342,8 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         max_block_body_size = @opt_field(&old.max_block_body_size, max_block_body_size),
         max_transaction_size = @opt_field(&old.max_transaction_size, max_transaction_size),
         max_block_header_size = @opt_field(&old.max_block_header_size, max_block_header_size),
-        max_tx_ex_units = @opt_field_with(&old.max_tx_ex_units, max_tx_ex_units, ex_units::fmt),
-        max_block_ex_units = @opt_field_with(&old.max_block_ex_units, max_block_ex_units, ex_units::fmt),
+        max_tx_ex_units = @opt_field(&old.max_tx_ex_units, max_tx_ex_units),
+        max_block_ex_units = @opt_field(&old.max_block_ex_units, max_block_ex_units),
         max_value_size = @opt_field(&old.max_value_size, max_value_size),
         max_collateral_inputs = @opt_field(&old.max_collateral_inputs, max_collateral_inputs),
         min_fee_a = @opt_field(&old.min_fee_a, min_fee_a),
@@ -350,32 +351,29 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         stake_credential_deposit = @opt_field(&old.stake_credential_deposit, stake_credential_deposit),
         stake_pool_deposit = @opt_field(&old.stake_pool_deposit, stake_pool_deposit),
         monetary_expansion_rate =
-            @opt_field_with(&old.monetary_expansion_rate, monetary_expansion_rate, rational_number::fmt),
+            @opt_field(&old.monetary_expansion_rate, monetary_expansion_rate),
         treasury_expansion_rate =
-            @opt_field_with(&old.treasury_expansion_rate, treasury_expansion_rate, rational_number::fmt),
+            @opt_field(&old.treasury_expansion_rate, treasury_expansion_rate),
         min_pool_cost = @opt_field(&old.min_pool_cost, min_pool_cost),
         lovelace_per_utxo_byte = @opt_field(&old.lovelace_per_utxo_byte, lovelace_per_utxo_byte),
-        prices = @opt_field_with(&old.prices, prices, ex_units_prices::fmt),
-        min_fee_ref_script_lovelace_per_byte = @opt_field_with(
+        prices = @opt_field(&old.prices, prices),
+        min_fee_ref_script_lovelace_per_byte = @opt_field(
             &old.min_fee_ref_script_lovelace_per_byte,
             min_fee_ref_script_lovelace_per_byte,
-            rational_number::fmt,
         ),
         max_ref_script_size_per_tx = @opt_field(&old.max_ref_script_size_per_tx, max_ref_script_size_per_tx),
         max_ref_script_size_per_block = @opt_field(&old.max_ref_script_size_per_block, max_ref_script_size_per_block),
         ref_script_cost_stride = @opt_field(&old.ref_script_cost_stride, ref_script_cost_stride),
         ref_script_cost_multiplier =
-            @opt_field_with(&old.ref_script_cost_multiplier, ref_script_cost_multiplier, rational_number::fmt),
+            @opt_field(&old.ref_script_cost_multiplier, ref_script_cost_multiplier),
         stake_pool_max_retirement_epoch =
             @opt_field(&old.stake_pool_max_retirement_epoch, stake_pool_max_retirement_epoch),
         optimal_stake_pools_count = @opt_field(&old.optimal_stake_pools_count, optimal_stake_pools_count),
-        pledge_influence = @opt_field_with(&old.pledge_influence, pledge_influence, rational_number::fmt),
+        pledge_influence = @opt_field(&old.pledge_influence, pledge_influence),
         collateral_percentage = @opt_field(&old.collateral_percentage, collateral_percentage),
-        cost_models = @opt_field_with(&old.cost_models, cost_models, cost_models::fmt),
-        pool_voting_thresholds =
-            @opt_field_with(&old.pool_voting_thresholds, pool_voting_thresholds, pool_voting_thresholds::fmt),
-        drep_voting_thresholds =
-            @opt_field_with(&old.drep_voting_thresholds, drep_voting_thresholds, drep_voting_thresholds::fmt,),
+        cost_models = @opt_field(&old.cost_models, cost_models),
+        pool_voting_thresholds = @opt_field(&old.pool_voting_thresholds, pool_voting_thresholds),
+        drep_voting_thresholds = @opt_field(&old.drep_voting_thresholds, drep_voting_thresholds),
         min_committee_size = @opt_field(&old.min_committee_size, min_committee_size),
         max_committee_term_length = @opt_field(&old.max_committee_term_length, max_committee_term_length),
         gov_action_lifetime = @opt_field(&old.gov_action_lifetime, gov_action_lifetime),
@@ -397,6 +395,101 @@ fn opt_str(s: String) -> Box<dyn tracing::Value> {
     if s.is_empty() { Box::new(tracing::field::Empty) as Box<dyn tracing::Value> } else { Box::new(s) }
 }
 
-fn opt_root(root: Option<&ComparableProposalId>) -> Box<dyn tracing::Value> {
+fn opt_map<K: fmt::Display, V: fmt::Display>(map: &BTreeMap<K, V>) -> Box<dyn tracing::Value> {
+    let mut s = String::new();
+    for (k, v) in map {
+        s += &format!("{}{k}={v}", if s.is_empty() { "" } else { ", " });
+    }
+    opt_str(s)
+}
+
+fn opt_root(root: Option<&ProposalId>) -> Box<dyn tracing::Value> {
     root.map(|r| Box::new(r.to_string()) as Box<dyn tracing::Value>).unwrap_or_else(|| Box::new(tracing::field::Empty))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::VecDeque, sync::Mutex};
+
+    use amaru_kernel::{GovernanceAction, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, any_proposal_id};
+    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+
+    use super::*;
+    use crate::{
+        state::StakeDistributionView, store::columns::proposals, summary::stake_distribution::StakeDistribution,
+    };
+
+    fn empty_stake_distribution(epoch: Epoch) -> StakeDistribution {
+        StakeDistribution {
+            epoch,
+            treasury: 0,
+            reserves: 0,
+            active_stake: 0,
+            pools_voting_stake: 0,
+            dreps_voting_stake: 0,
+            pools: BTreeMap::new(),
+            dreps: BTreeMap::new(),
+        }
+    }
+
+    fn any_information_proposal(runner: &mut TestRunner, valid_until: Epoch) -> Proposal {
+        let mut row = proposals::tests::any_row(1_000).new_tree(runner).unwrap().current();
+        row.valid_until = valid_until;
+        row.proposal.deposit = 100_000;
+        row.proposal.gov_action = GovernanceAction::Information;
+        row
+    }
+
+    #[test]
+    fn dropped_proposals_keep_their_ratification_status() {
+        let mut runner = TestRunner::default();
+        let epoch = Epoch::from(10);
+
+        let ratified_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
+        let expired_id = any_proposal_id().new_tree(&mut runner).unwrap().current();
+
+        let ratified = any_information_proposal(&mut runner, epoch + 5);
+        let expired = any_information_proposal(&mut runner, epoch);
+
+        let withdrawal_account = expect_stake_credential(&ratified.proposal.reward_account);
+
+        let distributions = Mutex::new(VecDeque::from([empty_stake_distribution(epoch)]));
+        let ctx = RatificationContext {
+            epoch,
+            treasury: 1_000_000_000,
+            stake_distribution: StakeDistributionView::new(distributions.lock().unwrap(), epoch).unwrap(),
+            protocol_parameters: PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            pruned_proposals: BTreeMap::from([(Rc::new(ratified_id), RatificationStatus::Ratified)]),
+            withdrawals: BTreeMap::from([(withdrawal_account, 70_000)]),
+            constitutional_committee: None,
+            constitutional_committee_update: None,
+            new_constitution: None,
+            votes: BTreeMap::new(),
+        };
+
+        let updates = GovernanceUpdates::new(
+            ProposalsRootsRc::default(),
+            [(ratified_id, ratified), (expired_id, expired)].into_iter(),
+            &PREPROD_ERA_HISTORY,
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+            ctx,
+        )
+        .unwrap();
+
+        assert_eq!(
+            updates.pruned_proposals.get(&ratified_id),
+            Some(&RatificationStatus::Ratified),
+            "a proposal pruned during ratification must keep its 'Ratified' status"
+        );
+        assert_eq!(
+            updates.pruned_proposals.get(&expired_id),
+            Some(&RatificationStatus::NotRatified),
+            "an expired proposal is 'NotRatified'"
+        );
+        assert_eq!(
+            updates.treasury_withdrawals.values().sum::<Lovelace>(),
+            70_000,
+            "enacted withdrawals are totalled for the treasury debit"
+        );
+    }
 }

@@ -12,72 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, mem};
 
-use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{MemoizedTransactionOutput, Point, PoolId, ProposalId, StakeCredential, TransactionInput};
 use amaru_observability::debug_span;
 
 use crate::state::{
-    AnchoredVolatileFragment, VolatileFragment,
+    AnchoredVolatileFragment,
     volatile::{
-        AccountBind, Existence, VolatileSequence, VolatileState,
-        fragment::{CommitteeMemberBind, DRepBind},
+        AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
     },
 };
 
-/// Number of blocks after which, if no rollback has been observed, we forcefully re-compute the
-/// aggregate. This number is chosen 'arbitrarily' but with a few considerations:
-///
-/// 1. We don't want the memory footprint of the volatile to grow *too much*. 100MB appears as a
-///    good arbitrary upper-bound. At least, that's one dimension we have freedom to decide on.
-///
-/// 2. We make a gross approximation that 1 block equals 90KB (i.e. the maximum block size) of
-///    memory allocation. In practice, it is far less since blocks contain a variety of
-///    informations that we do not store here, but it seems like a reasonable limit again. Plus, we
-///    do cleanup UTxOs, votes, and a couple of other things to reduce the growth.
-///
-/// 3. From there; we know that slot battles are "frequent enough" that they occurs somewhere
-///    around every ~13 minutes on average. Or said differently, they occur every 40 blocks on
-///    average. These don't necessarily lead to an observable rollback, but that gives a lower
-///    bound.
-///
-/// 4. We use a safe margin on top of what was described in (3) for two reasons: it gives some
-///    safety net in case where the block size would change due to a protocol parameter update
-///    (although we do expect to have time to notify our users about hardware requirements increase
-///    if that ever occurs); but also, it prevents the forced recompute to occur too often when
-///    syncing, since no rollbacks can be observed during that time.
-///
-/// So putting it all together; using 1080 means that the memory footprint of the volatile
-/// shouldn't grow beyond ~100MB. There should also be ~27 slot battles during that timeframe and
-/// it is highly likely that *at least one* would lead to an observable rollback. Finally, when
-/// syncing, the impact should be negligible as only one block every 1080 would cause an aggregate
-/// recompute.
-const DEFAULT_FORCED_RECOMPUTE_IN: usize = 1080;
-
+#[derive(Debug, Default)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct VolatileSeries {
-    forced_recompute_in: usize,
     sequence: VecDeque<AnchoredVolatileFragment>,
-    aggregate: VolatileFragment,
-}
-
-impl Default for VolatileSeries {
-    fn default() -> Self {
-        Self {
-            forced_recompute_in: DEFAULT_FORCED_RECOMPUTE_IN,
-            sequence: Default::default(),
-            aggregate: Default::default(),
-        }
-    }
+    aggregate: VolatileAggregate,
 }
 
 impl VolatileState for VolatileSeries {
     // --------------------------------------------------------------------------------------- UTxOs
-    fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
-        self.aggregate.utxo.produced.get(input).map(|output| output.as_ref())
-    }
-
-    fn has_consumed_input(&self, input: &TransactionInput) -> bool {
-        self.aggregate.utxo.consumed.contains(input)
+    type TransactionOutput<'a> = Existence<&'a MemoizedTransactionOutput>;
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
+        self.aggregate.resolve_input(input)
     }
 
     // --------------------------------------------------------------------------------------- Pools
@@ -89,27 +47,30 @@ impl VolatileState for VolatileSeries {
     }
 
     // ------------------------------------------------------------------------------------ Accounts
-    type Account = Existence<AccountBind>;
-    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account {
+    type Account<'a> = Existence<AccountBind<'a>>;
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
         self.aggregate.resolve_account(credential)
     }
 
+    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+        self.aggregate.has_withdrawal(credential)
+    }
+
     // --------------------------------------------------------------------------------------- DReps
-    type DRep = Existence<DRepBind>;
-    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep {
-        // This series' verdict on a DRep account, read off its aggregate.
+    type DRep<'a> = Existence<DRepBind<'a>>;
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
         self.aggregate.resolve_drep(credential)
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember = Existence<CommitteeMemberBind>;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
+    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
         self.aggregate.resolve_cc_member(credential)
     }
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal = Existence<()>;
-    fn resolve_proposal(&self, id: &ComparableProposalId) -> Existence<()> {
+    fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {
         self.aggregate.resolve_proposal(id)
     }
 }
@@ -148,55 +109,60 @@ impl VolatileSequence for VolatileSeries {
     fn pop_front(&mut self) -> Option<Self::Item> {
         let popped = self.sequence.pop_front()?;
         if self.sequence.is_empty() {
-            self.aggregate = VolatileFragment::default();
-        } else if self.forced_recompute_in == 0 {
-            self.recompute_aggregate()
+            self.aggregate = VolatileAggregate::default();
         } else {
-            self.aggregate.incremental_cleanup(&popped.fragment);
+            self.aggregate.remove_fragment(&popped.fragment);
         }
         Some(popped)
     }
 
     fn push_back(&mut self, item: Self::Item) {
-        self.forced_recompute_in = self.forced_recompute_in.saturating_sub(1);
-        self.aggregate.compose(&item.fragment);
+        self.aggregate.add_fragment(&item.fragment);
         self.sequence.push_back(item);
-    }
-
-    fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point> {
-        let ix = self.sequence.binary_search_by_key(point, |anchored| anchored.point()).map_err(|_| point)?;
-
-        self.sequence.truncate(ix + 1);
-        self.recompute_aggregate();
-
-        Ok(())
-    }
-
-    fn clear(&mut self) {
-        self.sequence.clear();
-        self.aggregate = Default::default();
-        self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
     }
 }
 
 impl VolatileSeries {
-    /// Whether this series withdrew the account's rewards anywhere in its aggregate.
-    pub fn withdrew(&self, credential: &StakeCredential) -> bool {
-        self.aggregate.withdrew(credential)
+    /// Rebuild the aggregate from scratch by re-folding the surviving sequence. Only rollback uses
+    /// this; stabilization retracts a single fragment off the front exactly and incrementally (see
+    /// [`VolatileAggregate::remove_fragment`]).
+    ///
+    /// Rollback *could* be incremental too, peel the discarded tail newest-first, the mirror of
+    /// stabilization, but that would need an exact back-removal on every field, and `utxo` doesn't
+    /// have one. It is a collapsed [`crate::state::volatile::DiffSet`]: when a later fragment
+    /// consumes an input an earlier one produced, the collapse discards that produced value
+    /// outright. Retracting the oldest fragment never needs it back (nothing earlier remains), but
+    /// retracting the newest would have to restore it, and it is gone. A rollback discards a whole
+    /// suffix at once and fires relatively infrequently, so re-folding it is cheap and obviously
+    /// correct; the exact incremental path is reserved for stabilization, which runs on every block.
+    fn new_aggregate(&mut self) {
+        debug_span!(ledger::volatile::AGGREGATE).in_scope(|| {
+            self.aggregate = VolatileAggregate::default();
+            for anchored in &self.sequence {
+                self.aggregate.add_fragment(&anchored.fragment);
+            }
+        });
     }
 
-    fn recompute_aggregate(&mut self) {
-        self.forced_recompute_in = DEFAULT_FORCED_RECOMPUTE_IN;
+    pub fn rollback_to(&mut self, point: &Point) -> Result<VecDeque<AnchoredVolatileFragment>, String> {
+        let ix = self.sequence.binary_search_by_key(point, |anchored| anchored.point()).map_err(|e| e.to_string())?;
+        let recovery = self.sequence.split_off(ix + 1);
+        self.new_aggregate();
+        Ok(recovery)
+    }
 
-        debug_span!(ledger::volatile::AGGREGATE).in_scope(|| {
-            let mut aggregate = VolatileFragment::default();
+    pub fn undo_rollback(&mut self, point: &Point, fragments: VecDeque<AnchoredVolatileFragment>) {
+        let ix = self
+            .sequence
+            .binary_search_by_key(point, |anchored| anchored.point())
+            .unwrap_or_else(|e| unreachable!("failed to undo_rollback, fork point {point} is gone: {e}"));
+        self.sequence.truncate(ix + 1);
+        self.sequence.extend(fragments);
+        self.new_aggregate();
+    }
 
-            for anchored in &self.sequence {
-                aggregate.compose(&anchored.fragment);
-            }
-
-            self.aggregate = aggregate;
-        });
+    pub fn clear(&mut self) -> Self {
+        Self { sequence: mem::take(&mut self.sequence), aggregate: mem::take(&mut self.aggregate) }
     }
 }
 
@@ -208,7 +174,9 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::state::{diff_set::DiffSet, volatile::test_support::*};
+    use crate::{state::volatile::DiffSet, tests::fake_output};
+
+    const VOLATILE_WINDOW: usize = 6;
 
     fn series_from(diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>]) -> VolatileSeries {
         let mut series = VolatileSeries::default();
@@ -220,29 +188,81 @@ mod tests {
         series
     }
 
+    fn test_input(tag: u8) -> TransactionInput {
+        TransactionInput { transaction_id: Hash::new([tag; 32]), index: 0 }
+    }
+
+    fn fixed_output() -> MemoizedTransactionOutput {
+        fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335")
+    }
+
+    prop_compose! {
+        /// A window of [`DiffSet`]s where each tagged UTxO has a unique lifecycle: produced once and
+        /// optionally consumed at a strictly later index. Mirrors UTxO uniqueness, so a newest-first
+        /// walk has a well-defined answer for every key.
+        fn any_utxo_diffset(volatile_window: usize)(
+            plan in prop::collection::vec(
+                (0usize..volatile_window, prop::option::of(0usize..volatile_window)),
+                0..16,
+            )
+        ) -> Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> {
+            let mut diffs: Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> =
+                (0..volatile_window).map(|_| DiffSet::default()).collect();
+
+            for (tag, (produced_at, consume_offset)) in plan.into_iter().enumerate() {
+                diffs[produced_at].produce(test_input(tag as u8), Arc::new(fixed_output()));
+                if let Some(offset) = consume_offset {
+                    let consumed_at = produced_at + 1 + offset;
+                    if consumed_at < volatile_window {
+                        diffs[consumed_at].consume(test_input(tag as u8));
+                    }
+                }
+            }
+
+            diffs
+        }
+    }
+
+    /// Brute-force oracle: resolve `input` by walking `diffs` newest -> oldest. First consumed -> `None`,
+    /// first produce -> `Some`. The reference the maintained aggregate is checked against.
+    fn naive_resolve<'a>(
+        diffs: &'a [DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
+        input: &TransactionInput,
+    ) -> Existence<&'a MemoizedTransactionOutput> {
+        for diff in diffs.iter().rev() {
+            if diff.consumed.contains(input) {
+                return Existence::Gone;
+            }
+
+            if let Some(output) = diff.produced.get(input) {
+                return Existence::Exists(output.as_ref());
+            }
+        }
+
+        Existence::Unknown
+    }
+
     proptest! {
         #[test]
-        fn aggregated_lookups_match_naive_walk(diffs in unique_lifecycle_diffs(VOLATILE_WINDOW)) {
+        fn aggregated_lookups_match_naive_walk(diffs in any_utxo_diffset(VOLATILE_WINDOW)) {
             let series = series_from(&diffs);
-            for tag in 0u8..16 {
+            for tag in 0..u8::MAX {
                 let input = test_input(tag);
-                prop_assert_eq!(series.resolve_input(&input).is_some(), naive_resolve(&diffs, &input).is_some());
-                prop_assert_eq!(series.has_consumed_input(&input), naive_has_consumed(&diffs, &input));
+                prop_assert_eq!(series.resolve_input(&input), naive_resolve(&diffs, &input));
             }
         }
     }
 
     proptest! {
         #[test]
-        fn aggregated_lookups_match_naive_walk_after_stabilization(diffs in unique_lifecycle_diffs(VOLATILE_WINDOW)) {
+        fn aggregated_lookups_match_naive_walk_after_stabilization(diffs in any_utxo_diffset(VOLATILE_WINDOW)) {
             let mut series = series_from(&diffs);
             series.pop_front();
             let remaining = &diffs[1..];
 
-            for tag in 0u8..16 {
+            for tag in 0..u8::MAX {
                 let input = test_input(tag);
-                prop_assert_eq!(series.resolve_input(&input).is_some(), naive_resolve(remaining, &input).is_some());
-                prop_assert_eq!(series.has_consumed_input(&input), naive_has_consumed(remaining, &input));
+                prop_assert_eq!(series.resolve_input(&input), naive_resolve(remaining, &input));
             }
         }
     }
@@ -250,7 +270,7 @@ mod tests {
     proptest! {
         #[test]
         fn aggregated_lookups_match_naive_walk_after_rollback(
-            diffs in unique_lifecycle_diffs(VOLATILE_WINDOW),
+            diffs in any_utxo_diffset(VOLATILE_WINDOW),
             rollback_ix in 0usize..VOLATILE_WINDOW,
         ) {
             let mut series = series_from(&diffs);
@@ -260,10 +280,9 @@ mod tests {
 
             let remaining = &diffs[..=rollback_ix];
 
-            for tag in 0u8..16 {
+            for tag in 0..u8::MAX {
                 let input = test_input(tag);
-                prop_assert_eq!(series.resolve_input(&input).is_some(), naive_resolve(remaining, &input).is_some());
-                prop_assert_eq!(series.has_consumed_input(&input), naive_has_consumed(remaining, &input));
+                prop_assert_eq!(series.resolve_input(&input), naive_resolve(remaining, &input));
             }
         }
     }

@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod chain_sync_client;
-
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     error::Error,
     io,
     path::{Path, PathBuf},
@@ -24,23 +22,23 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    from_cbor, num::CheckedSub, utils::path::relative_path,
+    StakeCredential, from_cbor, num::CheckedSub, utils::path::relative_path,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
-use amaru_observability::{error, info};
-use amaru_ouroboros::{ChainStore, Nonces, WriteChainStore};
+use amaru_observability::{error, info, warn};
+use amaru_ouroboros::{ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
-use chain_sync_client::ChainSyncClient;
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use reqwest::StatusCode;
+use serde::{Deserialize, Serialize};
 use tar::Archive;
 use tokio::{
     fs::{self, File},
@@ -49,8 +47,11 @@ use tokio::{
 };
 use tokio_util::io::StreamReader;
 
+mod chain_sync_client;
+use chain_sync_client::ChainSyncClient;
+
 use crate::{
-    cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_nonces, tvar::import_snapshot_from_tvar},
+    cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_chain_state, tvar::import_snapshot_from_tvar},
     default_data_dir, default_snapshots_dir, get_bootstrap_file,
 };
 
@@ -67,7 +68,6 @@ struct Snapshot {
     parent_point: Point,
 
     /// The URL to retrieve snapshot from.
-    #[serde(default)]
     url: String,
 }
 
@@ -149,8 +149,25 @@ fn load_local_epoch_snapshots(network: NetworkName) -> Vec<Snapshot> {
     entries
         .flatten()
         .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
-        .filter_map(|entry| std::fs::read(entry.path()).ok())
-        .filter_map(|bytes| serde_json::from_slice::<Snapshot>(&bytes).ok())
+        .filter_map(|entry| {
+            let bytes = std::fs::read(entry.path()).map_err(|e| anyhow!("failed to read file: {e}"));
+            let json = bytes.and_then(|bytes| {
+                serde_json::from_slice::<Snapshot>(&bytes).map_err(|e| anyhow!("failed to decode from JSON: {e}"))
+            });
+            match json {
+                Err(hint) => {
+                    warn!(
+                        bootstrap::local_snapshots::FAIL_TO_READ,
+                        file = relative_path(&entry.path())
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|_| entry.path().display().to_string()),
+                        hint,
+                    );
+                    None
+                }
+                Ok(snapshot) => Some(snapshot),
+            }
+        })
         .collect()
 }
 
@@ -226,11 +243,11 @@ fn select_bootstrap_snapshots(
     }
 }
 
-fn initial_nonces_from_snapshot(
+fn initial_chain_state_from_snapshot(
     snapshot_path: &Path,
     global_parameters: &GlobalParameters,
     tail: HeaderHash,
-) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
+) -> Result<(Epoch, ChainState), Box<dyn Error>> {
     let bytes = if let Some(snapshot_paths) = node_snapshot_paths(snapshot_path) {
         std::fs::read(snapshot_paths.state)?
     } else if is_cbor_snapshot_file(snapshot_path) {
@@ -240,33 +257,33 @@ fn initial_nonces_from_snapshot(
     };
 
     let (parsed_snapshot, initial_nonces) =
-        parse_state_snapshot_with_nonces(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
+        parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
     let epoch = snapshot_epoch(&parsed_snapshot)?;
 
     Ok((epoch, initial_nonces))
 }
 
-fn default_bootstrap_nonces_from_snapshots(
+fn default_bootstrap_chain_state_from_snapshots(
     snapshots_dir: &Path,
     snapshots: &[Snapshot],
     global_parameters: &GlobalParameters,
-) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
+) -> Result<(Epoch, ChainState), Box<dyn Error>> {
     let [_, second_snapshot, third_snapshot] = select_bootstrap_snapshots(snapshots, None)?;
     let third_snapshot_path = resolve_snapshot_path(snapshots_dir, third_snapshot).ok_or_else(|| {
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, third_snapshot))
     })?;
-    let (epoch, initial_nonces) =
-        initial_nonces_from_snapshot(&third_snapshot_path, global_parameters, second_snapshot.point.hash())?;
+    let (epoch, chain_state) =
+        initial_chain_state_from_snapshot(&third_snapshot_path, global_parameters, second_snapshot.point.hash())?;
 
-    Ok((epoch, initial_nonces))
+    Ok((epoch, chain_state))
 }
 
-pub fn default_bootstrap_nonces(
+pub fn default_bootstrap_chain_state(
     network: NetworkName,
     global_parameters: &GlobalParameters,
-) -> Result<(Epoch, InitialNonces), Box<dyn Error>> {
+) -> Result<(Epoch, ChainState), Box<dyn Error>> {
     let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
-    default_bootstrap_nonces_from_snapshots(&snapshots_dir, &snapshots, global_parameters)
+    default_bootstrap_chain_state_from_snapshots(&snapshots_dir, &snapshots, global_parameters)
 }
 
 fn bootstrap_parent_points(snapshots: [&Snapshot; 3]) -> Vec<Point> {
@@ -529,21 +546,35 @@ pub async fn bootstrap(
         BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(&snapshots_dir, third_snapshot))
     })?;
 
-    import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir).await?;
-    import_snapshot(network, global_parameters, &second_snapshot_path, &ledger_dir).await?;
+    let mut recently_unregistered_accounts = BTreeSet::new();
+
+    import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir, &mut recently_unregistered_accounts)
+        .await?;
+
+    import_snapshot(
+        network,
+        global_parameters,
+        &second_snapshot_path,
+        &ledger_dir,
+        &mut recently_unregistered_accounts,
+    )
+    .await?;
+
     let imported_third_snapshot = import_snapshot_with_optional_nonces(
         network,
         global_parameters,
         &third_snapshot_path,
         &ledger_dir,
         Some(second_snapshot.point.hash()),
+        &mut recently_unregistered_accounts,
     )
     .await?;
 
     let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone()))?;
-    let initial_nonces =
-        imported_third_snapshot.initial_nonces.ok_or("bootstrap import must produce nonces for the latest snapshot")?;
-    store_nonces(imported_third_snapshot.epoch, &chain_db, initial_nonces)?;
+    let chain_state = imported_third_snapshot
+        .chain_state
+        .ok_or("bootstrap import must produce the chain state for the latest snapshot")?;
+    store_chain_state(imported_third_snapshot.epoch, &chain_db, chain_state)?;
     let headers = load_packaged_headers_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
     import_headers(&chain_db, headers).await?;
 
@@ -588,7 +619,13 @@ fn load_packaged_headers_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u
     Ok(headers)
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainState {
+    pub initial_nonces: InitialNonces,
+    pub opcert_sequence_numbers: OpcertSequenceNumbers,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InitialNonces {
     pub at: Point,
     pub active: Nonce,
@@ -601,7 +638,8 @@ fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dy
     Ok(parsed_snapshot.era_history.slot_to_epoch_unchecked_horizon(parsed_snapshot.slot.into())?)
 }
 
-pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNonces) -> Result<(), Box<dyn Error>> {
+pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainState) -> Result<(), Box<dyn Error>> {
+    let initial_nonces = chain_state.initial_nonces;
     let header_hash = Hash::from(&initial_nonces.at);
 
     info!(bootstrap::nonces::IMPORT, point = %initial_nonces.at);
@@ -615,6 +653,9 @@ pub fn store_nonces(epoch: Epoch, db: &dyn ChainStore, initial_nonces: InitialNo
     };
 
     db.put_nonces(&header_hash, &nonces)?;
+
+    info!(bootstrap::opcert_sequence_numbers::IMPORT, point = %initial_nonces.at);
+    db.put_opcert_seed(&chain_state.opcert_sequence_numbers, &initial_nonces.at)?;
 
     Ok(())
 }
@@ -669,8 +710,9 @@ pub async fn import_snapshots(
     ledger_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(bootstrap::snapshots::IMPORT, count = snapshots.len());
+    let mut recently_unregistered_accounts: BTreeSet<StakeCredential> = BTreeSet::new();
     for snapshot in snapshots {
-        import_snapshot(network, global_parameters, snapshot, ledger_dir).await?;
+        import_snapshot(network, global_parameters, snapshot, ledger_dir, &mut recently_unregistered_accounts).await?;
     }
     Ok(())
 }
@@ -689,7 +731,7 @@ pub enum ImportError {
 
 struct ImportedSnapshot {
     epoch: Epoch,
-    initial_nonces: Option<InitialNonces>,
+    chain_state: Option<ChainState>,
 }
 
 async fn import_snapshot(
@@ -697,8 +739,17 @@ async fn import_snapshot(
     global_parameters: &GlobalParameters,
     snapshot: &Path,
     ledger_dir: &Path,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None).await?;
+    import_snapshot_with_optional_nonces(
+        network,
+        global_parameters,
+        snapshot,
+        ledger_dir,
+        None,
+        recently_unregistered_accounts,
+    )
+    .await?;
     Ok(())
 }
 
@@ -708,13 +759,31 @@ async fn import_snapshot_with_optional_nonces(
     snapshot: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     if let Some(paths) = node_snapshot_paths(snapshot) {
-        return import_node_snapshot_dir(network, global_parameters, snapshot, &paths, ledger_dir, nonce_tail).await;
+        return import_node_snapshot_dir(
+            network,
+            global_parameters,
+            snapshot,
+            &paths,
+            ledger_dir,
+            nonce_tail,
+            recently_unregistered_accounts,
+        )
+        .await;
     }
 
     if is_cbor_snapshot_file(snapshot) {
-        return import_cbor_snapshot_file(network, global_parameters, snapshot, ledger_dir, nonce_tail).await;
+        return import_cbor_snapshot_file(
+            network,
+            global_parameters,
+            snapshot,
+            ledger_dir,
+            nonce_tail,
+            recently_unregistered_accounts,
+        )
+        .await;
     }
 
     Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf())))
@@ -727,6 +796,7 @@ async fn import_cbor_snapshot_file(
     snapshot: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     info!(bootstrap::snapshot::IMPORT_FILE, path = %relative_path(snapshot)?.display());
 
@@ -734,11 +804,9 @@ async fn import_cbor_snapshot_file(
         Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap()).map_err(ImportError::MalformedDate)?;
     let dir = snapshot.parent().ok_or_else(|| ImportError::InvalidSnapshotFile(snapshot.to_path_buf()))?;
     let era_history = make_era_history(dir, &point, network)?;
-    let initial_nonces = if let Some(tail) = nonce_tail {
+    let chain_state = if let Some(tail) = nonce_tail {
         let bytes = std::fs::read(snapshot)?;
-        let (_, initial_nonces) =
-            parse_state_snapshot_with_nonces(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
-        Some(initial_nonces)
+        Some(parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&bytes), global_parameters, tail)?.1)
     } else {
         None
     };
@@ -753,23 +821,28 @@ async fn import_cbor_snapshot_file(
     let mut file = std::fs::File::open(snapshot)?;
 
     let builder = std::thread::Builder::new().stack_size(10_000_000);
-    let (db, epoch) = builder
+
+    let mut accounts = recently_unregistered_accounts.clone();
+
+    let (db, epoch, accounts) = builder
         .spawn(move || {
-            import_initial_snapshot(&db, &mut file, &point, &era_history, network, |size, template| {
+            import_initial_snapshot(&db, &mut file, &mut accounts, &point, &era_history, network, |size, template| {
                 TerminalProgressBar::new(size as u64, template).boxed()
             })
             .map_err(|e| e.to_string())
-            .map(|epoch| (db, epoch))
+            .map(|epoch| (db, epoch, accounts))
         })
         .unwrap()
         .join()
         .unwrap()?;
 
+    *recently_unregistered_accounts = accounts;
+
     db.next_snapshot(epoch)?;
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    Ok(ImportedSnapshot { epoch, initial_nonces })
+    Ok(ImportedSnapshot { epoch, chain_state })
 }
 
 #[expect(clippy::unwrap_used)]
@@ -780,6 +853,7 @@ async fn import_node_snapshot_dir(
     paths: &NodeSnapshotPaths,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     info!(bootstrap::snapshot::IMPORT_DIR, path = %relative_path(snapshot_dir)?.display());
 
@@ -795,7 +869,9 @@ async fn import_node_snapshot_dir(
 
     let global_parameters = global_parameters.clone();
     let builder = std::thread::Builder::new().stack_size(10_000_000);
-    let (db, epoch, initial_nonces) = builder
+    let mut accounts = recently_unregistered_accounts.clone();
+
+    let (db, epoch, chain_state, accounts) = builder
         .spawn(move || {
             import_snapshot_from_tvar(
                 &db,
@@ -804,20 +880,23 @@ async fn import_node_snapshot_dir(
                 network,
                 &global_parameters,
                 nonce_tail,
+                &mut accounts,
                 |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
             )
             .map_err(|e| e.to_string())
-            .map(|(epoch, _point, initial_nonces)| (db, epoch, initial_nonces))
+            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state, accounts))
         })
         .unwrap()
         .join()
         .unwrap()?;
 
+    *recently_unregistered_accounts = accounts;
+
     db.next_snapshot(epoch)?;
 
     db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
 
-    Ok(ImportedSnapshot { epoch, initial_nonces })
+    Ok(ImportedSnapshot { epoch, chain_state })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -25,8 +25,9 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{
-        Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedValue,
-        PlutusData, PlutusScript, any_shelley_address,
+        Bytes, Hash, Int, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedValue, PlutusData, PlutusScript,
+        any_shelley_address,
+        plutus_data::{BigInt, Constr},
     };
     use proptest::{option, prelude::*};
 
@@ -62,18 +63,18 @@ pub mod tests {
     pub fn any_memoized_inline_datum() -> impl Strategy<Value = MemoizedDatum> {
         any::<i64>().prop_map(|n| {
             let int_val: Int = n.into();
-            let big_int = amaru_kernel::BigInt::Int(int_val);
+            let big_int = BigInt::Int(int_val);
 
             let pd = PlutusData::Constr(Constr {
                 tag: 121,
                 any_constructor: None,
-                fields: MaybeIndefArray::Def(vec![PlutusData::BigInt(big_int)]),
+                fields: vec![PlutusData::BigInt(big_int)],
             });
 
             #[expect(clippy::expect_used)]
             let memoized = MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
 
-            MemoizedDatum::Inline(memoized)
+            MemoizedDatum::from(memoized)
         })
     }
 

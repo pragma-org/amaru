@@ -14,11 +14,17 @@
 
 use amaru_kernel::{BlockHeader, HeaderHash, Point, RawBlock};
 
-use crate::{Nonces, StoreError};
+use crate::{Nonces, OpcertSequenceNumbers, StoreError};
 
 /// Write interface for the ChainStore
 pub trait WriteChainStore: Send + Sync {
     fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError>;
+
+    /// Store a header together with its evolved nonces in a single store operation.
+    ///
+    /// Both are written atomically so that the presence of nonces for a header always means that
+    /// this header was fully validated.
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError>;
 
     /// TODO: use a set_anchor_tip function instead
     fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
@@ -29,7 +35,12 @@ pub trait WriteChainStore: Send + Sync {
 
     fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> Result<(), StoreError>;
 
+    /// Remove the validity flag of a block.
+    fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError>;
+
+    fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError>;
 
     /// Replace the current best chain from the given fork point with the provided
     /// forward path and set the best chain hash in one store operation.

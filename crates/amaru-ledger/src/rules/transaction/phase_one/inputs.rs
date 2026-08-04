@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    AddrType, Address, AddressError, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript,
-    TransactionInput, cardano::memoized::script_size, cbor, transaction_input_to_string,
+    Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, TransactionInput,
+    address::byron::AddressType, utils::string::display_collection,
 };
 use thiserror::Error;
 
@@ -22,21 +22,18 @@ use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
-    #[error("Unknown input: {}", transaction_input_to_string(.0))]
+    #[error("Unknown input: {0}")]
     UnknownInput(TransactionInput),
+
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
-        intersection
-            .iter()
-            .map(transaction_input_to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
+        display_collection(.intersection),
     )]
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
+
     #[error("input set empty")]
     EmptyInputSet,
-    #[error("invalid Byron address payload at input {}: {error}", transaction_input_to_string(input))]
-    InvalidByronAddressPayload { input: TransactionInput, error: Box<cbor::decode::Error> },
+
     #[error("reference scripts total bytes exceeds per-tx limit: (provided {provided}, allowed {allowed})")]
     RefScriptSizeTooBig { provided: u64, allowed: u64 },
 }
@@ -61,26 +58,25 @@ where
         for reference_input in reference_inputs {
             // Non-disjoint reference inputs
             if inputs.contains(reference_input) {
-                intersection.push(reference_input.clone());
+                intersection.push(*reference_input);
                 continue;
             }
 
-            let output =
-                context.lookup(reference_input).ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+            let output = context.lookup(reference_input).ok_or(InvalidInputs::UnknownInput(*reference_input))?;
 
-            let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
+            let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
             match &output.datum {
-                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), reference_input.clone()),
+                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), *reference_input),
                 MemoizedDatum::Hash(hash) => {
-                    context.allow_supplemental_datum(*hash);
+                    context.allow_supplemental_datum(*hash.as_ref());
                 }
                 MemoizedDatum::None => (),
             };
 
             if let Some((script_hash, script_size)) = script_ref {
                 ref_scripts_size += script_size;
-                context.acknowledge_script(script_hash, reference_input.clone());
+                context.acknowledge_script(script_hash, *reference_input);
             }
         }
     }
@@ -103,9 +99,9 @@ where
     for (input_index, original_index) in indices.iter().enumerate() {
         let input = &inputs[*original_index];
 
-        let output = context.lookup(input).ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
+        let output = context.lookup(input).ok_or(InvalidInputs::UnknownInput(*input))?;
 
-        let script_ref = output.script.as_ref().map(|s| (s.script_hash(), script_size(s)));
+        let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
         // TODO: Avoid cloning here. Could probably be achieved by having 'RequiredScript'
         // always take a datum hash, and lookup its value when needed.
@@ -117,18 +113,8 @@ where
 
         match &output.address {
             Address::Byron(byron_address) => {
-                let payload = byron_address.decode().map_err(|e| {
-                    #[allow(clippy::wildcard_enum_match_arm)]
-                    match e {
-                        AddressError::InvalidByronCbor(error) => {
-                            InvalidInputs::InvalidByronAddressPayload { input: input.clone(), error: Box::new(error) }
-                        }
-                        _ => unreachable!("byron_address.decode() only returns InvalidByronCbor"),
-                    }
-                })?;
-
-                if let AddrType::PubKey = payload.addrtype {
-                    context.require_bootstrap_witness(payload.root);
+                if let AddressType::VerificationKey = byron_address.address_type {
+                    context.require_bootstrap_witness(byron_address.root);
                 };
             }
             Address::Shelley(shelley_address) => {
@@ -148,7 +134,7 @@ where
 
         if let Some((script_hash, script_size)) = script_ref {
             ref_scripts_size += script_size;
-            context.acknowledge_script(script_hash, input.clone());
+            context.acknowledge_script(script_hash, *input);
         }
 
         context.consume_value(&consumed_value);
@@ -159,109 +145,4 @@ where
     }
 
     Ok(ref_scripts_size)
-}
-
-#[cfg(test)]
-mod tests {
-    use amaru_kernel::{
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters, TransactionBody, include_cbor, include_json, json,
-    };
-    use amaru_tracing_json::assert_trace;
-    use test_case::test_case;
-
-    use super::InvalidInputs;
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::tests::fixture_context,
-    };
-
-    macro_rules! fixture {
-        ($hash:literal) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
-                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            )
-        };
-        ($hash:literal, $variant:literal) => {
-            (
-                fixture_context!($hash, $variant),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/", $variant, "/expected.traces")),
-                PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
-            )
-        };
-        ($hash:literal, $pp:expr) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
-                $pp,
-            )
-        };
-    }
-
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b"))]
-    #[test_case(fixture!("537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596"))]
-    #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"))]
-    #[test_case(fixture!("d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"))]
-    #[test_case(fixture!("6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"))]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "valid-byron-address");
-        "valid byron address"
-    )]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "non-disjoint-reference-inputs") =>
-        matches Err(InvalidInputs::NonDisjointRefInputs { intersection })
-            if  intersection.len() == 1
-                && InvalidInputs::NonDisjointRefInputs { intersection: intersection.clone() }.to_string() == "inputs included in both reference inputs and spent inputs: intersection [47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab#0]";
-        "Non-Disjoint Reference Inputs"
-    )]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "unknown-input") =>
-        matches Err(InvalidInputs::UnknownInput(input))
-        if hex::encode(input.transaction_id) == "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab" && input.index == 2;
-        "unknown input"
-    )]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-byron-address") =>
-        matches Err(InvalidInputs::InvalidByronAddressPayload { .. });
-        "invalid byron payload"
-    )]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "empty-input-set") =>
-        matches Err(InvalidInputs::EmptyInputSet);
-        "empty input set"
-    )]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "unknown-reference-input") =>
-        matches Err(InvalidInputs::UnknownInput(..));
-        "unknown reference input"
-    )]
-    #[test_case(fixture!(
-        "3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1",
-        ProtocolParameters {
-            max_ref_script_size_per_tx: 0,
-            ..PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
-        }
-    ) => matches Err(InvalidInputs::RefScriptSizeTooBig { provided, allowed: 0 }) if provided > 0;
-        "reference script size too big"
-    )]
-    fn inputs(
-        (ctx, tx, expected_traces, protocol_parameters): (
-            AssertPreparationContext,
-            TransactionBody,
-            Vec<json::Value>,
-            ProtocolParameters,
-        ),
-    ) -> Result<(), InvalidInputs> {
-        assert_trace(
-            move || {
-                let mut validation_context = AssertValidationContext::from(ctx);
-                super::execute(
-                    &mut validation_context,
-                    &tx.inputs,
-                    tx.reference_inputs.as_deref(),
-                    &protocol_parameters,
-                )
-                .map(|_| ())
-            },
-            expected_traces,
-        )
-    }
 }

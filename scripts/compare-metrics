@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+
+# Copyright 2026 PRAGMA
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+# Compare Prometheus metrics exposed by cardano-node and Amaru against the
+# checked-in metric contract.
+#
+# Usage:
+#   scripts/compare-metrics [options]
+#
+# Options:
+#   --cardano-url URL   cardano-node /metrics URL   (default: http://localhost:12798/metrics)
+#   --amaru-url   URL   Amaru OTLP /metrics URL     (default: http://localhost:8889/metrics)
+#   --config      PATH  JSON config file            (default: <script-dir>/compare-metrics.json)
+#   --output      PATH  Write JSON report to file   (default: stdout)
+#   --summary           Write a Markdown summary to $GITHUB_STEP_SUMMARY (or stderr outside CI)
+#   --check             Exit non-zero when either endpoint violates the metric contract
+#   -h, --help          Show this help message
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CARDANO_URL="http://localhost:12798/metrics"
+AMARU_URL="http://localhost:8889/metrics"
+CONFIG="$SCRIPT_DIR/compare-metrics.json"
+OUTPUT=""
+SUMMARY=false
+CHECK=false
+
+# ── argument parsing ──────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cardano-url) CARDANO_URL="$2"; shift 2 ;;
+    --amaru-url)   AMARU_URL="$2";   shift 2 ;;
+    --config)      CONFIG="$2";      shift 2 ;;
+    --output)      OUTPUT="$2";      shift 2 ;;
+    --summary)     SUMMARY=true;     shift   ;;
+    --check)       CHECK=true;       shift   ;;
+    -h|--help)
+      sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *) printf 'unknown option: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
+
+# ── prerequisites ─────────────────────────────────────────────────────────────
+
+command -v jq   >/dev/null 2>&1 || { printf 'error: jq is required but not found in PATH\n'   >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { printf 'error: curl is required but not found in PATH\n' >&2; exit 1; }
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+# Fetch all metric names from a Prometheus /metrics endpoint, one per line, sorted.
+fetch_metrics() {
+  local url="$1" tmp
+  tmp=$(mktemp)
+  if ! curl -fsSL --max-time 15 -A 'amaru-compare-metrics/1.0' "$url" -o "$tmp"; then
+    printf 'error: could not reach %s\n' "$url" >&2
+    rm -f "$tmp"
+    exit 1
+  fi
+  # Skip comment / blank lines; strip labels and sample value to keep the metric name only.
+  awk '!/^[[:space:]]*(#|$)/ { sub(/[{, ].*/, ""); print }' "$tmp" | sort -u
+  rm -f "$tmp"
+}
+
+# Portable line count — macOS wc -l pads output with spaces.
+count_lines() { wc -l < "$1" | tr -d ' '; }
+
+if [[ ! -f "$CONFIG" ]]; then
+  printf 'error: metrics config not found: %s\n' "$CONFIG" >&2
+  exit 1
+fi
+
+if ! jq -e '
+  def string_array:
+    type == "array"
+    and all(.[]; type == "string" and length > 0)
+    and (length == (unique | length));
+  type == "object"
+  and (.all_metrics | string_array)
+  and (.supported_metrics | string_array)
+' "$CONFIG" >/dev/null; then
+  printf 'error: %s must contain unique string arrays "all_metrics" and "supported_metrics"\n' "$CONFIG" >&2
+  exit 1
+fi
+
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT
+
+# ── fetch ─────────────────────────────────────────────────────────────────────
+
+printf 'Fetching cardano-node metrics from %s…\n' "$CARDANO_URL" >&2
+cardano_tmp="$tmp_dir/cardano"
+fetch_metrics "$CARDANO_URL" > "$cardano_tmp"
+
+printf 'Fetching Amaru metrics from %s…\n' "$AMARU_URL" >&2
+amaru_tmp="$tmp_dir/amaru"
+fetch_metrics "$AMARU_URL" > "$amaru_tmp"
+
+# ── contract checks ──────────────────────────────────────────────────────────
+
+all_metrics_tmp="$tmp_dir/all-metrics"
+jq -r '.all_metrics[]' "$CONFIG" | sort -u > "$all_metrics_tmp"
+
+supported_metrics_tmp="$tmp_dir/supported-metrics"
+jq -r '.supported_metrics[]' "$CONFIG" | sort -u > "$supported_metrics_tmp"
+
+unknown_cardano_tmp="$tmp_dir/unknown-cardano"
+comm -23 "$cardano_tmp" "$all_metrics_tmp" > "$unknown_cardano_tmp"
+
+missing_supported_tmp="$tmp_dir/missing-supported"
+comm -23 "$supported_metrics_tmp" "$amaru_tmp" > "$missing_supported_tmp"
+
+cardano_total=$(count_lines "$cardano_tmp")
+all_metrics_total=$(count_lines "$all_metrics_tmp")
+amaru_total=$(count_lines "$amaru_tmp")
+supported_metrics_total=$(count_lines "$supported_metrics_tmp")
+unknown_cardano_count=$(count_lines "$unknown_cardano_tmp")
+missing_supported_count=$(count_lines "$missing_supported_tmp")
+violation_count=$((unknown_cardano_count + missing_supported_count))
+
+# ── JSON report ───────────────────────────────────────────────────────────────
+
+json=$(jq -n \
+  --argjson cardano_total           "$cardano_total" \
+  --argjson all_metrics_total       "$all_metrics_total" \
+  --argjson amaru_total             "$amaru_total" \
+  --argjson supported_metrics_total "$supported_metrics_total" \
+  --argjson unknown_cardano_count   "$unknown_cardano_count" \
+  --argjson missing_supported_count "$missing_supported_count" \
+  --rawfile  unknown_cardano_raw    "$unknown_cardano_tmp" \
+  --rawfile  missing_supported_raw  "$missing_supported_tmp" \
+  '{
+    cardano_total: $cardano_total,
+    all_metrics_total: $all_metrics_total,
+    amaru_total: $amaru_total,
+    supported_metrics_total: $supported_metrics_total,
+    unknown_cardano_count: $unknown_cardano_count,
+    missing_supported_count: $missing_supported_count,
+    unknown_cardano_metrics: ($unknown_cardano_raw | split("\n") | map(select(. != ""))),
+    missing_supported_metrics: ($missing_supported_raw | split("\n") | map(select(. != "")))
+  }')
+
+if [[ -n "$OUTPUT" ]]; then
+  printf '%s\n' "$json" > "$OUTPUT"
+  printf 'Report written to %s\n' "$OUTPUT" >&2
+else
+  printf '%s\n' "$json"
+fi
+
+# ── Markdown summary ──────────────────────────────────────────────────────────
+
+if $SUMMARY; then
+  if [[ "$violation_count" -eq 0 ]]; then
+    status='✅'
+  elif $CHECK; then
+    status='❌'
+  else
+    status='⚠️'
+  fi
+
+  summary_tmp="$tmp_dir/summary"
+  {
+    printf '## %s Metrics Coverage Report\n\n' "$status"
+    printf '| | Count |\n'
+    printf '|---|---:|\n'
+    printf '| Cardano node metrics (observed) | %s |\n' "$cardano_total"
+    printf '| Cardano node metrics (known) | %s |\n' "$all_metrics_total"
+    printf '| Amaru metrics (observed) | %s |\n' "$amaru_total"
+    printf '| Amaru metrics (supported) | %s |\n' "$supported_metrics_total"
+    printf '| **Unknown cardano-node metrics** | **%s** |\n' "$unknown_cardano_count"
+    printf '| **Missing supported Amaru metrics** | **%s** |\n\n' "$missing_supported_count"
+
+    if [[ "$unknown_cardano_count" -gt 0 ]]; then
+      printf '<details>\n'
+      printf '<summary>Unknown cardano-node metrics (%s)</summary>\n\n' "$unknown_cardano_count"
+      printf '| Metric |\n'
+      printf '|--------|\n'
+      awk '{ printf "| `%s` |\n", $0 }' "$unknown_cardano_tmp"
+      printf '\n</details>\n\n'
+    fi
+
+    if [[ "$missing_supported_count" -gt 0 ]]; then
+      printf '<details>\n'
+      printf '<summary>Missing supported Amaru metrics (%s)</summary>\n\n' "$missing_supported_count"
+      printf '| Metric |\n'
+      printf '|--------|\n'
+      awk '{ printf "| `%s` |\n", $0 }' "$missing_supported_tmp"
+      printf '\n</details>\n\n'
+    fi
+  } > "$summary_tmp"
+
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    cat "$summary_tmp" >> "$GITHUB_STEP_SUMMARY"
+  else
+    cat "$summary_tmp" >&2
+  fi
+fi
+
+if $CHECK && [[ "$violation_count" -gt 0 ]]; then
+  printf 'error: metric contract failed (%s unknown cardano-node metric(s), %s supported metric(s) missing from Amaru)\n' \
+    "$unknown_cardano_count" "$missing_supported_count" >&2
+  exit 1
+fi

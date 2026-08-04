@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_primitives::conway::Multiasset;
+use std::collections::BTreeMap;
 
 use crate::{
-    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, PositiveCoin,
-    ShelleyDelegationPart, StakeCredential, Value, cbor, decode_script, encode_script, serialize_memoized_script,
-    size::CREDENTIAL, to_cbor,
+    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
+    ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
+    utils::cbor::SerialisedAsCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -38,7 +38,7 @@ pub struct MemoizedTransactionOutput {
     pub datum: MemoizedDatum,
 
     #[serde(serialize_with = "serialize_script")]
-    pub script: Option<MemoizedScript>,
+    pub script: Option<Box<MemoizedScript>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -52,12 +52,21 @@ struct MemoizedTransactionOutputDe {
     datum: MemoizedDatum,
 
     #[serde(deserialize_with = "deserialize_script")]
-    script: Option<MemoizedScript>,
+    script: Option<Box<MemoizedScript>>,
 }
 
 impl From<MemoizedTransactionOutputDe> for MemoizedTransactionOutput {
     fn from(de: MemoizedTransactionOutputDe) -> Self {
-        Self::new(false, de.address, de.value, de.datum, de.script)
+        let mut output = Self {
+            original_size: 0,
+            is_legacy: false,
+            address: de.address,
+            value: de.value,
+            datum: de.datum,
+            script: de.script,
+        };
+        output.original_size = to_cbor(&output).len();
+        output
     }
 }
 
@@ -71,7 +80,7 @@ impl MemoizedTransactionOutput {
         datum: MemoizedDatum,
         script: Option<MemoizedScript>,
     ) -> Self {
-        let mut output = Self { original_size: 0, is_legacy, address, value, datum, script };
+        let mut output = Self { original_size: 0, is_legacy, address, value, datum, script: script.map(Box::new) };
         output.original_size = to_cbor(&output).len();
         output
     }
@@ -161,7 +170,10 @@ fn decode_modern_output<C>(
                 0 => state.0 = Some(decode_address(d.bytes()?)?),
                 1 => state.1 = Some(d.decode_with(ctx)?),
                 2 => state.2 = d.decode_with(ctx)?,
-                3 => state.3 = Some(decode_script(d, ctx)?),
+                3 => {
+                    let SerialisedAsCbor(script) = d.decode_with(ctx)?;
+                    state.3 = Some(Box::new(script))
+                }
                 _ => return cbor::unexpected_field::<MemoizedTransactionOutput, _>(field),
             }
             Ok(())
@@ -179,7 +191,7 @@ fn decode_modern_output<C>(
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
-    Address::from_bytes(address_bytes).map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
+    Address::from_bytes(address_bytes).ok_or_else(|| cbor::decode::Error::message("invalid address"))
 }
 
 impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
@@ -192,10 +204,10 @@ impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
             e.begin_array()?;
             e.bytes(&self.address.to_vec())?;
             e.encode_with(&self.value, ctx)?;
-            match self.datum {
+            match &self.datum {
                 MemoizedDatum::None => (),
                 MemoizedDatum::Hash(hash) => {
-                    e.bytes(&hash[..])?;
+                    e.bytes(&hash.as_ref()[..])?;
                 }
                 MemoizedDatum::Inline(..) => unreachable!("legacy output with inline datum ?!"),
             }
@@ -218,7 +230,7 @@ impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
                 None => (),
                 Some(script) => {
                     e.u8(3)?;
-                    encode_script(script, e)?;
+                    e.encode_with(SerialisedAsCbor(script), ctx)?;
                 }
             }
 
@@ -237,7 +249,7 @@ fn serialize_address<S: serde::ser::Serializer>(addr: &Address, serializer: S) -
 
 fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Address, D::Error> {
     let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
-    Address::from_hex(bytes).map_err(serde::de::Error::custom)
+    Address::from_hex(bytes).ok_or_else(|| serde::de::Error::custom("invalid address"))
 }
 
 // TODO: Eventually allow serializing complete values, not just coins.
@@ -260,7 +272,7 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
     let value = match helper {
         ValueHelper::Coin(coin) => Value::Coin(coin),
         ValueHelper::Multiasset(coin, multiasset_data) => {
-            let mut converted_multiasset = Vec::new();
+            let mut multiasset = BTreeMap::new();
 
             for (policy_id, assets) in multiasset_data {
                 let policy_id = hex::decode(&policy_id)
@@ -282,14 +294,11 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                 let policy_id: Hash<CREDENTIAL> = Hash::from(policy_id.as_slice());
 
                 let pairs = NonEmptyKeyValuePairs::try_from(converted_assets)
-                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?
-                    .as_pallas();
+                    .map_err(|e| serde::de::Error::custom(format!("invalid asset bundle: {e}")))?;
 
-                converted_multiasset.push((policy_id, pairs));
+                multiasset.insert(policy_id, pairs);
             }
 
-            let multiasset: Multiasset<PositiveCoin> =
-                Multiasset::from_vec(converted_multiasset).ok_or(serde::de::Error::custom("empty multiasset"))?;
             Value::Multiasset(coin, multiasset)
         }
     };
@@ -298,7 +307,7 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
 }
 
 pub fn serialize_script<S: serde::ser::Serializer>(
-    opt: &Option<MemoizedScript>,
+    opt: &Option<Box<MemoizedScript>>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     match opt {
@@ -309,38 +318,46 @@ pub fn serialize_script<S: serde::ser::Serializer>(
 
 pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
-) -> Result<Option<MemoizedScript>, D::Error> {
+) -> Result<Option<Box<MemoizedScript>>, D::Error> {
     match serde::Deserialize::deserialize(deserializer)? {
         None::<super::PlaceholderScript> => Ok(None),
-        Some(placeholder) => Ok(Some(MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?)),
+        Some(placeholder) => {
+            Ok(Some(MemoizedScript::try_from(placeholder).map(Box::new).map_err(serde::de::Error::custom)?))
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use proptest::{option, prelude::*};
 
     use super::*;
+    #[cfg(test)]
     use crate::{
-        Hash, any_hash32, any_shelley_address,
+        Hash,
         cbor::{self, Encode},
     };
+    use crate::{any_hash32, any_shelley_address};
 
+    #[expect(clippy::expect_used)]
     fn any_value() -> impl Strategy<Value = MemoizedValue> {
         any::<u64>().prop_map(|coin| MemoizedValue::new(Value::Coin(coin)).expect("Value encoding should never fail"))
     }
 
-    fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
-        prop_oneof![Just(MemoizedDatum::None), any_hash32().prop_map(MemoizedDatum::Hash)]
+    pub fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
+        prop_oneof![Just(MemoizedDatum::None), any_hash32().prop_map(MemoizedDatum::from)]
     }
 
-    fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
+    pub fn any_modern_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
         (any_shelley_address(), any_value(), any_datum())
             .prop_map(|(address, value, datum)| MemoizedTransactionOutput::new(false, address, value, datum, None))
     }
 
-    fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
-        (any_shelley_address(), any_value(), option::of(any_hash32().prop_map(MemoizedDatum::Hash))).prop_map(
+    pub fn any_legacy_output() -> impl Strategy<Value = MemoizedTransactionOutput> {
+        (any_shelley_address(), any_value(), option::of(any_hash32().prop_map(MemoizedDatum::from))).prop_map(
             |(address, value, datum_opt)| {
                 MemoizedTransactionOutput::new(true, address, value, datum_opt.unwrap_or(MemoizedDatum::None), None)
             },
@@ -352,7 +369,7 @@ mod tests {
         let hash_bytes = [1u8; 32];
         let datum_hash = Hash::<32>::from(hash_bytes);
 
-        let datum = MemoizedDatum::Hash(datum_hash);
+        let datum = MemoizedDatum::from(datum_hash);
 
         let original = MemoizedTransactionOutput::new(
             false,
@@ -378,7 +395,7 @@ mod tests {
         let hash_bytes = [1u8; 32];
         let datum_hash = Hash::<32>::from(hash_bytes);
 
-        let datum = MemoizedDatum::Hash(datum_hash);
+        let datum = MemoizedDatum::from(datum_hash);
 
         let original = MemoizedTransactionOutput::new(
             true,

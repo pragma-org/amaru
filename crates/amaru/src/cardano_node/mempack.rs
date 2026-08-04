@@ -15,13 +15,11 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, Bytes, Hash, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, MemoizedValue, Multiasset, Network, PlutusScript, PositiveCoin, ShelleyAddress,
-    ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value,
-    cardano::multiasset_key_value_pairs::NonEmptyKeyValuePairs,
+    Address, Bytes, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, MemoizedValue,
+    Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeCredential, Value, from_cbor,
 };
 
-const INDEFINITE_MAP_THRESHOLD: usize = 23;
 const MAX_VARUINT64_BYTES: usize = 10;
 
 pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutput, String> {
@@ -39,7 +37,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
             true,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
-            MemoizedDatum::Hash(decoder.hash32()?),
+            MemoizedDatum::from(decoder.hash32()?),
             None,
         ),
         2 => {
@@ -58,7 +56,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
                 true,
                 decode_address28(&mut decoder, stake)?,
                 Value::Coin(decode_compact_coin(&mut decoder)?),
-                MemoizedDatum::Hash(decoder.packed_hash32()?),
+                MemoizedDatum::from(decoder.packed_hash32()?),
                 None,
             )
         }
@@ -66,7 +64,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> Result<MemoizedTransactionOutp
             false,
             decode_compact_address(&mut decoder)?,
             decode_compact_value(&mut decoder)?,
-            MemoizedDatum::Inline(decode_inline_plutus_data(&mut decoder)?),
+            MemoizedDatum::from(decode_inline_plutus_data(&mut decoder)?),
             None,
         ),
         5 => make_transaction_output(
@@ -170,7 +168,7 @@ fn decode_compact_address(decoder: &mut Decoder<'_>) -> Result<Address, String> 
     let bytes = decoder.short_bytes()?;
     let normalized = normalize_compact_address(bytes)?;
 
-    Address::from_bytes(&normalized).map_err(|err| format!("invalid compact address: {err}"))
+    Address::from_bytes(&normalized).ok_or_else(|| "invalid compact address".to_string())
 }
 
 fn normalize_compact_address(bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -341,21 +339,24 @@ fn decode_compact_value(decoder: &mut Decoder<'_>) -> Result<Value, String> {
 fn decode_datum(decoder: &mut Decoder<'_>) -> Result<MemoizedDatum, String> {
     match decoder.tag()? {
         0 => Ok(MemoizedDatum::None),
-        1 => Ok(MemoizedDatum::Hash(decoder.hash32()?)),
-        2 => Ok(MemoizedDatum::Inline(decode_inline_plutus_data(decoder)?)),
+        1 => Ok(MemoizedDatum::from(decoder.hash32()?)),
+        2 => Ok(MemoizedDatum::from(decode_inline_plutus_data(decoder)?)),
         other => Err(format!("unsupported datum tag {other}")),
     }
 }
 
 fn decode_inline_plutus_data(decoder: &mut Decoder<'_>) -> Result<MemoizedPlutusData, String> {
-    decoder.decode_from_short_bytes("inline datum", MemoizedPlutusData::try_from)
+    decoder.decode_from_short_bytes("inline datum", |bytes| {
+        from_cbor(&bytes).ok_or_else(|| "failed to decode PlutusData from CBOR".to_string())
+    })
 }
 
 fn decode_script(decoder: &mut Decoder<'_>) -> Result<MemoizedScript, String> {
     match decoder.tag()? {
         0 => {
-            let native = decoder
-                .decode_from_short_bytes("native script", |bytes| MemoizedNativeScript::try_from(Bytes::from(bytes)))?;
+            let native = decoder.decode_from_short_bytes("native script", |bytes| {
+                from_cbor(&bytes).ok_or_else(|| "failed to decode Script from CBOR".to_string())
+            })?;
             Ok(MemoizedScript::NativeScript(native))
         }
         1 => {
@@ -442,27 +443,13 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
             .push((Bytes::from(rep[asset_offset..asset_end].to_vec()), quantity));
     }
 
-    let mut policies = Vec::with_capacity(bundles.len());
+    let mut policies = BTreeMap::new();
     for (policy_id, mut assets) in bundles {
         assets.sort_by(|(a, _), (b, _)| a.cmp(b));
-        if assets.is_empty() {
-            return Err("invalid multiasset bundle: empty asset bundle".to_string());
-        }
-        let assets = if assets.len() > INDEFINITE_MAP_THRESHOLD {
-            NonEmptyKeyValuePairs::Indef(assets)
-        } else {
-            NonEmptyKeyValuePairs::Def(assets)
-        };
-        policies.push((policy_id, assets));
+        policies.insert(policy_id, NonEmptyKeyValuePairs::try_from(assets).map_err(|e| e.to_string())?);
     }
 
-    if policies.is_empty() {
-        Err("empty multiasset representation".to_string())
-    } else if policies.len() > INDEFINITE_MAP_THRESHOLD {
-        Ok(NonEmptyKeyValuePairs::Indef(policies))
-    } else {
-        Ok(NonEmptyKeyValuePairs::Def(policies))
-    }
+    Ok(policies)
 }
 
 #[cfg(test)]

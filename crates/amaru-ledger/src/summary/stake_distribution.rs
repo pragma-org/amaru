@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{DRep, Epoch, HasLovelace, Hash, Lovelace, PoolId, StakeCredential, expect_stake_credential};
 use amaru_observability::info;
@@ -29,7 +29,7 @@ use crate::{
     },
 };
 
-/// A stake distribution snapshot useful for:
+/// A stake summary snapshot useful for:
 ///
 /// - Leader schedule (in particular the 'pools' field)
 /// - Rewards calculation
@@ -37,6 +37,29 @@ use crate::{
 /// Note that the `accounts` field only contains _active_ accounts; that is, accounts
 /// delegated to a registered stake pool.
 #[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
+pub struct StakeSummary {
+    /// The epoch stake distribution and other related stake information
+    pub stake_distribution: StakeDistribution,
+
+    /// Mapping of accounts' stake credentials to their respective state.
+    ///
+    /// Accounts that have stake but aren't delegated to any pools aren't present in the map.
+    pub accounts: BTreeMap<StakeCredential, AccountState>,
+}
+
+impl Deref for StakeSummary {
+    type Target = StakeDistribution;
+    fn deref(&self) -> &Self::Target {
+        &self.stake_distribution
+    }
+}
+
+/// A slim stake distribution retained in-memory by the ledger runtime.
+///
+/// Unlike [`StakeSummary`], this deliberately omits the full accounts mapping. The only
+/// account-derived information needed on the hot path is captured in `PoolState::fallback_drep`.
+#[derive(Debug, Default)]
 #[cfg_attr(test, derive(Clone))]
 pub struct StakeDistribution {
     /// Epoch number for this snapshot (taken at the end of the epoch)
@@ -59,11 +82,6 @@ pub struct StakeDistribution {
     /// and active delegate representatives.
     pub dreps_voting_stake: Lovelace,
 
-    /// Mapping of accounts' stake credentials to their respective state.
-    ///
-    /// Accounts that have stake but aren't delegated to any pools aren't present in the map.
-    pub accounts: BTreeMap<StakeCredential, AccountState>,
-
     /// Mapping of pools to their relative stake & parameters
     pub pools: BTreeMap<PoolId, PoolState>,
 
@@ -71,8 +89,8 @@ pub struct StakeDistribution {
     pub dreps: BTreeMap<DRep, DRepState>,
 }
 
-impl StakeDistribution {
-    /// Compute a new stake distribution snapshot using data available in the `Store`.
+impl StakeSummary {
+    /// Compute a new stake summary snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
@@ -80,9 +98,7 @@ impl StakeDistribution {
         GovernanceSummary { mut dreps, pools_deposits, dreps_deposits }: GovernanceSummary,
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
-
         let stake_pool_deposit = db.protocol_parameters()?.stake_pool_deposit;
-
         let mut pools_deregistration_refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
         let mut pools = db
@@ -95,8 +111,6 @@ impl StakeDistribution {
                 // ratification happens *after* pools reaping, and thus, nullify voting power of
                 // pools that are retiring.
                 if PoolsEpochTransitionUpdates::is_retiring(epoch + 1, &row) {
-                    // FIXME: Store the deposit with the pool, and ensures the same deposit
-                    // it returned back.
                     let reward_account = expect_stake_credential(&row.current_params.reward_account);
                     pools_deregistration_refunds
                         .entry(reward_account)
@@ -108,13 +122,12 @@ impl StakeDistribution {
                     pool,
                     PoolState {
                         registered_at: row.registered_at,
+                        blocks_count: 0,
                         stake: 0,
                         voting_stake: 0,
-                        blocks_count: 0,
-                        // pre-compute margin here (1 - m), which gets used for all
-                        // member and leader rewards calculation.
                         margin: safe_ratio(row.current_params.margin.numerator, row.current_params.margin.denominator),
                         parameters: row.current_params,
+                        fallback_drep: None,
                     },
                 )
             })
@@ -165,8 +178,6 @@ impl StakeDistribution {
             {
                 let deregistration_refunds = pools_deregistration_refunds.get(credential).copied().unwrap_or_default();
                 let proposal_deposits_and_withdrawals = dreps_deposits.get(credential).copied().unwrap_or_default();
-
-                // NOTE: 'proposal_deposits' also include just-ratified withdrawals, if any.
                 let voting_stake = account.balance + proposal_deposits_and_withdrawals + deregistration_refunds;
                 dreps_voting_stake += &voting_stake;
                 st.voting_stake += &voting_stake;
@@ -177,11 +188,6 @@ impl StakeDistribution {
                 && let Some(pool) = pools.get_mut(&pool_id)
             {
                 let proposal_deposits = pools_deposits.get(credential).copied().unwrap_or_default();
-
-                // NOTE: Pool voting stake distribution
-                //
-                // Governance deposits do not count towards the pools' stake. They are
-                // only counted as part of the voting power.
                 let stake = account.balance;
                 active_stake += &stake;
                 pool.stake += &stake;
@@ -192,8 +198,12 @@ impl StakeDistribution {
             }
         }
 
-        let block_issuers = db.iter_block_issuers()?;
-        block_issuers.for_each(|(_, issuer)| {
+        for pool in pools.values_mut() {
+            let reward_account = expect_stake_credential(&pool.parameters.reward_account);
+            pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep.clone());
+        }
+
+        db.iter_block_issuers()?.for_each(|(_, issuer)| {
             pools.entry(issuer.slot_leader).and_modify(|pool| pool.blocks_count += 1);
         });
 
@@ -209,23 +219,25 @@ impl StakeDistribution {
             dreps_voting_stake = %dreps_voting_stake,
         );
 
-        Ok(StakeDistribution {
-            epoch,
-            treasury,
-            reserves,
-            active_stake,
-            dreps_voting_stake,
-            pools_voting_stake,
+        Ok(Self {
+            stake_distribution: StakeDistribution {
+                epoch,
+                treasury,
+                reserves,
+                active_stake,
+                pools_voting_stake,
+                dreps_voting_stake,
+                pools,
+                dreps,
+            },
             accounts,
-            pools,
-            dreps,
         })
     }
 }
 
-impl serde::Serialize for StakeDistribution {
+impl serde::Serialize for StakeSummary {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("StakeDistribution", 9)?;
+        let mut s = serializer.serialize_struct("StakeSummary", 9)?;
 
         s.serialize_field("epoch", &self.epoch)?;
         s.serialize_field("treasury", &self.treasury)?;
@@ -313,15 +325,12 @@ pub mod tests {
             reserves in any::<u64>(),
             active_stake_delta in any::<Lovelace>(),
             dreps in collection::btree_map(any_drep(), any_drep_state(min_epoch, max_epoch), 1..10),
-            accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
+            _accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
             let dreps_voting_stake = dreps.values().fold(0, |total, st| total + st.voting_stake);
 
-            let active_stake = if Lovelace::MAX - dreps_voting_stake >= active_stake_delta {
-                Lovelace::MAX
-            } else {
-                dreps_voting_stake + active_stake_delta
-            };
+            let active_stake =
+                if Lovelace::MAX - dreps_voting_stake >= active_stake_delta { Lovelace::MAX } else { dreps_voting_stake + active_stake_delta };
 
             StakeDistribution {
                 epoch: Epoch::from(epoch),
@@ -330,7 +339,6 @@ pub mod tests {
                 active_stake,
                 dreps,
                 dreps_voting_stake,
-                accounts,
                 pools: BTreeMap::new(),
                 pools_voting_stake: 0,
             }
@@ -353,24 +361,34 @@ pub mod tests {
             let pools_vec = pools.iter().collect::<Vec<_>>();
 
             // Artificially create some links between pools and accounts.
-            let accounts = accounts.into_iter().enumerate().map(|(ix, (mut account, mut account_st))| {
-                let (pool, pool_st) =
-                    pools_vec
+            let accounts = accounts
+                .into_iter()
+                .enumerate()
+                .map(|(ix, (mut account, mut account_st))| {
+                    let (pool, pool_st) = pools_vec
                         .get(ix % pools_len)
                         .unwrap_or_else(|| unreachable!("% pools_len guarantees it's some"));
 
-                // Ensure some of the reward accounts do exists.
-                if ix % 2 == 0 {
+                    // Ensure some of the reward accounts do exists.
+                    if ix % 2 == 0 {
                         account = expect_stake_credential(&pool_st.parameters.reward_account);
-                }
+                    }
 
-                // Make sure accounts are delegated to existing pools, when they are.
-                if let Some(delegation) = account_st.pool.as_mut() {
-                    *delegation = **pool;
-                }
+                    // Make sure accounts are delegated to existing pools, when they are.
+                    if let Some(delegation) = account_st.pool.as_mut() {
+                        *delegation = **pool;
+                    }
 
-                (account, account_st)
-            }).collect();
+                    (account, account_st)
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            let mut pools = pools;
+
+            for pool in pools.values_mut() {
+                let reward_account = expect_stake_credential(&pool.parameters.reward_account);
+                pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep.clone());
+            }
 
             StakeDistribution {
                 epoch: Epoch::from(epoch),
@@ -379,7 +397,6 @@ pub mod tests {
                 active_stake,
                 pools,
                 pools_voting_stake,
-                accounts,
                 dreps: BTreeMap::new(),
                 dreps_voting_stake: 0,
             }
@@ -407,6 +424,7 @@ pub mod tests {
             stake in 0_u64..1_000_000_000_000,
             voting_stake in 0_u64..1_000_000_000_000,
             parameters in any_pool_params(),
+            fallback_drep in option::of(any_drep()),
         ) -> PoolState {
             let margin = safe_ratio(
                 parameters.margin.numerator,
@@ -420,6 +438,7 @@ pub mod tests {
                 voting_stake: stake.max(voting_stake),
                 margin,
                 parameters,
+                fallback_drep,
             }
         }
     }
@@ -436,7 +455,7 @@ pub mod tests {
         ) -> DRepState {
             DRepState {
                 valid_until: Some(Epoch::from(valid_until)),
-                metadata,
+                metadata: metadata.map(Box::new),
                 voting_stake,
                 registered_at,
             }

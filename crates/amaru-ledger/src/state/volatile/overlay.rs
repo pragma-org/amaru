@@ -12,23 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cell::RefCell, collections::BTreeMap, mem};
+use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    ComparableProposalId, Epoch, Lovelace, PoolId, ProtocolParameters, RatificationStatus, StakeCredential, TermLimit,
+    Epoch, Lovelace, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus, StakeCredential,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
 
 use crate::{
     epoch_transition::{
-        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    governance::ratification::{CommitteeUpdate, ProposalsRoots},
+    governance::ratification::CommitteeUpdate,
     state::{
         StateError,
-        diff_bind::{Bind, Empty, Resettable},
-        volatile::{CommitteeMemberBind, Existence},
+        volatile::{Bind, CommitteeMemberBind, Existence, Resettable},
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
@@ -44,7 +43,8 @@ use crate::{
 /// This lives inside the [`crate::state::volatile::VolatileDB`]: it is part of the volatile state
 /// (it can be rolled back), and co-locating it with the two volatile series keeps reads and
 /// rollback cohesive.
-#[derive(Default)]
+#[derive(Default, Debug)]
+#[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
@@ -66,11 +66,16 @@ pub struct StateOverlay {
     /// of an epoch.
     ///
     /// When present, they must be taken into account when creating the ledger validation context.
-    pools_updates: Option<PoolsEpochTransitionUpdates>,
+    ///
+    /// Held behind an `Arc` for the same reason as `rewards`: capturing the overlay for rollback
+    /// recovery is then a reference-count bump rather than a deep copy of the update maps. It is
+    /// only ever replaced wholesale (never mutated in place), so sharing the value with an
+    /// outstanding recovery is safe.
+    pools_updates: Option<Arc<PoolsEpochTransitionUpdates>>,
 
     /// The result of an epoch boundary ratification, stashed temporarily until it is stable enough
-    /// to persist in the stable storage.
-    governance_updates: Option<GovernanceUpdates>,
+    /// to persist in the stable storage. Held behind an `Arc` for the same reason as `pools_updates`.
+    governance_updates: Option<Arc<GovernanceUpdates>>,
 }
 
 impl StateOverlay {
@@ -82,6 +87,26 @@ impl StateOverlay {
             rewards: RewardsState::NotReady,
             pools_updates: None,
             governance_updates: None,
+        }
+    }
+
+    /// Capture the overlay so a fork switch can restore it if the switch later fails.
+    ///
+    /// This is deliberately not a `Clone` implementation: the overlay is part of the volatile state
+    /// and duplicating it is only ever meaningful when snapshotting for rollback recovery. Keeping
+    /// it a named method prevents accidental clones elsewhere and documents the single legitimate
+    /// use case at every call site.
+    ///
+    /// The capture is cheap: `epoch` is `Copy`, and `rewards`/`pools_updates`/`governance_updates`
+    /// share their payload with the live overlay through `Arc`, so this is a handful of
+    /// reference-count bumps rather than a deep copy.
+    pub(crate) fn snapshot(&self) -> StateOverlay {
+        StateOverlay {
+            epoch: self.epoch,
+            most_recent_snapshot: RefCell::new(*self.most_recent_snapshot.borrow()),
+            rewards: self.rewards.clone(),
+            pools_updates: self.pools_updates.clone(),
+            governance_updates: self.governance_updates.clone(),
         }
     }
 
@@ -99,15 +124,13 @@ impl StateOverlay {
 
     /// Rollback an existing overlay, throwing away the epoch transition calculations.
     pub fn rollback(&mut self) {
+        self.rewards = mem::take(&mut self.rewards).rollback();
+        self.pools_updates = None;
+        self.governance_updates = None;
+
         let to = self.epoch - 1;
         debug!(ledger::epoch_transition::ROLLBACK, from = %self.epoch, %to);
         self.epoch = to;
-        self.rewards = match mem::take(&mut self.rewards) {
-            st @ RewardsState::NotReady | st @ RewardsState::Computed(..) => st,
-            RewardsState::Effective(effective) => RewardsState::Computed(effective.into()),
-        };
-        self.pools_updates = None;
-        self.governance_updates = None;
     }
 
     /// Record transition into a new epoch.
@@ -120,9 +143,10 @@ impl StateOverlay {
         let to = self.epoch + 1;
         debug!(ledger::epoch_transition::RECORD, from = %self.epoch, %to);
         self.epoch = to;
-        self.rewards = effective_rewards.map(RewardsState::Effective).unwrap_or(RewardsState::NotReady);
-        self.pools_updates = Some(pools_updates);
-        self.governance_updates = Some(governance_updates);
+        self.rewards =
+            effective_rewards.map(|r| RewardsState::Effective(Arc::new(r))).unwrap_or(RewardsState::NotReady);
+        self.pools_updates = Some(Arc::new(pools_updates));
+        self.governance_updates = Some(Arc::new(governance_updates));
     }
 
     /// Flush an overlay to disk.
@@ -134,6 +158,51 @@ impl StateOverlay {
         let updated = info_span!(ledger::epoch_transition::APPLY, epoch = self.epoch).in_scope(|| {
             use EpochTransitionProgress::*;
 
+            // NOTE: 3-step epoch transition
+            //
+            // Why are 3 db transactions needed here?
+            //
+            // Two transactions can be explained with a few points:
+            //
+            //  - Calculations that depend on historical data. A snapshot must be taken precisely
+            //    after paying out the rewards, but before ratifying governance actions or pruning
+            //    stake pools. So there's a precise split between these moment and it's nice
+            //    (albeit strictly unnecessary) to make it apparent.
+            //
+            //  - Another compelling reason for the split is the bootstrapping of Amaru. Snapshots
+            //    we produce from the Haskell node correspond precisely to our definition of
+            //    snapshot here (i.e. data at the end of the epoch, after rewards payments but
+            //    before next epoch start). Hence, we must be able to resume from a snapshot
+            //    mid-transaction, and instead of making a special case for the bootstrapping, we
+            //    make it our default behaviour.
+            //
+            // Why the third split then? Because while RocksDB allows for checkpointing in the
+            // middle of a transaction, it does not rollback checkpoints on failures.
+            //
+            // So if anything goes wrong during the transaction but after the checkpoint/snapshot
+            // was taken, we end up in an awkward spot where we need to re-apply the end of epoch,
+            // skip the snapshot, and re-apply the beginning.
+            //
+            // Yet, this puts us in an inconsistent state where a snapshot exists (and other logic
+            // may infer a bunch of decisions from it!), while the actual database state still lives
+            // in the past. So to prevent this, we introduce a third split between the moment the
+            // epoch ended (and was persisted to disk) and the moment the snapshot was taken.
+            //
+            // This way, if anything goes wrong:
+            //
+            // - before the epoch transition or during the epoch-ended transaction: the database
+            //   remains unmodified, and no snapshot was generated.
+            //
+            // - after the epoch-ended or during the snapshot being taken: then we may or may not
+            //   have a snapshot. If we do have a snapshot, we may still report a progress as
+            //   "EpochEnded", which would only cause the snapshot to be taken _again_. Since this
+            //   is an idempotent and rather quick operation, that's not a big problem. If we don't
+            //   have a snapshot, then the progress is also still at "EpochEnded" and the snapshot
+            //   will normally happen on restart.
+            //
+            // - during the epoch start: then we have a stable snapshot and the database is still in
+            //   a correct state because the epoch progress still indicates "SnapshotTaken".
+
             // ---------------------------------------------------------------------------- End of epoch
             db.with_transaction::<_, StateError>(|batch| {
                 let should_end_epoch = batch.try_epoch_transition(None, Some(EpochEnded))?;
@@ -142,7 +211,7 @@ impl StateOverlay {
 
                 if should_end_epoch {
                     if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
-                        pay_rewards(batch, effective_rewards)?;
+                        pay_rewards(batch, &effective_rewards)?;
                         reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
                     } else {
                         return Err(StateError::NoEffectiveRewards);
@@ -175,19 +244,19 @@ impl StateOverlay {
                 Span::current().record("should_begin_epoch", should_begin_epoch);
 
                 let updated = if should_begin_epoch {
+                    batch.prune_recently_unregistered_accounts(self.epoch)?;
                     reset_blocks_count(batch)?;
-
                     reset_fees_and_donations(batch)?;
 
-                    if let Some(mut pools_updates) = mem::take(&mut self.pools_updates) {
-                        update_or_retire_pools(batch, pools_updates.take_updated(), pools_updates.take_retired())?;
+                    if let Some(pools_updates) = mem::take(&mut self.pools_updates) {
+                        update_or_retire_pools(batch, pools_updates.updated(), pools_updates.retired())?;
                         pay_or_refund_accounts(batch, pools_updates.refunds())?;
                     } else {
                         debug!(ledger::overlay::NO_POOLS_UPDATES);
                     }
 
                     if let Some(governance_updates) = mem::take(&mut self.governance_updates) {
-                        Some(apply_governance_updates(batch, governance_updates)?)
+                        Some(apply_governance_updates(batch, &governance_updates)?)
                     } else {
                         debug!(ledger::overlay::NO_GOVERNANCE_UPDATES);
                         None
@@ -246,17 +315,17 @@ impl StateOverlay {
     /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
     /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
     /// so it defers to the layers below. `Unknown` outside the straddle window.
-    pub fn committee_verdict(&self, credential: &StakeCredential) -> Existence<CommitteeMemberBind> {
+    pub fn committee_verdict<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
             Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
                 if removed.contains(credential) {
                     Existence::Gone
-                } else if added.contains_key(credential) {
+                } else if let Some(epoch) = added.get(credential) {
                     // freshly elected; no hot key yet and no stable row to fall back to
                     Existence::Exists(Bind {
-                        left: Resettable::Unchanged,
+                        left: Resettable::Reset,
                         right: Resettable::Unchanged,
-                        value: Some(Empty),
+                        value: Some(epoch),
                     })
                 } else {
                     Existence::Unknown
@@ -266,25 +335,15 @@ impl StateOverlay {
         }
     }
 
-    /// A CC member's term at the pending boundary, if the transition sets one: `Some(term)` for a
-    /// newly added member, `Some(None)` under no-confidence (members go inactive), `None` when the
-    /// boundary leaves this member's term untouched.
-    pub fn pending_committee_term(&self, credential: &StakeCredential) -> Option<TermLimit> {
-        match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref())? {
-            CommitteeUpdate::ChangeMembers { added, .. } => added.get(credential).map(|epoch| Some(*epoch)),
-            CommitteeUpdate::NoConfidence => Some(None),
-        }
-    }
-
     /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or
     /// dropped). Like pool reaping, this short-circuits before the stale stable entry.
-    pub fn has_pruned_proposal(&self, id: &ComparableProposalId) -> bool {
+    pub fn has_pruned_proposal(&self, id: &ProposalId) -> bool {
         self.governance_updates.as_ref().is_some_and(|updates| updates.pruned_proposals.contains_key(id))
     }
 
     /// The set of all pruned proposals from the epoch boundary (because they expired, were
     /// ratified, or evicted due to another ratification).
-    pub fn pruned_proposals(&self) -> BTreeMap<&ComparableProposalId, RatificationStatus> {
+    pub fn pruned_proposals(&self) -> BTreeMap<&ProposalId, RatificationStatus> {
         self.governance_updates
             .as_ref()
             .map(|updates| updates.pruned_proposals.iter().map(|(k, v)| (k, *v)).collect())
@@ -301,7 +360,7 @@ impl StateOverlay {
     /// treasury withdrawal). `0` outside the straddle window.
     pub fn pending_reward_credit(&self, credential: &StakeCredential) -> Lovelace {
         let reward = match &self.rewards {
-            RewardsState::Effective(effective) => effective.accounts().get(credential).copied().unwrap_or(0),
+            RewardsState::Effective(effective) => effective.reward_of(credential),
             RewardsState::NotReady | RewardsState::Computed(..) => 0,
         };
         let refund = self.pools_updates.as_ref().map(|updates| updates.refund(credential)).unwrap_or(0);
@@ -313,14 +372,65 @@ impl StateOverlay {
     pub fn rewards(&self) -> &RewardsState {
         &self.rewards
     }
+}
 
-    /// A mut handle on the rewards state. Use with care to replace rewards.
-    pub fn rewards_mut(&mut self) -> &mut RewardsState {
-        &mut self.rewards
+#[cfg(test)]
+mod test {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS};
+
+    use super::*;
+    use crate::epoch_transition::Computed;
+
+    #[test]
+    fn test_rollback() {
+        let epoch = Epoch::from(300);
+        let mut overlay = StateOverlay {
+            epoch,
+            most_recent_snapshot: RefCell::new(None),
+            rewards: RewardsState::Effective(Arc::new(effective_rewards())),
+            pools_updates: Some(Arc::new(PoolsEpochTransitionUpdates::default())),
+            governance_updates: Some(Arc::new(GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()))),
+        };
+
+        overlay.rollback();
+
+        // Rolling back steps the epoch back, turns the effective rewards into computed ones, and
+        // drops the pending pools and governance updates.
+        assert_eq!(overlay.epoch, epoch - 1);
+        assert!(matches!(overlay.rewards, RewardsState::Computed(_)), "rewards should be computed after rollback");
+        assert!(overlay.pools_updates.is_none(), "pending pools updates should be dropped on rollback");
+        assert!(overlay.governance_updates.is_none(), "pending governance updates should be dropped on rollback");
     }
 
-    /// Consume a computed summary from a previous computation and mark the rewards as 'NotReady'.
-    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
-        self.rewards.take_computed_rewards()
+    #[test]
+    fn rollback_leaves_non_effective_rewards_untouched() {
+        let epoch = Epoch::from(300);
+        let mut overlay = StateOverlay::new(epoch);
+
+        overlay.rollback();
+        assert_eq!(overlay.epoch, epoch - 1);
+        assert!(matches!(overlay.rewards, RewardsState::NotReady));
+        assert!(overlay.is_empty());
+    }
+
+    // HELPERS
+
+    fn credential(tag: u8) -> StakeCredential {
+        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+    }
+
+    /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during
+    /// the epoch, so its rewards are unclaimed and returned to the treasury.
+    fn effective_rewards() -> Rewards<Effective> {
+        let computed = Rewards::<Computed>::new(
+            1_000,
+            7,
+            142,
+            BTreeMap::from([(credential(1), 100), (credential(2), 42)]),
+            Default::default(),
+        );
+        Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))
     }
 }

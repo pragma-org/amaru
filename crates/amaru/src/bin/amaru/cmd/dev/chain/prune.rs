@@ -14,7 +14,10 @@
 
 use std::path::PathBuf;
 
-use amaru::{default_chain_dir, default_ledger_dir};
+use amaru::{
+    default_chain_dir, default_ledger_dir,
+    lifecycle::{Runnable, RuntimeKind},
+};
 use amaru_kernel::{IsHeader, NetworkName};
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
@@ -48,8 +51,12 @@ pub struct Args {
     network: NetworkName,
 }
 
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
 #[expect(clippy::print_stdout)]
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 

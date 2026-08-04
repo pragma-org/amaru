@@ -23,8 +23,26 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoizedDatum {
     None,
-    Hash(Hash<DATUM>),
-    Inline(MemoizedPlutusData),
+    Hash(Box<Hash<DATUM>>),
+    Inline(Box<MemoizedPlutusData>),
+}
+
+impl From<Hash<DATUM>> for MemoizedDatum {
+    fn from(hash: Hash<DATUM>) -> Self {
+        Self::Hash(Box::new(hash))
+    }
+}
+
+impl From<Option<Hash<DATUM>>> for MemoizedDatum {
+    fn from(opt: Option<Hash<DATUM>>) -> Self {
+        opt.map(MemoizedDatum::from).unwrap_or(MemoizedDatum::None)
+    }
+}
+
+impl From<MemoizedPlutusData> for MemoizedDatum {
+    fn from(data: MemoizedPlutusData) -> Self {
+        Self::Inline(Box::new(data))
+    }
 }
 
 impl serde::Serialize for MemoizedDatum {
@@ -58,8 +76,8 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
 
         match serde::Deserialize::deserialize(deserializer)? {
             PlaceholderDatum::Unit(()) => Ok(MemoizedDatum::None),
-            PlaceholderDatum::Hash(bytes) => Ok(MemoizedDatum::Hash(bytes)),
-            PlaceholderDatum::Data(data) => Ok(MemoizedDatum::Inline(data)),
+            PlaceholderDatum::Hash(hash) => Ok(MemoizedDatum::from(hash)),
+            PlaceholderDatum::Data(data) => Ok(MemoizedDatum::from(data)),
         }
     }
 }
@@ -78,9 +96,8 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                     if d.tag()? != IanaTag::Cbor.tag() {
                         return Err(cbor::decode::Error::message("unknown tag for datum tag"));
                     }
-                    let plutus_data: pallas_primitives::KeepRaw<'_, pallas_primitives::PlutusData> =
-                        cbor::decode_with(d.bytes()?, ctx)?;
-                    Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
+                    let plutus_data: MemoizedPlutusData = cbor::decode_with(d.bytes()?, ctx)?;
+                    Ok(MemoizedDatum::from(plutus_data))
                 }
                 _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
             }
@@ -94,7 +111,7 @@ impl<'b, C> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
         if raw.len() != 32 {
             return Err(cbor::decode::Error::message(format!("expected datum hash of length 32, got {}", raw.len())));
         }
-        Ok(Legacy(MemoizedDatum::Hash(Hash::<DATUM>::from(raw))))
+        Ok(Legacy(MemoizedDatum::from(Hash::<DATUM>::from(raw))))
     }
 }
 
@@ -120,11 +137,5 @@ impl<C> cbor::Encode<C> for MemoizedDatum {
         }
 
         Ok(())
-    }
-}
-
-impl From<Option<Hash<DATUM>>> for MemoizedDatum {
-    fn from(opt: Option<Hash<DATUM>>) -> Self {
-        opt.map(MemoizedDatum::Hash).unwrap_or(MemoizedDatum::None)
     }
 }

@@ -1,60 +1,76 @@
 services:
   otlp-collector:
-    image: otel/opentelemetry-collector-contrib:latest
+    image: otel/opentelemetry-collector-contrib:0.133.0
     environment:
       - NO_PROXY=localhost,127.0.0.1
       - no_proxy=localhost,127.0.0.1
     volumes:
       - "./otlp-collector.yml:/etc/otlp-collector.yml"
     command: ["--config", "/etc/otlp-collector.yml"]
+    depends_on:
+      - loki
+      - tempo
     ports:
       - "4317:4317"
       - "4318:4318"
       - "8889:8889"
 
   prometheus:
-    profiles: [prometheus]
     image: prom/prometheus:v3.0.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-remote-write-receiver"
     volumes:
-      - "./profiles/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml"
+      - "prometheus-data:/prometheus"
     ports:
       - "9090:9090"
 
-  jaeger:
-    profiles: [jaeger]
-    image: jaegertracing/jaeger:2.4.0
+  loki:
+    image: grafana/loki:3.7.2
+    command: ["-config.file=/etc/loki/loki.yml"]
     volumes:
-      - "./profiles/jaeger/jaeger-ui.json:/etc/jaeger/jaeger-ui.json"
-      - "./profiles/jaeger/jaeger.yml:/etc/jaeger/config.yml"
-    command: ["--config", "/etc/jaeger/config.yml"]
+      - "./loki.yml:/etc/loki/loki.yml"
+      - "loki-data:/loki"
     ports:
-      - "16686:16686"
+      - "3100:3100"
 
   tempo:
-    profiles: [tempo]
     image: grafana/tempo:2.9.1
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    depends_on:
+      - prometheus
     ports:
       - "3200:3200"
     volumes:
-      - "./profiles/tempo/tempo.yml:/etc/tempo/tempo.yml"
+      - "./tempo.yml:/etc/tempo/tempo.yml"
       - "tempo-data:/var/tempo"
-    command: ["-config.file=/etc/tempo/tempo.yml"]
 
   grafana:
-    profiles: [grafana]
     image: grafana/grafana:latest
+    depends_on:
+      - loki
+      - prometheus
+      - tempo
     volumes:
-      - "./profiles/grafana/grafana.yml:/etc/grafana/provisioning/datasources/datasources.yaml"
+      - "./grafana.yml:/etc/grafana/provisioning/datasources/datasources.yaml"
+      - "./dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yaml"
+      - "./dashboards:/etc/grafana/dashboards"
+      - "grafana-data:/var/lib/grafana"
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
       - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
       - GF_USERS_DEFAULT_THEME=light
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/amaru-overview.json
+      - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=1s
     ports:
       - "80:3000"
 
-
-
 volumes:
+  grafana-data:
+  loki-data:
+  prometheus-data:
   tempo-data:

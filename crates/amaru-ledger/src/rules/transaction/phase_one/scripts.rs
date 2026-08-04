@@ -19,9 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    ExUnits, HasExUnits, HasRedeemers, HasScriptHash, Hash, Language, MemoizedDatum, MemoizedScript, NativeScript,
-    PlutusScript, PlutusVersion, ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript,
-    ScriptIntegrityData, ValidityInterval, WitnessSet, redeemer_tag_to_string,
+    ExUnits, HasExUnits, HasScriptHash, Hash, MemoizedDatum, MemoizedScript, NativeScript, PlutusScript, PlutusVersion,
+    ProtocolParameters, ProtocolVersion, RedeemerKey, RedeemerTag, RequiredScript, ScriptIntegrityData,
+    ValidityInterval, WitnessSet,
     size::{DATUM, SCRIPT},
     utils::string::display_collection,
 };
@@ -65,24 +65,12 @@ impl TryFrom<&ProvidedScript<'_>> for PlutusVersion {
     }
 }
 
-impl TryFrom<&ProvidedScript<'_>> for Language {
-    type Error = ();
-    fn try_from(script: &ProvidedScript<'_>) -> Result<Self, Self::Error> {
-        match script {
-            ProvidedScript::Native(..) => Err(()),
-            ProvidedScript::PlutusV1 => Ok(Language::PlutusV1),
-            ProvidedScript::PlutusV2 => Ok(Language::PlutusV2),
-            ProvidedScript::PlutusV3 => Ok(Language::PlutusV3),
-        }
-    }
-}
-
 impl<'a> From<PlutusVersion> for ProvidedScript<'a> {
-    fn from(version: PlutusVersion) -> ProvidedScript<'a> {
+    fn from(version: PlutusVersion) -> Self {
         match version {
-            PlutusVersion::V1 => ProvidedScript::PlutusV1,
-            PlutusVersion::V2 => ProvidedScript::PlutusV2,
-            PlutusVersion::V3 => ProvidedScript::PlutusV3,
+            PlutusVersion::V1 => Self::PlutusV1,
+            PlutusVersion::V2 => Self::PlutusV2,
+            PlutusVersion::V3 => Self::PlutusV3,
         }
     }
 }
@@ -130,7 +118,7 @@ pub enum InvalidScripts {
         "extraneous redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
             "[{}, {}]",
-            redeemer_tag_to_string(&redeemer_key.tag),
+            &redeemer_key.tag,
             redeemer_key.index
         )).collect::<Vec<_>>().join(", ")
     )]
@@ -140,7 +128,7 @@ pub enum InvalidScripts {
         "missing redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
             "[{}, {}]",
-            redeemer_tag_to_string(&redeemer_key.tag),
+            &redeemer_key.tag,
             redeemer_key.index
         )).collect::<Vec<_>>().join(", ")
     )]
@@ -162,7 +150,7 @@ pub enum InvalidScripts {
     ScriptIntegrityHashMismatch { supplied: Option<Hash<32>>, expected: Option<Box<ScriptIntegrityData>> },
 
     #[error("no cost model in protocol parameters for language used by transaction: {0:?}")]
-    MissingCostModel(Language),
+    MissingCostModel(PlutusVersion),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -200,8 +188,8 @@ where
 
     let witnessed_datums = datum_hashes(witness_set);
 
-    let languages: Vec<Language> =
-        provided_scripts.values().filter_map(|script| Language::try_from(script).ok()).collect();
+    let languages: Vec<PlutusVersion> =
+        provided_scripts.values().filter_map(|script| PlutusVersion::try_from(script).ok()).collect();
 
     fail_on_supplemental_datums(context, &required_datums, &witnessed_datums)?;
 
@@ -209,12 +197,12 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(provided_redemeers) = witness_set.redeemer.as_ref().map(HasRedeemers::redeemers) {
-        provided_redemeers.keys().for_each(|provided| {
+    if let Some(provided_redemeers) = witness_set.redeemer.as_ref() {
+        provided_redemeers.iter_unique().for_each(|(provided, _, _)| {
             if let Some(index) = required_redeemers.iter().position(|required| required == provided.deref()) {
                 required_redeemers.remove(index);
             } else {
-                extra_redeemers.push(provided.deref().clone());
+                extra_redeemers.push(*provided.deref());
             }
         })
     }
@@ -229,12 +217,12 @@ where
 
     for lang in &languages {
         let has_cost_model = match lang {
-            Language::PlutusV1 => protocol_parameters.cost_models.plutus_v1.is_some(),
-            Language::PlutusV2 => protocol_parameters.cost_models.plutus_v2.is_some(),
-            Language::PlutusV3 => protocol_parameters.cost_models.plutus_v3.is_some(),
+            PlutusVersion::V1 => protocol_parameters.cost_models.plutus_v1.is_some(),
+            PlutusVersion::V2 => protocol_parameters.cost_models.plutus_v2.is_some(),
+            PlutusVersion::V3 => protocol_parameters.cost_models.plutus_v3.is_some(),
         };
         if !has_cost_model {
-            return Err(InvalidScripts::MissingCostModel(lang.clone()));
+            return Err(InvalidScripts::MissingCostModel(*lang));
         }
     }
 
@@ -304,7 +292,7 @@ fn partition_scripts(
 
         let mut require_datum_preimage = || match datum {
             MemoizedDatum::Hash(hash) => {
-                required_datums.insert(*hash);
+                required_datums.insert(*hash.as_ref());
             }
             MemoizedDatum::Inline(..) | MemoizedDatum::None => {}
         };
@@ -608,324 +596,41 @@ fn collect_plutus_witness_scripts<const V: usize>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
-    use amaru_kernel::{
-        CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PROTOCOL_VERSION_10, PlutusScript,
-        PoolVotingThresholds, ProtocolParameters, RationalNumber, TransactionBody, WitnessSet, include_cbor,
-        include_json,
-    };
+    use amaru_kernel::{NonEmptyVec, PROTOCOL_VERSION_10, PlutusScript, WitnessSet};
     use amaru_plutus::arena_pool::ArenaPool;
     use test_case::test_case;
 
     use super::{InvalidScripts, PlutusVersion};
-    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
 
-    // TODO: These should be encoded with the tests; since they will change their outcome.
-    static FIXTURE_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> = LazyLock::new(|| ProtocolParameters {
-        protocol_version: PROTOCOL_VERSION_10,
-        min_fee_a: 44,
-        min_fee_b: 155381,
-        max_block_body_size: 90112,
-        max_transaction_size: 16384,
-        max_block_header_size: 1100,
-        max_tx_ex_units: ExUnits { mem: 14_000_000, steps: 10_000_000_000 },
-        max_block_ex_units: ExUnits { mem: 62_000_000, steps: 20_000_000_000 },
-        max_value_size: 5000,
-        max_collateral_inputs: 3,
-        stake_credential_deposit: 2_000_000,
-        stake_pool_deposit: 500_000_000,
-        lovelace_per_utxo_byte: 4310,
-        prices: ExUnitPrices {
-            mem_price: RationalNumber { numerator: 577, denominator: 10_000 },
-            step_price: RationalNumber { numerator: 721, denominator: 10_000_000 },
-        },
-        min_fee_ref_script_lovelace_per_byte: RationalNumber { numerator: 15, denominator: 1 },
-        max_ref_script_size_per_tx: 200 * 1024,
-        max_ref_script_size_per_block: 1024 * 1024,
-        ref_script_cost_stride: 25600,
-        ref_script_cost_multiplier: RationalNumber { numerator: 12, denominator: 10 },
-        stake_pool_max_retirement_epoch: 18,
-        pledge_influence: RationalNumber { numerator: 3, denominator: 10 },
-        optimal_stake_pools_count: 500,
-        treasury_expansion_rate: RationalNumber { numerator: 2, denominator: 10 },
-        monetary_expansion_rate: RationalNumber { numerator: 3, denominator: 1_000 },
-        min_pool_cost: 340000000,
-        collateral_percentage: 150,
-        cost_models: CostModels {
-            plutus_v1: None,
-            plutus_v2: Some(vec![
-                100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000,
-                100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32,
-                61462, 4, 72010, 178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 228465, 122, 0, 1, 1, 1000, 42921, 4,
-                2, 24548, 29498, 38, 1, 898148, 27279, 1, 51775, 558, 1, 39184, 1000, 60594, 1, 141895, 32, 83150, 32,
-                15299, 32, 76049, 1, 13169, 4, 22100, 10, 28999, 74, 1, 28999, 74, 1, 43285, 552, 1, 44749, 541, 1,
-                33852, 32, 68246, 32, 72362, 32, 7243, 32, 7391, 32, 11546, 32, 85848, 228465, 122, 0, 1, 1, 90434,
-                519, 0, 1, 74433, 32, 85848, 228465, 122, 0, 1, 1, 85848, 228465, 122, 0, 1, 1, 955506, 213312, 0, 2,
-                270652, 22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32, 100788, 420, 1, 1, 81663, 32, 59498,
-                32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32, 43053543, 10, 53384111, 14333, 10, 43574283,
-                26308, 10,
-            ]),
-            plutus_v3: Some(vec![
-                100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356, 4, 16000, 100, 16000,
-                100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100, 100, 16000, 100, 94375, 32, 132994, 32,
-                61462, 4, 72010, 178, 0, 1, 22151, 32, 91189, 769, 4, 2, 85848, 123203, 7305, -900, 1716, 549, 57,
-                85848, 0, 1, 1, 1000, 42921, 4, 2, 24548, 29498, 38, 1, 898148, 27279, 1, 51775, 558, 1, 39184, 1000,
-                60594, 1, 141895, 32, 83150, 32, 15299, 32, 76049, 1, 13169, 4, 22100, 10, 28999, 74, 1, 28999, 74, 1,
-                43285, 552, 1, 44749, 541, 1, 33852, 32, 68246, 32, 72362, 32, 7243, 32, 7391, 32, 11546, 32, 85848,
-                123203, 7305, -900, 1716, 549, 57, 85848, 0, 1, 90434, 519, 0, 1, 74433, 32, 85848, 123203, 7305, -900,
-                1716, 549, 57, 85848, 0, 1, 1, 85848, 123203, 7305, -900, 1716, 549, 57, 85848, 0, 1, 955506, 213312,
-                0, 2, 270652, 22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32, 100788, 420, 1, 1, 81663, 32,
-                59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32, 43053543, 10, 53384111, 14333, 10,
-                43574283, 26308, 10, 16000, 100, 16000, 100, 962335, 18, 2780678, 6, 442008, 1, 52538055, 3756, 18,
-                267929, 18, 76433006, 8868, 18, 52948122, 18, 1995836, 36, 3227919, 12, 901022, 1, 166917843, 4307, 36,
-                284546, 36, 158221314, 26549, 36, 74698472, 36, 333849714, 1, 254006273, 72, 2174038, 72, 2261318,
-                64571, 4, 207616, 8310, 4, 1293828, 28716, 63, 0, 1, 1006041, 43623, 251, 0, 1, 100181, 726, 719, 0, 1,
-                100181, 726, 719, 0, 1, 100181, 726, 719, 0, 1, 107878, 680, 0, 1, 95336, 1, 281145, 18848, 0, 1,
-                180194, 159, 1, 1, 158519, 8942, 0, 1, 159378, 8813, 0, 1, 107490, 3298, 1, 106057, 655, 1, 1964219,
-                24520, 3,
-            ]),
-        },
-        pool_voting_thresholds: PoolVotingThresholds {
-            motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            committee_normal: RationalNumber { numerator: 51, denominator: 100 },
-            committee_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            hard_fork_initiation: RationalNumber { numerator: 51, denominator: 100 },
-            security_voting_threshold: RationalNumber { numerator: 51, denominator: 100 },
-        },
-        drep_voting_thresholds: DRepVotingThresholds {
-            motion_no_confidence: RationalNumber { numerator: 51, denominator: 100 },
-            committee_normal: RationalNumber { numerator: 67, denominator: 100 },
-            committee_no_confidence: RationalNumber { numerator: 67, denominator: 100 },
-            update_constitution: RationalNumber { numerator: 6, denominator: 10 },
-            hard_fork_initiation: RationalNumber { numerator: 75, denominator: 100 },
-            pp_network_group: RationalNumber { numerator: 6, denominator: 10 },
-            pp_economic_group: RationalNumber { numerator: 67, denominator: 100 },
-            pp_technical_group: RationalNumber { numerator: 67, denominator: 100 },
-            pp_governance_group: RationalNumber { numerator: 75, denominator: 100 },
-            treasury_withdrawal: RationalNumber { numerator: 67, denominator: 100 },
-        },
-        min_committee_size: 7,
-        max_committee_term_length: 146,
-        gov_action_lifetime: 6,
-        gov_action_deposit: 100_000_000_000,
-        drep_deposit: 500_000_000,
-        drep_expiry: 20,
-    });
-
-    fn protocol_parameters_with_cost_models(cost_models: CostModels) -> ProtocolParameters {
-        let mut pp = FIXTURE_PROTOCOL_PARAMETERS.clone();
-        pp.cost_models = cost_models;
-        pp
-    }
-
-    macro_rules! fixture {
-        ($hash:literal) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                FIXTURE_PROTOCOL_PARAMETERS.clone(),
-            )
-        };
-        ($hash:literal, with_pp) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                protocol_parameters_with_cost_models(include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/cost-models.json"
-                ))),
-            )
-        };
-        ($hash:literal, $variant:literal) => {
-            (
-                fixture_context!($hash, $variant),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                FIXTURE_PROTOCOL_PARAMETERS.clone(),
-            )
-        };
-        ($hash:literal, $variant:literal, with_tx) => {
-            (
-                fixture_context!($hash, $variant),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                FIXTURE_PROTOCOL_PARAMETERS.clone(),
-            )
-        };
-        ($hash:literal, $variant:literal, with_pp) => {
-            (
-                fixture_context!($hash, $variant),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/", $variant, "/witness.cbor")),
-                protocol_parameters_with_cost_models(include_json!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/cost-models.json"
-                ))),
-            )
-        };
-        ($hash:literal, $pp:expr) => {
-            (
-                fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
-                $pp,
-            )
-        };
-    }
-    #[test_case(
-        fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0");
-        "incorrect missing script due to re-serialisation"
-    )]
-    #[test_case(
-        fixture!("ebd7cda7805bc5b89c0fb3c8ad44f6549ab72c1040eb47019146e3f5f98298e1");
-        "native script locked with datum"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e");
-        "happy path"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output", with_tx);
-        "supplemental datum output"
-    )]
-    #[test_case(
-        fixture!("99cd1c8159255cf384ece25f5516fa54daaee6c5efb3f006ecf9780a0775b1dc", with_pp);
-        "reference script in inputs"
-    )]
-    #[test_case(
-        fixture!("e974fecbf45ac386a76605e9e847a2e5d27c007fdd0be674cbad538e0c35fe01", "required-scripts", with_pp);
-        "proposal script"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-scripts")
-        => matches Err(InvalidScripts::MissingRequiredScripts(..));
-        "missing required scripts"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-script-witness")
-        => matches Err(InvalidScripts::ExtraneousScriptWitnesses(..));
-        "extraneous script witness"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "unspendable-input")
-        => matches Err(InvalidScripts::UnspendableInputsNoDatums(..));
-        "unspendable input"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-datum")
-        => matches Err(InvalidScripts::MissingRequiredDatums{..});
-        "missing required datum"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-supplemental-datum")
-        => matches Err(InvalidScripts::ExtraneousSupplementalDatums{..});
-        "extraneous supplemental datum"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-redeemer")
-        => matches Err(InvalidScripts::MissingRedeemers{..});
-        "missing required redeemer"
-    )]
-    #[test_case(
-        fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-redeemer")
-        => matches Err(InvalidScripts::ExtraneousRedeemers{..});
-        "extraneous redeemer"
-    )]
-    #[test_case(
-        fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers"
-    )]
-    #[test_case(
-        fixture!(
-            "3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e",
-            ProtocolParameters {
-                max_tx_ex_units: ExUnits { mem: 1, steps: 1 },
-                ..FIXTURE_PROTOCOL_PARAMETERS.clone()
-            }
-        ) => matches Err(InvalidScripts::TooManyExUnits{..});
-        "too many ex units"
-    )]
-    fn test_scripts(
-        (mut ctx, tx, witness_set, protocol_parameters): (
-            AssertValidationContext,
-            TransactionBody,
-            WitnessSet,
-            ProtocolParameters,
-        ),
-    ) -> Result<(), InvalidScripts> {
-        let arena_pool = ArenaPool::new(1, 1024);
-        super::execute(
-            &mut ctx,
-            &arena_pool,
-            &witness_set,
-            tx.validity_interval(),
-            &protocol_parameters,
-            tx.script_data_hash,
-        )
-    }
-
-    #[test]
-    fn malformed_script_rejected() {
-        let script: PlutusScript<3> = PlutusScript(vec![0xDE, 0xAD].into());
+    /// Well-formedness is decided by the UPLC decoder, so a truncated or empty program is rejected
+    /// before it is ever evaluated.
+    #[test_case(vec![0xDE, 0xAD]; "truncated program")]
+    #[test_case(vec![]; "empty program")]
+    fn malformed_plutus_script_rejected(bytes: Vec<u8>) {
+        let script: PlutusScript<3> = PlutusScript(bytes.into());
         let arena = amaru_uplc::arena::Arena::new();
-        assert!(
-            super::validate_plutus_script(
-                &script,
-                PlutusVersion::V3,
-                FIXTURE_PROTOCOL_PARAMETERS.protocol_version,
-                &arena
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn empty_script_rejected() {
-        let script: PlutusScript<3> = PlutusScript(vec![].into());
-        let arena = amaru_uplc::arena::Arena::new();
-        assert!(
-            super::validate_plutus_script(
-                &script,
-                PlutusVersion::V3,
-                FIXTURE_PROTOCOL_PARAMETERS.protocol_version,
-                &arena
-            )
-            .is_err()
-        );
+        assert!(super::validate_plutus_script(&script, PlutusVersion::V3, PROTOCOL_VERSION_10, &arena).is_err());
     }
 
     #[test]
     fn malformed_witness_script_detected() {
-        use amaru_kernel::{NonEmptyVec, PlutusScript};
-
         let witness_set = WitnessSet {
             plutus_v3_script: Some(NonEmptyVec::singleton(PlutusScript(vec![0xDE, 0xAD].into()))),
             ..WitnessSet::default()
         };
 
-        let arena_pool = ArenaPool::new(1, 1024);
-
         assert!(matches!(
-            super::validate_witness_scripts(&arena_pool, &witness_set, FIXTURE_PROTOCOL_PARAMETERS.protocol_version),
+            super::validate_witness_scripts(&ArenaPool::new(1, 1024), &witness_set, PROTOCOL_VERSION_10),
             Err(InvalidScripts::MalformedScriptWitnesses(ref hashes)) if hashes.len() == 1
         ));
     }
 
     #[test]
     fn no_scripts_no_malformed() {
-        let witness_set = WitnessSet::default();
-
         let arena_pool = ArenaPool::new(1, 1024);
-
-        let provided =
-            super::validate_witness_scripts(&arena_pool, &witness_set, FIXTURE_PROTOCOL_PARAMETERS.protocol_version)
-                .expect("empty witness set should not produce malformed scripts");
+        let witness_set = WitnessSet::default();
+        let provided = super::validate_witness_scripts(&arena_pool, &witness_set, PROTOCOL_VERSION_10)
+            .expect("empty witness set should not produce malformed scripts");
         assert!(provided.is_empty());
     }
 }

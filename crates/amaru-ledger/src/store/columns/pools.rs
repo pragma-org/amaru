@@ -13,12 +13,14 @@
 // limitations under the License.
 
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{CertificatePointer, Epoch, Lovelace, PoolId, PoolParams, cbor};
+use amaru_kernel::{CertificatePointer, Lovelace, PoolId, PoolParams, cbor};
+
+use crate::epoch_transition::pools_updates::{PoolCertificate, PoolCertificates};
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (PoolParams, CertificatePointer, Lovelace, Epoch);
+pub type Value = (PoolParams, CertificatePointer, Lovelace);
 
 pub type Key = PoolId;
 
@@ -27,12 +29,12 @@ pub struct Row {
     pub registered_at: CertificatePointer,
     pub deposit: Lovelace,
     pub current_params: PoolParams,
-    pub future_params: Vec<(Option<PoolParams>, Epoch)>,
+    pub pending_certificates: PoolCertificates,
 }
 
 impl Row {
     pub fn new(registered_at: CertificatePointer, deposit: Lovelace, current_params: PoolParams) -> Self {
-        Self { registered_at, deposit, current_params, future_params: Vec::new() }
+        Self { registered_at, deposit, current_params, pending_certificates: Default::default() }
     }
 
     /// Returns the pool id
@@ -41,11 +43,10 @@ impl Row {
     }
 
     #[expect(clippy::panic)]
-    pub fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
+    pub fn extend(mut bytes: Vec<u8>, certificate: PoolCertificate) -> Vec<u8> {
         let tail = bytes.split_off(bytes.len() - 1);
         assert_eq!(tail, vec![0xFF], "invalid pool tail");
-        cbor::encode(future_params, &mut bytes)
-            .unwrap_or_else(|e| panic!("unable to encode pool params to CBOR: {e:?}"));
+        cbor::encode(certificate, &mut bytes).unwrap_or_else(|e| panic!("unable to encode pool params to CBOR: {e:?}"));
         [bytes, tail].concat()
     }
 }
@@ -60,13 +61,7 @@ impl<C> cbor::encode::Encode<C> for Row {
         e.encode_with(self.registered_at, ctx)?;
         e.encode_with(self.deposit, ctx)?;
         e.encode_with(&self.current_params, ctx)?;
-        // NOTE: We explicitly enforce the use of *indefinite* arrays here because it allows us
-        // to extend the serialized data easily without having to deserialise it.
-        e.begin_array()?;
-        for update in self.future_params.iter() {
-            e.encode_with(update, ctx)?;
-        }
-        e.end()?;
+        e.encode_with(&self.pending_certificates, ctx)?;
         Ok(())
     }
 }
@@ -76,40 +71,28 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         d.array()?;
         let registered_at = d.decode_with(ctx)?;
         let deposit = d.decode_with(ctx)?;
-
         let current_params = d.decode_with(ctx)?;
-
-        let mut iter = d.array_iter()?;
-
-        let mut future_params = Vec::new();
-        for item in &mut iter {
-            future_params.push(item?);
-        }
-
-        Ok(Row { registered_at, deposit, current_params, future_params })
+        let pending_certificates = d.decode_with(ctx)?;
+        Ok(Row { registered_at, deposit, current_params, pending_certificates })
     }
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use amaru_kernel::{any_certificate_pointer, any_lovelace, any_pool_params, prop_cbor_roundtrip};
-    use proptest::{collection, prelude::*};
+    use proptest::prelude::*;
 
     use super::*;
-
-    pub fn any_future_params(epoch: Epoch) -> impl Strategy<Value = (Option<PoolParams>, Epoch)> {
-        prop_oneof![Just((None, epoch)), any_pool_params().prop_map(move |params| (Some(params), epoch))]
-    }
+    #[cfg(test)]
+    use crate::epoch_transition::pools_updates::any_pool_certificate;
+    use crate::epoch_transition::pools_updates::any_pool_certificates;
 
     // Generate arbitrary `Row`, good for serialization for not for logic.
     pub fn any_row() -> impl Strategy<Value = Row> {
-        let any_future_params = collection::vec(0..3u64, 0..3)
-            .prop_flat_map(|epochs| epochs.into_iter().map(|u| any_future_params(Epoch::from(u))).collect::<Vec<_>>());
-
-        (any_future_params, any_pool_params(), any_certificate_pointer(u64::MAX), any_lovelace()).prop_map(
-            |(future_params, current_params, registered_at, deposit)| Row {
+        (any_pool_params(), any_pool_certificates(), any_certificate_pointer(u64::MAX), any_lovelace()).prop_map(
+            |(current_params, pending_certificates, registered_at, deposit)| Row {
                 current_params,
-                future_params,
+                pending_certificates,
                 registered_at,
                 deposit,
             },
@@ -120,17 +103,22 @@ pub mod tests {
 
     proptest! {
         #[test]
-        fn prop_decode_after_extend(row in any_row(), future_params in any_future_params(Epoch::from(100))) {
+        fn prop_decode_after_extend(row in any_row(), certificate in any_pool_certificate(amaru_kernel::Epoch::from(100))) {
             let mut bytes = Vec::new();
             cbor::encode(&row, &mut bytes)
                 .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
 
-            let bytes_extended = Row::extend(bytes, future_params.clone());
-
+            let bytes_extended = Row::extend(bytes, certificate.clone());
             let row_extended: Row = cbor::decode(&bytes_extended).unwrap();
 
-            prop_assert_eq!(row_extended.future_params.len(), row.future_params.len() + 1);
-            prop_assert_eq!(row_extended.future_params.last(), Some(&future_params));
+            let mut pending_certificates = row.pending_certificates.clone();
+            pending_certificates.append(certificate);
+            let expected = Row {
+                pending_certificates,
+                ..row
+            };
+
+            prop_assert_eq!(row_extended, expected);
         }
     }
 }

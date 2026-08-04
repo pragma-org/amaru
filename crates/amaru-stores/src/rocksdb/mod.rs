@@ -15,7 +15,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
-    ops::Deref,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -23,14 +22,13 @@ use std::{
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, ComparableProposalId, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProtocolParameters, RatificationStatus, StakeCredential,
-    TransactionInput, cbor,
+    CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
+    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
+    StakeCredential, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
-    governance::ratification::ProposalsRoots,
-    state::diff_bind::Resettable,
+    state::volatile::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
@@ -236,6 +234,7 @@ impl ReadOnlyRocksDB {
         let dir = config.dir.clone();
         assert_sufficient_snapshots(&dir)?;
         let live_dir = dir.join(DIR_LIVE_DB);
+        fs::metadata(&live_dir).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(&live_dir, err)))?;
         let opts = set_default_opts(config.into());
         rocksdb::DB::open_for_read_only(&opts, &live_dir, false)
             .map(|db| ReadOnlyRocksDB { db })
@@ -448,7 +447,7 @@ macro_rules! impl_ReadStore_body {
 
             fn proposal(
                 &self,
-                id: &ComparableProposalId,
+                id: &ProposalId,
             ) -> Result<Option<scolumns::proposals::Row>, StoreError> {
                 proposals::get(|key| self.db.get_pinned(key), id)
             }
@@ -482,6 +481,16 @@ macro_rules! impl_ReadStore_body {
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     accounts::PREFIX,
                 )
+            }
+
+            fn iter_recently_unregistered_accounts(
+                &self,
+            ) -> Result<impl Iterator<Item = scolumns::recently_unregistered_accounts::Key>, StoreError>
+            {
+                iter::<_, scolumns::recently_unregistered_accounts::Value, _, _>(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    recently_unregistered_accounts::PREFIX,
+                ).map(|iterator| iterator.map(|(k, _)| k))
             }
 
             fn iter_block_issuers(
@@ -635,10 +644,9 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         })
     }
 
-    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
-    /// deposit.
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded deposit.
     fn refund(&self, credential: &scolumns::accounts::Key, deposit: Lovelace) -> Result<Lovelace, StoreError> {
-        accounts::set(&self.db, credential, |balance| balance + deposit)
+        accounts::set_rewards(&self.db, credential, |balance| balance + deposit)
     }
 
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<(), StoreError> {
@@ -690,18 +698,23 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn set_recently_pruned_proposals<'iter>(
         &self,
-        proposals: impl IntoIterator<Item = (&'iter ComparableProposalId, RatificationStatus)>,
+        proposals: impl IntoIterator<Item = (&'iter ProposalId, RatificationStatus)>,
     ) -> Result<(), StoreError> {
         recently_pruned_proposals::replace_all(&self.db, proposals)
     }
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = &'iter Id>) -> Result<(), StoreError>
-    where
-        Id: Deref<Target = ProposalId> + 'iter,
-    {
+    fn remove_proposals<'iter>(
+        &self,
+        proposals: impl IntoIterator<Item = &'iter ProposalId>,
+    ) -> Result<(), StoreError> {
         proposals::remove(&self.db, proposals.into_iter())
+    }
+
+    /// Prune recently unregistered accounts from the database that are no longer required.
+    fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<(), StoreError> {
+        recently_unregistered_accounts::prune(&self.db, epoch)
     }
 
     fn save(
@@ -769,7 +782,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
                 utxo::remove(&self.db, remove.utxo)?;
                 pools::remove(&self.db, remove.pools)?;
-                accounts::remove(&self.db, remove.accounts)?;
+                accounts::remove(&self.db, remove.accounts, current_epoch)?;
                 dreps::remove(&self.db, remove.dreps)?;
 
                 // When a proposal is seen during a dormant period, we flush the current dormant
@@ -975,7 +988,7 @@ fn with_prefix_iterator<
 ) -> Result<(), StoreError> {
     debug_span!(stores::ledger::ITER_SCAN, db_collection_name = collection).in_scope(|| {
         let mut iterator = amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
+            // TODO: clarify what kind of errors can come from the database at this point.
             // We are merely iterating over a collection.
             item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
         }));
@@ -1021,11 +1034,11 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     use crate::tests::test_read_proposal;
     use crate::{
-        rocksdb::{ReadOnlyRocksDB, RocksDB, RocksDbConfig, split_continuous},
+        rocksdb::{DIR_LIVE_DB, ReadOnlyRocksDB, RocksDB, RocksDbConfig, split_continuous},
         tests::{
             Fixture, add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep, test_read_pool,
             test_read_utxo, test_refund_account, test_remove_account, test_remove_drep, test_remove_pool,
-            test_remove_utxo, test_slot_updated,
+            test_remove_utxo, test_slot_updated, test_treasury_withdrawal_debits_pots,
         },
     };
 
@@ -1054,6 +1067,20 @@ mod tests {
 
         let ro_db = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into())).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
+    }
+
+    #[test]
+    fn read_only_open_does_not_create_missing_live_database() {
+        use std::fs::File;
+
+        let dir = TempDir::new().unwrap();
+        let _fake_snapshot = File::create(dir.path().join("0")).unwrap();
+        let live_dir = dir.path().join(DIR_LIVE_DB);
+
+        let result = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into()));
+
+        assert!(result.is_err());
+        assert!(!live_dir.exists());
     }
 
     #[test]
@@ -1107,6 +1134,13 @@ mod tests {
         let mut runner = TestRunner::default();
         let (store, _) = setup_rocksdb_store(&mut runner)?;
         test_epoch_transition(&store)
+    }
+
+    #[test]
+    fn test_rocksdb_treasury_withdrawal_debits_pots() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_treasury_withdrawal_debits_pots(&store, &fixture, &mut runner)
     }
 
     #[test]

@@ -15,19 +15,19 @@
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor};
 
-use crate::state::diff_bind::Resettable;
+use crate::state::volatile::Resettable;
 
 /// Iterator used to browse rows from the DRep column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Resettable<Anchor>, Option<DRepRegistration>);
+pub type Value = (Resettable<Box<Anchor>>, Option<DRepRegistration>);
 
 pub type Key = StakeCredential;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {
     pub deposit: Lovelace,
-    pub anchor: Option<Anchor>,
+    pub anchor: Option<Box<Anchor>>,
     pub registered_at: CertificatePointer,
     pub valid_until: Epoch,
 }
@@ -77,7 +77,7 @@ pub mod tests {
         ) -> Row {
             Row {
                 deposit,
-                anchor,
+                anchor: anchor.map(Box::new),
                 registered_at,
                 valid_until,
             }

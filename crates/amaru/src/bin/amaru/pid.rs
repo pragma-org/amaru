@@ -93,21 +93,15 @@ fn process_exists(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-pub async fn with_optional_pid_file<P: AsRef<Path>, F, Fut, R>(
-    maybe_path: Option<P>,
-    f: F,
-) -> Result<R, Box<dyn std::error::Error>>
-where
-    F: FnOnce(Option<ProcessIdHandle>) -> Fut,
-    Fut: std::future::Future<Output = Result<R, Box<dyn std::error::Error>>>,
-{
-    let guard = maybe_path
-        .map(|path| {
-            ProcessIdHandle::new(path)
-                .inspect(|pid_file| debug!("created PID File {}, current PID: {}", pid_file, pid_file.pid()))
-                .inspect_err(|e| warn!("failed to create or write to PID file: {} ", e))
-        })
-        .and_then(|result| result.ok());
-
-    f(guard).await
+/// Create a PID file if a path is provided. On failure, logs a warning and returns `None`
+/// so the process can continue without a PID file.
+///
+/// Keep the returned handle in scope for the lifetime of the process; dropping it removes the file.
+pub fn optional_pid_file(maybe_path: Option<impl AsRef<Path>>) -> Option<ProcessIdHandle> {
+    maybe_path.and_then(|path| {
+        ProcessIdHandle::new(path)
+            .inspect(|pid_file| debug!("created PID File {}, current PID: {}", pid_file, pid_file.pid()))
+            .inspect_err(|e| warn!("failed to create or write to PID file: {} ", e))
+            .ok()
+    })
 }

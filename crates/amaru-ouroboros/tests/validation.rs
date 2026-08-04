@@ -14,14 +14,190 @@
 
 use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
-use amaru_kernel::{ConsensusParameters, Epoch, Header, NetworkName, Nonce, PoolId, cbor};
-use amaru_ouroboros::{issuer_to_pool_id, kes, praos};
-use amaru_ouroboros_traits::has_stake_distribution::mock_ledger_state::MockLedgerState;
+use amaru_kernel::{
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
+    hash::Hash,
+};
+use amaru_ouroboros::{kes, praos, praos::header::AssertHeaderError};
+use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::mock_ledger_state::MockLedgerState};
 use ctor::ctor;
 use num::CheckedSub;
-use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
-use pallas_primitives::babbage;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
+
+#[ctor(unsafe)]
+fn init() {
+    // initialize tracing crate
+    tracing_subscriber::fmt::init();
+}
+
+/// This test validates a number of headers against the header validation rules.
+/// Each test case specifies:
+///  - If the rules are supposed to succeed.
+///  - Or if one of them is supposed to fail. In that case the error type is specified.
+///
+/// The fixtures in `tests/data/header-test-cases.json` have been generated from some
+/// `ouroboros-consensus` Haskell code. They carry the generation context, the hex-encoded
+/// header and the expected outcome.
+#[test]
+fn validation_conforms_to_header_test_cases() {
+    let file = File::open("tests/data/header-test-cases.json").unwrap();
+    let mut cases: Vec<HeaderTestCase> = serde_json::from_reader(BufReader::new(file)).expect("decode test cases");
+
+    // NOTE: guards against a truncated or mis-parsed fixture silently passing the test
+    assert_eq!(cases.len(), 107, "unexpected number of header test cases");
+
+    for case in cases.iter_mut() {
+        let context = &case.context;
+        let block_header = case.header.get_header().expect("cannot extract header from bytes");
+        let raw_header_body = cbor::to_cbor(block_header.header_body());
+
+        let pool_id = block_header.pool_id();
+        let era_history = NetworkName::Preprod.as_era_history().expect("era");
+        let slot = block_header.slot();
+        let target = era_history
+            .slot_to_epoch_unchecked_horizon(slot)
+            .ok()
+            .and_then(|e| e.checked_sub(Epoch::TWO))
+            .expect("test vector epoch should be >= 2");
+        let summaries = pool_summaries(context, &case.ledger_state, pool_id, target);
+        let result = validate_header(context, &block_header, &raw_header_body, &summaries, era_history, slot);
+
+        match (&case.expected, result) {
+            (Expected::Pass, Ok(())) => (),
+            (Expected::Error(expected), Err(error)) => {
+                let actual = format!("{:?}", error);
+                assert!(
+                    actual.contains(expected),
+                    "[{}] {}\nexpected error to contain {:?}, got {:?}\ncontext: {:?}",
+                    case.title,
+                    case.description,
+                    expected,
+                    error,
+                    context
+                );
+            }
+            (Expected::Pass, Err(error)) => {
+                panic!(
+                    "[{}] {}\nexpected validation to succeed, failed with error {:?}\ncontext: {:?}",
+                    case.title, case.description, error, context
+                )
+            }
+            (Expected::Error(expected), Ok(())) => {
+                panic!(
+                    "[{}] {}\nexpected validation to fail with {:?}, but it succeeded\ncontext: {:?}",
+                    case.title, case.description, expected, context
+                )
+            }
+        }
+    }
+}
+
+/// Error surfaced while validating a header in the same order as `ValidateHeader::check_header`:
+/// the pool is resolved from the ledger first (which may fail or report an unknown pool), then the
+/// praos assertions run.
+#[derive(Debug)]
+enum ValidationError {
+    UnknownPool,
+    #[expect(dead_code, reason = "surfaced through the Debug output in failure assertions")]
+    Assert(Box<AssertHeaderError>),
+}
+
+/// Build the pool summaries the ledger exposes for a case, mirroring the three `ledgerState`
+/// situations encoded in the fixtures:
+///  - `missingPool`: the epoch is known but the pool is absent, so `get_pool` returns `Ok(None)`.
+///  - `failing`: no stake distribution for the epoch, so `get_pool` returns an error.
+///  - otherwise: the issuing pool is registered with the mocked stake and VRF key.
+fn pool_summaries(
+    context: &GeneratorContext,
+    ledger_state: &Option<String>,
+    pool: PoolId,
+    target: Epoch,
+) -> PoolSummaries {
+    match ledger_state.as_deref() {
+        Some("missingPool") => {
+            let mut by_epoch = BTreeMap::new();
+            by_epoch.insert(target, BTreeMap::new());
+            PoolSummaries { by_epoch }
+        }
+        Some("failing") => PoolSummaries::default(),
+        _ => mock_ledger_state(context).to_pool_summaries(pool, target),
+    }
+}
+
+/// Run the same validation steps as `ValidateHeader::check_header`: resolve the pool from the
+/// ledger, look up the latest opcert sequence number (here: from the generation context), then
+/// run the praos assertions.
+#[allow(clippy::expect_used)]
+// The assertions returned by `assert_all` fail with `AssertHeaderError`, which is large by design;
+// only its size inside `ValidationError` is under our control, and that one is boxed.
+#[allow(clippy::result_large_err)]
+fn validate_header(
+    context: &GeneratorContext,
+    block_header: &BlockHeader,
+    raw_header_body: &[u8],
+    summaries: &PoolSummaries,
+    era_history: &EraHistory,
+    slot: Slot,
+) -> Result<(), ValidationError> {
+    use rayon::prelude::*;
+
+    let pool_id = block_header.pool_id();
+    let last_opcert_sequence_number = context.operational_certificate_counters.get(&pool_id).copied();
+    let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
+
+    let pool_summary = summaries
+        .get_pool(slot, &pool_id, era_history)
+        .map_err(|e| ValidationError::Assert(Box::new(AssertHeaderError::PoolError(e))))?
+        .ok_or(ValidationError::UnknownPool)?;
+
+    praos::header::assert_all(
+        consensus_parameters,
+        block_header.header(),
+        raw_header_body,
+        last_opcert_sequence_number,
+        &pool_summary,
+        &context.nonce,
+    )
+    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))
+    .map_err(|e| ValidationError::Assert(Box::new(e)))
+}
+
+fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
+    MockLedgerState { vrf_vkey_hash: context.vrf_vkey_hash, stake: 1, active_stake: 1 }
+}
+
+#[allow(clippy::expect_used)]
+fn consensus_parameters_from_context(context: &GeneratorContext) -> ConsensusParameters {
+    ConsensusParameters::create(
+        0,
+        context.praos_slots_per_kes_period,
+        context.praos_max_kes_evolution,
+        context.active_slot_coeff,
+        NetworkName::Preprod.as_era_history().expect("missing network default EraHistory"),
+    )
+}
+
+/// Test case for a given generated header
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HeaderTestCase {
+    title: String,
+    #[serde(default)]
+    description: String,
+    context: GeneratorContext,
+    #[serde(deserialize_with = "deserialize_header")]
+    header: HeaderWrapper,
+    #[serde(default)]
+    ledger_state: Option<String>,
+    expected: Expected,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum Expected {
+    Pass,
+    Error(String),
+}
 
 /// Context from which a header has been generated.
 ///
@@ -31,14 +207,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 /// produce the VRF output, in order to help troubleshoot the
 /// validation process in case of test failures.
 ///
-/// This context and the associated `MutatedHeader` are generated from
-/// Haskell code and validated with [ouroboros-consensus]() code. There
-/// is [PR]() in the making to integrate the generator into the consensus
-/// codebase and provide a standalone executable to generate and validate
-/// arbitrary headers.
-///
 /// TODO: The stake distribution should be added to the context, the
-/// tester currently assumes the pool signing the header as 100% of the
+/// tester currently assumes the pool signing the header has 100% of the
 /// stake.
 #[derive(Deserialize)]
 struct GeneratorContext {
@@ -49,21 +219,15 @@ struct GeneratorContext {
     #[serde(rename = "kesSignKey", deserialize_with = "deserialize_secret_kes_key")]
     kes_secret_key: KesKeyWrapper,
     #[serde(rename = "coldSignKey", deserialize_with = "deserialize_secret_ed25519_key")]
-    cold_secret_key: SecretKey,
+    cold_secret_key: ed25519::SecretKey,
     #[serde(rename = "vrfVKeyHash", deserialize_with = "deserialize_vrf_vkey_hash")]
     vrf_vkey_hash: Hash<32>,
     #[serde(deserialize_with = "deserialize_nonce")]
     nonce: Nonce,
     #[serde(rename = "ocertCounters")]
-    operational_certificate_counters: BTreeMap<Hash<28>, u64>,
+    operational_certificate_counters: BTreeMap<PoolId, u64>,
     #[serde(rename = "activeSlotCoeff")]
     active_slot_coeff: f64,
-}
-
-impl GeneratorContext {
-    pub fn active_slot_coeff(&self) -> f64 {
-        self.active_slot_coeff
-    }
 }
 
 impl std::fmt::Debug for GeneratorContext {
@@ -73,6 +237,7 @@ impl std::fmt::Debug for GeneratorContext {
             .field("praos_max_kes_evolution", &self.praos_max_kes_evolution)
             .field("kes_secret_key", &self.kes_secret_key)
             .field("cold_secret_key", &self.cold_secret_key)
+            .field("vrf_vkey_hash", &self.vrf_vkey_hash)
             .field("nonce", &self.nonce)
             .field("operational_certificate_counters", &self.operational_certificate_counters)
             .field("active_slot_coeff", &self.active_slot_coeff)
@@ -80,9 +245,14 @@ impl std::fmt::Debug for GeneratorContext {
     }
 }
 
-#[derive(Debug)]
 pub struct KesKeyWrapper {
     bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for KesKeyWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KesKeyWrapper").field("bytes", &hex::encode(&self.bytes)).finish()
+    }
 }
 
 pub struct KesKeyWrapperError {
@@ -95,6 +265,26 @@ impl KesKeyWrapper {
     }
 }
 
+#[derive(Debug)]
+struct HeaderWrapper {
+    bytes: Vec<u8>,
+}
+
+impl HeaderWrapper {
+    fn get_header(&mut self) -> Result<BlockHeader, ()> {
+        cbor::decode(self.bytes.as_slice()).map_err(|_| ())
+    }
+}
+
+fn deserialize_header<'de, D>(deserializer: D) -> Result<HeaderWrapper, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let buf = <String>::deserialize(deserializer)?;
+    let bytes = hex::decode(buf).map_err(serde::de::Error::custom)?;
+    Ok(HeaderWrapper { bytes })
+}
+
 fn deserialize_secret_kes_key<'de, D>(deserializer: D) -> Result<KesKeyWrapper, D::Error>
 where
     D: Deserializer<'de>,
@@ -104,16 +294,16 @@ where
     Ok(KesKeyWrapper { bytes })
 }
 
-fn deserialize_secret_ed25519_key<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
+fn deserialize_secret_ed25519_key<'de, D>(deserializer: D) -> Result<ed25519::SecretKey, D::Error>
 where
     D: Deserializer<'de>,
 {
     let buf = <String>::deserialize(deserializer)?;
     let decoded = hex::decode(buf).map_err(serde::de::Error::custom)?;
-    let bytes: [u8; SecretKey::SIZE] = decoded
+    let bytes: [u8; ed25519::SECRET_KEY_LENGTH] = decoded
         .try_into()
         .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to secret key: {:?}", e)))?;
-    Ok(bytes.into())
+    Ok(bytes)
 }
 
 fn deserialize_vrf_vkey_hash<'de, D>(deserializer: D) -> Result<Hash<32>, D::Error>
@@ -138,139 +328,4 @@ where
     let bytes =
         decoded.try_into().map_err(|e| serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e)))?;
     Ok(Hash::new(bytes))
-}
-
-#[derive(Debug, Deserialize)]
-struct MutatedHeader {
-    #[serde(deserialize_with = "deserialize_header")]
-    header: HeaderWrapper,
-    mutation: Mutation,
-}
-
-#[derive(Debug)]
-struct HeaderWrapper {
-    bytes: Vec<u8>,
-}
-
-impl HeaderWrapper {
-    fn get_header(&mut self) -> Result<babbage::MintedHeader<'_>, ()> {
-        cbor::decode(self.bytes.as_slice()).map_err(|_| ())
-    }
-}
-
-fn deserialize_header<'de, D>(deserializer: D) -> Result<HeaderWrapper, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let buf = <String>::deserialize(deserializer)?;
-    let bytes = hex::decode(buf).map_err(serde::de::Error::custom)?;
-    Ok(HeaderWrapper { bytes })
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-enum Mutation {
-    #[expect(clippy::enum_variant_names)]
-    NoMutation,
-    MutateKESKey,
-    MutateColdKey,
-    MutateKESPeriod,
-    MutateKESPeriodBefore,
-    MutateCounterOver1,
-    MutateCounterUnder,
-}
-
-fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
-    MockLedgerState {
-        vrf_vkey_hash: context.vrf_vkey_hash,
-        stake: 1,
-        active_stake: 1,
-        op_certs: context.operational_certificate_counters.clone(),
-    }
-}
-
-#[allow(clippy::expect_used)]
-fn consensus_parameters_from_context(context: &GeneratorContext) -> ConsensusParameters {
-    ConsensusParameters::create(
-        0,
-        context.praos_slots_per_kes_period,
-        context.praos_max_kes_evolution,
-        context.active_slot_coeff(),
-        NetworkName::Preprod.as_era_history().expect("missing network default EraHistory"),
-        context.operational_certificate_counters.clone(),
-    )
-}
-
-#[ctor(unsafe)]
-fn init() {
-    // initialize tracing crate
-    tracing_subscriber::fmt::init();
-}
-
-const EXPECTED_SLOT_NUMBER: u64 = 9169164218553922239u64;
-
-#[test]
-fn can_read_and_write_json_test_vectors() {
-    let file = File::open("tests/data/test-vector.json").unwrap();
-    let result: Result<Vec<(GeneratorContext, MutatedHeader)>, serde_json::Error> =
-        serde_json::from_reader(BufReader::new(file));
-    assert!(result.is_ok());
-    let mut vec = result.unwrap();
-    let header = vec[0].1.header.get_header().expect("cannot create header");
-    // NOTE: this magic number ensures that we read an up-to-date test vector
-    assert_eq!(header.header_body.slot, EXPECTED_SLOT_NUMBER);
-}
-
-#[test]
-fn validation_conforms_to_test_vectors() {
-    use rayon::prelude::*;
-
-    let file = File::open("tests/data/test-vector.json").unwrap();
-    let result: Result<Vec<(GeneratorContext, MutatedHeader)>, serde_json::Error> =
-        serde_json::from_reader(BufReader::new(file));
-
-    result.expect("cannot deserialize test vectors").iter_mut().enumerate().for_each(|(header_index, test)| {
-        let context = &test.0;
-        test.1
-            .header
-            .get_header()
-            .map(|minted_header| {
-                let expected = &test.1.mutation;
-                let mock = mock_ledger_state(context);
-                let issuer = pallas_crypto::key::ed25519::PublicKey::from(<[u8; pallas_crypto::key::ed25519::PublicKey::SIZE]>::try_from(&minted_header.header_body.issuer_vkey[..]).expect("issuer vkey"));
-                let pool: PoolId = issuer_to_pool_id(&issuer);
-                let epoch_nonce = context.nonce;
-                let raw_header_body = minted_header.header_body.raw_cbor();
-                let header = Header::from(minted_header);
-                let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
-                let era_history = NetworkName::Preprod.as_era_history().expect("era");
-                let slot = amaru_kernel::Slot::from(header.header_body.slot);
-                let target = era_history.slot_to_epoch_unchecked_horizon(slot).ok().and_then(|e| {
-                    e.checked_sub(Epoch::TWO)
-                }).expect("test vector epoch should be >= 2");
-                let summaries = mock.to_pool_summaries(pool, target);
-                let assertions = praos::header::assert_all(consensus_parameters, &header, raw_header_body, &summaries, era_history, &epoch_nonce)
-                    .unwrap()
-                    .into_par_iter()
-                    .map(|assert| assert())
-                    .collect::<Result<Vec<_>, _>>();
-
-                match (expected, assertions) {
-                    (Mutation::NoMutation, Ok(_)) => (),
-                    (Mutation::NoMutation, Err(e)) => {
-                        panic!(
-                            "[{}] expected validation to succeed, failed with error {:?}\n header: {:?}\n context: {:?}",
-                            header_index, e, header, context
-                        )
-                    }
-                    (_, Ok(_)) => {
-                        panic!(
-                            "[{}] expected validation to fail ({:?}), but it succeeded\n header: {:?}\n context: {:?}",
-                            header_index, expected, header, context
-                        )
-                    }
-                    (_, Err(_)) => (),
-                }
-            })
-            .expect("cannot extract header from bytes");
-    });
 }

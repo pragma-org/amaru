@@ -15,7 +15,10 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::{Hash, cardano::network_block::make_block_with_header, size::BLOCK_BODY};
+use crate::{
+    Bytes, Hash, Header, OperationalCert, VrfCert, any_hash28, cardano::network_block::make_block_with_header, ed25519,
+    size::BLOCK_BODY, to_cbor,
+};
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
@@ -30,20 +33,16 @@ pub fn make_header_with_op_cert_seq(
     prev_hash: Option<HeaderHash>,
     op_cert_seq: u64,
 ) -> Header {
-    use pallas_primitives::{VrfCert, babbage::PseudoHeader, conway::OperationalCert};
+    let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash(&to_cbor(&vec![block_number, slot]));
 
-    use crate::Bytes;
-
-    let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash_cbor(&vec![block_number, slot]);
-
-    PseudoHeader {
+    Header {
         header_body: HeaderBody {
             block_number,
             slot,
             prev_hash,
-            issuer_vkey: Bytes::from(vec![]),
+            issuer_vkey: Bytes::from(vec![0u8; ed25519::PUBLIC_KEY_LENGTH]),
             vrf_vkey: Bytes::from(vec![]),
-            vrf_result: VrfCert(Bytes::from(vec![]), Bytes::from(vec![])),
+            vrf_result: VrfCert { output: Bytes::from(vec![]), proof: Bytes::from(vec![]) },
             block_body_size: 0,
             block_body_hash: block_hash,
             operational_cert: OperationalCert {
@@ -56,6 +55,19 @@ pub fn make_header_with_op_cert_seq(
         },
         body_signature: Bytes::from(vec![]),
     }
+}
+
+pub fn make_block_header_with_op_cert_seq(
+    block_number: u64,
+    slot: u64,
+    parent: Option<HeaderHash>,
+    op_cert_seq: u64,
+) -> BlockHeader {
+    BlockHeader::from(make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq))
+}
+
+pub fn any_pool_id() -> impl Strategy<Value = PoolId> {
+    any_hash28()
 }
 
 /// Create a list of arbitrary headers starting from a root, and where chain\[i\] is the parent of chain\[i+1\]

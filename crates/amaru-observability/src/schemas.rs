@@ -35,12 +35,22 @@ define_schemas! {
                     required from: u16
                     required to: u16
                 }
+                /// Initialize the store
+                INITIALIZE {
+                    required ledger_tip: amaru_kernel::Point
+                    optional best_chain_hash: amaru_kernel::HeaderHash
+                }
+                /// Remove the valid status of descendants of a given block to reapply those blocks.
+                CLEAR_VALID_DESCENDANTS {
+                    required count: usize
+                }
             }
             blocks {
                 /// Validate downloaded blocks that are not yet validated
                 RECOVER_STORED {
                     tags: setup
-                    required best_hash: amaru_kernel::HeaderHash
+                    required from: amaru_kernel::Point
+                    required to: amaru_kernel::HeaderHash
                 }
                 /// Fetch a range of blocks starting from the specified tip
                 FETCH {
@@ -151,6 +161,37 @@ define_schemas! {
                     required peer: amaru_kernel::Peer
                 }
             }
+            perf {
+                header {
+                    /// Event recorded once per header, when its processing reaches a terminal state.
+                    /// It covers the four network-health processing points of a header's lifecycle:
+                    /// reception of the header, request of its block, reception of its block and
+                    /// local adoption of the block. `outcome` describes the terminal state (including
+                    /// headers rejected on reception, which carry no durations). The optional
+                    /// durations are the intervals between those points:
+                    /// - `block_fetch_wait_micros`: reception of the header to the request of its block
+                    /// - `block_fetch_micros`: request of the block to its reception
+                    /// - `forward_micros`: reception of the header to the adoption of its block
+                    public LIFECYCLE {
+                        optional peer: amaru_kernel::Peer
+                        optional header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                        optional error: String
+                        optional block_fetch_wait_micros: u64
+                        optional block_fetch_micros: u64
+                        optional forward_micros: u64
+                    }
+                }
+                fork {
+                    /// Event recorded when a fork switch ends. `duration_micros` measures the time
+                    /// from the detection of the fork to its application (or abandonment).
+                    public SWITCH {
+                        required header_hash: amaru_kernel::HeaderHash
+                        optional outcome: String
+                        optional duration_micros: u64
+                    }
+                }
+            }
         }
         ledger {
             tags: cpu
@@ -158,8 +199,11 @@ define_schemas! {
                 /// Roll forward with a new block
                 public ROLL_FORWARD {}
                 /// Roll backward to a specific point
-                public ROLL_BACKWARD {
-                    required rollback_point: amaru_kernel::Point
+                public ROLL_BACKWARD {}
+                /// Switching to an alternative chain fork
+                public SWITCH_TO_FORK {
+                    required fork_point: amaru_kernel::Point
+                    required fork_length: usize
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}
@@ -242,7 +286,7 @@ define_schemas! {
                 /// Compute rewards for epoch
                 public COMPUTE {
                     required for_epoch: amaru_kernel::Epoch
-                    optional using_stake_distribution_epoch_from: amaru_kernel::Epoch
+                    required using_stake_distribution_from_epoch: amaru_kernel::Epoch
                 }
                 /// Summary of the rewards calculation for an epoch
                 public SUMMARIZE {
@@ -404,10 +448,6 @@ define_schemas! {
                     optional skipped: bool
                     optional resuming_from: String
                 }
-                /// Perform end-of-epoch epoch boundary computations
-                public END_EPOCH {}
-                /// Perform start-of-epoch epoch boundary computations
-                public BEGIN_EPOCH {}
                 /// Create pools updates
                 public NEW_POOLS_UPDATES {}
                 /// Create governance updates (i.e. ratify proposals) at an epoch boundary.
@@ -494,14 +534,6 @@ define_schemas! {
             volatile {
                 /// Recompute the volatile aggregate
                 public AGGREGATE {}
-                /// Rollback the volatile state to a specific point
-                public ROLLBACK_TO {
-                    required target_slot: amaru_kernel::Slot
-                    optional last_slot: amaru_kernel::Slot
-                    optional first_slot: amaru_kernel::Slot
-                    optional warning: String
-                    optional error: String
-                }
                 /// The volatile db is still warming up and hasn't reached a stable point yet
                 public WARM_UP {
                     required size: usize
@@ -629,7 +661,8 @@ define_schemas! {
                 public SUMMARIZE {
                     required is_dormant_epoch: bool
                     optional pruned_proposals: String
-                    optional payouts: String
+                    optional refunds: String
+                    optional withdrawals: String
                     optional new_constitution: String
                     optional constitutional_committee_update: String
                 }
@@ -713,9 +746,20 @@ define_schemas! {
                 public DETECT {
                     required count: usize
                 }
+                /// Failed to read or parse a local snapshot
+                public FAIL_TO_READ {
+                    required file: String,
+                    required hint: anyhow::Error,
+                }
             }
             nonces {
                 /// Import initial nonces into the chain store
+                public IMPORT {
+                    required point: amaru_kernel::Point
+                }
+            }
+            opcert_sequence_numbers {
+                /// Import initial opcert sequence numbers into the chain store
                 public IMPORT {
                     required point: amaru_kernel::Point
                 }
@@ -749,6 +793,12 @@ define_schemas! {
                 /// Existing proposals found in the store before import
                 public IS_NOT_EMPTY {}
                 /// Import governance proposals from a snapshot
+                public IMPORT {
+                    required size: usize
+                }
+            }
+            recently_pruned_proposals {
+                /// Import proposals pruned at the snapshot's epoch boundary, from its ratify state
                 public IMPORT {
                     required size: usize
                 }
@@ -1033,6 +1083,16 @@ define_schemas! {
                     public RESET_MANY {
                         optional credential: amaru_kernel::StakeCredential
                         optional reason: String
+                    }
+                }
+                recently_unregistered_accounts {
+                    /// Insert a recently unregistered account
+                    public INSERT {}
+                    /// Remove a recently unregistered account
+                    public REMOVE {}
+                    /// Prune recently unregistered accounts
+                    public PRUNE {
+                        required epoch: Epoch
                     }
                 }
                 dreps {

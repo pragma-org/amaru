@@ -23,11 +23,6 @@ name = "amaru"
 path = "src/bin/amaru/main.rs"
 doc = false
 
-[[bin]]
-name = "amaru-ledger"
-path = "src/bin/ledger/main.rs"
-doc = false
-
 [features]
 default = ["mithril"]
 mithril = ["dep:amaru-mithril"]
@@ -35,9 +30,9 @@ test-utils = ["amaru-consensus/test-utils"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+mimalloc.workspace = true
 anyhow.workspace = true
 async-compression.workspace = true
-axum.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
@@ -49,8 +44,8 @@ indoc.workspace = true
 minicbor.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
-opentelemetry-semantic-conventions.workspace = true
 opentelemetry.workspace = true
+opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 pallas-hardano.workspace = true
 pallas-network.workspace = true
@@ -58,7 +53,10 @@ parking_lot.workspace = true
 rayon.workspace = true
 reqwest.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# 'preserve_order' keeps `dump-traces-schema` emitting each schema's fields in declaration
+# order (required before optional) rather than alphabetically, which docs/TRACES.md relies on.
+serde_json = { workspace = true, features = ["preserve_order"] }
+signal-hook.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 tempfile.workspace = true
@@ -68,12 +66,12 @@ tokio = { workspace = true, features = [
   "net",
   "rt",
   "rt-multi-thread",
-  "signal",
+  "time",
 ] }
 tokio-util.workspace = true
+tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
-tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus.workspace = true
@@ -82,10 +80,9 @@ amaru-ledger.workspace = true
 amaru-mempool.workspace = true
 amaru-metrics.workspace = true
 amaru-mithril = { workspace = true, optional = true }
-amaru-network.workspace = true
+amaru-node.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
-amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
@@ -105,7 +102,7 @@ rocksdb.workspace = true
 syn.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
-xz.workspace = true
+zstd.workspace = true
 diff_json.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐

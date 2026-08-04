@@ -67,6 +67,9 @@ pub enum InvalidCertificates {
     #[error("pool retirement epoch out of range: epoch {epoch}, must satisfy {current_epoch} < epoch <= {max_epoch}")]
     PoolRetirementWrongEpoch { epoch: Epoch, current_epoch: Epoch, max_epoch: Epoch },
 
+    #[error("unknown pool: {0}")]
+    StakePoolUnknown(#[from] UnregisterError<PoolId, PoolId>),
+
     #[error("incorrect stake deposit: provided {provided}, expected {expected}")]
     IncorrectStakeDeposit { provided: Lovelace, expected: Lovelace },
 
@@ -156,18 +159,11 @@ where
     };
 
     match certificate {
-        Certificate::PoolRegistration {
-            operator: id,
-            vrf_keyhash: vrf,
-            pledge,
-            cost,
-            margin,
-            reward_account,
-            pool_owners: owners,
-            relays,
-            pool_metadata: metadata,
-        } => {
-            context.require_vkey_witness(id);
+        Certificate::PoolRegistration(params) => {
+            let PoolParams { id, cost, reward_account, owners, .. } = params.as_ref();
+
+            context.require_vkey_witness(*id);
+
             // https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/UTxO.hs#L250-L256
             // The Haskell node requires both the owners and the operators, which may be the same pkh.
             // TODO: We need coverage for this branch, we have none in either conformance tests or unit tests.
@@ -176,7 +172,7 @@ where
             }
 
             let reward_account_network =
-                parse_reward_account(&reward_account).ok_or(InvalidCertificates::PoolMalformedRewardAccount)?.1;
+                parse_reward_account(reward_account).ok_or(InvalidCertificates::PoolMalformedRewardAccount)?.1;
 
             if reward_account_network != network {
                 return Err(InvalidCertificates::PoolWrongNetwork {
@@ -185,19 +181,17 @@ where
                 });
             }
 
-            if cost < protocol_parameters.min_pool_cost {
+            if cost < &protocol_parameters.min_pool_cost {
                 return Err(InvalidCertificates::PoolCostTooLow {
-                    provided: cost,
+                    provided: *cost,
                     minimum: protocol_parameters.min_pool_cost,
                 });
             }
 
             // TODO: Have `register` return this information
-            let is_new_pool = !context.exists(id);
+            let is_new_pool = !context.exists(*id);
 
-            let params = PoolParams { id, vrf, pledge, cost, margin, reward_account, owners, relays, metadata };
-
-            PoolsSlice::register(context, params, pointer, protocol_parameters.stake_pool_deposit);
+            PoolsSlice::register(context, *params, pointer, protocol_parameters.stake_pool_deposit);
 
             if is_new_pool {
                 context.produce_lovelace(protocol_parameters.stake_pool_deposit);
@@ -206,7 +200,7 @@ where
             Ok(())
         }
 
-        Certificate::PoolRetirement(id, epoch) => {
+        Certificate::PoolRetirement(id, retirement_epoch) => {
             context.require_vkey_witness(id);
 
             // NOTE: Some conformance tests fail this check because the Haskell imp tests run on
@@ -214,7 +208,6 @@ where
             // slot_to_epoch computes a different current epoch, making the range check reject
             // transactions that the Haskell node accepts.
             let current_epoch = era_history.slot_to_epoch_unchecked_horizon(pointer.slot())?;
-            let retirement_epoch = Epoch::from(epoch);
             let max_epoch = current_epoch + protocol_parameters.stake_pool_max_retirement_epoch;
             if retirement_epoch <= current_epoch || retirement_epoch > max_epoch {
                 return Err(InvalidCertificates::PoolRetirementWrongEpoch {
@@ -224,7 +217,7 @@ where
                 });
             }
 
-            PoolsSlice::retire(context, id, Epoch::from(epoch));
+            PoolsSlice::retire(context, id, retirement_epoch)?;
 
             Ok(())
         }
@@ -277,13 +270,10 @@ where
             };
 
             let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
             if account.rewards != 0 {
-                return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential: credential.clone(),
-                    rewards: account.rewards,
-                });
+                return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
             AccountsSlice::unregister(context, credential);
@@ -299,17 +289,14 @@ where
             };
 
             let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential.clone()))?;
+                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
 
             if refund != account.deposit {
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: account.deposit });
             }
 
             if account.rewards != 0 {
-                return Err(InvalidCertificates::StakeCredentialHasRewards {
-                    credential: credential.clone(),
-                    rewards: account.rewards,
-                });
+                return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
             AccountsSlice::unregister(context, credential);
@@ -348,7 +335,7 @@ where
                 context,
                 drep,
                 DRepRegistration { deposit, registered_at: pointer, valid_until },
-                Option::from(anchor),
+                anchor,
             )?;
 
             context.produce_lovelace(deposit);
@@ -383,7 +370,7 @@ where
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
 
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
+            DRepsSlice::update(context, drep, anchor)?;
 
             Ok(())
         }
@@ -413,35 +400,35 @@ where
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
+            CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())
         }
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
-            let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
+            let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
-            let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
+            let pool_deleg = Certificate::StakeDelegation(credential, pool);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, pool_deleg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
-            let reg = Certificate::Reg(credential.clone(), coin);
+            let reg = Certificate::Reg(credential, coin);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, reg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
             execute_one(context, network, protocol_parameters, era_history, governance_activity, pointer, drep_deleg)
@@ -467,12 +454,12 @@ where
     use Certificate::*;
 
     match certificate {
-        PoolRegistration { operator: id, .. } => {
+        PoolRegistration(params) => {
             // TODO: Have tests covering local state changes in certificate accounting
             //
             // See note below.
-            if !local_pools_slice.contains(&id) && !context.exists(id) {
-                local_pools_slice.insert(id);
+            if !local_pools_slice.contains(&params.id) && !context.exists(params.id) {
+                local_pools_slice.insert(params.id);
                 protocol_parameters.stake_pool_deposit as i64
             } else {
                 0

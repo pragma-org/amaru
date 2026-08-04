@@ -1,12 +1,12 @@
 {
-  "title": "withdrawal",
+  "title": "withdrawal from a registered, drep-delegated account",
   "description": "The transaction has one withdrawal whose reward account encodes a testnet stake-key credential equal to the input's payment key hash. The vkey witness already in the witness set satisfies both required signers (input + withdrawal), so phase-one must accept. Exercises withdrawals' post-parse loop (require_vkey_witness + withdraw_from).",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json"
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
   },
   "initialState": {
     "utxo": [
@@ -16,7 +16,23 @@
       }
     ],
     "pools": [],
-    "accounts": [],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0,
+        "drep": {
+          "id": "8102",
+          "delegatedAt": {
+            "transaction": {
+              "slot": 0,
+              "transactionIndex": 0
+            },
+            "certificateIndex": 0
+          }
+        }
+      }
+    ],
     "dreps": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0

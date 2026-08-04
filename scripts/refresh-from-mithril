@@ -80,10 +80,25 @@ write_metadata() {
     > "$metadata_file"
 }
 
+# Fails when the directory cannot be inspected, rather than reporting it as empty: callers use this
+# to decide whether a directory is safe to discard.
+is_empty_dir() {
+  local dir="$1" entries
+
+  [[ -d "$dir" ]] || return 1
+
+  entries=$(ls -A "$dir") || die "cannot inspect $dir"
+  [[ -z "$entries" ]]
+}
+
 install_dir() {
   local source="$1" target="$2"
 
-  if [[ -e "$target" ]] && ! truthy "$REPLACE_EXISTING"; then
+  # An empty directory holds no database: the build script keeps such placeholders around for cargo
+  # to watch, so drop them instead of refusing to install or backing them up.
+  if is_empty_dir "$target"; then
+    rmdir "$target" || die "cannot remove the empty directory $target"
+  elif [[ -e "$target" ]] && ! truthy "$REPLACE_EXISTING"; then
     die "$target already exists; set REPLACE_EXISTING=true to replace it"
   fi
 
@@ -156,9 +171,9 @@ prepare_latest_bootstrap_config() {
   jq -s '
     map({
       epoch,
-      point: ((.slot | tostring) + "." + .hash),
-      url: ((.archive_path // "") | tostring),
-      parent_point: (.parent_point.Specific | ((.[0] | tostring) + "." + .[1]))
+      point,
+      parent_point,
+      url: ((.archive_path // "") | tostring)
     })
   ' \
     "$metadata_dir/$BOOTSTRAP_START_EPOCH.json" \
@@ -182,17 +197,12 @@ latest_bootstrap_metadata_available() {
 sync_refresh() {
   local chain_dir="$1" ledger_dir="$2"
 
-  echo "[mithril-refresh] downloading missing Mithril immutable chunks and packaging blocks"
-  cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- mithril \
+  echo "[mithril-refresh] downloading Mithril blocks and syncing Amaru stores"
+  cargo run --profile "$BUILD_PROFILE" --bin amaru -- mithril sync \
     --network "$NETWORK" \
     --ledger-dir "$ledger_dir" \
-    --snapshots-dir "$SNAPSHOTS_DIR"
-
-  echo "[mithril-refresh] syncing Amaru chain and ledger databases from packaged blocks"
-  cargo run --profile "$BUILD_PROFILE" --bin amaru-ledger -- sync \
-    --network "$NETWORK" \
     --chain-dir "$chain_dir" \
-    --ledger-dir "$ledger_dir"
+    --snapshots-dir "$SNAPSHOTS_DIR"
 }
 
 cd "$AMARU_DIR" || exit

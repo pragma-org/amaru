@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod create;
@@ -20,4 +21,12 @@ pub(crate) mod create;
 pub(crate) enum SnapshotCommand {
     /// Create the three consecutive epoch snapshots needed for bootstrap.
     Create(create::Args),
+}
+
+impl SnapshotCommand {
+    pub(crate) fn into_runnable(self) -> Runnable {
+        match self {
+            Self::Create(args) => create::runnable(args),
+        }
+    }
 }

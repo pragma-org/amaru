@@ -14,32 +14,29 @@
 
 use std::{
     array::TryFromSliceError,
-    ops::Deref,
+    ops::{Deref, Neg},
+    str::FromStr,
     sync::{Arc, LazyLock},
 };
 
-use amaru_kernel::{ConsensusParameters, EraHistory, Hash, Hasher, Header, HeaderHash, Nonce, PoolId, Slot};
-use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::GetPoolError};
+use amaru_kernel::{
+    ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, Slot, VrfCert, ed25519,
+    maths::{ExpOrdering, FixedDecimal},
+};
+use amaru_ouroboros_traits::{PoolSummary, has_stake_distribution::GetPoolError};
 use thiserror::Error;
 
-use crate::{
-    OperationalCert, VrfCert, ed25519, issuer_to_pool_id, kes,
-    math::{ExpOrdering, FixedDecimal, FixedPrecision},
-    vrf,
-};
+use crate::{kes, vrf};
 
 /// The certified natural max value represents 2^256 in praos consensus
 ///
-/// TODO: Ideally, we should replace the use of dashu in pallas-math with num-bigint
-/// since it has become our weapong of choice within Amaru. Mixing maths libraries is
+/// TODO: Ideally, we should replace the use of dashu  with num-bigint
+/// since it has become our weapon of choice within Amaru. Mixing maths libraries is
 /// a recipe for mistakes.
 #[expect(clippy::expect_used)]
 static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
-    FixedDecimal::from_str(
-        "1157920892373161954235709850086879078532699846656405640394575840079131296399360000000000000000000000000000000000",
-        34,
-    )
-    .expect("Infallible")
+    FixedDecimal::from_str("115792089237316195423570985008687907853269984665640564039457584007913129639936")
+        .expect("Infallible")
 });
 
 // ------------------------------------------------------------------ assert_all
@@ -58,10 +55,10 @@ pub enum AssertHeaderError {
     OperationalCertificate(#[from] AssertOperationalCertificateError),
     #[error("could not convert slice to array")]
     TryFromSliceError,
-    #[error("Unknown pool: {}", hex::encode(&pool[0..7]))]
-    UnknownPool { pool: PoolId },
+    #[error("cannot convert bytes into valid Ed25519 public key")]
+    InvalidEd25519PublicKey,
     #[error("{0}")]
-    PoolError(#[from] GetPoolError),
+    PoolError(GetPoolError),
 }
 
 impl From<TryFromSliceError> for AssertHeaderError {
@@ -78,8 +75,8 @@ impl PartialEq for AssertHeaderError {
             (Self::LeaderStake(l0), Self::LeaderStake(r0)) => l0 == r0,
             (Self::KesSignature(l0), Self::KesSignature(r0)) => l0 == r0,
             (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
+            (Self::InvalidEd25519PublicKey, Self::InvalidEd25519PublicKey) => true,
             (Self::TryFromSliceError, Self::TryFromSliceError) => true,
-            (Self::UnknownPool { pool: l_pool }, Self::UnknownPool { pool: r_pool }) => l_pool == r_pool,
             _ => false,
         }
     }
@@ -87,40 +84,36 @@ impl PartialEq for AssertHeaderError {
 
 pub type Assertion<'a> = Box<dyn Fn() -> Result<(), AssertHeaderError> + Send + Sync + 'a>;
 
+#[expect(clippy::result_large_err)]
 pub fn assert_all<'a>(
     consensus_parameters: Arc<ConsensusParameters>,
     header: &'a Header,
     raw_header_body: &'a [u8],
-    pool_summaries: &'a PoolSummaries,
-    era_history: &'a EraHistory,
+    last_opcert_sequence_number: Option<u64>,
+    pool_summary: &'a PoolSummary,
     epoch_nonce: &'a Nonce,
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
     let absolute_slot = Slot::from(header.header_body.slot);
-    let issuer =
-        ed25519::PublicKey::from(<[u8; ed25519::PublicKey::SIZE]>::try_from(&header.header_body.issuer_vkey[..])?);
-    let pool: PoolId = issuer_to_pool_id(&issuer);
+    let issuer = ed25519::VerifyingKey::try_from(&header.header_body.issuer_vkey[..])
+        .map_err(|_| AssertHeaderError::InvalidEd25519PublicKey)?;
 
     // TODO: Pallas should hold sized slices
     let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.header_body.vrf_vkey[..].try_into()?;
 
-    let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) =
-        pool_summaries
-            .get_pool(absolute_slot, &pool, era_history)?
-            .map(|pool| {
-                let leader_relative_stake = if pool.active_stake == 0 {
-                    FixedDecimal::from(0u64)
-                } else {
-                    FixedDecimal::from(pool.stake) / FixedDecimal::from(pool.active_stake)
-                };
-                (pool.vrf, leader_relative_stake)
-            })
-            .ok_or(AssertHeaderError::UnknownPool { pool })?;
+    let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) = {
+        let leader_relative_stake = if pool_summary.active_stake == 0 {
+            FixedDecimal::ZERO
+        } else {
+            &FixedDecimal::from(pool_summary.stake) / &FixedDecimal::from(pool_summary.active_stake)
+        };
+        (pool_summary.vrf, leader_relative_stake)
+    };
 
     let active_slot_coeff = consensus_parameters.active_slot_coeff();
     let slot_to_kes_period = consensus_parameters.slot_to_kes_period(absolute_slot);
     let max_kes_evolutions = consensus_parameters.max_kes_evolutions();
-    let latest_opcert_sequence_number = consensus_parameters.latest_opcert_sequence_number(&pool);
+
     Ok(vec![
         Box::new(move || {
             AssertKnownLeaderVrfError::new(registered_vrf_key, &vrf::PublicKey::from(declared_vrf_key))?;
@@ -130,7 +123,6 @@ pub fn assert_all<'a>(
             AssertVrfProofError::new(
                 absolute_slot,
                 epoch_nonce,
-                &header.header_body.leader_vrf_output()[..],
                 &vrf::PublicKey::from(declared_vrf_key),
                 &header.header_body.vrf_result,
             )?;
@@ -140,7 +132,7 @@ pub fn assert_all<'a>(
             AssertLeaderStakeError::new(
                 &active_slot_coeff,
                 &leader_relative_stake,
-                &FixedDecimal::from(&header.header_body.leader_vrf_output()[..]),
+                &FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(header.vrf_output()).as_slice()),
             )?;
             Ok(())
         }),
@@ -148,7 +140,7 @@ pub fn assert_all<'a>(
             AssertOperationalCertificateError::new(
                 &header.header_body.operational_cert,
                 &issuer,
-                latest_opcert_sequence_number,
+                last_opcert_sequence_number,
             )?;
             Ok(())
         }),
@@ -219,13 +211,6 @@ pub enum AssertVrfProofError {
         #[serde(with = "crate::serde_util::bytes")]
         computed: Box<Hash<{ vrf::Proof::HASH_SIZE }>>,
     },
-
-    #[error(
-        "Mismatch between the declared VRF output in block ({}) and the computed one ({}).",
-        hex::encode(&.declared[0..7]),
-        hex::encode(&.computed.as_slice()[0..7]),
-    )]
-    OutputMismatch { declared: Vec<u8>, computed: Vec<u8> },
 }
 
 impl From<TryFromSliceError> for AssertVrfProofError {
@@ -246,10 +231,6 @@ impl PartialEq for AssertVrfProofError {
                 Self::ProofMismatch { declared: l_declared, computed: l_computed },
                 Self::ProofMismatch { declared: r_declared, computed: r_computed },
             ) => l_declared == r_declared && l_computed == r_computed,
-            (
-                Self::OutputMismatch { declared: l_declared, computed: l_computed },
-                Self::OutputMismatch { declared: r_declared, computed: r_computed },
-            ) => l_declared == r_declared && l_computed == r_computed,
             _ => false,
         }
     }
@@ -260,40 +241,30 @@ impl AssertVrfProofError {
     pub fn new(
         absolute_slot: Slot,
         epoch_nonce: &Nonce,
-        output: &[u8],
         leader_public_key: &vrf::PublicKey,
-        certificate: &VrfCert,
+        vrf_cert: &VrfCert,
     ) -> Result<(), Self> {
         let input = &vrf::Input::new(absolute_slot, epoch_nonce);
-        // TODO: Pallas should have fixed size slices here.
-        let block_proof_hash: [u8; vrf::Proof::HASH_SIZE] = {
-            let bytes: &[u8] = certificate.0.as_ref();
+
+        // TODO: Should have fixed size slices here.
+        let block_output: [u8; vrf::Proof::HASH_SIZE] = {
+            let bytes: &[u8] = vrf_cert.output.as_ref();
             bytes.try_into()
         }?;
 
-        // TODO: Pallas should have fixed size slices here.
+        // TODO: Should have fixed size slices here.
         let block_proof: [u8; vrf::Proof::SIZE] = {
-            let bytes: &[u8] = certificate.1.as_ref();
+            let bytes: &[u8] = vrf_cert.proof.as_ref();
             bytes.try_into()
         }?;
 
         // Verify the VRF proof
         let vrf_proof = vrf::Proof::try_from(&block_proof)?;
-        let proof_hash = vrf_proof
+        let computed_output = vrf_proof
             .verify(leader_public_key, input)
             .map_err(|e| Self::InvalidProof(e, absolute_slot, *epoch_nonce, leader_public_key.as_ref().to_vec()))?;
-        if proof_hash.as_slice() != block_proof_hash {
-            return Err(Self::ProofMismatch { declared: Box::new(block_proof_hash), computed: Box::new(proof_hash) });
-        }
-
-        // The proof was valid. Make sure that the leader's output matches what was in the block
-        //
-        // TODO: 'derive_tagged_vrf_output' should return a sized output instead of a vec. It is, in
-        // fact, a 32-byte hash digest.
-        let calculated_leader_vrf_output =
-            vrf::derive_tagged_vrf_output(proof_hash.as_slice(), vrf::Derivation::Leader);
-        if calculated_leader_vrf_output.as_slice() != output {
-            return Err(Self::OutputMismatch { declared: output.to_vec(), computed: calculated_leader_vrf_output });
+        if computed_output.as_slice() != block_output {
+            return Err(Self::ProofMismatch { declared: Box::new(block_output), computed: Box::new(computed_output) });
         }
 
         Ok(())
@@ -315,13 +286,13 @@ impl AssertLeaderStakeError {
         leader_relative_stake: &FixedDecimal,
         certified_leader_vrf: &FixedDecimal,
     ) -> Result<(), Self> {
-        if active_slot_coeff >= &FixedDecimal::from(1u64) {
+        if active_slot_coeff >= FixedDecimal::one() {
             return Ok(());
         }
         let denominator = CERTIFIED_NATURAL_MAX.deref() - certified_leader_vrf;
         let recip_q = CERTIFIED_NATURAL_MAX.deref() / &denominator;
-        let c = (&FixedDecimal::from(1u64) - active_slot_coeff).ln();
-        let x = -(leader_relative_stake * &c);
+        let c = (FixedDecimal::one() - active_slot_coeff).ln();
+        let x = (leader_relative_stake * &c).neg();
         let ordering = x.exp_cmp(1000, 3, &recip_q);
         match ordering.estimation {
             ExpOrdering::LT => Ok(()),
@@ -399,14 +370,15 @@ pub enum AssertOperationalCertificateError {
     )]
     InvalidSignature {
         #[serde(with = "crate::serde_util::bytes")]
-        issuer: ed25519::PublicKey,
+        issuer: ed25519::VerifyingKey,
     },
 }
 
 impl AssertOperationalCertificateError {
+    #[expect(clippy::result_large_err)]
     pub fn new(
         certificate: &OperationalCert,
-        issuer: &ed25519::PublicKey,
+        issuer: &ed25519::VerifyingKey,
         latest_sequence_number: Option<u64>,
     ) -> Result<(), Self> {
         // Verify the Operational Certificate signature
@@ -415,22 +387,14 @@ impl AssertOperationalCertificateError {
 
         let declared_sequence_number = certificate.operational_cert_sequence_number;
 
-        // Check the sequence number of the operational certificate. It should either be the same
-        // as the latest known sequence number for the issuer or one greater.
-        match latest_sequence_number {
-            Some(latest_sequence_number) => {
-                if declared_sequence_number < latest_sequence_number {
-                    return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
-                }
-
-                if (declared_sequence_number - latest_sequence_number) > 1 {
-                    return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
-                }
-            }
-            None => {
-                // FIXME: Double-check whether we mustn't fail in this case or if it is acceptable
-                // to have no opcert available?
-            }
+        // A registered pool with no recorded opcert behaves as if its counter were 0, so its
+        // first certificate may carry sequence number 0 or 1.
+        let latest_sequence_number = latest_sequence_number.unwrap_or(0);
+        if declared_sequence_number < latest_sequence_number {
+            return Err(Self::SequenceNumberTooSmall { declared_sequence_number, latest_sequence_number });
+        }
+        if declared_sequence_number - latest_sequence_number > 1 {
+            return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
         }
 
         // The opcert message is a concatenation of the KES vkey, the sequence number, and the kes period
@@ -438,11 +402,8 @@ impl AssertOperationalCertificateError {
         message.extend_from_slice(&certificate.operational_cert_hot_vkey[..]);
         message.extend_from_slice(&certificate.operational_cert_sequence_number.to_be_bytes());
         message.extend_from_slice(&certificate.operational_cert_kes_period.to_be_bytes());
-        if !issuer.verify(&message, &signature) {
-            return Err(Self::InvalidSignature { issuer: issuer.to_owned() });
-        }
 
-        Ok(())
+        issuer.verify_strict(&message, &signature).map_err(|_| Self::InvalidSignature { issuer: issuer.to_owned() })
     }
 }
 
@@ -454,15 +415,7 @@ mod tests {
 
     #[test]
     fn test_assert_header_error_serialization_roundtrip() {
-        let errors = vec![
-            AssertHeaderError::TryFromSliceError,
-            AssertHeaderError::UnknownPool {
-                pool: PoolId::new([
-                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
-                    28,
-                ]),
-            },
-        ];
+        let errors = vec![AssertHeaderError::TryFromSliceError];
 
         for error in errors {
             // Test JSON serialization
@@ -490,7 +443,6 @@ mod tests {
                 declared: Box::new([1; 64]), // Proof::HASH_SIZE is 64
                 computed: Box::new(Hash::new([2; 64])),
             },
-            AssertVrfProofError::OutputMismatch { declared: vec![1, 2, 3, 4], computed: vec![5, 6, 7, 8] },
         ];
 
         for error in errors {
@@ -543,7 +495,9 @@ mod tests {
                 declared_sequence_number: 25,
                 latest_sequence_number: 50,
             },
-            AssertOperationalCertificateError::InvalidSignature { issuer: ed25519::PublicKey::from([1; 32]) },
+            AssertOperationalCertificateError::InvalidSignature {
+                issuer: ed25519::VerifyingKey::try_from([1; 32].as_slice()).unwrap(),
+            },
         ];
 
         for error in errors {
@@ -572,17 +526,5 @@ mod tests {
         let json_serialized = serde_json::to_string(&error).unwrap();
         let json_deserialized: AssertKesSignatureError = serde_json::from_str(&json_serialized).unwrap();
         assert_eq!(error, json_deserialized);
-    }
-
-    #[test]
-    fn test_serialization_consistency() {
-        // Test that the same error serializes to the same bytes consistently
-        let error =
-            AssertVrfProofError::OutputMismatch { declared: vec![1, 2, 3, 4, 5], computed: vec![6, 7, 8, 9, 10] };
-
-        // Test JSON consistency
-        let first_json = serde_json::to_string(&error).unwrap();
-        let second_json = serde_json::to_string(&error).unwrap();
-        assert_eq!(first_json, second_json);
     }
 }

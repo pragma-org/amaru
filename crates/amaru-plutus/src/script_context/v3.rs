@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, Certificate as PallasCertificate, ComparableProposalId, Constitution, CostModels, DRep,
-    DRepVotingThresholds, ExUnitPrices, ExUnits, GovernanceAction, MemoizedTransactionOutput, PlutusData,
-    PoolVotingThresholds, Proposal, ProposalId, ProtocolParamUpdate, RationalNumber, StakeCredential, StakePayload,
-    TransactionInput, Vote, Voter,
+    Address, Certificate, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
+    GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolParams, PoolVotingThresholds, Proposal, ProposalId,
+    ProtocolParamUpdate, RationalNumber, StakeAddress, StakeCredential, StakePayload, TransactionInput, Vote, Voter,
 };
 use num::Integer;
 
@@ -125,62 +124,65 @@ impl ToPlutusData<3> for DRep {
     }
 }
 
-impl ToPlutusData<3> for PallasCertificate {
+impl ToPlutusData<3> for Certificate {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            PallasCertificate::StakeRegistration(stake_credential) => {
+            Certificate::StakeRegistration(stake_credential) => {
                 constr_v3!(0, [stake_credential, None::<PlutusData>])
             }
-            PallasCertificate::Reg(stake_credential, coin) => constr_v3!(0, [stake_credential, Some(coin)]),
-            PallasCertificate::StakeDeregistration(stake_credential) => {
+            Certificate::Reg(stake_credential, coin) => constr_v3!(0, [stake_credential, Some(coin)]),
+            Certificate::StakeDeregistration(stake_credential) => {
                 constr_v3!(1, [stake_credential, None::<PlutusData>])
             }
-            PallasCertificate::UnReg(stake_credential, coin) => constr_v3!(1, [stake_credential, Some(coin)]),
-            PallasCertificate::StakeDelegation(stake_credential, pool_id) => {
+            Certificate::UnReg(stake_credential, coin) => constr_v3!(1, [stake_credential, Some(coin)]),
+            Certificate::StakeDelegation(stake_credential, pool_id) => {
                 constr_v3!(2, [stake_credential, constr_v3!(0, [pool_id])?])
             }
-            PallasCertificate::VoteDeleg(stake_credential, drep) => {
+            Certificate::VoteDeleg(stake_credential, drep) => {
                 constr_v3!(2, [stake_credential, constr_v3!(1, [drep])?])
             }
-            PallasCertificate::StakeVoteDeleg(stake_credential, pool_id, drep) => {
+            Certificate::StakeVoteDeleg(stake_credential, pool_id, drep) => {
                 constr_v3!(2, [stake_credential, constr_v3!(2, [pool_id, drep])?])
             }
-            PallasCertificate::StakeRegDeleg(stake_credential, pool_id, deposit) => {
+            Certificate::StakeRegDeleg(stake_credential, pool_id, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(0, [pool_id])?, deposit])
             }
-            PallasCertificate::VoteRegDeleg(stake_credential, drep, deposit) => {
+            Certificate::VoteRegDeleg(stake_credential, drep, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(1, [drep])?, deposit])
             }
-            PallasCertificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
+            Certificate::StakeVoteRegDeleg(stake_credential, pool_id, drep, deposit) => {
                 constr_v3!(3, [stake_credential, constr_v3!(2, [pool_id, drep])?, deposit])
             }
-            PallasCertificate::RegDRepCert(drep_credential, deposit, _anchor) => {
+            Certificate::RegDRepCert(drep_credential, deposit, _anchor) => {
                 constr_v3!(4, [drep_credential, deposit])
             }
-            PallasCertificate::UpdateDRepCert(drep_credential, _anchor) => {
+            Certificate::UpdateDRepCert(drep_credential, _anchor) => {
                 constr_v3!(5, [drep_credential])
             }
-            PallasCertificate::UnRegDRepCert(drep_credential, deposit) => {
+            Certificate::UnRegDRepCert(drep_credential, deposit) => {
                 constr_v3!(6, [drep_credential, deposit])
             }
-            PallasCertificate::PoolRegistration {
-                operator,
-                vrf_keyhash,
-                pledge: _,
-                cost: _,
-                margin: _,
-                reward_account: _,
-                pool_owners: _,
-                relays: _,
-                pool_metadata: _,
-            } => constr_v3!(7, [operator, vrf_keyhash]),
-            PallasCertificate::PoolRetirement(pool_keyhash, epoch) => {
+            Certificate::PoolRegistration(params) => {
+                let PoolParams {
+                    id,
+                    vrf,
+                    pledge: _,
+                    cost: _,
+                    margin: _,
+                    reward_account: _,
+                    owners: _,
+                    relays: _,
+                    metadata: _,
+                } = params.as_ref();
+                constr_v3!(7, [id, vrf])
+            }
+            Certificate::PoolRetirement(pool_keyhash, epoch) => {
                 constr_v3!(8, [pool_keyhash, epoch])
             }
-            PallasCertificate::AuthCommitteeHot(cold_credential, hot_credential) => {
+            Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
                 constr_v3!(9, [cold_credential, hot_credential])
             }
-            PallasCertificate::ResignCommitteeCold(cold_credential, _anchor) => {
+            Certificate::ResignCommitteeCold(cold_credential, _anchor) => {
                 constr_v3!(10, [cold_credential])
             }
         }
@@ -238,7 +240,7 @@ impl ToPlutusData<3> for GovernanceAction {
                     .iter()
                     .map(|(reward_account, amount)| {
                         let reward_address =
-                            if let Ok(Address::Stake(reward_address)) = Address::from_bytes(reward_account) {
+                            if let Some(Address::Stake(reward_address)) = Address::from_bytes(reward_account) {
                                 Ok(reward_address)
                             } else {
                                 Err(PlutusDataError::Custom("invalid stake address in treasury withdrawal?".into()))
@@ -246,16 +248,16 @@ impl ToPlutusData<3> for GovernanceAction {
 
                         Ok((reward_address, *amount))
                     })
-                    .collect::<Result<Vec<(_, _)>, _>>()?;
+                    .collect::<Result<BTreeMap<_, _>, _>>()?;
 
-                constr_v3!(2, [pallas_codec::utils::KeyValuePairs::from(withdrawals), guardrail])
+                constr_v3!(2, [withdrawals, guardrail])
             }
             GovernanceAction::NoConfidence(previous_action) => {
                 constr_v3!(3, [previous_action])
             }
             GovernanceAction::UpdateCommittee(previous_action, removed, added, quorum) => {
                 let quorum = governance_action_ratio(quorum)?;
-                constr_v3!(4, [previous_action, removed.deref(), added, quorum])
+                constr_v3!(4, [previous_action, removed, added, quorum])
             }
             GovernanceAction::NewConstitution(previous_action, constitution) => {
                 constr_v3!(5, [previous_action, constitution])
@@ -274,12 +276,6 @@ impl ToPlutusData<3> for Constitution {
 impl ToPlutusData<3> for ProposalId {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         constr_v3!(0, [self.transaction_id, self.action_index])
-    }
-}
-
-impl ToPlutusData<3> for ComparableProposalId {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        self.deref().to_plutus_data()
     }
 }
 
@@ -413,7 +409,7 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
             push(33, protocol_parameter_ratio(p))?;
         }
 
-        Ok(PlutusData::Map(pallas_codec::utils::KeyValuePairs::Def(pparams)))
+        Ok(PlutusData::Map(pparams))
     }
 }
 
@@ -524,10 +520,10 @@ impl ToPlutusData<3> for PlutusVotes<'_> {
     }
 }
 
-impl ToPlutusData<3> for amaru_kernel::StakeAddress {
+impl ToPlutusData<3> for StakeAddress {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self.payload() {
-            StakePayload::Stake(keyhash) => constr_v3!(0, [keyhash]),
+            StakePayload::Key(keyhash) => constr_v3!(0, [keyhash]),
             StakePayload::Script(script_hash) => constr_v3!(1, [script_hash]),
         }
     }
@@ -541,7 +537,9 @@ impl ToPlutusData<3> for PlutusStakeAddress {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Nullable, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Set, Transaction, cbor, to_cbor};
+    use std::ops::Deref;
+
+    use amaru_kernel::{KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, cbor, to_cbor};
     use test_case::test_case;
 
     use super::{
@@ -607,9 +605,9 @@ mod tests {
     #[test]
     fn governance_quorum_uses_constr_encoding() {
         let action = GovernanceAction::UpdateCommittee(
-            Nullable::Null,
-            Set::from(vec![]),
-            pallas_codec::utils::KeyValuePairs::Def(vec![]),
+            None,
+            vec![],
+            KeyValuePairs::default(),
             RationalNumber { numerator: 2, denominator: 4 },
         );
 

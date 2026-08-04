@@ -108,8 +108,12 @@ impl Store {
         self.effects.external(SetBestChainHashEffect::new(*hash))
     }
 
-    pub fn store_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(StoreHeaderEffect::new(header.clone()))
+    pub fn store_validated_header(
+        &self,
+        header: &BlockHeader,
+        nonces: &Nonces,
+    ) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(StoreValidatedHeaderEffect::new(header.clone(), nonces.clone()))
     }
 
     pub fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> BoxFuture<'static, Result<(), StoreError>> {
@@ -138,6 +142,10 @@ impl Store {
 
     pub fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> BoxFuture<'static, (Vec<HeaderHash>, bool)> {
         self.effects.external(UnvalidatedAncestorHashesEffect::new(start))
+    }
+
+    pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Tip>>> {
+        self.effects.external(AncestorsBetweenEffect::new(from, to).with_trace_context(&self.trace_context))
     }
 
     pub fn find_ancestor_on_best_chain(
@@ -183,7 +191,7 @@ pub type ResourceParameters = GlobalParameters;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![
-        amaru_pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SetBestChainHashEffect>().boxed(),
@@ -206,6 +214,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<RollForwardChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindCommonAncestorEffect>().boxed(),
@@ -216,28 +225,31 @@ pub fn register_deserializers() -> DeserializerGuards {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StoreHeaderEffect {
+pub struct StoreValidatedHeaderEffect {
     header: BlockHeader,
+    nonces: Nonces,
 }
 
-impl StoreHeaderEffect {
-    pub fn new(header: BlockHeader) -> Self {
-        Self { header }
+impl StoreValidatedHeaderEffect {
+    pub fn new(header: BlockHeader, nonces: Nonces) -> Self {
+        Self { header, nonces }
     }
 }
 
-impl ExternalEffect for StoreHeaderEffect {
+impl ExternalEffect for StoreValidatedHeaderEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
-            let store =
-                resources.get::<ResourceHeaderStore>().expect("StoreHeaderEffect requires a chain store").clone();
-            store.store_header(&self.header)
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("StoreValidatedHeaderEffect requires a chain store")
+                .clone();
+            store.store_validated_header(&self.header, &self.nonces)
         })
     }
 }
 
-impl ExternalEffectAPI for StoreHeaderEffect {
+impl ExternalEffectAPI for StoreValidatedHeaderEffect {
     type Response = Result<(), StoreError>;
 }
 
@@ -819,6 +831,40 @@ impl ExternalEffect for UnvalidatedAncestorHashesEffect {
 
 impl ExternalEffectAPI for UnvalidatedAncestorHashesEffect {
     type Response = (Vec<HeaderHash>, bool);
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AncestorsBetweenEffect {
+    from: Point,
+    to: HeaderHash,
+    trace_context: TraceContext,
+}
+
+impl AncestorsBetweenEffect {
+    pub fn new(from: Point, to: HeaderHash) -> Self {
+        Self { from, to, trace_context: Default::default() }
+    }
+
+    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+        self.trace_context = trace_context.clone();
+        self
+    }
+}
+
+impl ExternalEffect for AncestorsBetweenEffect {
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let _guard = self.trace_context.attach();
+            let store =
+                resources.get::<ResourceHeaderStore>().expect("AncestorsBetweenEffect requires a chain store").clone();
+            store.ancestors_between(&self.from, self.to)
+        })
+    }
+}
+
+impl ExternalEffectAPI for AncestorsBetweenEffect {
+    type Response = Option<Vec<Tip>>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

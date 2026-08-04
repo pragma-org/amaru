@@ -20,12 +20,16 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
-    MockCanValidateBlocks, PoolSummaries, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+    BaseReadChainStore, MockBlockValidator, Nonces, PoolSummaries, WriteChainStore, has_stake_pools::MockHasStakePools,
+    in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
     manager::ManagerMessage,
-    store_effects::{HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore, StoreHeaderEffect},
+    store_effects::{
+        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore,
+        StoreValidatedHeaderEffect,
+    },
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageRef,
@@ -94,6 +98,16 @@ pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     store
 }
 
+/// Like [`build_store`] but also persists nonces for each header, mimicking a header that has
+/// already been fully validated (as opposed to one merely imported during bootstrap).
+pub fn build_store_with_nonces(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
+    let store = build_store(headers);
+    for header in headers {
+        store.put_nonces(&header.hash(), &Nonces::for_tests()).unwrap();
+    }
+    store
+}
+
 /// Bundles state, runtime, handler, conn_id, and three linked headers for tests.
 pub struct TestPrep {
     pub state: TrackPeers,
@@ -150,12 +164,15 @@ pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
 }
 
-pub fn te_has_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(HasHeaderEffect::new(hash))))
+pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(GetNoncesEffect::new(hash))))
 }
 
-pub fn te_store_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(StoreHeaderEffect::new(header))))
+pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(StoreValidatedHeaderEffect::new(header, Nonces::for_tests())),
+    ))
 }
 
 pub fn te_clock_suspend(at_stage: &str) -> TraceEntry {
@@ -167,7 +184,12 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
 }
 
 pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
-    NewTip { tip, parent, trace_context: Default::default() }
+    NewTip {
+        tip,
+        parent,
+        trace_context: Default::default(),
+        received_at: amaru_pure_stage::Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO),
+    }
 }
 
 fn register_guards() -> DeserializerGuards {
@@ -186,10 +208,13 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<StoreHeaderEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<GetNoncesEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<amaru_protocols::metrics_effects::RecordMetricsEffect>()
+            .boxed(),
     ]
 }
 
@@ -200,7 +225,9 @@ pub fn setup(
     store: Arc<InMemoryChainStore>,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base(rt, state, [msg], store, |running| {
-        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+            OverrideResult::handled(Ok(Nonces::for_tests()))
+        });
     })
 }
 
@@ -215,7 +242,9 @@ pub fn setup_with_ledger_tip_until_sleeping(
     ledger_tip: Tip,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base_until_sleeping(rt, state, msg, store, |running| {
-        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
+        running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+            OverrideResult::handled(Ok(Nonces::for_tests()))
+        });
         running.override_external_effect::<VolatileTipEffect>(usize::MAX, {
             move |_| OverrideResult::handled(ledger_tip)
         });
@@ -257,19 +286,20 @@ fn setup_inner(
     run_simulation_with(
         rt,
         register_guards(),
-        |network| {
+        |mut network| {
             let tp = network.stage("tp", stage);
             let tp = network.wire_up(tp, state);
             network.preload(&tp, msg).unwrap();
+            network
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(store.clone());
-            let block_validation = Arc::new(MockCanValidateBlocks);
+            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());
-            resources.put::<ResourceHasStakePools>(block_validation);
+            resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
             let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();
             let global = NetworkName::Preprod.as_global_parameters().expect("preprod global for tests").clone();
-            let cp = Arc::new(ConsensusParameters::new(global, &era_history, Default::default()));
+            let cp = Arc::new(ConsensusParameters::new(global, &era_history));
             resources.put::<ResourceConsensusParameters>(cp);
             resources.put::<ResourceEraHistory>(era_history);
             resources.put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));

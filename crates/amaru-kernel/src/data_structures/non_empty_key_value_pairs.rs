@@ -25,10 +25,9 @@ use crate::{KeyValuePairs, cbor, data_structures::key_value_pairs::has_duplicate
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NonEmptyKeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 
-impl<K: Eq + Clone, V: Clone> NonEmptyKeyValuePairs<K, V> {
-    // TODO: Temporary conversion method to Pallas primitive. Remove when no longer needed.
-    pub fn as_pallas(self) -> pallas_primitives::NonEmptyKeyValuePairs<K, V> {
-        pallas_primitives::NonEmptyKeyValuePairs::Def(self.0)
+impl<K: Eq, V> Default for NonEmptyKeyValuePairs<K, V> {
+    fn default() -> Self {
+        Self(Vec::new())
     }
 }
 

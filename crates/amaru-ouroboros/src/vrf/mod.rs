@@ -19,7 +19,6 @@
 use std::{array::TryFromSliceError, ops::Deref};
 
 use amaru_kernel::{Hash, Hasher, Slot};
-pub use pallas_primitives::babbage::{VrfDerivation as Derivation, derive_tagged_vrf_output};
 use thiserror::Error;
 use vrf_dalek::{
     errors::VrfError,
@@ -210,6 +209,24 @@ impl From<&Proof> for [u8; Proof::SIZE] {
 impl From<&Proof> for Hash<{ Proof::HASH_SIZE }> {
     fn from(proof: &Proof) -> Hash<{ Proof::HASH_SIZE }> {
         Hash::from(proof.0.proof_to_hash())
+    }
+}
+
+// --------------------------------------------------------------- VrfDerivation
+
+pub enum Derivation {
+    Leader,
+    Nonce,
+}
+
+impl Derivation {
+    pub fn derive_tagged_vrf_output(self, block_vrf_output_bytes: &[u8]) -> Vec<u8> {
+        let mut tagged_vrf: Vec<u8> = match self {
+            Self::Leader => vec![0x4C_u8], /* "L" */
+            Self::Nonce => vec![0x4E_u8],  /* "N" */
+        };
+        tagged_vrf.extend(block_vrf_output_bytes);
+        Hasher::<256>::hash(&tagged_vrf).to_vec()
     }
 }
 

@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
-use amaru_kernel::ProposalId;
 pub use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -57,13 +54,10 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 }
 
 /// Remove an expired or enacted proposal.
-pub fn remove<'iter, DB, K>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = &'iter K>) -> Result<(), StoreError>
-where
-    K: Deref<Target = ProposalId> + 'iter,
-{
+pub fn remove<'iter, DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = &'iter Key>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::proposals::REMOVE).in_scope(|| {
         for key in rows {
-            db.delete(as_key(&PREFIX, key.deref())).map_err(|err| StoreError::Internal(err.into()))?;
+            db.delete(as_key(&PREFIX, key)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
         Ok(())

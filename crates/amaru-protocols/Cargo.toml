@@ -39,7 +39,6 @@ amaru-deps.workspace = true
 amaru-mempool.workspace = true
 amaru-network.workspace = true
 hex.workspace = true
-pallas-primitives.workspace = true
 proptest.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

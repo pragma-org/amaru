@@ -1,12 +1,12 @@
 {
-  "title": "ConwayTxRefScriptsSizeTooBig",
+  "title": "script on a spent input over per-tx limit",
   "description": "A spent input (no reference inputs) carries a 60-byte script, over the per-tx limit (50). The script size must be counted on spent inputs too, not only reference inputs.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
   },
   "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v9.json",
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
     "$override": {
       "maxReferenceScriptsSize": 50
     }

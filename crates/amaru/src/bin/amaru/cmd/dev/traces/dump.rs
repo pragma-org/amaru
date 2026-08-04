@@ -17,6 +17,7 @@ use std::{
     iter,
 };
 
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_observability::registry::SchemaEntry;
 use clap::Parser;
 #[cfg(test)]
@@ -39,7 +40,11 @@ pub struct Args {
     compact: bool,
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let output = generate_traces_json_schema(&SchemaEntry::all());
     let json_string =
         if args.compact { serde_json::to_string(&output)? } else { serde_json::to_string_pretty(&output)? };

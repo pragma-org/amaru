@@ -15,9 +15,7 @@
 use std::ops::Deref;
 
 use ::serde::ser::SerializeStruct;
-use amaru_kernel::{
-    CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, pool_metadata, relay,
-};
+use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, RationalNumber, drep, relay};
 use num::{BigUint, rational::Ratio};
 
 pub mod governance;
@@ -73,6 +71,13 @@ pub struct PoolState {
 
     /// The pool's parameters, as define per its last registration certificate.
     pub parameters: PoolParams,
+
+    /// Delegate representative to fall back to when the operator does not cast an explicit vote.
+    ///
+    /// This is derived from the pool reward account delegation in the corresponding stake
+    /// distribution snapshot. It is not serialized because it is only needed at runtime for
+    /// ratification.
+    pub fallback_drep: Option<DRep>,
 }
 
 impl ::serde::Serialize for PoolState {
@@ -85,10 +90,7 @@ impl ::serde::Serialize for PoolState {
         s.serialize_field("blocks_count", &self.blocks_count)?;
         s.serialize_field("cost", &self.parameters.cost)?;
         s.serialize_field("margin", &[r.numer(), r.denom()])?;
-        s.serialize_field(
-            "metadata",
-            &pool_metadata::as_option_ref(&self.parameters.metadata).map(pool_metadata::AsJson),
-        )?;
+        s.serialize_field("metadata", &self.parameters.metadata)?;
         s.serialize_field("owners", &self.parameters.owners.iter().map(hex::encode).collect::<Vec<_>>())?;
         s.serialize_field("pledge", &self.parameters.pledge)?;
         s.serialize_field("relays", &self.parameters.relays.iter().map(relay::AsJson).collect::<Vec<_>>())?;

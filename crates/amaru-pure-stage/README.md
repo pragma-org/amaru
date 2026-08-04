@@ -7,6 +7,7 @@ Design goals:
 - executable on concurrent thread pool or using a deterministic simulator
 - fully back-pressured
 - ability for biased reading from inputs (which is necessary to avoid deadlocks with back-pressure)
+- scheduled self-messages (`schedule_at` / `schedule_after`) are control traffic: guaranteed delivery independent of bulk mailbox capacity, preferred over ordinary messages, with a configurable outstanding cap per stage (default `PRIORITY_MAILBOX_SIZE` = 10 via `with_priority_mailbox_size`; exceeding panics)
 - wiring code should be nicely readable
 
 ## Design elements

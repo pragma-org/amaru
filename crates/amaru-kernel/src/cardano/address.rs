@@ -12,85 +12,254 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cmp::Ordering;
+use std::{fmt, str::FromStr};
 
-pub use pallas_addresses::Address;
+use crate::{AsShelley, HasOwnership, Network, StakeAddress, StakeCredential, cbor, hash, size};
 
-use crate::{AsShelley, HasOwnership, Network, StakeAddress, StakeCredential, StakePayload};
+pub mod byron;
+pub use byron::ByronAddress;
 
-pub fn is_locked_by_script(address: &Address) -> bool {
-    matches!(address.as_shelley().map(|addr| addr.owner()), Some(StakeCredential::ScriptHash(_)))
+pub mod shelley;
+pub use shelley::ShelleyAddress;
+
+pub mod pointer;
+pub use pointer::AddressPointer;
+
+mod stake_payload;
+pub use stake_payload::StakePayload;
+
+mod delegation_part;
+pub use delegation_part::ShelleyDelegationPart;
+
+mod payment_part;
+pub use payment_part::ShelleyPaymentPart;
+
+#[derive(Debug, Clone, PartialEq, Eq, std::hash::Hash)]
+pub enum Address {
+    Byron(ByronAddress),
+    Shelley(ShelleyAddress),
+    // TODO: This is wrong, stake address should be a completely separate type.
+    Stake(StakeAddress),
 }
 
-/// A stake address with ordering the way Plutus expects withdrawal keys to be sorted.
-///
-/// A wrapper around [`StakeAddress`] to provide a custom [`Ord`] implementation.
-/// Wrapping the address makes a `BTreeMap<PlutusStakeAddress, _>` iterate, and therefore serialize,
-/// in the order a script expects. Equality is defined to agree with this ordering.
-#[repr(transparent)]
-#[derive(Clone, Debug)]
-pub struct PlutusStakeAddress(StakeAddress);
-
-impl From<StakeAddress> for PlutusStakeAddress {
-    fn from(value: StakeAddress) -> Self {
-        Self(value)
+impl fmt::Display for Address {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Byron(x) => f.write_str(&x.to_base58()),
+            Self::Shelley(x) => f.write_str(&x.to_bech32()),
+            Self::Stake(x) => f.write_str(&x.to_bech32()),
+        }
     }
 }
 
-impl From<PlutusStakeAddress> for StakeAddress {
-    fn from(value: PlutusStakeAddress) -> Self {
-        value.0
+impl FromStr for Address {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, ()> {
+        if let Some(addr) = Address::from_bech32(s) {
+            return Ok(addr);
+        }
+
+        if let Some(addr) = ByronAddress::from_base58(s) {
+            return Ok(Address::Byron(addr));
+        }
+
+        if let Some(addr) = Address::from_hex(s) {
+            return Ok(addr);
+        }
+
+        Err(())
     }
 }
 
-impl AsRef<StakeAddress> for PlutusStakeAddress {
-    fn as_ref(&self) -> &StakeAddress {
-        &self.0
+impl Address {
+    pub fn is_locked_by_script(&self) -> bool {
+        matches!(self.as_shelley().map(|addr| addr.owner()), Some(StakeCredential::ScriptHash(_)))
+    }
+
+    /// Tries to encode an Address into a bech32 string
+    pub fn to_bech32(&self) -> Option<String> {
+        match self {
+            Address::Byron(_) => None,
+            Address::Shelley(x) => Some(x.to_bech32()),
+            Address::Stake(x) => Some(x.to_bech32()),
+        }
+    }
+
+    /// Tries to parse a bech32 value into an Address
+    pub fn from_bech32(s: &str) -> Option<Self> {
+        let (_hrp, bytes) = bech32::decode(s).ok()?;
+        Self::from_bytes(&bytes)
+    }
+
+    // Tries to decode the raw bytes of an address
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let header = *bytes.first()?;
+
+        let payload = &bytes[1..];
+
+        match (header & 0b1111_0000) >> 4 {
+            0 => parse_type_0(header, payload),
+            1 => parse_type_1(header, payload),
+            2 => parse_type_2(header, payload),
+            3 => parse_type_3(header, payload),
+            4 => parse_type_4(header, payload),
+            5 => parse_type_5(header, payload),
+            6 => parse_type_6(header, payload),
+            7 => parse_type_7(header, payload),
+            8 => parse_type_8(header, payload),
+            14 => parse_type_14(header, payload),
+            15 => parse_type_15(header, payload),
+            _ => None,
+        }
+    }
+
+    // Tries to parse a hex value into an Address
+    pub fn from_hex(bytes: &str) -> Option<Self> {
+        let bytes = hex::decode(bytes).ok()?;
+        Self::from_bytes(&bytes)
+    }
+
+    /// Gets the network assoaciated with this address
+    pub fn network(&self) -> Network {
+        match self {
+            Address::Byron(x) => x.network(),
+            Address::Shelley(x) => x.network(),
+            Address::Stake(x) => x.network(),
+        }
+    }
+
+    /// Gets a numeric id describing the type of the address
+    pub fn typeid(&self) -> u8 {
+        match self {
+            Address::Byron(x) => x.typeid(),
+            Address::Shelley(x) => x.typeid(),
+            Address::Stake(x) => x.typeid(),
+        }
+    }
+
+    /// Indicates if this is address includes a script hash
+    pub fn has_script(&self) -> bool {
+        match self {
+            Address::Byron(_) => false,
+            Address::Shelley(x) => x.has_script(),
+            Address::Stake(x) => x.is_script(),
+        }
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        match self {
+            Address::Byron(x) => x.to_vec(),
+            Address::Shelley(x) => x.to_vec(),
+            Address::Stake(x) => x.to_vec(),
+        }
+    }
+
+    pub fn to_hex(&self) -> String {
+        match self {
+            Address::Byron(x) => x.to_hex(),
+            Address::Shelley(x) => x.to_hex(),
+            Address::Stake(x) => x.to_hex(),
+        }
     }
 }
 
-impl Ord for PlutusStakeAddress {
-    /// Plutus canonically expects stake addresses to be sorted by network,
-    /// then script credentials > public key credentials,
-    /// and finally lexicographical ordering of hash bytes.
-    ///
-    ///
-    /// [Aiken reference implementation](https://github.com/aiken-lang/aiken/blob/a8c032935dbaf4a1140e9d8be5c270acd32c9e8c/crates/uplc/src/tx/script_context.rs#L1112)
-    fn cmp(&self, other: &Self) -> Ordering {
-        fn network_tag(network: Network) -> u8 {
-            match network {
-                Network::Testnet => 0,
-                Network::Mainnet => 1,
-                Network::Other(tag) => tag,
+fn parse_network(header: u8) -> Option<Network> {
+    Network::try_from(header & 0b0000_1111).ok()
+}
+
+macro_rules! parse_shelley_fn {
+    ($name:tt, $payment:tt, pointer) => {
+        fn $name(header: u8, payload: &[u8]) -> Option<Address> {
+            if payload.len() < size::CREDENTIAL + 1 {
+                return None;
             }
-        }
 
-        if self.0.network() != other.0.network() {
-            return network_tag(self.0.network()).cmp(&network_tag(other.0.network()));
-        }
+            let net = parse_network(header)?;
 
-        match (self.0.payload(), other.0.payload()) {
-            (StakePayload::Script(..), StakePayload::Stake(..)) => Ordering::Less,
-            (StakePayload::Stake(..), StakePayload::Script(..)) => Ordering::Greater,
-            (StakePayload::Script(hash_a), StakePayload::Script(hash_b)) => hash_a.cmp(hash_b),
-            (StakePayload::Stake(hash_a), StakePayload::Stake(hash_b)) => hash_a.cmp(hash_b),
+            let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
+            let p1 = ShelleyPaymentPart::$payment(h1);
+            let p2 = ShelleyDelegationPart::try_from_pointer(&payload[size::CREDENTIAL..])?;
+
+            let addr = ShelleyAddress::new(net, p1, p2);
+
+            Some(Address::Shelley(addr))
         }
-    }
+    };
+    ($name:tt, $payment:tt, $delegation:tt) => {
+        fn $name(header: u8, payload: &[u8]) -> Option<Address> {
+            if payload.len() != 2 * size::CREDENTIAL {
+                return None;
+            }
+
+            let net = parse_network(header)?;
+
+            let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
+            let p1 = ShelleyPaymentPart::$payment(h1);
+
+            let h2 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[size::CREDENTIAL..])?;
+            let p2 = ShelleyDelegationPart::$delegation(h2);
+
+            let addr = ShelleyAddress::new(net, p1, p2);
+
+            Some(Address::Shelley(addr))
+        }
+    };
+    ($name:tt, $payment:tt) => {
+        fn $name(header: u8, payload: &[u8]) -> Option<Address> {
+            if payload.len() != size::CREDENTIAL {
+                return None;
+            }
+
+            let net = parse_network(header)?;
+            let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
+            let p1 = ShelleyPaymentPart::$payment(h1);
+
+            let addr = ShelleyAddress::new(net, p1, ShelleyDelegationPart::Null);
+
+            Some(Address::Shelley(addr))
+        }
+    };
 }
 
-impl PartialOrd for PlutusStakeAddress {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
+// types 0-7 are Shelley addresses
+parse_shelley_fn!(parse_type_0, from_key_hash, from_key_hash);
+parse_shelley_fn!(parse_type_1, from_script_hash, from_key_hash);
+parse_shelley_fn!(parse_type_2, from_key_hash, from_script_hash);
+parse_shelley_fn!(parse_type_3, from_script_hash, from_script_hash);
+parse_shelley_fn!(parse_type_4, from_key_hash, pointer);
+parse_shelley_fn!(parse_type_5, from_script_hash, pointer);
+parse_shelley_fn!(parse_type_6, from_key_hash);
+parse_shelley_fn!(parse_type_7, from_script_hash);
+
+// type 8 (1000) are Byron addresses
+fn parse_type_8(header: u8, payload: &[u8]) -> Option<Address> {
+    let vec = [&[header], payload].concat();
+    let inner = cbor::decode(&vec).ok()?;
+    Some(Address::Byron(inner))
 }
 
-impl PartialEq for PlutusStakeAddress {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
+macro_rules! parse_stake_fn {
+    ($name:tt, $type:tt) => {
+        fn $name(header: u8, payload: &[u8]) -> Option<Address> {
+            if payload.len() != size::CREDENTIAL {
+                return None;
+            }
+
+            let net = parse_network(header)?;
+            let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
+            let p1 = StakePayload::$type(h1);
+
+            let addr = StakeAddress::new(net, p1);
+
+            Some(Address::Stake(addr))
+        }
+    };
 }
 
-impl Eq for PlutusStakeAddress {}
+// types 14-15 are Stake addresses
+parse_stake_fn!(parse_type_14, from_key_hash);
+parse_stake_fn!(parse_type_15, from_script_hash);
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
@@ -110,93 +279,5 @@ mod tests {
 
             Address::Shelley(ShelleyAddress::new(network, payment, delegation))
         })
-    }
-}
-
-#[cfg(test)]
-mod plutus_stake_address_tests {
-    use proptest::{
-        prelude::{Just, Strategy, any, prop},
-        prop_assert, prop_oneof, proptest,
-    };
-
-    use super::*;
-    use crate::new_stake_address;
-
-    fn network_strategy() -> impl Strategy<Value = Network> {
-        prop_oneof![Just(Network::Testnet), Just(Network::Mainnet), any::<u8>().prop_map(Network::from),]
-    }
-
-    fn stake_address_strategy() -> impl Strategy<Value = PlutusStakeAddress> {
-        (prop::bool::ANY, any::<[u8; 28]>(), network_strategy()).prop_map(|(is_script, hash_bytes, network)| {
-            let delegation: StakePayload = if is_script {
-                StakePayload::Script(hash_bytes.into())
-            } else {
-                StakePayload::Stake(hash_bytes.into())
-            };
-
-            PlutusStakeAddress(new_stake_address(network, delegation))
-        })
-    }
-
-    #[test]
-    fn proptest_stake_address_ordering() {
-        proptest!(|(addresses in prop::collection::vec(stake_address_strategy(), 20..100))| {
-            let mut sorted = addresses.clone();
-            sorted.sort();
-
-
-            for window in sorted.windows(2) {
-                let a = &window[0];
-                let b = &window[1];
-
-                fn network_tag(network: Network) -> u8 {
-                    match network {
-                        Network::Testnet => 0,
-                        Network::Mainnet => 1,
-                        Network::Other(tag) => tag,
-                    }
-                }
-
-                let net_a = a.0.network();
-                let net_b = b.0.network();
-
-
-                // We sort by network first (testnet, mainnet, other by tag)
-                if net_a != net_b {
-                    prop_assert!(
-                        network_tag(net_a) < network_tag(net_b),
-                        "Network ordering violated: {:?} should be < {:?}",
-                        network_tag(net_a),
-                        network_tag(net_b)
-                    );
-                } else {
-                    match (a.0.payload(), b.0.payload()) {
-                        // Script < Stake
-                        (StakePayload::Script(_), StakePayload::Stake(_)) => {
-                            // This is correct
-                        }
-                        (StakePayload::Stake(_), StakePayload::Script(_)) => {
-                            prop_assert!(false, "Payload type ordering violated: Stake should not come before Script");
-                        }
-                        // Same payload compare bytes
-                        (StakePayload::Script(h1), StakePayload::Script(h2)) => {
-                            prop_assert!(
-                                h1 <= h2,
-                                "Script hash ordering violated: {:?} should be <= {:?}",
-                                h1, h2
-                            );
-                        }
-                        (StakePayload::Stake(h1), StakePayload::Stake(h2)) => {
-                            prop_assert!(
-                                h1 <= h2,
-                                "Stake hash ordering violated: {:?} should be <= {:?}",
-                                h1, h2
-                            );
-                        }
-                    }
-                }
-            }
-        });
     }
 }

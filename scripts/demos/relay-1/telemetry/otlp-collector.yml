@@ -1,0 +1,12 @@
+# Demo-only collector override, layered as the last --config after the shared configs.
+#
+# The relay-1 demo runs two Amaru nodes (amaru-middle and amaru-downstream) and plots them
+# side by side on the same Grafana dashboard. That requires keeping service.name, which the
+# shared monitoring config drops to limit Prometheus label cardinality. Redefining the
+# processor here replaces its attribute list (collector configs merge by replacing lists),
+# so only the per-instance id is dropped and service.name survives as the exported_job label.
+processors:
+  resource/drop_prometheus_labels:
+    attributes:
+      - key: service.instance.id
+        action: delete

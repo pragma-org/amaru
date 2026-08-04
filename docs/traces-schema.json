@@ -244,6 +244,29 @@
       "description": "Detect locally-created snapshots from create-snapshots",
       "public": true
     },
+    "amaru::bootstrap::local_snapshots::FAIL_TO_READ": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "hint": {
+          "type": "string",
+          "description": "Custom type: anyhow::Error"
+        }
+      },
+      "required": [
+        "file",
+        "hint"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fail_to_read",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::local_snapshots",
+      "description": "Failed to read or parse a local snapshot",
+      "public": true
+    },
     "amaru::bootstrap::nonces::IMPORT": {
       "type": "object",
       "properties": {
@@ -261,6 +284,25 @@
       "level": "TRACE",
       "target": "amaru::bootstrap::nonces",
       "description": "Import initial nonces into the chain store",
+      "public": true
+    },
+    "amaru::bootstrap::opcert_sequence_numbers::IMPORT": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "import",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::opcert_sequence_numbers",
+      "description": "Import initial opcert sequence numbers into the chain store",
       "public": true
     },
     "amaru::bootstrap::peer::FAILED_TO_CONNECT": {
@@ -373,6 +415,24 @@
       "level": "TRACE",
       "target": "amaru::bootstrap::proposals",
       "description": "Existing proposals found in the store before import",
+      "public": true
+    },
+    "amaru::bootstrap::recently_pruned_proposals::IMPORT": {
+      "type": "object",
+      "properties": {
+        "size": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "import",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::recently_pruned_proposals",
+      "description": "Import proposals pruned at the snapshot's epoch boundary, from its ratify state",
       "public": true
     },
     "amaru::bootstrap::snapshot::DOWNLOAD": {
@@ -1045,6 +1105,78 @@
       "description": "Snapshot archive already packaged; skipping",
       "public": true
     },
+    "amaru::consensus::perf::fork::SWITCH": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "duration_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [
+        "outcome",
+        "duration_micros"
+      ],
+      "additionalProperties": false,
+      "name": "switch",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::fork",
+      "description": "Event recorded when a fork switch ends. `duration_micros` measures the time from the detection of the fork to its application (or abandonment).",
+      "public": true
+    },
+    "amaru::consensus::perf::header::LIFECYCLE": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "block_fetch_wait_micros": {
+          "type": "integer"
+        },
+        "block_fetch_micros": {
+          "type": "integer"
+        },
+        "forward_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "peer",
+        "header_hash",
+        "outcome",
+        "error",
+        "block_fetch_wait_micros",
+        "block_fetch_micros",
+        "forward_micros"
+      ],
+      "additionalProperties": false,
+      "name": "lifecycle",
+      "level": "TRACE",
+      "target": "amaru::consensus::perf::header",
+      "description": "Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. `outcome` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
+      "public": true
+    },
     "amaru::ledger::account::PAY_OR_REFUND": {
       "type": "object",
       "properties": {
@@ -1216,18 +1348,6 @@
       "description": "Flushing the epoch transition overlay to disk",
       "public": true
     },
-    "amaru::ledger::epoch_transition::BEGIN_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "begin_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform start-of-epoch epoch boundary computations",
-      "public": true
-    },
     "amaru::ledger::epoch_transition::COMPUTE": {
       "type": "object",
       "properties": {
@@ -1259,18 +1379,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::epoch_transition",
       "description": "Epoch transition processing",
-      "public": true
-    },
-    "amaru::ledger::epoch_transition::END_EPOCH": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "end_epoch",
-      "level": "TRACE",
-      "target": "amaru::ledger::epoch_transition",
-      "description": "Perform end-of-epoch epoch boundary computations",
       "public": true
     },
     "amaru::ledger::epoch_transition::NEW_GOVERNANCE_UPDATES": {
@@ -1932,7 +2040,10 @@
         "pruned_proposals": {
           "type": "string"
         },
-        "payouts": {
+        "refunds": {
+          "type": "string"
+        },
+        "withdrawals": {
           "type": "string"
         },
         "new_constitution": {
@@ -1947,7 +2058,8 @@
       ],
       "optional": [
         "pruned_proposals",
-        "payouts",
+        "refunds",
+        "withdrawals",
         "new_constitution",
         "constitutional_committee_update"
       ],
@@ -1983,17 +2095,16 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
-        "using_stake_distribution_epoch_from": {
+        "using_stake_distribution_from_epoch": {
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         }
       },
       "required": [
-        "for_epoch"
+        "for_epoch",
+        "using_stake_distribution_from_epoch"
       ],
-      "optional": [
-        "using_stake_distribution_epoch_from"
-      ],
+      "optional": [],
       "additionalProperties": false,
       "name": "compute",
       "level": "TRACE",
@@ -2426,15 +2537,8 @@
     },
     "amaru::ledger::state::ROLL_BACKWARD": {
       "type": "object",
-      "properties": {
-        "rollback_point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
-        }
-      },
-      "required": [
-        "rollback_point"
-      ],
+      "properties": {},
+      "required": [],
       "optional": [],
       "additionalProperties": false,
       "name": "roll_backward",
@@ -2453,6 +2557,29 @@
       "level": "TRACE",
       "target": "amaru::ledger::state",
       "description": "Roll forward with a new block",
+      "public": true
+    },
+    "amaru::ledger::state::SWITCH_TO_FORK": {
+      "type": "object",
+      "properties": {
+        "fork_point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "fork_length": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fork_point",
+        "fork_length"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch_to_fork",
+      "level": "TRACE",
+      "target": "amaru::ledger::state",
+      "description": "Switching to an alternative chain fork",
       "public": true
     },
     "amaru::ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE": {
@@ -2909,44 +3036,6 @@
       "level": "TRACE",
       "target": "amaru::ledger::volatile",
       "description": "Recompute the volatile aggregate",
-      "public": true
-    },
-    "amaru::ledger::volatile::ROLLBACK_TO": {
-      "type": "object",
-      "properties": {
-        "target_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "last_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "first_slot": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Slot"
-        },
-        "warning": {
-          "type": "string"
-        },
-        "error": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "target_slot"
-      ],
-      "optional": [
-        "last_slot",
-        "first_slot",
-        "warning",
-        "error"
-      ],
-      "additionalProperties": false,
-      "name": "rollback_to",
-      "level": "TRACE",
-      "target": "amaru::ledger::volatile",
-      "description": "Rollback the volatile state to a specific point",
       "public": true
     },
     "amaru::ledger::volatile::WARM_UP": {
@@ -3976,6 +4065,49 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::recently_pruned_proposals",
       "description": "Inserting recently pruned proposals",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::INSERT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "insert",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Insert a recently unregistered account",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::PRUNE": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "string",
+          "description": "Custom type: Epoch"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "prune",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Prune recently unregistered accounts",
+      "public": true
+    },
+    "amaru::stores::ledger::recently_unregistered_accounts::REMOVE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::recently_unregistered_accounts",
+      "description": "Remove a recently unregistered account",
       "public": true
     },
     "amaru::stores::ledger::slots::GET": {

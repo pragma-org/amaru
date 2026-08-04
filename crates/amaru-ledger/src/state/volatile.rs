@@ -12,16 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ComparableProposalId, MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput};
+use std::collections::VecDeque;
+
+use amaru_kernel::{
+    CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId, ProposalId, StakeCredential,
+    TransactionInput,
+};
 
 mod db;
 pub use db::{RewardsAtTip, VolatileDB};
 
 mod overlay;
+use overlay::StateOverlay;
 
-mod fragment;
+mod aggregate;
+pub use aggregate::VolatileAggregate;
+
+mod bind;
+pub use bind::{Bind, Empty};
+
+mod existence;
+pub use existence::Existence;
+
+mod resettable;
+pub use resettable::Resettable;
+
+pub(crate) mod fragment;
 pub use fragment::{
-    AccountBind, AnchoredVolatileFragment, CommitteeMemberBind, DRepBind, Existence, StoreUpdate, VolatileFragment,
+    AnchoredVolatileFragment, BindError, DiffBind, DiffEpochReg, DiffSet, RegisterError, Registrations, StoreUpdate,
+    VolatileFragment,
 };
 
 mod series;
@@ -30,32 +49,59 @@ pub use series::VolatileSeries;
 mod view;
 pub use view::VolatileView;
 
+#[cfg(any(test, feature = "test-utils"))]
+mod tests {
+    pub use super::fragment::{any_diff_bind, any_diff_set};
+}
+#[cfg(any(test, feature = "test-utils"))]
+pub use tests::*;
+
+/// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
+pub type AccountBind<'a> = Bind<&'a (PoolId, CertificatePointer), &'a (DRep, CertificatePointer), &'a Lovelace>;
+
+/// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
+/// since no in-block cert establishes them.
+pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Empty, &'a Epoch>;
+
+/// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
+/// is the queryable value; the anchor is updated independently of registration, so an anchor-only
+/// update is a bind-only (`value: None`) change that composes onto the registration from below.
+pub type DRepBind<'a> = Bind<&'a Empty, &'a Empty, &'a DRepRegistration>;
+
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {
     // --------------------------------------------------------------------------------------- UTxOs
-    // TODO: unify this API with the others; we could simply return an 'Existence'
-    fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput>;
-    fn has_consumed_input(&self, input: &TransactionInput) -> bool;
+    type TransactionOutput<'a>
+    where
+        Self: 'a;
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a>;
 
     // --------------------------------------------------------------------------------------- Pools
     type Pool;
     fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool;
 
     // ------------------------------------------------------------------------------------ Accounts
-    type Account;
-    fn resolve_account(&self, credential: &StakeCredential) -> Self::Account;
+    type Account<'a>
+    where
+        Self: 'a;
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a>;
+    fn has_withdrawal(&self, credential: &StakeCredential) -> bool;
 
     // --------------------------------------------------------------------------------------- DReps
-    type DRep;
-    fn resolve_drep(&self, credential: &StakeCredential) -> Self::DRep;
+    type DRep<'a>
+    where
+        Self: 'a;
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a>;
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember;
-    fn resolve_cc_member(&self, credential: &StakeCredential) -> Self::CCMember;
+    type CCMember<'a>
+    where
+        Self: 'a;
+    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a>;
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;
-    fn resolve_proposal(&self, proposal_id: &ComparableProposalId) -> Self::Proposal;
+    fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal;
 }
 
 /// A sequence-like API used by the VolatileDB and VolatileSeries.
@@ -73,82 +119,29 @@ pub trait VolatileSequence {
 
     fn pop_front(&mut self) -> Option<Self::Item>;
     fn push_back(&mut self, item: Self::Item);
-
-    fn rollback_to<'a>(&mut self, point: &'a Point) -> Result<(), &'a Point>;
-    fn clear(&mut self);
 }
 
-/// Shared test fixtures for the volatile keystone proptests, used by both `series` and `db`: a
-/// generator of UTxO-lifecycle windows and the brute-force oracle the maintained aggregate is
-/// checked against.
-#[cfg(test)]
-pub(crate) mod test_support {
-    use std::sync::Arc;
+#[derive(Debug)]
+pub struct RollbackGuard<'a> {
+    fork_point: &'a Point,
+    recovery: VolatileDBRecovery,
+}
 
-    use amaru_kernel::{Hash, MemoizedTransactionOutput, TransactionInput};
-    use proptest::prelude::*;
-
-    use crate::{state::diff_set::DiffSet, tests::fake_output};
-
-    pub(crate) const VOLATILE_WINDOW: usize = 6;
-
-    prop_compose! {
-        /// A window of [`DiffSet`]s where each tagged UTxO has a unique lifecycle: produced once and
-        /// optionally consumed at a strictly later index. Mirrors UTxO uniqueness, so a newest-first
-        /// walk has a well-defined answer for every key.
-        pub(crate) fn unique_lifecycle_diffs(volatile_window: usize)(
-            plan in prop::collection::vec(
-                (0usize..volatile_window, prop::option::of(0usize..volatile_window)),
-                0..16,
-            )
-        ) -> Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> {
-            let mut diffs: Vec<DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>> =
-                (0..volatile_window).map(|_| DiffSet::default()).collect();
-
-            for (tag, (produced_at, consume_offset)) in plan.into_iter().enumerate() {
-                let tag = tag as u8;
-                diffs[produced_at].produce(test_input(tag), Arc::new(fixed_output()));
-                if let Some(offset) = consume_offset {
-                    let consumed_at = produced_at + 1 + offset;
-                    if consumed_at < volatile_window {
-                        diffs[consumed_at].consume(test_input(tag));
-                    }
-                }
-            }
-
-            diffs
-        }
-    }
-
-    pub(crate) fn test_input(tag: u8) -> TransactionInput {
-        TransactionInput { transaction_id: Hash::new([tag; 32]), index: 0 }
-    }
-
-    pub(crate) fn fixed_output() -> MemoizedTransactionOutput {
-        fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335")
-    }
-
-    /// Brute-force oracle: resolve `input` by walking `diffs` newest -> oldest. First consumed -> `None`,
-    /// first produce -> `Some`. The reference the maintained aggregate is checked against.
-    pub(crate) fn naive_resolve<'a>(
-        diffs: &'a [DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
-        input: &TransactionInput,
-    ) -> Option<&'a Arc<MemoizedTransactionOutput>> {
-        for diff in diffs.iter().rev() {
-            if diff.consumed.contains(input) {
-                return None;
-            }
-            if let Some(output) = diff.produced.get(input) {
-                return Some(output);
-            }
-        }
-        None
-    }
-
-    pub(crate) fn naive_has_consumed(
-        diffs: &[DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>],
-        input: &TransactionInput,
-    ) -> bool {
-        diffs.iter().any(|diff| diff.consumed.contains(input))
-    }
+/// The discarded parts of a within-window rollback, enough to restore the pre-rollback state after
+/// an arbitrary sequence of roll-forwards (a fork switch replays blocks before it may recover).
+///
+/// Recovery works by first stripping the replayed blocks (rolling the live series back to
+/// `fork_point`) and then re-attaching what was discarded and restoring the overlay snapshot. Only
+/// the overlay is cloned; the series parts are moved out at rollback time.
+#[derive(Debug)]
+pub enum VolatileDBRecovery {
+    /// The rollback stayed within the current epoch: only a suffix of `current` was removed.
+    RecoverInEpoch { discarded: VecDeque<AnchoredVolatileFragment>, overlay: StateOverlay },
+    /// The rollback crossed the epoch boundary: the opening-epoch `current` was discarded and the
+    /// `draining` series was promoted and split.
+    RecoverAcrossEpoch {
+        old_current: VolatileSeries,
+        drained: VecDeque<AnchoredVolatileFragment>,
+        overlay: StateOverlay,
+    },
 }

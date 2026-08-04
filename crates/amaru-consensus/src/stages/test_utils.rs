@@ -176,6 +176,22 @@ pub fn te_terminate(at_stage: impl AsRef<str>) -> TraceEntry {
     TraceEntry::suspend(Effect::Terminate { at_stage: Name::from(at_stage.as_ref()) })
 }
 
+pub fn te_clock_read(at_stage: impl AsRef<str>) -> TraceEntry {
+    TraceEntry::suspend(Effect::clock(at_stage))
+}
+
+pub fn te_record_consensus_metrics(
+    at_stage: impl AsRef<str>,
+    metrics: amaru_metrics::consensus::ConsensusMetrics,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage.as_ref(),
+        Box::new(amaru_protocols::metrics_effects::RecordMetricsEffect::new(
+            amaru_metrics::MetricsEvent::ConsensusMetrics(metrics),
+        )),
+    ))
+}
+
 pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
     TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
 }
@@ -217,10 +233,11 @@ pub enum SimulationRunMode {
 /// The caller provides:
 /// - `guards`: the deserializers required for the stage, its messages, child stages, and any
 ///   external effects (typically built by a per-stage `register_guards()` function).
-/// - `build_network`: a closure that receives a fresh `&mut SimulationBuilder` and is
-///   responsible for installing any stage(s) (`network.stage(...)`), wiring them up,
-///   and preloading input messages. Resource installation should be done via the
-///   `setup_resources` closure (see below).
+/// - `build_network`: a closure that receives a fresh `SimulationBuilder` by value (so
+///   builder options like [`SimulationBuilder::with_mailbox_size`] can be applied), installs
+///   stage(s) (`network.stage(...)`), wires them up, preloads input messages, and returns
+///   the builder. Resource installation should be done via the `setup_resources` closure
+///   (see below).
 /// - `setup_resources`: a function that will be called with `&Resources` (from the
 ///   `SimulationBuilder`) so the caller can put stores, validators, etc.
 /// - `setup_overrides`: a function that will be called with `&mut SimulationRunning` after
@@ -232,7 +249,7 @@ pub enum SimulationRunMode {
 pub fn run_simulation<F, G>(
     rt: &Handle,
     guards: DeserializerGuards,
-    build_network: impl FnOnce(&mut SimulationBuilder),
+    build_network: impl FnOnce(SimulationBuilder) -> SimulationBuilder,
     setup_resources: F,
     setup_overrides: G,
 ) -> (SimulationRunning, DeserializerGuards, Logs)
@@ -244,11 +261,14 @@ where
 }
 
 /// Like [`run_simulation`], but chooses how far to drive the simulation after setup.
+///
+/// `build_network` receives the builder by value so callers can apply builder options
+/// (e.g. [`SimulationBuilder::with_mailbox_size`]) before staging/wiring/preloading.
 #[track_caller]
 pub fn run_simulation_with<F, G>(
     rt: &Handle,
     guards: DeserializerGuards,
-    build_network: impl FnOnce(&mut SimulationBuilder),
+    build_network: impl FnOnce(SimulationBuilder) -> SimulationBuilder,
     setup_resources: F,
     setup_overrides: G,
     mode: SimulationRunMode,
@@ -268,14 +288,14 @@ where
     logs.set_guard(sub);
 
     let since_network_start = start_in_era().relative_time;
-    let mut network = SimulationBuilder::default()
+    let network = SimulationBuilder::default()
         .with_trace_buffer(TraceBuffer::new_shared(100, 1000000))
         .with_global_epoch_offset(since_network_start)
         .with_initial_clock(Instant::at_offset(Duration::from_secs(10), since_network_start));
 
     setup_resources(network.resources());
 
-    build_network(&mut network);
+    let network = build_network(network);
 
     let mut running = network.run();
     running.use_virtual_child_stages(true);

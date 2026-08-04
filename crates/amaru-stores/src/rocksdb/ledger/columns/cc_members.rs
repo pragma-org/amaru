@@ -43,7 +43,7 @@ pub fn get<'a>(
 pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::cc_members::UPSERT).in_scope(|| {
         for (cold_credential, (hot_credential, valid_until)) in rows {
-            let key = as_key(&PREFIX, &cold_credential);
+            let key = as_key(&PREFIX, cold_credential);
 
             let mut row = db
                 .get_pinned(&key)

@@ -28,7 +28,7 @@ The following variables configure this demo's topology and its two Amaru nodes:
 | `AMARU_DEMO_TRACE`                                   | `debug` plus trace-level filters for the demo subsystems (see `process-compose.sh`)                                         | Shared default trace filter for both nodes              |
 | `AMARU_{MIDDLE,DOWNSTREAM}_LOG`                      | `info,amaru::ledger::state=trace`                                                                                           | Console/log-file filter per node                        |
 | `AMARU_{MIDDLE,DOWNSTREAM}_TRACE`                    | `$AMARU_DEMO_TRACE`                                                                                                         | Telemetry trace filter per node                         |
-| `AMARU_{MIDDLE,DOWNSTREAM}_WITH_OPEN_TELEMETRY`      | `true`                                                                                                                      | Export OpenTelemetry traces and metrics per node        |
+| `AMARU_{MIDDLE,DOWNSTREAM}_WITH_OPEN_TELEMETRY`      | `true`                                                                                                                      | Export OpenTelemetry metrics, logs, and spans per node  |
 | `AMARU_{MIDDLE,DOWNSTREAM}_WITH_JSON_TRACES`         | `false`                                                                                                                     | Emit local JSON span enter/exit events per node         |
 | `AMARU_{MIDDLE,DOWNSTREAM}_OTEL_SERVICE_NAME`        | `amaru-middle` / `amaru-downstream`                                                                                         | OTLP service name per node                              |
 | `AMARU_{MIDDLE,DOWNSTREAM}_OTEL_SERVICE_INSTANCE_ID` | `relay-1-middle-$LISTEN_PORT` / `relay-1-downstream-$DOWNSTREAM_LISTEN_PORT`                                                | OTLP service instance id per node                       |
@@ -46,15 +46,16 @@ export AMARU_NETWORK=preprod
 ./process-compose.sh status  # check process status
 ```
 
-Running `./process-compose.sh up` starts the Grafana/Tempo/Prometheus telemetry stack, opens the process-compose TUI,
-downloads local cardano-node tools when needed, refreshes the Amaru databases from Mithril if no complete local refresh
-exists, prepares the isolated run directories, and starts the relay processes. Use the wrapper instead of running
-`process-compose up` directly so telemetry and the configured process dependencies are used.
+Running `./process-compose.sh up` opens the process-compose TUI. The `8-telemetry-setup` process starts the
+Grafana/Tempo/Prometheus/Loki telemetry stack while the setup and initialization processes download local cardano-node tools
+when needed, refresh the Amaru databases from Mithril if no complete local refresh exists, prepare the isolated run
+directories, and start the relay processes. Use the wrapper instead of running `process-compose up` directly so telemetry
+and the configured process dependencies are used.
 
 👉 Set `START_TELEMETRY=false` to keep the demo in node-only mode.
 
-Starting the demo resets the telemetry stack with `docker compose down --volumes`, which removes the previous Tempo and
-Prometheus volumes, so each demo run starts from fresh spans and metrics. `./process-compose.sh down` also stops the
+Starting the demo resets the telemetry stack with `docker compose down --volumes`, which removes the previous telemetry
+volumes, so each demo run starts from fresh metrics, logs, and spans. `./process-compose.sh down` also stops the
 telemetry stack unless `START_TELEMETRY=false`, even when the stack was started separately with
 `./process-compose.sh telemetry-up`.
 
@@ -136,11 +137,12 @@ directly instead of invoking `cargo run`.
 
 ### Setup and Initialize Processes
 
-The `0-setup` process is a one-shot tool bootstrap step. When `CARDANO_NODE_HOME` is unset, it downloads the configured
-cardano-node release into `/tmp/amaru-relay-1`, verifies the archive checksum when `shasum` is available, and exposes
-`bin/cardano-node` and `bin/db-analyser` from that temp directory. Because that directory lives under `/tmp`, the tools
-are re-downloaded after a reboot or periodic temp cleanup. When `CARDANO_NODE_HOME` is set, it validates that
-the configured directory already contains `bin/db-analyser` and that `CARDANO_NODE` points at an executable.
+The `8-telemetry-setup` process starts the telemetry stack when `START_TELEMETRY=true`. The `0-setup` process is a one-shot
+tool bootstrap step. When `CARDANO_NODE_HOME` is unset, it downloads the configured cardano-node release into
+`/tmp/amaru-relay-1`, verifies the archive checksum when `shasum` is available, and exposes `bin/cardano-node` and
+`bin/db-analyser` from that temp directory. Because that directory lives under `/tmp`, the tools are re-downloaded after
+a reboot or periodic temp cleanup. When `CARDANO_NODE_HOME` is set, it validates that the configured directory already
+contains `bin/db-analyser` and that `CARDANO_NODE` points at an executable.
 
 The `2-initialize` process is a one-shot preparation step that runs after `1-mithril-refresh` and before any
 long-running node process starts. It validates the cardano-node configuration directory, transaction generation
@@ -175,15 +177,17 @@ The configured processes are:
 - `5-amaru-downstream`
 - `6-prepare-wallet`
 - `7-submit-tx`
-- `8-telemetry` (disabled by default; start it manually from the TUI to open telemetry tabs with `cmd + R`)
+- `8-telemetry-setup`
+- `8-telemetry-open` (disabled by default; start it manually from the TUI to open telemetry tabs)
 - `9-watch`
 
 ## Telemetry
 
-The demo uses the [Grafana + Tempo + Prometheus](../../monitoring) stack:
+The demo uses the [unified monitoring stack](../../../monitoring):
 
 - Grafana: [http://localhost](http://localhost)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
+- Loki: [http://localhost:3100](http://localhost:3100)
 - OTLP collector: `localhost:4317` for traces/logs and `localhost:4318/v1/metrics` for metrics
 
 Start the telemetry stack without starting the relay nodes:
@@ -201,15 +205,15 @@ Open the useful browser tabs for the demo:
 This opens:
 
 - Grafana Explore on Tempo, auto-refreshing every 5 seconds, for recent `amaru-middle` `roll_forward.process` spans.
-- Grafana Explore on Prometheus, auto-refreshing every 5 seconds, with queries for:
-  mempool insertions, mempool bytes, block height, resident memory, and CPU.
+- Grafana Explore on Loki, auto-refreshing every 5 seconds, for logs from both Amaru nodes.
+- The relay mempool dashboard, backed by Prometheus, for mempool insertions, mempool bytes, block height,
+  resident memory, and CPU.
 
 After the middle relay has synced a few blocks or accepted submitted transactions, the tabs should update automatically.
-The trace tab populates when matching spans are emitted. The transaction trace and metrics view populate after
+The trace tab populates when matching spans are emitted. The transaction trace and mempool dashboard populate after
 `submit-tx` submits a transaction to the downstream node and the middle node pulls it into its mempool.
 
-The Process Compose TUI also lists a disabled `8-telemetry` process. It does not run during startup. Start or restart
-`8-telemetry` when you want to open the telemetry tabs during the live demo.
+Use `./process-compose.sh telemetry-open` or start `8-telemetry-open` when you want to open the telemetry tabs during the live demo.
 
 To stop the telemetry stack:
 

@@ -15,8 +15,8 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
 use amaru_kernel::{
-    Address, Certificate as PallasCertificate, Hash, MemoizedDatum, MemoizedTransactionOutput, PlutusData,
-    StakePayload, TransactionInput, size::DATUM,
+    Address, Certificate, Hash, MemoizedDatum, MemoizedTransactionOutput, PlutusData, PoolParams, StakePayload,
+    TransactionInput, size::DATUM,
 };
 
 use crate::{
@@ -108,7 +108,7 @@ impl ToPlutusData<1> for amaru_kernel::StakeAddress {
     /// It is actually not possible (by the ledger serialization) logic to construct a StakeAddress with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self.payload() {
-            StakePayload::Stake(keyhash) => constr_v1!(0, [constr_v1!(0, [keyhash])?]),
+            StakePayload::Key(keyhash) => constr_v1!(0, [constr_v1!(0, [keyhash])?]),
             StakePayload::Script(script_hash) => constr_v1!(0, [constr_v1!(1, [script_hash])?]),
         }
     }
@@ -130,7 +130,7 @@ where
 }
 
 #[allow(clippy::wildcard_enum_match_arm)]
-impl<const V: u8> ToPlutusData<V> for PallasCertificate
+impl<const V: u8> ToPlutusData<V> for Certificate
 where
     PlutusVersion<V>: IsKnownPlutusVersion + IsPrePlutusVersion3,
 {
@@ -161,33 +161,36 @@ where
     /// It is actually not possible (by the ledger serialization) logic to construct a Certificate with a `Pointer`, so this can be hardcoded to `Constr(0, [cred])`
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            PallasCertificate::StakeRegistration(stake_credential) => {
+            Certificate::StakeRegistration(stake_credential) => {
                 constr!(0, [constr!(0, [stake_credential])?])
             }
-            PallasCertificate::Reg(stake_credential, _) => {
+            Certificate::Reg(stake_credential, _) => {
                 constr!(0, [constr!(0, [stake_credential])?])
             }
-            PallasCertificate::StakeDeregistration(stake_credential) => {
+            Certificate::StakeDeregistration(stake_credential) => {
                 constr!(1, [constr!(0, [stake_credential])?])
             }
-            PallasCertificate::UnReg(stake_credential, _) => {
+            Certificate::UnReg(stake_credential, _) => {
                 constr!(1, [constr!(0, [stake_credential])?])
             }
-            PallasCertificate::StakeDelegation(stake_credential, hash) => {
+            Certificate::StakeDelegation(stake_credential, hash) => {
                 constr!(2, [constr!(0, [stake_credential])?, hash])
             }
-            PallasCertificate::PoolRegistration {
-                operator,
-                vrf_keyhash,
-                pledge: _,
-                cost: _,
-                margin: _,
-                reward_account: _,
-                pool_owners: _,
-                relays: _,
-                pool_metadata: _,
-            } => constr!(3, [operator, vrf_keyhash]),
-            PallasCertificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
+            Certificate::PoolRegistration(params) => {
+                let PoolParams {
+                    id,
+                    vrf,
+                    pledge: _,
+                    cost: _,
+                    margin: _,
+                    reward_account: _,
+                    owners: _,
+                    relays: _,
+                    metadata: _,
+                } = params.as_ref();
+                constr!(3, [id, vrf])
+            }
+            Certificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
             certificate => {
                 Err(PlutusDataError::unsupported_version(format!("illegal certificate type: {certificate:?}"), V))
             }
@@ -204,7 +207,7 @@ impl ToPlutusData<1> for MemoizedTransactionOutput {
                 self.address,
                 self.value.as_ref(),
                 match &self.datum {
-                    MemoizedDatum::Hash(hash) => Some(*hash),
+                    MemoizedDatum::Hash(hash) => Some(*hash.as_ref()),
                     _ => None::<Hash<DATUM>>,
                 },
             ]

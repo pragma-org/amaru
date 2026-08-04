@@ -62,6 +62,8 @@ processes:
         condition: process_completed_successfully
       3-cardano-node:
         condition: process_healthy
+      8-telemetry-setup:
+        condition: process_completed
 
   5-amaru-downstream:
     description: Run the downstream Amaru relay, connected to amaru-middle and exposing the local submit API.
@@ -81,6 +83,8 @@ processes:
         condition: process_completed_successfully
       4-amaru-middle:
         condition: process_healthy
+      8-telemetry-setup:
+        condition: process_completed
 
   6-prepare-wallet:
     description: Ensure the demo payment wallet has clean UTxOs for concurrent submit-tx runs.
@@ -121,8 +125,12 @@ processes:
       6-prepare-wallet:
         condition: process_completed_successfully
 
-  8-telemetry:
-    description: Open Grafana Tempo traces and Prometheus metrics for Amaru in the browser.
+  8-telemetry-setup:
+    description: Start Grafana, Tempo, Prometheus, Loki, and the OTLP collector.
+    command: ./process-compose.sh run telemetry-up
+
+  8-telemetry-open:
+    description: Open Grafana metrics, logs, and spans for Amaru in the browser.
     command: ./process-compose.sh run telemetry-open
     disabled: true
 

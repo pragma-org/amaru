@@ -27,13 +27,20 @@ use opentelemetry::trace::TracerProvider;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
-use tracing::{Metadata, Subscriber, level_filters::LevelFilter, span, subscriber::Interest};
+use tracing::{
+    Metadata, Subscriber,
+    field::{Field, Visit},
+    level_filters::LevelFilter,
+    span,
+    subscriber::Interest,
+};
 use tracing_subscriber::{
     EnvFilter, Registry,
+    field::{MakeVisitor, VisitFmt, VisitOutput},
     filter::Filtered,
     fmt::{
         FmtContext, FormatEvent, FormatFields, FormattedFields, Layer,
-        format::{FmtSpan, Format, Json, JsonFields, Writer},
+        format::{DefaultFields, FmtSpan, Format, Json, JsonFields, Writer},
     },
     layer::{Context, Filter, Layered, SubscriberExt},
     prelude::*,
@@ -43,11 +50,11 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "info,amaru::consensus=debug,amaru::ledger=debug,amaru_pure_stage=warn";
+const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=info";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
-const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace,amaru_pure_stage=trace,amaru_protocols=warn,amaru_consensus=info";
+const DEFAULT_AMARU_TRACE_FILTER: &str = "error,amaru=debug";
 
 const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
 
@@ -73,6 +80,116 @@ type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
 
 type DelayedWarning = Option<Box<dyn FnOnce()>>;
+
+// -----------------------------------------------------------------------------
+// HideTagFields
+//
+// The `amaru.tag.<name>` boolean attributes categorize spans (cpu/io/setup) for
+// OpenTelemetry backends. They carry no value in the human-readable console log,
+// and because the compact formatter appends the fields of every span in scope,
+// an inherited tag would otherwise repeat once per nested span. This field
+// formatter drops them from the console output while leaving OpenTelemetry spans
+// and JSON traces untouched.
+// -----------------------------------------------------------------------------
+
+const TAG_FIELD_PREFIX: &str = "amaru.tag.";
+
+fn is_tag_field(field: &Field) -> bool {
+    field.name().starts_with(TAG_FIELD_PREFIX)
+}
+
+/// Wraps a field formatter so that `amaru.tag.*` fields are skipped.
+struct HideTagFields<N>(N);
+
+impl<'writer, N> MakeVisitor<Writer<'writer>> for HideTagFields<N>
+where
+    N: MakeVisitor<Writer<'writer>>,
+{
+    type Visitor = HideTagVisitor<N::Visitor>;
+
+    fn make_visitor(&self, target: Writer<'writer>) -> Self::Visitor {
+        HideTagVisitor(self.0.make_visitor(target))
+    }
+}
+
+/// Forwards every recorded value to the inner visitor except `amaru.tag.*`
+/// fields, which are dropped. Each typed method is forwarded individually so the
+/// inner visitor keeps its per-type formatting.
+struct HideTagVisitor<V>(V);
+
+impl<V: Visit> Visit for HideTagVisitor<V> {
+    fn record_f64(&mut self, field: &Field, value: f64) {
+        if !is_tag_field(field) {
+            self.0.record_f64(field, value);
+        }
+    }
+
+    fn record_i64(&mut self, field: &Field, value: i64) {
+        if !is_tag_field(field) {
+            self.0.record_i64(field, value);
+        }
+    }
+
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        if !is_tag_field(field) {
+            self.0.record_u64(field, value);
+        }
+    }
+
+    fn record_i128(&mut self, field: &Field, value: i128) {
+        if !is_tag_field(field) {
+            self.0.record_i128(field, value);
+        }
+    }
+
+    fn record_u128(&mut self, field: &Field, value: u128) {
+        if !is_tag_field(field) {
+            self.0.record_u128(field, value);
+        }
+    }
+
+    fn record_bool(&mut self, field: &Field, value: bool) {
+        if !is_tag_field(field) {
+            self.0.record_bool(field, value);
+        }
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if !is_tag_field(field) {
+            self.0.record_str(field, value);
+        }
+    }
+
+    fn record_bytes(&mut self, field: &Field, value: &[u8]) {
+        if !is_tag_field(field) {
+            self.0.record_bytes(field, value);
+        }
+    }
+
+    fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
+        if !is_tag_field(field) {
+            self.0.record_error(field, value);
+        }
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        if !is_tag_field(field) {
+            self.0.record_debug(field, value);
+        }
+    }
+}
+
+impl<Out, V: VisitOutput<Out>> VisitOutput<Out> for HideTagVisitor<V> {
+    fn finish(self) -> Out {
+        self.0.finish()
+    }
+}
+
+impl<V: VisitFmt> VisitFmt for HideTagVisitor<V> {
+    fn writer(&mut self) -> &mut dyn fmt::Write {
+        self.0.writer()
+    }
+}
 
 // -----------------------------------------------------------------------------
 // SpanJsonFormat
@@ -199,6 +316,7 @@ impl TracingSubscriber<Registry> {
                 .with(
                     tracing_subscriber::fmt::layer()
                         .with_writer(log_writer())
+                        .fmt_fields(HideTagFields(DefaultFields::new()))
                         .event_format(log_format())
                         .with_span_events(log_events())
                         .with_filter(log_filter()),
@@ -208,6 +326,7 @@ impl TracingSubscriber<Registry> {
                 .with(
                     tracing_subscriber::fmt::layer()
                         .with_writer(log_writer())
+                        .fmt_fields(HideTagFields(DefaultFields::new()))
                         .event_format(log_format())
                         .with_span_events(log_events())
                         .with_filter(log_filter()),
@@ -264,14 +383,14 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
 
 pub struct OpenTelemetryHandle {
     pub metrics: Option<SdkMeterProvider>,
-    pub teardown: Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
+    pub teardown: Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
 }
 
 impl Default for OpenTelemetryHandle {
     fn default() -> Self {
         OpenTelemetryHandle {
             metrics: None::<SdkMeterProvider>,
-            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
+            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
         }
     }
 }
@@ -328,8 +447,7 @@ pub fn setup_open_telemetry(
         .build();
 
     // Metrics
-    // NOTE: We use the http exporter here because not every OTLP receivers (in particular Jaeger)
-    // support gRPC for metrics.
+    // NOTE: We use the http exporter here because not every OTLP receiver supports gRPC for metrics.
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_http()
         .with_temporality(Temporality::default())
@@ -378,9 +496,8 @@ fn teardown_open_telemetry(
     metrics: SdkMeterProvider,
     logs: SdkLoggerProvider,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Shut down the providers so that it flushes any remaining spans
-    //
-    // FIXME: we might also want to wrap this in a timeout, so we don't hold the process open forever?
+    // Shut down the providers so that it flushes any remaining spans.
+    // The process lifecycle layer applies an outer timeout around this teardown.
     tracing.shutdown()?;
     metrics.shutdown()?;
     logs.shutdown()?;
@@ -511,7 +628,7 @@ pub fn setup_observability(
     with_json_traces: bool,
     color: bool,
     hints: &impl ObservabilityHints,
-) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>) {
+) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>) {
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { metrics, teardown }, warning_otlp) = if with_open_telemetry {
@@ -576,27 +693,31 @@ mod tests {
 
     use super::*;
 
-    /// Builds a subscriber that wraps a `ThrottledEnvFilter` and counts how
-    /// many events pass the filter.  Installing it as the default inside a
-    /// closure keeps tests independent even when run in parallel.
-    struct CountingLayer {
-        count: Arc<AtomicUsize>,
-    }
+    /// The compact console formatter appends the fields of every span in scope to
+    /// each event. When several nested spans each carry an `amaru.tag.*` marker
+    /// (as all ledger spans do), the tag would otherwise repeat once per span.
+    /// `HideTagFields` must strip those markers while keeping ordinary fields.
+    #[test]
+    fn console_hides_tag_fields_from_nested_spans() {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let layer = tracing_subscriber::fmt::layer()
+            .with_writer(BufferWriter(Arc::clone(&buffer)))
+            .with_ansi(false)
+            .fmt_fields(HideTagFields(DefaultFields::new()))
+            .event_format(tracing_subscriber::fmt::format().with_ansi(false).compact());
+        let subscriber = tracing_subscriber::registry().with(layer);
 
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CountingLayer {
-        fn on_event(&self, _event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
-            self.count.fetch_add(1, AtomicOrdering::Relaxed);
-        }
-    }
+        tracing::subscriber::with_default(subscriber, || {
+            let outer = tracing::info_span!("outer", "amaru.tag.cpu" = true);
+            let _outer = outer.enter();
+            let inner = tracing::info_span!("inner", "amaru.tag.cpu" = true, transaction_id = "abc");
+            let _inner = inner.enter();
+            tracing::info!("hello");
+        });
 
-    /// Runs `f` with a subscriber that applies `filter` and returns the number
-    /// of events that were seen by the inner layer.
-    fn count_events<F: FnOnce()>(filter: ThrottledEnvFilter, f: F) -> usize {
-        let count = Arc::new(AtomicUsize::new(0));
-        let subscriber =
-            tracing_subscriber::registry().with(CountingLayer { count: Arc::clone(&count) }.with_filter(filter));
-        tracing::subscriber::with_default(subscriber, f);
-        count.load(AtomicOrdering::Relaxed)
+        let output = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
+        assert!(!output.contains("amaru.tag.cpu"), "tag markers must be hidden from the console: {output}");
+        assert!(output.contains("transaction_id=\"abc\""), "ordinary span fields must be kept: {output}");
     }
 
     #[test]
@@ -717,5 +838,54 @@ mod tests {
             tracing::event!(target: "opentelemetry_sdk::internal", tracing::Level::ERROR, "second");
         });
         assert_eq!(seen, 1);
+    }
+
+    // HELPERS
+
+    /// A `MakeWriter` that accumulates everything written into a shared buffer,
+    /// so a test can inspect the formatted output.
+    #[derive(Clone)]
+    struct BufferWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for BufferWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for BufferWriter {
+        type Writer = BufferWriter;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Builds a subscriber that wraps a `ThrottledEnvFilter` and counts how
+    /// many events pass the filter.  Installing it as the default inside a
+    /// closure keeps tests independent even when run in parallel.
+    struct CountingLayer {
+        count: Arc<AtomicUsize>,
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CountingLayer {
+        fn on_event(&self, _event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+            self.count.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    /// Runs `f` with a subscriber that applies `filter` and returns the number
+    /// of events that were seen by the inner layer.
+    fn count_events<F: FnOnce()>(filter: ThrottledEnvFilter, f: F) -> usize {
+        let count = Arc::new(AtomicUsize::new(0));
+        let subscriber =
+            tracing_subscriber::registry().with(CountingLayer { count: Arc::clone(&count) }.with_filter(filter));
+        tracing::subscriber::with_default(subscriber, f);
+        count.load(AtomicOrdering::Relaxed)
     }
 }

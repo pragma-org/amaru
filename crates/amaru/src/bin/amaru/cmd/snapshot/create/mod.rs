@@ -33,6 +33,7 @@ use amaru_mithril::{
     parse_header_slot_and_hash,
 };
 use amaru_observability::info;
+use amaru_progress_bar::TerminalProgressBar;
 use anyhow::anyhow;
 use clap::{ArgAction, Parser};
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,7 @@ mod config;
 mod db_analyser;
 mod koios;
 
+use amaru::lifecycle::{Runnable, RuntimeKind};
 use archive::{
     archive_path_for_target, materialize_snapshot, metadata_path_for_epoch, snapshot_path_for_target,
     write_epoch_metadata, write_snapshot_archive,
@@ -209,7 +211,11 @@ fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
     repo_root().join(default_snapshots_dir(network))
 }
 
-pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn runnable(args: Args) -> Runnable {
+    Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let Args {
         network,
         epoch,
@@ -311,7 +317,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             );
         } else {
             info!(cli::mithril::DOWNLOAD, from_chunk, target_dir = %cardano_node_db.display());
-            download_from_mithril(network, cardano_node_db.clone(), from_chunk).await?;
+            download_from_mithril(network, cardano_node_db.clone(), from_chunk, |length, template| {
+                TerminalProgressBar::new(length as u64, template).boxed()
+            })
+            .await?;
         }
 
         Some(SnapshotBuildContext {

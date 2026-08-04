@@ -14,11 +14,12 @@
 
 use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
 use amaru_observability::debug_span;
-use amaru_ouroboros_traits::{Nonces, StoreError, WriteChainStore};
-use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
+use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
+use rocksdb::{IteratorMode, PrefixRange, ReadOptions, WriteBatch};
 
 use crate::rocksdb::consensus::{
-    RocksDBStore,
+    OPCERT_PREFIX, RocksDBStore,
+    base_read_chain_store::opcert_key,
     util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX},
 };
 
@@ -27,12 +28,19 @@ impl WriteChainStore for RocksDBStore {
         let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
         let _guard = span.enter();
 
-        let hash = header.hash();
-        let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+        self.with_batch(|batch| {
+            put_header(batch, header);
+            Ok(())
+        })
+    }
+
+    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+        let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
+        let _guard = span.enter();
 
         self.with_batch(|batch| {
-            batch.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), []);
-            batch.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header));
+            put_header(batch, header);
+            batch.put([&NONCES_PREFIX[..], &header.hash()[..]].concat(), to_cbor(nonces));
             Ok(())
         })
     }
@@ -60,10 +68,27 @@ impl WriteChainStore for RocksDBStore {
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
+    fn remove_block_valid(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+        self.db
+            .delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat())
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
+    }
+
     fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> Result<(), StoreError> {
         self.db
             .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))
             .map_err(|e| StoreError::WriteError { error: e.to_string() })
+    }
+
+    fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError> {
+        let slot = u64::from(at.slot_or_default()).to_be_bytes();
+        let hash = at.hash();
+        self.with_batch(|batch| {
+            for (pool_id, sequence_number) in counters.iter() {
+                batch.put([&OPCERT_PREFIX[..], &pool_id[..], &slot[..], &hash[..]].concat(), to_cbor(sequence_number));
+            }
+            Ok(())
+        })
     }
 
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {
@@ -131,4 +156,16 @@ impl WriteChainStore for RocksDBStore {
             Ok(())
         })
     }
+}
+
+/// Record a header, its link to its parent, and the opcert sequence number it declares. Every
+/// stored header must contribute to the opcert index, otherwise the sequence numbers observed on
+/// the chain go stale and subsequent headers get rejected as being too far ahead.
+fn put_header(batch: &mut WriteBatch, header: &BlockHeader) {
+    let hash = header.hash();
+    let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
+
+    batch.put([&CHILD_PREFIX[..], &parent_hash[..], &hash[..]].concat(), []);
+    batch.put([&HEADER_PREFIX[..], &hash[..]].concat(), to_cbor(header));
+    batch.put(opcert_key(header), to_cbor(&header.op_cert_seq()));
 }

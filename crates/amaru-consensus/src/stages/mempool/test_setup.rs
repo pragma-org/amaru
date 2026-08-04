@@ -17,7 +17,8 @@ use amaru_kernel::{
     size::TRANSACTION_BODY,
 };
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
-use amaru_ouroboros::{MempoolMsg, MockCanValidateBlocks, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_ouroboros_traits::MockBlockValidator;
 use amaru_protocols::store_effects::ResourceParameters;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
@@ -81,7 +82,7 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
 
     network.resources().put::<ResourceParameters>(global_parameters.clone());
     network.resources().put::<ResourceEraHistory>(era_history.clone());
-    network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockCanValidateBlocks));
+    network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockBlockValidator::default()));
     network.resources().put::<ResourceMempool<Transaction>>(prep.mempool.clone());
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
 

@@ -16,14 +16,14 @@ inputs:
   cache-version:
     description: Cache key version
     required: false
-    default: "v15"
+    default: "v17"
 
 runs:
   using: composite
   steps:
     - name: Restore Amaru bootstrap DBs
       id: cache-restore
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       with:
         path: |
           ./ledger.${{ inputs.network }}.db
@@ -42,7 +42,11 @@ runs:
         AMARU_LEDGER_DIR: ./ledger.${{ inputs.network }}.db
         AMARU_CHAIN_DIR: ./chain.${{ inputs.network }}.db
         AMARU_EPOCH: ${{ inputs.epoch }}
-      run: make bootstrap
+      run: |
+        if [[ -z "${AMARU_EPOCH}" ]]; then
+          unset AMARU_EPOCH
+        fi
+        cargo run --profile test -- node bootstrap
 
     - name: Save bootstrap DBs to cache
       if: steps.cache-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'

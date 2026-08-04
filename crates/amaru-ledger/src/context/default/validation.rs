@@ -20,9 +20,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -34,7 +34,6 @@ use crate::{
         PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
         WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
-    governance::ratification::ProposalsRoots,
     state::volatile::VolatileFragment,
 };
 
@@ -45,7 +44,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeSet<ComparableProposalId>,
+    proposals: BTreeSet<ProposalId>,
     proposals_roots: ProposalsRoots,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
@@ -64,7 +63,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeSet<ComparableProposalId>,
+        proposals: BTreeSet<ProposalId>,
         proposals_roots: ProposalsRoots,
     ) -> Self {
         Self {
@@ -143,14 +142,19 @@ impl PoolsSlice for DefaultValidationContext {
         self.state.pools.register(params.id, Arc::new((params, pointer, deposit)))
     }
 
-    fn retire(&mut self, pool: PoolId, epoch: Epoch) {
+    fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>> {
         let _span = trace_span!(
             ledger::transaction::CERTIFICATE_POOL_RETIREMENT,
             pool_id = %pool,
             epoch = epoch
         );
         let _guard = _span.enter();
-        self.state.pools.unregister(pool, epoch)
+        if !PoolsSlice::exists(self, pool) {
+            return Err(UnregisterError::Unknown(PhantomData {}, pool));
+        }
+        self.state.pools.unregister(pool, epoch);
+
+        Ok(())
     }
 }
 
@@ -167,8 +171,8 @@ impl AccountsSlice for DefaultValidationContext {
                 // fresh in-block registration; supersedes the block start state
                 Some(deposit) => AccountState {
                     deposit,
-                    pool: bind.left.as_borrowed().to_option(None),
-                    drep: bind.right.as_borrowed().to_option(None),
+                    pool: bind.left.as_refs().to_option(None),
+                    drep: bind.right.as_refs().to_option(None),
                     rewards: 0,
                 },
                 // re-binding layered over the block start state
@@ -176,8 +180,8 @@ impl AccountsSlice for DefaultValidationContext {
                     let base = self.accounts.get(credential)?;
                     AccountState {
                         deposit: base.deposit,
-                        pool: bind.left.as_borrowed().to_option(base.pool.as_ref()),
-                        drep: bind.right.as_borrowed().to_option(base.drep.as_ref()),
+                        pool: bind.left.as_refs().to_option(base.pool.as_ref()),
+                        drep: bind.right.as_refs().to_option(base.drep.as_ref()),
                         rewards: base.rewards,
                     }
                 }
@@ -270,7 +274,7 @@ impl DRepsSlice for DefaultValidationContext {
         match self.state.dreps.registered.get(credential) {
             // a fresh in-block registration carries its own record; an anchor-only update has no
             // `value`, so fall through to the block-start registration.
-            Some(bind) => bind.value.as_deref().or_else(|| self.dreps.get(credential)),
+            Some(bind) => bind.value.as_ref().or_else(|| self.dreps.get(credential)),
             // deregistered in-block; gone
             None if self.state.dreps.unregistered.contains(credential) => None,
             // untouched in-block; the block-start state
@@ -282,7 +286,7 @@ impl DRepsSlice for DefaultValidationContext {
         &mut self,
         drep: StakeCredential,
         registration: DRepRegistration,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
         let _span = trace_span!(
             ledger::transaction::CERTIFICATE_DREP_REGISTRATION,
@@ -296,11 +300,15 @@ impl DRepsSlice for DefaultValidationContext {
         if DRepsSlice::lookup(self, &drep).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
         }
-        self.state.dreps.register(drep, Arc::new(registration), anchor, None)?;
+        self.state.dreps.register(drep, registration, anchor, None)?;
         Ok(())
     }
 
-    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>> {
+    fn update(
+        &mut self,
+        drep: StakeCredential,
+        anchor: Option<Box<Anchor>>,
+    ) -> Result<(), UpdateError<StakeCredential>> {
         let _span = trace_span!(ledger::transaction::CERTIFICATE_DREP_UPDATE, drep = format!("{drep:?}"));
         if let Some(a) = &anchor {
             _span.record("anchor_url", &a.url);
@@ -314,7 +322,7 @@ impl DRepsSlice for DefaultValidationContext {
         let _span =
             trace_span!(ledger::transaction::CERTIFICATE_DREP_RETIREMENT, drep = format!("{drep:?}"), refund = refund);
         let _guard = _span.enter();
-        self.state.dreps_deregistrations.insert(drep.clone(), pointer);
+        self.state.dreps_deregistrations.insert(drep, pointer);
         self.state.dreps.unregister(drep)
     }
 }
@@ -328,7 +336,7 @@ impl CommitteeSlice for DefaultValidationContext {
         match self.state.committee.produced.get(cc_member) {
             Some(hot_credential) => {
                 let base = base?;
-                Some(CCMember { hot_credential: Some(hot_credential.clone()), valid_until: base.valid_until })
+                Some(CCMember { hot_credential: Some(*hot_credential), valid_until: base.valid_until })
             }
             // resigned in-block; gone
             None if self.state.committee.consumed.contains(cc_member) => None,
@@ -358,7 +366,7 @@ impl CommitteeSlice for DefaultValidationContext {
     fn resign(
         &mut self,
         cc_member: StakeCredential,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
         let _span =
             trace_span!(ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));
@@ -372,7 +380,7 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn exists(&self, id: &ComparableProposalId) -> bool {
+    fn exists(&self, id: &ProposalId) -> bool {
         // FIXME: also fold proposals discovered in the block during validation
         self.proposals.contains(id)
     }
@@ -382,13 +390,11 @@ impl ProposalsSlice for DefaultValidationContext {
     }
 
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
-        self.state.proposals.insert(id.into(), Arc::new((proposal, pointer)));
+        self.state.proposals.insert(id, Arc::new((proposal, pointer)));
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
-        self.state
-            .votes
-            .produce(BallotId { proposal: ComparableProposalId::from(proposal), voter }, Ballot::new(vote, anchor))
+        self.state.votes.produce(BallotId { proposal, voter }, Ballot::new(vote, anchor))
     }
 }
 

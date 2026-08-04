@@ -1,0 +1,34 @@
+# Demo-specific telemetry overlay: provisions the relay-1 Grafana dashboards on top of the
+# shared monitoring stack. Selected via TELEMETRY_COMPOSE_OVERRIDE_FILE; host paths are
+# anchored on TELEMETRY_COMPOSE_OVERRIDE_DIR because docker compose resolves relative paths
+# against the first compose file's directory, not this one.
+services:
+  grafana:
+    volumes:
+      - "${TELEMETRY_COMPOSE_OVERRIDE_DIR}/loki-datasource.yml:/etc/grafana/provisioning/datasources/loki.yaml"
+      - "${TELEMETRY_COMPOSE_OVERRIDE_DIR}/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yaml"
+      - "${TELEMETRY_COMPOSE_OVERRIDE_DIR}/dashboards:/var/lib/grafana/dashboards"
+
+  loki:
+    image: grafana/loki:latest
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - "${TELEMETRY_COMPOSE_OVERRIDE_DIR}/promtail.yml:/etc/promtail/config.yml"
+      - "${AMARU_RELAY_LOGDIR}:/var/log/amaru:ro"
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  # Keep service.name for this multi-node demo (see ./otlp-collector.yml). Docker Compose
+  # replaces the command list rather than appending, so this restates the collector configs
+  # contributed by the shared stack (TELEMETRY_COLLECTOR_CONFIGS, exported by
+  # telemetry_compose()) and adds the demo layer last.
+  otlp-collector:
+    volumes:
+      - "${TELEMETRY_COMPOSE_OVERRIDE_DIR}/otlp-collector.yml:/etc/otlp-collector-demo.yml"
+    command: "${TELEMETRY_COLLECTOR_CONFIGS} --config=/etc/otlp-collector-demo.yml"

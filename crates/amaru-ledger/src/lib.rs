@@ -16,7 +16,6 @@
 // <https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/010-ledger-validation-context.md>
 #![feature(try_trait_v2, try_trait_v2_residual)]
 
-pub mod block_validator;
 pub mod bootstrap;
 pub mod context;
 pub mod epoch_transition;
@@ -35,15 +34,17 @@ macro_rules! tracing_enabled {
     };
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, MemoizedValue, TransactionInput, Value};
 
-    pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
+    #[expect(clippy::unwrap_used)]
+    pub fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
         TransactionInput { transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()), index }
     }
 
-    pub(crate) fn fake_output(address: &str) -> MemoizedTransactionOutput {
+    #[expect(clippy::expect_used)]
+    pub fn fake_output(address: &str) -> MemoizedTransactionOutput {
         MemoizedTransactionOutput::new(
             false,
             Address::from_hex(address).expect("Invalid hex address"),

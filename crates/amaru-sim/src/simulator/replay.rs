@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::tests::{configuration::NodeTestConfig, setup::create_node};
+use amaru_node::tests::{configuration::NodeTestConfig, setup::create_node};
 use amaru_protocols::deserializers::register_deserializers;
 use amaru_pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceEntry};
 

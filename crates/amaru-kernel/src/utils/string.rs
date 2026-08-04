@@ -16,7 +16,7 @@ use std::fmt::{Debug, Display};
 
 use itertools::Itertools;
 
-use crate::{Bytes, cbor, from_cbor};
+use crate::{cbor, from_cbor};
 
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
     let hrp = bech32::Hrp::parse(hrp)?;
@@ -109,9 +109,9 @@ where
 /// CBOR. Yields the original bytes and the deserialized value.
 pub fn blanket_try_from_hex_bytes<T, I: for<'d> cbor::Decode<'d, ()>>(
     s: &str,
-    new: impl Fn(Bytes, I) -> T,
+    new: impl Fn(Vec<u8>, I) -> T,
 ) -> Result<T, String> {
-    let original_bytes = Bytes::from(hex::decode(s.as_bytes()).map_err(|e| e.to_string())?);
+    let original_bytes = hex::decode(s.as_bytes()).map_err(|e| e.to_string())?;
 
     let value = from_cbor(&original_bytes).ok_or_else(|| "failed to decode from CBOR".to_string())?;
 

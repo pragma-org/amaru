@@ -14,7 +14,9 @@
 
 use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, RawBlock, Tip};
+use amaru_kernel::{
+    BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Tip,
+};
 
 use crate::{
     BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
@@ -81,6 +83,47 @@ pub trait ReadChainStore: BaseReadChainStore {
         }
         hashes.reverse();
         (hashes, valid)
+    }
+
+    /// Return the tips of the headers leading from `from` (exclusive) to `to` (inclusive), in
+    /// parent -> child order, walking a single snapshot.
+    ///
+    /// Example:
+    ///
+    ///   O--A--B--C--D
+    ///         ^     ^
+    ///        from   to
+    ///
+    /// Returns `Some([C, D])`, and `Some([])` when `to` is `from` itself.
+    ///
+    /// Unlike [`Self::unvalidated_ancestor_hashes`] the walk is bounded by `from` rather than by the
+    /// recorded validity of the blocks, so the caller gets a path anchored exactly where it asked.
+    ///
+    /// Returns `None` when a header along the way is missing from the store, or when `to` is not a
+    /// descendant of `from`.
+    fn ancestors_between(&self, from: &Point, to: HeaderHash) -> Option<Vec<Tip>> {
+        let snapshot = self.snapshot();
+        let from_slot = from.slot_or_default();
+        let from_hash = from.hash();
+        let mut tips = Vec::new();
+        let mut current = to;
+
+        while current != from_hash {
+            let header = snapshot.load_header(&current)?;
+
+            // Slots strictly increase along a chain, so a header at or below `from`'s slot that is
+            // not `from` itself proves `to` hangs off a branch that never passes through it. Giving
+            // up here keeps a mismatched pair from reading every header down to the genesis block.
+            if header.slot() <= from_slot {
+                return None;
+            }
+
+            tips.push(header.tip());
+            current = header.parent()?;
+        }
+
+        tips.reverse();
+        Some(tips)
     }
 
     /// Return the fork point with the best chain (if it exists) and the list of points from
@@ -376,6 +419,14 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
 
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces> {
         self.as_ref().get_nonces(header)
+    }
+
+    fn get_latest_opcert_sequence_number(
+        &self,
+        pool_id: &PoolId,
+        header: &BlockHeader,
+    ) -> Result<Option<u64>, StoreError> {
+        self.as_ref().get_latest_opcert_sequence_number(pool_id, header)
     }
 
     fn has_header(&self, hash: &HeaderHash) -> bool {

@@ -20,31 +20,30 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ComparableProposalId, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, Nullable, ProposalId,
-    ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus,
-    display_protocol_parameters_update, expect_stake_credential, utils::string::display_collection,
+    AsHash, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, ProposalId, ProposalPointer, ProposalsRootsRc,
+    ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus, display_protocol_parameters_update,
+    expect_stake_credential, utils::string::display_collection,
 };
 use amaru_observability::{debug, info};
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 use super::{
     CommitteeUpdate, OrphanProposal, ProposalEnum,
-    proposals_roots::ProposalsRootsRc,
     proposals_tree::{ProposalsTree, Sibling},
 };
-use crate::summary::into_safe_ratio;
+use crate::{store::columns::proposals, summary::into_safe_ratio};
 
 #[derive(Debug, Clone)]
 pub struct ProposalsForest {
     /// We keep a map of id -> ProposalEnum. This serves as a lookup table to retrieve proposals
     /// from the forest in a timely manner while the relationships between all proposals is
     /// maintained independently.
-    proposals: BTreeMap<Rc<ComparableProposalId>, ProposedIn<ProposalEnum>>,
+    proposals: BTreeMap<Rc<ProposalId>, ProposedIn<ProposalEnum>>,
 
     /// The order in which proposals are inserted matters. The forest is an insertion-preserving
     /// structure. Iterating on the forest will yield the proposals in the order they were
     /// inserted.
-    sequence: VecDeque<Rc<ComparableProposalId>>,
+    sequence: VecDeque<Rc<ProposalId>>,
 
     /// A flag indicating whether the ratification is now interrupted due to a
     /// high-priority/high-impact proposal (i.e. hard-fork, constitutional committee or
@@ -63,10 +62,10 @@ pub struct ProposalsForest {
 
     // Finally, the relation between proposals of the same nature is preserved through multiple
     // tree-like structures. This is proposal gives this data-structure its name.
-    protocol_parameters: ProposalsTree<ComparableProposalId>,
-    hard_fork: ProposalsTree<ComparableProposalId>,
-    constitutional_committee: ProposalsTree<ComparableProposalId>,
-    constitution: ProposalsTree<ComparableProposalId>,
+    protocol_parameters: ProposalsTree<ProposalId>,
+    hard_fork: ProposalsTree<ProposalId>,
+    constitutional_committee: ProposalsTree<ProposalId>,
+    constitution: ProposalsTree<ProposalId>,
 }
 
 impl ProposalsForest {
@@ -97,14 +96,19 @@ impl ProposalsForest {
         self.treasury
     }
 
+    /// Look up a proposal currently in the forest.
+    pub fn get(&self, id: &ProposalId) -> Option<&ProposalEnum> {
+        self.proposals.get(id).map(|proposed_in| &proposed_in.proposal)
+    }
+
     /// Insert many proposals at once, consuming them.
     ///
     /// Pre-condition: all proposals MUST HAVE NOT expire (i.e. be valid until the current epoch).
     pub fn drain(
         mut self,
         era_history: &'_ EraHistory,
-        mut proposals: Vec<(Rc<ComparableProposalId>, CandidateProposal)>,
-    ) -> Result<Self, ProposalsInsertError<ComparableProposalId>> {
+        mut proposals: Vec<(Rc<ProposalId>, CandidateProposal)>,
+    ) -> Result<Self, ProposalsInsertError<ProposalId>> {
         let current_epoch = self.current_epoch;
 
         proposals.sort_by_key(|(_, row)| row.proposed_in);
@@ -139,13 +143,13 @@ impl ProposalsForest {
     pub fn insert(
         &mut self,
         era_history: &'_ EraHistory,
-        id: Rc<ComparableProposalId>,
+        id: Rc<ProposalId>,
         proposed_in: ProposalPointer,
         proposal: GovernanceAction,
-    ) -> Result<(), ProposalsInsertError<ComparableProposalId>> {
+    ) -> Result<(), ProposalsInsertError<ProposalId>> {
         use amaru_kernel::GovernanceAction::*;
 
-        let mut insert = |proposal| -> Result<(), ProposalsInsertError<ComparableProposalId>> {
+        let mut insert = |proposal| -> Result<(), ProposalsInsertError<ProposalId>> {
             priority_insert(&mut self.sequence, id.clone(), (&proposed_in, &proposal), &self.proposals);
 
             let slot = proposed_in.slot();
@@ -178,7 +182,7 @@ impl ProposalsForest {
 
             TreasuryWithdrawals(withdrawals, _guardrails_script) => {
                 let withdrawals =
-                    withdrawals.to_vec().into_iter().fold(BTreeMap::new(), |mut accum, (reward_account, amount)| {
+                    withdrawals.into_iter().fold(BTreeMap::new(), |mut accum, (reward_account, amount)| {
                         accum.insert(expect_stake_credential(&reward_account), amount);
                         accum
                     });
@@ -193,8 +197,8 @@ impl ProposalsForest {
 
                 insert(ProposalEnum::ConstitutionalCommittee(
                     CommitteeUpdate::ChangeMembers {
-                        removed: removed.to_vec().into_iter().collect(),
-                        added: added.to_vec().into_iter().map(|(k, v)| (k, Epoch::from(v))).collect(),
+                        removed: removed.into_iter().collect(),
+                        added: added.into_iter().collect(),
                         threshold: into_safe_ratio(&threshold),
                     },
                     parent,
@@ -253,10 +257,10 @@ impl ProposalsForest {
     ///    No other proposal can be ratified in the same epoch boundary.
     pub fn enact(
         &mut self,
-        id: Rc<ComparableProposalId>,
+        id: Rc<ProposalId>,
         proposal: &ProposalEnum,
         compass: &mut ProposalsForestCompass,
-    ) -> Result<BTreeMap<Rc<ComparableProposalId>, RatificationStatus>, ProposalsEnactError<ComparableProposalId>> {
+    ) -> Result<BTreeMap<Rc<ProposalId>, RatificationStatus>, ProposalsEnactError<ProposalId>> {
         // Promote to new root & remember delaying cases
         let (id, pruned) = match proposal {
             ProposalEnum::HardFork(..) => {
@@ -297,7 +301,7 @@ impl ProposalsForest {
             );
         }
 
-        let mut pruned: BTreeMap<Rc<ComparableProposalId>, RatificationStatus> =
+        let mut pruned: BTreeMap<Rc<ProposalId>, RatificationStatus> =
             pruned.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
 
         pruned.insert(id, RatificationStatus::Ratified);
@@ -361,7 +365,7 @@ impl ProposalsForestCompass {
         &mut self,
         forest: &'forest ProposalsForest,
         protocol_parameters: &'_ ProtocolParameters,
-    ) -> Option<(Rc<ComparableProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
+    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
         assert!(
             forest.sequence.len() == self.original_len,
             "compass re-used on a forest that has changed; you should have created a new compass."
@@ -403,7 +407,7 @@ impl ProposalsForestCompass {
         &self,
         forest: &'forest ProposalsForest,
         protocol_parameters: &'_ ProtocolParameters,
-    ) -> Option<(Rc<ComparableProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
+    ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
         use CommitteeUpdate::*;
         use OrphanProposal::*;
         use ProposalEnum::*;
@@ -530,9 +534,9 @@ impl fmt::Display for ProposalsForest {
         fn section<'a, A>(
             f: &mut fmt::Formatter<'_>,
             title: &str,
-            lookup: Rc<dyn Fn(&'_ ComparableProposalId) -> Option<&'a A> + 'a>,
+            lookup: Rc<dyn Fn(&'_ ProposalId) -> Option<&'a A> + 'a>,
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
-            tree: &'a ProposalsTree<ComparableProposalId>,
+            tree: &'a ProposalsTree<ProposalId>,
         ) -> fmt::Result {
             if tree.is_empty() {
                 return Ok(());
@@ -545,9 +549,9 @@ impl fmt::Display for ProposalsForest {
         // Renders a whole tree (which is just a bag of siblings at each Node).
         fn render_tree<'a, A>(
             f: &mut fmt::Formatter<'_>,
-            lookup: Rc<dyn Fn(&'_ ComparableProposalId) -> Option<&'a A> + 'a>,
+            lookup: Rc<dyn Fn(&'_ ProposalId) -> Option<&'a A> + 'a>,
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
-            tree: &'a ProposalsTree<ComparableProposalId>,
+            tree: &'a ProposalsTree<ProposalId>,
         ) -> fmt::Result {
             let siblings = tree.siblings();
             for (i, s) in siblings.iter().enumerate() {
@@ -560,9 +564,9 @@ impl fmt::Display for ProposalsForest {
         // Render a single sibling + its (flattened) children.
         fn render_sibling<'a, A>(
             f: &mut fmt::Formatter<'_>,
-            s: &'a Sibling<ComparableProposalId>,
+            s: &'a Sibling<ProposalId>,
             prefix: &str,
-            lookup: Rc<dyn Fn(&'_ ComparableProposalId) -> Option<&'a A> + 'a>,
+            lookup: Rc<dyn Fn(&'_ ProposalId) -> Option<&'a A> + 'a>,
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
             is_last: bool,
         ) -> fmt::Result {
@@ -634,9 +638,8 @@ impl fmt::Display for ProposalsForest {
                     "{} with {}",
                     constitution.anchor.url,
                     match constitution.guardrail_script {
-                        Nullable::Some(hash) =>
-                            format!("guardrails={}", hash.to_string().chars().take(8).collect::<String>()),
-                        Nullable::Undefined | Nullable::Null => "no guardrails".to_string(),
+                        Some(hash) => format!("guardrails={}", hash.to_string().chars().take(8).collect::<String>()),
+                        None => "no guardrails".to_string(),
                     },
                 ))
             }),
@@ -702,6 +705,16 @@ pub struct CandidateProposal {
     pub governance_action: GovernanceAction,
 }
 
+impl From<proposals::Row> for CandidateProposal {
+    fn from(row: proposals::Row) -> Self {
+        CandidateProposal {
+            valid_until: row.valid_until,
+            proposed_in: row.proposed_in,
+            governance_action: row.proposal.gov_action,
+        }
+    }
+}
+
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -713,20 +726,17 @@ pub struct ProposedIn<T> {
     pub proposal: T,
 }
 
-fn into_parent_id(nullable: Nullable<ProposalId>) -> Option<Rc<ComparableProposalId>> {
-    match nullable {
-        Nullable::Undefined | Nullable::Null => None,
-        Nullable::Some(id) => Some(Rc::new(ComparableProposalId::from(id))),
-    }
+fn into_parent_id(nullable: Option<ProposalId>) -> Option<Rc<ProposalId>> {
+    nullable.map(Rc::new)
 }
 
 /// Insert a proposal in a sequence while maintaining a priority order. The priority is given by
 /// the type of proposal.
 fn priority_insert(
-    seq: &mut VecDeque<Rc<ComparableProposalId>>,
-    new_id: Rc<ComparableProposalId>,
+    seq: &mut VecDeque<Rc<ProposalId>>,
+    new_id: Rc<ProposalId>,
     (new_pointer, new_proposal): (&ProposalPointer, &ProposalEnum),
-    proposals: &BTreeMap<Rc<ComparableProposalId>, ProposedIn<ProposalEnum>>,
+    proposals: &BTreeMap<Rc<ProposalId>, ProposedIn<ProposalEnum>>,
 ) {
     let mut insertion_ix = 0;
 
@@ -773,11 +783,10 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Anchor, ComparableProposalId, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, Nullable,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer,
-        ProtocolParameters, RationalNumber, Set, Slot, TransactionPointer, any_comparable_proposal_id,
-        any_constitution, any_gov_action, any_proposal_pointer, any_protocol_params_update, any_protocol_version,
-        any_reward_account, empty_bytes,
+        Anchor, Bytes, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer, ProtocolParameters, RationalNumber, Slot,
+        TransactionPointer, any_constitution, any_gov_action, any_proposal_id, any_proposal_pointer,
+        any_protocol_params_update, any_protocol_version, any_reward_account,
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
 
@@ -824,10 +833,10 @@ mod tests {
         assert!(proposal_id_1 > proposal_id_2);
 
         // first hard fork
-        let proposal_1 = make_proposal(Nullable::Null);
+        let proposal_1 = make_proposal(None);
 
         // second hard-fork with `proposal_a` as parent.
-        let proposal_2 = make_proposal(Nullable::Some(proposal_id_1.clone()));
+        let proposal_2 = make_proposal(Some(proposal_id_1));
 
         let proposal_id_1 = Rc::new(proposal_id_1);
         let proposal_id_2 = Rc::new(proposal_id_2);
@@ -847,7 +856,7 @@ mod tests {
         #[test]
         fn prop_insert_increase_sizes_by_one(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
-            id in any_comparable_proposal_id(),
+            id in any_proposal_id(),
             mut action in any_gov_action(),
             pointer in any_proposal_pointer(u64::MAX),
             parent in any::<u8>()
@@ -1033,7 +1042,7 @@ mod tests {
         #[test]
         fn prop_cannot_enact_unknown_proposal(
             DebugAsDisplay(mut forest) in any_proposals_forest(),
-            proposal_id in any_comparable_proposal_id(),
+            proposal_id in any_proposal_id(),
             proposal in any_proposal_enum(),
         ) {
             let mut compass = forest.new_compass();
@@ -1121,11 +1130,11 @@ mod tests {
     }
 
     // Generate an arbitrary forest, that has at least one Some(..) root.
-    fn any_grown_proposals_forest() -> impl Strategy<Value = (DebugAsDisplay<ProposalsForest>, ComparableProposalId)> {
+    fn any_grown_proposals_forest() -> impl Strategy<Value = (DebugAsDisplay<ProposalsForest>, ProposalId)> {
         (any::<u8>(), any_proposals_forest()).prop_filter_map("forest is immaculate", |(ix, DebugAsDisplay(forest))| {
             let roots = forest.roots();
 
-            let non_empty_roots: Vec<Rc<ComparableProposalId>> =
+            let non_empty_roots: Vec<Rc<ProposalId>> =
                 [roots.protocol_parameters, roots.constitution, roots.constitutional_committee, roots.hard_fork]
                     .into_iter()
                     .flatten()
@@ -1133,25 +1142,21 @@ mod tests {
 
             let len = non_empty_roots.len();
 
-            if len == 0 {
-                None
-            } else {
-                Some((DebugAsDisplay(forest), non_empty_roots[ix as usize % len].as_ref().clone()))
-            }
+            if len == 0 { None } else { Some((DebugAsDisplay(forest), *non_empty_roots[ix as usize % len])) }
         })
     }
 
     // Generate a *somewhat meaningful* proposal forest, with relationships and links between
     // proposals.
     fn any_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
-        let any_ids = collection::btree_set(any_comparable_proposal_id().prop_map(Rc::new), 5 * (MAX_TREE_SIZE + 2))
+        let any_ids = collection::btree_set(any_proposal_id().prop_map(Rc::new), 5 * (MAX_TREE_SIZE + 2))
             .prop_map(|ids| ids.into_iter().collect::<Vec<_>>());
 
-        any_ids.prop_flat_map(|ids: Vec<Rc<ComparableProposalId>>| {
+        any_ids.prop_flat_map(|ids: Vec<Rc<ProposalId>>| {
             let (lo, hi) = (0, MAX_TREE_SIZE + 1);
             let any_protocol_parameters_tree =
                 any_proposals_tree(ids[lo..hi].into(), any_protocol_params_update(), |parent, update| {
-                    GovernanceAction::ParameterChange(parent, Box::new(update), Nullable::Null)
+                    GovernanceAction::ParameterChange(parent, Box::new(update), None)
                 });
 
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
@@ -1170,11 +1175,8 @@ mod tests {
                     CommitteeUpdate::NoConfidence => GovernanceAction::NoConfidence(parent),
                     CommitteeUpdate::ChangeMembers { threshold, added, removed } => GovernanceAction::UpdateCommittee(
                         parent,
-                        Set::from(removed.into_iter().collect::<Vec<_>>()),
-                        KeyValuePairs::from(
-                            added.into_iter().map(|(k, v)| (k, u64::from(v))).collect::<BTreeMap<_, _>>(),
-                        )
-                        .as_pallas(),
+                        removed.into_iter().collect::<Vec<_>>(),
+                        KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
                         #[expect(clippy::unwrap_used)]
                         RationalNumber {
                             numerator: threshold.numer().try_into().unwrap(),
@@ -1190,12 +1192,12 @@ mod tests {
                 collection::vec(any_proposal_pointer(u64::MAX), MAX_TREE_SIZE),
                 collection::vec(any_orphan_action(), 0..MAX_TREE_SIZE),
             )
-                .prop_map(|(ids, pointers, orphans): (Vec<Rc<ComparableProposalId>>, _, _)| {
+                .prop_map(|(ids, pointers, orphans): (Vec<Rc<ProposalId>>, _, _)| {
                     ids.into_iter()
                         .zip(pointers)
                         .zip(orphans)
-                        .map(|((id, pointer), action)| (id.as_ref().clone(), pointer, action))
-                        .collect::<Vec<(ComparableProposalId, ProposalPointer, GovernanceAction)>>()
+                        .map(|((id, pointer), action)| (*id.as_ref(), pointer, action))
+                        .collect::<Vec<(ProposalId, ProposalPointer, GovernanceAction)>>()
                 });
 
             (
@@ -1228,7 +1230,7 @@ mod tests {
                             std::iter::empty().chain(protocol_parameters.1).chain(orphan).for_each(
                                 |(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, Rc::new(id.clone()), pointer, action.clone()).unwrap();
+                                    forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action.clone()).unwrap();
                                 },
                             );
                         } else {
@@ -1240,7 +1242,7 @@ mod tests {
                                 .chain(orphan)
                                 .for_each(|(id, pointer, action)| {
                                     #[expect(clippy::unwrap_used)]
-                                    forest.insert(&ERA_HISTORY, Rc::new(id.clone()), pointer, action.clone()).unwrap();
+                                    forest.insert(&ERA_HISTORY, Rc::new(id), pointer, action.clone()).unwrap();
                                 });
                         }
 
@@ -1259,16 +1261,16 @@ mod tests {
     //
     // We strive for the sequence to be as arbitrary as possible. We return
     fn any_proposals_tree<Arg: 'static>(
-        ids: Vec<Rc<ComparableProposalId>>,
+        ids: Vec<Rc<ProposalId>>,
         any_action_arg: impl Strategy<Value = Arg>,
-        into_action: impl Fn(Nullable<ProposalId>, Arg) -> GovernanceAction,
+        into_action: impl Fn(Option<ProposalId>, Arg) -> GovernanceAction,
     ) -> impl Strategy<
         Value = (
             // An optional root
-            Option<Rc<ComparableProposalId>>,
+            Option<Rc<ProposalId>>,
             // A sequence of proposals (a.k.a GovernanceAction) and the epoch in which they've been
             // proposed.
-            Vec<(ComparableProposalId, ProposalPointer, GovernanceAction)>,
+            Vec<(ProposalId, ProposalPointer, GovernanceAction)>,
         ),
     > {
         // We generate indices for the
@@ -1292,7 +1294,7 @@ mod tests {
 
                     let pointer = pointers.remove(0);
 
-                    sequence.push((sibling.as_ref().clone(), pointer, action));
+                    sequence.push((*sibling.as_ref(), pointer, action));
 
                     known_parents.push(Some(sibling));
                 }
@@ -1312,8 +1314,8 @@ mod tests {
                     1..3
                 ).prop_map(|kvs|
                     GovernanceAction::TreasuryWithdrawals(
-                        KeyValuePairs::from(kvs).as_pallas(),
-                        Nullable::Null
+                        KeyValuePairs::from(kvs),
+                        None
                     )
                 ),
         ]
@@ -1322,7 +1324,7 @@ mod tests {
     // Test Helpers
     // ----------------------------------------------------------------------------
 
-    fn possible_parents(forest: &ProposalsForest, action: &GovernanceAction) -> Vec<Option<Rc<ComparableProposalId>>> {
+    fn possible_parents(forest: &ProposalsForest, action: &GovernanceAction) -> Vec<Option<Rc<ProposalId>>> {
         use super::{GovernanceAction::*, ProposalEnum::*};
 
         let root = match action {
@@ -1357,7 +1359,7 @@ mod tests {
     }
 
     // Overwrite the parent of the given governance action
-    fn set_parent(action: GovernanceAction, parent: Nullable<ProposalId>) -> GovernanceAction {
+    fn set_parent(action: GovernanceAction, parent: Option<ProposalId>) -> GovernanceAction {
         use GovernanceAction::*;
         match action {
             Information | TreasuryWithdrawals(..) => action,
@@ -1371,12 +1373,11 @@ mod tests {
 
     // Select an element from a list by its position, wrapping the position around if it overflows
     // the list. For a non empty list, this ensures to return an element from the list.
-    fn select(list: &[Option<Rc<ComparableProposalId>>], ix: u8) -> Nullable<ProposalId> {
+    fn select(list: &[Option<Rc<ProposalId>>], ix: u8) -> Option<ProposalId> {
         list.get(ix as usize % list.len())
             .unwrap_or_else(|| unreachable!("out of bound"))
             .as_ref()
-            .map(|id| Nullable::Some(ProposalId::from(id.as_ref().clone())))
-            .unwrap_or(Nullable::Null)
+            .map(|id| *id.as_ref())
     }
 
     /// A type helper to ease counterexamples display.
@@ -1407,27 +1408,26 @@ mod tests {
     }
 
     /// Make a simple proposal id based on a hash created from just one byte
-    fn make_id(byte: u8) -> ComparableProposalId {
-        let proposal_id = ProposalId { transaction_id: Hash::new([byte; 32]), action_index: 0 };
-        ComparableProposalId::from(proposal_id)
+    fn make_id(byte: u8) -> ProposalId {
+        ProposalId { transaction_id: Hash::new([byte; 32]), action_index: 0 }
     }
 
     /// Make a proposal with an optional parent
-    fn make_proposal(parent: Nullable<ComparableProposalId>) -> Proposal {
+    fn make_proposal(parent: Option<ProposalId>) -> Proposal {
         Proposal {
             deposit: 0,
-            reward_account: empty_bytes(),
-            gov_action: GovernanceAction::HardForkInitiation(parent.map(ProposalId::from), PROTOCOL_VERSION_10),
+            reward_account: Bytes::default(),
+            gov_action: GovernanceAction::HardForkInitiation(parent, PROTOCOL_VERSION_10),
             anchor: Anchor { url: "https://example.com".to_string(), content_hash: Hash::new([0u8; 32]) },
         }
     }
 
     /// Make a proposal candidate from a raw proposal and id
     fn into_candidate(
-        proposal_id: Rc<ComparableProposalId>,
+        proposal_id: Rc<ProposalId>,
         proposal: Proposal,
         slot: u64,
-    ) -> (Rc<ComparableProposalId>, CandidateProposal) {
+    ) -> (Rc<ProposalId>, CandidateProposal) {
         let proposed_in = ProposalPointer {
             transaction: TransactionPointer { slot: Slot::from(slot), transaction_index: 0 },
             proposal_index: 0,

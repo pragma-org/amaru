@@ -12,15 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use pallas_primitives::conway::ExUnitPrices;
+use std::fmt;
+
+use crate::{RationalNumber, cbor};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+pub struct ExUnitPrices {
+    #[n(0)]
+    pub mem_price: RationalNumber,
+
+    #[n(1)]
+    pub step_price: RationalNumber,
+}
+
+impl fmt::Display for ExUnitPrices {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{mem={}, cpu={}}}", &self.mem_price, &self.step_price)
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub use proxy::*;
-
-use crate::rational_number;
-
-pub fn fmt(prices: &ExUnitPrices) -> String {
-    format!("{{mem={}, cpu={}}}", rational_number::fmt(&prices.mem_price), rational_number::fmt(&prices.step_price))
-}
 
 #[cfg(any(test, feature = "test-utils"))]
 mod proxy {

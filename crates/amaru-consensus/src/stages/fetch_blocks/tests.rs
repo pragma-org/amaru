@@ -26,10 +26,12 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     fetch_blocks::test_setup::{
-        TestPrep, setup, te_cancel_schedule, te_clock, te_find_missing_blocks, te_has_block, te_load_header,
-        te_load_tip, te_schedule, te_store_block, te_unvalidated_ancestor_hashes, test_peer, test_prep,
+        TestPrep, make_block_header, setup, te_ancestors_between, te_cancel_schedule, te_clock, te_find_missing_blocks,
+        te_has_block, te_load_header, te_schedule, te_store_block, test_peer, test_prep,
     },
-    test_utils::{assert_trace, start_in_era, te_input, te_send, te_state, te_terminate, te_terminated, tm_state},
+    test_utils::{
+        assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated, tm_state,
+    },
 };
 
 #[test]
@@ -96,7 +98,7 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_validity(prep.headers.h0.hash(), true);
 
-    let msg = FetchBlocksMsg::recover_stored_blocks(prep.headers.h2.hash());
+    let msg = FetchBlocksMsg::recover_stored_blocks(prep.headers.h0.point(), prep.headers.h2.hash());
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     let expected = prep.state_with_block_height(3);
@@ -105,17 +107,14 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
+            te_ancestors_between("fb-1", prep.headers.h0.point(), prep.headers.h2.hash()),
             te_load_header("fb-1", prep.headers.h2.hash(), false),
-            te_unvalidated_ancestor_hashes("fb-1", prep.headers.h2.hash()),
-            te_load_header("fb-1", prep.headers.h1.hash(), false),
-            te_load_tip("fb-1", prep.headers.h0.hash()),
             te_has_block("fb-1", prep.headers.h1.hash()),
             te_send(
                 "fb-1",
                 "downstream",
                 DownloadedBlock::new(prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(3)),
             ),
-            te_load_header("fb-1", prep.headers.h2.hash(), false),
             te_has_block("fb-1", prep.headers.h2.hash()),
             te_send(
                 "fb-1",
@@ -130,6 +129,88 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
         .assert_and_remove(Level::DEBUG, &["validating stored block"])
         .assert_and_remove(Level::DEBUG, &["validating stored block"])
         .assert_and_remove(Level::INFO, &["no blocks to fetch"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// On a restart, headers usually run ahead of downloaded blocks, so the replay covers a prefix and
+/// the rest has to be fetched. The request must cover the whole gap up to the best candidate, not
+/// just the first block missing from it.
+#[test]
+fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() {
+    let prep = test_prep();
+    let h3 = make_block_header(4, 4, Some(prep.headers.h2.hash()));
+    prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2, &h3]);
+    // Only h1 was downloaded before the restart; h2 and h3 are headers we know but have no block for.
+    prep.store_block(&prep.headers.h1);
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_validity(prep.headers.h0.hash(), true);
+
+    let msg = FetchBlocksMsg::recover_stored_blocks(prep.headers.h0.point(), h3.hash());
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    let timeout_at = Instant::at_offset(Duration::from_secs(10 + 5), start_in_era().relative_time);
+    let schedule_id = ScheduleIds::default().next_at(timeout_at);
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let expected = {
+        let mut state = prep.state_with_request(
+            MissingBlocks::new(prep.headers.h1.point(), vec![prep.headers.h2.point(), h3.point()]),
+            1,
+            schedule_id,
+        );
+        state.block_height = BlockHeight::from(4);
+        state.trace_context = Some(Default::default());
+        state
+    };
+    assert_trace(
+        &running,
+        &[
+            te_state("fb-1", &prep.state),
+            te_input("fb-1", &msg),
+            te_ancestors_between("fb-1", prep.headers.h0.point(), h3.hash()),
+            te_load_header("fb-1", h3.hash(), false),
+            te_has_block("fb-1", prep.headers.h1.hash()),
+            te_send(
+                "fb-1",
+                "downstream",
+                DownloadedBlock::new(prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(4)),
+            ),
+            // The tail of the replay path is the batch to fetch, so no second search of the store.
+            te_has_block("fb-1", prep.headers.h2.hash()),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "manager",
+                ManagerMessage::FetchBlocks {
+                    from: prep.headers.h2.point(),
+                    through: h3.point(),
+                    id: 1,
+                    cr: prep.cleanup_replies.clone(),
+                },
+            ),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlocksRequested(vec![prep.headers.h2.hash(), h3.hash()], requested_at),
+            ),
+            te_schedule("fb-1", FetchBlocksMsg::Timeout(1), schedule_id),
+            te_state("fb-1", &expected),
+            // The batch chains onto h1, so a timeout must resume from there.
+            te_clock(timeout_at),
+            te_input("fb-1", &FetchBlocksMsg::Timeout(1)),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h1.point())),
+            te_state("fb-1", &{
+                let mut state = expected.clone();
+                state.missing = None;
+                state.timeout = None;
+                state.trace_context = None;
+                state
+            }),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["recovering stored blocks"])
+        .assert_and_remove(Level::DEBUG, &["validating stored block"])
+        .assert_and_remove(Level::DEBUG, &["requesting blocks"])
+        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -155,6 +236,7 @@ fn test_new_tip_blocks_to_fetch() {
     );
     state_with_timeout.block_height = BlockHeight::from(3);
     state_with_timeout.trace_context = Some(Default::default());
+    let requested_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
     let state_after_timeout = {
         let mut state = state_with_timeout.clone();
         state.missing = None;
@@ -168,6 +250,7 @@ fn test_new_tip_blocks_to_fetch() {
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
             te_find_missing_blocks("fb-1", tip.hash(), 25),
+            te_clock_read("fb-1"),
             te_send(
                 "fb-1",
                 "manager",
@@ -178,6 +261,11 @@ fn test_new_tip_blocks_to_fetch() {
                     cr: prep.cleanup_replies.clone(),
                 },
             ),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlocksRequested(vec![prep.headers.h1.hash(), prep.headers.h2.hash()], requested_at),
+            ),
             te_schedule("fb-1", FetchBlocksMsg::Timeout(1), schedule_id),
             te_state("fb-1", &state_with_timeout),
             te_clock(timeout_at),
@@ -187,7 +275,7 @@ fn test_new_tip_blocks_to_fetch() {
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
-        .assert_and_remove(Level::ERROR, &["timeout fetching blocks"])
+        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -215,6 +303,15 @@ fn test_block_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlockDownloaded(
+                    prep.headers.h1.hash(),
+                    Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
+                ),
+            ),
             te_store_block("fb-1", prep.headers.h1.hash(), TestPrep::raw_block(&prep.headers.h1)),
             te_send(
                 "fb-1",
@@ -257,6 +354,15 @@ fn test_block2_received() {
         &[
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
+            te_clock_read("fb-1"),
+            te_send(
+                "fb-1",
+                "upstream",
+                SelectChainMsg::BlockDownloaded(
+                    prep.headers.h2.hash(),
+                    Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
+                ),
+            ),
             te_store_block("fb-1", prep.headers.h2.hash(), TestPrep::raw_block(&prep.headers.h2)),
             te_send(
                 "fb-1",

@@ -13,24 +13,23 @@
 // limitations under the License.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt,
     marker::PhantomData,
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, ComparableProposalId, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, RewardAccount, StakeCredential, TransactionInput, Value, Vote, Voter,
+    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
-    transaction_input_to_string,
 };
 use thiserror::Error;
 
-use crate::{governance::ratification::ProposalsRoots, state::diff_bind, store::StoreError};
+use crate::{state::volatile, store::StoreError};
 
-pub(crate) mod assert;
 mod default;
 pub use default::*;
 
@@ -79,7 +78,7 @@ pub enum ContextHydratationError {
     #[error("failed to hydrate inputs")]
     ResolveInputs(#[source] StoreError),
 
-    #[error("unknown (but required) transaction input or reference input: {}", transaction_input_to_string(.0))]
+    #[error("unknown (but required) transaction input or reference input: {0}")]
     UnknownInput(TransactionInput),
 
     #[error("failed to hydrate pools")]
@@ -107,8 +106,8 @@ pub enum RegisterError<ROLE, K> {
     AlreadyRegistered(PhantomData<ROLE>, K),
 }
 
-impl<ROLE, K: fmt::Debug> From<diff_bind::RegisterError<K>> for RegisterError<ROLE, K> {
-    fn from(diff_bind::RegisterError::AlreadyRegistered(source): diff_bind::RegisterError<K>) -> Self {
+impl<ROLE, K: fmt::Debug> From<volatile::RegisterError<K>> for RegisterError<ROLE, K> {
+    fn from(volatile::RegisterError::AlreadyRegistered(source): volatile::RegisterError<K>) -> Self {
         Self::AlreadyRegistered(PhantomData {}, source)
     }
 }
@@ -119,8 +118,8 @@ pub enum UnregisterError<ROLE, K> {
     Unknown(PhantomData<ROLE>, K),
 }
 
-impl<ROLE, K: fmt::Debug> From<diff_bind::BindError<K>> for UnregisterError<ROLE, K> {
-    fn from(diff_bind::BindError::AlreadyUnregistered(source): diff_bind::BindError<K>) -> Self {
+impl<ROLE, K: fmt::Debug> From<volatile::BindError<K>> for UnregisterError<ROLE, K> {
+    fn from(volatile::BindError::AlreadyUnregistered(source): volatile::BindError<K>) -> Self {
         Self::Unknown(PhantomData {}, source)
     }
 }
@@ -134,8 +133,8 @@ pub enum DelegateError<S, T> {
     UnknownTarget(T),
 }
 
-impl<S: fmt::Debug, T: fmt::Debug> From<diff_bind::BindError<S>> for DelegateError<S, T> {
-    fn from(diff_bind::BindError::AlreadyUnregistered(source): diff_bind::BindError<S>) -> Self {
+impl<S: fmt::Debug, T: fmt::Debug> From<volatile::BindError<S>> for DelegateError<S, T> {
+    fn from(volatile::BindError::AlreadyUnregistered(source): volatile::BindError<S>) -> Self {
         Self::UnknownSource(source)
     }
 }
@@ -146,8 +145,8 @@ pub enum UpdateError<S> {
     UnknownSource(S),
 }
 
-impl<S: fmt::Debug> From<diff_bind::BindError<S>> for UpdateError<S> {
-    fn from(diff_bind::BindError::AlreadyUnregistered(source): diff_bind::BindError<S>) -> Self {
+impl<S: fmt::Debug> From<volatile::BindError<S>> for UpdateError<S> {
+    fn from(volatile::BindError::AlreadyUnregistered(source): volatile::BindError<S>) -> Self {
         Self::UnknownSource(source)
     }
 }
@@ -185,8 +184,7 @@ pub trait PoolsSlice {
 
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
 
-    // FIXME: Should yield an error when pool doesn't exists.
-    fn retire(&mut self, pool: PoolId, epoch: Epoch);
+    fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
 }
 
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
@@ -241,11 +239,7 @@ pub trait AccountsSlice {
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.
 pub trait PrepareAccountsSlice<'a> {
-    fn require_account(&mut self, credential: &'a StakeCredential);
-
-    /// Require the account behind a withdrawal. The reward account is parsed to a credential at
-    /// resolution, so the borrowed bytes are collected rather than a credential.
-    fn require_withdrawal(&mut self, reward_account: &'a RewardAccount);
+    fn require_account(&mut self, credential: Cow<'a, StakeCredential>);
 }
 
 // DRep
@@ -261,10 +255,14 @@ pub trait DRepsSlice {
         &mut self,
         drep: StakeCredential,
         registration: DRepRegistration,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>>;
 
-    fn update(&mut self, drep: StakeCredential, anchor: Option<Anchor>) -> Result<(), UpdateError<StakeCredential>>;
+    fn update(
+        &mut self,
+        drep: StakeCredential,
+        anchor: Option<Box<Anchor>>,
+    ) -> Result<(), UpdateError<StakeCredential>>;
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
 }
@@ -304,7 +302,7 @@ pub trait CommitteeSlice {
     fn resign(
         &mut self,
         cc_member: StakeCredential,
-        anchor: Option<Anchor>,
+        anchor: Option<Box<Anchor>>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
 }
 
@@ -326,7 +324,7 @@ pub struct ProposalState {
 
 pub trait ProposalsSlice {
     /// The proposal at this point in the block, including ones acknowledged earlier in the block.
-    fn exists(&self, id: &ComparableProposalId) -> bool;
+    fn exists(&self, id: &ProposalId) -> bool;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;
@@ -431,7 +429,7 @@ where
     for (script_hash, location) in known_scripts {
         let lookup = |input| {
             UtxoSlice::lookup(context, input)
-                .and_then(|output| output.script.as_ref())
+                .and_then(|output| output.script.as_deref())
                 .unwrap_or_else(|| unreachable!("no script at expected location: {location:?}"))
         };
 
@@ -461,7 +459,7 @@ where
                 .and_then(|output| match &output.datum {
                     MemoizedDatum::None => None,
                     MemoizedDatum::Hash(..) => None,
-                    MemoizedDatum::Inline(data) => Some(data),
+                    MemoizedDatum::Inline(data) => Some(data.as_ref()),
                 })
                 .unwrap_or_else(|| unreachable!("no datum at expected location: {location:?}"))
         };
