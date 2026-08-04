@@ -36,11 +36,11 @@ jobs:
         network:
           - name: preprod
             magic: 1
-            start_epoch: 273
+            start_epoch: 270
             target_epoch: 280
           - name: preview
             magic: 2
-            start_epoch: 1122
+            start_epoch: 1119
             target_epoch: 1180
         cardano_node_version: [11.0.1]
     env:
