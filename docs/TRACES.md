@@ -344,6 +344,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::cli`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `error` | `TRACE` | public | Process terminated with an error. | description | cause |
+
+<details><summary>span: `error`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `description` | `string` | ✓ |
+| `cause` | `string` |  |
+
+</details>
+
 ## target: `amaru::cli::cardano_node_config`
 
 | name | level | public | description | required fields | optional fields |

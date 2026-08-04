@@ -23,7 +23,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeader, Epoch, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, RawBlock, Slot,
-    StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub,
+    StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
 };
 use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
 use amaru_observability::{error, info};
@@ -76,14 +76,17 @@ pub enum BootstrapError {
     NoBootstrapSnapshots,
 
     #[error(
-        "bootstrap target epoch {target_epoch}, but S3 bucket must contain epochs {required_epochs}. Available epochs: {available_epochs}"
+        "requested {target_epoch}, but {} available for bootstrap on this network.",
+        format_available_epochs(available_epochs)
     )]
-    SnapshotSelectionRequestedEpoch { target_epoch: Epoch, required_epochs: String, available_epochs: String },
+    SnapshotSelectionRequestedEpoch { target_epoch: Epoch, available_epochs: Vec<Epoch> },
 
     #[error(
-        "bootstrap needs the latest 3 consecutive snapshot epochs ending at {latest_epoch}, but S3 bucket only provides epochs {available_epochs}. Required epochs: {required_epochs}"
+        "bootstrap needs the latest 3 consecutive snapshot epochs ending at {latest_epoch}, but S3 bucket {} available. Required epochs: [{}]",
+        format_available_epochs(available_epochs),
+        display_collection(required_epochs)
     )]
-    SnapshotSelectionLatestEpoch { latest_epoch: Epoch, required_epochs: String, available_epochs: String },
+    SnapshotSelectionLatestEpoch { latest_epoch: Epoch, required_epochs: [Epoch; 3], available_epochs: Vec<Epoch> },
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
@@ -139,12 +142,12 @@ fn parse_slot_from_point(point: &str) -> Result<u64, Box<dyn Error>> {
         .ok_or_else(|| format!("invalid snapshot point format: {point}").into())
 }
 
-fn format_epoch_list(epochs: &[Epoch]) -> String {
+fn format_available_epochs(epochs: &[Epoch]) -> String {
     if epochs.is_empty() {
-        return "none".to_string();
+        "none are".to_string()
+    } else {
+        format!("only {} {}", display_collection(epochs), if epochs.len() > 1 { "are" } else { "is" },)
     }
-
-    epochs.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
 fn select_bootstrap_snapshots(
@@ -168,16 +171,29 @@ fn select_bootstrap_snapshots(
             Ok([first_snapshot, second_snapshot, third_snapshot])
         }
         _ => {
-            let available_epochs = format_epoch_list(&snapshots_by_epoch.keys().copied().collect::<Vec<_>>());
-            let required_epochs = format_epoch_list(&required_epochs);
+            let mut available_epochs = Vec::new();
+
+            let mut count = 0;
+            let mut prev_epoch = Epoch::from(u64::MAX - 1);
+            for epoch in snapshots_by_epoch.keys().copied() {
+                if epoch == prev_epoch + 1 {
+                    prev_epoch = epoch;
+                    count += 1;
+                } else {
+                    prev_epoch = epoch;
+                    count = 1;
+                    continue;
+                }
+
+                if count >= 3 {
+                    available_epochs.push(epoch + 1)
+                }
+            }
 
             match target_epoch {
-                Some(target_epoch) => Err(BootstrapError::SnapshotSelectionRequestedEpoch {
-                    target_epoch,
-                    required_epochs,
-                    available_epochs,
+                Some(target_epoch) => {
+                    Err(BootstrapError::SnapshotSelectionRequestedEpoch { target_epoch, available_epochs }.into())
                 }
-                .into()),
                 None => Err(BootstrapError::SnapshotSelectionLatestEpoch {
                     latest_epoch,
                     required_epochs,
@@ -922,16 +938,30 @@ mod tests {
     }
 
     #[test]
-    fn select_bootstrap_snapshots_reports_missing_requested_epochs() {
+    fn select_bootstrap_snapshots_reports_incomplete_epochs() {
         let snapshots =
             vec![test_snapshot(163, "69206375.hash1", "preprod"), test_snapshot(165, "70070379.hash3", "preprod")];
 
         let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(166_u64))).unwrap_err();
         let err = err.to_string();
 
-        assert!(err.contains("target epoch 166"));
-        assert!(err.contains("must contain epochs 163, 164, 165"));
-        assert!(err.contains("Available epochs: 163, 165"));
+        assert!(err.contains("requested 166"));
+        assert!(err.contains("none are available"));
+    }
+
+    #[test]
+    fn select_bootstrap_snapshots_reports_missing_requested_epochs() {
+        let snapshots = vec![
+            test_snapshot(163, "69206375.hash1", "preprod"),
+            test_snapshot(164, "69861372.hash2", "preprod"),
+            test_snapshot(165, "70070379.hash3", "preprod"),
+        ];
+
+        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(167_u64))).unwrap_err();
+        let err = err.to_string();
+
+        assert!(err.contains("requested 167"));
+        assert!(err.contains("only 166 is available"));
     }
 
     #[test]

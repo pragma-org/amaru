@@ -833,6 +833,11 @@ define_schemas! {
             }
         }
         cli {
+            /// Process terminated with an error.
+            public ERROR {
+                required description: String
+                optional cause: String
+            }
             cardano_node_config {
                 /// Use an existing cardano-node configuration
                 public USE {

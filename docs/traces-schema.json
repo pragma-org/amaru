@@ -535,6 +535,29 @@
       "description": "Import governance votes from a snapshot",
       "public": true
     },
+    "amaru::cli::ERROR": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "cause": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "optional": [
+        "cause"
+      ],
+      "additionalProperties": false,
+      "name": "error",
+      "level": "TRACE",
+      "target": "amaru::cli",
+      "description": "Process terminated with an error.",
+      "public": true
+    },
     "amaru::cli::cardano_node_config::DOWNLOAD": {
       "type": "object",
       "properties": {
