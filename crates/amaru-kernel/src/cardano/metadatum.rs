@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-
 use crate::{Int, cbor};
 
 /// A piece of (structured) metadata found in transaction.
@@ -36,7 +34,12 @@ pub enum Metadatum {
     Bytes(Vec<u8>),
     Text(String),
     Array(Vec<Metadatum>),
-    Map(BTreeMap<Metadatum, Metadatum>),
+    // NOTE: Association list, not a dictionary
+    //
+    // The ledger preserves both the order of the entries and any duplicate keys; on-chain metadata
+    // does contain duplicate keys, and the auxiliary data digest is computed over those exact
+    // bytes. Collapsing them into a map would silently drop entries.
+    Map(Vec<(Metadatum, Metadatum)>),
 }
 
 /// FIXME: Multi-era + length checks on bytes and text
@@ -68,7 +71,18 @@ impl<'b, C> cbor::Decode<'b, C> for Metadatum {
                 Ok(Metadatum::Text(text))
             }
             Array | ArrayIndef => Ok(Metadatum::Array(d.decode_with(ctx)?)),
-            Map | MapIndef => Ok(Metadatum::Map(d.decode_with(ctx)?)),
+            Map | MapIndef => {
+                let pairs = cbor::heterogeneous_map(
+                    d,
+                    Vec::new(),
+                    |d| d.decode::<Metadatum>(),
+                    |d, pairs, key| {
+                        pairs.push((key, d.decode_with(ctx)?));
+                        Ok(())
+                    },
+                )?;
+                Ok(Metadatum::Map(pairs))
+            }
             any => {
                 Err(cbor::decode::Error::message(format!("unexpected CBOR datatype {any:?} when decoding metadatum")))
             }
@@ -97,8 +111,12 @@ impl<C> cbor::Encode<C> for Metadatum {
             Metadatum::Array(a) => {
                 e.encode_with(a, ctx)?;
             }
-            Metadatum::Map(a) => {
-                e.encode_with(a, ctx)?;
+            Metadatum::Map(pairs) => {
+                e.map(pairs.len() as u64)?;
+                for (k, v) in pairs {
+                    e.encode_with(k, ctx)?;
+                    e.encode_with(v, ctx)?;
+                }
             }
         };
 
@@ -108,12 +126,10 @@ impl<C> cbor::Encode<C> for Metadatum {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use test_case::test_case;
 
     use super::Metadatum;
-    use crate::{Int, from_cbor_no_leftovers};
+    use crate::{Int, from_cbor_no_leftovers, to_cbor};
 
     fn int(n: i128) -> Metadatum {
         Metadatum::Int(Int::try_from(n).unwrap())
@@ -132,7 +148,7 @@ mod tests {
     }
 
     fn map(kvs: &[(Metadatum, Metadatum)]) -> Metadatum {
-        Metadatum::Map(BTreeMap::from_iter(kvs.to_vec()))
+        Metadatum::Map(kvs.to_vec())
     }
 
     #[test_case("00", int(0))]
@@ -193,6 +209,9 @@ mod tests {
         "BF019FFF1880BFFFFF",
         map(&[(int(1), list(&[])), (int(128), map(&[]))])
     )]
+    #[test_case("A2416101416102", map(&[(bytes(b"a"), int(1)), (bytes(b"a"), int(2))]); "duplicate keys")]
+    #[test_case("A2036162036161", map(&[(int(3), text("b")), (int(3), text("a"))]); "duplicate keys, unsorted values")]
+    #[test_case("A2026161016161", map(&[(int(2), text("a")), (int(1), text("a"))]); "unsorted keys")]
     fn decode_wellformed(fixture: &str, expected: Metadatum) {
         let bytes = hex::decode(fixture).unwrap();
         match from_cbor_no_leftovers::<Metadatum>(bytes.as_slice()) {
@@ -230,5 +249,14 @@ mod tests {
             Err(err) => assert_eq!(err.to_string(), expected),
             Ok(result) => panic!("{result:#?}"),
         }
+    }
+
+    #[test_case("A2416101416102"; "duplicate keys")]
+    #[test_case("A2026161016161"; "unsorted keys")]
+    #[test_case("A2416102036162"; "distinct keys")]
+    fn encode_preserves_entries_verbatim(fixture: &str) {
+        let original_bytes = hex::decode(fixture).unwrap();
+        let metadatum: Metadatum = from_cbor_no_leftovers(original_bytes.as_slice()).unwrap();
+        assert_eq!(hex::encode_upper(to_cbor(&metadatum)), fixture);
     }
 }

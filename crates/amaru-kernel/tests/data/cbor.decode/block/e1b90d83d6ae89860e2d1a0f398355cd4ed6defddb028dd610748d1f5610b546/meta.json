@@ -1,1 +1,1 @@
-{"well_formed":true,"era":"conway","network":"preprod","description":"duplicates within plutus data","exact_re_encoding":true,"known_amaru_divergence":true}
+{"well_formed":true,"era":"conway","network":"preprod","description":"duplicates within plutus data","exact_re_encoding":false}

@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{Block, EraName, TransactionBody, cbor, from_cbor_no_leftovers, to_cbor};
+use amaru_kernel::{Block, EraName, Transaction, TransactionBody, cbor, from_cbor_no_leftovers, to_cbor};
 use serde::Deserialize;
 
 /// See the README at crates/amaru/tests/conformance/serialization/cbor-fixture-generator/README.md
@@ -118,7 +118,7 @@ fn test_cbor_serialization() {
 
 /// Walk the data tree and yield every directory that contains both
 /// `sample.cbor` and `meta.json`. The fixture kind is taken from the top-level
-/// directory name under `cbor.decode/` (e.g. `block`, `transaction_body`).
+/// directory name under `cbor.decode/` (e.g. `block`, `transaction_body`, `transaction`).
 ///
 /// IO and parse errors are collected into `errors` rather than panicking.
 fn collect_fixtures(errors: &mut Vec<String>) -> Vec<Fixture> {
@@ -191,6 +191,7 @@ fn run_test(fixture: &Fixture) -> Result<(), String> {
     let result = match fixture.kind {
         Kind::Block => check_round_trip::<(EraName, Block)>(&fixture.bytes, exact),
         Kind::TransactionBody => check_round_trip::<TransactionBody>(&fixture.bytes, exact),
+        Kind::Transaction => check_round_trip::<Transaction>(&fixture.bytes, exact),
     };
     let stale_flag_msg = "stale known_amaru_divergence flag — amaru now agrees with the labelled expectation; remove the flag from meta.json";
     match (fixture.expectations.well_formed, result, divergent) {
@@ -293,6 +294,7 @@ struct Expectations {
 enum Kind {
     Block,
     TransactionBody,
+    Transaction,
 }
 
 impl Kind {
@@ -300,6 +302,7 @@ impl Kind {
         match name {
             "block" => Some(Kind::Block),
             "transaction_body" => Some(Kind::TransactionBody),
+            "transaction" => Some(Kind::Transaction),
             _ => None,
         }
     }
