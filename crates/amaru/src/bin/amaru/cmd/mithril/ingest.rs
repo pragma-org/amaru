@@ -116,7 +116,7 @@ pub(super) async fn run(
 
     let ledger_config =
         LedgerConfig { ledger_store: RocksDbConfig::new(ledger_dir), network, ..LedgerConfig::default() };
-    let state = make_state(&ledger_config)?;
+    let state = make_state(&ledger_config, None)?;
     let tip = state.tip().into_owned();
     let pool_summaries = Arc::new(RwLock::new(state.pool_summaries()));
     let block_validator = make_block_validator(&ledger_config, state, chain_store.clone())?;

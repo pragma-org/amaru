@@ -15,8 +15,8 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Point, Tip, make_header,
-    num::CheckedSub,
+    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Peer, Point, Tip,
+    make_header, num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
@@ -185,10 +185,11 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
 
 pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
     NewTip {
+        peer: Peer::new("peer1"),
         tip,
         parent,
         trace_context: Default::default(),
-        received_at: amaru_pure_stage::Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO),
+        received_at: Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time),
     }
 }
 

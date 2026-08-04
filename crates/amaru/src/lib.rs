@@ -162,6 +162,9 @@ pub mod env_vars {
     /// --network
     pub const NETWORK: &str = "AMARU_NETWORK";
 
+    /// --no-tui
+    pub const NO_TUI: &str = "AMARU_NO_TUI";
+
     /// --nonces-file
     pub const NONCES_FILE: &str = "AMARU_NONCES_FILE";
 
@@ -191,6 +194,9 @@ pub mod env_vars {
 
     /// --trace-buffer
     pub const TRACE_BUFFER: &str = "AMARU_TRACE_BUFFER";
+
+    /// --tui-windows
+    pub const TUI_TIME_WINDOWS: &str = "AMARU_TUI_TIME_WINDOWS";
 
     /// --dump-trace-buffer
     pub const DUMP_TRACE_BUFFER: &str = "AMARU_DUMP_TRACE_BUFFER";

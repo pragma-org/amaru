@@ -279,19 +279,11 @@ impl<'distr> RatificationContext<'distr> {
     }
 
     fn new_enact_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
-        info_span!(
-            ledger::governance::ENACTING,
-            proposal_id = id.to_compact_string(),
-            proposal_kind = proposal.display_kind(),
-        )
+        info_span!(ledger::governance::ENACTING, proposal_id = id.to_string(), proposal_kind = proposal.display_kind(),)
     }
 
     fn new_ratify_span(id: &ProposalId, proposal: &ProposalEnum) -> Span {
-        info_span!(
-            ledger::governance::RATIFYING,
-            proposal_id = id.to_compact_string(),
-            proposal_kind = proposal.display_kind(),
-        )
+        info_span!(ledger::governance::RATIFYING, proposal_id = id.to_string(), proposal_kind = proposal.display_kind(),)
     }
 
     fn is_accepted_by_everyone(

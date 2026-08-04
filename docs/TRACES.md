@@ -647,7 +647,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, block_fetch_wait_micros, block_fetch_micros, forward_micros |
+| `lifecycle` | `TRACE` | public | Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. \`outcome\` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - \`block_fetch_wait_micros\`: reception of the header to the request of its block - \`block_fetch_micros\`: request of the block to its reception - \`forward_micros\`: reception of the header to the adoption of its block |  | peer, header_hash, outcome, error, slot_start_to_header_micros, block_fetch_wait_micros, block_fetch_micros, forward_micros |
 
 <details><summary>span: `lifecycle`</summary>
 
@@ -657,9 +657,28 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `header_hash` | `string` |  |
 | `outcome` | `string` |  |
 | `error` | `string` |  |
+| `slot_start_to_header_micros` | `integer` |  |
 | `block_fetch_wait_micros` | `integer` |  |
 | `block_fetch_micros` | `integer` |  |
 | `forward_micros` | `integer` |  |
+
+</details>
+
+## target: `amaru::consensus::tip`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `adopt` | `TRACE` | public | Adopt a tip as the next tip in the best chain | slot, header_hash, block_height, max_block_height, suppressed |  |
+
+<details><summary>span: `adopt`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `block_height` | `integer` | ✓ |
+| `max_block_height` | `integer` | ✓ |
+| `suppressed` | `integer` | ✓ |
 
 </details>
 
@@ -920,12 +939,42 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `no_governance_updates` | `TRACE` | public | No governance updates found in the epoch transition overlay |  |  |
 | `no_pools_updates` | `TRACE` | public | No pools updates found in the epoch transition overlay |  |  |
 
+## target: `amaru::ledger::pots`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `load` | `TRACE` | public | Load the current ledger pots | treasury, reserves, fees, donations |  |
+
+<details><summary>span: `load`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `treasury` | `integer` | ✓ |
+| `reserves` | `integer` | ✓ |
+| `fees` | `integer` | ✓ |
+| `donations` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::ledger::proposal`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `active` | `TRACE` | public | Observe a governance proposal that is currently active | id, proposal_kind, proposed_in, valid_until | detail |
 | `drop` | `TRACE` | public | Drop an expired or ratified governance proposal | id, expired, ratified_or_evicted |  |
 | `skip` | `TRACE` | public | Skip a governance proposal during ratification | id, reason | proposed_in, ratifying_epoch, withdrawal, treasury, invalid_members |
+
+<details><summary>span: `active`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `id` | `string` | ✓ |
+| `proposal_kind` | `string` | ✓ |
+| `proposed_in` | `string` | ✓ |
+| `valid_until` | `string` | ✓ |
+| `detail` | `string` |  |
+
+</details>
 
 <details><summary>span: `drop`</summary>
 
@@ -987,7 +1036,50 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `load` | `TRACE` | public | Load the current protocol parameters |  | protocol_version, max_block_body_size, max_transaction_size, max_block_header_size, max_tx_ex_units, max_block_ex_units, max_value_size, max_collateral_inputs, min_fee_a, min_fee_b, stake_credential_deposit, stake_pool_deposit, monetary_expansion_rate, treasury_expansion_rate, min_pool_cost, lovelace_per_utxo_byte, prices, min_fee_ref_script_lovelace_per_byte, max_ref_script_size_per_tx, max_ref_script_size_per_block, ref_script_cost_stride, ref_script_cost_multiplier, stake_pool_max_retirement_epoch, optimal_stake_pools_count, pledge_influence, collateral_percentage, cost_models, pool_voting_thresholds, drep_voting_thresholds, min_committee_size, max_committee_term_length, gov_action_lifetime, gov_action_deposit, drep_deposit, drep_expiry |
 | `ratify` | `TRACE` | public | Ratify a protocol parameters update; only changed parameters are recorded |  | protocol_version, max_block_body_size, max_transaction_size, max_block_header_size, max_tx_ex_units, max_block_ex_units, max_value_size, max_collateral_inputs, min_fee_a, min_fee_b, stake_credential_deposit, stake_pool_deposit, monetary_expansion_rate, treasury_expansion_rate, min_pool_cost, lovelace_per_utxo_byte, prices, min_fee_ref_script_lovelace_per_byte, max_ref_script_size_per_tx, max_ref_script_size_per_block, ref_script_cost_stride, ref_script_cost_multiplier, stake_pool_max_retirement_epoch, optimal_stake_pools_count, pledge_influence, collateral_percentage, cost_models, pool_voting_thresholds, drep_voting_thresholds, min_committee_size, max_committee_term_length, gov_action_lifetime, gov_action_deposit, drep_deposit, drep_expiry |
+
+<details><summary>span: `load`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `protocol_version` | `string` |  |
+| `max_block_body_size` | `string` |  |
+| `max_transaction_size` | `string` |  |
+| `max_block_header_size` | `string` |  |
+| `max_tx_ex_units` | `string` |  |
+| `max_block_ex_units` | `string` |  |
+| `max_value_size` | `string` |  |
+| `max_collateral_inputs` | `string` |  |
+| `min_fee_a` | `string` |  |
+| `min_fee_b` | `string` |  |
+| `stake_credential_deposit` | `string` |  |
+| `stake_pool_deposit` | `string` |  |
+| `monetary_expansion_rate` | `string` |  |
+| `treasury_expansion_rate` | `string` |  |
+| `min_pool_cost` | `string` |  |
+| `lovelace_per_utxo_byte` | `string` |  |
+| `prices` | `string` |  |
+| `min_fee_ref_script_lovelace_per_byte` | `string` |  |
+| `max_ref_script_size_per_tx` | `string` |  |
+| `max_ref_script_size_per_block` | `string` |  |
+| `ref_script_cost_stride` | `string` |  |
+| `ref_script_cost_multiplier` | `string` |  |
+| `stake_pool_max_retirement_epoch` | `string` |  |
+| `optimal_stake_pools_count` | `string` |  |
+| `pledge_influence` | `string` |  |
+| `collateral_percentage` | `string` |  |
+| `cost_models` | `string` |  |
+| `pool_voting_thresholds` | `string` |  |
+| `drep_voting_thresholds` | `string` |  |
+| `min_committee_size` | `string` |  |
+| `max_committee_term_length` | `string` |  |
+| `gov_action_lifetime` | `string` |  |
+| `gov_action_deposit` | `string` |  |
+| `drep_deposit` | `string` |  |
+| `drep_expiry` | `string` |  |
+
+</details>
 
 <details><summary>span: `ratify`</summary>
 
@@ -1157,6 +1249,9 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `compute` | `TRACE` | public | Compute stake distribution for epoch | epoch |  |
+| `initial_begin` | `TRACE` | public | Start computing one of the initial stake distributions loaded on startup | epoch |  |
+| `initial_progress` | `TRACE` | public | Report progress for one of the initial stake distributions loaded on startup | epoch, progress |  |
+| `initial_ready` | `TRACE` | public | Finished computing all initial stake distributions loaded on startup | epochs |  |
 | `rotate` | `TRACE` | public | Rotate stake distributions at an epoch boundary | available_stake_distributions |  |
 | `snapshot` | `TRACE` | public | Snapshot of the stake distribution taken at an epoch boundary | accounts, dreps, pools, active_stake, pools_voting_stake, dreps_voting_stake |  |
 
@@ -1165,6 +1260,31 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `initial_begin`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `initial_progress`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `string` | ✓ |
+| `progress` | `number` | ✓ |
+
+</details>
+
+<details><summary>span: `initial_ready`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epochs` | `string` | ✓ |
 
 </details>
 
@@ -1196,7 +1316,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `push` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
 | `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
 | `roll_forward` | `TRACE` | public | Roll forward with a new block |  |  |
-| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length |  |
+| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length, rollback_length |  |
 
 <details><summary>span: `switch_to_fork`</summary>
 
@@ -1204,6 +1324,29 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `fork_point` | `string` | ✓ |
 | `fork_length` | `integer` | ✓ |
+| `rollback_length` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::ledger::tip`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `update` | `TRACE` | public | Updated view of the locally adopted chain tip and its derived ledger health. | slot, header_hash, block_height, tx_count, epoch, slot_in_epoch, density, current_kes_period, remaining_kes_periods |  |
+
+<details><summary>span: `update`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `slot` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `block_height` | `integer` | ✓ |
+| `tx_count` | `integer` | ✓ |
+| `epoch` | `string` | ✓ |
+| `slot_in_epoch` | `string` | ✓ |
+| `density` | `number` | ✓ |
+| `current_kes_period` | `integer` | ✓ |
+| `remaining_kes_periods` | `integer` | ✓ |
 
 </details>
 
@@ -1460,6 +1603,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::mempool::state`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `update` | `TRACE` | public | Compact view of the mempool occupancy for terminal dashboards. | tx_count, size_bytes |  |
+
+<details><summary>span: `update`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tx_count` | `integer` | ✓ |
+| `size_bytes` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::mempool::transaction`
 
 | name | level | public | description | required fields | optional fields |
@@ -1556,6 +1714,22 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `target_dir` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::keepalive::peer`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `round_trip` | `TRACE` | public | Measured round-trip time for a keepalive exchange on an established peer connection. | peer, conn_id, round_trip_micros |  |
+
+<details><summary>span: `round_trip`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `string` | ✓ |
+| `round_trip_micros` | `integer` | ✓ |
 
 </details>
 

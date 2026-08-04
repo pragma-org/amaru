@@ -324,10 +324,21 @@ fn test_upstream_tip_depends_on_invalid_block() {
     // Use the simulation clock as the reception time so the forward duration measured at
     // abandonment (which reads the same clock) is zero.
     let received_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
-    let msg = SelectChainMsg::TipFromUpstream { tip, parent, trace_context: Default::default(), received_at };
+    let slot_start_to_header_micros = start_in_era()
+        .relative_time
+        .saturating_add(Duration::from_secs(10))
+        .saturating_sub(Duration::from_secs(tip.slot().as_u64()))
+        .as_micros() as u64;
+    let msg = SelectChainMsg::TipFromUpstream {
+        peer: amaru_kernel::Peer::new("upstream"),
+        tip,
+        parent,
+        trace_context: Default::default(),
+        received_at,
+    };
 
     // Invalid chains are ignored: no send, best_tip stays Origin.
-    let mut expected = SelectChain::new(prep.downstream.clone());
+    let mut expected = SelectChain::new(prep.downstream.clone(), EraHistory::default());
     expected.may_fetch_blocks = true;
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -342,6 +353,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
                 "sc-1",
                 ConsensusMetrics::HeaderLifecycle {
                     outcome: "abandoned".into(),
+                    slot_start_to_header_micros: Some(slot_start_to_header_micros),
                     block_fetch_wait_micros: None,
                     block_fetch_micros: None,
                     forward_micros: Some(0),
@@ -363,7 +375,7 @@ fn test_block_validation_result_valid() {
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.store_headers(&prep.headers.main());
     let tip = prep.headers.h2.tip();
-    let msg = SelectChainMsg::BlockValidationResult(tip, true);
+    let msg = SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0));
 
     let expected = SelectChain {
         tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h3.hash()])]),
@@ -385,6 +397,46 @@ fn test_block_validation_result_valid() {
 }
 
 #[test]
+fn test_block_validation_result_valid_omits_slot_start_metric_while_syncing() {
+    let mut prep = test_prep();
+    let tip = prep.headers.h2.tip();
+    prep.state.tips = BTreeMap::from_iter([(tip.hash(), vec![tip.hash()])]);
+    let received_at = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    prep.state.headers_performance.header_received(amaru_kernel::Peer::new("upstream"), tip, received_at);
+    prep.store_headers(&prep.headers.main());
+    let msg = SelectChainMsg::BlockValidationResult(tip, true, tip.block_height() + 1);
+
+    let expected = SelectChain {
+        tips: BTreeMap::from_iter([(tip.hash(), vec![])]),
+        headers_performance: HeadersPerformance::default(),
+        ..prep.state.clone()
+    };
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &msg),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), true),
+            te_clock_read("sc-1"),
+            te_record_metrics(
+                "sc-1",
+                ConsensusMetrics::HeaderLifecycle {
+                    outcome: "valid".into(),
+                    slot_start_to_header_micros: None,
+                    block_fetch_wait_micros: None,
+                    block_fetch_micros: None,
+                    forward_micros: Some(0),
+                },
+            ),
+            te_state("sc-1", &expected),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
 fn test_block_validation_result_invalid_best_tip_invalidated() {
     let mut prep = test_prep();
     prep.state.best_tip = Some(prep.headers.h3.clone());
@@ -396,7 +448,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.tip();
-    let msg = SelectChainMsg::BlockValidationResult(tip, false);
+    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
@@ -443,7 +495,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
     let tip = prep.headers.h2.tip();
-    let msg = SelectChainMsg::BlockValidationResult(tip, false);
+    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
     let expected = SelectChain {
@@ -487,7 +539,7 @@ fn test_block_validation_result_invalid_removes_tips() {
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
     let tip = prep.headers.h2a.tip();
-    let msg = SelectChainMsg::BlockValidationResult(tip, false);
+    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     let expected = SelectChain {
         best_tip: Some(prep.headers.h3.clone()),
@@ -520,7 +572,7 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
     prep.store_headers(&prep.headers.main());
     let unknown_hash = HeaderHash::from([99u8; 32]);
     let tip = Tip::new(Point::Specific(Slot::from(999), unknown_hash), BlockHeight::from(0));
-    let msg = SelectChainMsg::BlockValidationResult(tip, false);
+    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -553,7 +605,7 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
             .build(),
     );
     let tip = prep.headers.h2.tip();
-    let msg = SelectChainMsg::BlockValidationResult(tip, true);
+    let msg = SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -672,7 +724,7 @@ fn test_last_best_tip_invalidated_falls_back_to_origin() {
     prep.state.tips.insert(prep.headers.h3.hash(), vec![prep.headers.h3.hash()]);
 
     // Invalidate the last remaining best tip candidate (the anchor)
-    let msg = SelectChainMsg::BlockValidationResult(prep.headers.h3.tip(), false);
+    let msg = SelectChainMsg::BlockValidationResult(prep.headers.h3.tip(), false, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 

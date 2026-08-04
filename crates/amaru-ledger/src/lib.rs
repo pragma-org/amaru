@@ -23,6 +23,7 @@ pub mod governance;
 pub mod registered_relay_addrs;
 pub mod rules;
 pub mod snapshot;
+pub mod startup;
 pub mod state;
 pub mod store;
 pub mod summary;

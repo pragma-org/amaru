@@ -19,7 +19,7 @@ use quote::quote;
 
 use crate::utils::{
     make_assign_macro_name, make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_schema_field_count_const_name, make_schema_public_const_name, parse_full_schema_path,
+    make_require_macro_name, parse_full_schema_path,
 };
 
 const TRACE_SPAN_NAME_PREFIX: &str = "__amaru_trace_span";
@@ -147,14 +147,14 @@ fn build_exported_path(meta: &SchemaMeta, path: &syn::Path) -> proc_macro2::Toke
     quote! { #prefixed }
 }
 
-fn build_public_const_path(meta: &SchemaMeta, schema_path: &syn::Path) -> proc_macro2::TokenStream {
-    let categories = meta.categories();
-    let public_const_ident = make_ident(&make_schema_public_const_name(&categories, &meta.schema_name));
-    let mut public_const_path = schema_path.clone();
-    if let Some(last_segment) = public_const_path.segments.last_mut() {
-        last_segment.ident = public_const_ident;
-    }
-    build_exported_path(meta, &public_const_path)
+fn build_schema_associated_const_path(
+    meta: &SchemaMeta,
+    schema_path: &syn::Path,
+    associated_const: &str,
+) -> proc_macro2::TokenStream {
+    let schema_path = build_exported_path(meta, schema_path);
+    let associated_const = make_ident(associated_const);
+    quote! { <#schema_path>::#associated_const }
 }
 
 fn private_emit_guard_tokens() -> proc_macro2::TokenStream {
@@ -325,8 +325,8 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
     let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
 
-    let public_const_path = build_public_const_path(&meta, &args.schema_path);
-    let schema_const_path = build_exported_path(&meta, &args.schema_path);
+    let public_const_path = build_schema_associated_const_path(&meta, &args.schema_path, "PUBLIC");
+    let schema_name_path = build_schema_associated_const_path(&meta, &args.schema_path, "NAME");
     let private_emit_guard = private_emit_guard_tokens();
 
     // Generate the expanded code - generate the full block based on whether a level is specified
@@ -352,7 +352,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
                 #private_emit_guard
 
                 if #public_const_path || __amaru_emit_private {
-                    let _schema = &#schema_const_path;
+                    let _schema = #schema_name_path;
                     #(#field_records)*
                     tracing::#level_macro!(#(#event_fields),*);
                 }
@@ -365,9 +365,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
                 #private_emit_guard
 
                 if #public_const_path || __amaru_emit_private {
-                    // Use the schema constant to anchor the recording context
-                    // This documents which schema these fields belong to
-                    let _schema = &#schema_const_path;
+                    let _schema = #schema_name_path;
 
                     // Runtime recording of all fields
                     #(#field_records)*
@@ -532,16 +530,8 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
     let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
 
     let categories = meta.categories();
-    let target = categories.iter().take(2).map(|part| part.as_str()).collect::<Vec<_>>().join("::");
-    let name = categories
-        .iter()
-        .skip(2)
-        .map(|part| part.to_lowercase())
-        .chain(std::iter::once(meta.schema_name.to_lowercase()))
-        .collect::<Vec<_>>()
-        .join(".");
-    let name_literal = syn::LitStr::new(&name, proc_macro2::Span::call_site());
-    let target_literal = syn::LitStr::new(&target, proc_macro2::Span::call_site());
+    let name_path = build_schema_associated_const_path(&meta, &args.schema_path, "NAME");
+    let target_path = build_schema_associated_const_path(&meta, &args.schema_path, "TARGET");
 
     let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
     let field_names: Vec<_> = args.fields.iter().map(|field| field.name.to_string()).collect();
@@ -594,7 +584,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let public_const_path = build_public_const_path(&meta, &args.schema_path);
+    let public_const_path = build_schema_associated_const_path(&meta, &args.schema_path, "PUBLIC");
     let private_emit_guard = private_emit_guard_tokens();
 
     let expanded = wrap_in_module_validator(
@@ -605,11 +595,10 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
 
             if #public_const_path || __amaru_emit_private {
                 #(#value_bindings)*
-
                 tracing::#level_macro!(
-                    name: #name_literal,
-                    target: #target_literal,
-                    message = #name_literal
+                    name: #name_path,
+                    target: #target_path,
+                    message = #name_path
                     #(, #event_fields)*
                 );
             }
@@ -800,13 +789,8 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     let categories = meta.categories();
     let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
     let assign_macro_ident = make_ident(&make_assign_macro_name(&categories, &meta.schema_name));
-    let field_count_const_ident = make_ident(&make_schema_field_count_const_name(&categories, &meta.schema_name));
-    let mut field_count_path = args.schema_path.clone();
-    if let Some(last_segment) = field_count_path.segments.last_mut() {
-        last_segment.ident = field_count_const_ident;
-    }
-    let field_count_path = build_exported_path(&meta, &field_count_path);
-    let public_const_path = build_public_const_path(&meta, &args.schema_path);
+    let field_count_path = build_schema_associated_const_path(&meta, &args.schema_path, "FIELD_COUNT");
+    let public_const_path = build_schema_associated_const_path(&meta, &args.schema_path, "PUBLIC");
     let private_emit_guard = private_emit_guard_tokens();
 
     let span_name = make_ident(TRACE_SPAN_NAME_PREFIX);

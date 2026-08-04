@@ -45,6 +45,7 @@ clap_mangen = "0.3.0"
 crc = "3.0.1"
 criterion = "0.8.2"
 cryptoxide = { version = "0.6.1", features = ["digest"]}
+crossterm = "0.29.0"
 ctor = "1.0.9"
 dashu-int = "0.4.1"
 dashu-base = "0.4.1"
@@ -66,6 +67,7 @@ indoc = "2.0"
 insta = "1.48.0"
 inventory = "0.3.24"
 itertools = "0.15.0"
+libc = "0.2"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] }
 mithril-client = { version = "0.14.5", default-features = false, features = ["fs", "num-integer-backend", "rustls-tls"] }
 mimalloc = { version = "0.1.52" }
@@ -87,6 +89,7 @@ proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 quote = "1.0.47"
 rand = "0.9.2"
 rand_distr = "0.5.1"
+ratatui = "0.29.0"
 rayon = "1.12.0"
 reqwest = { version = "0.13.4", default-features = false, features = ["query", "json", "stream"] }
 rocksdb = { version = "0.24.0", default-features = false, features = [ "bindgen-runtime", "snappy", "multi-threaded-cf" ] }
@@ -149,6 +152,7 @@ amaru-protocols = { path = "crates/amaru-protocols", version = "0.1.2" }
 amaru-pure-stage = { path = "crates/amaru-pure-stage", version = "0.1.2" }
 amaru-sim = { path = "crates/amaru-sim", version = "0.1.2" }
 amaru-stores = { path = "crates/amaru-stores", version = "0.1.2" }
+amaru-tui = { path = "crates/amaru-tui", version = "0.1.2" }
 amaru-uplc = { path = "crates/amaru-uplc", version = "0.4.0" }
 
 [workspace.lints.rust]

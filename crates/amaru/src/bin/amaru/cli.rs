@@ -17,6 +17,7 @@ use amaru::{
     observability::{Color, ObservabilityHints},
 };
 use amaru_kernel::GlobalParameters;
+use amaru_tui as tui;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::cmd;
@@ -136,6 +137,16 @@ impl Command {
                 | Command::LegacyDumpTracesSchema(_)
                 | Command::ShellCompletions(_)
         )
+    }
+
+    #[allow(clippy::wildcard_enum_match_arm)]
+    pub(crate) fn tui_settings(&self) -> Option<tui::Settings> {
+        match self {
+            Command::Node(cmd::node::NodeCommand::Run(args))
+            | Command::LegacyRun(args)
+            | Command::LegacyDaemon(args) => Some(args.tui_settings()),
+            _ => None,
+        }
     }
 }
 
