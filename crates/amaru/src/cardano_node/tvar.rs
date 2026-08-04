@@ -132,7 +132,10 @@ where
 
     let estimated_size = size.unwrap_or(network.estimated_utxo_size());
 
-    let progress = with_progress(estimated_size, "UTxO entries [{pos:>7}/{len:7}] {bar:40.green} ({eta} remaining)");
+    let progress = with_progress(
+        estimated_size,
+        "{spinner:.green} Importing UTxO entries {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
+    );
 
     let mut actual_size = 0_usize;
     loop {

@@ -324,7 +324,7 @@ fn transfer_progress_bar(action: &str, size: u64) -> TerminalProgressBar {
     let progress = TerminalProgressBar::new(
         size,
         format!(
-            "{action} [{{bytes:>10}}/{{total_bytes:<10}}] {{bar:40.green}} {{bytes_per_sec:>12}} ({{eta}} remaining)"
+            "{{spinner:.green}} {action} {{bytes_per_sec:>10}} {{bar:40.green}} [{{bytes:>10}}/{{total_bytes:<10}}] ({{eta}} remaining)"
         ),
     );
     progress.tick(0);

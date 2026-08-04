@@ -191,7 +191,7 @@ where
                             let total = s.replay_total;
                             s.bar = Some(factory(
                                 total,
-                                "{spinner:.green} {elapsed_precise} [{bar:40.green}] {pos}/{len} slots (eta {eta})",
+                                "{spinner:.green} {per_sec}/s [{bar:40.green}] [{pos}/{len} slots] ({eta} remaining)",
                             ));
                         }
                         continue;
@@ -205,7 +205,7 @@ where
                                 let factory = s.factory.clone();
                                 s.bar = Some(factory(
                                     total,
-                                    "{spinner:.green} {elapsed_precise} [{bar:40.green}] {pos}/{len} slots (eta {eta})",
+                                    "{spinner:.green} {bar:40.green} [{pos}/{len} slots] ({eta} remaining)",
                                 ));
                             }
                             if let Some(pb) = s.bar.as_ref() {

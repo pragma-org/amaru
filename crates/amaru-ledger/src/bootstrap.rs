@@ -870,7 +870,10 @@ fn import_accounts(
 
     info!(bootstrap::accounts::IMPORT, size = credentials.len());
 
-    let progress = with_progress(credentials.len(), "Accounts [{pos:>7}/{len:7}] {bar:40.green} ({eta} remaining)");
+    let progress = with_progress(
+        credentials.len(),
+        "{spinner:.green} Importing accounts {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
+    );
 
     while !credentials.is_empty() {
         let n = std::cmp::min(BATCH_SIZE, credentials.len());
