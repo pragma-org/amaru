@@ -6,10 +6,11 @@ receivers:
 
 processors:
   batch:
+  # service.name survives as the exported_job label, so dashboards can tell several nodes apart
+  # and select between them (the relay dashboards plot one series per service). Only the
+  # per-instance id is dropped, which is where the label cardinality is.
   resource/drop_prometheus_labels:
     attributes:
-      - key: service.name
-        action: delete
       - key: service.instance.id
         action: delete
   transform/drop_scope:
@@ -29,7 +30,11 @@ exporters:
   prometheus:
     endpoint: "0.0.0.0:8889"
     add_metric_suffixes: false
-    metric_expiration: 5s
+    # Must comfortably exceed the producer's export interval, or a metric is exposed for only a
+    # fraction of each interval and the dashboards flicker between a value and nothing. The demo
+    # exports every second (OTEL_METRIC_EXPORT_INTERVAL in common/amaru-node.sh), but a node run by
+    # hand uses the SDK default of 60s, so this has to cover that too.
+    metric_expiration: 120s
 
 service:
   pipelines:

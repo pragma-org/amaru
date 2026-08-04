@@ -89,6 +89,8 @@ Open [Grafana](http://localhost) and use **Explore** to query Tempo, Prometheus,
 
 The provisioned [Amaru Overview dashboard](http://localhost/d/amaru-overview/amaru-overview) is the Grafana home page. It refreshes every five seconds and combines node metrics, live logs, and recent traces containing at least ten spans. Click a trace ID to open its complete span waterfall. Use the `service` field at the top when Amaru is started with a different `OTEL_SERVICE_NAME`.
 
+Two more dashboards, [relay mempool](http://localhost/d/amaru-relay-mempool) and [relay consensus performance](http://localhost/d/amaru-relay-consensus-perf), plot several nodes side by side. Their **Service** selector is populated from the `exported_job` values actually present, so they work for any set of node names and default to all of them; the [relay-1 demo](../scripts/demos/relay-1/README.md) is one producer, not a requirement. Telling nodes apart needs `service.name`, which is why the collector keeps it as the `exported_job` metric label and drops only `service.instance.id`.
+
 - `http://localhost:3200` - Tempo
 - `http://localhost:9090` - Prometheus
 - `http://localhost:3100` - Loki

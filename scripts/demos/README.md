@@ -34,21 +34,23 @@ Every demo wrapper supports the same commands:
 
 ## Prerequisites
 
-There are two ways to run a demo, and each needs only one tool. Pick either.
+There are two ways to run a demo. Both need flox somewhere, so start there.
 
-**With flox**, from this checkout of [amaru](https://github.com/pragma-org/amaru):
+**Directly**, from this checkout of [amaru](https://github.com/pragma-org/amaru):
 
 - [flox](https://flox.dev): the demos run inside the flox environment in this directory
   (`flox activate`), which provides every required tool (`process-compose`, `jq`, `curl`, `rsync`,
   `ripgrep`, `xxd`, `rustup`, bash and the GNU core utilities, among others); startup fails when
   the environment is not active
 
-**With Docker**, needing neither flox nor a checkout on the machine that runs it:
+**In a container**, which the relay-1 demo ships as a single image:
 
-- Docker: the relay-1 demo ships as a single image built from that same flox environment, so it
-  runs the identical pinned toolset. See [`relay-1/docker`](relay-1/docker/README.md).
+- Docker to run it, and flox to *build* it: the image is the demo flox environment exported with
+  `flox containerize`, which is how it ends up with the identical pinned toolset. Once an image
+  exists, running it needs nothing but Docker, so one person can build it and hand it around.
+  See [`relay-1/docker`](relay-1/docker/README.md).
 
-Either way, Docker is also what runs the optional shared monitoring stack in
+In both cases Docker is also what runs the optional shared monitoring stack in
 [`monitoring`](../../monitoring); the demos export to it but never start it themselves.
 
 Everything else is downloaded automatically, each pinned and checksum-verified: the Amaru databases
