@@ -209,8 +209,7 @@ struct ProposalProxy {
 
 /// The identity and expiry of a seeded proposal are the only parts a fixture states; the rest of
 /// [`ProposalState`] is stood up as an `Information` action, the one governance action that
-/// constrains nothing about who may vote on it. A rule that starts reading `proposal` or
-/// `proposed_in` needs the schema to carry them, rather than these stand-ins.
+/// constrains nothing about who may vote on it.
 fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalState>, D::Error>
 where
     D: serde::Deserializer<'de>,
