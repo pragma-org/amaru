@@ -61,11 +61,11 @@ pub(in crate::ui) fn render_peers_table(
         .border_type(scroll_panel_border_type(focused));
     let inner = block.inner(area);
     let body = table_body_area(inner);
+    let peers = model.sorted_peers();
     let visible = body.height as usize;
-    let start = model.peer_scroll.min(model.peers.len().saturating_sub(visible));
-    let rows = model
-        .peers
-        .values()
+    let start = model.peer_scroll.min(peers.len().saturating_sub(visible));
+    let rows = peers
+        .into_iter()
         .skip(start)
         .take(visible)
         .enumerate()

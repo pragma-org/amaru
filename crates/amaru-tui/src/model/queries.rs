@@ -63,6 +63,17 @@ impl Model {
         self.proposal_order.iter().filter_map(|id| self.proposals_by_id.get(id))
     }
 
+    pub fn sorted_peers(&self) -> Vec<&PeerState> {
+        let mut peers = self.peers.values().collect::<Vec<_>>();
+        peers.sort_by(|left, right| {
+            left.last_rtt_micros
+                .unwrap_or(u64::MAX)
+                .cmp(&right.last_rtt_micros.unwrap_or(u64::MAX))
+                .then_with(|| left.address.cmp(&right.address))
+        });
+        peers
+    }
+
     pub(crate) fn max_window(&self) -> Duration {
         self.config.windows.last().copied().map(TimeWindow::as_duration).unwrap_or_default()
     }

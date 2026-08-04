@@ -387,6 +387,30 @@ mod tests {
     }
 
     #[test]
+    fn sorts_peers_by_ascending_rtt() {
+        let mut model = Model::new(Config::default(), startup_context());
+        let now = Instant::now();
+
+        let mut fast = PeerState::new("fast.example:3001".into(), false, now);
+        fast.last_rtt_micros = Some(5_000);
+
+        let mut unknown = PeerState::new("unknown.example:3001".into(), false, now);
+        unknown.last_rtt_micros = None;
+
+        let mut slow = PeerState::new("slow.example:3001".into(), false, now);
+        slow.last_rtt_micros = Some(15_000);
+
+        model.peers.insert(fast.address.clone(), fast);
+        model.peers.insert(unknown.address.clone(), unknown);
+        model.peers.insert(slow.address.clone(), slow);
+
+        let peers = model.sorted_peers();
+        let addresses = peers.iter().map(|peer| peer.address.as_str()).collect::<Vec<_>>();
+
+        assert_eq!(addresses, vec!["fast.example:3001", "slow.example:3001", "unknown.example:3001"]);
+    }
+
+    #[test]
     fn tracks_peer_header_lifecycle_means() {
         let mut model = Model::new(Config::default(), startup_context());
         let now = model.created_at;

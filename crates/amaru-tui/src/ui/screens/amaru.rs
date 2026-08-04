@@ -182,7 +182,7 @@ pub(in crate::ui) fn page_content_height(model: &Model) -> u16 {
 }
 
 fn peers_panel_height(model: &Model) -> u16 {
-    3 + model.peers.len().min(10) as u16
+    3 + model.peers.len().min(3) as u16
 }
 
 fn mempool_panel_height() -> u16 {
