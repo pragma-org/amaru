@@ -172,7 +172,7 @@ impl Default for LedgerConfig {
             era_history: PREPROD_ERA_HISTORY.clone(),
             global_parameters: PREPROD_GLOBAL_PARAMETERS.clone(),
             max_extra_ledger_snapshots: MaxExtraLedgerSnapshots::default(),
-            emit_initial_stake_distribution_progress_ticks: true,
+            emit_initial_stake_distribution_progress_ticks: false,
             ledger_vm_alloc_arena_count: 3,
             ledger_vm_alloc_arena_size: 20_971_520,
         }
