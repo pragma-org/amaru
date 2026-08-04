@@ -257,6 +257,7 @@ mod tests {
     #[test_case("a11902d1182a", "d90103a100a11902d1182a" ; "shelley bare metadata map")]
     #[test_case("a0", "d90103a0" ; "shelley empty metadata map")]
     #[test_case("82a11902d1182a80", "d90103a100a11902d1182a" ; "allegra without scripts")]
+    #[test_case("82a080", "d90103a0" ; "allegra with neither metadata nor scripts")]
     #[test_case("d90103a100a11902d1182a", "d90103a100a11902d1182a" ; "alonzo is unchanged")]
     #[test_case(
         "d90103a500a11902d1182a0180028003800480",
