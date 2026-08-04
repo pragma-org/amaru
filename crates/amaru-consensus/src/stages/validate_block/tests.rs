@@ -72,7 +72,8 @@ fn test_parent_equals_current_validates_tip_only() {
             te_input("vb-1", &msg).into(),
             te_validate_block("vb-1", tip.point()).into(),
             tm_record_metrics("vb-1"),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
+                .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
@@ -105,7 +106,8 @@ fn test_parent_in_ledger_skips_roll_forward() {
         &running,
         &[
             te_input("vb-1", &msg).into(),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
+                .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
@@ -174,7 +176,8 @@ fn test_grand_parent_in_ledger() {
         &running,
         &[
             te_input("vb-1", &msg).into(),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
+                .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
@@ -204,7 +207,8 @@ fn test_rollback_fails_when_ancestor_invalid() {
         &running,
         &[
             te_input("vb-1", &msg).into(),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true)).into(),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
+                .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
@@ -257,7 +261,7 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
 #[test]
 fn test_ledger_fails_terminates_after_sending_false() {
     // Mock validator returns Err for tip -> or_terminate runs, stage terminates after sending
-    // BlockValidationResult(tip, false)
+    // BlockValidationResult(tip, false, state.max_block_height)
     let mut prep = test_prep();
     prep.set_current(prep.headers.h1.point());
     prep.block_validator.with_tip(prep.headers.h1.point()).with_ledger_fails(prep.headers.h2.point());
@@ -289,7 +293,7 @@ fn test_ledger_fails_terminates_after_sending_false() {
 #[test]
 fn test_validation_fails_terminates_after_sending_false() {
     // Mock validator returns Err for tip -> or_terminate runs, stage terminates after sending
-    // BlockValidationResult(tip, false)
+    // BlockValidationResult(tip, false, state.max_block_height)
     let mut prep = test_prep();
     prep.set_current(prep.headers.h1.point());
     prep.block_validator.with_tip(prep.headers.h1.point()).with_validate_fails(prep.headers.h2.point());
@@ -308,7 +312,7 @@ fn test_validation_fails_terminates_after_sending_false() {
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg),
             te_validate_block("vb-1", tip.point()),
-            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false)),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0))),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
             te_state("vb-1", &prep.state),
         ],

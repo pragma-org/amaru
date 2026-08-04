@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, collections::BTreeMap, time::Duration};
 
-use amaru_kernel::{BlockHeader, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
+use amaru_kernel::{BlockHeader, BlockHeight, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
@@ -68,7 +68,7 @@ pub use headers_performance::PerfHeaderForwardOutcome;
 ///     unconditionally updates `best_tip`.
 ///   - (When `!may_fetch_blocks`, a better tip updates state silently; downstream learns only on its next `FetchNextFrom`.)
 ///
-/// - **BlockValidationResult(point: Tip, valid: bool)**:
+/// - **BlockValidationResult(point: Tip, valid: bool, max_block_height: BlockHeight)**:
 ///   - Terminates (error) if header not present in store.
 ///   - Persists the validity result via `set_block_valid` (terminates on store error).
 ///   - If `valid`: for every pending chain, drains the prefix up through the now-validated hash (advances all branches).
@@ -124,7 +124,7 @@ impl SelectChain {
 pub enum SelectChainMsg {
     Initialize(HeaderHash),
     TipFromUpstream { peer: Peer, tip: Tip, parent: Point, trace_context: TraceContext, received_at: Instant },
-    BlockValidationResult(Tip, bool),
+    BlockValidationResult(Tip, bool, BlockHeight),
     // This message must also be preloaded upon startup to get the block-fetching
     // and validation processes started. Should then contain Point::Origin.
     FetchNextFrom(Point, TraceContext),
@@ -176,7 +176,7 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 .instrument(span)
                 .await;
         }
-        SelectChainMsg::BlockValidationResult(point, valid) => {
+        SelectChainMsg::BlockValidationResult(point, valid, max_block_height) => {
             let span = debug_span!(
                 consensus::chain::SELECT_FROM_BLOCK_VALIDATION,
                 point = point,
@@ -184,7 +184,10 @@ pub async fn stage(mut state: SelectChain, msg: SelectChainMsg, eff: Effects<Sel
                 header_hash = point.hash(),
             );
             let trace_context = (&span).into();
-            state.handle_block_validation_result(point, valid, eff, trace_context).instrument(span).await;
+            state
+                .handle_block_validation_result(point, valid, max_block_height, eff, trace_context)
+                .instrument(span)
+                .await;
         }
         SelectChainMsg::FetchNextFrom(point, trace_context) => {
             let span = debug_span!(parent_context: trace_context, consensus::chain::FETCH_NEXT, point = point, header_hash = point.hash(),);
@@ -281,9 +284,11 @@ impl SelectChain {
         &mut self,
         tip: Tip,
         valid: bool,
+        max_block_height: BlockHeight,
         eff: Effects<SelectChainMsg>,
         trace_context: TraceContext,
     ) {
+        let syncing = max_block_height > tip.block_height();
         let store = Store::new(eff.clone()).with_trace_context(&trace_context);
         if !store.has_header(&tip.hash()).await {
             tracing::error!(%tip, "header not found while trying to store block validation result");
@@ -305,7 +310,7 @@ impl SelectChain {
                 }
             });
             let now = eff.clock().await;
-            self.headers_performance.block_valid(&eff.erase(), &h, now).await;
+            self.headers_performance.block_valid(&eff.erase(), &h, now, syncing).await;
             return;
         }
         // INVALID CASE
@@ -359,7 +364,7 @@ impl SelectChain {
         // we dropped because a better chain is available
         let now = eff.clock().await;
         for hash in &pruned {
-            self.headers_performance.block_pruned(&eff.erase(), hash, hash == &tip.hash(), now).await;
+            self.headers_performance.block_pruned(&eff.erase(), hash, hash == &tip.hash(), now, syncing).await;
         }
 
         // switching away from the invalidated best tip to another candidate is a fork switch

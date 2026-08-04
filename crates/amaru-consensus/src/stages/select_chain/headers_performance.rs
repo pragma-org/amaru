@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
-use amaru_kernel::{EraHistory, HeaderHash, Peer, Tip};
+use amaru_kernel::{EraHistory, HeaderHash, Peer, Slot, Tip};
 use amaru_metrics::consensus::ConsensusMetrics;
 use amaru_observability::debug;
 use amaru_protocols::metrics_effects::{Metrics, MetricsOps};
@@ -47,8 +47,8 @@ pub struct HeadersPerformance {
 struct HeaderLifecycle {
     /// Peer from which the header was first received.
     peer: Peer,
-    /// Virtual start of the header's slot, relative to the network global epoch.
-    slot_start: Duration,
+    /// Slot of the header, retained so the virtual slot start can be derived only when needed.
+    slot: Slot,
     /// Time when the header was first received from an upstream peer.
     received_at: Instant,
     /// Time when its block was first requested, if it was requested.
@@ -58,8 +58,8 @@ struct HeaderLifecycle {
 }
 
 impl HeaderLifecycle {
-    fn new(peer: Peer, slot_start: Duration, received_at: Instant) -> Self {
-        Self { peer, slot_start, received_at, requested_at: None, downloaded_at: None }
+    fn new(peer: Peer, slot: Slot, received_at: Instant) -> Self {
+        Self { peer, slot, received_at, requested_at: None, downloaded_at: None }
     }
 }
 
@@ -78,8 +78,7 @@ impl HeadersPerformance {
 
     /// A header has been accepted from upstream: start tracking its lifecycle from `received_at`.
     pub fn header_received(&mut self, peer: Peer, tip: Tip, received_at: Instant) {
-        let slot_start = self.era_history.slot_to_relative_time_unchecked_horizon(tip.slot()).unwrap_or_default();
-        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(peer, slot_start, received_at));
+        self.lifecycles.entry(tip.hash()).or_insert_with(|| HeaderLifecycle::new(peer, tip.slot(), received_at));
     }
 
     /// The fetch_blocks stage requested the blocks for these headers: record their request time.
@@ -100,7 +99,7 @@ impl HeadersPerformance {
 
     /// A received header that is abandoned because its block depends on an invalid block.
     pub async fn header_abandoned(&mut self, eff: &Effects<Void>, hash: &HeaderHash, now: Instant) {
-        self.emit_lifecycle(eff, hash, PerfHeaderForwardOutcome::AbandonedBlock, now).await;
+        self.emit_lifecycle(eff, hash, PerfHeaderForwardOutcome::AbandonedBlock, now, false).await;
     }
 
     /// A fork has been detected: start tracking the time it takes to switch to it. If a previous
@@ -119,21 +118,28 @@ impl HeadersPerformance {
 
     /// The block for a header has been validated and adopted: emit its lifecycle event and the
     /// fork-switch event if it was waiting on this header.
-    pub async fn block_valid(&mut self, eff: &Effects<Void>, hash: &HeaderHash, now: Instant) {
-        self.emit_lifecycle(eff, hash, PerfHeaderForwardOutcome::ValidBlock, now).await;
+    pub async fn block_valid(&mut self, eff: &Effects<Void>, hash: &HeaderHash, now: Instant, syncing: bool) {
+        self.emit_lifecycle(eff, hash, PerfHeaderForwardOutcome::ValidBlock, now, syncing).await;
         self.close_fork(eff, hash, PerfForkSwitchOutcome::ValidBlock, now).await;
     }
 
     /// A header has been pruned after a block validation.
     /// `invalid == true` means that the block that was found invalid
     /// Otherwise this header/block has been abandoned because a better chain is available.
-    pub async fn block_pruned(&mut self, eff: &Effects<Void>, hash: &HeaderHash, invalid: bool, now: Instant) {
+    pub async fn block_pruned(
+        &mut self,
+        eff: &Effects<Void>,
+        hash: &HeaderHash,
+        invalid: bool,
+        now: Instant,
+        syncing: bool,
+    ) {
         let (header_outcome, fork_outcome) = if invalid {
             (PerfHeaderForwardOutcome::InvalidBlock, PerfForkSwitchOutcome::InvalidBlock)
         } else {
             (PerfHeaderForwardOutcome::AbandonedBlock, PerfForkSwitchOutcome::AbandonedBlock)
         };
-        self.emit_lifecycle(eff, hash, header_outcome, now).await;
+        self.emit_lifecycle(eff, hash, header_outcome, now, syncing).await;
         self.close_fork(eff, hash, fork_outcome, now).await;
     }
 
@@ -145,13 +151,17 @@ impl HeadersPerformance {
         hash: &HeaderHash,
         outcome: PerfHeaderForwardOutcome,
         now: Instant,
+        syncing: bool,
     ) {
         let Some(lifecycle) = self.lifecycles.remove(hash) else {
             return;
         };
 
-        let slot_start_to_header_micros =
-            duration_micros_since(lifecycle.slot_start, lifecycle.received_at.duration_since_global_epoch());
+        let slot_start_to_header_micros = (!syncing).then(|| {
+            let slot_start =
+                self.era_history.slot_to_relative_time_unchecked_horizon(lifecycle.slot).unwrap_or_default();
+            duration_micros_since(slot_start, lifecycle.received_at.duration_since_global_epoch())
+        });
         let block_fetch_wait_micros =
             lifecycle.requested_at.map(|requested_at| duration_micros(lifecycle.received_at, requested_at));
         let block_fetch_micros = lifecycle
@@ -175,7 +185,7 @@ impl HeadersPerformance {
         ops.record(
             ConsensusMetrics::HeaderLifecycle {
                 outcome: outcome.as_str().to_string(),
-                slot_start_to_header_micros: Some(slot_start_to_header_micros),
+                slot_start_to_header_micros,
                 block_fetch_wait_micros,
                 block_fetch_micros,
                 forward_micros: Some(forward_micros),
@@ -300,7 +310,7 @@ impl HeadersPerformance {
                 hash,
                 HeaderLifecycle::new(
                     Peer::new("upstream"),
-                    std::time::Duration::ZERO,
+                    Slot::new(0),
                     Instant::at_offset(std::time::Duration::ZERO, std::time::Duration::ZERO),
                 ),
             );
