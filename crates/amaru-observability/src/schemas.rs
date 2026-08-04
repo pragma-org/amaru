@@ -918,6 +918,12 @@ define_schemas! {
                     required network: amaru_kernel::NetworkName
                     optional epoch: amaru_kernel::Epoch
                 }
+                /// Remove ledger and chain database from disk
+                public RM {
+                    required chain_dir: String
+                    required ledger_dir: String
+                    required network: amaru_kernel::NetworkName
+                }
             }
             snapshot {
                 /// Create snapshots for the given network

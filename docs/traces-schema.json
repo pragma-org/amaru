@@ -855,6 +855,33 @@
       "description": "Bootstrap a node from published snapshots",
       "public": true
     },
+    "amaru::cli::node::RM": {
+      "type": "object",
+      "properties": {
+        "chain_dir": {
+          "type": "string"
+        },
+        "ledger_dir": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkName"
+        }
+      },
+      "required": [
+        "chain_dir",
+        "ledger_dir",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "rm",
+      "level": "TRACE",
+      "target": "amaru::cli::node",
+      "description": "Remove ledger and chain database from disk",
+      "public": true
+    },
     "amaru::cli::snapshot::CREATE": {
       "type": "object",
       "properties": {

@@ -512,6 +512,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
+| `rm` | `TRACE` | public | Remove ledger and chain database from disk | chain_dir, ledger_dir, network |  |
 
 <details><summary>span: `bootstrap`</summary>
 
@@ -521,6 +522,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `ledger_dir` | `string` | ✓ |
 | `network` | `string` | ✓ |
 | `epoch` | `string` |  |
+
+</details>
+
+<details><summary>span: `rm`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `chain_dir` | `string` | ✓ |
+| `ledger_dir` | `string` | ✓ |
+| `network` | `string` | ✓ |
 
 </details>
 
