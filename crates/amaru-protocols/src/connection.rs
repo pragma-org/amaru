@@ -329,8 +329,15 @@ async fn do_handshake(
     )
     .await;
 
-    let keepalive =
-        register_keepalive(*role, muxer.clone(), &eff, ConnectionMessage::ChildDied(ChildId::KeepAlive)).await;
+    let keepalive = register_keepalive(
+        *role,
+        peer.clone(),
+        *conn_id,
+        muxer.clone(),
+        &eff,
+        ConnectionMessage::ChildDied(ChildId::KeepAlive),
+    )
+    .await;
     let tx_submission = register_tx_submission(
         *role,
         muxer.clone(),

@@ -557,7 +557,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 amaru::protocols::peer_selection::peer::CONNECTED,
                 peer = &peer,
                 conn_id = connection.id.as_u64(),
-                direction = ConnectionDirection::Inbound,
+                direction = ConnectionDirection::Outbound,
                 full_duplex_capable = connection.full_duplex_capable,
                 full_duplex = connection.full_duplex,
             )
@@ -593,7 +593,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
                     peer = peer,
                     conn_id = conn_id.as_u64(),
-                    direction = ConnectionDirection::Inbound,
+                    direction = ConnectionDirection::Outbound,
                 )
                 .entered();
                 entry.remove();

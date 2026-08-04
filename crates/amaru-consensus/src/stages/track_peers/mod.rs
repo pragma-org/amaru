@@ -284,6 +284,7 @@ pub enum TrackPeersMsg {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NewTip {
+    pub peer: Peer,
     pub tip: Tip,
     pub parent: Point,
     pub trace_context: TraceContext,
@@ -295,13 +296,17 @@ impl PartialEq for NewTip {
     fn eq(&self, other: &Self) -> bool {
         // `received_at` is a performance timestamp used only to measure durations downstream; it does
         // not define the identity of the message, so it is excluded from equality.
-        self.tip == other.tip && self.parent == other.parent && self.trace_context == other.trace_context
+        self.peer == other.peer
+            && self.tip == other.tip
+            && self.parent == other.parent
+            && self.trace_context == other.trace_context
     }
 }
 
 impl NewTip {
-    pub fn new(tip: Tip, parent: Point) -> Self {
+    pub fn new(peer: Peer, tip: Tip, parent: Point) -> Self {
         NewTip {
+            peer,
             tip,
             parent,
             trace_context: Default::default(),
@@ -681,7 +686,7 @@ impl TrackPeers {
                     })
                     .await;
                 tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward with new header");
-                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context, received_at }).await;
+                eff.send(&self.downstream, NewTip { peer, tip: header_tip, parent, trace_context, received_at }).await;
             }
         }
 
@@ -917,6 +922,7 @@ async fn record_header_rejected<T: amaru_pure_stage::SendData + Sync>(
         .record(
             ConsensusMetrics::HeaderLifecycle {
                 outcome: outcome.as_str().to_string(),
+                slot_start_to_header_micros: None,
                 block_fetch_wait_micros: None,
                 block_fetch_micros: None,
                 forward_micros: None,

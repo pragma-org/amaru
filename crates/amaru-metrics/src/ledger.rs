@@ -22,6 +22,7 @@ use crate::{Meter, MetricRecorder, MetricsEvent};
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LedgerMetrics {
     pub block_height: u64,
+    pub tx_count: u64,
     pub slot: u64,
     pub slot_in_epoch: u64,
     pub epoch: u64,
@@ -37,6 +38,7 @@ impl Default for LedgerMetrics {
     fn default() -> Self {
         Self {
             block_height: 1,
+            tx_count: Default::default(),
             slot: Default::default(),
             slot_in_epoch: Default::default(),
             epoch: Default::default(),

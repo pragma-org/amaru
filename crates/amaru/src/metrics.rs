@@ -14,12 +14,17 @@
 
 use std::{sync::LazyLock, time::Duration};
 
-use amaru_metrics::{METRICS_METER_NAME, initialize_metrics};
+use amaru_metrics::{
+    METRICS_METER_NAME, MetricRecorder, SystemMetrics, has_subscribers, initialize_metrics, notify_subscribers,
+};
 use anyhow::anyhow;
-use opentelemetry::{KeyValue, metrics::MeterProvider};
+use opentelemetry::{
+    KeyValue,
+    metrics::{Gauge, Meter, MeterProvider},
+};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, Networks, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System,
+    CpuRefreshKind, MemoryRefreshKind, Networks, Process, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System,
 };
 use tokio::task::JoinHandle;
 use tracing::error;
@@ -28,17 +33,27 @@ use crate::version;
 
 static METRICS_POLL_DELAY: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(1));
 
-pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
-    use internals::*;
+pub fn track_system_metrics(
+    provider: Option<SdkMeterProvider>,
+) -> Result<Option<JoinHandle<()>>, Box<dyn std::error::Error>> {
+    if provider.is_none() && !has_subscribers() {
+        return Ok(None);
+    }
 
-    record_build_info(&provider);
-    initialize_metrics(&provider.meter(METRICS_METER_NAME));
+    if let Some(provider) = provider.as_ref() {
+        record_build_info(provider);
+    }
 
     let mut sys = System::new_with_specifics(
         RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::everything().without_frequency())
             .with_memory(MemoryRefreshKind::everything().without_swap()),
     );
+    let number_of_cpus = sys.cpus().len() as u64;
+    let meter = provider.as_ref().map(|provider| provider.meter(METRICS_METER_NAME));
+    if let Some(meter) = meter.as_ref() {
+        initialize_metrics(meter);
+    }
 
     let own_pid = sysinfo::get_current_pid().map_err(|err| anyhow!("unable to retrieve own pid: {err}"))?;
     sys.refresh_processes_specifics(
@@ -49,10 +64,10 @@ pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>
 
     let process = sys.process(own_pid).ok_or_else(|| anyhow!("unable to find amaru's own process (pid={own_pid})"))?;
     let mut networks = Networks::new_with_refreshed_list();
-    let metrics = ProcessMetrics::new(provider, &sys, process.start_time());
-    metrics.record(process, &networks);
+    let cardano_metrics = meter.as_ref().map(|meter| CardanoMetrics::new(meter, process.start_time()));
+    record_system_metrics(process, &networks, number_of_cpus, meter.as_ref(), cardano_metrics.as_ref());
 
-    Ok(tokio::spawn(async move {
+    Ok(Some(tokio::spawn(async move {
         loop {
             tokio::time::sleep(*METRICS_POLL_DELAY).await;
 
@@ -66,16 +81,14 @@ pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>
             match sys.process(own_pid) {
                 None => error!("unable to find amaru's own process (pid={own_pid}) ?!"),
                 Some(process) => {
-                    metrics.record(process, &networks);
+                    record_system_metrics(process, &networks, number_of_cpus, meter.as_ref(), cardano_metrics.as_ref());
                 }
             }
         }
-    }))
+    })))
 }
 
 fn record_build_info(provider: &SdkMeterProvider) {
-    use opentelemetry::metrics::MeterProvider;
-
     let meter = provider.meter(METRICS_METER_NAME);
 
     let build_info = meter
@@ -130,201 +143,106 @@ fn record_build_info(provider: &SdkMeterProvider) {
     }
 }
 
-mod internals {
-    use opentelemetry::{
-        KeyValue,
-        metrics::{Gauge, MeterProvider},
+fn record_system_metrics(
+    process: &Process,
+    networks: &Networks,
+    number_of_cpus: u64,
+    meter: Option<&Meter>,
+    cardano_metrics: Option<&CardanoMetrics>,
+) {
+    let disk_usage = process.disk_usage();
+    let metrics = SystemMetrics {
+        runtime_seconds: process.run_time(),
+        cpu_percent: process.cpu_usage() as f64 / number_of_cpus as f64,
+        process_memory_bytes: process.memory(),
+        rss_bytes: process.memory(),
+        virtual_bytes: process.virtual_memory(),
+        disk_read_bytes: disk_usage.total_read_bytes,
+        disk_write_bytes: disk_usage.total_written_bytes,
+        disk_live_read_bytes: disk_usage.read_bytes,
+        disk_live_write_bytes: disk_usage.written_bytes,
+        open_files: process.open_files().map_or(0, |files| files as u64),
     };
-    use opentelemetry_sdk::metrics::SdkMeterProvider;
-    use sysinfo::{Networks, Process, System};
 
-    pub struct ProcessMetrics {
-        number_of_cpus: u64,
-
-        runtime_seconds: Gauge<u64>,
-
-        disk_total_read_bytes: Gauge<u64>,
-        disk_total_write_bytes: Gauge<u64>,
-
-        disk_live_read_bytes: Gauge<u64>,
-        disk_live_write_bytes: Gauge<u64>,
-
-        cpu_live_percent: Gauge<f64>,
-        cpu_ticks: Gauge<u64>,
-        network_read_bytes: Gauge<u64>,
-        network_written_bytes: Gauge<u64>,
-        filesystem_read_bytes: Gauge<u64>,
-        filesystem_written_bytes: Gauge<u64>,
-
-        memory_live_resident_bytes: Gauge<u64>,
-        memory_resident_bytes: Gauge<u64>,
-
-        memory_available_virtual_bytes: Gauge<u64>,
-
-        open_files: Gauge<u64>,
+    if let Some(meter) = meter {
+        metrics.record_to_meter(meter);
     }
+    if let Some(cardano_metrics) = cardano_metrics {
+        cardano_metrics.record(process, networks);
+    }
+    notify_subscribers(&metrics.into());
+}
 
-    impl ProcessMetrics {
-        pub fn new(metrics: SdkMeterProvider, sys: &System, node_start_time_seconds: u64) -> Self {
-            let meter = metrics.meter("amaru");
+struct CardanoMetrics {
+    cpu_ticks: Gauge<u64>,
+    network_read_bytes: Gauge<u64>,
+    network_written_bytes: Gauge<u64>,
+    filesystem_read_bytes: Gauge<u64>,
+    filesystem_written_bytes: Gauge<u64>,
+    memory_resident_bytes: Gauge<u64>,
+}
 
-            let number_of_cpus = sys.cpus().len() as u64;
+impl CardanoMetrics {
+    fn new(meter: &Meter, node_start_time_seconds: u64) -> Self {
+        let node_start_time = meter
+            .u64_gauge("cardano_node_metrics_node_start_time_int")
+            .with_description("node start time as seconds since the Unix epoch")
+            .with_unit("seconds")
+            .build();
+        let basic_info = meter
+            .u64_gauge("cardano_node_metrics_basicInfo")
+            .with_description("basic information for the running Amaru node")
+            .build();
 
-            let runtime_seconds = meter
-                .u64_gauge("process_runtime")
-                .with_description("How much time the process has been running (in seconds)")
-                .with_unit("seconds")
-                .build();
+        node_start_time.record(node_start_time_seconds, &[]);
+        basic_info.record(1, &[KeyValue::new("nodeStartTime", node_start_time_seconds.to_string())]);
 
-            let node_start_time = meter
-                .u64_gauge("cardano_node_metrics_node_start_time_int")
-                .with_description("node start time as seconds since the Unix epoch")
-                .with_unit("seconds")
-                .build();
-
-            let basic_info = meter
-                .u64_gauge("cardano_node_metrics_basicInfo")
-                .with_description("basic information for the running Amaru node")
-                .build();
-
-            node_start_time.record(node_start_time_seconds, &[]);
-            basic_info.record(1, &[KeyValue::new("nodeStartTime", node_start_time_seconds.to_string())]);
-
-            let disk_total_read_bytes = meter
-                .u64_gauge("process_disk_total_read")
-                .with_description("Total number of read bytes (in bytes).")
-                .with_unit("bytes")
-                .build();
-
-            let disk_total_write_bytes = meter
-                .u64_gauge("process_disk_total_write")
-                .with_description("Total number of written bytes (in bytes).")
-                .with_unit("bytes")
-                .build();
-
-            let disk_live_read_bytes = meter
-                .u64_gauge("process_disk_live_read")
-                .with_description("Number of read bytes since the last refresh (in bytes)")
-                .with_unit("bytes")
-                .build();
-
-            let disk_live_write_bytes = meter
-                .u64_gauge("process_disk_live_write")
-                .with_description("Number of written bytes since the last refresh (in bytes)")
-                .with_unit("bytes")
-                .build();
-
-            let cpu_live_percent = meter
-                .f64_gauge("process_cpu_live")
-                .with_description("Current CPU utilization (in %)")
-                .with_unit("%")
-                .build();
-
-            let cpu_ticks = meter
+        Self {
+            cpu_ticks: meter
                 .u64_gauge("cardano_node_metrics_Stat_cputicks_int")
                 .with_description("total CPU time used by the process in centiseconds")
                 .with_unit("centiseconds")
-                .build();
-
-            let network_read_bytes = meter
+                .build(),
+            network_read_bytes: meter
                 .u64_gauge("cardano_node_metrics_Stat_netRd_int")
                 .with_description("total bytes received by the host's network interfaces")
                 .with_unit("bytes")
-                .build();
-
-            let network_written_bytes = meter
+                .build(),
+            network_written_bytes: meter
                 .u64_gauge("cardano_node_metrics_Stat_netWr_int")
                 .with_description("total bytes sent by the host's network interfaces")
                 .with_unit("bytes")
-                .build();
-
-            let filesystem_read_bytes = meter
+                .build(),
+            filesystem_read_bytes: meter
                 .u64_gauge("cardano_node_metrics_Stat_fsRd_int")
                 .with_description("total bytes read from storage by the process")
                 .with_unit("bytes")
-                .build();
-
-            let filesystem_written_bytes = meter
+                .build(),
+            filesystem_written_bytes: meter
                 .u64_gauge("cardano_node_metrics_Stat_fsWr_int")
                 .with_description("total bytes written to storage by the process")
                 .with_unit("bytes")
-                .build();
-
-            let memory_live_resident_bytes = meter
-                .u64_gauge("process_memory_live_resident")
-                .with_description(
-                    "The amount of memory that the process allocated and which is currently mapped in physical RAM (in bytes).",
-                )
-                .with_unit("bytes")
-                .build();
-
-            let memory_resident_bytes = meter
+                .build(),
+            memory_resident_bytes: meter
                 .u64_gauge("cardano_node_metrics_Mem_resident_int")
                 .with_description("kernel-reported resident set size")
                 .with_unit("bytes")
-                .build();
-
-            let memory_available_virtual_bytes = meter
-                .u64_gauge("process_memory_available_virtual")
-                .with_description(
-                    "The amount of memory that the process can access, whether it is currently mapped in physical RAM or not (in bytes).",
-                )
-                .with_unit("bytes")
-                .build();
-
-            let open_files =
-                meter.u64_gauge("process_open_files").with_description("Total number of file descriptors.").build();
-
-            Self {
-                number_of_cpus,
-                runtime_seconds,
-                disk_total_read_bytes,
-                disk_total_write_bytes,
-                disk_live_read_bytes,
-                disk_live_write_bytes,
-                cpu_live_percent,
-                cpu_ticks,
-                network_read_bytes,
-                network_written_bytes,
-                filesystem_read_bytes,
-                filesystem_written_bytes,
-                memory_live_resident_bytes,
-                memory_resident_bytes,
-                memory_available_virtual_bytes,
-                open_files,
-            }
+                .build(),
         }
+    }
 
-        pub fn record(&self, proc: &Process, networks: &Networks) {
-            self.runtime_seconds.record(proc.run_time(), &[]);
+    fn record(&self, process: &Process, networks: &Networks) {
+        self.cpu_ticks.record(process.accumulated_cpu_time() / 10, &[]);
 
-            let disk_usage = proc.disk_usage();
-            self.disk_total_read_bytes.record(disk_usage.total_read_bytes, &[]);
-            self.disk_total_write_bytes.record(disk_usage.total_written_bytes, &[]);
-            self.disk_live_read_bytes.record(disk_usage.read_bytes, &[]);
-            self.disk_live_write_bytes.record(disk_usage.written_bytes, &[]);
-            self.filesystem_read_bytes.record(disk_usage.total_read_bytes, &[]);
-            self.filesystem_written_bytes.record(disk_usage.total_written_bytes, &[]);
+        let (network_read_bytes, network_written_bytes) = networks.values().fold((0u64, 0u64), |totals, network| {
+            (totals.0.saturating_add(network.total_received()), totals.1.saturating_add(network.total_transmitted()))
+        });
+        self.network_read_bytes.record(network_read_bytes, &[]);
+        self.network_written_bytes.record(network_written_bytes, &[]);
 
-            self.cpu_live_percent.record(proc.cpu_usage() as f64 / self.number_of_cpus as f64, &[]);
-            self.cpu_ticks.record(proc.accumulated_cpu_time() / 10, &[]);
-
-            let (network_read_bytes, network_written_bytes) =
-                networks.values().fold((0u64, 0u64), |totals, network| {
-                    (
-                        totals.0.saturating_add(network.total_received()),
-                        totals.1.saturating_add(network.total_transmitted()),
-                    )
-                });
-            self.network_read_bytes.record(network_read_bytes, &[]);
-            self.network_written_bytes.record(network_written_bytes, &[]);
-
-            self.memory_live_resident_bytes.record(proc.memory(), &[]);
-            self.memory_resident_bytes.record(proc.memory(), &[]);
-
-            self.memory_available_virtual_bytes.record(proc.virtual_memory(), &[]);
-
-            self.open_files.record(proc.open_files().map_or(0, |files| files as u64), &[]);
-        }
+        let disk_usage = process.disk_usage();
+        self.filesystem_read_bytes.record(disk_usage.total_read_bytes, &[]);
+        self.filesystem_written_bytes.record(disk_usage.total_written_bytes, &[]);
+        self.memory_resident_bytes.record(process.memory(), &[]);
     }
 }

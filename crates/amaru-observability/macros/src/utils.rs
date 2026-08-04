@@ -218,30 +218,6 @@ pub fn make_module_validator_name(categories: &[String]) -> String {
     }
 }
 
-/// Generate a schema field constant name.
-///
-/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_SCHEMA_FIELDS`
-pub fn make_schema_field_const_name(categories: &[String], schema_name: &str) -> String {
-    let namespace = make_macro_namespace(categories);
-    format!("__{namespace}{schema_name}_SCHEMA_FIELDS")
-}
-
-/// Generate a schema field count constant name.
-///
-/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_FIELD_COUNT`
-pub fn make_schema_field_count_const_name(categories: &[String], schema_name: &str) -> String {
-    let namespace = make_macro_namespace(categories);
-    format!("__{namespace}{schema_name}_FIELD_COUNT")
-}
-
-/// Generate a schema visibility constant name.
-///
-/// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_PUBLIC`
-pub fn make_schema_public_const_name(categories: &[String], schema_name: &str) -> String {
-    let namespace = make_macro_namespace(categories);
-    format!("__{namespace}{schema_name}_PUBLIC")
-}
-
 /// Generate a schema validation registry constant name.
 ///
 /// Convention: `_SCHEMA_{CATEGORIES}__{SCHEMA_NAME}`

@@ -27,11 +27,14 @@ use crate::{Meter, MetricRecorder, MetricsEvent};
 /// counter per measurement kind).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConsensusMetrics {
-    /// A header reached a terminal state. The optional durations are the intervals between the four
-    /// processing points of a header's lifecycle; they are absent when the corresponding point was
-    /// never reached (e.g. a header rejected on reception carries none of them).
+    /// A header reached a terminal state. The optional durations are the intervals between the
+    /// virtual slot start and the tracked processing points of a header's lifecycle; they are
+    /// absent when the corresponding point was never reached (e.g. a header rejected on reception
+    /// carries none of them).
     HeaderLifecycle {
         outcome: String,
+        /// Time from the virtual beginning of the slot to the header's reception.
+        slot_start_to_header_micros: Option<u64>,
         /// Time from a header's reception to the request (or abandonment) of its block.
         block_fetch_wait_micros: Option<u64>,
         /// Time from a block's request to its reception.
@@ -52,6 +55,7 @@ impl MetricRecorder for ConsensusMetrics {
 impl MetricRecorder for ConsensusMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static HEADER_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+        static SLOT_START_TO_HEADER_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static HEADER_FORWARD_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static BLOCK_FETCH_WAIT_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static BLOCK_FETCH_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
@@ -61,6 +65,7 @@ impl MetricRecorder for ConsensusMetrics {
         match self {
             ConsensusMetrics::HeaderLifecycle {
                 outcome,
+                slot_start_to_header_micros,
                 block_fetch_wait_micros,
                 block_fetch_micros,
                 forward_micros,
@@ -77,6 +82,14 @@ impl MetricRecorder for ConsensusMetrics {
                 total.add(1, attributes);
 
                 // Each interval is recorded only when the corresponding processing point was reached.
+                record_optional_duration(
+                    meter,
+                    &SLOT_START_TO_HEADER_DURATION,
+                    "amaru_consensus_slot_start_to_header_duration_microseconds",
+                    "time from the virtual beginning of a slot to the reception of its header",
+                    attributes,
+                    *slot_start_to_header_micros,
+                );
                 record_optional_duration(
                     meter,
                     &BLOCK_FETCH_WAIT_DURATION,

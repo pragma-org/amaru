@@ -15,7 +15,7 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
-use amaru_observability::{TraceContext, debug_span};
+use amaru_observability::{TraceContext, debug, debug_span, info};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
@@ -212,11 +212,25 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         // do not print every single block while catching up
         let now = eff.clock().await;
         if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
-            tracing::info!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
+            info!(
+                consensus::tip::ADOPT,
+                slot = msg.slot(),
+                header_hash = msg.hash(),
+                block_height = msg.block_height().as_u64(),
+                max_block_height = state.max_block_height.as_u64(),
+                suppressed = state.suppressed
+            );
             state.last_printed = now;
             state.suppressed = 0;
         } else {
-            tracing::debug!(tip.slot = %msg.slot(), tip.hash = %msg.hash(), tip.block_height = %msg.block_height(), max_block_height = %state.max_block_height, suppressed = %state.suppressed, "adopted tip");
+            debug!(
+                consensus::tip::ADOPT,
+                slot = msg.slot(),
+                header_hash = msg.hash(),
+                block_height = msg.block_height().as_u64(),
+                max_block_height = state.max_block_height.as_u64(),
+                suppressed = state.suppressed
+            );
             state.suppressed += 1;
         }
         eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
