@@ -245,6 +245,8 @@ impl HeaderPerformance {
             meter,
             ConsensusMetrics::HeaderLifecycle {
                 outcome: outcome.as_str().to_string(),
+                // Not tracked on the resource yet; callers may supply this via later wiring.
+                slot_start_to_header_micros: None,
                 block_fetch_wait_micros,
                 block_fetch_micros,
                 forward_micros: Some(forward_micros),
@@ -272,6 +274,7 @@ fn emit_rejected(outcome: HeaderLifecycleOutcome, meter: Option<&Meter>) {
         meter,
         ConsensusMetrics::HeaderLifecycle {
             outcome: outcome.as_str().to_string(),
+            slot_start_to_header_micros: None,
             block_fetch_wait_micros: None,
             block_fetch_micros: None,
             forward_micros: None,

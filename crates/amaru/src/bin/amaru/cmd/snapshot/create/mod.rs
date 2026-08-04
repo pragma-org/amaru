@@ -138,7 +138,7 @@ struct SnapshotPoint {
 
 impl Display for SnapshotPoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}::{}", &self.point, &self.parent_point)
+        write!(f, "{}::{}", self.point, self.parent_point)
     }
 }
 

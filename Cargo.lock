@@ -343,7 +343,6 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-plutus",
  "amaru-progress-bar",
- "amaru-stores",
  "amaru-uplc",
  "anyhow",
  "divan",
@@ -662,12 +661,14 @@ dependencies = [
  "amaru-ledger",
  "amaru-observability",
  "amaru-ouroboros-traits",
+ "amaru-plutus",
  "anyhow",
  "hex",
  "proptest",
  "rand 0.9.5",
  "rocksdb",
  "tempfile",
+ "thiserror 2.0.19",
  "tracing",
 ]
 

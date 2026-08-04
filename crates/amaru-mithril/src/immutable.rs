@@ -283,9 +283,9 @@ pub fn from_chunk_for_resume_point(
     }
 }
 
-fn read_secondary_offsets(secondary_path: &Path) -> io::Result<Vec<u64>> {
-    const SECONDARY_ENTRY_SIZE: usize = 56;
+const SECONDARY_ENTRY_SIZE: usize = 56;
 
+fn read_secondary_offsets(secondary_path: &Path) -> io::Result<Vec<u64>> {
     let secondary = fs::read(secondary_path)?;
     if secondary.len() % SECONDARY_ENTRY_SIZE != 0 {
         return Err(io::Error::new(
@@ -298,10 +298,10 @@ fn read_secondary_offsets(secondary_path: &Path) -> io::Result<Vec<u64>> {
         ));
     }
 
-    Ok(secondary.chunks_exact(SECONDARY_ENTRY_SIZE).map(secondary_block_offset).collect())
+    Ok(secondary.as_chunks::<SECONDARY_ENTRY_SIZE>().0.iter().map(secondary_block_offset).collect())
 }
 
-fn secondary_block_offset(entry: &[u8]) -> u64 {
+fn secondary_block_offset(entry: &[u8; SECONDARY_ENTRY_SIZE]) -> u64 {
     let mut offset = [0; size_of::<u64>()];
     offset.copy_from_slice(&entry[..size_of::<u64>()]);
     u64::from_be_bytes(offset)

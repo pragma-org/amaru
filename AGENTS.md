@@ -10,7 +10,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - `cargo clippy-amaru`: `clippy --workspace --all-targets -- -D warnings`
 - `cargo fmt-amaru`: `fmt --all -- --check`
 - `cargo doc --no-deps`: must be free of rustdoc warnings (use `RUSTDOCFLAGS="-D warnings"` when checking)
-- Use nightly toolchain: `nightly-2026-04-17` (see rust-toolchain.toml)
+- Use nightly toolchain: `nightly-2026-08-03` (see rust-toolchain.toml)
 
 ### Common Commands
 
@@ -24,6 +24,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 ### Testing Commands
 
 - Run all tests: `cargo test --workspace --all-targets`
+- Run branch health ensuring tests: `cargo test --workspace` (do this before concluding commit-readiness)
 - Run tests for specific crate: `cargo test -p amaru-consensus`
 - Run single test function: `cargo test test_intersect_found --lib -p amaru-consensus`
 - Run specific test file: `cargo test --test tests -p amaru-consensus`

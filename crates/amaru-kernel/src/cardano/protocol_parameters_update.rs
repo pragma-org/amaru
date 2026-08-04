@@ -170,11 +170,11 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
              \n{p}  ├─ hard fork                  {hfi}\
              \n{p}  └─ protocol params (security) {svt}",
             p = prefix,
-            cn = &v.committee_normal,
-            cc = &v.committee_no_confidence,
-            mnc = &v.motion_no_confidence,
-            hfi = &v.hard_fork_initiation,
-            svt = &v.security_voting_threshold,
+            cn = v.committee_normal,
+            cc = v.committee_no_confidence,
+            mnc = v.motion_no_confidence,
+            hfi = v.hard_fork_initiation,
+            svt = v.security_voting_threshold,
         )
     });
     push_opt(&mut s, &mut is_first, prefix, "pool_voting_thresholds", &pool_voting)?;
@@ -192,16 +192,16 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
              \n{p}  ├─ protocol params (governance) {ppg}\
              \n{p}  └─ hard fork                    {hfi}",
             p = prefix,
-            cn = &v.committee_normal,
-            cc = &v.committee_no_confidence,
-            mnc = &v.motion_no_confidence,
-            tw = &v.treasury_withdrawal,
-            uc = &v.update_constitution,
-            ppn = &v.pp_network_group,
-            ppe = &v.pp_economic_group,
-            ppt = &v.pp_technical_group,
-            ppg = &v.pp_governance_group,
-            hfi = &v.hard_fork_initiation,
+            cn = v.committee_normal,
+            cc = v.committee_no_confidence,
+            mnc = v.motion_no_confidence,
+            tw = v.treasury_withdrawal,
+            uc = v.update_constitution,
+            ppn = v.pp_network_group,
+            ppe = v.pp_economic_group,
+            ppt = v.pp_technical_group,
+            ppg = v.pp_governance_group,
+            hfi = v.hard_fork_initiation,
         )
     });
 

@@ -617,6 +617,7 @@ impl TrackPeers {
     /// ledger height have already been checked. Stake distribution unavailability leads to deferral,
     /// so that this method can be called again later with the same inputs. `Ok(())` is also
     /// returned in case the peer was removed due to an unrecoverable error.
+    #[expect(clippy::result_large_err)]
     async fn try_roll_forward(
         &mut self,
         args: RollForwardArgs,

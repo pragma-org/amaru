@@ -81,7 +81,7 @@ pub fn remove<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Epo
             // every epoch boundary.
             match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
                 None => {
-                    error!(stores::ledger::pools::REMOVE, ?pool, reason = "unknown pool")
+                    error!(stores::ledger::pools::REMOVE, ?pool, reason = "unknown pool");
                 }
                 Some(existing_params) => db
                     .put(as_key(&PREFIX, pool), Row::extend(existing_params, PoolCertificate::Retirement(epoch)))

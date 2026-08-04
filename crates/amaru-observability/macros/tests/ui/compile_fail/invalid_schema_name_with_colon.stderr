@@ -7,6 +7,6 @@ error: expected item after attributes
 23 | |             /// Schema with invalid name containing hyphen
 ...  |
 29 | | }
-   | |_^
+   | |_^ expected an item after this
    |
    = note: this error originates in the macro `define_local_schemas` (in Nightly builds, run with -Z macro-backtrace for more info)

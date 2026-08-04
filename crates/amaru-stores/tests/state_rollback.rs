@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Integration tests for ledger `State` rollback against the RocksDB store backend.
+//!
+//! Lives here (not in `amaru-ledger`) so that `amaru-ledger` need not depend on `amaru-stores`,
+//! even as a dev-dependency.
+
 use std::{
     collections::VecDeque,
     fmt::{Debug, Display},
@@ -213,7 +218,7 @@ fn make_state() -> State<MockStore, RocksDBHistoricalStores> {
     )
 }
 
-/// Forward the ldeger to a given point
+/// Forward the ledger to a given point
 #[expect(clippy::expect_used)]
 fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, point: Point, height: u64) {
     let issuer = Hash::new([0u8; 28]);

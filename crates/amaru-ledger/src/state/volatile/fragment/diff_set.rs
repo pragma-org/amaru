@@ -164,7 +164,7 @@ mod tests {
                 );
             }
 
-            for (k, _) in st.produced.iter() {
+            for k in st.produced.keys() {
                 prop_assert!(
                     !st.consumed.contains(k),
                     "nothing produced is also consumed",
