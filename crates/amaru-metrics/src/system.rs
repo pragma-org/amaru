@@ -30,7 +30,6 @@ pub struct SystemMetrics {
     pub network_written_bytes: u64,
     pub runtime_seconds: u64,
     pub cpu_percent: f64,
-    pub process_memory_bytes: u64,
     pub rss_bytes: u64,
     pub virtual_bytes: u64,
     pub disk_read_bytes: u64,

@@ -154,7 +154,6 @@ fn record_system_metrics(process: &Process, networks: &Networks, number_of_cpus:
         network_written_bytes,
         runtime_seconds: process.run_time(),
         cpu_percent: process.cpu_usage() as f64 / number_of_cpus as f64,
-        process_memory_bytes: process.memory(),
         rss_bytes: process.memory(),
         virtual_bytes: process.virtual_memory(),
         disk_read_bytes: disk_usage.total_read_bytes,

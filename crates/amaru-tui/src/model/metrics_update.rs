@@ -64,7 +64,6 @@ impl Model {
         self.push_system_sample(SystemSample {
             at,
             cpu_percent: metrics.cpu_percent,
-            process_memory_bytes: metrics.process_memory_bytes,
             rss_bytes: metrics.rss_bytes,
             virtual_bytes: metrics.virtual_bytes,
             memory_used_bytes,
@@ -81,7 +80,6 @@ impl Model {
     pub(crate) fn record_host_sample(&mut self, sample: HostSample) {
         let (
             cpu_percent,
-            process_memory_bytes,
             rss_bytes,
             virtual_bytes,
             disk_read_bytes,
@@ -93,7 +91,6 @@ impl Model {
         self.push_system_sample(SystemSample {
             at: sample.at,
             cpu_percent,
-            process_memory_bytes,
             rss_bytes,
             virtual_bytes,
             memory_used_bytes: sample.memory_used_bytes,
@@ -144,13 +141,12 @@ impl Model {
             .unwrap_or((0, 0, 0, 0))
     }
 
-    fn latest_process_metrics(&self) -> (f64, u64, u64, u64, u64, u64, u64, u64) {
+    fn latest_process_metrics(&self) -> (f64, u64, u64, u64, u64, u64, u64) {
         self.system_samples
             .back()
             .map(|sample| {
                 (
                     sample.cpu_percent,
-                    sample.process_memory_bytes,
                     sample.rss_bytes,
                     sample.virtual_bytes,
                     sample.disk_read_bytes,
@@ -159,6 +155,6 @@ impl Model {
                     sample.disk_live_write_bytes,
                 )
             })
-            .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0))
+            .unwrap_or((0.0, 0, 0, 0, 0, 0, 0))
     }
 }

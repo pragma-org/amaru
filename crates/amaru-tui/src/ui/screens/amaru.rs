@@ -204,9 +204,9 @@ fn memory_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
         return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
     };
 
-    let current_mib = bytes_to_mib(sample.process_memory_bytes);
+    let current_mib = bytes_to_mib(sample.rss_bytes);
     let total_mib = bytes_to_mib(sample.memory_total_bytes);
-    let ratio = linear_ratio(sample.process_memory_bytes, sample.memory_total_bytes);
+    let ratio = linear_ratio(sample.rss_bytes, sample.memory_total_bytes);
     GaugeMetric {
         label: format!("{} / {} MiB", format_count(current_mib), format_count(total_mib)),
         ratio,
@@ -305,12 +305,11 @@ mod tests {
     }
 
     #[test]
-    fn memory_gauge_uses_process_footprint_against_total_memory() {
+    fn memory_gauge_uses_rss_against_total_memory() {
         let sample = SystemSample {
             at: Instant::now(),
             cpu_percent: 0.0,
-            process_memory_bytes: 512 * 1_048_576,
-            rss_bytes: 0,
+            rss_bytes: 512 * 1_048_576,
             virtual_bytes: 0,
             memory_used_bytes: 0,
             memory_total_bytes: 2 * 1_048_576 * 1_024,
