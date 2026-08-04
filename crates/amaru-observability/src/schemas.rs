@@ -876,11 +876,6 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required snapshot: String
                 }
-                /// Output line from an external db-analyser command
-                public LOG {
-                    required step: String
-                    required line: String
-                }
             }
             last_block {
                 /// Resolve the last produced block for an epoch

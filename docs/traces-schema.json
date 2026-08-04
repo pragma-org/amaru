@@ -644,28 +644,6 @@
       "description": "Resolve the current epoch from Koios",
       "public": true
     },
-    "amaru::cli::db_analyser::LOG": {
-      "type": "object",
-      "properties": {
-        "step": {
-          "type": "string"
-        },
-        "line": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "step",
-        "line"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "log",
-      "level": "TRACE",
-      "target": "amaru::cli::db_analyser",
-      "description": "Output line from an external db-analyser command",
-      "public": true
-    },
     "amaru::cli::db_analyser::REUSE_LEDGER_SNAPSHOT": {
       "type": "object",
       "properties": {

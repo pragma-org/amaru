@@ -417,18 +417,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `log` | `TRACE` | public | Output line from an external db-analyser command | step, line |  |
 | `reuse_ledger_snapshot` | `TRACE` | public | Reuse an existing db-analyser ledger snapshot | epoch, slot, snapshot |  |
 | `run` | `TRACE` | public | Run db-analyser to produce a ledger snapshot | epoch, slot | analyse_from |
-
-<details><summary>span: `log`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `step` | `string` | ✓ |
-| `line` | `string` | ✓ |
-
-</details>
 
 <details><summary>span: `reuse_ledger_snapshot`</summary>
 

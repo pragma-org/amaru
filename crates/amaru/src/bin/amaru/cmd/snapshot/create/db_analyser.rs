@@ -22,7 +22,6 @@ use std::{
 };
 
 use amaru_kernel::Slot;
-use amaru_observability::{info, warn};
 use amaru_progress_bar::ProgressBar;
 
 const DB_ANALYSER_PROGRESS_REPORT_INTERVAL_SECS: f64 = 1.0;
@@ -86,8 +85,8 @@ fn run_logged_command(
     let tracked = db_analyser_log_relay.as_ref().map(|relay| TrackedProgress::new(relay, with_progress));
     let shared = tracked.as_ref().map(TrackedProgress::shared);
 
-    let stdout_handle = spawn_log_relay(stdout, step.to_string(), false, db_analyser_log_relay.clone(), shared.clone());
-    let stderr_handle = spawn_log_relay(stderr, step.to_string(), true, db_analyser_log_relay, shared);
+    let stdout_handle = spawn_log_relay(stdout, db_analyser_log_relay.clone(), shared.clone());
+    let stderr_handle = spawn_log_relay(stderr, db_analyser_log_relay, shared);
 
     let status = child.wait()?;
     stdout_handle.join().map_err(|_| io::Error::other(format!("{step} stdout logger panicked")))??;
@@ -164,8 +163,6 @@ struct SharedProgress {
 
 fn spawn_log_relay<R>(
     reader: R,
-    step: String,
-    is_stderr: bool,
     db_analyser_log_relay: Option<Arc<Mutex<DbAnalyserLogRelay>>>,
     shared: Option<Arc<Mutex<SharedProgress>>>,
 ) -> thread::JoinHandle<io::Result<()>>
@@ -220,12 +217,6 @@ where
                     DbAnalyserLogAction::Suppress => continue,
                     DbAnalyserLogAction::PassThrough => {}
                 }
-            }
-
-            if is_stderr {
-                warn!(cli::db_analyser::LOG, step = %step, line = %line);
-            } else {
-                info!(cli::db_analyser::LOG, step = %step, line = %line);
             }
         }
         Ok(())
