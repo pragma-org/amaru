@@ -34,7 +34,7 @@ pub(super) fn aligned_pair_lines(entries: Vec<(&'static str, String)>) -> Vec<Li
 
 pub(super) fn format_secs_frequency(frequency: f64) -> String {
     if frequency == 0.0 {
-        return "none so far".to_string();
+        return "-".to_string();
     }
 
     if frequency >= 1.0 {

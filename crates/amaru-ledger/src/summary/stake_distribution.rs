@@ -233,6 +233,8 @@ impl StakeSummary {
 
         let Pots { reserves, treasury, .. } = db.pots()?;
 
+        notify_progress(total_work);
+
         info!(
             ledger::stake_distribution::SNAPSHOT,
             accounts = %accounts.len(),

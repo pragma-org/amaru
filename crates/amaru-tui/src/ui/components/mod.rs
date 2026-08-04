@@ -15,12 +15,12 @@
 mod card;
 mod config_sections;
 mod epoch_progress;
+mod gauge_card;
 mod logs;
 mod peers;
 mod proposals;
-mod series_card;
 
 pub(super) use self::{
     card::render_card, config_sections::render_section_groups, epoch_progress::render_epoch_progress,
-    logs::render_logs, peers::render_peers_table, proposals::render_proposals_table, series_card::render_series_card,
+    gauge_card::render_gauge_card, logs::render_logs, peers::render_peers_table, proposals::render_proposals_table,
 };
