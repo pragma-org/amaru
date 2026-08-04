@@ -300,7 +300,6 @@ impl Args {
                 &global_parameters,
                 self.network.as_protocol_parameters(),
                 self.network.as_era_history().cloned().or_else(|| load_era_history(self.era_history.as_deref()).ok()),
-                self.trusted_peers(),
                 tui::ConfigSection::from_runtime_settings(self),
             ),
         )
@@ -308,14 +307,6 @@ impl Args {
 
     fn effective_global_parameters(&self) -> GlobalParameters {
         self.network.as_global_parameters().cloned().unwrap_or_else(|| self.global_parameters.clone())
-    }
-
-    fn trusted_peers(&self) -> BTreeSet<String> {
-        if self.peer_address.is_empty() {
-            BTreeSet::from([default_peer_for_network(self.network).to_string()])
-        } else {
-            self.peer_address.iter().cloned().collect()
-        }
     }
 }
 

@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, get_current_pid};
 
 use crate::events::{HostSample, Message};
 
@@ -64,9 +64,10 @@ impl Drop for Sampler {
 fn run(tx: SyncSender<Message>, shutdown_rx: Receiver<()>) -> io::Result<()> {
     let mut sys =
         System::new_with_specifics(RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()));
+    let own_pid = get_current_pid().map_err(|err| io::Error::other(format!("failed to resolve own pid: {err}")))?;
     let mut last_sampled_at = Instant::now();
 
-    emit_sample(&mut sys, &tx, Duration::ZERO, last_sampled_at);
+    emit_sample(&mut sys, &tx, own_pid, Duration::ZERO, last_sampled_at);
 
     loop {
         match shutdown_rx.recv_timeout(POLL_DELAY) {
@@ -78,16 +79,19 @@ fn run(tx: SyncSender<Message>, shutdown_rx: Receiver<()>) -> io::Result<()> {
         let interval = now.duration_since(last_sampled_at);
         last_sampled_at = now;
 
-        emit_sample(&mut sys, &tx, interval, now);
+        emit_sample(&mut sys, &tx, own_pid, interval, now);
     }
 }
 
-fn emit_sample(sys: &mut System, tx: &SyncSender<Message>, interval: Duration, at: Instant) {
+fn emit_sample(sys: &mut System, tx: &SyncSender<Message>, own_pid: sysinfo::Pid, interval: Duration, at: Instant) {
     sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
     sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_disk_usage());
 
-    let (processes_live_read_bytes, processes_live_write_bytes) =
-        sys.processes().values().fold((0u64, 0u64), |(read_total, write_total), process| {
+    let (other_processes_live_read_bytes, other_processes_live_write_bytes) = sys
+        .processes()
+        .iter()
+        .filter(|(pid, _)| **pid != own_pid)
+        .fold((0u64, 0u64), |(read_total, write_total), (_, process)| {
             let disk_usage = process.disk_usage();
             (read_total.saturating_add(disk_usage.read_bytes), write_total.saturating_add(disk_usage.written_bytes))
         });
@@ -97,7 +101,7 @@ fn emit_sample(sys: &mut System, tx: &SyncSender<Message>, interval: Duration, a
         interval,
         memory_used_bytes: sys.used_memory(),
         memory_total_bytes: sys.total_memory(),
-        processes_live_read_bytes,
-        processes_live_write_bytes,
+        other_processes_live_read_bytes,
+        other_processes_live_write_bytes,
     }));
 }
