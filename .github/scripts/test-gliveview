@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+test_timeout=${TOOL_TEST_TIMEOUT:-300}
+gliveview_home=${GLIVEVIEW_HOME:-/opt/cardano/amaru}
+screen_output=$(mktemp)
+gliveview_pid=
+trap '
+  if [[ -n "$gliveview_pid" ]]; then
+    kill "$gliveview_pid" 2>/dev/null || true
+    wait "$gliveview_pid" 2>/dev/null || true
+  fi
+  rm -f "$screen_output"
+' EXIT
+deadline=$((SECONDS + test_timeout))
+
+render_screen_output() {
+  sed -E 's/\x1B\[[0-9;]*[[:alpha:]]//g' "$screen_output"
+}
+
+cp amaru.pid "$gliveview_home/runtime/amaru.pid"
+timeout "$test_timeout" script --quiet --flush \
+  --command "stty rows 60 cols 120 && TERM=xterm $gliveview_home/scripts/gLiveView.sh -u" \
+  "$screen_output" >/dev/null 2>&1 &
+gliveview_pid=$!
+
+while (( SECONDS < deadline )); do
+  slot=$(
+    render_screen_output \
+      | sed -nE 's/.*Slot[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' \
+      | tail -1
+  )
+  if [[ "$slot" =~ ^[0-9]+$ ]] && (( slot > 0 )); then
+    echo "GLiveView displayed a non-zero slot: $slot"
+    exit 0
+  fi
+  if ! kill -0 "$gliveview_pid" 2>/dev/null; then
+    wait "$gliveview_pid" || true
+    gliveview_pid=
+    echo "GLiveView exited before displaying a non-zero slot."
+    render_screen_output | tail -50
+    exit 1
+  fi
+  sleep 2
+done
+
+echo "GLiveView did not display a non-zero slot within ${test_timeout} seconds."
+render_screen_output | tail -50
+exit 1
