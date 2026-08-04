@@ -14,10 +14,12 @@
 
 use std::collections::BTreeMap;
 
+use amaru_minicbor_extra::decode_bytes;
+
 use crate::{
-    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
-    ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
-    utils::cbor::SerialisedAsCbor,
+    cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor, Address, Bytes, Hash,
+    Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, ShelleyDelegationPart, StakeCredential,
+    Value,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -129,7 +131,7 @@ fn decode_legacy_output<C>(
     Ok(MemoizedTransactionOutput {
         original_size: 0,
         is_legacy: true,
-        address: decode_address(d.bytes()?)?,
+        address: decode_address(&decode_bytes(d)?)?,
         value: d.decode_with(ctx)?,
         datum: match len {
             Some(2) => MemoizedDatum::None,
@@ -167,7 +169,7 @@ fn decode_modern_output<C>(
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = Some(decode_address(d.bytes()?)?),
+                0 => state.0 = Some(decode_address(&decode_bytes(d)?)?),
                 1 => state.1 = Some(d.decode_with(ctx)?),
                 2 => state.2 = d.decode_with(ctx)?,
                 3 => {
@@ -335,12 +337,12 @@ pub mod tests {
     use proptest::{option, prelude::*};
 
     use super::*;
+    use crate::{any_hash32, any_shelley_address};
     #[cfg(test)]
     use crate::{
-        Hash,
         cbor::{self, Encode},
+        Hash,
     };
-    use crate::{any_hash32, any_shelley_address};
 
     #[expect(clippy::expect_used)]
     fn any_value() -> impl Strategy<Value = MemoizedValue> {

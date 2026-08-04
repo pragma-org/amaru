@@ -14,9 +14,10 @@
 
 use std::ops::Deref;
 
+use amaru_minicbor_extra::decode_bytes;
 use sha3::{Digest, Sha3_256};
 
-use crate::{BootstrapWitness, Hash, Hasher, Network, cbor};
+use crate::{cbor, BootstrapWitness, Hash, Hasher, Network};
 
 const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
@@ -136,7 +137,7 @@ impl<'b, C> cbor::Decode<'b, C> for ByronAddress {
             return Err(cbor::decode::Error::message("invalid tag for Byron address payload"));
         }
 
-        let payload = d.bytes()?.to_vec();
+        let payload = decode_bytes(d)?.into_owned();
         let crc = d.u32()?;
 
         if CRC.checksum(&payload) != crc {
@@ -254,13 +255,13 @@ impl<'b, C> cbor::Decode<'b, C> for AddressAttributes {
             |d, s, k| {
                 match k {
                     1 => {
-                        s.push((k, AddressAttribute::DerivationPath(d.bytes()?.to_vec())));
+                        s.push((k, AddressAttribute::DerivationPath(decode_bytes(d)?.into_owned())));
                     }
                     2 => {
-                        s.push((k, AddressAttribute::NetworkTag(d.bytes()?.to_vec())));
+                        s.push((k, AddressAttribute::NetworkTag(decode_bytes(d)?.into_owned())));
                     }
                     _ => {
-                        s.push((k, AddressAttribute::Unknown(d.bytes()?.to_vec())));
+                        s.push((k, AddressAttribute::Unknown(decode_bytes(d)?.into_owned())));
                     }
                 }
                 Ok(())

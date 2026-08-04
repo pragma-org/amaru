@@ -14,6 +14,7 @@
 
 use std::time::Duration;
 
+use amaru_minicbor_extra::decode_bytes;
 use num::BigUint;
 
 use crate::cbor;
@@ -82,7 +83,7 @@ impl<'b, C> cbor::Decode<'b, C> for SerialisedAsMillis {
         match d.datatype()? {
             Tag => {
                 cbor::expect_tag(d, cbor::IanaTag::PosBignum)?;
-                let millis = BigUint::from_bytes_be(d.bytes()?);
+                let millis = BigUint::from_bytes_be(&decode_bytes(d)?);
                 match u128::try_from(millis) {
                     Ok(millis) => {
                         if let Some(nanos) = millis.checked_mul(1_000_000)

@@ -17,6 +17,8 @@ use std::{
     str::FromStr,
 };
 
+use amaru_minicbor_extra::decode_bytes;
+
 use crate::{Hash, HeaderHash, ORIGIN_HASH, Slot, cbor, size::HEADER};
 
 #[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -128,11 +130,11 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
             Some(0) => Ok(Point::Origin),
             Some(2) => {
                 let slot = d.decode()?;
-                let hash = d.bytes()?;
+                let hash = decode_bytes(d)?;
                 if hash.len() != HEADER {
                     return Err(cbor::decode::Error::message("header hash must be 32 bytes"));
                 }
-                Ok(Point::Specific(slot, Hash::from(hash)))
+                Ok(Point::Specific(slot, Hash::from(&hash[..])))
             }
             _ => Err(cbor::decode::Error::message("can't decode Point from array of size")),
         }
