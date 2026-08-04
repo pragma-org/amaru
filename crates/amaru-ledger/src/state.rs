@@ -24,9 +24,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, Lovelace, NetworkName,
-    Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version,
-    to_cbor, utils::string::display_collection,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
+    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
+    utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, info, info_span, trace, warn};
@@ -47,8 +47,7 @@ use crate::{
         block::{BlockValidation, TransactionInvalid},
     },
     state::volatile::{
-        AnchoredVolatileFragment, Existence, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence,
-        VolatileState, VolatileView,
+        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
     store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -415,17 +414,24 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // process behaves as if we had interrupted the transition just after taking the
             // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
             // pool updates, etc...) but not the end (rewards).
-            let (treasury, effective_rewards) = if progress.is_none() {
+            let (treasury, effective_rewards, unreachable_accounts) = if progress.is_none() {
                 let computed_rewards = computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?;
 
-                let unclaimed_rewards = computed_rewards
-                    .unclaimed_rewards(volatile_view.iter_unreachable_accounts(computed_rewards.pools_owners())?);
+                let unreachable_accounts =
+                    volatile_view.iter_unreachable_accounts(computed_rewards.pools_owners())?.collect::<BTreeSet<_>>();
+
+                let unclaimed_rewards = computed_rewards.unclaimed_rewards(unreachable_accounts.iter().copied());
 
                 let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed_rewards);
 
-                (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
+                let treasury = db.pots()?.treasury + effective_rewards.delta_treasury();
+
+                (treasury, Some(effective_rewards), unreachable_accounts)
             } else {
-                (db.pots()?.treasury, None)
+                let unreachable_accounts =
+                    volatile_view.iter_unreachable_accounts(BTreeSet::new())?.collect::<BTreeSet<_>>();
+
+                (db.pots()?.treasury, None, unreachable_accounts)
             };
 
             let protocol_parameters = self.protocol_parameters();
@@ -459,40 +465,13 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 ratification_context,
             )?;
 
-            // NOTE: treasury as of the *new* epoch
-            //
-            // The treasury only changes at the boundary, and the whole change is knowable here. It
-            // mirrors exactly what `StateOverlay::apply` writes when the boundary is later flushed.
-            // We stash it on the overlay so the validation context can resolve the new epoch's
-            // treasury during the straddle window, instead of redoing this work on the hot path.
-            //
-            // Deposit refunds and treasury withdrawals whose target account is gone cannot be paid,
-            // and are absorbed by the treasury instead.
-            let unpayable = pools_updates
-                .refunds()
-                .chain(governance_updates.deposit_refunds.iter())
-                .chain(governance_updates.treasury_withdrawals.iter())
-                .try_fold(0, |leftovers, (credential, amount)| {
-                    let exists = match self.volatile.resolve_account(credential).0 {
-                        Existence::Exists(..) => true,
-                        Existence::Gone => false,
-                        Existence::Unknown => db.account(credential)?.is_some(),
-                    };
-
-                    Ok::<_, StoreError>(if exists { leftovers } else { leftovers + amount })
-                })?;
-
-            let treasury_credits = effective_rewards.as_ref().map(|rewards| rewards.delta_treasury()).unwrap_or(0)
-                + volatile_view.donations()?
-                + unpayable;
-
-            let treasury_debits = governance_updates.treasury_withdrawals.values().sum::<Lovelace>();
-
-            let treasury_delta = treasury_credits as i128 - treasury_debits as i128;
-
-            drop(db); // Dropping the *mutable reference*, not the *actual database* :)
-
-            self.volatile.transition(effective_rewards, pools_updates, governance_updates, treasury_delta);
+            self.volatile.transition(
+                effective_rewards,
+                pools_updates,
+                governance_updates,
+                volatile_view.donations()?,
+                |account| !unreachable_accounts.contains(account),
+            );
 
             Ok(())
         })

@@ -111,6 +111,7 @@ pub mod transaction_body;
 pub mod transaction_id;
 pub mod transaction_input;
 pub mod transaction_pointer;
+pub mod treasury_delta;
 pub mod tx_info;
 pub mod utxos;
 pub mod validity_interval;

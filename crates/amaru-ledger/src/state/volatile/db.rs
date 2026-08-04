@@ -170,10 +170,8 @@ impl VolatileState for VolatileDB {
     /// overlay is eventually flushed. Outside the straddle window the overlay is empty and the
     /// stable value flows through untouched.
     fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
-        let treasury = pots.treasury as i128 + self.overlay.treasury_delta();
-        Lovelace::try_from(treasury).unwrap_or_else(|e| {
-            unreachable!("treasury out of bounds after folding the boundary delta: {treasury}: {e}")
-        })
+        let treasury = self.overlay.treasury_delta() + pots.treasury;
+        treasury.as_credit().unwrap_or_else(|| unreachable!("treasury is negative: {treasury} ?!!"))
     }
 
     fn resolve_donations(&self) -> Lovelace {
@@ -334,7 +332,8 @@ impl VolatileDB {
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
-        treasury_delta: i128,
+        donations: Lovelace,
+        account_exists: impl Fn(&StakeCredential) -> bool,
     ) {
         // Mark the transition between two epochs by sealing the `current` series and turning it into
         // the `draining` series. This keeps each series epoch-homogeneous since, by the protocol
@@ -355,7 +354,7 @@ impl VolatileDB {
             "transitioning volatile series while a draining series is still present; two epoch boundaries inside the k-block window?"
         );
         self.draining = mem::take(&mut self.current);
-        self.overlay.transition(effective_rewards, pools_updates, governance_updates, treasury_delta);
+        self.overlay.transition(effective_rewards, pools_updates, governance_updates, donations, account_exists);
     }
 
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
@@ -514,6 +513,66 @@ mod tests {
         summary::SafeRatio,
     };
 
+    /// Define a type with various `From` instance to ease the notations below and avoid repetition
+    /// which requires annoying maintenance.
+    struct EpochTransition {
+        effective_rewards: Option<Rewards<Effective>>,
+        pools_updates: PoolsEpochTransitionUpdates,
+        governance_updates: GovernanceUpdates,
+        donations: Lovelace,
+    }
+
+    impl EpochTransition {
+        fn default() -> Self {
+            Self {
+                effective_rewards: Default::default(),
+                pools_updates: Default::default(),
+                governance_updates: GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()),
+                donations: Default::default(),
+            }
+        }
+
+        fn transition(self, db: &mut VolatileDB) {
+            db.transition(self.effective_rewards, self.pools_updates, self.governance_updates, self.donations, |_| true)
+        }
+    }
+
+    impl From<()> for EpochTransition {
+        fn from((): ()) -> Self {
+            Self::default()
+        }
+    }
+
+    impl From<Rewards<Effective>> for EpochTransition {
+        fn from(rewards: Rewards<Effective>) -> Self {
+            Self { effective_rewards: Some(rewards), ..Self::default() }
+        }
+    }
+
+    impl From<PoolsEpochTransitionUpdates> for EpochTransition {
+        fn from(pools_updates: PoolsEpochTransitionUpdates) -> Self {
+            Self { pools_updates, ..Self::default() }
+        }
+    }
+
+    impl From<GovernanceUpdates> for EpochTransition {
+        fn from(governance_updates: GovernanceUpdates) -> Self {
+            Self { governance_updates, ..Self::default() }
+        }
+    }
+
+    impl From<Lovelace> for EpochTransition {
+        fn from(donations: Lovelace) -> Self {
+            Self { donations, ..Self::default() }
+        }
+    }
+
+    impl VolatileDB {
+        fn simple_transition(&mut self, epoch_transition: impl Into<EpochTransition>) {
+            epoch_transition.into().transition(self)
+        }
+    }
+
     #[test]
     fn test_rollback_to_point_before_sequence_fails() {
         // Create a VolatileDB with three fragments at slots 10, 20, 30
@@ -587,7 +646,7 @@ mod tests {
         db.push_back(block2);
 
         // Then cross the epoch boundary and add two more in the opening epoch.
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         let block3 = AnchoredVolatileFragment::fixture(30, 3);
         let block4 = AnchoredVolatileFragment::fixture(40, 4);
         db.push_back(block3);
@@ -621,12 +680,7 @@ mod tests {
         db.push_back(block2);
         // Give the boundary transition a non-trivial overlay (effective rewards crediting an
         // account) so we exercise recovery of the overlay, not just the block series.
-        db.transition(
-            Some(effective_reward(cred(1), 5_000_000)),
-            PoolsEpochTransitionUpdates::default(),
-            committee_update(None),
-            0,
-        );
+        db.simple_transition(effective_reward(cred(1), 5_000_000));
         let block3 = AnchoredVolatileFragment::fixture(30, 3);
         let block4 = AnchoredVolatileFragment::fixture(40, 4);
         db.push_back(block3);
@@ -738,12 +792,9 @@ mod tests {
         // installing a boundary reward credit, then an opening-epoch block.
         let block4 = AnchoredVolatileFragment::fixture(25, 4);
         db.push_back(block4);
-        db.transition(
-            Some(effective_reward(cred(1), 7_000_000)),
-            PoolsEpochTransitionUpdates::default(),
-            committee_update(None),
-            0,
-        );
+
+        db.simple_transition(effective_reward(cred(1), 7_000_000));
+
         let block5 = AnchoredVolatileFragment::fixture(35, 5);
         db.push_back(block5);
         assert_eq!(db.epoch(), epoch_before + 1, "replay crossed into the next epoch");
@@ -789,14 +840,9 @@ mod tests {
 
         db.push_back(block1);
         db.push_back(block2);
-        // The original boundary transition credits cred(1) with 5M — this is the overlay state
-        // recovery must restore.
-        db.transition(
-            Some(effective_reward(cred(1), 5_000_000)),
-            PoolsEpochTransitionUpdates::default(),
-            committee_update(None),
-            0,
-        );
+
+        db.simple_transition(effective_reward(cred(1), 5_000_000));
+
         db.push_back(block3);
         db.push_back(block4);
 
@@ -816,12 +862,9 @@ mod tests {
         // Replay a fork that itself re-crosses the epoch boundary before failing, installing a
         // *different* overlay (a different boundary credit for cred(1)).
         db.push_back(AnchoredVolatileFragment::fixture(15, 5));
-        db.transition(
-            Some(effective_reward(cred(1), 9_000_000)),
-            PoolsEpochTransitionUpdates::default(),
-            committee_update(None),
-            0,
-        );
+
+        db.simple_transition(effective_reward(cred(1), 9_000_000));
+
         db.push_back(AnchoredVolatileFragment::fixture(35, 6));
         assert_eq!(
             db.resolve_account(&cred(1)).1,
@@ -877,7 +920,7 @@ mod tests {
         let block1 = AnchoredVolatileFragment::fixture(10, 1);
         let block2 = AnchoredVolatileFragment::fixture(20, 2);
         db.push_back(block1);
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         db.push_back(block2);
         assert_eq!(db.epoch(), epoch + 1, "transition opened the next epoch");
 
@@ -928,7 +971,7 @@ mod tests {
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
 
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
 
         assert!(!db.draining.is_empty(), "draining should hold the transitioned series");
         assert_eq!(db.current.len(), 0, "current should be reset to empty");
@@ -939,7 +982,7 @@ mod tests {
     fn transition_is_a_noop_on_empty_current() {
         let mut db = VolatileDB::default();
 
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
 
         assert!(db.draining.is_empty(), "transitioning an empty current must not open a draining series");
     }
@@ -949,10 +992,10 @@ mod tests {
     fn transition_panics_if_draining_already_present() {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
 
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
     }
 
     #[test]
@@ -960,7 +1003,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.pop_front().map(|fragment| fragment.slot()), Some(Slot::from(10)));
@@ -978,7 +1021,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
         db.push_back(AnchoredVolatileFragment::fixture(40, 4));
 
@@ -1024,7 +1067,7 @@ mod tests {
 
         let mut db = VolatileDB::default();
         db.push_back(draining_block);
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         db.push_back(current_block);
 
         if resolvable {
@@ -1041,7 +1084,7 @@ mod tests {
         let mut db = VolatileDB::default();
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         db.push_back(AnchoredVolatileFragment::fixture(30, 3));
 
         assert_eq!(db.len(), 3, "two draining blocks plus one current block");
@@ -1072,7 +1115,7 @@ mod tests {
         if let Some(act) = draining {
             db.push_back(account_block(10, act));
         }
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         if let Some(act) = current {
             db.push_back(account_block(20, act));
         }
@@ -1099,7 +1142,7 @@ mod tests {
         // A withdrawal in `draining` (pre-boundary) with no pending credit also leaves nothing.
         let mut db = VolatileDB::default();
         db.push_back(withdrawal_block(10));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         db.push_back(AnchoredVolatileFragment::fixture(20, 2));
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(0));
     }
@@ -1116,7 +1159,7 @@ mod tests {
 
         db.push_back(withdrawal_block(10));
 
-        db.transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(effective);
 
         // Withdrawn in `draining`, before the boundary credit: only the credit remains.
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Replace(5_000_000));
@@ -1133,39 +1176,54 @@ mod tests {
         // account at the boundary credits its withdrawable balance during the straddle, exactly
         // like a pool-deposit refund.
         let mut db = VolatileDB::default();
-        let mut updates = committee_update(None);
-        updates.deposit_refunds = BTreeMap::from([(cred(1), 3_000_000)]);
-        db.transition(None, PoolsEpochTransitionUpdates::default(), updates, 0);
+
+        let mut governance_updates = committee_update(None);
+        governance_updates.deposit_refunds = BTreeMap::from([(cred(1), 3_000_000)]);
+
+        db.simple_transition(governance_updates);
+
         assert_eq!(db.resolve_account(&cred(1)).1, RewardsAtTip::Add(3_000_000));
     }
 
     #[test]
     fn resolve_treasury_passes_through_the_stable_pot_without_a_pending_boundary() {
-        let stable = stable_pots(100_000_000);
-        assert_eq!(VolatileDB::default().resolve_treasury(&stable), stable.treasury);
+        let pots = Pots::default().with_treasury(100_000_000);
+        assert_eq!(VolatileDB::default().resolve_treasury(&pots), pots.treasury);
     }
 
-    #[test_case(7_000_000 => 107_000_000; "credited by the boundary")]
-    #[test_case(-7_000_000 => 93_000_000; "debited by an enacted withdrawal")]
-    fn resolve_treasury_folds_in_the_boundary_delta_during_the_straddle(delta: i128) -> Lovelace {
-        db_with_pending_boundary(delta).resolve_treasury(&stable_pots(100_000_000))
+    #[test]
+    fn resolve_treasury_folds_in_the_boundary_credit_during_the_straddle() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.simple_transition(42_000);
+
+        assert_eq!(db.resolve_treasury(&Pots::default().with_treasury(100_000_000)), 100_042_000,);
     }
 
-    #[test_case(7_000_000; "credited by the boundary")]
-    #[test_case(-7_000_000; "debited by an enacted withdrawal")]
-    fn resolve_treasury_does_not_jump_when_the_boundary_is_flushed(delta: i128) {
-        let stable = stable_pots(100_000_000);
-        let straddle = db_with_pending_boundary(delta).resolve_treasury(&stable);
+    #[test]
+    fn resolve_treasury_folds_in_the_boundary_debit_during_the_straddle() {
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.simple_transition(GovernanceUpdates {
+            treasury_withdrawals: BTreeMap::from([(cred(1), 1_000_000)]),
+            ..GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone())
+        });
 
-        let flushed = stable_pots((stable.treasury as i128 + delta) as Lovelace);
-        assert_eq!(VolatileDB::default().resolve_treasury(&flushed), straddle);
+        assert_eq!(db.resolve_treasury(&Pots::default().with_treasury(100_000_000)), 99_000_000);
+    }
+
+    #[test]
+    fn resolve_treasury_does_not_account_for_pending_donations() {
+        let mut db = VolatileDB::default();
+        db.push_back(donation_block(10, 42_000));
+        assert_eq!(db.resolve_treasury(&Pots::default()), Pots::default().treasury);
     }
 
     #[test]
     fn resolve_donations_sums_both_series_across_a_boundary() {
         let mut db = VolatileDB::default();
         db.push_back(donation_block(10, 1_000_000));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(());
         db.push_back(donation_block(20, 300_000));
 
         assert_eq!(db.resolve_donations(), 1_300_000, "draining and current both count");
@@ -1187,11 +1245,12 @@ mod tests {
 
     #[test]
     fn resolve_treasury_drops_the_delta_on_boundary_rollback() {
-        let stable = stable_pots(100_000_000);
-        let mut db = db_with_pending_boundary(7_000_000);
-
+        let mut db = VolatileDB::default();
+        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
+        db.simple_transition(7_000_000);
+        assert_eq!(db.resolve_treasury(&Pots::default()), Pots::default().treasury + 7_000_000);
         db.rollback_to(&Point::Specific(Slot::from(10), Hash::new([0u8; 32]))).unwrap();
-        assert_eq!(db.resolve_treasury(&stable), stable.treasury);
+        assert_eq!(db.resolve_treasury(&Pots::default()), Pots::default().treasury);
     }
 
     #[test_case(None, Some(CommitteeAct::Auth) => Existence::Exists(true); "hot-auth in current")]
@@ -1207,7 +1266,8 @@ mod tests {
         if let Some(act) = draining {
             db.push_back(committee_block(10, act));
         }
-        db.transition(Some(effective), PoolsEpochTransitionUpdates::default(), committee_update(None), 0);
+        db.simple_transition(effective);
+
         if let Some(act) = current {
             db.push_back(committee_block(20, act));
         }
@@ -1224,16 +1284,13 @@ mod tests {
         // Added at the boundary: a fresh member with the pending term, no stable row needed.
         let mut db = VolatileDB::default();
         let expected_term_limit = Epoch::from(99);
-        db.transition(
-            None,
-            PoolsEpochTransitionUpdates::default(),
-            committee_update(Some(CommitteeUpdate::ChangeMembers {
-                added: BTreeMap::from([(cred(1), expected_term_limit)]),
-                removed: BTreeSet::new(),
-                threshold: SafeRatio::zero(),
-            })),
-            0,
-        );
+
+        db.simple_transition(committee_update(Some(CommitteeUpdate::ChangeMembers {
+            added: BTreeMap::from([(cred(1), expected_term_limit)]),
+            removed: BTreeSet::new(),
+            threshold: SafeRatio::zero(),
+        })));
+
         assert!(matches!(
             db.resolve_cc_member(&cred(1)),
             Existence::Exists(Bind { value: Some(term_limit),.. }) if *term_limit == expected_term_limit
@@ -1241,26 +1298,16 @@ mod tests {
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
         let mut db = VolatileDB::default();
-        db.transition(
-            None,
-            PoolsEpochTransitionUpdates::default(),
-            committee_update(Some(CommitteeUpdate::ChangeMembers {
-                added: BTreeMap::new(),
-                removed: BTreeSet::from([cred(1)]),
-                threshold: SafeRatio::zero(),
-            })),
-            0,
-        );
+        db.simple_transition(committee_update(Some(CommitteeUpdate::ChangeMembers {
+            added: BTreeMap::new(),
+            removed: BTreeSet::from([cred(1)]),
+            threshold: SafeRatio::zero(),
+        })));
         assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Gone));
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
-        db.transition(
-            None,
-            PoolsEpochTransitionUpdates::default(),
-            committee_update(Some(CommitteeUpdate::NoConfidence)),
-            0,
-        );
+        db.simple_transition(committee_update(Some(CommitteeUpdate::NoConfidence)));
         assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Unknown));
     }
 
@@ -1327,21 +1374,10 @@ mod tests {
         block
     }
 
-    fn stable_pots(treasury: Lovelace) -> Pots {
-        Pots { treasury, reserves: 0, fees: 0, donations: 0 }
-    }
-
     fn donation_block(slot: u64, donation: Lovelace) -> AnchoredVolatileFragment {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         block.fragment.donations = donation;
         block
-    }
-
-    fn db_with_pending_boundary(treasury_delta: i128) -> VolatileDB {
-        let mut db = VolatileDB::default();
-        db.push_back(AnchoredVolatileFragment::fixture(10, 1));
-        db.transition(None, PoolsEpochTransitionUpdates::default(), committee_update(None), treasury_delta);
-        db
     }
 
     fn committee_update(committee: Option<CommitteeUpdate>) -> GovernanceUpdates {

@@ -179,6 +179,7 @@ pub use cardano::{
     transaction_id::TransactionId,
     transaction_input::{self, TransactionInput},
     transaction_pointer::TransactionPointer,
+    treasury_delta::TreasuryDelta,
     tx_info::{TxInfo, TxInfoTranslationError},
     utxos::Utxos,
     validity_interval::ValidityInterval,

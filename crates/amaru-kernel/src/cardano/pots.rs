@@ -28,6 +28,28 @@ pub struct Pots {
     pub donations: Lovelace,
 }
 
+impl Pots {
+    pub fn with_treasury(mut self, treasury: Lovelace) -> Self {
+        self.treasury = treasury;
+        self
+    }
+
+    pub fn with_reserves(mut self, reserves: Lovelace) -> Self {
+        self.reserves = reserves;
+        self
+    }
+
+    pub fn with_fees(mut self, fees: Lovelace) -> Self {
+        self.fees = fees;
+        self
+    }
+
+    pub fn with_donations(mut self, donations: Lovelace) -> Self {
+        self.donations = donations;
+        self
+    }
+}
+
 impl<C> cbor::Encode<C> for Pots {
     fn encode<W: cbor::encode::Write>(
         &self,
