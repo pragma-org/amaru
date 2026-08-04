@@ -411,6 +411,25 @@ mod tests {
     }
 
     #[test]
+    fn prunes_stale_peers_outside_the_maximum_window() {
+        let mut model = Model::new(Config::default(), startup_context());
+        let max_window = model.max_window();
+        let stale_at = Instant::now();
+        let now = stale_at + max_window + Duration::from_secs(1);
+
+        model.peers.insert("stale.example:3001".into(), PeerState::new("stale.example:3001".into(), false, stale_at));
+        model.peers.insert(
+            "recent.example:3001".into(),
+            PeerState::new("recent.example:3001".into(), false, now - Duration::from_secs(1)),
+        );
+
+        model.handle_message(host_sample(now, Duration::from_secs(1)));
+
+        assert!(!model.peers.contains_key("stale.example:3001"));
+        assert!(model.peers.contains_key("recent.example:3001"));
+    }
+
+    #[test]
     fn tracks_peer_header_lifecycle_means() {
         let mut model = Model::new(Config::default(), startup_context());
         let now = model.created_at;

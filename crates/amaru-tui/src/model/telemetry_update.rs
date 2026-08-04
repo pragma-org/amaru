@@ -42,6 +42,7 @@ impl Model {
         for peer in self.peers.values_mut() {
             peer.prune_header_lifecycle_samples(now, max_window);
         }
+        self.peers.retain(|_, peer| !peer.is_stale(now, max_window));
     }
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {

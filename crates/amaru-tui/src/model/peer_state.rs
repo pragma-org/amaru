@@ -57,6 +57,10 @@ impl MeanMicros {
             self.samples.pop_front();
         }
     }
+
+    fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +139,10 @@ impl PeerState {
         self.adopt_block.prune(now, max_window);
     }
 
+    pub fn is_stale(&self, now: Instant, max_window: Duration) -> bool {
+        now.saturating_duration_since(self.updated_at) > max_window && !self.has_recent_header_lifecycle_samples()
+    }
+
     pub fn record_header_lifecycle(
         &mut self,
         at: Instant,
@@ -173,5 +181,12 @@ impl PeerState {
 
     pub fn mean_adopt_block_micros(&self, now: Instant, window: Duration) -> Option<u64> {
         self.adopt_block.mean(now, window)
+    }
+
+    fn has_recent_header_lifecycle_samples(&self) -> bool {
+        !self.slot_start_to_header.is_empty()
+            || !self.query_header.is_empty()
+            || !self.get_block.is_empty()
+            || !self.adopt_block.is_empty()
     }
 }
