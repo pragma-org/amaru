@@ -305,7 +305,7 @@ mod tests {
 
     use crate::{
         cbor, from_cbor, from_cbor_no_leftovers, heterogeneous_array, heterogeneous_map, missing_field,
-        tests::{foo::Foo, AsDefinite, AsIndefinite, AsMap},
+        tests::{AsDefinite, AsIndefinite, AsMap, foo::Foo},
         to_cbor, unexpected_field,
     };
 

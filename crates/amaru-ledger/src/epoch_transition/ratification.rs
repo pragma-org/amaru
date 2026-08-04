@@ -26,13 +26,12 @@ use amaru_kernel::{
     ProtocolParameters,
     RatificationStatus,
     StakeCredential,
-    cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
+    cbor,
     cbor as minicbor,
     expect_stake_credential,
-    protocol_version,
 };
 use amaru_observability::{debug, info, info_span};
 
@@ -339,7 +338,7 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
 
     info!(
         ledger::protocol_parameters::RATIFY,
-        protocol_version = @opt_field_with(&old.protocol_version, protocol_version, protocol_version::fmt),
+        protocol_version = @opt_field(&old.protocol_version, protocol_version),
         max_block_body_size = @opt_field(&old.max_block_body_size, max_block_body_size),
         max_transaction_size = @opt_field(&old.max_transaction_size, max_transaction_size),
         max_block_header_size = @opt_field(&old.max_block_header_size, max_block_header_size),
@@ -382,10 +381,6 @@ fn diff_protocol_parameters(old: &ProtocolParameters, new: &ProtocolParameters) 
         drep_deposit = @opt_field(&old.drep_deposit, drep_deposit),
         drep_expiry = @opt_field(&old.drep_expiry, drep_expiry),
     );
-}
-
-fn opt_field_with<A: Eq>(old: &A, new: &A, to_string: impl FnOnce(&A) -> String) -> Box<dyn tracing::Value> {
-    if old == new { Box::new(tracing::field::Empty) as Box<dyn tracing::Value> } else { Box::new(to_string(new)) }
 }
 
 fn opt_field<A: Eq + fmt::Display>(old: &A, new: &A) -> Box<dyn tracing::Value> {

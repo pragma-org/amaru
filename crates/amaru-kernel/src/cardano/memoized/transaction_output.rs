@@ -17,9 +17,9 @@ use std::collections::BTreeMap;
 use amaru_minicbor_extra::decode_bytes;
 
 use crate::{
-    cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor, Address, Bytes, Hash,
-    Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs, ShelleyDelegationPart, StakeCredential,
-    Value,
+    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
+    ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
+    utils::cbor::SerialisedAsCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -337,12 +337,12 @@ pub mod tests {
     use proptest::{option, prelude::*};
 
     use super::*;
-    use crate::{any_hash32, any_shelley_address};
     #[cfg(test)]
     use crate::{
-        cbor::{self, Encode},
         Hash,
+        cbor::{self, Encode},
     };
+    use crate::{any_hash32, any_shelley_address};
 
     #[expect(clippy::expect_used)]
     fn any_value() -> impl Strategy<Value = MemoizedValue> {

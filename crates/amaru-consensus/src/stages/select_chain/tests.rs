@@ -934,7 +934,8 @@ mod cmp_tip_unit_tests {
     use std::cmp::Ordering;
 
     use amaru_kernel::{
-        BlockHeader, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, VrfCert, size::BLOCK_BODY, to_cbor,
+        BlockHeader, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, ProtocolVersion, VrfCert,
+        size::BLOCK_BODY, to_cbor,
     };
 
     fn make_test_header(
@@ -962,7 +963,7 @@ mod cmp_tip_unit_tests {
                     operational_cert_kes_period: 0,
                     operational_cert_sigma: Bytes::from(vec![]),
                 },
-                protocol_version: (1, 2),
+                protocol_version: ProtocolVersion::new(1, 2),
             },
             body_signature: Bytes::from(vec![]),
         };

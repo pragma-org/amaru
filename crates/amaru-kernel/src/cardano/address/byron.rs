@@ -17,7 +17,7 @@ use std::ops::Deref;
 use amaru_minicbor_extra::decode_bytes;
 use sha3::{Digest, Sha3_256};
 
-use crate::{cbor, BootstrapWitness, Hash, Hasher, Network};
+use crate::{BootstrapWitness, Hash, Hasher, Network, cbor};
 
 const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
