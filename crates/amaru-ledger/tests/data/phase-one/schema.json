@@ -265,6 +265,21 @@
         }
       }
     },
+    "Proposal": {
+      "type": "object",
+      "required": ["id", "validUntil"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of GovActionId."
+        },
+        "validUntil": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Last epoch in which a vote on the action still counts."
+        }
+      }
+    },
     "InitialState": {
       "type": "object",
       "required": [
@@ -304,10 +319,7 @@
         },
         "proposals": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/HexCbor",
-            "description": "Hex-encoded CBOR of GovActionId."
-          },
+          "items": { "$ref": "#/$defs/Proposal" },
           "description": "Governance actions already on the chain, and so available to vote on. Empty when no proposal state is seeded."
         },
         "governanceActivity": { "$ref": "#/$defs/VotingState" },

@@ -63,7 +63,7 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_committee")]
     pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals")]
-    pub(super) proposals: BTreeSet<ProposalId>,
+    pub(super) proposals: BTreeMap<ProposalId, Epoch>,
     #[serde(default)]
     pub(super) governance_activity: GovernanceActivity,
     #[serde(default)]
@@ -198,18 +198,21 @@ where
         .collect())
 }
 
-fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeSet<ProposalId>, D::Error>
+/// A governance action already on the chain, with the last epoch a vote on it still counts in.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProposalProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    id: ProposalId,
+    valid_until: Epoch,
+}
+
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, Epoch>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<String>::deserialize(deserializer)?;
-    entries
-        .into_iter()
-        .map(|hex| {
-            let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
-            cbor::decode::<ProposalId>(&bytes).map_err(serde::de::Error::custom)
-        })
-        .collect()
+    let entries = Vec::<ProposalProxy>::deserialize(deserializer)?;
+    Ok(entries.into_iter().map(|entry| (entry.id, entry.valid_until)).collect())
 }
 
 pub(super) enum Expected {
@@ -275,6 +278,7 @@ pub(super) enum Predicate {
     StakePoolCostTooLowPOOL,
     ValueNotConservedUTxO,
     VotersDoNotExist,
+    VotingOnExpiredGovAction,
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -345,6 +349,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist
+            }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::VotingOnExpiredGovAction(_, _)) => {
+                Predicate::VotingOnExpiredGovAction
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {

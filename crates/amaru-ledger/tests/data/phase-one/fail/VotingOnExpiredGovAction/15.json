@@ -1,0 +1,57 @@
+{
+  "title": "one voter balloting on a live governance action and an expired one",
+  "description": "A single voter casting two ballots of which only the second names an expired action.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820c515b6b14a79098b0407902da5e4adabf05e6992fec48ed296e6e76f8a2fc14500",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 500000000,
+        "registeredAt": {
+          "transaction": {
+            "slot": 0,
+            "transactionIndex": 0
+          },
+          "certificateIndex": 0
+        },
+        "validUntil": 1000
+      }
+    ],
+    "committee": [],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 1
+      },
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b01",
+        "validUntil": 0
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 432000,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820c515b6b14a79098b0407902da5e4adabf05e6992fec48ed296e6e76f8a2fc145000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a28258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f68258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b018200f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b975313f4b64d95ad73d79cf4fc68a77e039c42b03f026767ac2d6d51c5d67b6c05bc3dfd72aa1a47093833d9d434bcf7b3516d971e4a32b62d1a66edeb8c10af5f6",
+  "expected": {
+    "predicate": "VotingOnExpiredGovAction"
+  }
+}

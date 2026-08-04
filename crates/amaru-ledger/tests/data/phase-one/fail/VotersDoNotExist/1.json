@@ -20,7 +20,10 @@
     "dreps": [],
     "committee": [],
     "proposals": [
-      "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00"
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 100
+      }
     ],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0

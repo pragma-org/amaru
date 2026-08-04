@@ -1,0 +1,46 @@
+{
+  "title": "no vote cast by an authorized committee hot key on an expired governance action",
+  "description": "An authorized committee hot key voting no on an action whose validUntil sits one epoch behind the current one.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "82582089e969e80b0c131dbe1adf0b1689876132020234f7cc0a758b1a647e7ee25da800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "committee": [
+      {
+        "coldCredential": "8200581cecc3093b061a9ed426cd9956161fc48d4ed1ac58dc4aaed7e1ce1830",
+        "hotCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b01",
+        "validUntil": 0
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 432000,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d901028182582089e969e80b0c131dbe1adf0b1689876132020234f7cc0a758b1a647e7ee25da8000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b018200f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258403f5a7018f5ab3195de21d18d653b719a4b36ab4230c2d312b20b67ac5aa1f964dd47214977b8101955be599dfed6d5c9044048e202a385b845b214633d2a5208f5f6",
+  "expected": {
+    "predicate": "VotingOnExpiredGovAction"
+  }
+}

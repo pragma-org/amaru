@@ -1,6 +1,6 @@
 {
-  "title": "vote cast by a script-credential drep",
-  "description": "A vote from a DRep whose credential is a script hash, witnessed by the matching native script. Script voters are the one path in voting_procedures::execute that demands a script witness instead of a verification-key one.",
+  "title": "no vote cast by a registered drep script credential on an action expiring in the current epoch",
+  "description": "A registered drep script credential voting no on an action whose validUntil is the current epoch, the last one in which a vote on it still counts.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
@@ -11,7 +11,7 @@
   "initialState": {
     "utxo": [
       {
-        "input": "825820b8f2c6a4e0d8b2f6a4c8e2d6b0f4a8c2e6d0b4f8a2c6e0d4b8f2a6c0e4d8b2f600",
+        "input": "825820705db7d66b415daa4602eda637bf6a603d87f657f9d176db543580e8871f361b00",
         "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
       }
     ],
@@ -35,7 +35,7 @@
     "proposals": [
       {
         "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
-        "validUntil": 100
+        "validUntil": 1
       }
     ],
     "governanceActivity": {
@@ -43,9 +43,9 @@
     }
   },
   "point": {
-    "slot": 0,
+    "slot": 432000,
     "transactionIndex": 0
   },
-  "transaction": "84a500d9010281825820b8f2c6a4e0d8b2f6a4c8e2d6b0f4a8c2e6d0b4f8a2c6e0d4b8f2a6c0e4d8b2f6000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18203581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcfa18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a2018182018000d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840292555e63418836f416a21b31a2a7b32e8e75a2c1ff2143769bc551b0f692d752f0d695be3167c656c151f347524d3aa753abdf6be25cd8822decd4250972c06f5f6",
+  "transaction": "84a500d9010281825820705db7d66b415daa4602eda637bf6a603d87f657f9d176db543580e8871f361b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18203581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcfa18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008200f6a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406c110559b38d4dbdd8e90889f9f115b66a14196c56a360ae25111977780f4ff88715e5ffbad800a6050f36285148192906d8c531d5df22ab39d30c3ab5cd4e080181820180f5f6",
   "expected": "Pass"
 }

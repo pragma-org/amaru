@@ -411,7 +411,7 @@ mod tests {
             fixture.initial_state.accounts,
             fixture.initial_state.dreps,
             fixture.initial_state.committee,
-            fixture.initial_state.proposals,
+            fixture.initial_state.proposals.keys().copied().collect(),
             Default::default(),
             fixture.initial_state.pots.treasury,
         );

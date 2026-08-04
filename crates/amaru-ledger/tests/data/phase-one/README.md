@@ -64,8 +64,10 @@ it is made up of seven fields:
   one or has resigned; `validUntil` is absent for a member holding no term, which is
   still a state a member can authorize a hot credential from. Note that a vote
   identifies its committee member by *hot* credential.
-- `proposals`: array of hex-encoded CBOR `GovActionId`, the governance actions that are
-  already on the chain and can therefore be voted on or referenced as an ancestor.
+- `proposals`: `[{ id, validUntil }]`, the governance actions that are already on the
+  chain and can therefore be voted on or referenced as an ancestor. `id` is hex-encoded
+  CBOR of a `GovActionId` and `validUntil` is the last epoch in which a vote on the
+  action still counts.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:

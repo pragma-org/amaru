@@ -29,6 +29,9 @@ pub enum InvalidVotingProcedures {
 
     #[error("governance actions do not exist: {0:?}")]
     GovActionsDoNotExist(BTreeSet<ProposalId>),
+
+    #[error("votes cast on governance actions that have expired: Voter {0:?} on proposal {1:?}")]
+    VotingOnExpiredGovAction(Voter, ProposalId),
 }
 
 pub(crate) fn execute<C>(
