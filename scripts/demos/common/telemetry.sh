@@ -1,50 +1,37 @@
 #!/usr/bin/env bash
 
-# Manages the Grafana/Tempo/Prometheus/Loki telemetry stack for the demos.
+# Builds the Grafana URLs the demos point at.
 #
-# Callers must set TELEMETRY_DIR, TELEMETRY_GRAFANA_URL, TELEMETRY_PROMETHEUS_URL, and
-# START_TELEMETRY, and define a telemetry_urls function printing the Grafana URLs that
-# open_telemetry opens in the browser.
+# The monitoring stack itself is not managed here: it is the shared one under monitoring/,
+# started and stopped independently of any demo (`docker compose up -d` in that directory).
+# The nodes only export to it, over the OTEL_EXPORTER_OTLP_* endpoints.
 #
-# A demo can layer its own services or mounts on top of the shared stack by setting
-# TELEMETRY_COMPOSE_OVERRIDE_FILE to an extra Compose file. Host paths in that file can
-# be anchored on the exported TELEMETRY_COMPOSE_OVERRIDE_DIR.
+# Callers must set TELEMETRY_GRAFANA_URL and define a telemetry_urls function printing the
+# Grafana URLs that open_telemetry opens in the browser.
 
-telemetry_compose() {
-  have docker || die "docker not found; install Docker or set START_TELEMETRY=false"
-  local -a compose_args=()
-  local -a collector_configs=("--config=/etc/otlp-collector.yml")
-  [[ -f "$TELEMETRY_DIR/docker-compose.yml" ]] || die "telemetry compose file not found: $TELEMETRY_DIR/docker-compose.yml"
-  compose_args=(-f "$TELEMETRY_DIR/docker-compose.yml")
-  export TELEMETRY_COLLECTOR_CONFIGS="${collector_configs[*]}"
-  if [[ -n "${TELEMETRY_COMPOSE_OVERRIDE_FILE:-}" ]]; then
-    [[ -f "$TELEMETRY_COMPOSE_OVERRIDE_FILE" ]] || die "telemetry compose override not found: $TELEMETRY_COMPOSE_OVERRIDE_FILE"
-    export TELEMETRY_COMPOSE_OVERRIDE_DIR="$(cd "$(dirname "$TELEMETRY_COMPOSE_OVERRIDE_FILE")" && pwd)"
-    compose_args+=(-f "$TELEMETRY_COMPOSE_OVERRIDE_FILE")
-  fi
-  docker compose "${compose_args[@]}" "$@"
+# Whether the OTLP collector named in OTEL_EXPORTER_OTLP_ENDPOINT is there. curl exits 6 when
+# the host does not resolve, 7 when nothing listens and 28 when the connection hangs; anything
+# else, including the empty reply a gRPC port sends back to an HTTP/1.1 request, means the
+# collector answered.
+open_telemetry_endpoint_reachable() {
+  local endpoint="${1:-$OTEL_EXPORTER_OTLP_ENDPOINT}" status=0
+  curl -sS -o /dev/null --max-time 2 "$endpoint" >/dev/null 2>&1 || status=$?
+  case "$status" in
+    6 | 7 | 28) return 1 ;;
+    *) return 0 ;;
+  esac
 }
 
-telemetry_up() {
-  if ! truthy "$START_TELEMETRY"; then
-    echo "[telemetry] skipped because START_TELEMETRY=false"
-    return 0
-  fi
-
-  echo "[telemetry] removing old metrics, logs, and spans..."
-  telemetry_reset
-  echo "[telemetry] starting Grafana, Tempo, Prometheus, Loki, and the OTLP collector..."
-  telemetry_compose up -d
-  echo "[telemetry] Grafana: $TELEMETRY_GRAFANA_URL"
-  echo "[telemetry] Prometheus: $TELEMETRY_PROMETHEUS_URL"
-}
-
-telemetry_down() {
-  telemetry_compose down
-}
-
-telemetry_reset() {
-  telemetry_compose down --volumes --remove-orphans
+# Turns auto|true|false into the true/false the nodes' --with-open-telemetry flag expects.
+resolve_open_telemetry() {
+  case "${1:-auto}" in
+    auto)
+      if open_telemetry_endpoint_reachable; then echo true; else echo false; fi
+      ;;
+    *)
+      if truthy "$1"; then echo true; else echo false; fi
+      ;;
+  esac
 }
 
 urlencode() {

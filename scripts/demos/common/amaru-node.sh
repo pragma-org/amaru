@@ -16,14 +16,26 @@ target_profile_dir() {
   esac
 }
 
+# Resolves the Amaru node binary: AMARU_NODE_BINARY when set (a prebuilt binary, e.g. in a
+# container image), the workspace build target otherwise.
 amaru_node_binary() {
-  echo "${CARGO_TARGET_DIR:-$AMARU_DIR/target}/$(target_profile_dir)/amaru"
+  echo "${AMARU_NODE_BINARY:-${CARGO_TARGET_DIR:-$AMARU_DIR/target}/$(target_profile_dir)/amaru}"
 }
 
 build_amaru_node_binary() {
   cd "$AMARU_DIR" || return
   echo "[initialize] building Amaru node binary with BUILD_PROFILE=$BUILD_PROFILE..."
   AMARU_NETWORK="$NETWORK" cargo build --profile "$BUILD_PROFILE" --bin amaru
+}
+
+# Makes sure the Amaru node binary exists: a configured AMARU_NODE_BINARY must already be
+# executable; the workspace binary is (re)built with cargo.
+ensure_amaru_node_binary() {
+  if [[ -n "${AMARU_NODE_BINARY:-}" ]]; then
+    [[ -x "$AMARU_NODE_BINARY" ]] || die "AMARU_NODE_BINARY is not executable: $AMARU_NODE_BINARY"
+    return 0
+  fi
+  build_amaru_node_binary
 }
 
 require_amaru_node_binary() {
@@ -43,11 +55,19 @@ amaru_node_var() {
   echo "${!var}"
 }
 
-# Runs one Amaru node: run_amaru_node <NAME> <peer-address> <listen-address> [extra args...].
+# Runs one Amaru node: run_amaru_node <NAME> <peer-addresses> <listen-address> [extra args...].
+#
+# The peer addresses are a whitespace-separated list, so a node can be given several upstreams; each
+# becomes its own --peer-address, which is what the node expects for more than one.
 run_amaru_node() {
   local name="$1" peer_address="$2" listen_address="$3"
   shift 3
-  local log_file data_dir with_otel log_filter trace_filter otel_service_name otel_instance_id trace_arg=""
+  local log_file data_dir with_otel log_filter trace_filter otel_service_name otel_instance_id trace_arg="" peer
+  local -a peer_args=()
+  for peer in $peer_address; do
+    peer_args+=(--peer-address "$peer")
+  done
+  [[ ${#peer_args[@]} -gt 0 ]] || die "run_amaru_node: no peer address given for $name"
   log_file="$(amaru_node_var "$name" LOG_FILE)"
   data_dir="$(amaru_node_var "$name" DATA_DIR)"
   with_otel="$(amaru_node_var "$name" WITH_OPEN_TELEMETRY)"
@@ -67,6 +87,16 @@ run_amaru_node() {
   export AMARU_LOG="$log_filter"
   export AMARU_TRACE="$trace_filter"
   export AMARU_TRACE_EMIT_PRIVATE
+  # The node's output is piped through `tee`, so its own terminal detection turns colors off.
+  # Ask for them explicitly: process-compose renders the ANSI codes in its log panes, which is
+  # what makes the log levels stand out there. WATCH_COLOR=never disables them everywhere.
+  if [[ "${WATCH_COLOR:-always}" != "never" && "${WATCH_COLOR:-always}" != "false" ]]; then
+    export AMARU_COLOR="${AMARU_COLOR:-always}"
+  else
+    # An AMARU_COLOR inherited from the caller would otherwise keep the codes coming; without it
+    # the node falls back to its own detection, which sees a pipe and stays plain.
+    unset AMARU_COLOR
+  fi
   export OTEL_SERVICE_NAME="$otel_service_name"
   export OTEL_SERVICE_INSTANCE_ID="$otel_instance_id"
   export OTEL_EXPORTER_OTLP_ENDPOINT
@@ -78,10 +108,10 @@ run_amaru_node() {
   export OTEL_BSP_EXPORT_TIMEOUT=30000
   raise_open_files_limit
   require_amaru_node_binary
-  mark_database_dir_dirty "$data_dir/chain.$NETWORK.db"
-  mark_database_dir_dirty "$data_dir/ledger.$NETWORK.db"
   "$(amaru_node_binary)" ${trace_arg:+"$trace_arg"} run \
-    --peer-address "$peer_address" \
+    --migrate-chain-db \
+    --network "$NETWORK" \
+    "${peer_args[@]}" \
     --listen-address "$listen_address" \
     --chain-dir "$data_dir/chain.$NETWORK.db" \
     --ledger-dir "$data_dir/ledger.$NETWORK.db" \
@@ -93,7 +123,7 @@ run_amaru_node() {
 ready_amaru_node_listening() {
   local log_file="$1"
   [[ -f "$log_file" ]] || exit 1
-  grep -q listening "$log_file" 2>/dev/null
+  rg -q listening "$log_file" 2>/dev/null
 }
 
 # Readiness probe: the node's HTTP submit API answers on the given address.

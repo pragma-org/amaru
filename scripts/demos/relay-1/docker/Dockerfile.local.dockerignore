@@ -1,0 +1,12 @@
+# The compilation needs the sources and .git (the build script stamps the commit), but none of
+# the build products or demo state.
+target/
+.env
+.flox/run/
+.flox/cache/
+snapshots/
+mithril-snapshots/
+chain.*.db/
+ledger.*.db/
+cardano-node-config/*/db/
+scripts/demos/*/run/
