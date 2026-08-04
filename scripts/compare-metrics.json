@@ -113,15 +113,6 @@
     "cardano_node_metrics_txsInMempool_int",
     "cardano_node_metrics_txsProcessedNum_int",
     "cardano_node_metrics_txsSyncDurationTotal_counter",
-    "cardano_node_metrics_txsSyncDuration_int",
-    "process_cpu_live",
-    "process_disk_live_read",
-    "process_disk_live_write",
-    "process_disk_total_read",
-    "process_disk_total_write",
-    "process_memory_available_virtual",
-    "process_memory_live_resident",
-    "process_open_files",
-    "process_runtime"
+    "cardano_node_metrics_txsSyncDuration_int"
   ]
 }

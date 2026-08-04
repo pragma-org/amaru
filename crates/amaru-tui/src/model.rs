@@ -328,6 +328,10 @@ mod tests {
         model.handle_message(metric(
             at,
             MetricsEvent::SystemMetrics(SystemMetrics {
+                node_start_time_seconds: 0,
+                cpu_ticks: 0,
+                network_read_bytes: 0,
+                network_written_bytes: 0,
                 runtime_seconds: 1,
                 cpu_percent: 12.5,
                 process_memory_bytes: 10_000,
