@@ -167,12 +167,14 @@ jobs:
             metrics: "true"
             timeout: 300
             install: |
-              docker build \
-                --build-arg AMARU_NETWORK="${AMARU_NETWORK}" \
-                --tag gliveview:nightly \
-                docker/gliveview
+              mkdir "$HOME/tmp"
+              cd "$HOME/tmp"
+              curl -sS -o guild-deploy.sh \
+                https://raw.githubusercontent.com/cardano-community/guild-operators/node-agnostic/scripts/cnode-helper-scripts/guild-deploy.sh
+              chmod 755 guild-deploy.sh
+              ./guild-deploy.sh -b node-agnostic -i amaru -n preprod -s pd
             test: .github/scripts/test-gliveview 2>&1 | tee tool-output.txt
-            cleanup: docker rm -f gliveview otlp-collector 2>/dev/null || true
+            cleanup: docker rm -f otlp-collector 2>/dev/null || true
 
     steps:
       - uses: actions/checkout@v6

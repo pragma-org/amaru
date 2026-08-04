@@ -1,5 +1,0 @@
-CONFIG="/opt/cardano/files/config.json"
-UPDATE_CHECK="N"
-STRICT_VERSION_CHECK="N"
-PROM_HOST="${PROM_HOST:-host.docker.internal}"
-PROM_PORT="${PROM_PORT:-8889}"
