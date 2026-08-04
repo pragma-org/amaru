@@ -61,3 +61,34 @@ pub struct WitnessSet {
     #[n(7)]
     pub plutus_v3_script: Option<NonEmptyVec<PlutusScript<3>>>,
 }
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::WitnessSet;
+    use crate::{from_cbor_no_leftovers, to_cbor};
+
+    const KEY: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    const SIGNATURE: &str = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+    /// A set of verification key witnesses arrives on-chain in any of three shapes: a bare
+    /// definite-length array, an indefinite-length array, or the `#6.258(…)` form the Conway CDDL
+    /// prescribes. All three must decode, and all three re-encode to the tagged definite form —
+    /// which is why a block carrying either lenient shape never reproduces its own bytes.
+    #[test_case("81", ""; "bare definite array, as found on-chain before Conway")]
+    #[test_case("9f", "ff"; "indefinite-length array")]
+    #[test_case("d9010281", ""; "tagged set, as the Conway CDDL prescribes")]
+    fn vkey_witnesses_always_re_encode_as_a_tagged_definite_set(prefix: &str, suffix: &str) {
+        let input = format!("a100{prefix}825820{KEY}5840{SIGNATURE}{suffix}");
+        let expected = format!("a100d9010281825820{KEY}5840{SIGNATURE}");
+
+        let witnesses: WitnessSet = from_cbor_no_leftovers(&hex::decode(&input).unwrap()).unwrap();
+
+        let encoded = to_cbor(&witnesses);
+        assert_eq!(hex::encode(&encoded), expected, "unexpected encoding");
+
+        let re_decoded: WitnessSet = from_cbor_no_leftovers(&encoded).unwrap();
+        assert_eq!(to_cbor(&re_decoded), encoded, "encoding is not a fixed point");
+    }
+}
