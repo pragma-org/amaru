@@ -51,9 +51,8 @@ pub fn track_system_metrics(
         loop {
             tokio::time::sleep(*METRICS_POLL_DELAY).await;
 
-            sys.refresh_memory_specifics(MemoryRefreshKind::everything().without_swap());
             sys.refresh_processes_specifics(
-                ProcessesToUpdate::All,
+                ProcessesToUpdate::Some(&[own_pid]),
                 true,
                 ProcessRefreshKind::nothing().with_cpu().with_disk_usage().with_memory(),
             );
@@ -62,28 +61,16 @@ pub fn track_system_metrics(
                 None => error!("unable to find amaru's own process (pid={own_pid}) ?!"),
                 Some(process) => {
                     let disk_usage = process.disk_usage();
-                    let (processes_live_read_bytes, processes_live_write_bytes) =
-                        sys.processes().values().fold((0u64, 0u64), |(read_total, write_total), process| {
-                            let disk_usage = process.disk_usage();
-                            (
-                                read_total.saturating_add(disk_usage.read_bytes),
-                                write_total.saturating_add(disk_usage.written_bytes),
-                            )
-                        });
                     let metrics = SystemMetrics {
                         runtime_seconds: process.run_time(),
                         cpu_percent: process.cpu_usage() as f64 / number_of_cpus as f64,
                         process_memory_bytes: process.memory(),
                         rss_bytes: process.memory(),
                         virtual_bytes: process.virtual_memory(),
-                        memory_used_bytes: sys.used_memory(),
-                        memory_total_bytes: sys.total_memory(),
                         disk_read_bytes: disk_usage.total_read_bytes,
                         disk_write_bytes: disk_usage.total_written_bytes,
                         disk_live_read_bytes: disk_usage.read_bytes,
                         disk_live_write_bytes: disk_usage.written_bytes,
-                        processes_live_read_bytes,
-                        processes_live_write_bytes,
                         open_files: process.open_files().map_or(0, |files| files as u64),
                     };
 

@@ -186,7 +186,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        events::{FieldValue, Message, TelemetryKind, TelemetryRecord},
+        events::{FieldValue, HostSample, Message, TelemetryKind, TelemetryRecord},
         model::telemetry_event::{LEDGER_TARGET, PROTOCOLS_TARGET},
         startup::ProcessInfo,
     };
@@ -209,6 +209,17 @@ mod tests {
 
     fn metric(at: Instant, event: MetricsEvent) -> Message {
         Message::Metrics(crate::events::MetricRecord { at, event })
+    }
+
+    fn host_sample(at: Instant, interval: Duration) -> Message {
+        Message::HostSample(HostSample {
+            at,
+            interval,
+            memory_used_bytes: 100_000,
+            memory_total_bytes: 200_000,
+            processes_live_read_bytes: 1_500,
+            processes_live_write_bytes: 2_500,
+        })
     }
 
     fn startup_context() -> StartupContext {
@@ -322,21 +333,20 @@ mod tests {
                 process_memory_bytes: 10_000,
                 rss_bytes: 9_000,
                 virtual_bytes: 12_000,
-                memory_used_bytes: 100_000,
-                memory_total_bytes: 200_000,
                 disk_read_bytes: 300,
                 disk_write_bytes: 400,
                 disk_live_read_bytes: 30,
                 disk_live_write_bytes: 40,
-                processes_live_read_bytes: 300,
-                processes_live_write_bytes: 400,
                 open_files: 5,
             }),
         ));
+        model.handle_message(host_sample(at + Duration::from_secs(5), Duration::from_secs(5)));
 
         assert_eq!(model.blocks_in_window(at + Duration::from_secs(1)), 1);
         assert_eq!(model.transactions_in_window(at + Duration::from_secs(1)), 7);
         assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(10_000));
+        assert_eq!(model.system_samples.back().map(|sample| sample.memory_total_bytes), Some(200_000));
+        assert_eq!(model.system_samples.back().map(|sample| sample.processes_live_read_bytes), Some(300));
     }
 
     #[test]

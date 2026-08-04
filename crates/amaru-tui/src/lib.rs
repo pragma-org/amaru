@@ -15,6 +15,7 @@
 mod capture;
 mod config;
 mod events;
+mod host_metrics;
 mod metrics;
 mod model;
 mod session;

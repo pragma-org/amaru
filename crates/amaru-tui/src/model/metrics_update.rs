@@ -20,7 +20,7 @@ use std::{
 use amaru_metrics::{LedgerMetrics, MempoolMetrics, MetricsEvent, SystemMetrics};
 
 use super::*;
-use crate::events::{MetricRecord, SystemSample};
+use crate::events::{HostSample, MetricRecord, SystemSample};
 
 impl Model {
     pub fn push_system_sample(&mut self, sample: SystemSample) {
@@ -58,20 +58,52 @@ impl Model {
     }
 
     fn record_system_metrics(&mut self, at: Instant, metrics: SystemMetrics) {
+        let (memory_used_bytes, memory_total_bytes, processes_live_read_bytes, processes_live_write_bytes) =
+            self.latest_host_metrics();
+
         self.push_system_sample(SystemSample {
             at,
             cpu_percent: metrics.cpu_percent,
             process_memory_bytes: metrics.process_memory_bytes,
             rss_bytes: metrics.rss_bytes,
             virtual_bytes: metrics.virtual_bytes,
-            memory_used_bytes: metrics.memory_used_bytes,
-            memory_total_bytes: metrics.memory_total_bytes,
+            memory_used_bytes,
+            memory_total_bytes,
             disk_read_bytes: metrics.disk_read_bytes,
             disk_write_bytes: metrics.disk_write_bytes,
             disk_live_read_bytes: metrics.disk_live_read_bytes,
             disk_live_write_bytes: metrics.disk_live_write_bytes,
-            processes_live_read_bytes: metrics.processes_live_read_bytes,
-            processes_live_write_bytes: metrics.processes_live_write_bytes,
+            processes_live_read_bytes,
+            processes_live_write_bytes,
+        });
+    }
+
+    pub(crate) fn record_host_sample(&mut self, sample: HostSample) {
+        let (
+            cpu_percent,
+            process_memory_bytes,
+            rss_bytes,
+            virtual_bytes,
+            disk_read_bytes,
+            disk_write_bytes,
+            disk_live_read_bytes,
+            disk_live_write_bytes,
+        ) = self.latest_process_metrics();
+
+        self.push_system_sample(SystemSample {
+            at: sample.at,
+            cpu_percent,
+            process_memory_bytes,
+            rss_bytes,
+            virtual_bytes,
+            memory_used_bytes: sample.memory_used_bytes,
+            memory_total_bytes: sample.memory_total_bytes,
+            disk_read_bytes,
+            disk_write_bytes,
+            disk_live_read_bytes,
+            disk_live_write_bytes,
+            processes_live_read_bytes: sample.processes_live_read_bytes_per_second(),
+            processes_live_write_bytes: sample.processes_live_write_bytes_per_second(),
         });
     }
 
@@ -94,5 +126,39 @@ impl Model {
 pub(crate) fn prune_recent(entries: &mut VecDeque<Instant>, now: Instant, max_window: Duration) {
     while entries.front().is_some_and(|at| now.duration_since(*at) > max_window) {
         entries.pop_front();
+    }
+}
+
+impl Model {
+    fn latest_host_metrics(&self) -> (u64, u64, u64, u64) {
+        self.system_samples
+            .back()
+            .map(|sample| {
+                (
+                    sample.memory_used_bytes,
+                    sample.memory_total_bytes,
+                    sample.processes_live_read_bytes,
+                    sample.processes_live_write_bytes,
+                )
+            })
+            .unwrap_or((0, 0, 0, 0))
+    }
+
+    fn latest_process_metrics(&self) -> (f64, u64, u64, u64, u64, u64, u64, u64) {
+        self.system_samples
+            .back()
+            .map(|sample| {
+                (
+                    sample.cpu_percent,
+                    sample.process_memory_bytes,
+                    sample.rss_bytes,
+                    sample.virtual_bytes,
+                    sample.disk_read_bytes,
+                    sample.disk_write_bytes,
+                    sample.disk_live_read_bytes,
+                    sample.disk_live_write_bytes,
+                )
+            })
+            .unwrap_or((0.0, 0, 0, 0, 0, 0, 0, 0))
     }
 }

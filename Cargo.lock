@@ -678,6 +678,7 @@ dependencies = [
  "crossterm 0.29.0",
  "ratatui",
  "signal-hook",
+ "sysinfo",
  "tracing",
  "tracing-subscriber",
 ]

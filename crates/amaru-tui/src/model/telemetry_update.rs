@@ -30,6 +30,10 @@ impl Model {
                 self.prune_peer_timings(record.at);
                 self.record_metrics(record);
             }
+            Message::HostSample(sample) => {
+                self.prune_peer_timings(sample.at);
+                self.record_host_sample(sample);
+            }
         }
     }
 

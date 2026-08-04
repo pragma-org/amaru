@@ -40,6 +40,14 @@ consumers:
 - shared runtime metrics, captured through the existing metrics publication
   mechanism
 
+Shared runtime metrics remain focused on the Amaru process itself. When the
+dashboard needs host-wide context that would be too expensive or too
+product-specific to export as a normal metric stream, `amaru-tui` samples it
+locally. This currently covers:
+
+- total and used system RAM
+- aggregate live disk I/O observed across all refreshed processes
+
 The TUI may additionally receive a small startup context for static or
 bootstrapping-time information such as:
 
@@ -83,12 +91,14 @@ The TUI maintains a bounded in-memory model that is updated from:
 
 - telemetry records
 - metric records
+- TUI-local host samples
 - local terminal events such as keyboard, mouse, focus, and scrolling
 
 This keeps the architecture simple:
 
 - `capture` converts tracing into TUI messages
 - `metrics` subscribes to the shared metrics stream
+- `host_metrics` samples slower host-wide context for the TUI only
 - `model` owns bounded UI state and folds incoming messages through focused
   reducer slices
 - `ui` renders from the model through a thin shell plus page and component views
@@ -186,6 +196,8 @@ actually exporting.
   which reduces maintenance cost.
 - The product benefits from stronger pressure to keep telemetry and metrics
   coherent because the TUI depends on them directly.
+- Exported process metrics stay about Amaru itself, while host-wide context
+  remains a local dashboard concern with a slower sampling cadence.
 - Some coupling still exists by design:
   - startup metadata is passed in explicitly
   - telemetry and metrics shape the UI contract

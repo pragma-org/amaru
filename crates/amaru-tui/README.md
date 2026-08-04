@@ -9,6 +9,7 @@ The architectural rationale lives in
 ## Crate layout
 
 - `src/capture.rs`: turns structured tracing into TUI messages
+- `src/host_metrics.rs`: samples host-wide RAM and aggregate disk I/O for the TUI only
 - `src/metrics.rs`: subscribes to the shared metrics stream
 - `src/session.rs`: owns the terminal thread and runtime wiring
 - `src/startup.rs`: static startup context and config sections
@@ -34,6 +35,10 @@ Most changes should fall into one of two buckets:
 The crate should not become a backdoor into Amaru internals. Prefer deriving
 new state from telemetry or shared metrics over introducing direct database or
 store access.
+
+Shared metrics should remain about the Amaru process itself. When the TUI needs
+host-wide context that would be too expensive or too product-specific to export
+globally, keep that sampling local to `amaru-tui`.
 
 For telemetry, prefer the schema-generated helpers exported by
 `amaru-observability` for both event matching and field decoding. Avoid raw

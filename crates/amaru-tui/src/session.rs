@@ -25,7 +25,7 @@ use std::{
 use crossterm::event;
 
 use crate::{
-    Config, TracingLayer, metrics,
+    Config, TracingLayer, host_metrics, metrics,
     model::{Model, TerminalEventOutcome},
     startup::StartupContext,
     terminal_guard::TerminalGuard,
@@ -35,6 +35,7 @@ use crate::{
 pub struct Session {
     layer: TracingLayer,
     metrics: Arc<metrics::Subscriber>,
+    host_metrics: Option<host_metrics::Sampler>,
     control_tx: Sender<Control>,
     join: Option<JoinHandle<io::Result<()>>>,
 }
@@ -51,7 +52,16 @@ impl Session {
             .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx))
             .map_err(|err| io::Error::other(format!("failed to spawn tui thread: {err}")))?;
 
-        Ok(Self { layer, metrics, control_tx, join: Some(join) })
+        let host_metrics = match host_metrics::Sampler::spawn(layer.sender()) {
+            Ok(host_metrics) => host_metrics,
+            Err(err) => {
+                let _ = control_tx.send(Control::Shutdown);
+                let _ = join.join();
+                return Err(err);
+            }
+        };
+
+        Ok(Self { layer, metrics, host_metrics: Some(host_metrics), control_tx, join: Some(join) })
     }
 
     pub fn layer(&self) -> TracingLayer {
@@ -68,6 +78,9 @@ impl Session {
 
     fn shutdown_inner(&mut self) -> io::Result<()> {
         let _ = self.control_tx.send(Control::Shutdown);
+        if let Some(host_metrics) = self.host_metrics.take() {
+            host_metrics.shutdown()?;
+        }
         if let Some(join) = self.join.take() {
             join.join().map_err(|_| io::Error::other("tui thread panicked"))?
         } else {

@@ -26,14 +26,10 @@ pub struct SystemMetrics {
     pub process_memory_bytes: u64,
     pub rss_bytes: u64,
     pub virtual_bytes: u64,
-    pub memory_used_bytes: u64,
-    pub memory_total_bytes: u64,
     pub disk_read_bytes: u64,
     pub disk_write_bytes: u64,
     pub disk_live_read_bytes: u64,
     pub disk_live_write_bytes: u64,
-    pub processes_live_read_bytes: u64,
-    pub processes_live_write_bytes: u64,
     pub open_files: u64,
 }
 
@@ -50,14 +46,10 @@ impl MetricRecorder for SystemMetrics {
         static DISK_TOTAL_WRITE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static DISK_LIVE_READ_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static DISK_LIVE_WRITE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
-        static PROCESSES_LIVE_READ_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
-        static PROCESSES_LIVE_WRITE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static CPU_PERCENT: OnceLock<Gauge<f64>> = OnceLock::new();
         static PROCESS_MEMORY_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static RSS_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static VIRTUAL_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
-        static MEMORY_USED_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
-        static MEMORY_TOTAL_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static OPEN_FILES: OnceLock<Gauge<u64>> = OnceLock::new();
 
         let runtime_seconds = RUNTIME_SECONDS.get_or_init(|| {
@@ -102,20 +94,6 @@ impl MetricRecorder for SystemMetrics {
                 .with_unit("bytes")
                 .build()
         });
-        let processes_live_read_bytes = PROCESSES_LIVE_READ_BYTES.get_or_init(|| {
-            meter
-                .u64_gauge("amaru_metrics_processes_live_read_bytes")
-                .with_description("Observed bytes read by all refreshed processes since the last refresh (in bytes)")
-                .with_unit("bytes")
-                .build()
-        });
-        let processes_live_write_bytes = PROCESSES_LIVE_WRITE_BYTES.get_or_init(|| {
-            meter
-                .u64_gauge("amaru_metrics_processes_live_write_bytes")
-                .with_description("Observed bytes written by all refreshed processes since the last refresh (in bytes)")
-                .with_unit("bytes")
-                .build()
-        });
         let process_memory_bytes = PROCESS_MEMORY_BYTES.get_or_init(|| {
             meter
                 .u64_gauge("amaru_metrics_process_memory_footprint_bytes")
@@ -141,20 +119,6 @@ impl MetricRecorder for SystemMetrics {
                 .with_unit("bytes")
                 .build()
         });
-        let memory_used_bytes = MEMORY_USED_BYTES.get_or_init(|| {
-            meter
-                .u64_gauge("amaru_metrics_system_memory_used_bytes")
-                .with_description("Current system memory usage (in bytes)")
-                .with_unit("bytes")
-                .build()
-        });
-        let memory_total_bytes = MEMORY_TOTAL_BYTES.get_or_init(|| {
-            meter
-                .u64_gauge("amaru_metrics_system_memory_total_bytes")
-                .with_description("Total system memory (in bytes)")
-                .with_unit("bytes")
-                .build()
-        });
         let open_files = OPEN_FILES.get_or_init(|| {
             meter.u64_gauge("process_open_files").with_description("Total number of file descriptors.").build()
         });
@@ -164,14 +128,10 @@ impl MetricRecorder for SystemMetrics {
         disk_total_write_bytes.record(self.disk_write_bytes, &[]);
         disk_live_read_bytes.record(self.disk_live_read_bytes, &[]);
         disk_live_write_bytes.record(self.disk_live_write_bytes, &[]);
-        processes_live_read_bytes.record(self.processes_live_read_bytes, &[]);
-        processes_live_write_bytes.record(self.processes_live_write_bytes, &[]);
         cpu_percent.record(self.cpu_percent, &[]);
         process_memory_bytes.record(self.process_memory_bytes, &[]);
         rss_bytes.record(self.rss_bytes, &[]);
         virtual_bytes.record(self.virtual_bytes, &[]);
-        memory_used_bytes.record(self.memory_used_bytes, &[]);
-        memory_total_bytes.record(self.memory_total_bytes, &[]);
         open_files.record(self.open_files, &[]);
     }
 }
