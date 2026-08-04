@@ -15,6 +15,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
+    sync::Arc,
 };
 
 use amaru_kernel::{
@@ -27,7 +28,7 @@ use crate::{
     context::{
         AccountState, CCMember, ContextHydratationError, DefaultValidationContext, PreparationContext,
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
-        PrepareUtxoSlice, UnresolvedInputPolicy,
+        PrepareUtxoSlice, ProposalState, UnresolvedInputPolicy,
     },
     state::volatile::{AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, RewardsAtTip, VolatileState},
     store::ReadStore,
@@ -127,7 +128,7 @@ impl<'block> DefaultPreparationContext<'block> {
             Account<'volatile> = (Existence<AccountBind<'volatile>>, RewardsAtTip),
             DRep<'volatile> = Existence<DRepBind<'volatile>>,
             CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>,
-            Proposal = Existence<()>,
+            Proposal = Existence<Arc<ProposalState>>,
         >,
         db: &impl ReadStore,
     ) -> Result<DefaultValidationContext, ContextHydratationError> {
@@ -475,35 +476,43 @@ fn resolve_committee_member<'volatile>(
 
 /// The materialized [`ProposalState`] for each existing id, layering the ongoing block over the
 /// volatile DB over the stable store; a `Gone` tombstone (boundary pruning) skips the stale
-/// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
-/// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
+/// stable entry. Expiry is read from whichever layer answers, never re-derived: it is stamped once
+/// at submission from the lifetime in force then, so a later change to `gov_action_lifetime` must
+/// neither extend nor shorten an action already on the chain.
 pub fn resolve_proposals(
-    volatile: &impl VolatileState<Proposal = Existence<()>>,
+    volatile: &impl VolatileState<Proposal = Existence<Arc<ProposalState>>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ProposalId>,
-) -> Result<BTreeSet<ProposalId>, ContextHydratationError> {
+) -> Result<BTreeMap<ProposalId, ProposalState>, ContextHydratationError> {
     debug_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
-        let proposals = keys.try_fold(BTreeSet::new(), |mut proposals, id| {
+        let proposals = keys.try_fold(BTreeMap::new(), |mut proposals, id| {
             match volatile.resolve_proposal(&id) {
                 // pruned at the boundary; skip
                 Existence::Gone => Ok(proposals),
 
                 // newly proposed in the volatile
-                Existence::Exists(()) => {
+                Existence::Exists(state) => {
                     from_volatile += 1;
-                    proposals.insert(id);
+                    proposals.insert(id, Arc::unwrap_or_clone(state));
 
                     Ok(proposals)
                 }
 
                 // not in the volatile; resolve from stable
                 Existence::Unknown => {
-                    if db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)?.is_some() {
+                    if let Some(row) = db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)? {
                         from_db += 1;
-                        proposals.insert(id);
+                        proposals.insert(
+                            id,
+                            ProposalState {
+                                proposed_in: row.proposed_in,
+                                valid_until: row.valid_until,
+                                proposal: row.proposal,
+                            },
+                        );
                     }
 
                     Ok(proposals)

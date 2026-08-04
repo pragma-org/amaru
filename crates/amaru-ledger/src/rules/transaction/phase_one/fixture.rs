@@ -15,15 +15,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Lovelace, MemoizedTransactionOutput,
-    NetworkName, PoolId, Pots, ProposalId, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer,
-    cbor, json,
+    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, GovernanceAction, Hash, Lovelace,
+    MemoizedTransactionOutput, NetworkName, PoolId, Pots, Proposal, ProposalId, ProposalPointer, ProtocolParameters,
+    RewardAccount, Slot, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
-    context::{AccountState, CCMember, DelegateError},
+    context::{AccountState, CCMember, DelegateError, ProposalState},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -63,7 +63,7 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_committee")]
     pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals")]
-    pub(super) proposals: BTreeMap<ProposalId, Epoch>,
+    pub(super) proposals: BTreeMap<ProposalId, ProposalState>,
     #[serde(default)]
     pub(super) governance_activity: GovernanceActivity,
     #[serde(default)]
@@ -207,12 +207,34 @@ struct ProposalProxy {
     valid_until: Epoch,
 }
 
-fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, Epoch>, D::Error>
+/// The identity and expiry of a seeded proposal are the only parts a fixture states; the rest of
+/// [`ProposalState`] is stood up as an `Information` action, the one governance action that
+/// constrains nothing about who may vote on it. A rule that starts reading `proposal` or
+/// `proposed_in` needs the schema to carry them, rather than these stand-ins.
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalState>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let entries = Vec::<ProposalProxy>::deserialize(deserializer)?;
-    Ok(entries.into_iter().map(|entry| (entry.id, entry.valid_until)).collect())
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let state = ProposalState {
+                proposed_in: ProposalPointer {
+                    transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
+                    proposal_index: entry.id.action_index as usize,
+                },
+                valid_until: entry.valid_until,
+                proposal: Proposal {
+                    deposit: 0,
+                    reward_account: RewardAccount::from(vec![]),
+                    gov_action: GovernanceAction::Information,
+                    anchor: Anchor { content_hash: Hash::new([0; 32]), url: String::new() },
+                },
+            };
+            (entry.id, state)
+        })
+        .collect())
 }
 
 pub(super) enum Expected {
@@ -396,7 +418,8 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Withdrawals(_)
             | PhaseOneError::Scripts(_)
             | PhaseOneError::Collateral(_)
-            | PhaseOneError::Proposals(_) => unreachable!("no predicate mapping yet for {err}"),
+            | PhaseOneError::Proposals(_)
+            | PhaseOneError::VotingProcedures(_) => unreachable!("no predicate mapping yet for {err}"),
         }
     }
 }

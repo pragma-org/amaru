@@ -18,7 +18,7 @@ use amaru_kernel::{
     CertificatePointer, Epoch, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Pots, ProposalPointer, StakeCredential,
 };
 use amaru_ledger::{
-    context::PreparationContext,
+    context::{PreparationContext, ProposalState},
     epoch_transition::GovernanceActivity,
     state::volatile::{AnchoredVolatileFragment, VolatileDB, VolatileFragment, VolatileSequence},
     store::{self, ReadStore},
@@ -402,7 +402,14 @@ fn step_fragment_dreps(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng
 fn step_fragment_proposals(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng, _ix: usize) -> usize {
     let proposal_id = fixture::comparable_proposal_id(rng);
 
-    fragment.proposals.insert(proposal_id, Arc::new((fixture::proposal(rng), ProposalPointer::default())));
+    fragment.proposals.insert(
+        proposal_id,
+        Arc::new(ProposalState {
+            proposed_in: ProposalPointer::default(),
+            valid_until: Epoch::from(0),
+            proposal: fixture::proposal(rng),
+        }),
+    );
 
     Scenario::Proposals.per_item_size()
 }

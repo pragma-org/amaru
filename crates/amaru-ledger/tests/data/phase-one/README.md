@@ -67,7 +67,9 @@ it is made up of seven fields:
 - `proposals`: `[{ id, validUntil }]`, the governance actions that are already on the
   chain and can therefore be voted on or referenced as an ancestor. `id` is hex-encoded
   CBOR of a `GovActionId` and `validUntil` is the last epoch in which a vote on the
-  action still counts.
+  action still counts. The action itself is not stated: the harness stands it up as an
+  `Information` action, which constrains nothing about who may vote on it. A rule that
+  needs the action's type or its proposing pointer has to extend this schema.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:

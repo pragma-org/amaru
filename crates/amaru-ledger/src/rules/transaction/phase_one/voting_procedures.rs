@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RedeemerTag, RequiredScript, StakeCredential,
-    Voter, VotingProcedure,
+    EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RedeemerTag, RequiredScript,
+    StakeCredential, TransactionPointer, Voter, VotingProcedure,
 };
 use thiserror::Error;
 
@@ -32,10 +32,15 @@ pub enum InvalidVotingProcedures {
 
     #[error("votes cast on governance actions that have expired: Voter {0:?} on proposal {1:?}")]
     VotingOnExpiredGovAction(Voter, ProposalId),
+
+    #[error("era history error: {0}")]
+    EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
 pub(crate) fn execute<C>(
     context: &mut C,
+    era_history: &EraHistory,
+    pointer: TransactionPointer,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 ) -> Result<(), InvalidVotingProcedures>
 where
@@ -43,6 +48,10 @@ where
 {
     if let Some(voting_procedures) = voting_procedures {
         let voting_procedures = voting_procedures.into_iter().collect::<BTreeMap<_, _>>();
+
+        // NOTE: conformance tests are brittle on this check due to era_history mismatch.
+        // (see certificates.rs PoolRetirement comment for details)
+        let current_epoch = era_history.slot_to_epoch(pointer.slot, pointer.slot)?;
 
         let mut unknown_voters = BTreeSet::new();
         let mut unknown_proposals = BTreeSet::new();
@@ -53,8 +62,16 @@ where
             }
 
             for (proposal_id, _) in votes.iter() {
-                if !ProposalsSlice::exists(context, proposal_id) {
-                    unknown_proposals.insert(*proposal_id);
+                match ProposalsSlice::lookup(context, proposal_id) {
+                    None => {
+                        unknown_proposals.insert(*proposal_id);
+                    }
+
+                    Some(state) if state.valid_until < current_epoch => {
+                        return Err(InvalidVotingProcedures::VotingOnExpiredGovAction(voter.clone(), *proposal_id));
+                    }
+
+                    Some(..) => {}
                 }
             }
         }

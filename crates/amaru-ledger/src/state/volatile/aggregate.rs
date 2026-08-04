@@ -12,15 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use amaru_kernel::{
     CertificatePointer, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId, ProposalId,
     StakeCredential, TransactionInput,
 };
 
-use crate::state::volatile::{
-    AccountBind, Bind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, Resettable, VolatileFragment,
+use crate::{
+    context::ProposalState,
+    state::volatile::{
+        AccountBind, Bind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, Resettable, VolatileFragment,
+    },
 };
 
 mod indexed_bind;
@@ -66,7 +72,7 @@ pub struct VolatileAggregate {
     dreps: DReps,
     committee: Committee,
     withdrawals: BTreeSet<StakeCredential>,
-    proposals: BTreeSet<ProposalId>,
+    proposals: BTreeMap<ProposalId, Arc<ProposalState>>,
     fees: Lovelace,
     donations: Lovelace,
 }
@@ -132,8 +138,11 @@ impl VolatileAggregate {
 
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is
     /// `Exists` or `Unknown`; pruning only happens at the boundary.
-    pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<()> {
-        if self.proposals.contains(id) { Existence::Exists(()) } else { Existence::Unknown }
+    pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<Arc<ProposalState>> {
+        match self.proposals.get(id) {
+            Some(state) => Existence::Exists(state.clone()),
+            None => Existence::Unknown,
+        }
     }
 }
 
@@ -158,7 +167,7 @@ impl VolatileAggregate {
         self.utxo.extend(utxo);
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
-        self.proposals.extend(proposals.keys().cloned());
+        self.proposals.extend(proposals.iter().map(|(id, state)| (*id, state.clone())));
         self.dreps.extend_with(dreps, |bind| bind.map_left(|_| Empty));
         self.committee.extend(committee);
         self.accounts.extend(accounts);

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, mem};
+use std::{iter, mem, sync::Arc};
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
@@ -20,6 +20,7 @@ use amaru_kernel::{
 };
 
 use crate::{
+    context::ProposalState,
     epoch_transition::{
         Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
@@ -156,7 +157,7 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<()>;
+    type Proposal = Existence<Arc<ProposalState>>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.
