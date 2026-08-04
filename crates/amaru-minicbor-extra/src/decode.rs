@@ -51,7 +51,7 @@ pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error>
     Ok(BigInt::from(i))
 }
 
-/// Decode a byte string, accepting both the definite-length form and the indefinite-length
+/// Decode bytes, accepting both the definite-length form and the indefinite-length
 /// (chunked) form
 pub fn decode_bytes<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, [u8]>, decode::Error> {
     if d.datatype()? == Type::BytesIndef {
@@ -63,6 +63,19 @@ pub fn decode_bytes<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, [u8]>, deco
     }
 
     Ok(Cow::Borrowed(d.bytes()?))
+}
+
+/// Decode a string, accepting both the definite-length form and the indefinite-length (chunked) form.
+pub fn decode_string<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, str>, decode::Error> {
+    if d.datatype()? == Type::StringIndef {
+        let mut string = String::new();
+        for chunk in d.str_iter()? {
+            string.push_str(chunk?);
+        }
+        return Ok(Cow::Owned(string));
+    }
+
+    Ok(Cow::Borrowed(d.str()?))
 }
 
 // Misc
@@ -292,7 +305,7 @@ mod tests {
 
     use crate::{
         cbor, from_cbor, from_cbor_no_leftovers, heterogeneous_array, heterogeneous_map, missing_field,
-        tests::{AsDefinite, AsIndefinite, AsMap, foo::Foo},
+        tests::{foo::Foo, AsDefinite, AsIndefinite, AsMap},
         to_cbor, unexpected_field,
     };
 

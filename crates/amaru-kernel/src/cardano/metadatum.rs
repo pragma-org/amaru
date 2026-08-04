@@ -14,7 +14,7 @@
 
 use amaru_minicbor_extra::{decode_bytes, decode_string};
 
-use crate::{cbor, Int};
+use crate::{Int, cbor};
 
 /// A piece of (structured) metadata found in transaction.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize)]
@@ -65,8 +65,8 @@ impl<'b, C> cbor::Decode<'b, C> for Metadatum {
                 }
                 Ok(Metadatum::Bytes(bytes))
             }
-            String => {
-                let text: std::string::String = d.decode_with(ctx)?;
+            String | StringIndef => {
+                let text: std::string::String = decode_string(d)?.into_owned();
                 if text.len() > 64 {
                     return Err(cbor::decode::Error::message(format!("text exceeds 64 bytes: got {}", text.len())));
                 }
@@ -131,7 +131,7 @@ mod tests {
     use test_case::test_case;
 
     use super::Metadatum;
-    use crate::{from_cbor_no_leftovers, to_cbor, Int};
+    use crate::{Int, from_cbor_no_leftovers, to_cbor};
 
     fn int(n: i128) -> Metadatum {
         Metadatum::Int(Int::try_from(n).unwrap())
