@@ -378,8 +378,8 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             if old_protocol_version != new_protocol_version {
                 info!(
                     ledger::protocol::UPGRADE,
-                    old_version = old_protocol_version.0,
-                    new_version = new_protocol_version.0
+                    old_version = old_protocol_version.major(),
+                    new_version = new_protocol_version.major()
                 );
             }
         }

@@ -199,7 +199,7 @@ where
         GovernanceAction::NoConfidence(_) | GovernanceAction::NewConstitution(..) => {}
 
         GovernanceAction::HardForkInitiation(_, new_version) => {
-            if !pv_can_follow(protocol_parameters.protocol_version, *new_version) {
+            if !new_version.can_follow(protocol_parameters.protocol_version) {
                 return Err(InvalidProposals::HardforkCantFollow {
                     current: protocol_parameters.protocol_version,
                     new: *new_version,
@@ -215,12 +215,6 @@ where
     }
 
     Ok(())
-}
-
-fn pv_can_follow(current: ProtocolVersion, new: ProtocolVersion) -> bool {
-    let (cur_major, cur_minor) = current;
-    let (new_major, new_minor) = new;
-    (new_major == cur_major + 1 && new_minor == 0) || (new_major == cur_major && new_minor == cur_minor + 1)
 }
 
 fn ppu_well_formed(ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {

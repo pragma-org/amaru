@@ -16,9 +16,9 @@ use amaru_minicbor_extra::decode_bytes;
 use serde::ser::SerializeStruct;
 
 use crate::{
-    cbor::{self, IanaTag}, size::DATUM, Hash,
-    Legacy,
-    MemoizedPlutusData,
+    Hash, Legacy, MemoizedPlutusData,
+    cbor::{self, IanaTag},
+    size::DATUM,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -16,8 +16,8 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::{
-    Bytes, Hash, Header, OperationalCert, VrfCert, any_hash28, cardano::network_block::make_block_with_header, ed25519,
-    size::BLOCK_BODY, to_cbor,
+    Bytes, Hash, Header, OperationalCert, ProtocolVersion, VrfCert, any_hash28,
+    cardano::network_block::make_block_with_header, ed25519, size::BLOCK_BODY, to_cbor,
 };
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
@@ -51,7 +51,7 @@ pub fn make_header_with_op_cert_seq(
                 operational_cert_kes_period: 0,
                 operational_cert_sigma: Bytes::from(vec![]),
             },
-            protocol_version: (1, 2),
+            protocol_version: ProtocolVersion::new(1, 2),
         },
         body_signature: Bytes::from(vec![]),
     }

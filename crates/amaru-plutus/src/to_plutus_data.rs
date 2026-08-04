@@ -16,8 +16,8 @@ use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
     Address, BorrowedScript, Bytes, CurrencySymbol, Epoch, HasScriptHash, Hash, Int, KeyValuePairs, MemoizedDatum,
-    MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, RequiredSigners, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, plutus_data::BigInt,
+    MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, ProtocolVersion, RequiredSigners,
+    ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, plutus_data::BigInt,
 };
 use thiserror::Error;
 
@@ -351,6 +351,16 @@ where
     #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         u64::from(*self).to_plutus_data()
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for ProtocolVersion
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    #[allow(clippy::unwrap_used)]
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        (self.major(), self.minor()).to_plutus_data()
     }
 }
 
