@@ -23,6 +23,67 @@ use opentelemetry::KeyValue;
 use crate::{Counter, Gauge};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
+#[cfg(not(target_arch = "wasm32"))]
+static SERVED_BLOCK_COUNT: OnceLock<Counter<u64>> = OnceLock::new();
+#[cfg(not(target_arch = "wasm32"))]
+static SERVED_BLOCK_LATEST: OnceLock<Gauge<u64>> = OnceLock::new();
+#[cfg(not(target_arch = "wasm32"))]
+static SERVED_HEADER: OnceLock<Counter<u64>> = OnceLock::new();
+#[cfg(not(target_arch = "wasm32"))]
+static CHAIN_SYNC_HEADERS_SERVED: OnceLock<Counter<u64>> = OnceLock::new();
+
+#[cfg(not(target_arch = "wasm32"))]
+fn served_block_count(meter: &Meter) -> &Counter<u64> {
+    SERVED_BLOCK_COUNT.get_or_init(|| {
+        meter
+            .u64_counter("cardano_node_metrics_served_block_counter")
+            .with_description("total number of blocks served to peers")
+            .with_unit("int")
+            .build()
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn served_block_latest(meter: &Meter) -> &Gauge<u64> {
+    SERVED_BLOCK_LATEST.get_or_init(|| {
+        meter
+            .u64_gauge("cardano_node_metrics_served_block_latest_int")
+            .with_description("number of blocks served at the highest slot observed so far")
+            .with_unit("int")
+            .build()
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn served_header(meter: &Meter) -> &Counter<u64> {
+    SERVED_HEADER.get_or_init(|| {
+        meter
+            .u64_counter("cardano_node_metrics_served_header_counter")
+            .with_description("total number of headers served to peers")
+            .with_unit("int")
+            .build()
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn chain_sync_headers_served(meter: &Meter) -> &Counter<u64> {
+    CHAIN_SYNC_HEADERS_SERVED.get_or_init(|| {
+        meter
+            .u64_counter("cardano_node_metrics_ChainSync_HeadersServed_counter")
+            .with_description("total number of headers served through chain sync")
+            .with_unit("int")
+            .build()
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn initialize_metrics(meter: &Meter) {
+    served_block_count(meter).add(0, &[]);
+    served_block_latest(meter).record(0, &[]);
+    served_header(meter).add(0, &[]);
+    chain_sync_headers_served(meter).add(0, &[]);
+}
+
 // Uses ObservableGauge rather than Gauge: the callback output replaces the previous
 // observation set each collection cycle, so only the current label set is ever exported.
 // A synchronous Gauge would accumulate every distinct label combination seen since startup.
@@ -195,18 +256,9 @@ impl ServedBlockLatestState {
 impl MetricRecorder for ServedBlockLatestMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static STATE: OnceLock<Mutex<ServedBlockLatestState>> = OnceLock::new();
-        static SERVED_BLOCK_LATEST: OnceLock<Gauge<u64>> = OnceLock::new();
-
-        let served_block_latest = SERVED_BLOCK_LATEST.get_or_init(|| {
-            meter
-                .u64_gauge("cardano_node_metrics_served_block_latest_int")
-                .with_description("number of blocks served at the highest slot observed so far")
-                .with_unit("int")
-                .build()
-        });
 
         if let Ok(mut state) = STATE.get_or_init(Default::default).lock() {
-            served_block_latest.record(state.observe(self.slot), &[]);
+            served_block_latest(meter).record(state.observe(self.slot), &[]);
         }
     }
 }
@@ -219,43 +271,15 @@ impl MetricRecorder for ServedHeaderMetrics {
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ServedHeaderMetrics {
     fn record_to_meter(&self, meter: &Meter) {
-        static SERVED_HEADER: OnceLock<Counter<u64>> = OnceLock::new();
-        static CHAIN_SYNC_HEADERS_SERVED: OnceLock<Counter<u64>> = OnceLock::new();
-
-        let served_header = SERVED_HEADER.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_metrics_served_header_counter")
-                .with_description("total number of headers served to peers")
-                .with_unit("int")
-                .build()
-        });
-        let chain_sync_headers_served = CHAIN_SYNC_HEADERS_SERVED.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_metrics_ChainSync_HeadersServed_counter")
-                .with_description("total number of headers served through chain sync")
-                .with_unit("int")
-                .build()
-        });
-
-        served_header.add(self.count, &[]);
-        chain_sync_headers_served.add(self.count, &[]);
+        served_header(meter).add(self.count, &[]);
+        chain_sync_headers_served(meter).add(self.count, &[]);
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ServedBlockCountMetrics {
     fn record_to_meter(&self, meter: &Meter) {
-        static SERVED_BLOCK_COUNT: OnceLock<Counter<u64>> = OnceLock::new();
-
-        let served_block_count = SERVED_BLOCK_COUNT.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_metrics_served_block_counter")
-                .with_description("total number of blocks served to peers")
-                .with_unit("int")
-                .build()
-        });
-
-        served_block_count.add(self.count, &[]);
+        served_block_count(meter).add(self.count, &[]);
     }
 }
 

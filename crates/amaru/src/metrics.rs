@@ -14,9 +14,9 @@
 
 use std::{sync::LazyLock, time::Duration};
 
-use amaru_metrics::METRICS_METER_NAME;
+use amaru_metrics::{METRICS_METER_NAME, initialize_metrics};
 use anyhow::anyhow;
-use opentelemetry::KeyValue;
+use opentelemetry::{KeyValue, metrics::MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use sysinfo::{
     CpuRefreshKind, MemoryRefreshKind, Networks, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System,
@@ -32,6 +32,7 @@ pub fn track_system_metrics(provider: SdkMeterProvider) -> Result<JoinHandle<()>
     use internals::*;
 
     record_build_info(&provider);
+    initialize_metrics(&provider.meter(METRICS_METER_NAME));
 
     let mut sys = System::new_with_specifics(
         RefreshKind::nothing()

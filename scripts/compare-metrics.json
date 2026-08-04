@@ -86,7 +86,6 @@
     "amaru_consensus_header_total",
     "cardano_node_metrics_ChainSync_HeadersServed_counter",
     "cardano_node_metrics_Mem_resident_int",
-    "cardano_node_metrics_Stat_blkIOticks_int",
     "cardano_node_metrics_Stat_cputicks_int",
     "cardano_node_metrics_Stat_fsRd_int",
     "cardano_node_metrics_Stat_fsWr_int",

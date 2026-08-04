@@ -34,6 +34,15 @@ pub trait MetricRecorder {
     fn record_to_meter(&self, meter: &Meter);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub fn initialize_metrics(meter: &Meter) {
+    mempool::initialize_metrics(meter);
+    protocol::initialize_metrics(meter);
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn initialize_metrics(_meter: &Meter) {}
+
 impl MetricRecorder for MetricsEvent {
     fn record_to_meter(&self, meter: &Meter) {
         match self {

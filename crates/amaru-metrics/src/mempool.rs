@@ -22,6 +22,25 @@ use opentelemetry::KeyValue;
 use crate::{Counter, Gauge};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
+#[cfg(not(target_arch = "wasm32"))]
+static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
+
+#[cfg(not(target_arch = "wasm32"))]
+fn txs_processed(meter: &Meter) -> &Counter<u64> {
+    TXS_PROCESSED.get_or_init(|| {
+        meter
+            .u64_counter("cardano_node_metrics_txsProcessedNum_int")
+            .with_description("total transactions moved out of the mempool after revalidation")
+            .with_unit("int")
+            .build()
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn initialize_metrics(meter: &Meter) {
+    txs_processed(meter).add(0, &[]);
+}
+
 // EVENTS
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -106,7 +125,6 @@ impl MetricRecorder for MempoolMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static SIZE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static TX_COUNT: OnceLock<Gauge<u64>> = OnceLock::new();
-        static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
         static TXS_SYNC_DURATION: OnceLock<Gauge<u64>> = OnceLock::new();
         static TXS_SYNC_DURATION_TOTAL_COUNTER: OnceLock<Counter<u64>> = OnceLock::new();
         static TX_INSERTIONS: OnceLock<Counter<u64>> = OnceLock::new();
@@ -129,13 +147,7 @@ impl MetricRecorder for MempoolMetrics {
                 .build()
         });
 
-        let txs_processed = TXS_PROCESSED.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_metrics_txsProcessedNum_int")
-                .with_description("total transactions moved out of the mempool after revalidation")
-                .with_unit("int")
-                .build()
-        });
+        let txs_processed = txs_processed(meter);
 
         let txs_sync_duration = TXS_SYNC_DURATION.get_or_init(|| {
             meter
