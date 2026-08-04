@@ -76,6 +76,7 @@ pub struct Model {
     pub config_scroll: usize,
     pub created_at: Instant,
     pub tip: Option<TipState>,
+    pub tip_sync_origin: Option<(u64, Instant)>,
     pub stake_snapshot: Option<StakeSnapshotState>,
     pub treasury: Option<u64>,
     pub reserves: Option<u64>,
@@ -121,6 +122,7 @@ impl Model {
             config_scroll: 0,
             created_at: Instant::now(),
             tip: None,
+            tip_sync_origin: None,
             stake_snapshot: None,
             treasury: None,
             reserves: None,
@@ -178,8 +180,6 @@ pub fn render_fields(record: &TelemetryRecord) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics, system::SystemMetrics};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tracing::Level;
@@ -217,8 +217,8 @@ mod tests {
             interval,
             memory_used_bytes: 100_000,
             memory_total_bytes: 200_000,
-            processes_live_read_bytes: 1_500,
-            processes_live_write_bytes: 2_500,
+            other_processes_live_read_bytes: 1_500,
+            other_processes_live_write_bytes: 2_500,
         })
     }
 
@@ -233,10 +233,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -255,10 +255,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -298,10 +298,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -346,7 +346,7 @@ mod tests {
         assert_eq!(model.transactions_in_window(at + Duration::from_secs(1)), 7);
         assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(10_000));
         assert_eq!(model.system_samples.back().map(|sample| sample.memory_total_bytes), Some(200_000));
-        assert_eq!(model.system_samples.back().map(|sample| sample.processes_live_read_bytes), Some(300));
+        assert_eq!(model.system_samples.back().map(|sample| sample.other_processes_live_read_bytes), Some(300));
     }
 
     #[test]
@@ -361,10 +361,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::from(["1.2.3.4:3001".into()]),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -383,7 +383,6 @@ mod tests {
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
         assert_eq!(peer.last_rtt_micros, Some(12_345));
-        assert!(peer.trusted);
     }
 
     #[test]
@@ -391,13 +390,13 @@ mod tests {
         let mut model = Model::new(Config::default(), startup_context());
         let now = Instant::now();
 
-        let mut fast = PeerState::new("fast.example:3001".into(), false, now);
+        let mut fast = PeerState::new("fast.example:3001".into(), now);
         fast.last_rtt_micros = Some(5_000);
 
-        let mut unknown = PeerState::new("unknown.example:3001".into(), false, now);
+        let mut unknown = PeerState::new("unknown.example:3001".into(), now);
         unknown.last_rtt_micros = None;
 
-        let mut slow = PeerState::new("slow.example:3001".into(), false, now);
+        let mut slow = PeerState::new("slow.example:3001".into(), now);
         slow.last_rtt_micros = Some(15_000);
 
         model.peers.insert(fast.address.clone(), fast);
@@ -417,10 +416,10 @@ mod tests {
         let stale_at = Instant::now();
         let now = stale_at + max_window + Duration::from_secs(1);
 
-        model.peers.insert("stale.example:3001".into(), PeerState::new("stale.example:3001".into(), false, stale_at));
+        model.peers.insert("stale.example:3001".into(), PeerState::new("stale.example:3001".into(), stale_at));
         model.peers.insert(
             "recent.example:3001".into(),
-            PeerState::new("recent.example:3001".into(), false, now - Duration::from_secs(1)),
+            PeerState::new("recent.example:3001".into(), now - Duration::from_secs(1)),
         );
 
         model.handle_message(host_sample(now, Duration::from_secs(1)));
@@ -615,10 +614,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -664,10 +663,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -701,10 +700,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -766,10 +765,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),
@@ -809,10 +808,10 @@ mod tests {
             mempool_max_bytes: 180_224,
             epoch_length: 86_400,
             active_slot_coeff_inverse: 20,
+            consensus_security_param: 432,
             max_lovelace_supply: 45_000_000_000_000_000,
             system_start_millis: 1_666_656_000_000,
             era_history: None,
-            trusted_peers: BTreeSet::default(),
             runtime_sections: Vec::default(),
             global_sections: Vec::default(),
             protocol_sections: Vec::default(),

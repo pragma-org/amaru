@@ -69,7 +69,6 @@ pub struct PeerState {
     pub inbound: bool,
     pub outbound: bool,
     pub connected: bool,
-    pub trusted: bool,
     pub last_conn_id: Option<String>,
     pub last_rtt_micros: Option<u64>,
     pub last_reason: Option<String>,
@@ -83,13 +82,12 @@ pub struct PeerState {
 }
 
 impl PeerState {
-    pub fn new(address: String, trusted: bool, updated_at: Instant) -> Self {
+    pub fn new(address: String, updated_at: Instant) -> Self {
         Self {
             address,
             inbound: false,
             outbound: false,
             connected: false,
-            trusted,
             last_conn_id: None,
             last_rtt_micros: None,
             last_reason: None,

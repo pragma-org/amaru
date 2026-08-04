@@ -20,17 +20,17 @@ pub struct HostSample {
     pub interval: Duration,
     pub memory_used_bytes: u64,
     pub memory_total_bytes: u64,
-    pub processes_live_read_bytes: u64,
-    pub processes_live_write_bytes: u64,
+    pub other_processes_live_read_bytes: u64,
+    pub other_processes_live_write_bytes: u64,
 }
 
 impl HostSample {
-    pub fn processes_live_read_bytes_per_second(&self) -> u64 {
-        bytes_per_second(self.processes_live_read_bytes, self.interval)
+    pub fn other_processes_live_read_bytes_per_second(&self) -> u64 {
+        bytes_per_second(self.other_processes_live_read_bytes, self.interval)
     }
 
-    pub fn processes_live_write_bytes_per_second(&self) -> u64 {
-        bytes_per_second(self.processes_live_write_bytes, self.interval)
+    pub fn other_processes_live_write_bytes_per_second(&self) -> u64 {
+        bytes_per_second(self.other_processes_live_write_bytes, self.interval)
     }
 }
 

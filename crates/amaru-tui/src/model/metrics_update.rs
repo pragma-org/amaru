@@ -58,7 +58,7 @@ impl Model {
     }
 
     fn record_system_metrics(&mut self, at: Instant, metrics: SystemMetrics) {
-        let (memory_used_bytes, memory_total_bytes, processes_live_read_bytes, processes_live_write_bytes) =
+        let (memory_used_bytes, memory_total_bytes, other_processes_live_read_bytes, other_processes_live_write_bytes) =
             self.latest_host_metrics();
 
         self.push_system_sample(SystemSample {
@@ -73,8 +73,8 @@ impl Model {
             disk_write_bytes: metrics.disk_write_bytes,
             disk_live_read_bytes: metrics.disk_live_read_bytes,
             disk_live_write_bytes: metrics.disk_live_write_bytes,
-            processes_live_read_bytes,
-            processes_live_write_bytes,
+            other_processes_live_read_bytes,
+            other_processes_live_write_bytes,
         });
     }
 
@@ -102,8 +102,8 @@ impl Model {
             disk_write_bytes,
             disk_live_read_bytes,
             disk_live_write_bytes,
-            processes_live_read_bytes: sample.processes_live_read_bytes_per_second(),
-            processes_live_write_bytes: sample.processes_live_write_bytes_per_second(),
+            other_processes_live_read_bytes: sample.other_processes_live_read_bytes_per_second(),
+            other_processes_live_write_bytes: sample.other_processes_live_write_bytes_per_second(),
         });
     }
 
@@ -137,8 +137,8 @@ impl Model {
                 (
                     sample.memory_used_bytes,
                     sample.memory_total_bytes,
-                    sample.processes_live_read_bytes,
-                    sample.processes_live_write_bytes,
+                    sample.other_processes_live_read_bytes,
+                    sample.other_processes_live_write_bytes,
                 )
             })
             .unwrap_or((0, 0, 0, 0))

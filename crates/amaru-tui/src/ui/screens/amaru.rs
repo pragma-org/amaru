@@ -92,7 +92,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         aligned_pair_lines(vec![
             ("Network", model.startup.process.network.clone()),
             ("Platform", model.startup.process.target.clone()),
-            ("Protocol", model.protocol_version.clone()),
+            ("PID", std::process::id().to_string()),
             ("Uptime", format_duration(now.duration_since(model.created_at))),
         ]),
         model.interaction_mode,
@@ -117,13 +117,13 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         render_card(
             frame,
             cards[2],
-            "Last Block",
+            "Local Tip",
             aligned_pair_lines(vec![
                 ("Hash", tip.header_hash.chars().take(12).collect()),
                 ("Slot", format_slot_ratio(tip.slot, model.startup.target_slot())),
                 ("Height", format_count(tip.block_height)),
                 (
-                    "When",
+                    "Adopted",
                     model
                         .last_block_elapsed(now)
                         .map(|duration| format!("{} ago", format_duration(duration)))
@@ -227,11 +227,11 @@ fn cpu_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
 }
 
 fn disk_read_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
-    disk_gauge(sample, |sample| sample.disk_live_read_bytes, |sample| sample.processes_live_read_bytes)
+    disk_gauge(sample, |sample| sample.disk_live_read_bytes, SystemSample::total_live_read_bytes)
 }
 
 fn disk_write_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
-    disk_gauge(sample, |sample| sample.disk_live_write_bytes, |sample| sample.processes_live_write_bytes)
+    disk_gauge(sample, |sample| sample.disk_live_write_bytes, SystemSample::total_live_write_bytes)
 }
 
 fn disk_gauge(
@@ -248,7 +248,7 @@ fn disk_gauge(
     let raw_ratio = linear_ratio(current, total);
     GaugeMetric {
         label: format!("{} / {} KiB/s", format_count(bytes_to_kib(current)), format_count(bytes_to_kib(total))),
-        ratio: log_ratio(current, total),
+        ratio: raw_ratio,
         detail: Some(format!("{:.1}%", raw_ratio * 100.0)),
     }
 }
@@ -269,19 +269,15 @@ fn linear_ratio_f64(current: f64, max: f64) -> f64 {
     if max == 0.0 { 0.0 } else { (current / max).clamp(0.0, 1.0) }
 }
 
-fn log_ratio(current: u64, max: u64) -> f64 {
-    if current == 0 || max == 0 { 0.0 } else { ((current as f64 + 1.0).ln() / (max as f64 + 1.0).ln()).clamp(0.0, 1.0) }
-}
-
 fn blocks_per_second(model: &Model, now: Instant) -> f64 {
     let blocks = model.blocks_in_window(now) as f64;
-    let seconds = model.current_window().as_secs_f64();
+    let seconds = model.effective_window(now).as_secs_f64();
     if seconds == 0.0 { 0.0 } else { blocks / seconds }
 }
 
 fn transactions_per_second(model: &Model, now: Instant) -> f64 {
     let transactions = model.transactions_in_window(now) as f64;
-    let seconds = model.current_window().as_secs_f64();
+    let seconds = model.effective_window(now).as_secs_f64();
     if seconds == 0.0 { 0.0 } else { transactions / seconds }
 }
 
@@ -295,13 +291,15 @@ fn format_kib_ratio(bytes: u64, capacity_bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
-    fn log_ratio_keeps_bounds() {
-        assert_eq!(log_ratio(0, 1_000), 0.0);
-        assert_eq!(log_ratio(1_000, 1_000), 1.0);
-        assert!(log_ratio(1, 1_000) > linear_ratio(1, 1_000));
+    fn linear_ratio_keeps_bounds() {
+        assert_eq!(linear_ratio(0, 1_000), 0.0);
+        assert_eq!(linear_ratio(1_000, 1_000), 1.0);
+        assert_eq!(linear_ratio(42, 300), 0.14);
     }
 
     #[test]
@@ -318,8 +316,8 @@ mod tests {
             disk_write_bytes: 0,
             disk_live_read_bytes: 0,
             disk_live_write_bytes: 0,
-            processes_live_read_bytes: 0,
-            processes_live_write_bytes: 0,
+            other_processes_live_read_bytes: 0,
+            other_processes_live_write_bytes: 0,
         };
 
         let gauge = memory_gauge(Some(&sample));
@@ -327,5 +325,29 @@ mod tests {
         assert_eq!(gauge.label, "512 / 2,048 MiB");
         assert_eq!(gauge.detail.as_deref(), Some("25.0%"));
         assert_eq!(gauge.ratio, 0.25);
+    }
+
+    #[test]
+    fn throughput_uses_uptime_until_the_selected_window_is_filled() {
+        let mut model = Model::new(
+            crate::Config::default(),
+            crate::startup::StartupContext::new(
+                "preview",
+                "test",
+                "test",
+                180_224,
+                &amaru_kernel::PREVIEW_GLOBAL_PARAMETERS,
+                None,
+                None,
+                Vec::default(),
+            ),
+        );
+        let now = model.created_at + Duration::from_secs(10);
+        model.recent_blocks.push_back(model.created_at + Duration::from_secs(1));
+        model.recent_blocks.push_back(model.created_at + Duration::from_secs(4));
+        model.recent_transactions.push_back((model.created_at + Duration::from_secs(2), 9));
+
+        assert_eq!(blocks_per_second(&model, now), 0.2);
+        assert_eq!(transactions_per_second(&model, now), 0.9);
     }
 }

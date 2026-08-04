@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::SystemTime;
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -21,7 +23,7 @@ use ratatui::{
 
 use super::super::{
     common::{border_title_line, render_gradient_progress_bar},
-    format::format_ratio,
+    format::{format_count, format_duration, format_ratio},
     theme::{border_primary, emphasis_primary, emphasis_white},
 };
 use crate::model::Model;
@@ -34,10 +36,21 @@ pub(in crate::ui) fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, mo
     let epoch_length = model.startup.epoch_length.max(1);
     let slot_in_epoch = tip.slot_in_epoch.min(epoch_length);
     let ratio = slot_in_epoch as f64 / epoch_length as f64;
+    let wall_time = SystemTime::now();
+    let epoch_title = match model.network_epoch_at(wall_time) {
+        Some(network_epoch) if network_epoch != tip.epoch => {
+            let eta = model
+                .sync_eta_at(wall_time)
+                .map(|duration| format!(" (ETA {})", format_duration(duration)))
+                .unwrap_or_default();
+            format!("Epoch {} / {}{eta}", format_count(tip.epoch), format_count(network_epoch))
+        }
+        _ => format!("Epoch {}", format_count(tip.epoch)),
+    };
     let block = Block::default()
         .title_top(
             border_title_line(
-                vec![Span::styled("Epoch", emphasis_primary(model.interaction_mode))],
+                vec![Span::styled(epoch_title, emphasis_primary(model.interaction_mode))],
                 model.interaction_mode,
                 false,
             )

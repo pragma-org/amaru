@@ -27,6 +27,16 @@ pub struct SystemSample {
     pub disk_write_bytes: u64,
     pub disk_live_read_bytes: u64,
     pub disk_live_write_bytes: u64,
-    pub processes_live_read_bytes: u64,
-    pub processes_live_write_bytes: u64,
+    pub other_processes_live_read_bytes: u64,
+    pub other_processes_live_write_bytes: u64,
+}
+
+impl SystemSample {
+    pub fn total_live_read_bytes(&self) -> u64 {
+        self.disk_live_read_bytes.saturating_add(self.other_processes_live_read_bytes)
+    }
+
+    pub fn total_live_write_bytes(&self) -> u64 {
+        self.disk_live_write_bytes.saturating_add(self.other_processes_live_write_bytes)
+    }
 }

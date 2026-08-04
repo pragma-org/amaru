@@ -120,11 +120,18 @@ impl Model {
             return;
         };
 
+        self.tip_sync_origin.get_or_insert((tip.slot, tip.updated_at));
         self.tip = Some(tip);
     }
 
     fn update_catch_up(&mut self, record: &TelemetryRecord) {
-        let catching_up = consensus::tip::ADOPT::max_block_height(record) > consensus::tip::ADOPT::block_height(record);
+        let catching_up_by_height =
+            consensus::tip::ADOPT::max_block_height(record) > consensus::tip::ADOPT::block_height(record);
+        let catching_up_by_slot = self
+            .startup
+            .is_near_target_slot_at(consensus::tip::ADOPT::slot(record), record.wall_time)
+            .is_some_and(|is_near_tip| !is_near_tip);
+        let catching_up = catching_up_by_height || catching_up_by_slot;
 
         if catching_up {
             for peer in self.peers.values_mut() {
@@ -288,8 +295,7 @@ impl Model {
     }
 
     fn peer_mut(&mut self, address: &str, updated_at: Instant) -> &mut PeerState {
-        let trusted = self.startup.trusted_peers.contains(address);
-        self.peers.entry(address.to_owned()).or_insert_with(|| PeerState::new(address.to_owned(), trusted, updated_at))
+        self.peers.entry(address.to_owned()).or_insert_with(|| PeerState::new(address.to_owned(), updated_at))
     }
 
     fn upsert_proposal(&mut self, record: &TelemetryRecord, status: &str, detail: Option<String>) {

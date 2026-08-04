@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeSet,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use amaru_kernel::{EraHistory, GlobalParameters, ProtocolParameters, protocol_version};
 use clap::{Arg, CommandFactory};
@@ -31,10 +28,10 @@ pub struct StartupContext {
     pub mempool_max_bytes: u64,
     pub epoch_length: u64,
     pub active_slot_coeff_inverse: u64,
+    pub consensus_security_param: u64,
     pub max_lovelace_supply: u64,
     pub system_start_millis: u64,
     pub era_history: Option<EraHistory>,
-    pub trusted_peers: BTreeSet<String>,
     pub runtime_sections: Vec<ConfigSection>,
     pub global_sections: Vec<ConfigSection>,
     pub protocol_sections: Vec<ConfigSection>,
@@ -50,7 +47,6 @@ impl StartupContext {
         global_parameters: &GlobalParameters,
         protocol_parameters: Option<&ProtocolParameters>,
         era_history: Option<EraHistory>,
-        trusted_peers: BTreeSet<String>,
         runtime_sections: Vec<ConfigSection>,
     ) -> Self {
         Self {
@@ -61,10 +57,10 @@ impl StartupContext {
             mempool_max_bytes,
             epoch_length: global_parameters.epoch_length(),
             active_slot_coeff_inverse: global_parameters.active_slot_coeff_inverse,
+            consensus_security_param: global_parameters.consensus_security_param,
             max_lovelace_supply: global_parameters.max_lovelace_supply,
             system_start_millis: global_parameters.system_start,
             era_history,
-            trusted_peers,
             runtime_sections,
             global_sections: global_sections(global_parameters),
             protocol_sections: protocol_sections(protocol_parameters),
@@ -76,9 +72,23 @@ impl StartupContext {
     }
 
     pub fn target_slot_at(&self, now: SystemTime) -> Option<u64> {
+        self.target_slot_and_epoch_at(now).map(|(slot, _)| slot)
+    }
+
+    pub fn target_epoch_at(&self, now: SystemTime) -> Option<u64> {
+        self.target_slot_and_epoch_at(now).map(|(_, epoch)| epoch)
+    }
+
+    pub fn is_near_target_slot_at(&self, slot: u64, now: SystemTime) -> Option<bool> {
+        self.target_slot_at(now).map(|target_slot| target_slot.saturating_sub(slot) <= self.consensus_security_param)
+    }
+
+    fn target_slot_and_epoch_at(&self, now: SystemTime) -> Option<(u64, u64)> {
         let era_history = self.era_history.as_ref()?;
         let system_start = UNIX_EPOCH + Duration::from_millis(self.system_start_millis);
-        era_history.posix_time_to_slot(now, system_start).ok().map(|slot| slot.as_u64())
+        let slot = era_history.posix_time_to_slot(now, system_start).ok()?;
+        let epoch = era_history.slot_to_epoch_unchecked_horizon(slot).ok()?;
+        Some((slot.as_u64(), epoch.into()))
     }
 }
 
@@ -259,10 +269,7 @@ fn config_entry(label: &str, value: impl Into<String>) -> ConfigEntry {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::BTreeSet,
-        time::{Duration, UNIX_EPOCH},
-    };
+    use std::time::{Duration, UNIX_EPOCH};
 
     use amaru_kernel::{PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
 
@@ -278,12 +285,45 @@ mod tests {
             &PREPROD_GLOBAL_PARAMETERS,
             None,
             Some(PREPROD_ERA_HISTORY.clone()),
-            BTreeSet::default(),
             Vec::default(),
         );
 
         let now =
             UNIX_EPOCH + Duration::from_millis(PREPROD_GLOBAL_PARAMETERS.system_start) + Duration::from_secs(2_160_000);
         assert_eq!(startup.target_slot_at(now), Some(518_400));
+    }
+
+    #[test]
+    fn target_slot_proximity_uses_security_param_as_lag_tolerance() {
+        let startup = StartupContext::new(
+            "preprod",
+            "test",
+            "test",
+            180_224,
+            &PREPROD_GLOBAL_PARAMETERS,
+            None,
+            Some(PREPROD_ERA_HISTORY.clone()),
+            Vec::default(),
+        );
+
+        let now =
+            UNIX_EPOCH + Duration::from_millis(PREPROD_GLOBAL_PARAMETERS.system_start) + Duration::from_secs(2_160_000);
+        let target_slot = startup.target_slot_at(now).expect("target slot");
+
+        assert_eq!(startup.is_near_target_slot_at(target_slot, now), Some(true));
+        assert_eq!(
+            startup.is_near_target_slot_at(
+                target_slot.saturating_sub(PREPROD_GLOBAL_PARAMETERS.consensus_security_param),
+                now
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            startup.is_near_target_slot_at(
+                target_slot.saturating_sub(PREPROD_GLOBAL_PARAMETERS.consensus_security_param + 1),
+                now
+            ),
+            Some(false)
+        );
     }
 }
