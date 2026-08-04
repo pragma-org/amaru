@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Display;
+use std::{borrow::Cow, fmt::Display};
 
 use minicbor::{
     data::{IanaTag, Type},
@@ -30,7 +30,7 @@ pub use with_size::*;
 
 /// Decode an arbitrary-precision integer, accepting both CBOR native integers and the tagged
 /// bignum forms (tag 2 for positive, tag 3 for negative).
-pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, cbor::decode::Error> {
+pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error> {
     if d.datatype()? == Type::Tag {
         let tag = d.tag()?;
         return match tag.try_into() {
@@ -43,7 +43,7 @@ pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, cbor::decode::
                 let magnitude = BigInt::from_bytes_be(num_bigint::Sign::Plus, &bytes);
                 Ok(if iana == IanaTag::PosBignum { magnitude } else { -magnitude - BigInt::one() })
             }
-            _ => Err(cbor::decode::Error::message(format!("unexpected tag for bignum: {tag}"))),
+            _ => Err(decode::Error::message(format!("unexpected tag for bignum: {tag}"))),
         };
     }
 
@@ -51,14 +51,28 @@ pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, cbor::decode::
     Ok(BigInt::from(i))
 }
 
+/// Decode a byte string, accepting both the definite-length form and the indefinite-length
+/// (chunked) form
+pub fn decode_bytes<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, [u8]>, decode::Error> {
+    if d.datatype()? == Type::BytesIndef {
+        let mut bytes = Vec::new();
+        for chunk in d.bytes_iter()? {
+            bytes.extend_from_slice(chunk?);
+        }
+        return Ok(Cow::Owned(bytes));
+    }
+
+    Ok(Cow::Borrowed(d.bytes()?))
+}
+
 // Misc
 // ----------------------------------------------------------------------------
 
-pub fn decode_break<'d>(d: &mut cbor::Decoder<'d>, len: Option<u64>) -> Result<bool, cbor::decode::Error> {
+pub fn decode_break<'d>(d: &mut cbor::Decoder<'d>, len: Option<u64>) -> Result<bool, decode::Error> {
     if d.datatype()? == cbor::data::Type::Break {
         // NOTE: If we encounter a rogue Break while decoding a definite map, that's an error.
         if len.is_some() {
-            return Err(cbor::decode::Error::type_mismatch(cbor::data::Type::Break));
+            return Err(decode::Error::type_mismatch(cbor::data::Type::Break));
         }
 
         d.skip()?;
