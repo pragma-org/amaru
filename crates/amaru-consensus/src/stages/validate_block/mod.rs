@@ -32,12 +32,12 @@ use crate::{
 /// - `state.max_block_height = msg.max_block_height.max(state.max_block_height)`.
 /// - If `msg.parent != state.current`: invoke `roll_back_to_ancestor` (which may emit `contains_volatile_point`,
 ///   `rollback`, `load_header_with_validity`, etc. effects). On `Err` from the helper: send
-///   `SelectChainMsg::BlockValidationResult(msg.tip, false)` and `BlockSourceMsg::Validation { valid: false, point: msg.tip.point() }`
+///   `SelectChainMsg::BlockValidationResult(msg.tip, false, state.max_block_height)` and `BlockSourceMsg::Validation { valid: false, point: msg.tip.point() }`
 ///   then return (no adopt). On success, set `current` and (if needed) roll forward over `forward_points`, calling
 ///   `validate(...)` on each; any failure during forward sends `...Result(msg.tip, false)` + `Validation { valid: false, point }` (the failing ancestor)
 ///   and returns early.
 /// - Always (if still running): call `validate(msg.tip.point(), ...)` (emits `ValidateBlockEffect` via `Ledger`).
-///   - Success: record `LedgerMetrics`, send `SelectChainMsg::BlockValidationResult(msg.tip, true)`,
+///   - Success: record `LedgerMetrics`, send `SelectChainMsg::BlockValidationResult(msg.tip, true, state.max_block_height)`,
 ///     `BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }`, and
 ///     `AdoptChainMsg::new(msg.tip, msg.max_block_height)` to manager; update `state.current = msg.tip.point()`.
 ///   - `Err`: log warn "invalid block", send `...Result(msg.tip, false)` + `Validation { valid: false, ... }` (no adopt, no current update).
@@ -122,14 +122,22 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         match result {
             Ok(metrics) => {
                 Metrics::new(&eff).record(metrics.into()).await;
-                eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, true)).await;
+                eff.send(
+                    &state.select_chain,
+                    SelectChainMsg::BlockValidationResult(msg.tip, true, state.max_block_height),
+                )
+                .await;
                 eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }).await;
                 eff.send(&state.adopt_chain, AdoptChainMsg::new(msg.tip, state.max_block_height)).await;
                 state.current = msg.tip.point();
             }
             Err(err) => {
                 tracing::warn!(error = %err, parent = %msg.parent, "failed to fork the ledger to a new tip");
-                eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(msg.tip, false)).await;
+                eff.send(
+                    &state.select_chain,
+                    SelectChainMsg::BlockValidationResult(msg.tip, false, state.max_block_height),
+                )
+                .await;
                 eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() })
                     .await;
             }

@@ -21,6 +21,7 @@ use amaru::{
     panic::panic_handler,
     version,
 };
+use amaru_tui as tui;
 use mimalloc::MiMalloc;
 
 mod cli;
@@ -54,6 +55,7 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     let with_open_telemetry = cli.with_open_telemetry;
     let with_json_traces = cli.with_json_traces;
     let skip_logging = cli.command.skip_logging();
+    let tui_settings = cli.command.tui_settings();
     // Capture observability hints before the command is consumed into a Runnable.
     let listen_address = cli.command.listen_address().map(str::to_owned);
 
@@ -62,6 +64,19 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     // is set up on that same runtime.
     let runnable = cli.command.into_runnable();
     let rt = runnable.build_runtime().map_err(|e| format!("failed to build Tokio runtime: {e}"))?;
+
+    let tui = if skip_logging {
+        None
+    } else {
+        tui_settings
+            .filter(|settings| tui::should_enable(settings.no_tui, with_json_traces))
+            .map(|settings| {
+                let (_, config, startup) = settings.into_parts();
+                tui::Session::spawn(config, startup)
+            })
+            .transpose()?
+    };
+    let _metrics_subscription = tui.as_ref().map(tui::Session::subscribe_to_metrics);
 
     let (metrics, teardown) = if skip_logging {
         (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn Error>> + Send>)
@@ -73,6 +88,7 @@ fn try_main() -> Result<(), Box<dyn Error>> {
             with_json_traces,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
+            tui.as_ref().map(tui::Session::layer),
         )
     };
 
@@ -81,6 +97,12 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     // Keep the runtime alive while OTEL providers flush (their batch tasks were spawned on it).
     if let Err(report) = run_teardown_with_timeout(teardown, Duration::from_secs(10)) {
         eprintln!("Failed to teardown tracing: {report}");
+    }
+
+    if let Some(tui) = tui
+        && let Err(err) = tui.shutdown()
+    {
+        eprintln!("amaru: failed to shutdown terminal dashboard cleanly: {err}");
     }
 
     rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);

@@ -14,8 +14,10 @@
 
 use std::time::Duration;
 
-use amaru_observability::debug_span;
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use amaru_kernel::Peer;
+use amaru_observability::{debug, debug_span};
+use amaru_ouroboros::ConnectionId;
+use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
@@ -57,12 +59,15 @@ pub struct InitiatorResult {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KeepAliveInitiator {
     cookie: Cookie,
+    peer: Peer,
+    conn_id: ConnectionId,
+    sent_at: Option<(Cookie, Instant)>,
     muxer: StageRef<MuxMessage>,
 }
 
 impl KeepAliveInitiator {
-    pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { cookie: Cookie::new(), muxer })
+    pub fn new(peer: Peer, conn_id: ConnectionId, muxer: StageRef<MuxMessage>) -> (State, Self) {
+        (State::Idle, Self { cookie: Cookie::new(), peer, conn_id, sent_at: None, muxer })
     }
 }
 
@@ -70,15 +75,18 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
     type LocalIn = InitiatorMessage;
 
     async fn local(
-        self,
+        mut self,
         proto: &State,
         input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         use State::*;
 
         match (proto, input) {
-            (Idle, InitiatorMessage::SendKeepAlive) => Ok((Some(InitiatorAction::SendKeepAlive(self.cookie)), self)),
+            (Idle, InitiatorMessage::SendKeepAlive) => {
+                self.sent_at = Some((self.cookie, eff.clock().await));
+                Ok((Some(InitiatorAction::SendKeepAlive(self.cookie)), self))
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         }
     }
@@ -93,6 +101,18 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         let cookie = input.cookie.as_u16();
 
         async move {
+            let received_at = eff.clock().await;
+            if let Some((sent_cookie, sent_at)) = self.sent_at.take()
+                && sent_cookie == input.cookie
+            {
+                let round_trip_micros = received_at.saturating_since(sent_at).as_micros() as u64;
+                debug!(
+                    protocols::keepalive::peer::ROUND_TRIP,
+                    peer = self.peer.clone(),
+                    conn_id = self.conn_id.to_string(),
+                    round_trip_micros = round_trip_micros
+                );
+            }
             self.cookie = input.cookie.next();
             let delay = if u16::from(input.cookie) == 0 {
                 // this is only for the very first keep-alive message, which the Haskell node expects within the first

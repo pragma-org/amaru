@@ -127,6 +127,12 @@ pub struct RollbackGuard<'a> {
     recovery: VolatileDBRecovery,
 }
 
+impl RollbackGuard<'_> {
+    pub fn rollback_length(&self) -> usize {
+        self.recovery.rollback_length()
+    }
+}
+
 /// The discarded parts of a within-window rollback, enough to restore the pre-rollback state after
 /// an arbitrary sequence of roll-forwards (a fork switch replays blocks before it may recover).
 ///
@@ -144,4 +150,13 @@ pub enum VolatileDBRecovery {
         drained: VecDeque<AnchoredVolatileFragment>,
         overlay: StateOverlay,
     },
+}
+
+impl VolatileDBRecovery {
+    fn rollback_length(&self) -> usize {
+        match self {
+            Self::RecoverInEpoch { discarded, .. } => discarded.len(),
+            Self::RecoverAcrossEpoch { old_current, drained, .. } => old_current.len() + drained.len(),
+        }
+    }
 }

@@ -157,14 +157,14 @@ pub fn build_stage_graph(
         FetchBlocksMsg::NewTip { tip, parent, trace_context }
     });
 
-    let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input));
+    let select_chain = stage_graph.wire_up(select_chain, SelectChain::new(fetch_blocks_input, era_history.clone()));
     #[expect(clippy::expect_used)]
     stage_graph
         .preload(&select_chain, [SelectChainMsg::Initialize(recovery_best_hash)])
         .expect("initialization message must be preloaded");
     let select_chain_input = stage_graph.contramap(select_chain, "select_chain_input", |msg| {
-        let track_peers::NewTip { tip, parent, trace_context, received_at } = msg;
-        SelectChainMsg::TipFromUpstream { tip, parent, trace_context, received_at }
+        let track_peers::NewTip { peer, tip, parent, trace_context, received_at } = msg;
+        SelectChainMsg::TipFromUpstream { peer, tip, parent, trace_context, received_at }
     });
 
     let track_peers_wired = stage_graph.wire_up(

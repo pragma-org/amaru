@@ -23,6 +23,7 @@ use std::{
 };
 
 use amaru_observability::{info, warn};
+use amaru_tui::TracingLayer as TuiTracingLayer;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider};
@@ -50,11 +51,11 @@ use tracing_subscriber::{
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=info";
+const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=info,amaru_pure_stage=warn";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
-const DEFAULT_AMARU_TRACE_FILTER: &str = "error,amaru=debug";
+const DEFAULT_AMARU_TRACE_FILTER: &str = "error,amaru=debug,amaru_pure_stage=warn";
 
 const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
 
@@ -78,6 +79,10 @@ type OpenTelemetryFilter<S> =
 type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
 type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
+
+type TuiLayer<S> = Layered<TuiFilter<S>, S>;
+
+type TuiFilter<S> = Filtered<TuiTracingLayer, ThrottledEnvFilter, S>;
 
 type DelayedWarning = Option<Box<dyn FnOnce()>>;
 
@@ -253,15 +258,16 @@ where
     }
 }
 
-#[expect(clippy::large_enum_variant)]
 #[derive(Default)]
 pub enum TracingSubscriber<S> {
     #[default]
     Empty,
     Registry(Registry),
     WithOpenTelemetry(OpenTelemetryLayer<S>),
+    WithTui(TuiLayer<S>),
+    WithTuiAndOpenTelemetry(TuiLayer<OpenTelemetryLayer<S>>),
     WithJson(JsonLayer<S>),
-    WithBoth(JsonLayer<OpenTelemetryLayer<S>>),
+    WithJsonAndOpenTelemetry(JsonLayer<OpenTelemetryLayer<S>>),
 }
 
 impl TracingSubscriber<Registry> {
@@ -276,70 +282,123 @@ impl TracingSubscriber<Registry> {
             Self::Registry(registry) => {
                 *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer).with(log_bridge));
             }
-            _ => panic!("'with_open_telemetry' called after 'with_json'"),
+            _ => panic!("'with_open_telemetry' called after 'with_json' or 'with_tui'"),
         }
     }
 
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_json<F, G>(&mut self, layer_json: F, layer_both: G) -> DelayedWarning
+    pub fn with_json<F, G>(&mut self, registry_layer: F, otel_layer: G) -> DelayedWarning
     where
         F: FnOnce() -> (JsonFilter<Registry>, DelayedWarning),
         G: FnOnce() -> (JsonFilter<OpenTelemetryLayer<Registry>>, DelayedWarning),
     {
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                let (layer, warning) = layer_json();
+                let (layer, warning) = registry_layer();
                 *self = TracingSubscriber::WithJson(registry.with(layer));
                 warning
             }
             Self::WithOpenTelemetry(layered) => {
-                let (layer, warning) = layer_both();
-                *self = TracingSubscriber::WithBoth(layered.with(layer));
+                let (layer, warning) = otel_layer();
+                *self = TracingSubscriber::WithJsonAndOpenTelemetry(layered.with(layer));
                 warning
             }
-            _ => panic!("'with_open_telemetry' called after 'with_json'"),
+            _ => panic!("'with_json' called after as third layer"),
         }
     }
 
-    pub fn init(self, color: bool) {
-        let (default_filter, warning) = new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+    #[expect(clippy::panic)]
+    #[expect(clippy::wildcard_enum_match_arm)]
+    pub fn with_tui<F, G>(&mut self, registry_layer: F, otel_layer: G) -> DelayedWarning
+    where
+        F: FnOnce() -> (TuiFilter<Registry>, DelayedWarning),
+        G: FnOnce() -> (TuiFilter<OpenTelemetryLayer<Registry>>, DelayedWarning),
+    {
+        match std::mem::take(self) {
+            Self::Registry(registry) => {
+                let (layer, warning) = registry_layer();
+                *self = TracingSubscriber::WithTui(registry.with(layer));
+                warning
+            }
+            Self::WithOpenTelemetry(layered) => {
+                let (layer, warning) = otel_layer();
+                *self = TracingSubscriber::WithTuiAndOpenTelemetry(layered.with(layer));
+                warning
+            }
+            _ => panic!("'with_tui' called after as third layer"),
+        }
+    }
 
-        let log_format = || tracing_subscriber::fmt::format().with_ansi(color).compact();
-        let log_writer = || io::stderr as fn() -> io::Stderr;
-        let log_events = || FmtSpan::CLOSE;
-        let log_filter = || default_filter;
-
+    pub fn init(self, color: bool) -> DelayedWarning {
         match self {
             TracingSubscriber::Empty => unreachable!(),
-            TracingSubscriber::Registry(registry) => registry
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(log_writer())
-                        .fmt_fields(HideTagFields(DefaultFields::new()))
-                        .event_format(log_format())
-                        .with_span_events(log_events())
-                        .with_filter(log_filter()),
-                )
-                .init(),
-            TracingSubscriber::WithOpenTelemetry(layered) => layered
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(log_writer())
-                        .fmt_fields(HideTagFields(DefaultFields::new()))
-                        .event_format(log_format())
-                        .with_span_events(log_events())
-                        .with_filter(log_filter()),
-                )
-                .init(),
-            TracingSubscriber::WithJson(layered) => layered.init(),
-            TracingSubscriber::WithBoth(layered) => layered.init(),
-        };
-
-        if let Some(notify) = warning {
-            notify();
+            TracingSubscriber::Registry(registry) => {
+                let (default_filter, warning) = new_log_filter();
+                registry
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_writer(io::stderr as fn() -> io::Stderr)
+                            .fmt_fields(HideTagFields(DefaultFields::new()))
+                            .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
+                            .with_span_events(FmtSpan::CLOSE)
+                            .with_filter(default_filter),
+                    )
+                    .init();
+                warning
+            }
+            TracingSubscriber::WithOpenTelemetry(layered) => {
+                let (default_filter, warning) = new_log_filter();
+                layered
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_writer(io::stderr as fn() -> io::Stderr)
+                            .fmt_fields(HideTagFields(DefaultFields::new()))
+                            .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
+                            .with_span_events(FmtSpan::CLOSE)
+                            .with_filter(default_filter),
+                    )
+                    .init();
+                warning
+            }
+            TracingSubscriber::WithTui(layered) => {
+                layered.init();
+                None
+            }
+            TracingSubscriber::WithTuiAndOpenTelemetry(layered) => {
+                layered.init();
+                None
+            }
+            TracingSubscriber::WithJson(layered) => {
+                layered.init();
+                None
+            }
+            TracingSubscriber::WithJsonAndOpenTelemetry(layered) => {
+                layered.init();
+                None
+            }
         }
     }
+}
+
+// -----------------------------------------------------------------------------
+// TUI TRACES
+// -----------------------------------------------------------------------------
+
+pub fn setup_tui_traces(subscriber: &mut TracingSubscriber<Registry>, layer: TuiTracingLayer) -> DelayedWarning {
+    let registry_layer = {
+        let layer = layer.clone();
+        move || {
+            let (default_filter, warning) = new_trace_filter();
+            (layer.clone().with_filter(default_filter), warning)
+        }
+    };
+    let otel_layer = move || {
+        let (default_filter, warning) = new_trace_filter();
+        (layer.with_filter(default_filter), warning)
+    };
+
+    subscriber.with_tui(registry_layer, otel_layer)
 }
 
 // -----------------------------------------------------------------------------
@@ -349,7 +408,7 @@ impl TracingSubscriber<Registry> {
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
     let format = || SpanJsonFormat(tracing_subscriber::fmt::format().json().with_span_list(false));
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
-    let filter = || new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let filter = || new_trace_filter();
 
     subscriber.with_json(
         || {
@@ -465,7 +524,7 @@ pub fn setup_open_telemetry(
 
     // Subscriber
     let opentelemetry_tracer = opentelemetry_provider.tracer(service_name);
-    let (default_filter, warning) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let (default_filter, warning) = new_trace_filter();
 
     let opentelemetry_layer =
         tracing_opentelemetry::layer().with_tracer(opentelemetry_tracer).with_level(true).with_filter(default_filter);
@@ -477,7 +536,7 @@ pub fn setup_open_telemetry(
         .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}"));
     let logs_provider = SdkLoggerProvider::builder().with_resource(resource).with_batch_exporter(logs_exporter).build();
     let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider);
-    let (log_bridge_filter, _) = new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+    let (log_bridge_filter, _) = new_trace_filter();
     let log_bridge = log_bridge.with_filter(log_bridge_filter);
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
@@ -623,11 +682,20 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
     (ThrottledEnvFilter::new(filter, OTEL_ERROR_THROTTLE_MS), warning)
 }
 
+fn new_log_filter() -> (ThrottledEnvFilter, DelayedWarning) {
+    new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER)
+}
+
+fn new_trace_filter() -> (ThrottledEnvFilter, DelayedWarning) {
+    new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER)
+}
+
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
     color: bool,
     hints: &impl ObservabilityHints,
+    tui_layer: Option<TuiTracingLayer>,
 ) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>) {
     let mut subscriber = TracingSubscriber::new();
 
@@ -637,11 +705,15 @@ pub fn setup_observability(
         (OpenTelemetryHandle::default(), None)
     };
 
+    let warning_tui = tui_layer.and_then(|layer| setup_tui_traces(&mut subscriber, layer));
     let warning_json = if with_json_traces { setup_json_traces(&mut subscriber) } else { None };
 
-    subscriber.init(color);
+    let warning_log = subscriber.init(color);
 
     // NOTE: Both warnings are bound to the same ENV var, so `.or` prevents from logging it twice.
+    if let Some(notify) = warning_log.or(warning_tui) {
+        notify();
+    }
     if let Some(notify) = warning_otlp.or(warning_json) {
         notify();
     }

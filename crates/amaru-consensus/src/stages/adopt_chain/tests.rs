@@ -147,7 +147,7 @@ fn test_extension_adopts_and_sends() {
     assert_eq!(prep.store.get_best_chain_hash(), prep.headers.h3.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h1.hash());
 
-    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["tip.adopt"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -198,7 +198,7 @@ fn test_fork_switch_adopts_and_sends() {
     assert_eq!(prep.store.get_best_chain_hash(), tip.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h1.hash());
 
-    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["tip.adopt"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -242,7 +242,7 @@ fn test_fork_switch_opcert_hacked() {
     assert_eq!(prep.store.get_best_chain_hash(), tip.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h0.hash());
 
-    logs.assert_and_remove(Level::DEBUG, &["adopted tip"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["tip.adopt"]).assert_no_remaining_at([
         Level::INFO,
         Level::WARN,
         Level::ERROR,

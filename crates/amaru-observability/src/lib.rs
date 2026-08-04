@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+extern crate self as amaru_observability;
+
+mod record_fields;
 pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
 // the amaru module with all schema constants and validation macros
@@ -21,6 +24,7 @@ mod trace_context;
 // Re-export the macros for convenient use
 pub use amaru_observability_macros::{define_schemas, trace_event, trace_record, trace_span};
 pub use opentelemetry;
+pub use record_fields::RecordFields;
 pub use schemas::*;
 pub use trace_context::TraceContext;
 pub use tracing;

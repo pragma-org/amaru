@@ -23,7 +23,10 @@ use amaru_consensus::{
     stages::track_peers::TrackPeersMsg,
 };
 use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, ORIGIN_HASH, Point, Transaction};
-use amaru_ledger::state::State;
+use amaru_ledger::{
+    startup::{StartupHook, with_startup_hook},
+    state::State,
+};
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_network::connection::TokioConnections;
 use amaru_observability::{debug, info, info_record};
@@ -114,7 +117,7 @@ pub fn build_node(
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
     // Make the ledger state and get its tip
-    let state = make_state(&config.ledger_config)?;
+    let state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
     let ledger_tip = state.tip().into_owned();
     tracing::info!(
         tip.hash = %ledger_tip.hash(),
@@ -256,10 +259,21 @@ pub fn make_block_validator(
     ))
 }
 
-pub fn make_state(config: &LedgerConfig) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
+pub fn make_state(
+    config: &LedgerConfig,
+    on_startup: Option<StartupHook<RocksDB>>,
+) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
     let store = RocksDB::new(&config.ledger_store)?;
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
-    Ok(State::new(store, snapshots, config.network, config.era_history().clone(), config.global_parameters.clone())?)
+    Ok(State::new(
+        store,
+        snapshots,
+        config.network,
+        config.era_history().clone(),
+        config.global_parameters.clone(),
+        config.emit_initial_stake_distribution_progress_ticks,
+        on_startup,
+    )?)
 }
 
 fn initialize_chain_store(chain_store: Arc<dyn ChainStore>, ledger_tip: Point) -> anyhow::Result<()> {

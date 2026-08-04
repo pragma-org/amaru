@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{BlockHeader, EraHistory, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
 use amaru_metrics::{MetricsEvent, consensus::ConsensusMetrics};
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::{
@@ -141,7 +141,7 @@ pub fn register_guards() -> DeserializerGuards {
 /// Creates test prep with Tip::origin() as best_tip and empty tips (just origin).
 pub fn test_prep() -> TestPrep {
     let downstream = StageRef::named_for_tests("downstream");
-    let mut state = SelectChain::new(downstream.clone());
+    let mut state = SelectChain::new(downstream.clone(), EraHistory::default());
     state.may_fetch_blocks = true;
     TestPrep {
         state,
