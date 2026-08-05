@@ -20,7 +20,7 @@ use ratatui::{
 };
 
 use super::super::{
-    components::{render_card, render_gauge_card, render_peers_table},
+    components::{render_card, render_gauge_card, render_memory_card, render_peers_table},
     format::{
         aligned_pair_lines, format_count, format_density, format_duration, format_secs_frequency, format_slot_ratio,
     },
@@ -47,16 +47,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         ])
         .split(layout[0]);
     let sample = latest_system_sample(model);
-    let memory = memory_gauge(sample);
-    render_gauge_card(
-        frame,
-        charts[0],
-        "Memory (RSS)",
-        memory.label,
-        memory.ratio,
-        memory.detail,
-        model.interaction_mode,
-    );
+    render_memory_card(frame, charts[0], sample, model.interaction_mode);
     let cpu = cpu_gauge(sample);
     render_gauge_card(frame, charts[1], "CPU", cpu.label, cpu.ratio, cpu.detail, model.interaction_mode);
     let disk_read = disk_read_gauge(sample);
@@ -199,21 +190,6 @@ struct GaugeMetric {
     detail: Option<String>,
 }
 
-fn memory_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
-    let Some(sample) = sample else {
-        return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
-    };
-
-    let current_mib = bytes_to_mib(sample.process_memory_bytes);
-    let total_mib = bytes_to_mib(sample.memory_total_bytes);
-    let ratio = linear_ratio(sample.process_memory_bytes, sample.memory_total_bytes);
-    GaugeMetric {
-        label: format!("{} / {} MiB", format_count(current_mib), format_count(total_mib)),
-        ratio,
-        detail: Some(format!("{:.1}%", ratio * 100.0)),
-    }
-}
-
 fn cpu_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
     let Some(sample) = sample else {
         return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
@@ -251,10 +227,6 @@ fn disk_gauge(
         ratio: raw_ratio,
         detail: Some(format!("{:.1}%", raw_ratio * 100.0)),
     }
-}
-
-fn bytes_to_mib(bytes: u64) -> u64 {
-    bytes.div_ceil(1_048_576)
 }
 
 fn bytes_to_kib(bytes: u64) -> u64 {
@@ -300,31 +272,6 @@ mod tests {
         assert_eq!(linear_ratio(0, 1_000), 0.0);
         assert_eq!(linear_ratio(1_000, 1_000), 1.0);
         assert_eq!(linear_ratio(42, 300), 0.14);
-    }
-
-    #[test]
-    fn memory_gauge_uses_process_footprint_against_total_memory() {
-        let sample = SystemSample {
-            at: Instant::now(),
-            cpu_percent: 0.0,
-            process_memory_bytes: 512 * 1_048_576,
-            rss_bytes: 0,
-            virtual_bytes: 0,
-            memory_used_bytes: 0,
-            memory_total_bytes: 2 * 1_048_576 * 1_024,
-            disk_read_bytes: 0,
-            disk_write_bytes: 0,
-            disk_live_read_bytes: 0,
-            disk_live_write_bytes: 0,
-            other_processes_live_read_bytes: 0,
-            other_processes_live_write_bytes: 0,
-        };
-
-        let gauge = memory_gauge(Some(&sample));
-
-        assert_eq!(gauge.label, "512 / 2,048 MiB");
-        assert_eq!(gauge.detail.as_deref(), Some("25.0%"));
-        assert_eq!(gauge.ratio, 0.25);
     }
 
     #[test]

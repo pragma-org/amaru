@@ -58,13 +58,18 @@ impl Model {
     }
 
     fn record_system_metrics(&mut self, at: Instant, metrics: SystemMetrics) {
-        let (memory_used_bytes, memory_total_bytes, other_processes_live_read_bytes, other_processes_live_write_bytes) =
-            self.latest_host_metrics();
+        let (
+            memory_used_bytes,
+            memory_total_bytes,
+            process_memory_bytes_override,
+            other_processes_live_read_bytes,
+            other_processes_live_write_bytes,
+        ) = self.latest_host_metrics();
 
         self.push_system_sample(SystemSample {
             at,
             cpu_percent: metrics.cpu_percent,
-            process_memory_bytes: metrics.process_memory_bytes,
+            process_memory_bytes: process_memory_bytes_override.unwrap_or(metrics.process_memory_bytes),
             rss_bytes: metrics.rss_bytes,
             virtual_bytes: metrics.virtual_bytes,
             memory_used_bytes,
@@ -93,7 +98,7 @@ impl Model {
         self.push_system_sample(SystemSample {
             at: sample.at,
             cpu_percent,
-            process_memory_bytes,
+            process_memory_bytes: sample.process_memory_bytes.unwrap_or(process_memory_bytes),
             rss_bytes,
             virtual_bytes,
             memory_used_bytes: sample.memory_used_bytes,
@@ -130,18 +135,19 @@ pub(crate) fn prune_recent(entries: &mut VecDeque<Instant>, now: Instant, max_wi
 }
 
 impl Model {
-    fn latest_host_metrics(&self) -> (u64, u64, u64, u64) {
+    fn latest_host_metrics(&self) -> (u64, u64, Option<u64>, u64, u64) {
         self.system_samples
             .back()
             .map(|sample| {
                 (
                     sample.memory_used_bytes,
                     sample.memory_total_bytes,
+                    Some(sample.process_memory_bytes),
                     sample.other_processes_live_read_bytes,
                     sample.other_processes_live_write_bytes,
                 )
             })
-            .unwrap_or((0, 0, 0, 0))
+            .unwrap_or((0, 0, None, 0, 0))
     }
 
     fn latest_process_metrics(&self) -> (f64, u64, u64, u64, u64, u64, u64, u64) {
