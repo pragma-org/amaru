@@ -56,10 +56,7 @@ jobs:
       - name: Wait for Amaru to adopt at least one block
         shell: bash
         run: |
-          # adopt_chain only fires after fetch_blocks stored the body and validate_block
-          # completed. Waiting for the first "adopted tip" guarantees at least one block
-          # body is in the chain DB before tools attempt to fetch via BlockFetch.
-          timeout 300 bash -c 'until grep -q "adopted tip" amaru.log; do sleep 2; done' || {
+          timeout 300 bash -c 'until grep -Fq "tip.adopt" amaru.log; do sleep 2; done' || {
             echo "Amaru did not adopt a block within 5 minutes. Last log lines:"
             tail -50 amaru.log
             exit 1
