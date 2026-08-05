@@ -36,8 +36,6 @@
 "conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
 "conway/fail-govcert-resigning-a-non-cc-key/0" = "Expected failure, got success"
 "conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected failure, got success"
-"conway/fail-utxos-currenttreasuryvalue-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-currenttreasuryvalue-v2/0" = "Expected failure, got success"
 "conway/fail-utxos-delegtxcert-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-delegtxcert-v2/0" = "Expected failure, got success"
 "conway/fail-utxos-fails-when-using-inline-datums-for-plutusv1/0" = "Expected failure, got success"

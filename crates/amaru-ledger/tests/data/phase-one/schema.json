@@ -248,7 +248,14 @@
     },
     "InitialState": {
       "type": "object",
-      "required": ["utxo", "pools", "accounts", "dreps", "governanceActivity"],
+      "required": [
+        "utxo",
+        "pools",
+        "accounts",
+        "dreps",
+        "governanceActivity",
+        "pots"
+      ],
       "properties": {
         "utxo": {
           "type": "array",
@@ -269,7 +276,17 @@
           "items": { "$ref": "#/$defs/DRepRegistration" },
           "description": "Registered delegate representatives. Empty when no DRep state is seeded."
         },
-        "governanceActivity": { "$ref": "#/$defs/VotingState" }
+        "governanceActivity": { "$ref": "#/$defs/VotingState" },
+        "pots": { "$ref": "#/$defs/Pots" }
+      }
+    },
+    "Pots": {
+      "type": "object",
+      "description": "Protocol pots as of the initial state.",
+      "required": ["treasury", "reserves"],
+      "properties": {
+        "treasury": { "type": "integer", "minimum": 0 },
+        "reserves": { "type": "integer", "minimum": 0 }
       }
     },
     "MinFeeReferenceScripts": {

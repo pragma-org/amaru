@@ -26,7 +26,7 @@ use amaru_kernel::{
 use crate::{
     state::{
         VolatileDB,
-        volatile::{DiffBind, DiffEpochReg, VolatileSequence, fragment::add_proposals},
+        volatile::{DiffBind, DiffEpochReg, VolatileSequence, VolatileState, fragment::add_proposals},
     },
     store::{
         ReadStore, StoreError,
@@ -49,6 +49,7 @@ pub struct VolatileView<'volatile, 'store, DB: ReadStore> {
     pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>>,
     proposals: BTreeMap<&'volatile ProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
     accounts: Option<AccountVolatileView<'volatile>>,
+    volatile_donations: Lovelace,
 }
 
 impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
@@ -92,6 +93,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
             accounts: Some(accounts),
             pools: Some(pools),
             proposals,
+            volatile_donations: volatile.resolve_donations(),
         }
     }
 
@@ -171,6 +173,13 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     /// volatile view and a stable store around every function.
     pub fn proposals_roots(&self) -> Result<ProposalsRootsRc, StoreError> {
         Ok(ProposalsRootsRc::from(self.db.proposals_roots()?))
+    }
+
+    /// The donations collected over the closing epoch: those already persisted in the stable store,
+    /// plus those still sitting in volatile fragments. They are all moved into the treasury at the
+    /// epoch boundary.
+    pub fn donations(&self) -> Result<Lovelace, StoreError> {
+        Ok(self.db.pots()?.donations + self.volatile_donations)
     }
 }
 

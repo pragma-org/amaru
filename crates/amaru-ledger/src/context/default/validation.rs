@@ -37,7 +37,7 @@ use crate::{
     state::volatile::VolatileFragment,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     pools: BTreeSet<PoolId>,
@@ -46,6 +46,7 @@ pub struct DefaultValidationContext {
     committee: BTreeMap<StakeCredential, CCMember>,
     proposals: BTreeSet<ProposalId>,
     proposals_roots: ProposalsRoots,
+    treasury: Lovelace,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
     known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
@@ -57,6 +58,7 @@ pub struct DefaultValidationContext {
 }
 
 impl DefaultValidationContext {
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         pools: BTreeSet<PoolId>,
@@ -65,24 +67,13 @@ impl DefaultValidationContext {
         committee: BTreeMap<StakeCredential, CCMember>,
         proposals: BTreeSet<ProposalId>,
         proposals_roots: ProposalsRoots,
+        treasury: Lovelace,
     ) -> Self {
-        Self {
-            utxo,
-            pools,
-            accounts,
-            dreps,
-            committee,
-            proposals,
-            proposals_roots,
-            state: VolatileFragment::default(),
-            required_signers: BTreeSet::default(),
-            known_scripts: BTreeMap::new(),
-            known_datums: BTreeMap::new(),
-            required_scripts: BTreeSet::default(),
-            required_supplemental_datums: BTreeSet::default(),
-            required_bootstrap_roots: BTreeSet::default(),
-            balance: Balance::default(),
-        }
+        Self { utxo, pools, accounts, dreps, committee, proposals, proposals_roots, treasury, ..Self::default() }
+    }
+
+    pub fn with_utxo(self, utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
+        Self { utxo, ..self }
     }
 }
 
@@ -97,6 +88,10 @@ impl ValidationContext for DefaultValidationContext {
 }
 
 impl PotsSlice for DefaultValidationContext {
+    fn treasury(&self) -> Lovelace {
+        self.treasury
+    }
+
     fn add_fees(&mut self, fees: Lovelace) {
         self.state.fees += fees;
     }
@@ -498,15 +493,7 @@ mod tests {
     }
 
     fn ctx_with(accounts: BTreeMap<StakeCredential, AccountState>) -> DefaultValidationContext {
-        DefaultValidationContext::new(
-            BTreeMap::new(),
-            BTreeSet::new(),
-            accounts,
-            BTreeMap::new(),
-            BTreeMap::new(),
-            BTreeSet::new(),
-            ProposalsRoots::default(),
-        )
+        DefaultValidationContext { accounts, ..Default::default() }
     }
 
     #[test]
@@ -539,15 +526,11 @@ mod tests {
     #[test]
     fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
         let pool = Hash::new([9; 28]);
-        let mut ctx = DefaultValidationContext::new(
-            BTreeMap::new(),
-            BTreeSet::from([pool]),
-            BTreeMap::from([(cred(1), account(7))]),
-            BTreeMap::new(),
-            BTreeMap::new(),
-            BTreeSet::new(),
-            ProposalsRoots::default(),
-        );
+        let mut ctx = DefaultValidationContext {
+            pools: BTreeSet::from([pool]),
+            accounts: BTreeMap::from([(cred(1), account(7))]),
+            ..Default::default()
+        };
         ctx.delegate_pool(cred(1), pool, pointer()).unwrap();
 
         let found = AccountsSlice::lookup(&ctx, &cred(1)).unwrap();
@@ -561,15 +544,7 @@ mod tests {
     }
 
     fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
-        DefaultValidationContext::new(
-            BTreeMap::new(),
-            BTreeSet::new(),
-            BTreeMap::new(),
-            BTreeMap::new(),
-            committee,
-            BTreeSet::new(),
-            ProposalsRoots::default(),
-        )
+        DefaultValidationContext { committee, ..Default::default() }
     }
 
     #[test]

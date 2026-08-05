@@ -35,7 +35,6 @@ Other guiding principles:
   ```
 -->
 
-
 ## v10.11.20260806 _[unreleased; planned for 2026-08-06]_
 
 ### Added
@@ -65,6 +64,7 @@ Other guiding principles:
 - **amaru-kernel**: reduce memory footprint of various types on the critical path.
 - **amaru-ledger**: when a leader changes it reward account, the rewards owed to the previous account must return to the treasury ([#1125](https://github.com/pragma-org/amaru/pull/1125)).
 - **amaru-consensus**: fix peer_selection to only schedule a single cool-down timer and thus properly bound priority mailbox usage. ([#1112](https://github.com/pragma-org/amaru/issues/1112))
+- **amaru-ledger**: validate provided treasury value matches actual treasury value (ConwayTreasuryValueMismatch) ([#1025][], [#888][])
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 
@@ -244,6 +244,7 @@ Other guiding principles:
 [#820]: https://github.com/pragma-org/amaru/pull/820
 [#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
+[#888]: https://github.com/pragma-org/amaru/issues/888
 [#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
 [#895]: https://github.com/pragma-org/amaru/issues/895
@@ -276,6 +277,7 @@ Other guiding principles:
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1021]: https://github.com/pragma-org/amaru/pull/1021
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
+[#1025]: https://github.com/pragma-org/amaru/pull/1025
 [#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
 [#1029]: https://github.com/pragma-org/amaru/pull/1029

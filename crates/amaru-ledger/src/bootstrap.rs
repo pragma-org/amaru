@@ -23,10 +23,10 @@ use std::{
 use amaru_kernel::{
     Account, Ballot, BallotId, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
-    NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Proposal, ProposalId,
-    ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters, RatificationStatus,
-    RationalNumber, Relay, Reward, RewardAccount, Slot, StakeAddress, StakeCredential, StakePayload,
-    TransactionPointer, Vote, Voter,
+    NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots, Proposal,
+    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
+    RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, StakeAddress, StakeCredential,
+    StakePayload, TransactionPointer, Vote, Voter,
     cbor::{self, lazy::LazyDecoder},
     protocol_version, reward_account_to_stake_credential, size,
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
@@ -40,7 +40,7 @@ use crate::{
     state::volatile::{DiffEpochReg, Resettable},
     store::{
         self, Store, StoreError, TransactionalContext,
-        columns::{accounts, pots::Row as Pots, proposals},
+        columns::{accounts, proposals},
     },
 };
 

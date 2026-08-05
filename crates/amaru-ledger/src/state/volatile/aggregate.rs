@@ -76,6 +76,12 @@ impl VolatileAggregate {
     pub fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
         self.withdrawals.contains(credential)
     }
+
+    /// The donations made by the fragments folded here; that is, those not yet accounted for in the
+    /// stable pots. They are moved into the treasury at the epoch boundary.
+    pub fn donations(&self) -> Lovelace {
+        self.donations
+    }
 }
 
 impl VolatileAggregate {

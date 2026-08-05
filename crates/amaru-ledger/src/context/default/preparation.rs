@@ -125,6 +125,8 @@ impl<'block> DefaultPreparationContext<'block> {
         >,
         db: &impl ReadStore,
     ) -> Result<DefaultValidationContext, ContextHydratationError> {
+        let treasury = volatile.resolve_treasury(&db.pots().map_err(ContextHydratationError::ResolvePots)?);
+
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
@@ -140,6 +142,7 @@ impl<'block> DefaultPreparationContext<'block> {
             resolve_committee(volatile, db, self.committee.into_iter())?,
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
+            treasury,
         ))
     }
 }
