@@ -16,7 +16,23 @@
       }
     ],
     "pools": [],
-    "accounts": [],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0,
+        "drep": {
+          "id": "8102",
+          "delegatedAt": {
+            "transaction": {
+              "slot": 0,
+              "transactionIndex": 0
+            },
+            "certificateIndex": 0
+          }
+        }
+      }
+    ],
     "dreps": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
@@ -26,7 +42,7 @@
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4005a1581de100000000000000000000000000000000000000000000000000000000000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258404e8e27905cd2a5cb756fbd863248075f6928196a074bc1b12d3f7a87bba25ddb35292ea8163cfa817be9ac24f1a65af6754a5a8b9f8aa2ee2929507f61b6f70ef5f6",
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d4005a1581de193c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258400f5c9f0227c4dd584d71ffbafb791e686086418862e700ca3ec4770968ea709ae20596ddac31de29ca71a1fdadd05ef463cf170c294526dfe9dd29e46980550ef5f6",
   "expected": {
     "predicate": "WrongNetworkWithdrawal"
   }

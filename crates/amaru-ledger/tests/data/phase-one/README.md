@@ -30,7 +30,7 @@ required-field rules.
 
 | Field                | Notes                                                  |
 | -------------------- | ------------------------------------------------------ |
-| `title`              | Optional. Informational; ignored by the harness.       |
+| `title`              | Optional, but names the generated test case, so it must be unique across the corpus. Falls back to the fixture's path when absent. |
 | `description`        | Optional. Informational; ignored by the harness.       |
 | `network`            | `mainnet`, `preprod`, `preview`, or `testnet_<magic>`. |
 | `eraHistory`         | Inline `{ stabilityWindow, eras: [EraSummary] }` or a `$ref` to a shared file. |
@@ -38,19 +38,17 @@ required-field rules.
 | `initialState`       | See [Initial state](#initial-state).                   |
 | `point`              | `{ slot, transactionIndex }`.                          |
 | `transaction`        | Hex-encoded CBOR.                                      |
-| `expected`           | `"Pass"` or `{ "predicate": "<Name>", ... }`.          |
+| `expected`           | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decodingFailure": true }`. |
 
 UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 `output` is the transaction output.
 
 ### Initial state
 
-Initial state represents the state on which the transaction is validated. Every
-field below is required and must be present in each fixture, even when its value
-is empty:
+Initial state represents the state on which the transaction is validated. Currently,
+it is made up of the following fields:
 
-- `utxo`: array of `{ input, output }` entries, each hex-encoded CBOR. Empty when
-  no UTxO state is seeded.
+- `utxo`: array of `{ input, output }` pairs of hex-encoded CBOR, as described above.
 - `pools`: array of hex-encoded pool key hashes, does not contain pool's parameters.
 - `accounts`: `[{ credential, deposit, rewards?, pool?, drep? }]`. `credential`
   is hex-encoded CBOR of a `StakeCredential`; `deposit`/`rewards` are lovelace
@@ -66,12 +64,13 @@ is empty:
 - `proposalsRoots`: `{ protocolParameters?, hardFork?, constitutionalCommittee?, constitution? }`,
   the latest enacted governance action id per purpose, each a governance action id
   (see below). Use `{}` when none are enacted; absent purposes default to none.
+- `governanceActivity`: `{ consecutiveDormantEpochs }`.
+- `pots`: `{ treasury, reserves }`, the protocol pots as of the initial state.
 
 A governance action id is `{ transactionId, proposalIndex }`, mirroring
 `CertificatePointer`: `transactionId` is the hex-encoded 32-byte hash of the
 transaction that submitted the action, and `proposalIndex` is the action's index
 within that transaction.
-- `governanceActivity`: `{ consecutiveDormantEpochs }`.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:
@@ -125,14 +124,16 @@ A harness should:
 2. Build an initial ledger state from `network`, `eraHistory`,
    `protocolParameters`, and `initialState`. Hex-decode then CBOR-decode each
    UTxO entry's `input` and `output`.
-3. Hex-decode and CBOR-decode the `transaction`.
+3. Hex-decode and CBOR-decode the `transaction`. If `expected` is
+   `{ "decodingFailure": true }`, that decode must itself fail and no validation
+   is run.
 4. Run phase-one validation against that state and `point`.
 5. Compare the result to `expected`:
    - If `expected` is `"Pass"`, validation must succeed.
-   - If `expected` is an object, validation must fail with an error that
-     corresponds to `expected.predicate` (and to any other fields present).
-     Implementations are responsible for mapping their internal error types
-     to the canonical predicate names.
+   - If `expected` carries a `predicate`, validation must fail with an error that
+     corresponds to it (and to any other fields present). Implementations are
+     responsible for mapping their internal error types to the canonical
+     predicate names.
 
 The Amaru implementation lives in
 `crates/amaru-ledger/src/rules/transaction/phase_one/mod.rs`.
@@ -143,7 +144,10 @@ The Amaru implementation lives in
    `fail/<Predicate>/<n>.json` for a failing one. A failing fixture must
    exercise exactly one predicate failure; the transaction should be valid
    in every other respect.
-2. Register it in the `#[test_case(...)]` list in `mod.rs`.
+2. Nothing to register: `build.rs` walks `pass/` and `fail/` and generates the
+   `#[test_case(...)]` list, so dropping the file in is the whole registration
+   step. Because `title` becomes the test-case name, a title reused by another
+   fixture fails the build.
 3. If the predicate is new, add a variant to `Predicate` and a match arm in
    `From<PhaseOneError> for Predicate` in `fixture.rs`.
 4. Open a PR, proposing the new fixture(s).
