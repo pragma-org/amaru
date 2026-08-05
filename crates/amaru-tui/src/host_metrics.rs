@@ -21,7 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sysinfo::{MemoryRefreshKind, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, get_current_pid};
+use sysinfo::{DiskRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System, get_current_pid};
 
 use crate::events::{HostSample, Message};
 
@@ -66,10 +66,11 @@ impl Drop for Sampler {
 fn run(tx: SyncSender<Message>, shutdown_rx: Receiver<()>) -> io::Result<()> {
     let mut sys =
         System::new_with_specifics(RefreshKind::nothing().with_memory(MemoryRefreshKind::nothing().with_ram()));
+    let mut disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing().with_io_usage());
     let own_pid = get_current_pid().map_err(|err| io::Error::other(format!("failed to resolve own pid: {err}")))?;
     let mut last_sampled_at = Instant::now();
 
-    emit_sample(&mut sys, &tx, own_pid, Duration::ZERO, last_sampled_at);
+    emit_sample(&mut sys, &mut disks, &tx, own_pid, Duration::ZERO, last_sampled_at);
 
     loop {
         match shutdown_rx.recv_timeout(POLL_DELAY) {
@@ -81,22 +82,25 @@ fn run(tx: SyncSender<Message>, shutdown_rx: Receiver<()>) -> io::Result<()> {
         let interval = now.duration_since(last_sampled_at);
         last_sampled_at = now;
 
-        emit_sample(&mut sys, &tx, own_pid, interval, now);
+        emit_sample(&mut sys, &mut disks, &tx, own_pid, interval, now);
     }
 }
 
-fn emit_sample(sys: &mut System, tx: &SyncSender<Message>, own_pid: sysinfo::Pid, interval: Duration, at: Instant) {
+fn emit_sample(
+    sys: &mut System,
+    disks: &mut Disks,
+    tx: &SyncSender<Message>,
+    own_pid: sysinfo::Pid,
+    interval: Duration,
+    at: Instant,
+) {
     sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
-    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_disk_usage());
+    disks.refresh_specifics(false, DiskRefreshKind::nothing().with_io_usage());
     let process_memory = sample_process_memory(own_pid);
-
-    let (other_processes_live_read_bytes, other_processes_live_write_bytes) = sys
-        .processes()
-        .iter()
-        .filter(|(pid, _)| **pid != own_pid)
-        .fold((0u64, 0u64), |(read_total, write_total), (_, process)| {
-            let disk_usage = process.disk_usage();
-            (read_total.saturating_add(disk_usage.read_bytes), write_total.saturating_add(disk_usage.written_bytes))
+    let (host_live_read_bytes, host_live_write_bytes) =
+        disks.iter().fold((0u64, 0u64), |(read_total, write_total), disk| {
+            let usage = disk.usage();
+            (read_total.saturating_add(usage.read_bytes), write_total.saturating_add(usage.written_bytes))
         });
 
     let _ = tx.try_send(Message::HostSample(HostSample {
@@ -105,8 +109,8 @@ fn emit_sample(sys: &mut System, tx: &SyncSender<Message>, own_pid: sysinfo::Pid
         process_memory_bytes: process_memory,
         memory_used_bytes: sys.used_memory(),
         memory_total_bytes: sys.total_memory(),
-        other_processes_live_read_bytes,
-        other_processes_live_write_bytes,
+        host_live_read_bytes,
+        host_live_write_bytes,
     }));
 }
 

@@ -14,35 +14,45 @@
 
 use ratatui::{
     Frame,
-    layout::Rect,
-    style::{Color, Style},
+    layout::{Constraint, Layout, Rect},
+    style::Color,
     text::Span,
-    widgets::{Block, Borders, Gauge},
+    widgets::{Block, Borders, Paragraph},
 };
 
-use super::super::theme::{accent_primary, block_title, border_secondary};
+use super::super::{
+    common::{border_title_line, render_solid_progress_bar},
+    theme::{accent_primary, block_title, border_primary, emphasis_white},
+};
 use crate::model::InteractionMode;
 
 pub(in crate::ui) fn render_gauge_card(
     frame: &mut Frame<'_>,
     area: Rect,
     title: &str,
-    label: String,
+    value: Option<String>,
     ratio: f64,
-    detail: Option<String>,
+    percent: Option<String>,
     mode: InteractionMode,
 ) {
-    let title = detail.map_or_else(|| title.to_string(), |detail| format!("{title} · {detail}"));
-    let gauge = Gauge::default()
-        .block(
-            Block::default()
-                .title(block_title(mode, &title))
-                .borders(Borders::ALL)
-                .border_style(border_secondary(mode)),
-        )
-        .gauge_style(Style::default().fg(accent_primary(mode)).bg(Color::Rgb(10, 22, 17)))
-        .label(Span::raw(label))
-        .ratio(ratio.clamp(0.0, 1.0))
-        .use_unicode(true);
-    frame.render_widget(gauge, area);
+    let title = value.map_or_else(|| title.to_string(), |value| format!("{title} · {value}"));
+    let mut card =
+        Block::default().title(block_title(mode, &title)).borders(Borders::ALL).border_style(border_primary(mode));
+    if let Some(percent) = percent {
+        card = card
+            .title_top(border_title_line(vec![Span::styled(percent, emphasis_white())], mode, false).right_aligned());
+    }
+    let inner = card.inner(area);
+    frame.render_widget(card, area);
+
+    if inner.height == 0 {
+        return;
+    }
+
+    let layout = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(inner);
+    render_solid_progress_bar(frame, layout[1], ratio, accent_primary(mode), Color::Rgb(10, 22, 17));
+
+    if layout[0].height > 0 {
+        frame.render_widget(Paragraph::new(""), layout[0]);
+    }
 }

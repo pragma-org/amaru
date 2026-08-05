@@ -218,8 +218,8 @@ mod tests {
             process_memory_bytes: None,
             memory_used_bytes: 100_000,
             memory_total_bytes: 200_000,
-            other_processes_live_read_bytes: 1_500,
-            other_processes_live_write_bytes: 2_500,
+            host_live_read_bytes: 1_500,
+            host_live_write_bytes: 2_500,
         })
     }
 
@@ -230,8 +230,8 @@ mod tests {
             process_memory_bytes: Some(process_memory_bytes),
             memory_used_bytes: 100_000,
             memory_total_bytes: 200_000,
-            other_processes_live_read_bytes: 1_500,
-            other_processes_live_write_bytes: 2_500,
+            host_live_read_bytes: 1_500,
+            host_live_write_bytes: 2_500,
         })
     }
 
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(model.transactions_in_window(at + Duration::from_secs(1)), 7);
         assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(10_000));
         assert_eq!(model.system_samples.back().map(|sample| sample.memory_total_bytes), Some(200_000));
-        assert_eq!(model.system_samples.back().map(|sample| sample.other_processes_live_read_bytes), Some(300));
+        assert_eq!(model.system_samples.back().map(|sample| sample.host_live_read_bytes), Some(300));
     }
 
     #[test]

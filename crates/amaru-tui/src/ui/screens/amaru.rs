@@ -20,7 +20,9 @@ use ratatui::{
 };
 
 use super::super::{
-    components::{render_card, render_gauge_card, render_memory_card, render_peers_table},
+    components::{
+        render_card, render_gauge_card, render_peers_table, render_process_memory_card, render_rss_memory_card,
+    },
     format::{
         aligned_pair_lines, format_count, format_density, format_duration, format_secs_frequency, format_slot_ratio,
     },
@@ -40,34 +42,36 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
     let charts = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
         ])
         .split(layout[0]);
     let sample = latest_system_sample(model);
-    render_memory_card(frame, charts[0], sample, model.interaction_mode);
+    render_process_memory_card(frame, charts[0], sample, model.interaction_mode);
+    render_rss_memory_card(frame, charts[1], sample, model.interaction_mode);
     let cpu = cpu_gauge(sample);
-    render_gauge_card(frame, charts[1], "CPU", cpu.label, cpu.ratio, cpu.detail, model.interaction_mode);
+    render_gauge_card(frame, charts[2], "CPU", cpu.value, cpu.ratio, cpu.percent, model.interaction_mode);
     let disk_read = disk_read_gauge(sample);
     render_gauge_card(
         frame,
-        charts[2],
+        charts[3],
         "Disk Read",
-        disk_read.label,
+        disk_read.value,
         disk_read.ratio,
-        disk_read.detail,
+        disk_read.percent,
         model.interaction_mode,
     );
     let disk_write = disk_write_gauge(sample);
     render_gauge_card(
         frame,
-        charts[3],
+        charts[4],
         "Disk Write",
-        disk_write.label,
+        disk_write.value,
         disk_write.ratio,
-        disk_write.detail,
+        disk_write.percent,
         model.interaction_mode,
     );
 
@@ -185,20 +189,20 @@ fn latest_system_sample(model: &Model) -> Option<&SystemSample> {
 }
 
 struct GaugeMetric {
-    label: String,
+    value: Option<String>,
     ratio: f64,
-    detail: Option<String>,
+    percent: Option<String>,
 }
 
 fn cpu_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
     let Some(sample) = sample else {
-        return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
+        return GaugeMetric { value: None, ratio: 0.0, percent: None };
     };
 
     GaugeMetric {
-        label: format!("{:.1} / 100.0%", sample.cpu_percent),
+        value: None,
         ratio: linear_ratio_f64(sample.cpu_percent, 100.0),
-        detail: Some(format!("{:.1}%", sample.cpu_percent)),
+        percent: Some(format!("{:.1}%", sample.cpu_percent)),
     }
 }
 
@@ -216,21 +220,30 @@ fn disk_gauge(
     total: impl Fn(&SystemSample) -> u64,
 ) -> GaugeMetric {
     let Some(sample) = sample else {
-        return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
+        return GaugeMetric { value: None, ratio: 0.0, percent: None };
     };
 
     let current = current(sample);
     let total = total(sample);
     let raw_ratio = linear_ratio(current, total);
     GaugeMetric {
-        label: format!("{} / {} KiB/s", format_count(bytes_to_kib(current)), format_count(bytes_to_kib(total))),
+        value: Some(format_disk_rate(current)),
         ratio: raw_ratio,
-        detail: Some(format!("{:.1}%", raw_ratio * 100.0)),
+        percent: Some(format!("{:.1}%", raw_ratio * 100.0)),
     }
 }
 
 fn bytes_to_kib(bytes: u64) -> u64 {
     bytes.div_ceil(1_024)
+}
+
+fn format_disk_rate(bytes: u64) -> String {
+    let kib = bytes_to_kib(bytes);
+    if kib >= 2_000 {
+        format!("{:.1} MiB/s", bytes as f64 / 1_048_576.0)
+    } else {
+        format!("{} KiB/s", format_count(kib))
+    }
 }
 
 fn linear_ratio(current: u64, max: u64) -> f64 {
@@ -296,5 +309,11 @@ mod tests {
 
         assert_eq!(blocks_per_second(&model, now), 0.2);
         assert_eq!(transactions_per_second(&model, now), 0.9);
+    }
+
+    #[test]
+    fn disk_rate_switches_to_mib_per_second_above_threshold() {
+        assert_eq!(format_disk_rate(1_999 * 1_024), "1,999 KiB/s");
+        assert_eq!(format_disk_rate(2_000 * 1_024), "2.0 MiB/s");
     }
 }
