@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeMap,
     env, fs,
     path::{Path, PathBuf},
 };
@@ -46,26 +47,31 @@ fn test_cbor_serialization() {
     // toward zero as amaru's decoders / encoders are aligned with the CDDL.
     let mut positive = 0_usize;
     let mut negative = 0_usize;
-    let mut on_chain_drift: Vec<&Fixture> = Vec::new();
-    let mut cuddle_rejected: Vec<&Fixture> = Vec::new();
-    let mut antigen_accepted: Vec<&Fixture> = Vec::new();
-    let mut other_divergence: Vec<&Fixture> = Vec::new();
+    let mut on_chain_drift: Vec<(&Fixture, String)> = Vec::new();
+    let mut cuddle_rejected: Vec<(&Fixture, String)> = Vec::new();
+    let mut antigen_accepted: Vec<(&Fixture, String)> = Vec::new();
+    let mut other_divergence: Vec<(&Fixture, String)> = Vec::new();
+
     for fixture in &fixtures {
         if fixture.expectations.well_formed {
-            positive += 1;
+            positive += 1
         } else {
-            negative += 1;
+            negative += 1
         }
-        if fixture.expectations.known_amaru_divergence {
-            match fixture.expectations.source.as_deref() {
-                None | Some("on-chain") => on_chain_drift.push(fixture),
-                Some("cuddle") => cuddle_rejected.push(fixture),
-                Some("antigen") => antigen_accepted.push(fixture),
-                Some(_) => other_divergence.push(fixture),
+
+        match run_test(fixture) {
+            Outcome::Pass => (),
+            Outcome::Failed(msg) => failures.push(format!("{}: {}", fixture.path.display(), msg)),
+            Outcome::Stale => failures.push(format!("{}: {STALE_FLAG}", fixture.path.display())),
+            Outcome::KnownDivergence(reason) => {
+                let bucket = match fixture.expectations.source.as_deref() {
+                    None | Some("on-chain") => &mut on_chain_drift,
+                    Some("cuddle") => &mut cuddle_rejected,
+                    Some("antigen") => &mut antigen_accepted,
+                    Some(_) => &mut other_divergence,
+                };
+                bucket.push((fixture, reason));
             }
-        }
-        if let Err(msg) = run_test(fixture) {
-            failures.push(format!("{}: {}", fixture.path.display(), msg));
         }
     }
 
@@ -108,6 +114,21 @@ fn test_cbor_serialization() {
         }
         if !other_divergence.is_empty() {
             eprintln!("    {:>5}  other / unknown source", other_divergence.len());
+        }
+
+        let mut classes: BTreeMap<String, usize> = BTreeMap::new();
+        for (_, reason) in
+            on_chain_drift.iter().chain(&cuddle_rejected).chain(&antigen_accepted).chain(&other_divergence)
+        {
+            *classes.entry(error_class(reason)).or_default() += 1;
+        }
+        let mut ranked = classes.into_iter().collect::<Vec<_>>();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        eprintln!();
+        eprintln!("  divergences by cause:");
+        eprintln!("    count  cause");
+        for (class, count) in ranked {
+            eprintln!("    {count:>5}  {class}");
         }
     }
 
@@ -185,28 +206,90 @@ fn load_fixture(path: PathBuf, kind: Kind, sample: &Path, meta: &Path) -> Result
 /// verify the flag is *not stale*: if amaru's behavior agrees with the labelled
 /// `well_formed` expectation, the flag should be removed and the test fails
 /// asking the caller (or the regenerate script) to drop it.
-fn run_test(fixture: &Fixture) -> Result<(), String> {
+fn run_test(fixture: &Fixture) -> Outcome {
     let divergent = fixture.expectations.known_amaru_divergence;
+    let well_formed = fixture.expectations.well_formed;
     let exact = fixture.expectations.exact_re_encoding;
     let result = match fixture.kind {
         Kind::Block => check_round_trip::<(EraName, Block)>(&fixture.bytes, exact),
         Kind::TransactionBody => check_round_trip::<TransactionBody>(&fixture.bytes, exact),
         Kind::Transaction => check_round_trip::<Transaction>(&fixture.bytes, exact),
     };
-    let stale_flag_msg = "stale known_amaru_divergence flag — amaru now agrees with the labelled expectation; remove the flag from meta.json";
-    match (fixture.expectations.well_formed, result, divergent) {
-        (true, Ok(()), false) => Ok(()),
-        (true, Ok(()), true) => Err(stale_flag_msg.into()),
-        (true, Err(_), true) => Ok(()),
-        (true, Err(e), false) => Err(format!("expected decode/round-trip to succeed, but failed: {e}")),
-        (false, Err(_), false) => Ok(()),
-        (false, Err(_), true) => Err(stale_flag_msg.into()),
-        (false, Ok(()), true) => Ok(()),
-        (false, Ok(()), false) => Err(format!(
-            "expected decode to fail (well_formed=false){}, but it succeeded",
-            fixture.expectations.description.as_deref().map(|d| format!(" — {d}")).unwrap_or_default()
-        )),
+    match (result, well_formed, divergent) {
+        (Ok(()), true, false) => Outcome::Pass,
+        (Ok(()), true, true) => Outcome::Stale,
+        (Ok(()), false, true) => Outcome::KnownDivergence("decoded successfully, but a failure was expected".into()),
+        (Ok(()), false, false) => Outcome::Failed("expected decoding to fail, but it succeeded".into()),
+        (Err(e), true, true) => Outcome::KnownDivergence(e.to_string()),
+        (Err(e), true, false) => Outcome::Failed(format!("{}", e)),
+        (Err(_), false, false) => Outcome::Pass,
+        (Err(_), false, true) => Outcome::Stale,
     }
+}
+
+/// Message reported when a fixture carries `known_amaru_divergence` but no longer diverges.
+const STALE_FLAG: &str =
+    "stale known_amaru_divergence flag. Amaru now agrees with the labelled expectation. Remove the flag from meta.json";
+
+/// Collapse a decode error into a class label so identical defects group together.
+///
+/// The byte offset is dropped, keeping whatever detail follows it, and long literal values are
+/// replaced by `N`. Short digit runs survive so that type widths such as `u64` stay legible. The
+/// result is truncated, since some messages embed whole hex dumps that would otherwise swamp the
+/// summary.
+fn error_class(reason: &str) -> String {
+    const MAX_WIDTH: usize = 96;
+    /// Digit runs at least this long are values (offsets, thresholds), not type widths.
+    const LITERAL_DIGITS: usize = 4;
+    const AT_POSITION: &str = " at position ";
+
+    let without_offset = match reason.find(AT_POSITION) {
+        Some(start) => {
+            let after = &reason[start + AT_POSITION.len()..];
+            let detail = after.find(": ").map(|i| &after[i..]).unwrap_or("");
+            format!("{}{}", &reason[..start], detail)
+        }
+        None => reason.to_string(),
+    };
+
+    let mut out = String::with_capacity(without_offset.len());
+    let mut digits = String::new();
+    for c in without_offset.chars() {
+        if c.is_ascii_digit() {
+            digits.push(c);
+            continue;
+        }
+        if digits.len() >= LITERAL_DIGITS {
+            out.push('N');
+        } else {
+            out.push_str(&digits);
+        }
+        digits.clear();
+        out.push(c);
+    }
+    if digits.len() >= LITERAL_DIGITS {
+        out.push('N');
+    } else {
+        out.push_str(&digits);
+    }
+
+    if out.chars().count() > MAX_WIDTH {
+        out = out.chars().take(MAX_WIDTH).chain(std::iter::once('…')).collect();
+    }
+    out
+}
+
+/// Outcome of checking a fixture.
+enum Outcome {
+    /// amaru behaves as the fixture expects.
+    Pass,
+    /// amaru diverges and the fixture acknowledges it via `known_amaru_divergence`. The reason is
+    /// carried so it can be reported rather than silently swallowed.
+    KnownDivergence(String),
+    /// The fixture is not satisfied
+    Failed(String),
+    /// The test is now passing, there's no more divergence
+    Stale,
 }
 
 /// Decode a `T` from the fixture bytes and verify its round-trip.
@@ -243,15 +326,16 @@ where
 /// Render a category's non-conformant fixtures as a small indented list:
 /// `<kind>/<short-hash>  <description>`. The hash is truncated to 8 chars
 /// + an ellipsis so the line stays readable.
-fn print_divergence_list(list: &[&Fixture], title: &str) {
+fn print_divergence_list(list: &[(&Fixture, String)], title: &str) {
     if list.is_empty() {
         return;
     }
     eprintln!("  {} ({}):", title, list.len());
-    for fx in list {
-        let short = short_fixture_path(&fx.path);
-        let desc = fx.expectations.description.as_deref().unwrap_or("(no description)");
+    for (fixture, reason) in list {
+        let short = short_fixture_path(&fixture.path);
+        let desc = fixture.expectations.description.as_deref().unwrap_or("(no description)");
         eprintln!("    - {short}  {desc}");
+        eprintln!("        {reason}");
     }
 }
 
