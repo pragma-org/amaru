@@ -74,7 +74,7 @@ fn format_pool_state_decode_error(error: Box<dyn std::error::Error>) -> String {
     let error = error.to_string();
 
     if error.contains("node pool vrf key hashes") && error.contains("Invalid hash size") {
-        return "snapshot uses an older unsupported pool/account encoding; regenerate snapshots with amaru create-snapshots (db-analyser).".to_owned();
+        return "snapshot uses an older unsupported pool/account encoding; regenerate snapshots with amaru snapshot create (db-analyser).".to_owned();
     }
 
     format!("decode pool state: {error}")
@@ -870,7 +870,10 @@ fn import_accounts(
 
     info!(bootstrap::accounts::IMPORT, size = credentials.len());
 
-    let progress = with_progress(credentials.len(), "Accounts [{pos:>7}/{len:7}] {bar:40.green} ({eta} remaining)");
+    let progress = with_progress(
+        credentials.len(),
+        "{spinner:.green} Importing accounts {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
+    );
 
     while !credentials.is_empty() {
         let n = std::cmp::min(BATCH_SIZE, credentials.len());

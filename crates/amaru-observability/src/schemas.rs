@@ -835,17 +835,6 @@ define_schemas! {
                     required size: usize
                 }
             }
-            local_snapshots {
-                /// Detect locally-created snapshots from create-snapshots
-                public DETECT {
-                    required count: usize
-                }
-                /// Failed to read or parse a local snapshot
-                public FAIL_TO_READ {
-                    required file: String,
-                    required hint: anyhow::Error,
-                }
-            }
             nonces {
                 /// Import initial nonces into the chain store
                 public IMPORT {
@@ -907,20 +896,8 @@ define_schemas! {
                 public SKIP_DOWNLOAD {
                     required snapshot: String
                 }
-                /// Existing snapshot files are invalid and will be removed
-                public INVALID {
-                    required snapshot: String
-                }
-                /// Extract a snapshot archive
-                public EXTRACT {
-                    required snapshot: String
-                }
-                /// Import a single snapshot
-                public IMPORT_FILE {
-                    required path: String
-                }
-                /// Import a snapshot directory
-                public IMPORT_DIR {
+                /// Import a compressed snapshot archive
+                public IMPORT_ARCHIVE {
                     required path: String
                 }
                 /// Import from the tvar data
@@ -950,6 +927,11 @@ define_schemas! {
             }
         }
         cli {
+            /// Process terminated with an error.
+            public ERROR {
+                required description: String
+                optional cause: String
+            }
             cardano_node_config {
                 /// Use an existing cardano-node configuration
                 public USE {
@@ -986,23 +968,7 @@ define_schemas! {
                 public REUSE_LEDGER_SNAPSHOT {
                     required epoch: amaru_kernel::Epoch
                     required slot: amaru_kernel::Slot
-                }
-                /// Progress reported by an external db-analyser command
-                public PROGRESS {
-                    required step: String
-                    required detail: String
-                }
-                /// Output line from an external db-analyser command
-                public LOG {
-                    required step: String
-                    required line: String
-                }
-            }
-            epoch_metadata {
-                /// Write the epoch metadata file for a snapshot
-                public WRITE {
-                    required epoch: amaru_kernel::Epoch
-                    required path: String
+                    required snapshot: String
                 }
             }
             last_block {
@@ -1041,6 +1007,12 @@ define_schemas! {
                     required network: amaru_kernel::NetworkName
                     optional epoch: amaru_kernel::Epoch
                 }
+                /// Remove ledger and chain database from disk
+                public RM {
+                    required chain_dir: String
+                    required ledger_dir: String
+                    required network: amaru_kernel::NetworkName
+                }
             }
             snapshot {
                 /// Create snapshots for the given network
@@ -1053,25 +1025,73 @@ define_schemas! {
                     required dist_dir: String
                     optional snapshots: String
                 }
-                /// Materialize a bootstrap snapshot directory
-                public MATERIALIZE {
+                /// Finished creating a snapshot archive
+                public CREATED {
                     required epoch: amaru_kernel::Epoch
-                    required snapshot: String
-                }
-                /// Snapshot already materialized; skipping
-                public SKIP_MATERIALIZE {
-                    required epoch: amaru_kernel::Epoch
-                    required reason: String
+                    required slot: amaru_kernel::Slot
+                    required archive: String
                 }
                 /// Package a snapshot archive
                 public PACKAGE {
                     required epoch: amaru_kernel::Epoch
+                    required slot: amaru_kernel::Slot
                     required archive: String
                 }
                 /// Snapshot archive already packaged; skipping
                 public SKIP_PACKAGE {
                     required epoch: amaru_kernel::Epoch
+                    required slot: amaru_kernel::Slot
+                    required archive: String
                     required reason: String
+                }
+                /// Publish snapshot archives
+                public PUBLISH {
+                    required network: amaru_kernel::NetworkName
+                    required local: usize
+                    required remote: usize
+                }
+                /// Upload a snapshot archive
+                public UPLOAD {
+                    required archive: String
+                }
+                /// Finished uploading a snapshot archive
+                public UPLOADED {
+                    required archive: String
+                }
+                /// Snapshot archive already uploaded; skipping
+                public SKIP_UPLOAD {
+                    required archive: String
+                }
+                /// Update the published snapshot index
+                public UPDATE_INDEX {
+                    required network: amaru_kernel::NetworkName
+                    required snapshots: usize
+                }
+            }
+        }
+        mithril {
+            snapshot {
+                /// Fetch and verify a Mithril snapshot
+                public FETCH {
+                    required hash: String
+                    required from_chunk: u64
+                }
+                /// Download and unpack immutable files from a Mithril snapshot
+                public DOWNLOAD {
+                    required target_dir: String
+                    required from_chunk: u64
+                }
+                /// Download and verify the digests for a Mithril snapshot
+                public VERIFY_DIGESTS {
+                    required target_dir: String
+                }
+                /// Verify the local cardano-node database against a Mithril certificate
+                public VERIFY_DATABASE {
+                    required target_dir: String
+                }
+                /// Mithril cardano-node database is ready
+                public READY {
+                    required target_dir: String
                 }
             }
         }

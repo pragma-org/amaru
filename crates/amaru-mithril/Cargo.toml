@@ -19,12 +19,14 @@ categories.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 async-trait.workspace = true
+flate2.workspace = true
 mithril-client.workspace = true
+tar.workspace = true
 tokio = { workspace = true, features = ["sync"] }
-tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
+amaru-observability.workspace = true
 amaru-progress-bar.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
@@ -36,3 +38,6 @@ rustdoc-args = ["-D", "warnings"]
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]
+
+[dev-dependencies]
+tempfile.workspace = true

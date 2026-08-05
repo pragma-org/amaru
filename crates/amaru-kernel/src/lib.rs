@@ -151,7 +151,7 @@ pub use cardano::{
     protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
     ratification_status::{self, RatificationStatus},
     rational_number::{self, RationalNumber},
-    raw_block::RawBlock,
+    raw_block::{RawBlock, extract_block_header_cbor},
     redeemer::{self, Redeemer},
     redeemer_key::{self, RedeemerKey},
     redeemer_tag::{self, RedeemerTag},

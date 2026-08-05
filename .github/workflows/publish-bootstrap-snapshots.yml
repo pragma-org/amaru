@@ -16,7 +16,7 @@ on:
           - all
         default: preprod
       epoch:
-        description: "Start epoch of the three-epoch snapshot set (defaults to the last three completed epochs)"
+        description: "Target bootstrap epoch (defaults to the latest network epoch)"
         required: false
         type: string
         default: ""
@@ -32,9 +32,7 @@ on:
         default: "11.0.1"
 
 permissions:
-  contents: write
-  pull-requests: write
-  actions: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -57,7 +55,6 @@ jobs:
     env:
       AMARU_NETWORK: ${{ matrix.network }}
       INPUT_EPOCH: ${{ inputs.epoch }}
-      MANIFEST: crates/amaru/config/bootstrap/${{ matrix.network }}/snapshots.json
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v6.0.2
@@ -126,23 +123,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./target/release/amaru create-snapshots \
+          ./target/release/amaru snapshot create \
             --network "$AMARU_NETWORK" \
             ${INPUT_EPOCH:+--epoch "$INPUT_EPOCH"}
 
-      - name: Publish snapshots to R2 and update manifest
+      - name: Publish snapshots to R2 and update index
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-          BUCKET_NAME: ${{ secrets.SNAPSHOTS_BUCKET_NAME }}
-          PUBLIC_URL_BASE: ${{ vars.SNAPSHOTS_PUBLIC_URL_BASE || secrets.SNAPSHOTS_PUBLIC_URL_BASE || '' }}
+          AMARU_S3_REGION: auto
+          AMARU_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          AMARU_S3_BUCKET: ${{ secrets.SNAPSHOTS_BUCKET_NAME }}
+          AMARU_S3_PUBLIC_URL: ${{ vars.SNAPSHOTS_PUBLIC_URL_BASE || secrets.SNAPSHOTS_PUBLIC_URL_BASE }}
         run: |
           set -euo pipefail
-          bash ./scripts/publish-bootstrap-snapshots ${INPUT_EPOCH:+"$INPUT_EPOCH"}
-          git --no-pager diff -- "$MANIFEST"
+          ./target/release/amaru snapshot publish --network "$AMARU_NETWORK"
 
       - name: Verify published snapshots with a full bootstrap
         if: ${{ !inputs.skip_verification }}
@@ -152,8 +148,7 @@ jobs:
           SCRATCH="$(mktemp -d)"
           echo "SCRATCH=$SCRATCH" >> "$GITHUB_ENV"
           cd "$SCRATCH"
-          AMARU_BOOTSTRAP_CONFIG_DIR="$GITHUB_WORKSPACE/crates/amaru/config/bootstrap" \
-          "$GITHUB_WORKSPACE/target/release/amaru" bootstrap \
+          "$GITHUB_WORKSPACE/target/release/amaru" node bootstrap \
             --network "$AMARU_NETWORK" \
             --ledger-dir "$SCRATCH/ledger.db" \
             --chain-dir "$SCRATCH/chain.db" \
@@ -171,56 +166,3 @@ jobs:
           if [ -n "${DB_ANALYSER_TMP:-}" ]; then
             rm -rf "$DB_ANALYSER_TMP"
           fi
-
-      - name: Open pull request updating the manifest
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- "$MANIFEST"; then
-            echo "$MANIFEST unchanged; snapshots were already published"
-            exit 0
-          fi
-
-          EPOCHS="$(jq -r '[.[-3:][].epoch | tostring] | join(", ")' "$MANIFEST")"
-          TITLE="chore: update $AMARU_NETWORK bootstrap snapshots (epochs $EPOCHS)"
-          BRANCH="snapshots/$AMARU_NETWORK-$(date -u +%Y%m%d%H%M%S)"
-          HEAD_SHA="$(git rev-parse HEAD)"
-
-          gh api "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f ref="refs/heads/$BRANCH" \
-            -f sha="$HEAD_SHA"
-
-          gh api graphql \
-            -f query='mutation($input: CreateCommitOnBranchInput!) {
-              createCommitOnBranch(input: $input) { commit { oid } }
-            }' \
-            -F 'input[branch][repositoryNameWithOwner]'="$GITHUB_REPOSITORY" \
-            -F 'input[branch][branchName]'="$BRANCH" \
-            -F 'input[expectedHeadOid]'="$HEAD_SHA" \
-            -F 'input[message][headline]'="$TITLE" \
-            -F 'input[message][body]'="Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" \
-            -F 'input[fileChanges][additions][][path]'="$MANIFEST" \
-            -F 'input[fileChanges][additions][][contents]'="$(base64 < "$MANIFEST" | tr -d '\n')"
-
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "$TITLE" \
-            --body "$(cat <<EOF
-          Automated bootstrap snapshot publication for \`$AMARU_NETWORK\` (epochs $EPOCHS).
-
-          The archives referenced by this manifest were uploaded to R2, checked for public
-          reachability and verified with a full \`amaru bootstrap\` smoke test by
-          [this workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID).
-
-          CI was dispatched explicitly on this branch (pull requests opened with
-          \`GITHUB_TOKEN\` do not trigger \`pull_request\` workflows on their own).
-          EOF
-          )"
-
-          gh workflow run continuous-integration.yml --ref "$BRANCH" \
-            || echo "::warning::failed to dispatch continuous-integration.yml on $BRANCH"
-          gh workflow run coding-practices.yml --ref "$BRANCH" \
-            || echo "::warning::failed to dispatch coding-practices.yml on $BRANCH"

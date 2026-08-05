@@ -152,30 +152,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::bootstrap::local_snapshots`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `detect` | `TRACE` | public | Detect locally-created snapshots from create-snapshots | count |  |
-| `fail_to_read` | `TRACE` | public | Failed to read or parse a local snapshot | file, hint |  |
-
-<details><summary>span: `detect`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `count` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `fail_to_read`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `file` | `string` | ✓ |
-| `hint` | `string` | ✓ |
-
-</details>
-
 ## target: `amaru::bootstrap::nonces`
 
 | name | level | public | description | required fields | optional fields |
@@ -287,11 +263,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `download` | `TRACE` | public | Download a snapshot archive | epoch, point |  |
-| `extract` | `TRACE` | public | Extract a snapshot archive | snapshot |  |
-| `import_dir` | `TRACE` | public | Import a snapshot directory | path |  |
-| `import_file` | `TRACE` | public | Import a single snapshot | path |  |
+| `import_archive` | `TRACE` | public | Import a compressed snapshot archive | path |  |
 | `import_tvar` | `TRACE` | public | Import from the tvar data | point, new_epoch_state_offset |  |
-| `invalid` | `TRACE` | public | Existing snapshot files are invalid and will be removed | snapshot |  |
 | `skip_download` | `TRACE` | public | Snapshot already downloaded; skipping download | snapshot |  |
 
 <details><summary>span: `download`</summary>
@@ -303,23 +276,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `extract`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `snapshot` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `import_dir`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `path` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `import_file`</summary>
+<details><summary>span: `import_archive`</summary>
 
 | field | type | required |
 | --- | --- | --- |
@@ -333,14 +290,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `point` | `string` | ✓ |
 | `new_epoch_state_offset` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `invalid`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `snapshot` | `string` | ✓ |
 
 </details>
 
@@ -392,6 +341,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `size` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::cli`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `error` | `TRACE` | public | Process terminated with an error. | description | cause |
+
+<details><summary>span: `error`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `description` | `string` | ✓ |
+| `cause` | `string` |  |
 
 </details>
 
@@ -453,28 +417,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `log` | `TRACE` | public | Output line from an external db-analyser command | step, line |  |
-| `progress` | `TRACE` | public | Progress reported by an external db-analyser command | step, detail |  |
-| `reuse_ledger_snapshot` | `TRACE` | public | Reuse an existing db-analyser ledger snapshot | epoch, slot |  |
+| `reuse_ledger_snapshot` | `TRACE` | public | Reuse an existing db-analyser ledger snapshot | epoch, slot, snapshot |  |
 | `run` | `TRACE` | public | Run db-analyser to produce a ledger snapshot | epoch, slot | analyse_from |
-
-<details><summary>span: `log`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `step` | `string` | ✓ |
-| `line` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `progress`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `step` | `string` | ✓ |
-| `detail` | `string` | ✓ |
-
-</details>
 
 <details><summary>span: `reuse_ledger_snapshot`</summary>
 
@@ -482,6 +426,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
 | `slot` | `string` | ✓ |
+| `snapshot` | `string` | ✓ |
 
 </details>
 
@@ -492,21 +437,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `epoch` | `string` | ✓ |
 | `slot` | `string` | ✓ |
 | `analyse_from` | `string` |  |
-
-</details>
-
-## target: `amaru::cli::epoch_metadata`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `write` | `TRACE` | public | Write the epoch metadata file for a snapshot | epoch, path |  |
-
-<details><summary>span: `write`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `path` | `string` | ✓ |
 
 </details>
 
@@ -572,6 +502,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
+| `rm` | `TRACE` | public | Remove ledger and chain database from disk | chain_dir, ledger_dir, network |  |
 
 <details><summary>span: `bootstrap`</summary>
 
@@ -584,15 +515,29 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `rm`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `chain_dir` | `string` | ✓ |
+| `ledger_dir` | `string` | ✓ |
+| `network` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::cli::snapshot`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `create` | `TRACE` | public | Create snapshots for the given network | network, snapshot_output_dir, config_dir, cardano_node_db, dist_dir | epoch, snapshots |
-| `materialize` | `TRACE` | public | Materialize a bootstrap snapshot directory | epoch, snapshot |  |
-| `package` | `TRACE` | public | Package a snapshot archive | epoch, archive |  |
-| `skip_materialize` | `TRACE` | public | Snapshot already materialized; skipping | epoch, reason |  |
-| `skip_package` | `TRACE` | public | Snapshot archive already packaged; skipping | epoch, reason |  |
+| `created` | `TRACE` | public | Finished creating a snapshot archive | epoch, slot, archive |  |
+| `package` | `TRACE` | public | Package a snapshot archive | epoch, slot, archive |  |
+| `publish` | `TRACE` | public | Publish snapshot archives | network, local, remote |  |
+| `skip_package` | `TRACE` | public | Snapshot archive already packaged; skipping | epoch, slot, archive, reason |  |
+| `skip_upload` | `TRACE` | public | Snapshot archive already uploaded; skipping | archive |  |
+| `update_index` | `TRACE` | public | Update the published snapshot index | network, snapshots |  |
+| `upload` | `TRACE` | public | Upload a snapshot archive | archive |  |
+| `uploaded` | `TRACE` | public | Finished uploading a snapshot archive | archive |  |
 
 <details><summary>span: `create`</summary>
 
@@ -608,12 +553,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-<details><summary>span: `materialize`</summary>
+<details><summary>span: `created`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
-| `snapshot` | `string` | ✓ |
+| `slot` | `string` | ✓ |
+| `archive` | `string` | ✓ |
 
 </details>
 
@@ -622,16 +568,18 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
+| `slot` | `string` | ✓ |
 | `archive` | `string` | ✓ |
 
 </details>
 
-<details><summary>span: `skip_materialize`</summary>
+<details><summary>span: `publish`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `epoch` | `string` | ✓ |
-| `reason` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `local` | `integer` | ✓ |
+| `remote` | `integer` | ✓ |
 
 </details>
 
@@ -640,7 +588,42 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `epoch` | `string` | ✓ |
+| `slot` | `string` | ✓ |
+| `archive` | `string` | ✓ |
 | `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `skip_upload`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `archive` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `update_index`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `network` | `string` | ✓ |
+| `snapshots` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `upload`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `archive` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `uploaded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `archive` | `string` | ✓ |
 
 </details>
 
@@ -1679,6 +1662,58 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `tx_id` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 | `validation_error` | `string` |  |
+
+</details>
+
+## target: `amaru::mithril::snapshot`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `download` | `TRACE` | public | Download and unpack immutable files from a Mithril snapshot | target_dir, from_chunk |  |
+| `fetch` | `TRACE` | public | Fetch and verify a Mithril snapshot | hash, from_chunk |  |
+| `ready` | `TRACE` | public | Mithril cardano-node database is ready | target_dir |  |
+| `verify_database` | `TRACE` | public | Verify the local cardano-node database against a Mithril certificate | target_dir |  |
+| `verify_digests` | `TRACE` | public | Download and verify the digests for a Mithril snapshot | target_dir |  |
+
+<details><summary>span: `download`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
+| `from_chunk` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `hash` | `string` | ✓ |
+| `from_chunk` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `ready`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `verify_database`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `verify_digests`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `target_dir` | `string` | ✓ |
 
 </details>
 

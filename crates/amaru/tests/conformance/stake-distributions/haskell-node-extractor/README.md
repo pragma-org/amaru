@@ -66,7 +66,7 @@ uv run scripts/validate-json-schema --schema stake-distribution < /path/to/stake
 
 ### Example
 
-Given a snapshot directory produced by `db-analyser` (or `cargo run create-snapshots`), validate the resulting stake distribution payload:
+Given a snapshot directory produced by `db-analyser` (or `cargo run --bin amaru -- snapshot create`), validate the resulting stake distribution payload:
 
 ```console
 cabal run -v0 exe:haskell-node-extractor -- stake-distribution \

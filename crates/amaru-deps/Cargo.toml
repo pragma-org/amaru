@@ -63,15 +63,20 @@ ignored = [
   "rand_core-d8f496e17d97b5cb",
   "regex",
   "regex-automata",
+  "regex-lite",
   "regex-syntax",
   "reqwest",
   "serde",
   "serde_core",
   "serde_json",
   "sha2",
+  "sha2-93f6ce9d446188ac",
+  "sha2-a6292c17cd707f01",
   "slab",
   "smallvec",
   "socket2",
+  "socket2-3b31131e45eafb45",
+  "socket2-d8f496e17d97b5cb",
   "subtle",
   "syn",
   "syn-7b89eefb6aaa9bf3",
@@ -83,7 +88,7 @@ ignored = [
   "tracing-core",
   "tracing-log",
   "tracing-subscriber",
-  "typenum",
+  "uuid",
   "zerocopy",
   "zeroize",
 ]
@@ -100,7 +105,8 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "std", "suggestions", "usage", "wrap_help"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
 criterion = { version = "0.8", features = ["html_reports"] }
-digest = { version = "0.10", features = ["mac", "std"] }
+digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 ed25519 = { version = "2", default-features = false, features = ["alloc", "serde", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core", "serde"] }
 either = { version = "1", features = ["use_std"] }
@@ -110,11 +116,10 @@ form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-executor = { version = "0.3" }
-futures-sink = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.15" }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "server", "service"] }
 insta = { version = "1", features = ["yaml"] }
@@ -135,17 +140,19 @@ rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-f
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
 regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
+regex-lite = { version = "0.1" }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
 socket2 = { version = "0.6", default-features = false, features = ["all"] }
-subtle = { version = "2", features = ["const-generics"] }
-syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["full", "visit-mut"] }
+subtle = { version = "2", default-features = false, features = ["const-generics", "std"] }
+syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "full", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }
@@ -154,7 +161,7 @@ tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
+uuid = { version = "1", features = ["v4"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -167,7 +174,8 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "std", "suggestions", "usage", "wrap_help"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
 criterion = { version = "0.8", features = ["html_reports"] }
-digest = { version = "0.10", features = ["mac", "std"] }
+digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
+digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 ed25519 = { version = "2", default-features = false, features = ["alloc", "serde", "std"] }
 ed25519-dalek = { version = "2", features = ["rand_core", "serde"] }
 either = { version = "1", features = ["use_std"] }
@@ -177,11 +185,10 @@ form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-executor = { version = "0.3" }
-futures-sink = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
-hashbrown = { version = "0.15" }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "server", "service"] }
 insta = { version = "1", features = ["yaml"] }
@@ -202,17 +209,19 @@ rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-f
 rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
 regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
+regex-lite = { version = "0.1" }
 regex-syntax = { version = "0.8" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "query", "rustls", "stream", "system-proxy"] }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
-sha2 = { version = "0.10" }
+sha2-93f6ce9d446188ac = { package = "sha2", version = "0.10" }
+sha2-a6292c17cd707f01 = { package = "sha2", version = "0.11" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "write"] }
 socket2 = { version = "0.6", default-features = false, features = ["all"] }
-subtle = { version = "2", features = ["const-generics"] }
-syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["full", "visit-mut"] }
+subtle = { version = "2", default-features = false, features = ["const-generics", "std"] }
+syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "full", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
@@ -222,7 +231,7 @@ tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
 tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-typenum = { version = "1", default-features = false, features = ["const-generics"] }
+uuid = { version = "1", features = ["v4"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
@@ -237,13 +246,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-unknown-linux-musl.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -256,13 +264,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-musl.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -275,13 +282,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-musl.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -294,13 +300,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -313,13 +318,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -332,13 +336,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -351,13 +354,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -370,13 +372,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -390,13 +391,13 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+security-framework-sys = { version = "2" }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -410,13 +411,13 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
+security-framework-sys = { version = "2" }
+spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
@@ -429,7 +430,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 winapi = { version = "0.3", default-features = false, features = ["cfg", "consoleapi", "evntrace", "handleapi", "impl-default", "in6addr", "inaddr", "minwinbase", "ntsecapi", "processenv", "synchapi", "sysinfoapi", "winbase", "windef", "winerror", "winioctl", "winuser"] }
-windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.x86_64-pc-windows-msvc.build-dependencies]
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
@@ -442,7 +443,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 winapi = { version = "0.3", default-features = false, features = ["cfg", "consoleapi", "evntrace", "handleapi", "impl-default", "in6addr", "inaddr", "minwinbase", "ntsecapi", "processenv", "synchapi", "sysinfoapi", "winbase", "windef", "winerror", "winioctl", "winuser"] }
-windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.wasm32-unknown-unknown.dependencies]
 bumpalo = { version = "3", features = ["collections"] }
@@ -452,6 +453,7 @@ num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 once_cell = { version = "1" }
+uuid = { version = "1", default-features = false, features = ["js"] }
 wasm-bindgen = { version = "0.2" }
 web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
 
@@ -463,6 +465,7 @@ num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 once_cell = { version = "1" }
+uuid = { version = "1", default-features = false, features = ["js"] }
 wasm-bindgen = { version = "0.2" }
 web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
 
@@ -478,13 +481,11 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 [target.riscv32gc-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -498,12 +499,10 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 stable_deref_trait = { version = "1" }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-uuid = { version = "1", features = ["v4"] }
 
 ### END HAKARI SECTION

@@ -22,7 +22,7 @@ use std::{
 
 use amaru::{
     DEFAULT_PEER_ADDRESS,
-    bootstrap::{BOOTSTRAP_HEADERS_PER_POINT, default_bootstrap_parent_points, fetch_headers_from_points},
+    bootstrap::{BOOTSTRAP_HEADERS_PER_POINT, fetch_headers_from_points},
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point, from_cbor};
@@ -60,7 +60,8 @@ pub struct Args {
         env = amaru::env_vars::PARENT,
         action = ArgAction::Append,
         value_delimiter = ',',
-        num_args(0..),
+        num_args(1..),
+        required = true,
     )]
     parent: Vec<String>,
 
@@ -94,11 +95,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    let points = if args.parent.is_empty() {
-        default_bootstrap_parent_points(network)?
-    } else {
-        args.parent.iter().map(|point| Point::try_from(point.as_str())).collect::<Result<Vec<_>, _>>()?
-    };
+    let points = args.parent.iter().map(|point| Point::try_from(point.as_str())).collect::<Result<Vec<_>, _>>()?;
 
     fetch_headers_for_network(network, &args.headers_dir, &args.peer_address, &points).await?;
 

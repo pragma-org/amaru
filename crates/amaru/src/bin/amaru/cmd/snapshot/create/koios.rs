@@ -19,7 +19,6 @@ use amaru_observability::info;
 use serde::Deserialize;
 
 use super::EpochTarget;
-use crate::cmd::snapshot::create::SnapshotPoint;
 
 #[derive(Debug, Deserialize)]
 struct KoiosBlock {
@@ -108,5 +107,10 @@ pub(super) async fn fetch_last_block_for_epoch(
 
     info!(cli::last_block::RESOLVE, %epoch, %point);
 
-    Ok(EpochTarget { epoch, snapshot: SnapshotPoint { point, parent_point }, archive_path: None, snapshot_path: None })
+    Ok(EpochTarget {
+        epoch,
+        slot: Slot::from(block.abs_slot),
+        hash: Hash::from_str(&block.hash)?,
+        parent_point: Some(parent_point),
+    })
 }

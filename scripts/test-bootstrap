@@ -5,7 +5,7 @@ set -euo pipefail
 # test-bootstrap [--force] <start_epoch> [end_epoch]
 #
 # For each epoch in [start_epoch, end_epoch], runs the full
-# create-snapshots + bootstrap cycle and records results in
+# snapshot create + node bootstrap cycle and records results in
 # data/$NETWORK/bootstrap.json so results accumulate over time.
 #
 # Epochs already present in bootstrap.json are skipped unless --force is given.

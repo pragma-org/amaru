@@ -100,6 +100,20 @@ impl RawBlock {
     }
 }
 
+/// Extract the CBOR-encoded block header bytes from a raw block.
+///
+/// The expected structure is `[era_tag, [header_cbor, ...], ...]`.
+pub fn extract_block_header_cbor(input: &[u8]) -> Result<&[u8], cbor::decode::Error> {
+    let mut dec = cbor::Decoder::new(input);
+    dec.array()?;
+    dec.u8()?;
+    dec.array()?;
+    let start = dec.position();
+    dec.skip()?;
+    let end = dec.position();
+    Ok(&input[start..end])
+}
+
 /// This struct supports the iteration over serialized transactions contained in a block
 pub struct RawBlockTransactions {
     bodies: std::vec::IntoIter<Vec<u8>>,

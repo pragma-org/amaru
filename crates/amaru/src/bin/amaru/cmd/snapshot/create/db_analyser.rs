@@ -22,9 +22,9 @@ use std::{
 };
 
 use amaru_kernel::Slot;
-use amaru_observability::{info, warn};
+use amaru_progress_bar::ProgressBar;
 
-const DB_ANALYSER_PROGRESS_REPORT_INTERVAL_SECS: f64 = 30.0;
+const DB_ANALYSER_PROGRESS_REPORT_INTERVAL_SECS: f64 = 1.0;
 
 pub(super) fn ensure_db_analyser_binary() -> Result<String, Box<dyn std::error::Error>> {
     let binary = "db-analyser";
@@ -52,6 +52,7 @@ pub(super) fn run_db_analyser(
     db_dir: &Path,
     target_slot: Slot,
     analyse_from: Option<Slot>,
+    with_progress: &Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = config_dir.canonicalize()?;
     let db_dir = db_dir.canonicalize()?;
@@ -65,13 +66,14 @@ pub(super) fn run_db_analyser(
 
     command.arg("--store-ledger").arg(target_slot.to_string());
 
-    run_logged_command(command, "db-analyser", Some(DbAnalyserLogRelay::new(target_slot, analyse_from)))
+    run_logged_command(command, "db-analyser", Some(DbAnalyserLogRelay::new(target_slot, analyse_from)), with_progress)
 }
 
 fn run_logged_command(
     mut command: ProcessCommand,
     step: &str,
     db_analyser_log_relay: Option<DbAnalyserLogRelay>,
+    with_progress: &Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -80,12 +82,19 @@ fn run_logged_command(
     let stderr = child.stderr.take().ok_or("failed to capture child stderr")?;
     let db_analyser_log_relay = db_analyser_log_relay.map(|relay| Arc::new(Mutex::new(relay)));
 
-    let stdout_handle = spawn_log_relay(stdout, step.to_string(), false, db_analyser_log_relay.clone());
-    let stderr_handle = spawn_log_relay(stderr, step.to_string(), true, db_analyser_log_relay);
+    let tracked = db_analyser_log_relay.as_ref().map(|relay| TrackedProgress::new(relay, with_progress));
+    let shared = tracked.as_ref().map(TrackedProgress::shared);
+
+    let stdout_handle = spawn_log_relay(stdout, db_analyser_log_relay.clone(), shared.clone());
+    let stderr_handle = spawn_log_relay(stderr, db_analyser_log_relay, shared);
 
     let status = child.wait()?;
     stdout_handle.join().map_err(|_| io::Error::other(format!("{step} stdout logger panicked")))??;
     stderr_handle.join().map_err(|_| io::Error::other(format!("{step} stderr logger panicked")))??;
+
+    if let Some(t) = tracked {
+        t.finish();
+    }
 
     if !status.success() {
         return Err(format!("{step} failed with status {status}").into());
@@ -94,11 +103,68 @@ fn run_logged_command(
     Ok(())
 }
 
+/// Manages the shared progress bar state and its animation ticker for a child process.
+struct TrackedProgress {
+    shared: Arc<Mutex<SharedProgress>>,
+    ticker: Option<(thread::JoinHandle<()>, std::sync::mpsc::Sender<()>)>,
+}
+
+impl TrackedProgress {
+    fn new(
+        relay: &Arc<Mutex<DbAnalyserLogRelay>>,
+        with_progress: &Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+    ) -> Self {
+        let (restore_total, replay_total) =
+            relay.lock().map(|r| (r.restore_total(), r.replay_total())).unwrap_or((0, 0));
+        let shared = Arc::new(Mutex::new(SharedProgress {
+            bar: None,
+            restore_total,
+            replay_total,
+            factory: with_progress.clone(),
+        }));
+        let s = shared.clone();
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+        let handle = thread::spawn(move || {
+            while stop_rx.try_recv().is_err() {
+                if let Ok(s) = s.lock()
+                    && let Some(pb) = s.bar.as_ref()
+                {
+                    pb.tick(0);
+                }
+                thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
+        Self { shared, ticker: Some((handle, stop_tx)) }
+    }
+
+    fn shared(&self) -> Arc<Mutex<SharedProgress>> {
+        self.shared.clone()
+    }
+
+    fn finish(mut self) {
+        if let Some((handle, stop_tx)) = self.ticker.take() {
+            let _ = stop_tx.send(());
+            let _ = handle.join();
+        }
+        if let Ok(mut s) = self.shared.lock()
+            && let Some(pb) = s.bar.take()
+        {
+            pb.clear();
+        }
+    }
+}
+
+struct SharedProgress {
+    bar: Option<Box<dyn ProgressBar + Send + Sync>>,
+    restore_total: usize,
+    replay_total: usize,
+    factory: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync>,
+}
+
 fn spawn_log_relay<R>(
     reader: R,
-    step: String,
-    is_stderr: bool,
     db_analyser_log_relay: Option<Arc<Mutex<DbAnalyserLogRelay>>>,
+    shared: Option<Arc<Mutex<SharedProgress>>>,
 ) -> thread::JoinHandle<io::Result<()>>
 where
     R: Read + Send + 'static,
@@ -114,19 +180,43 @@ where
                     .handle_line(&line);
 
                 match action {
-                    DbAnalyserLogAction::Report(message) => {
-                        info!(cli::db_analyser::PROGRESS, step = %step, detail = %message);
+                    DbAnalyserLogAction::SwitchToReplay => {
+                        if let Some(s) = shared.as_ref()
+                            && let Ok(mut s) = s.lock()
+                        {
+                            if let Some(pb) = s.bar.take() {
+                                pb.clear();
+                            }
+                            let factory = s.factory.clone();
+                            let total = s.replay_total;
+                            s.bar = Some(factory(
+                                total,
+                                "{spinner:.green} {per_sec}/s [{bar:40.green}] [{pos}/{len} slots] ({eta} remaining)",
+                            ));
+                        }
+                        continue;
+                    }
+                    DbAnalyserLogAction::Progress { done } => {
+                        if let Some(s) = shared.as_ref()
+                            && let Ok(mut s) = s.lock()
+                        {
+                            if s.bar.is_none() {
+                                let total = if s.restore_total > 0 { s.restore_total } else { s.replay_total };
+                                let factory = s.factory.clone();
+                                s.bar = Some(factory(
+                                    total,
+                                    "{spinner:.green} {bar:40.green} [{pos}/{len} slots] ({eta} remaining)",
+                                ));
+                            }
+                            if let Some(pb) = s.bar.as_ref() {
+                                pb.tick(done.map(|d| d as usize).unwrap_or(0));
+                            }
+                        }
                         continue;
                     }
                     DbAnalyserLogAction::Suppress => continue,
                     DbAnalyserLogAction::PassThrough => {}
                 }
-            }
-
-            if is_stderr {
-                warn!(cli::db_analyser::LOG, step = %step, line = %line);
-            } else {
-                info!(cli::db_analyser::LOG, step = %step, line = %line);
             }
         }
         Ok(())
@@ -138,39 +228,56 @@ pub(super) struct DbAnalyserLogRelay {
     target_slot: Slot,
     start_slot: Slot,
     last_progress_report_elapsed_secs: Option<f64>,
+    last_done: u64,
+    in_restore_phase: bool,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(super) enum DbAnalyserLogAction {
     PassThrough,
     Suppress,
-    Report(String),
+    Progress { done: Option<u64> },
+    SwitchToReplay,
 }
 
 impl DbAnalyserLogRelay {
     pub(super) fn new(target_slot: Slot, analyse_from: Option<Slot>) -> Self {
-        Self { target_slot, start_slot: analyse_from.unwrap_or_default(), last_progress_report_elapsed_secs: None }
+        let start_slot = analyse_from.unwrap_or_default();
+        Self {
+            target_slot,
+            start_slot,
+            last_progress_report_elapsed_secs: None,
+            last_done: 0,
+            in_restore_phase: start_slot > Slot::default(),
+        }
+    }
+
+    pub(super) fn restore_total(&self) -> usize {
+        self.start_slot.as_u64() as usize
+    }
+
+    pub(super) fn replay_total(&self) -> usize {
+        self.target_slot.as_u64().saturating_sub(self.start_slot.as_u64()) as usize
     }
 
     pub(super) fn handle_line(&mut self, line: &str) -> DbAnalyserLogAction {
         if parse_db_analyser_started_line(line).is_some() {
-            return DbAnalyserLogAction::Report(self.started_message());
+            return DbAnalyserLogAction::Progress { done: None };
         }
 
         if let Some((elapsed_secs, current_slot)) = parse_db_analyser_progress_line(line) {
             if self.should_report_progress(elapsed_secs) {
-                return DbAnalyserLogAction::Report(self.progress_message(elapsed_secs, current_slot));
+                return self.progress_action(elapsed_secs, current_slot);
             }
 
             return DbAnalyserLogAction::Suppress;
         }
 
         if let Some((elapsed_secs, current_slot)) = parse_db_analyser_snapshot_stored_line(line) {
-            return DbAnalyserLogAction::Report(self.progress_message(elapsed_secs, current_slot));
+            return self.progress_action(elapsed_secs, current_slot);
         }
-
-        if let Some(elapsed_secs) = parse_db_analyser_done_line(line) {
-            return DbAnalyserLogAction::Report(format!("db-analyser finished in {}", format_seconds(elapsed_secs)));
+        if parse_db_analyser_done_line(line) {
+            return DbAnalyserLogAction::Progress { done: None };
         }
 
         DbAnalyserLogAction::PassThrough
@@ -188,47 +295,20 @@ impl DbAnalyserLogRelay {
         should_report
     }
 
-    fn started_message(&self) -> String {
-        if self.start_slot == Slot::default() {
-            format!("db-analyser started: replaying to slot {}", self.target_slot)
-        } else {
-            format!(
-                "db-analyser started: resuming from stored ledger snapshot at slot {} and replaying to slot {}",
-                self.start_slot, self.target_slot
-            )
-        }
-    }
-
-    fn progress_message(&self, elapsed_secs: f64, current_slot: Slot) -> String {
-        if self.is_restoring_resume_snapshot(current_slot) {
-            return format!(
-                "db-analyser resume: still restoring stored ledger snapshot at slot {} before replaying to slot {} (elapsed {})",
-                self.start_slot,
-                self.target_slot,
-                format_seconds(elapsed_secs),
-            );
+    fn progress_action(&mut self, _elapsed_secs: f64, current_slot: Slot) -> DbAnalyserLogAction {
+        if self.in_restore_phase && !self.is_restoring_resume_snapshot(current_slot) {
+            self.in_restore_phase = false;
+            self.last_done = self.start_slot.as_u64();
+            return DbAnalyserLogAction::SwitchToReplay;
         }
 
-        let current_slot = current_slot.as_u64();
-        let start_slot = self.start_slot.as_u64();
-        let target_slot = self.target_slot.as_u64();
+        let current = current_slot.as_u64();
+        let target = self.target_slot.as_u64();
+        let capped = current.min(target);
+        let delta = capped.saturating_sub(self.last_done);
+        self.last_done = capped;
 
-        let capped_slot = current_slot.clamp(start_slot, target_slot);
-        let done_slots = capped_slot.saturating_sub(start_slot);
-        let total_slots = target_slot.saturating_sub(start_slot).max(1);
-
-        let progress = done_slots as f64 / total_slots as f64;
-        let eta_secs =
-            if progress > 0.0 && progress < 1.0 { elapsed_secs * ((1.0 - progress) / progress) } else { 0.0 };
-
-        format!(
-            "db-analyser progress: {:.1}% (slot {}/{}, elapsed {}, eta {})",
-            progress * 100.0,
-            capped_slot,
-            self.target_slot,
-            format_seconds(elapsed_secs),
-            format_seconds(eta_secs),
-        )
+        DbAnalyserLogAction::Progress { done: Some(delta) }
     }
 
     fn is_restoring_resume_snapshot(&self, current_slot: Slot) -> bool {
@@ -263,24 +343,8 @@ fn parse_db_analyser_snapshot_stored_line(line: &str) -> Option<(f64, Slot)> {
     Some((elapsed_secs, slot))
 }
 
-fn parse_db_analyser_done_line(line: &str) -> Option<f64> {
-    let (elapsed_secs, rest) = parse_db_analyser_elapsed_line(line)?;
-    (rest == "Done").then_some(elapsed_secs)
-}
-
-fn format_seconds(seconds: f64) -> String {
-    let total_seconds = seconds.max(0.0).round() as u64;
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let secs = total_seconds % 60;
-
-    if hours > 0 {
-        format!("{hours}h {minutes}m")
-    } else if minutes > 0 {
-        format!("{minutes}m {secs}s")
-    } else {
-        format!("{secs}s")
-    }
+fn parse_db_analyser_done_line(line: &str) -> bool {
+    parse_db_analyser_elapsed_line(line).is_some_and(|(_, rest)| rest == "Done")
 }
 
 pub(super) fn exact_snapshot_dir(ledger_snapshot_dir: &Path, slot: Slot) -> Option<PathBuf> {
@@ -345,49 +409,4 @@ pub(super) fn latest_snapshot_slot_at_or_before(
 
 pub(super) fn parse_snapshot_slot_dir_name(name: &str) -> Option<Slot> {
     name.strip_suffix("_db-analyser")?.parse().ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use amaru_kernel::Slot;
-
-    use super::{DbAnalyserLogAction, DbAnalyserLogRelay};
-
-    #[test]
-    fn started_message_explains_resume_source() {
-        let mut relay = DbAnalyserLogRelay::new(Slot::from(134_524_753), Some(Slot::from(134_092_758)));
-
-        assert_eq!(
-            relay.handle_line("[0.0s] Started StoreLedgerStateAt (SlotNo 134524753)"),
-            DbAnalyserLogAction::Report(
-                "db-analyser started: resuming from stored ledger snapshot at slot 134092758 and replaying to slot 134524753"
-                    .to_owned()
-            )
-        );
-    }
-
-    #[test]
-    fn progress_message_describes_resume_restore_before_replay() {
-        let mut relay = DbAnalyserLogRelay::new(Slot::from(134_524_753), Some(Slot::from(134_092_758)));
-
-        assert_eq!(
-            relay.handle_line("[32.0s] BlockNo 42 SlotNo 134092758"),
-            DbAnalyserLogAction::Report(
-                "db-analyser resume: still restoring stored ledger snapshot at slot 134092758 before replaying to slot 134524753 (elapsed 32s)"
-                    .to_owned()
-            )
-        );
-    }
-
-    #[test]
-    fn progress_message_switches_to_percentage_after_resume_slot() {
-        let mut relay = DbAnalyserLogRelay::new(Slot::from(134_524_753), Some(Slot::from(134_092_758)));
-
-        assert_eq!(
-            relay.handle_line("[32.0s] BlockNo 42 SlotNo 134100000"),
-            DbAnalyserLogAction::Report(
-                "db-analyser progress: 1.7% (slot 134100000/134524753, elapsed 32s, eta 31m 17s)".to_owned()
-            )
-        );
-    }
 }

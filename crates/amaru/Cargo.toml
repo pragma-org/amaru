@@ -32,14 +32,14 @@ test-utils = ["amaru-consensus/test-utils"]
 # External dependencies ───────────────────────────────────────────────────────┐
 mimalloc.workspace = true
 anyhow.workspace = true
-async-compression.workspace = true
+aws-credential-types.workspace = true
+aws-sdk-s3.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
-flate2.workspace = true
 futures-util.workspace = true
 hex.workspace = true
-include_dir = { workspace = true, features = ["glob"] }
+http-body-util.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
 opentelemetry-appender-tracing.workspace = true
@@ -47,7 +47,6 @@ opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
-pallas-hardano.workspace = true
 pallas-network.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true
@@ -60,6 +59,7 @@ signal-hook.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 tempfile.workspace = true
+zstd.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "fs",

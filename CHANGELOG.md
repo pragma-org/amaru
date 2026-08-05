@@ -48,6 +48,7 @@ Other guiding principles:
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 - **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
 - **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.
+- **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
 
 ### Removed
 
@@ -273,6 +274,7 @@ Other guiding principles:
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1011]: https://github.com/pragma-org/amaru/pull/1011
+[#1012]: https://github.com/pragma-org/amaru/pull/1012
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1021]: https://github.com/pragma-org/amaru/pull/1021

@@ -20,9 +20,10 @@ use std::{
 
 use amaru_consensus::{block_validator::BlockValidator, store::PraosChainStore};
 use amaru_kernel::{
-    Block, BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, NetworkName, Point, RawBlock,
+    Block, BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, NetworkName, RawBlock,
     cardano::network_block::NetworkBlock, to_cbor,
 };
+use amaru_mithril::read_stable_blocks_after_point;
 use amaru_node::stages::{
     build_node::{make_block_validator, make_state},
     config::LedgerConfig,
@@ -30,17 +31,8 @@ use amaru_node::stages::{
 use amaru_ouroboros::{ChainStore, PoolSummaries, Praos, can_validate_blocks::CanValidateBlocks, praos::header};
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
-use pallas_hardano::storage::immutable::read_blocks_from_point;
-use pallas_network::miniprotocols::Point as PallasPoint;
 use rayon::prelude::*;
 use tracing::info;
-
-fn to_pallas_point(point: Point) -> PallasPoint {
-    match point {
-        Point::Origin => PallasPoint::Origin,
-        Point::Specific(slot, hash) => PallasPoint::Specific(slot.as_u64(), hash.to_vec()),
-    }
-}
 
 fn create_praos_chain_store(
     global_parameters: GlobalParameters,
@@ -137,8 +129,7 @@ pub(super) async fn run(
 
     let mut processed = 0;
     let before = Instant::now();
-    let skip_tip = usize::from(tip != Point::Origin);
-    let blocks = read_blocks_from_point(&immutable_dir, to_pallas_point(tip))?.skip(skip_tip);
+    let blocks = read_stable_blocks_after_point(&immutable_dir, network, tip)?;
 
     for block in blocks {
         let block = block?;

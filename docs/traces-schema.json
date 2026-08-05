@@ -226,47 +226,6 @@
       "description": "Import UTxO entries from a snapshot",
       "public": true
     },
-    "amaru::bootstrap::local_snapshots::DETECT": {
-      "type": "object",
-      "properties": {
-        "count": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "count"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "detect",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::local_snapshots",
-      "description": "Detect locally-created snapshots from create-snapshots",
-      "public": true
-    },
-    "amaru::bootstrap::local_snapshots::FAIL_TO_READ": {
-      "type": "object",
-      "properties": {
-        "file": {
-          "type": "string"
-        },
-        "hint": {
-          "type": "string",
-          "description": "Custom type: anyhow::Error"
-        }
-      },
-      "required": [
-        "file",
-        "hint"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "fail_to_read",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::local_snapshots",
-      "description": "Failed to read or parse a local snapshot",
-      "public": true
-    },
     "amaru::bootstrap::nonces::IMPORT": {
       "type": "object",
       "properties": {
@@ -459,25 +418,7 @@
       "description": "Download a snapshot archive",
       "public": true
     },
-    "amaru::bootstrap::snapshot::EXTRACT": {
-      "type": "object",
-      "properties": {
-        "snapshot": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "snapshot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "extract",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::snapshot",
-      "description": "Extract a snapshot archive",
-      "public": true
-    },
-    "amaru::bootstrap::snapshot::IMPORT_DIR": {
+    "amaru::bootstrap::snapshot::IMPORT_ARCHIVE": {
       "type": "object",
       "properties": {
         "path": {
@@ -489,28 +430,10 @@
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "import_dir",
+      "name": "import_archive",
       "level": "TRACE",
       "target": "amaru::bootstrap::snapshot",
-      "description": "Import a snapshot directory",
-      "public": true
-    },
-    "amaru::bootstrap::snapshot::IMPORT_FILE": {
-      "type": "object",
-      "properties": {
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "import_file",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::snapshot",
-      "description": "Import a single snapshot",
+      "description": "Import a compressed snapshot archive",
       "public": true
     },
     "amaru::bootstrap::snapshot::IMPORT_TVAR": {
@@ -534,24 +457,6 @@
       "level": "TRACE",
       "target": "amaru::bootstrap::snapshot",
       "description": "Import from the tvar data",
-      "public": true
-    },
-    "amaru::bootstrap::snapshot::INVALID": {
-      "type": "object",
-      "properties": {
-        "snapshot": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "snapshot"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "invalid",
-      "level": "TRACE",
-      "target": "amaru::bootstrap::snapshot",
-      "description": "Existing snapshot files are invalid and will be removed",
       "public": true
     },
     "amaru::bootstrap::snapshot::SKIP_DOWNLOAD": {
@@ -628,6 +533,29 @@
       "level": "TRACE",
       "target": "amaru::bootstrap::votes",
       "description": "Import governance votes from a snapshot",
+      "public": true
+    },
+    "amaru::cli::ERROR": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "cause": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "optional": [
+        "cause"
+      ],
+      "additionalProperties": false,
+      "name": "error",
+      "level": "TRACE",
+      "target": "amaru::cli",
+      "description": "Process terminated with an error.",
       "public": true
     },
     "amaru::cli::cardano_node_config::DOWNLOAD": {
@@ -716,50 +644,6 @@
       "description": "Resolve the current epoch from Koios",
       "public": true
     },
-    "amaru::cli::db_analyser::LOG": {
-      "type": "object",
-      "properties": {
-        "step": {
-          "type": "string"
-        },
-        "line": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "step",
-        "line"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "log",
-      "level": "TRACE",
-      "target": "amaru::cli::db_analyser",
-      "description": "Output line from an external db-analyser command",
-      "public": true
-    },
-    "amaru::cli::db_analyser::PROGRESS": {
-      "type": "object",
-      "properties": {
-        "step": {
-          "type": "string"
-        },
-        "detail": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "step",
-        "detail"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "progress",
-      "level": "TRACE",
-      "target": "amaru::cli::db_analyser",
-      "description": "Progress reported by an external db-analyser command",
-      "public": true
-    },
     "amaru::cli::db_analyser::REUSE_LEDGER_SNAPSHOT": {
       "type": "object",
       "properties": {
@@ -770,11 +654,15 @@
         "slot": {
           "type": "string",
           "description": "Custom type: amaru_kernel::Slot"
+        },
+        "snapshot": {
+          "type": "string"
         }
       },
       "required": [
         "epoch",
-        "slot"
+        "slot",
+        "snapshot"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -812,29 +700,6 @@
       "level": "TRACE",
       "target": "amaru::cli::db_analyser",
       "description": "Run db-analyser to produce a ledger snapshot",
-      "public": true
-    },
-    "amaru::cli::epoch_metadata::WRITE": {
-      "type": "object",
-      "properties": {
-        "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "epoch",
-        "path"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "write",
-      "level": "TRACE",
-      "target": "amaru::cli::epoch_metadata",
-      "description": "Write the epoch metadata file for a snapshot",
       "public": true
     },
     "amaru::cli::last_block::RESOLVE": {
@@ -968,6 +833,33 @@
       "description": "Bootstrap a node from published snapshots",
       "public": true
     },
+    "amaru::cli::node::RM": {
+      "type": "object",
+      "properties": {
+        "chain_dir": {
+          "type": "string"
+        },
+        "ledger_dir": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkName"
+        }
+      },
+      "required": [
+        "chain_dir",
+        "ledger_dir",
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "rm",
+      "level": "TRACE",
+      "target": "amaru::cli::node",
+      "description": "Remove ledger and chain database from disk",
+      "public": true
+    },
     "amaru::cli::snapshot::CREATE": {
       "type": "object",
       "properties": {
@@ -1013,27 +905,32 @@
       "description": "Create snapshots for the given network",
       "public": true
     },
-    "amaru::cli::snapshot::MATERIALIZE": {
+    "amaru::cli::snapshot::CREATED": {
       "type": "object",
       "properties": {
         "epoch": {
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
-        "snapshot": {
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
+        "archive": {
           "type": "string"
         }
       },
       "required": [
         "epoch",
-        "snapshot"
+        "slot",
+        "archive"
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "materialize",
+      "name": "created",
       "level": "TRACE",
       "target": "amaru::cli::snapshot",
-      "description": "Materialize a bootstrap snapshot directory",
+      "description": "Finished creating a snapshot archive",
       "public": true
     },
     "amaru::cli::snapshot::PACKAGE": {
@@ -1043,12 +940,17 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
         "archive": {
           "type": "string"
         }
       },
       "required": [
         "epoch",
+        "slot",
         "archive"
       ],
       "optional": [],
@@ -1059,27 +961,31 @@
       "description": "Package a snapshot archive",
       "public": true
     },
-    "amaru::cli::snapshot::SKIP_MATERIALIZE": {
+    "amaru::cli::snapshot::PUBLISH": {
       "type": "object",
       "properties": {
-        "epoch": {
+        "network": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
+          "description": "Custom type: amaru_kernel::NetworkName"
         },
-        "reason": {
-          "type": "string"
+        "local": {
+          "type": "integer"
+        },
+        "remote": {
+          "type": "integer"
         }
       },
       "required": [
-        "epoch",
-        "reason"
+        "network",
+        "local",
+        "remote"
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "skip_materialize",
+      "name": "publish",
       "level": "TRACE",
       "target": "amaru::cli::snapshot",
-      "description": "Snapshot already materialized; skipping",
+      "description": "Publish snapshot archives",
       "public": true
     },
     "amaru::cli::snapshot::SKIP_PACKAGE": {
@@ -1089,12 +995,21 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Epoch"
         },
+        "slot": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Slot"
+        },
+        "archive": {
+          "type": "string"
+        },
         "reason": {
           "type": "string"
         }
       },
       "required": [
         "epoch",
+        "slot",
+        "archive",
         "reason"
       ],
       "optional": [],
@@ -1103,6 +1018,83 @@
       "level": "TRACE",
       "target": "amaru::cli::snapshot",
       "description": "Snapshot archive already packaged; skipping",
+      "public": true
+    },
+    "amaru::cli::snapshot::SKIP_UPLOAD": {
+      "type": "object",
+      "properties": {
+        "archive": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "skip_upload",
+      "level": "TRACE",
+      "target": "amaru::cli::snapshot",
+      "description": "Snapshot archive already uploaded; skipping",
+      "public": true
+    },
+    "amaru::cli::snapshot::UPDATE_INDEX": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkName"
+        },
+        "snapshots": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "network",
+        "snapshots"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "update_index",
+      "level": "TRACE",
+      "target": "amaru::cli::snapshot",
+      "description": "Update the published snapshot index",
+      "public": true
+    },
+    "amaru::cli::snapshot::UPLOAD": {
+      "type": "object",
+      "properties": {
+        "archive": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "upload",
+      "level": "TRACE",
+      "target": "amaru::cli::snapshot",
+      "description": "Upload a snapshot archive",
+      "public": true
+    },
+    "amaru::cli::snapshot::UPLOADED": {
+      "type": "object",
+      "properties": {
+        "archive": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "archive"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "uploaded",
+      "level": "TRACE",
+      "target": "amaru::cli::snapshot",
+      "description": "Finished uploading a snapshot archive",
       "public": true
     },
     "amaru::consensus::perf::fork::SWITCH": {
@@ -3556,6 +3548,104 @@
       "level": "TRACE",
       "target": "amaru::mempool::transaction",
       "description": "Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.",
+      "public": true
+    },
+    "amaru::mithril::snapshot::DOWNLOAD": {
+      "type": "object",
+      "properties": {
+        "target_dir": {
+          "type": "string"
+        },
+        "from_chunk": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target_dir",
+        "from_chunk"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "download",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Download and unpack immutable files from a Mithril snapshot",
+      "public": true
+    },
+    "amaru::mithril::snapshot::FETCH": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string"
+        },
+        "from_chunk": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hash",
+        "from_chunk"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Fetch and verify a Mithril snapshot",
+      "public": true
+    },
+    "amaru::mithril::snapshot::READY": {
+      "type": "object",
+      "properties": {
+        "target_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_dir"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ready",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Mithril cardano-node database is ready",
+      "public": true
+    },
+    "amaru::mithril::snapshot::VERIFY_DATABASE": {
+      "type": "object",
+      "properties": {
+        "target_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_dir"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "verify_database",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Verify the local cardano-node database against a Mithril certificate",
+      "public": true
+    },
+    "amaru::mithril::snapshot::VERIFY_DIGESTS": {
+      "type": "object",
+      "properties": {
+        "target_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_dir"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "verify_digests",
+      "level": "TRACE",
+      "target": "amaru::mithril::snapshot",
+      "description": "Download and verify the digests for a Mithril snapshot",
       "public": true
     },
     "amaru::protocols::keepalive::peer::ROUND_TRIP": {

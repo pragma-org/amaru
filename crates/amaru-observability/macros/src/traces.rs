@@ -549,15 +549,15 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
             let (validation_mode, formatter_binding) = match field.formatter {
                 TraceEventFormatter::Typed => (
                     quote! { validate_value },
-                    quote! { let #formatted_ident = ::tracing::field::display(&#value_ident); },
+                    quote! { let #formatted_ident = tracing::field::display(&#value_ident); },
                 ),
                 TraceEventFormatter::Display => (
                     quote! { validate_event_display },
-                    quote! { let #formatted_ident = ::tracing::field::display(&#value_ident); },
+                    quote! { let #formatted_ident = tracing::field::display(&#value_ident); },
                 ),
                 TraceEventFormatter::Debug => (
                     quote! { validate_event_debug },
-                    quote! { let #formatted_ident = ::tracing::field::debug(&#value_ident); },
+                    quote! { let #formatted_ident = tracing::field::debug(&#value_ident); },
                 ),
                 TraceEventFormatter::Value => {
                     (quote! { validate_event_value }, quote! { let #formatted_ident = #value_ident; })
@@ -595,8 +595,7 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
 
             if #public_const_path || __amaru_emit_private {
                 #(#value_bindings)*
-
-                ::tracing::#level_macro!(
+                tracing::#level_macro!(
                     name: #name_path,
                     target: #target_path,
                     message = #name_path

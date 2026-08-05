@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use indicatif::ProgressStyle;
 
 use super::ProgressBar;
@@ -24,10 +26,13 @@ pub struct TerminalProgressBar {
 impl TerminalProgressBar {
     #[expect(clippy::unwrap_used)]
     pub fn new(size: impl Into<u64>, template: impl AsRef<str>) -> Self {
-        Self {
-            inner: indicatif::ProgressBar::new(size.into())
-                .with_style(ProgressStyle::with_template(template.as_ref()).unwrap().progress_chars("█▉▊▋▌▍▎▏-")),
+        let size = size.into();
+        let inner = indicatif::ProgressBar::new(size)
+            .with_style(ProgressStyle::with_template(template.as_ref()).unwrap().progress_chars("█▉▊▋▌▍▎▏-"));
+        if size == 0 {
+            inner.enable_steady_tick(Duration::from_millis(100));
         }
+        Self { inner }
     }
 
     pub fn boxed(self) -> Box<dyn ProgressBar> {

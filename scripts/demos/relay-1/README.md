@@ -73,12 +73,12 @@ local socket. Beware that `submit-tx` then spends real ada from the configured p
 
 Both Amaru nodes export OpenTelemetry by default, using the service names `amaru-middle` and `amaru-downstream`.
 
-👉 Set `AMARU_<NODE>_WITH_OPEN_TELEMETRY=false` to disable OTLP export for one of the nodes. Console and process log 
+👉 Set `AMARU_<NODE>_WITH_OPEN_TELEMETRY=false` to disable OTLP export for one of the nodes. Console and process log
 output is controlled separately by `AMARU_MIDDLE_LOG` and `AMARU_DOWNSTREAM_LOG`.
 
 Both default to `info,amaru::ledger::state=trace` so the watch process can show matching
 submitted transaction IDs found in blocks. Local JSON span output is disabled by default because the same trace-level
-spans are exported through OpenTelemetry. 
+spans are exported through OpenTelemetry.
 
 👉You can enable it with `AMARU_MIDDLE_WITH_JSON_TRACES=true` or
 `AMARU_DOWNSTREAM_WITH_JSON_TRACES=true` when you want local JSON span enter/exit events.
@@ -98,16 +98,16 @@ To refresh the Amaru chain and ledger databases from the latest Mithril snapshot
 
 This writes refreshed databases to `scripts/demos/relay-1/run/mithril-refresh`. The demo uses those databases by default and
 copies them into isolated per-node run directories when starting. When a refresh replaces existing refreshed databases,
-the previous ones are moved to `run/mithril-refresh.backup` and only that most recent backup is kept. 
+the previous ones are moved to `run/mithril-refresh.backup` and only that most recent backup is kept.
 
-The refresh records the Mithril snapshot hash in a metadata file, so running refresh again exits quickly when those 
+The refresh records the Mithril snapshot hash in a metadata file, so running refresh again exits quickly when those
 databases already match the latest Mithril snapshot.
 
 Interrupted initial refreshes leave `scripts/demos/relay-1/run/mithril-refresh.in-progress`. The next refresh resumes from
-those databases instead of bootstrapping from scratch. Use `FORCE_REFRESH=true` to rebuild them anyway. 
+those databases instead of bootstrapping from scratch. Use `FORCE_REFRESH=true` to rebuild them anyway.
 
-The demo uses existing refreshed databases by default. `REFRESH_FROM_MITHRIL=auto` refreshes only when the local 
-refreshed databases or metadata are missing or incomplete. 
+The demo uses existing refreshed databases by default. `REFRESH_FROM_MITHRIL=auto` refreshes only when the local
+refreshed databases or metadata are missing or incomplete.
 
 👉Set `REFRESH_FROM_MITHRIL=true` to check Mithril before startup even when local
 databases exist, or `REFRESH_FROM_MITHRIL=false` to skip the refresh step explicitly. The refresh runs as the
@@ -121,7 +121,7 @@ REFRESH_FROM_MITHRIL=true ./process-compose.sh up
 When using a local upstream node, `CARDANO_NODE_INIT_FROM_MITHRIL=auto` initializes
 `cardano-node-config/$AMARU_NETWORK/db/immutable` from the selected Mithril snapshot only when that database has not
 already been initialized from the same snapshot. This preserves cardano-node's rebuilt ledger and volatile state across
-demo restarts. 
+demo restarts.
 
 👉 Set `CARDANO_NODE_INIT_FROM_MITHRIL=true` to re-initialize the immutable database on every start, which
 also deletes the rebuilt ledger and volatile state, or `CARDANO_NODE_INIT_FROM_MITHRIL=false` to skip this step
@@ -131,7 +131,7 @@ explicitly.
 
 Refresh, initialize, and the Amaru nodes use `BUILD_PROFILE=dev` by default so local demo iteration rebuilds faster. Initialize
 builds the `amaru` node binary once with that profile, and the long-running node processes execute the built binary
-directly instead of invoking `cargo run`. 
+directly instead of invoking `cargo run`.
 
 👉Override `BUILD_PROFILE` only when you intentionally want another Cargo profile, for example `BUILD_PROFILE=release`.
 
@@ -150,9 +150,9 @@ settings, and Amaru source databases.
 
 After validation, it clears the relay demo log files and synchronizes the refreshed chain and ledger databases into
 separate isolated directories for `amaru-middle` and `amaru-downstream`. If initialize already synchronized a database
-and no Amaru process has run against that isolated copy since then, initialize skips synchronizing it again. 
+and no Amaru process has run against that isolated copy since then, initialize skips synchronizing it again.
 
-Once an Amaru node starts, that copy is marked dirty; the next initialize synchronizes it back to the refreshed snapshot 
+Once an Amaru node starts, that copy is marked dirty; the next initialize synchronizes it back to the refreshed snapshot
 and deletes stale destination files. The node processes depend on `initialize` completing successfully, so an initialize
 failure prevents the demo from starting with missing or stale run directories.
 
@@ -385,12 +385,12 @@ with:
 
 This queries the upstream cardano-node socket, spends enough current UTxOs from the configured payment key, creates
 `TX_REFUEL_UTXO_COUNT` self-outputs of `TX_REFUEL_OUTPUT_LOVELACE`, submits the transaction upstream, clears local
-`submit-tx` claim state, and waits until the clean outputs are visible. 
+`submit-tx` claim state, and waits until the clean outputs are visible.
 
-By default this gives the next 10-replica `submit-tx` run ten fresh 2 ada inputs. 
-Wallet preparation picks the largest UTxOs first so the transaction stays small and reliable. 
+By default this gives the next 10-replica `submit-tx` run ten fresh 2 ada inputs.
+Wallet preparation picks the largest UTxOs first so the transaction stays small and reliable.
 The command is idempotent: if enough clean outputs already exist, it clears local `submit-tx` claim state and
-exits without submitting a new transaction. Set `TX_REFUEL_FORCE=true` to rebuild clean outputs anyway. 
+exits without submitting a new transaction. Set `TX_REFUEL_FORCE=true` to rebuild clean outputs anyway.
 
 👉 Set `TX_REFUEL_SELECTION=smallest` only when you specifically want to consolidate tiny outputs; if the wallet has many tiny
 outputs, increase `TX_REFUEL_MAX_INPUTS`; if the transaction becomes too large, use a fresh funded key instead. Wallet
@@ -407,20 +407,20 @@ from the downstream Amaru node.
 
 `submit-tx` can be scaled from Process Compose. By default each replica builds one transaction, claims a distinct UTxO
 that can cover the transaction output plus fee buffer, and writes generated transaction files under its own
-`run/generated/submit-tx-*` directory. 
+`run/generated/submit-tx-*` directory.
 
-`submit-tx-batch` uses the same input selection and claim state, but claims and builds all requested transactions in one 
-process before submitting them concurrently. For UTxOs below the preferred 3 ada threshold, both modes drain the input 
-into one self-output minus the calculated fee instead of requiring a separate change output. 
+`submit-tx-batch` uses the same input selection and claim state, but claims and builds all requested transactions in one
+process before submitting them concurrently. For UTxOs below the preferred 3 ada threshold, both modes drain the input
+into one self-output minus the calculated fee instead of requiring a separate change output.
 
 Accepted transaction claims are kept for the current run because cardano-node may still show the spent
 input until the ledger catches up. Restarting `submit-tx` or `submit-tx-batch` clears stale claims once before replicas
-select UTxOs. 
+select UTxOs.
 
-👉 Set `TX_GENERATED_COUNT` only when you intentionally want each replica to build multiple transactions. 
+👉 Set `TX_GENERATED_COUNT` only when you intentionally want each replica to build multiple transactions.
 
 With ten spendable UTxOs, scaling `submit-tx` to ten replicas lets each replica claim a different input and submit one
- transaction. If more replicas are started than there are spendable UTxOs, the extra replicas log that there is nothing 
+ transaction. If more replicas are started than there are spendable UTxOs, the extra replicas log that there is nothing
  to submit and exit successfully.
 
 If the address only has UTxOs smaller than 3 ada, the generator falls back to one spendable input and drains it into a

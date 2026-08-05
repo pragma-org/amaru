@@ -1,7 +1,6 @@
 export AMARU_NETWORK ?= preprod
 export AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
 AWS_DEFAULT_REGION ?= auto
-BOOTSTRAP_SNAPSHOT_EPOCH ?=
 BUCKET_NAME ?=
 ENDPOINT ?=
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config/$(AMARU_NETWORK)
@@ -55,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help publish-bootstrap-snapshots download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract generate-traces-doc serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -72,21 +71,6 @@ help:
 	@echo ""
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m%s\033[00m=%s\n" "$$(echo $$l | cut -f 1 -d'=')" "$$(echo $$l | cut -f 2- -d'=')"; done
-
-publish-bootstrap-snapshots: ## &start Upload and publish the three existing bootstrap snapshots starting at $BOOTSTRAP_SNAPSHOT_EPOCH
-	@set -euo pipefail; \
-	if [ -z "$(BOOTSTRAP_SNAPSHOT_EPOCH)" ]; then \
-		echo "BOOTSTRAP_SNAPSHOT_EPOCH must be set" >&2; \
-		exit 1; \
-	fi; \
-	AMARU_NETWORK="$(AMARU_NETWORK)" \
-	AMARU_DIST_DIR="$(AMARU_DIST_DIR)" \
-	AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \
-	AWS_SECRET_ACCESS_KEY="$(AWS_SECRET_ACCESS_KEY)" \
-	AWS_DEFAULT_REGION="$(AWS_DEFAULT_REGION)" \
-	BUCKET_NAME="$(BUCKET_NAME)" \
-	ENDPOINT="$(ENDPOINT)" \
-	bash ./scripts/publish-bootstrap-snapshots "$(BOOTSTRAP_SNAPSHOT_EPOCH)"
 
 download-haskell-config: ## &start Download Haskell node configuration files for $AMARU_NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
