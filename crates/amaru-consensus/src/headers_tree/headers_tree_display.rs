@@ -62,13 +62,13 @@ impl HeadersTreeDisplay {
     pub fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&BlockHeader) -> String) -> std::fmt::Result {
         f.write_str("HeadersTree {\n")?;
         if let Some(tree) = &self.tree {
-            writeln!(f, "  headers:\n    {}", &tree.pretty_print_with(header_to_string))?;
+            writeln!(f, "  headers:\n    {}", tree.pretty_print_with(header_to_string))?;
         };
-        writeln!(f, "{}", &self.tree_state)?;
-        writeln!(f, "  anchor: {}", &self.anchor)?;
-        writeln!(f, "  best_chain: {}", &self.best_chain)?;
-        writeln!(f, "  best_chains: [{}]", &self.best_chains.list_to_string(", "))?;
-        writeln!(f, "  best_length: {}", &self.best_length)?;
+        writeln!(f, "{}", self.tree_state)?;
+        writeln!(f, "  anchor: {}", self.anchor)?;
+        writeln!(f, "  best_chain: {}", self.best_chain)?;
+        writeln!(f, "  best_chains: [{}]", self.best_chains.list_to_string(", "))?;
+        writeln!(f, "  best_length: {}", self.best_length)?;
         f.write_str("}\n")
     }
 }

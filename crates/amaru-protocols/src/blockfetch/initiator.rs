@@ -44,8 +44,12 @@ pub fn initiator() -> Miniprotocol<State, BlockFetchInitiator, Initiator> {
 
 #[derive(PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Blocks {
-    NoBlocks(u64),
+    /// Peer responded that it has no blocks in the requested range.
+    NoBlocks(u64, Peer),
+    /// Manager found no initiating connections for this request id.
     NoPeersAvailable(u64),
+    /// Peers to which the manager dispatched this fetch request (for performance scoring).
+    PeersAsked(u64, Vec<Peer>),
     Block(u64, Peer, NetworkBlock),
     Done(u64),
 }
@@ -53,8 +57,9 @@ pub enum Blocks {
 impl std::fmt::Debug for Blocks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NoBlocks(id) => f.debug_tuple("NoBlocks").field(id).finish(),
+            Self::NoBlocks(id, peer) => f.debug_tuple("NoBlocks").field(id).field(peer).finish(),
             Self::NoPeersAvailable(id) => f.debug_tuple("NoPeersAvailable").field(id).finish(),
+            Self::PeersAsked(id, peers) => f.debug_tuple("PeersAsked").field(id).field(peers).finish(),
             Self::Block(id, peer, block) => {
                 f.debug_tuple("Block").field(id).field(peer).field(&debug_bytes(block.as_slice(), 80)).finish()
             }
@@ -127,7 +132,7 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                 InitiatorResult::Initialize => None,
                 InitiatorResult::NoBlocks => {
                     let (_, _, id, cr, _) = self.queue.pop_front().expect("queue must not be empty");
-                    eff.send(&cr, Blocks::NoBlocks(id)).await;
+                    eff.send(&cr, Blocks::NoBlocks(id, self.peer.clone())).await;
                     self.queue.front()
                 }
                 InitiatorResult::Block(body) => {

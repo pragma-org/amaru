@@ -112,7 +112,7 @@ pub fn tm_input<T: SendData + Clone>(stage: impl AsRef<str>, input: &T) -> Trace
 
 /// Creates a `TraceMatch` for a `Send` effect.
 pub fn tm_send<'a>(from: &'a str, to: &'a str, msg: impl SendData) -> TraceMatch<'a> {
-    let description = format!("Send(from: {:?}, to: {:?}, msg: {:?})", from, to, &msg);
+    let description = format!("Send(from: {:?}, to: {:?}, msg: {:?})", from, to, msg);
     TraceMatch::Property(
         Box::new(move |entry| {
             let TraceEntry::Suspend(Effect::Send { from: f, to: t, msg: m }) = entry else {

@@ -31,7 +31,7 @@ impl CertificatePointer {
 
 impl fmt::Display for CertificatePointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{},certificate={}", &self.transaction, &self.certificate_index)
+        write!(f, "{},certificate={}", self.transaction, self.certificate_index)
     }
 }
 

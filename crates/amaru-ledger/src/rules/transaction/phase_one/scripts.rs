@@ -118,7 +118,7 @@ pub enum InvalidScripts {
         "extraneous redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
             "[{}, {}]",
-            &redeemer_key.tag,
+            redeemer_key.tag,
             redeemer_key.index
         )).collect::<Vec<_>>().join(", ")
     )]
@@ -128,7 +128,7 @@ pub enum InvalidScripts {
         "missing redeemers: [{}]",
         .0.iter().map(|redeemer_key| format!(
             "[{}, {}]",
-            &redeemer_key.tag,
+            redeemer_key.tag,
             redeemer_key.index
         )).collect::<Vec<_>>().join(", ")
     )]

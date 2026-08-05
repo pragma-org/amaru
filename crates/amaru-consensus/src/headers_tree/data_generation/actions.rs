@@ -89,7 +89,7 @@ impl Action {
     }
 
     pub fn pretty_print(&self) -> String {
-        format!("r#\"{}\"#", &serde_json::to_string(self).unwrap())
+        format!("r#\"{}\"#", serde_json::to_string(self).unwrap())
     }
 
     pub fn set_peer(mut self, peer: &Peer) -> Self {

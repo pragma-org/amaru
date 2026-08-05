@@ -101,7 +101,7 @@ struct Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        for (_, task) in self.tasks.lock().iter() {
+        for task in self.tasks.lock().values() {
             task.abort();
         }
     }

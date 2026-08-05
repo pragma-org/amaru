@@ -156,12 +156,12 @@ amaru-tui = { path = "crates/amaru-tui", version = "0.1.2" }
 amaru-uplc = { path = "crates/amaru-uplc", version = "0.4.0" }
 
 [workspace.lints.rust]
-rust-2018-idioms = "warn"
-rust-2018-compatibility = "warn"
-rust-2021-compatibility = "warn"
-#rust-2024-compatibility = "warn"
-nonstandard-style = { level = "deny" }
-future-incompatible = { level = "deny" }
+rust_2018_idioms = "warn"
+rust_2018_compatibility = "warn"
+rust_2021_compatibility = "warn"
+#rust_2024_compatibility = "warn"
+nonstandard_style = { level = "deny" }
+future_incompatible = { level = "deny" }
 
 [workspace.lints.clippy]
 # Enable clippy lints for all members

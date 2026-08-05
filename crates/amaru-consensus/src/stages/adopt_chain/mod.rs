@@ -22,7 +22,10 @@ use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 use tracing::Instrument;
 
-use crate::stages::{block_source::BlockSourceMsg, select_chain::cmp_tip};
+use crate::{
+    performance::Performance,
+    stages::{block_source::BlockSourceMsg, select_chain::cmp_tip},
+};
 
 /// The AdoptChain stage decides whether (and how) to adopt a newly validated
 /// chain tip as the node's new best chain, updating the persistent chain store
@@ -50,6 +53,9 @@ use crate::stages::{block_source::BlockSourceMsg, select_chain::cmp_tip};
 ///   2. `ManagerMessage::NewTip(tip)` — to the downstream manager/peer layer.
 ///   3. `BlockSourceMsg::AdoptedTip(tip)` — to block_source (so it can adjust
 ///      its tip distance / fetch window for the newly adopted chain).
+/// - During `drag_anchor_forward`: `Performance::prune_below(tip.height - k, now)` so
+///   peer availability claims and open header lifecycles below the immutable horizon are dropped
+///   (header entries emit `HeaderLifecycleOutcome::Pruned`).
 /// - Finally, `current_best_tip` is updated in the returned state.
 ///
 /// Early exits (no adoption, no sends, no anchor drag, no logging of "adopted"):
@@ -203,14 +209,13 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                 .await;
         }
 
-        drag_anchor_forward(&store, &msg, state.consensus_security_param)
+        let now = drag_anchor_forward(&store, &msg, state.consensus_security_param, &eff)
             .or_terminate_with(&eff, async |error| {
                 tracing::error!(error = %error, tip = %msg, "failed to drag anchor forward");
             })
             .await;
 
         // do not print every single block while catching up
-        let now = eff.clock().await;
         if now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
             info!(
                 consensus::tip::ADOPT,
@@ -273,12 +278,23 @@ enum AdoptTipResult {
 /// blocks behind the adopted tip. The walk along the best chain runs in a single
 /// store effect against a consistent snapshot; only the resulting anchor write
 /// is a separate effect. Only moves the anchor forward, never backward.
-async fn drag_anchor_forward(store: &Store, tip: &Tip, consensus_security_param: u64) -> Result<(), StoreError> {
+///
+/// After the anchor update (if any), prunes performance maps at the immutable horizon
+/// (`tip.height - k`): peer claims below that height, and open header lifecycles as `Pruned`.
+/// Returns the clock reading used for that prune (also suitable for adoption logging).
+async fn drag_anchor_forward(
+    store: &Store,
+    tip: &Tip,
+    consensus_security_param: u64,
+    eff: &Effects<AdoptChainMsg>,
+) -> Result<Instant, StoreError> {
     let target_height = tip.block_height() - consensus_security_param;
     if let Some(new_anchor) = store.find_anchor_at_height(target_height).await {
         store.set_anchor_hash(&new_anchor).await?;
     }
-    Ok(())
+    let now = eff.clock().await;
+    eff.external(Performance::prune_below(target_height, now)).await;
+    Ok(now)
 }
 
 #[cfg(test)]

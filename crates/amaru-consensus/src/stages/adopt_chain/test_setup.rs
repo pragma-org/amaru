@@ -142,9 +142,17 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::PruneBelowEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<(Point, NonEmptyVec<Point>)>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
     ]
+}
+
+pub fn te_prune_below(at_stage: &str, min_height: BlockHeight, now: amaru_pure_stage::Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::prune_below(min_height, now)),
+    ))
 }
 
 pub fn test_prep(consensus_security_param: u64) -> TestPrep {
@@ -177,6 +185,9 @@ pub fn setup(prep: &TestPrep, msg: AdoptChainMsg) -> (SimulationRunning, Deseria
     // No global_epoch_offset: adopt_chain only needs relative sim time for the 1s log throttle.
     let mut network = SimulationBuilder::default().with_trace_buffer(TraceBuffer::new_shared(100, 1000000));
     network.resources().put::<ResourceHeaderStore>(prep.store.clone());
+    network
+        .resources()
+        .put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(crate::performance::Performance::new()));
 
     let ac = network.stage("ac", stage);
     let ac = network.wire_up(ac, prep.state.clone());

@@ -26,7 +26,10 @@ use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
 use rand::{SeedableRng, rngs::StdRng, seq::IteratorRandom};
 use tracing::Instrument;
 
-use crate::effects::{GenerateRandomSeed, Ledger, LedgerOps};
+use crate::{
+    effects::{GenerateRandomSeed, Ledger, LedgerOps},
+    performance::Performance,
+};
 
 const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 
@@ -292,8 +295,15 @@ impl PeerSelection {
 }
 
 impl PeerSelection {
+    /// Whether this peer still has a usable connection (inbound or established outbound).
+    fn peer_still_connected(&self, peer: &Peer) -> bool {
+        self.inbound_peers.contains_key(peer) || matches!(self.outbound_peers.get(peer), Some(PeerState::Connected(_)))
+    }
+
     async fn ban_peer(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>) {
         let is_static = self.static_peers.contains(&peer);
+
+        eff.external(Performance::forget_peer(peer.clone())).await;
 
         let mut send_remove = false;
         if let Some(peer_state) = self.inbound_peers.remove(&peer) {
@@ -312,6 +322,13 @@ impl PeerSelection {
         }
 
         self.cool_down(peer, eff, is_static).await;
+    }
+
+    /// Drop availability claims when a peer has no remaining live connections (scores kept).
+    async fn clear_availability_if_gone(&self, peer: &Peer, eff: &Effects<PeerSelectionMsg>) {
+        if !self.peer_still_connected(peer) {
+            eff.external(Performance::clear_peer_availability(peer.clone())).await;
+        }
     }
 
     async fn cool_down(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>, is_static: bool) {
@@ -570,20 +587,25 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
         }
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Inbound, _) => {
-            let _span = debug_span!(
-                amaru::protocols::peer_selection::peer::DISCONNECTED,
-                peer = &peer,
-                conn_id = conn_id.as_u64(),
-                direction = ConnectionDirection::Inbound,
-            )
-            .entered();
-            if let Entry::Occupied(entry) = state.inbound_peers.entry(peer)
-                && entry.get().id == conn_id
             {
-                entry.remove();
+                let _span = debug_span!(
+                    amaru::protocols::peer_selection::peer::DISCONNECTED,
+                    peer = &peer,
+                    conn_id = conn_id.as_u64(),
+                    direction = ConnectionDirection::Inbound,
+                )
+                .entered();
+                if let Entry::Occupied(entry) = state.inbound_peers.entry(peer.clone())
+                    && entry.get().id == conn_id
+                {
+                    entry.remove();
+                }
             }
+            state.clear_availability_if_gone(&peer, &eff).await;
         }
-        PeerSelectionMsg::Disconnected(_, _, ConnectionDirection::Outbound, will_retry) if will_retry => {}
+        PeerSelectionMsg::Disconnected(peer, _, ConnectionDirection::Outbound, true) => {
+            eff.external(Performance::clear_peer_availability(peer)).await;
+        }
         PeerSelectionMsg::Disconnected(peer, conn_id, ConnectionDirection::Outbound, _) => {
             if let Entry::Occupied(entry) = state.outbound_peers.entry(peer.clone())
                 && let PeerState::Connected(conn) = entry.get()
@@ -591,18 +613,20 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             {
                 let span = debug_span!(
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
-                    peer = peer,
+                    peer = peer.clone(),
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Outbound,
                 )
                 .entered();
                 entry.remove();
                 drop(span);
+                state.clear_availability_if_gone(&peer, &eff).await;
                 state.regulate_peers(&eff).await;
             }
         }
         PeerSelectionMsg::ConnectFailed(peer) => {
             state.outbound_peers.remove(&peer);
+            state.clear_availability_if_gone(&peer, &eff).await;
             state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::LedgerCheckCandidates(candidates) => {

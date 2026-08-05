@@ -609,7 +609,7 @@ impl<S: Subscriber> Filter<S> for ThrottledEnvFilter {
             // that is acceptable — we only need best-effort throttling here.
             return self
                 .last_otel_event
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
                     (now.saturating_sub(last) >= self.throttle_ms).then_some(now)
                 })
                 .is_ok();
@@ -656,8 +656,9 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
         Ok(filter) => {
             let var = var.to_string();
             let value = std::env::var(&var).unwrap_or_default();
-            let notice =
-                Box::new(move || info!(setup::trace::FILTER, var, value, provided_by_user = true)) as Box<dyn FnOnce()>;
+            let notice = Box::new(move || {
+                info!(setup::trace::FILTER, var, value, provided_by_user = true);
+            }) as Box<dyn FnOnce()>;
             (filter, Some(notice))
         }
         Err(e) => {
@@ -665,13 +666,12 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
             let fallback = default.to_string();
             let var = var.to_string();
             let warning = match e.source().and_then(|e| e.downcast_ref::<VarError>()) {
-                Some(VarError::NotPresent) => {
-                    Box::new(move || info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false))
-                        as Box<dyn FnOnce()>
-                }
-                _ => Box::new(
-                    move || warn!(setup::trace::FILTER, var, value = fallback, provided_by_user = true, provided_invalid = true, error = %e),
-                ) as Box<dyn FnOnce()>,
+                Some(VarError::NotPresent) => Box::new(move || {
+                    info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false);
+                }) as Box<dyn FnOnce()>,
+                _ => Box::new(move || {
+                    warn!(setup::trace::FILTER, var, value = fallback, provided_by_user = true, provided_invalid = true, error = %e);
+                }) as Box<dyn FnOnce()>,
             };
 
             #[expect(clippy::expect_used)]

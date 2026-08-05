@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::manager::ManagerMessage;
-use amaru_pure_stage::trace_match::{assert_trace_contains, tm_send_match};
+use amaru_pure_stage::trace_match::{assert_trace_contains, assert_trace_does_not_contain, tm_send_match};
 use tracing::Level;
 
 use super::*;
@@ -27,8 +27,9 @@ use crate::stages::{
     peer_selection::test_setup::{
         TestPrep, cooldown_duration, cooldown_instant, first_schedule_id, first_static_schedule_id,
         peer_selection_stage, second_schedule_id_at, setup, setup_preload, setup_preload_until_sleeping, sim_at,
-        static_cooldown_instant, te_cancel_schedule, te_clock, te_clock_suspend, te_random_seed, te_schedule, te_send,
-        test_prep, test_prep_with_snapshot, tm_add_stage_starts_with, with_single_cooldown,
+        static_cooldown_instant, te_cancel_schedule, te_clear_peer_availability, te_clock, te_clock_suspend,
+        te_forget_peer, te_random_seed, te_schedule, te_send, test_prep, test_prep_with_snapshot,
+        tm_add_stage_starts_with, with_single_cooldown,
     },
     test_utils::{assert_trace, te_input, te_state, tm_state},
 };
@@ -249,6 +250,7 @@ fn test_add_peer_during_cooldown_cancels_timer() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
+            te_forget_peer("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
             te_state("ps-1", &after_ban),
@@ -284,6 +286,7 @@ fn test_adversarial_outbound_connected() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
+            te_forget_peer("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
             te_state("ps-1", &after),
@@ -347,6 +350,7 @@ fn test_check_cooldowns_before_due_does_not_lift_ban() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
+            te_forget_peer("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid0),
             te_state("ps-1", &after_ban),
@@ -438,7 +442,15 @@ fn test_disconnected_inbound() {
         s
     };
     let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
-    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &after)]);
+    assert_trace(
+        &running,
+        &[
+            te_state("ps-1", &state),
+            te_input("ps-1", &msg),
+            te_clear_peer_availability("ps-1", p.clone()),
+            te_state("ps-1", &after),
+        ],
+    );
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -451,8 +463,16 @@ fn test_disconnected_outbound_connecting_schedules_cooldown() {
     state_conn.outbound_peers.insert(p.clone(), PeerState::Connecting);
     let msg = PeerSelectionMsg::Disconnected(p.clone(), ConnectionId::initial(), ConnectionDirection::Outbound, true);
     let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
-    // will_retry == true is a no-op: no cool-down, no regulation.
-    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &state)]);
+    // will_retry == true: no cool-down, no regulation; still clear availability claims.
+    assert_trace(
+        &running,
+        &[
+            te_state("ps-1", &state),
+            te_input("ps-1", &msg),
+            te_clear_peer_availability("ps-1", p.clone()),
+            te_state("ps-1", &state),
+        ],
+    );
     logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }
 
@@ -484,10 +504,12 @@ fn test_adversarial_twice_extends_cooldown_single_timer() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
+            te_forget_peer("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid0),
             te_state("ps-1", &after_first),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
+            te_forget_peer("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_state("ps-1", &after_second),
             te_clock(cooldown_instant()),
@@ -760,6 +782,8 @@ fn test_disconnected_outbound_peer_also_in_inbound() {
             ),
         ],
     );
+    // Still inbound ⇒ claims must not be cleared.
+    assert_trace_does_not_contain(&running, &[te_clear_peer_availability("ps-1", p).into()]);
 
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -836,10 +860,12 @@ fn test_second_cooldown_does_not_schedule_again() {
         &[
             te_state("ps-1", &prep.state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p1.clone())),
+            te_forget_peer("ps-1", p1.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
             te_state("ps-1", &after_first),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p2.clone())),
+            te_forget_peer("ps-1", p2.clone()),
             te_clock_suspend("ps-1"),
             te_state("ps-1", &after_second),
             te_clock(cooldown_instant()),

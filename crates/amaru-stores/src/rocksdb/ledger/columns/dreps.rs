@@ -84,7 +84,7 @@ pub fn add<DB>(
                     db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
                 }
                 None => {
-                    error!(stores::ledger::dreps::ADD, ?credential, reason = "registration without a deposit")
+                    error!(stores::ledger::dreps::ADD, ?credential, reason = "registration without a deposit");
                 }
             }
         }
@@ -110,7 +110,7 @@ pub fn set_valid_until<DB>(
                 row.valid_until = valid_until;
                 db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
             } else {
-                warn!(stores::ledger::dreps::SET_VALID_UNTIL, ?credential, reason = "unknown drep")
+                warn!(stores::ledger::dreps::SET_VALID_UNTIL, ?credential, reason = "unknown drep");
             };
         }
 
@@ -130,7 +130,7 @@ pub fn remove<DB>(
             if db.get_pinned(&key).map_err(|err| StoreError::Internal(err.into()))?.is_some() {
                 db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
             } else {
-                error!(stores::ledger::dreps::REMOVE, ?drep, reason = "unknown drep")
+                error!(stores::ledger::dreps::REMOVE, ?drep, reason = "unknown drep");
             }
         }
 

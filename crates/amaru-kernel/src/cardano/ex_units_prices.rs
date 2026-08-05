@@ -27,7 +27,7 @@ pub struct ExUnitPrices {
 
 impl fmt::Display for ExUnitPrices {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{mem={}, cpu={}}}", &self.mem_price, &self.step_price)
+        write!(f, "{{mem={}, cpu={}}}", self.mem_price, self.step_price)
     }
 }
 

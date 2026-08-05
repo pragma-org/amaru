@@ -9,7 +9,8 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 - `cargo check-amaru`: `check --workspace --all-targets`
 - `cargo clippy-amaru`: `clippy --workspace --all-targets -- -D warnings`
 - `cargo fmt-amaru`: `fmt --all -- --check`
-- Use nightly toolchain: `nightly-2026-04-17` (see rust-toolchain.toml)
+- `cargo doc --no-deps`: must be free of rustdoc warnings (use `RUSTDOCFLAGS="-D warnings"` when checking)
+- Use nightly toolchain: `nightly-2026-08-03` (see rust-toolchain.toml)
 
 ### Common Commands
 
@@ -23,6 +24,7 @@ This file provides instructions for agentic coding tools (e.g. opencode, Cursor 
 ### Testing Commands
 
 - Run all tests: `cargo test --workspace --all-targets`
+- Run branch health ensuring tests: `cargo test --workspace` (do this before concluding commit-readiness)
 - Run tests for specific crate: `cargo test -p amaru-consensus`
 - Run single test function: `cargo test test_intersect_found --lib -p amaru-consensus`
 - Run specific test file: `cargo test --test tests -p amaru-consensus`
@@ -53,9 +55,12 @@ Run `make help` for all targets.
 - When creating new component: look at existing ones for framework, naming, typing
 - When editing: look at surrounding context (imports) to match choices of libs/frameworks
 - Follow security best practices: never expose/log secrets/keys, never commit them
-- NO comments in code unless explicitly asked (use descriptive names instead)
+- Prefer descriptive names over narrative or redundant comments. Do **not** add noisy inline comments that restate the code.
+- **Doc comments (`///`, `//!`) are always allowed** and are **encouraged** where the role of a type, field, function, or module is non-trivial (invariants, units, outcomes, side effects, when to call). Match the style of neighboring documented APIs.
 - Never reference the implementation plan, step numbers, ticket IDs, or in-progress refactor names in commit messages or code comments.
-- Describe what the code does and why it exists, not where it sits in the current work.- All code must compile and pass clippy/fmt
+- Describe what the code does and why it exists, not where it sits in the current work.
+- All code must compile and pass clippy/fmt
+- Documentation must build without warnings: `cargo doc --no-deps` (treat rustdoc warnings as failures)
 - main branch must always be working (compiles + tests pass)
 
 ### Formatting (rustfmt.toml)

@@ -168,11 +168,54 @@ pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(GetNoncesEffect::new(hash))))
 }
 
+pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
+}
+
+pub fn te_record_rollback(
+    at_stage: &str,
+    peer: Peer,
+    point: Tip,
+    parent: Option<HeaderHash>,
+    at: Instant,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_rollback(peer, point, parent, at)),
+    ))
+}
+
 pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(StoreValidatedHeaderEffect::new(header, Nonces::for_tests())),
     ))
+}
+
+pub fn te_record_header_announcement(
+    at_stage: &str,
+    peer: Peer,
+    header: Tip,
+    parent: Option<HeaderHash>,
+    at: Instant,
+    slot_start_to_header_micros: u64,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_header_announcement(
+            peer,
+            header,
+            parent,
+            at,
+            slot_start_to_header_micros,
+        )),
+    ))
+}
+
+/// Slot-start → header reception interval matching [`TrackPeers`] test era history.
+pub fn slot_start_to_header_micros(header: &Tip, received_at: Instant) -> u64 {
+    let slot_start = EraHistory::default().slot_to_relative_time_unchecked_horizon(header.slot()).unwrap_or_default();
+    received_at.duration_since_global_epoch().saturating_sub(slot_start).as_micros() as u64
 }
 
 pub fn te_clock_suspend(at_stage: &str) -> TraceEntry {
@@ -184,13 +227,7 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
 }
 
 pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
-    NewTip {
-        peer: Peer::new("peer1"),
-        tip,
-        parent,
-        trace_context: Default::default(),
-        received_at: Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time),
-    }
+    NewTip { tip, parent, trace_context: Default::default() }
 }
 
 fn register_guards() -> DeserializerGuards {
@@ -214,9 +251,21 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderAnnouncementEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordHeaderRejectedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordIntersectionEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordRollbackEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::metrics_effects::RecordMetricsEffect>()
             .boxed(),
     ]
+}
+
+pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::clear_peer_availability(peer)),
+    ))
 }
 
 pub fn setup(
@@ -294,6 +343,9 @@ fn setup_inner(
             network
         },
         |resources| {
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
+                crate::performance::Performance::new(),
+            ));
             resources.put::<ResourceHeaderStore>(store.clone());
             let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());

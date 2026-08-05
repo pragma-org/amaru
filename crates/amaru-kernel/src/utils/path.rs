@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, error, path::Path};
+use std::{env, path::Path};
 
 /// Return the `Path` relative to the current directory.
-pub fn relative_path(path: &Path) -> Result<&Path, Box<dyn error::Error>> {
+pub fn relative_path(path: &Path) -> anyhow::Result<&Path> {
     Ok(path.strip_prefix(env::current_dir()?).unwrap_or(path))
 }

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use amaru_kernel::{HeaderHash, NonEmptyVec, ORIGIN_HASH};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::BaseReadChainStore;
-use amaru_pure_stage::trace_buffer::TerminationReason;
+use amaru_pure_stage::{Instant, trace_buffer::TerminationReason};
 use test_setup::{
     assert_trace, setup, te_find_ancestor_on_best_chain, te_load_header, te_terminate, te_terminated, test_prep,
 };
@@ -24,10 +26,15 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_find_anchor_at_height, te_roll_forward_chain, te_send, te_set_anchor_hash, te_switch_to_fork,
+        te_clock, te_find_anchor_at_height, te_prune_below, te_roll_forward_chain, te_send, te_set_anchor_hash,
+        te_switch_to_fork,
     },
     test_utils::{te_input, te_state},
 };
+
+fn sim_clock() -> Instant {
+    Instant::at_offset(Duration::ZERO, Duration::ZERO)
+}
 
 /// Incoming tip not in store -> terminate.
 #[test]
@@ -136,6 +143,7 @@ fn test_extension_adopts_and_sends() {
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
+            te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
@@ -187,6 +195,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
+            te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
@@ -231,6 +240,7 @@ fn test_fork_switch_opcert_hacked() {
             te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_clock("ac-1"),
+            te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),

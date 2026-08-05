@@ -42,6 +42,7 @@ Other guiding principles:
 - **amaru**: add `amaru mithril sync` to download verified Mithril immutable files and replay their blocks directly into the chain and ledger stores.
 - **amaru**: add `amaru node rm --wipe-all-dbs` to remove the ledger and chain databases resolved from the selected network.
 - **amaru-tui**: `node run` now launches a feature-rich TUI that feeds from the emitted traces and metrics to provide an out-of-the-box dashboard for Amaru. Can be disabled with `--no-tui`.
+- **amaru-consensus**: add basic peer performance tracking to select up to three peers whenever fetching blocks. ([#1093](https://github.com/pragma-org/amaru/issues/1093))
 
 ### Changed
 
