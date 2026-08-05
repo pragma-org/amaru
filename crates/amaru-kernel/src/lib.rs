@@ -79,6 +79,7 @@ pub use cardano::{
     block_header::BlockHeader,
     block_height::BlockHeight,
     bootstrap_witness::BootstrapWitness,
+    bounded_string::BoundedString128,
     bytes::{self, Bytes},
     certificate::Certificate,
     certificate_pointer::CertificatePointer,

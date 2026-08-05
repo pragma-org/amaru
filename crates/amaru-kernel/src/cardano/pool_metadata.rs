@@ -14,9 +14,9 @@
 
 use std::fmt;
 
-use crate::{Hash, cbor};
+use crate::{BoundedString128, Hash, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 pub struct PoolMetadata {
     // NOTE: keep fields in lexicographic order
     //
@@ -24,7 +24,16 @@ pub struct PoolMetadata {
     #[n(1)]
     pub content_hash: Hash<32>,
     #[n(0)]
-    pub url: String,
+    pub url: BoundedString128,
+}
+
+impl<'b, C> cbor::Decode<'b, C> for PoolMetadata {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(Self { url: d.decode_with(ctx)?, content_hash: d.decode_with(ctx)? })
+        })
+    }
 }
 
 impl fmt::Display for PoolMetadata {

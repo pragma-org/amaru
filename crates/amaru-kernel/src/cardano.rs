@@ -23,6 +23,7 @@ pub mod block;
 pub mod block_header;
 pub mod block_height;
 pub mod bootstrap_witness;
+pub mod bounded_string;
 pub mod bytes;
 pub mod certificate;
 pub mod certificate_pointer;
