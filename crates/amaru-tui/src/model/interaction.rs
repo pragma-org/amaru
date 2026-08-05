@@ -52,12 +52,20 @@ impl Model {
         self.interaction_mode = InteractionMode::Copy;
     }
 
+    pub fn enter_shutdown_mode(&mut self) {
+        self.interaction_mode = InteractionMode::Shutdown;
+    }
+
     pub fn exit_copy_mode(&mut self) {
         self.interaction_mode = InteractionMode::Normal;
     }
 
     pub fn is_copy_mode(&self) -> bool {
         self.interaction_mode == InteractionMode::Copy
+    }
+
+    pub fn is_shutdown_mode(&self) -> bool {
+        self.interaction_mode == InteractionMode::Shutdown
     }
 
     pub fn cycle_log_pane(&mut self) {
@@ -217,6 +225,10 @@ impl Model {
     }
 
     pub(super) fn handle_key_event(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        if self.is_shutdown_mode() {
+            return TerminalEventOutcome::Continue;
+        }
+
         if self.is_copy_mode() {
             return if key.code == KeyCode::Esc {
                 self.exit_copy_mode();
@@ -296,6 +308,10 @@ impl Model {
     }
 
     fn handle_mouse_event(&mut self, mouse: event::MouseEvent, views: &Views) -> TerminalEventOutcome {
+        if self.is_shutdown_mode() {
+            return TerminalEventOutcome::Continue;
+        }
+
         let point = Rect { x: mouse.column, y: mouse.row, width: 1, height: 1 };
 
         match mouse.kind {

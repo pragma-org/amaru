@@ -215,6 +215,19 @@ mod tests {
         Message::HostSample(HostSample {
             at,
             interval,
+            process_memory_bytes: None,
+            memory_used_bytes: 100_000,
+            memory_total_bytes: 200_000,
+            other_processes_live_read_bytes: 1_500,
+            other_processes_live_write_bytes: 2_500,
+        })
+    }
+
+    fn host_sample_with_process_memory(at: Instant, interval: Duration, process_memory_bytes: u64) -> Message {
+        Message::HostSample(HostSample {
+            at,
+            interval,
+            process_memory_bytes: Some(process_memory_bytes),
             memory_used_bytes: 100_000,
             memory_total_bytes: 200_000,
             other_processes_live_read_bytes: 1_500,
@@ -284,6 +297,51 @@ mod tests {
         assert_eq!(tip.slot, 1);
         assert_eq!(tip.epoch, 3);
         assert_eq!(tip.block_height, 2);
+    }
+
+    #[test]
+    fn keeps_host_process_memory_override_across_metrics_updates() {
+        let mut model = Model::new(Config::default(), startup_context());
+        let at = Instant::now();
+
+        model.handle_message(metric(
+            at,
+            MetricsEvent::SystemMetrics(SystemMetrics {
+                runtime_seconds: 1,
+                cpu_percent: 12.5,
+                process_memory_bytes: 10_000,
+                rss_bytes: 9_000,
+                virtual_bytes: 12_000,
+                disk_read_bytes: 300,
+                disk_write_bytes: 400,
+                disk_live_read_bytes: 30,
+                disk_live_write_bytes: 40,
+                open_files: 5,
+            }),
+        ));
+        model.handle_message(host_sample_with_process_memory(
+            at + Duration::from_secs(5),
+            Duration::from_secs(5),
+            15_000,
+        ));
+        model.handle_message(metric(
+            at + Duration::from_secs(6),
+            MetricsEvent::SystemMetrics(SystemMetrics {
+                runtime_seconds: 2,
+                cpu_percent: 14.5,
+                process_memory_bytes: 10_500,
+                rss_bytes: 9_500,
+                virtual_bytes: 12_500,
+                disk_read_bytes: 350,
+                disk_write_bytes: 450,
+                disk_live_read_bytes: 35,
+                disk_live_write_bytes: 45,
+                open_files: 6,
+            }),
+        ));
+
+        assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(15_000));
+        assert_eq!(model.system_samples.back().map(|sample| sample.rss_bytes), Some(9_500));
     }
 
     #[test]
@@ -911,6 +969,25 @@ mod tests {
             TerminalEventOutcome::Continue
         );
         assert_eq!(model.page, Page::Cardano);
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+    }
+
+    #[test]
+    fn shutdown_mode_ignores_follow_up_terminal_input() {
+        let mut model = Model::new(Config::default(), startup_context());
+        model.enter_shutdown_mode();
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.is_shutdown_mode());
+        assert_eq!(model.interaction_mode, InteractionMode::Shutdown);
+        assert_eq!(model.page, Page::Amaru);
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
     }
 }

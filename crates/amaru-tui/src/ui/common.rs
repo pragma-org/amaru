@@ -211,6 +211,7 @@ pub(super) fn accent_primary(mode: InteractionMode) -> Color {
     match mode {
         InteractionMode::Normal => Color::Rgb(110, 228, 150),
         InteractionMode::Copy => Color::Rgb(96, 171, 255),
+        InteractionMode::Shutdown => Color::Rgb(180, 184, 192),
     }
 }
 

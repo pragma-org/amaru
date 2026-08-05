@@ -16,6 +16,7 @@ use std::{
     io::{self, IsTerminal},
     sync::{
         Arc,
+        atomic::{AtomicU8, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread::{self, JoinHandle},
@@ -41,7 +42,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn spawn(config: Config, startup: StartupContext) -> io::Result<Self> {
+    pub fn spawn(config: Config, startup: StartupContext, signal_count: Arc<AtomicU8>) -> io::Result<Self> {
         let (telemetry_tx, telemetry_rx) = mpsc::sync_channel(config.channel_capacity);
         let (control_tx, control_rx) = mpsc::channel();
         let layer = TracingLayer::new(telemetry_tx);
@@ -49,7 +50,7 @@ impl Session {
 
         let join = thread::Builder::new()
             .name("amaru-tui".into())
-            .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx))
+            .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx, signal_count))
             .map_err(|err| io::Error::other(format!("failed to spawn tui thread: {err}")))?;
 
         let host_metrics = match host_metrics::Sampler::spawn(layer.sender()) {
@@ -116,6 +117,7 @@ fn run_terminal(
     startup: StartupContext,
     telemetry_rx: Receiver<crate::events::Message>,
     control_rx: Receiver<Control>,
+    signal_count: Arc<AtomicU8>,
 ) -> io::Result<()> {
     let mut terminal = TerminalGuard::enter()?;
     let mut model = Model::new(config.clone(), startup);
@@ -128,6 +130,11 @@ fn run_terminal(
 
         while let Ok(message) = telemetry_rx.try_recv() {
             model.handle_message(message);
+        }
+
+        if signal_count.load(Ordering::SeqCst) > 0 && !model.is_shutdown_mode() {
+            model.enter_shutdown_mode();
+            terminal.set_mouse_capture(true)?;
         }
 
         let now = Instant::now();
