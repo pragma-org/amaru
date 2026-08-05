@@ -195,9 +195,6 @@ pub mod env_vars {
     /// --trace-buffer
     pub const TRACE_BUFFER: &str = "AMARU_TRACE_BUFFER";
 
-    /// --tui-windows
-    pub const TUI_TIME_WINDOWS: &str = "AMARU_TUI_TIME_WINDOWS";
-
     /// --dump-trace-buffer
     pub const DUMP_TRACE_BUFFER: &str = "AMARU_DUMP_TRACE_BUFFER";
 

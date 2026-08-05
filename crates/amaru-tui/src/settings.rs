@@ -12,22 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Config, StartupContext, config::TimeWindow};
+use crate::{Config, StartupContext};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub no_tui: bool,
-    pub windows: Option<Vec<TimeWindow>>,
     pub startup: StartupContext,
 }
 
 impl Settings {
-    pub fn new(no_tui: bool, windows: Option<Vec<TimeWindow>>, startup: StartupContext) -> Self {
-        Self { no_tui, windows, startup }
+    pub fn new(no_tui: bool, startup: StartupContext) -> Self {
+        Self { no_tui, startup }
     }
 
     pub fn config(&self) -> Config {
-        self.windows.clone().map_or_else(Config::default, |windows| Config::default().with_windows(windows))
+        Config::default()
     }
 
     pub fn into_parts(self) -> (bool, Config, StartupContext) {

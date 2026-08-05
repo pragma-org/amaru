@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Instant};
 
 use amaru_metrics::{LedgerMetrics, MempoolMetrics, MetricsEvent, SystemMetrics};
 
@@ -23,11 +20,8 @@ use super::*;
 use crate::events::{HostSample, MetricRecord, SystemSample};
 
 impl Model {
-    pub fn push_system_sample(&mut self, sample: SystemSample) {
-        self.system_samples.push_back(sample);
-        while self.system_samples.len() > self.system_capacity() {
-            self.system_samples.pop_front();
-        }
+    pub fn set_system_sample(&mut self, sample: SystemSample) {
+        self.system_sample = Some(sample);
     }
 
     pub(crate) fn record_metrics(&mut self, record: MetricRecord) {
@@ -40,12 +34,8 @@ impl Model {
     }
 
     fn push_recent_transaction_count(&mut self, at: Instant, tx_count: u64) {
-        let max_window = self.max_window();
         self.recent_transactions.push_back((at, tx_count));
-
-        while self.recent_transactions.front().is_some_and(|(entry_at, _)| at.duration_since(*entry_at) > max_window) {
-            self.recent_transactions.pop_front();
-        }
+        prune_recent_count(&mut self.recent_transactions, self.config.transaction_sample_capacity);
     }
 
     fn record_ledger_metrics(&mut self, at: Instant, metrics: LedgerMetrics) {
@@ -62,11 +52,11 @@ impl Model {
             memory_used_bytes,
             memory_total_bytes,
             process_memory_bytes_override,
-            other_processes_live_read_bytes,
-            other_processes_live_write_bytes,
+            host_live_read_bytes,
+            host_live_write_bytes,
         ) = self.latest_host_metrics();
 
-        self.push_system_sample(SystemSample {
+        self.set_system_sample(SystemSample {
             at,
             cpu_percent: metrics.cpu_percent,
             process_memory_bytes: process_memory_bytes_override.unwrap_or(metrics.process_memory_bytes),
@@ -78,8 +68,8 @@ impl Model {
             disk_write_bytes: metrics.disk_write_bytes,
             disk_live_read_bytes: metrics.disk_live_read_bytes,
             disk_live_write_bytes: metrics.disk_live_write_bytes,
-            other_processes_live_read_bytes,
-            other_processes_live_write_bytes,
+            host_live_read_bytes,
+            host_live_write_bytes,
         });
     }
 
@@ -95,7 +85,7 @@ impl Model {
             disk_live_write_bytes,
         ) = self.latest_process_metrics();
 
-        self.push_system_sample(SystemSample {
+        self.set_system_sample(SystemSample {
             at: sample.at,
             cpu_percent,
             process_memory_bytes: sample.process_memory_bytes.unwrap_or(process_memory_bytes),
@@ -107,52 +97,47 @@ impl Model {
             disk_write_bytes,
             disk_live_read_bytes,
             disk_live_write_bytes,
-            other_processes_live_read_bytes: sample.other_processes_live_read_bytes_per_second(),
-            other_processes_live_write_bytes: sample.other_processes_live_write_bytes_per_second(),
+            host_live_read_bytes: sample.host_live_read_bytes_per_second(),
+            host_live_write_bytes: sample.host_live_write_bytes_per_second(),
         });
     }
 
     pub(crate) fn push_recent_block(&mut self, at: Instant) {
-        let max_window = self.max_window();
         self.recent_blocks.push_back(at);
-        prune_recent(&mut self.recent_blocks, at, max_window);
+        prune_recent_count(&mut self.recent_blocks, self.config.block_sample_capacity);
     }
 
     pub(crate) fn push_recent_rollback(&mut self, rollback_length: usize, at: Instant) {
-        let max_window = self.max_window();
         self.recent_rollbacks.push_back((at, rollback_length));
-
-        while self.recent_rollbacks.front().is_some_and(|(entry_at, _)| at.duration_since(*entry_at) > max_window) {
-            self.recent_rollbacks.pop_front();
-        }
+        prune_recent_count(&mut self.recent_rollbacks, self.config.rollback_sample_capacity);
     }
 }
 
-pub(crate) fn prune_recent(entries: &mut VecDeque<Instant>, now: Instant, max_window: Duration) {
-    while entries.front().is_some_and(|at| now.duration_since(*at) > max_window) {
+pub(crate) fn prune_recent_count<T>(entries: &mut VecDeque<T>, capacity: usize) {
+    while entries.len() > capacity {
         entries.pop_front();
     }
 }
 
 impl Model {
     fn latest_host_metrics(&self) -> (u64, u64, Option<u64>, u64, u64) {
-        self.system_samples
-            .back()
+        self.system_sample
+            .as_ref()
             .map(|sample| {
                 (
                     sample.memory_used_bytes,
                     sample.memory_total_bytes,
                     Some(sample.process_memory_bytes),
-                    sample.other_processes_live_read_bytes,
-                    sample.other_processes_live_write_bytes,
+                    sample.host_live_read_bytes,
+                    sample.host_live_write_bytes,
                 )
             })
             .unwrap_or((0, 0, None, 0, 0))
     }
 
     fn latest_process_metrics(&self) -> (f64, u64, u64, u64, u64, u64, u64, u64) {
-        self.system_samples
-            .back()
+        self.system_sample
+            .as_ref()
             .map(|sample| {
                 (
                     sample.cpu_percent,

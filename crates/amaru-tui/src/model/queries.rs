@@ -17,10 +17,6 @@ use std::time::{Duration, SystemTime};
 use super::*;
 
 impl Model {
-    pub(crate) fn effective_window(&self, now: Instant) -> Duration {
-        self.current_window().min(now.saturating_duration_since(self.created_at))
-    }
-
     pub fn filtered_logs(&self) -> Vec<&TelemetryRecord> {
         self.logs
             .iter()
@@ -28,8 +24,8 @@ impl Model {
             .collect()
     }
 
-    pub fn blocks_in_window(&self, now: Instant) -> usize {
-        self.recent_blocks.iter().filter(|at| now.duration_since(**at) <= self.current_window()).count()
+    pub fn recent_blocks_count(&self) -> usize {
+        self.recent_blocks.len()
     }
 
     pub fn last_block_elapsed(&self, now: Instant) -> Option<Duration> {
@@ -38,6 +34,14 @@ impl Model {
 
     pub fn network_epoch_at(&self, now: SystemTime) -> Option<u64> {
         self.startup.target_epoch_at(now)
+    }
+
+    pub fn sync_progress_at(&self, now: SystemTime) -> Option<(u64, u64, f64)> {
+        let tip = self.tip.as_ref()?;
+        let target_slot = self.startup.target_slot_at(now)?;
+        let current_slot = tip.slot.min(target_slot);
+
+        (target_slot > 0).then_some((current_slot, target_slot, current_slot as f64 / target_slot as f64))
     }
 
     pub fn slot_throughput(&self) -> Option<f64> {
@@ -59,31 +63,28 @@ impl Model {
             .then(|| Duration::from_secs_f64(remaining_slots as f64 / slot_throughput))
     }
 
-    pub fn transactions_in_window(&self, now: Instant) -> u64 {
-        self.recent_transactions
-            .iter()
-            .filter(|(at, _)| now.duration_since(*at) <= self.current_window())
-            .map(|(_, count)| *count)
-            .sum()
+    pub fn recent_transactions_count(&self) -> u64 {
+        self.recent_transactions.iter().map(|(_, count)| *count).sum()
     }
 
-    pub fn average_rollback_length(&self, now: Instant) -> Option<f64> {
+    pub fn average_recent_rollback_length(&self) -> Option<f64> {
         let (count, total) = self
             .recent_rollbacks
             .iter()
-            .filter(|(at, _)| now.duration_since(*at) <= self.current_window())
             .fold((0_u64, 0_u64), |(count, total), (_, length)| (count + 1, total + *length as u64));
 
         (count > 0).then_some(total as f64 / count as f64)
     }
 
-    pub fn rollback_frequency(&self, now: Instant) -> Option<f64> {
-        let count =
-            self.recent_rollbacks.iter().filter(|(at, _)| now.duration_since(*at) <= self.current_window()).count();
+    pub fn recent_rollback_frequency(&self, now: Instant) -> Option<f64> {
+        let span = self.retained_span(
+            now,
+            self.recent_rollbacks.front().map(|(at, _)| *at),
+            self.recent_rollbacks.len(),
+            self.config.rollback_sample_capacity,
+        );
 
-        let window = self.effective_window(now);
-
-        (window > Duration::ZERO).then_some(count as f64 / window.as_secs_f64())
+        (span > Duration::ZERO).then_some(self.recent_rollbacks.len() as f64 / span.as_secs_f64())
     }
 
     pub fn proposals(&self) -> impl Iterator<Item = &ProposalActivity> {
@@ -101,13 +102,26 @@ impl Model {
         peers
     }
 
-    pub(crate) fn max_window(&self) -> Duration {
-        self.config.windows.last().copied().map(TimeWindow::as_duration).unwrap_or_default()
+    pub(crate) fn retained_blocks_span(&self, now: Instant) -> Duration {
+        self.retained_span(
+            now,
+            self.recent_blocks.front().copied(),
+            self.recent_blocks.len(),
+            self.config.block_sample_capacity,
+        )
     }
 
-    pub(crate) fn system_capacity(&self) -> usize {
-        let max_window = self.max_window().as_secs();
-        let sample_interval = self.config.sample_interval.as_secs().max(1);
-        (max_window / sample_interval).max(1) as usize + 2
+    pub(crate) fn retained_transactions_span(&self, now: Instant) -> Duration {
+        self.retained_span(
+            now,
+            self.recent_transactions.front().map(|(at, _)| *at),
+            self.recent_transactions.len(),
+            self.config.transaction_sample_capacity,
+        )
+    }
+
+    fn retained_span(&self, now: Instant, oldest: Option<Instant>, len: usize, capacity: usize) -> Duration {
+        let origin = if len >= capacity { oldest.unwrap_or(self.created_at) } else { self.created_at };
+        now.saturating_duration_since(origin)
     }
 }

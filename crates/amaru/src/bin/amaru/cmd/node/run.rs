@@ -132,16 +132,6 @@ pub struct Args {
     )]
     no_tui: bool,
 
-    /// Comma-separated rolling windows used by the embedded terminal dashboard.
-    #[arg(
-        long,
-        env = amaru::env_vars::TUI_TIME_WINDOWS,
-        value_name = "DURATION[,DURATION...]",
-        help_heading = "TUI",
-        value_delimiter = ',',
-    )]
-    tui_windows: Option<Vec<tui::TimeWindow>>,
-
     /// Upstream peer addresses to synchronize from.
     ///
     /// This option can be specified multiple times to connect to multiple peers.
@@ -291,7 +281,6 @@ impl Args {
 
         tui::Settings::new(
             self.no_tui,
-            self.tui_windows.clone(),
             tui::StartupContext::new(
                 self.network.to_string(),
                 version::display_version(),
@@ -326,12 +315,6 @@ impl tui::RuntimeSettingsSource for Args {
             "listen_address" => Some(self.listen_address.clone()),
             "submit_api_address" => Some(self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string())),
             "no_tui" => Some(self.no_tui.to_string()),
-            "tui_windows" => Some(
-                self.tui_windows
-                    .as_deref()
-                    .map(tui::format_windows)
-                    .unwrap_or_else(|| tui::format_windows(&tui::Config::default().windows)),
-            ),
             "peer_address" => Some(peer_addresses_value(self)),
             "peer_snapshot" => Some(peer_snapshot_value(self)),
             "upstream_peers" => Some(self.upstream_peers.to_string()),

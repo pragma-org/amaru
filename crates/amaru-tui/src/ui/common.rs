@@ -22,17 +22,10 @@ use ratatui::{
 };
 
 use super::theme::{border_primary, border_secondary, emphasis_primary, emphasis_white_color};
-use crate::{
-    config::TimeWindow,
-    model::{InteractionMode, LevelFilter},
-};
+use crate::model::{InteractionMode, LevelFilter};
 
 pub(super) fn button_label(label: &str) -> String {
     format!("[ {} ]", label.to_uppercase())
-}
-
-pub(super) fn window_label(window: &TimeWindow) -> String {
-    button_label(&window.to_string())
 }
 
 pub(super) fn border_title_line(spans: Vec<Span<'static>>, mode: InteractionMode, focused: bool) -> Line<'static> {
@@ -205,6 +198,33 @@ pub(super) fn render_gradient_progress_bar(frame: &mut Frame<'_>, area: Rect, ra
         .collect::<Vec<_>>();
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+pub(super) fn render_solid_progress_bar(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    ratio: f64,
+    filled_color: Color,
+    empty: Color,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    let width = area.width as usize;
+    let filled_width = ((ratio.clamp(0.0, 1.0) * area.width as f64).round() as usize).min(width);
+    let line = Line::from(
+        (0..width)
+            .map(|index| {
+                let background = if index < filled_width { filled_color } else { empty };
+                Span::styled(" ", Style::default().bg(background))
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    for row in 0..area.height {
+        frame.render_widget(Paragraph::new(line.clone()), Rect { y: area.y + row, ..area });
+    }
 }
 
 pub(super) fn accent_primary(mode: InteractionMode) -> Color {

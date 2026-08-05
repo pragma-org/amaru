@@ -22,7 +22,12 @@ mod peers;
 mod proposals;
 
 pub(super) use self::{
-    card::render_card, config_sections::render_section_groups, epoch_progress::render_epoch_progress,
-    gauge_card::render_gauge_card, logs::render_logs, memory_card::render_memory_card, peers::render_peers_table,
+    card::render_card,
+    config_sections::render_section_groups,
+    epoch_progress::render_epoch_progress,
+    gauge_card::render_gauge_card,
+    logs::render_logs,
+    memory_card::{render_process_memory_card, render_rss_memory_card},
+    peers::render_peers_table,
     proposals::render_proposals_table,
 };

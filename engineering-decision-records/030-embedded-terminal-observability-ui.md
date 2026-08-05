@@ -107,6 +107,20 @@ This keeps the architecture simple:
 The TUI stores only the state necessary for rendering. It is not a persistence
 layer and must not grow unbounded over time.
 
+In practice, that bounded model uses fixed-capacity retention rather than
+user-selected rolling windows:
+
+- logs are kept in a single bounded deque
+- when a non-default log filter is active, newly arriving log lines that do not
+  match the current level/target filter are not retained
+- throughput, rollback, and peer timing widgets summarize the most recent
+  retained samples instead of a configurable time slice
+- stale peers are evicted after a fixed inactivity timeout
+
+Instantaneous process and host resource widgets are simpler: they render from
+the latest merged process/host snapshot rather than keeping a bounded history of
+local TUI-only system samples.
+
 Internally, the crate should stay organized around three layers:
 
 - root orchestration:
