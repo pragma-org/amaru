@@ -66,6 +66,7 @@ Other guiding principles:
 - **amaru-ledger**: when a leader changes it reward account, the rewards owed to the previous account must return to the treasury ([#1125](https://github.com/pragma-org/amaru/pull/1125)).
 - **amaru-consensus**: fix peer_selection to only schedule a single cool-down timer and thus properly bound priority mailbox usage. ([#1112](https://github.com/pragma-org/amaru/issues/1112))
 - **amaru-ledger**: validate provided treasury value matches actual treasury value (ConwayTreasuryValueMismatch) ([#1025][], [#888][])
+- **amaru-ledger**: reject governance proposals whose deposit return account is not registered. ([#928][])
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 
@@ -255,6 +256,7 @@ Other guiding principles:
 [#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951

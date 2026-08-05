@@ -1,0 +1,42 @@
+{
+  "title": "Treasury withdrawals with some zeros",
+  "description": "A TreasuryWithdrawals proposal which contains zero-withdrawals but whose total sum is not zero.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820000000000000000000000000000000000000000000000000000000000000000100",
+        "output": "A200581D70D441227553A0F1A965FEE7D60A0F724B368DD1BDDBC208730FCCEBCF011B00000017489879C0"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "deposit": 2000000,
+        "rewards": 0
+      },
+      {
+        "credential": "8200581cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "deposit": 2000000,
+        "rewards": 0
+      },
+      {
+        "credential": "8200581ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84A500D90102818258200000000000000000000000000000000000000000000000000000000000000001000181A200581D70D441227553A0F1A965FEE7D60A0F724B368DD1BDDBC208730FCCEBCF011A001E8480021A00030D400F0014D9010281841B000000174876E800581DE0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8302A3581DE0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA00581DE0BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB1A000F4240581DE0CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC00F6827468747470733A2F2F616D6172752E676C6F62616C58200000000000000000000000000000000000000000000000000000000000000000A10181820180F5F6",
+  "expected": "Pass"
+}

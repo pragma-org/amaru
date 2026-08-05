@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use amaru_kernel::{
     Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
     ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
-    StakeCredential, TransactionId, TransactionPointer, parse_reward_account, size::SCRIPT,
+    StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -34,8 +34,11 @@ pub enum InvalidProposals {
     #[error("proposal return address is malformed")]
     MalformedReturnAddress,
 
+    #[error("proposal return account does not exist: {0:?}")]
+    ProposalReturnAccountDoesNotExist(StakeCredential),
+
     #[error("treasury withdrawals total is zero")]
-    ZeroTreasuryWithdrawals,
+    TreasuryWithdrawalsAllZeros,
 
     #[error("treasury withdrawal address has wrong network: expected {expected:?}, actual {actual:?}")]
     TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
@@ -71,20 +74,8 @@ where
     C: ProposalsSlice + AccountsSlice + WitnessSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
-        validate_proposal(&proposal, network, protocol_parameters, era_history, transaction.1)?;
+        validate_proposal(context, &proposal, network, protocol_parameters, era_history, transaction.1)?;
 
-        if let GovernanceAction::TreasuryWithdrawals(ref wdrls, _) = proposal.gov_action {
-            let missing: BTreeSet<StakeCredential> = wdrls
-                .iter()
-                .filter_map(|(account, _)| {
-                    let (credential, _) = parse_reward_account(account)?;
-                    AccountsSlice::lookup(context, &credential).is_none().then_some(credential)
-                })
-                .collect();
-            if !missing.is_empty() {
-                return Err(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(missing));
-            }
-        }
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
                 hash: script_hash,
@@ -119,13 +110,17 @@ pub(crate) fn count_lovelace<C>(
     context.produce_lovelace(protocol_parameters.gov_action_deposit * proposals.unwrap_or_default().len() as u64);
 }
 
-fn validate_proposal(
+fn validate_proposal<C>(
+    context: &C,
     proposal: &Proposal,
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     pointer: TransactionPointer,
-) -> Result<(), InvalidProposals> {
+) -> Result<(), InvalidProposals>
+where
+    C: AccountsSlice,
+{
     if proposal.deposit != protocol_parameters.gov_action_deposit {
         return Err(InvalidProposals::IncorrectDeposit {
             provided: proposal.deposit,
@@ -136,6 +131,13 @@ fn validate_proposal(
     match Address::from_bytes(&proposal.reward_account[..]) {
         Some(Address::Stake(addr)) => {
             let actual = addr.network();
+
+            let credential = StakeCredential::from(*(addr.payload()));
+
+            if AccountsSlice::lookup(context, &credential).is_none() {
+                return Err(InvalidProposals::ProposalReturnAccountDoesNotExist(credential));
+            }
+
             if actual != network {
                 return Err(InvalidProposals::ReturnAddressWrongNetwork { expected: network, actual });
             }
@@ -145,19 +147,35 @@ fn validate_proposal(
 
     match &proposal.gov_action {
         GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
-            for (account, _) in wdrls.iter() {
+            let mut any_positive = false;
+            let mut missing = BTreeSet::new();
+
+            for (account, coin) in wdrls.iter() {
                 match Address::from_bytes(&account[..]) {
                     Some(Address::Stake(addr)) => {
                         let actual = addr.network();
                         if actual != network {
                             return Err(InvalidProposals::TreasuryWithdrawalWrongNetwork { expected: network, actual });
                         }
+
+                        any_positive |= *coin > 0;
+
+                        let credential = StakeCredential::from(*(addr.payload()));
+
+                        if AccountsSlice::lookup(context, &credential).is_none() {
+                            missing.insert(credential);
+                        }
                     }
                     _ => return Err(InvalidProposals::MalformedReturnAddress),
                 }
             }
-            if !wdrls.iter().any(|(_, coin)| *coin > 0) {
-                return Err(InvalidProposals::ZeroTreasuryWithdrawals);
+
+            if !any_positive {
+                return Err(InvalidProposals::TreasuryWithdrawalsAllZeros);
+            }
+
+            if !missing.is_empty() {
+                return Err(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(missing));
             }
         }
 
