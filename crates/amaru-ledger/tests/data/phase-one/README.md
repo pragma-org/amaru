@@ -8,8 +8,8 @@ to increase confidence their phase-one implementation conforms.
 ## Layout
 
 ```text
-pass/<name>.json
-fail/<Predicate>/<n>.json
+pass/<id>-<name>.json
+fail/<id>-<name>.json
 common/
   protocolParameters/<preset>.json
   eraHistory/<preset>.json
@@ -17,9 +17,23 @@ common/
 schema.json
 ```
 
-`<Predicate>` matches the Haskell ledger's predicate-failure name (e.g.
-`InvalidWitnessesUTXOW`). `<n>` distinguishes multiple cases for the same
-predicate.
+`pass/` holds transactions that must validate, `fail/` those that must be
+rejected.
+
+`<id>` is a 5-digit number, unique across *both* directories, that identifies the
+fixture on its own; `00065` is one fixture, whichever directory it is in. It is
+a permanent handle: fixtures are never renumbered, and an id is not reused when a
+fixture is deleted, so an external reference to a fixture stays meaningful.
+
+`<name>` is a kebab-case description of the **scenario**
+(`00065-stake-delegation-to-unregistered-pool`), not of the expected failure. The
+predicate a `fail/` fixture must trip is stated once, in `expected.predicate`, so
+that a fixture's location can never contradict its expectation. To list the
+fixtures covering one predicate, grep for it:
+
+```console
+$ grep -l '"predicate": "DelegateeStakePoolNotRegistered"' fail/*.json
+```
 
 `common/protocolParameters/` and `common/eraHistory/` hold shared canonical documents
 that fixtures reference instead of inlining. See [Shared documents](#shared-documents)
@@ -136,14 +150,10 @@ The Amaru implementation lives in
 
 ## Adding a fixture
 
-1. Place the JSON in `pass/<name>.json` for a passing fixture, or
-   `fail/<Predicate>/<n>.json` for a failing one. A failing fixture must
-   exercise exactly one predicate failure; the transaction should be valid
-   in every other respect.
-2. Nothing to register: `build.rs` walks `pass/` and `fail/` and generates the
-   `#[test_case(...)]` list, so dropping the file in is the whole registration
-   step. Because `title` becomes the test-case name, a title reused by another
-   fixture fails the build.
-3. If the predicate is new, add a variant to `Predicate` and a match arm in
+1. Place the JSON in `pass/<id>-<name>.json` or `fail/<id>-<name>.json`, taking
+   the next unused id; one above the highest in either directory. A failing
+   fixture must exercise exactly one predicate failure; the transaction should
+   be valid in every other respect.
+2. If the predicate is new, add a variant to `Predicate` and a match arm in
    `From<PhaseOneError> for Predicate` in `fixture.rs`.
-4. Open a PR, proposing the new fixture(s).
+3. Open a PR, proposing the new fixture(s).
