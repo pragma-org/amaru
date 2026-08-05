@@ -40,6 +40,14 @@ impl Model {
         self.startup.target_epoch_at(now)
     }
 
+    pub fn sync_progress_at(&self, now: SystemTime) -> Option<(u64, u64, f64)> {
+        let tip = self.tip.as_ref()?;
+        let target_slot = self.startup.target_slot_at(now)?;
+        let current_slot = tip.slot.min(target_slot);
+
+        (target_slot > 0).then_some((current_slot, target_slot, current_slot as f64 / target_slot as f64))
+    }
+
     pub fn slot_throughput(&self) -> Option<f64> {
         let tip = self.tip.as_ref()?;
         let (origin_slot, origin_at) = self.tip_sync_origin?;
