@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RedeemerTag, RequiredScript,
-    StakeCredential, TransactionPointer, Voter, VotingProcedure,
+    EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProtocolVersion, RedeemerTag,
+    RequiredScript, StakeCredential, TransactionPointer, Voter, VotingProcedure,
 };
 use thiserror::Error;
 
@@ -24,6 +24,9 @@ use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalsSlice, Wit
 
 #[derive(Debug, Error)]
 pub enum InvalidVotingProcedures {
+    #[error("vote cast by committee member who is not yet elected: {0:?}")]
+    UnelectedCommitteeVoter(Voter),
+
     #[error("voters do not exist: {0:?}")]
     VotersDoNotExist(BTreeSet<Voter>),
 
@@ -39,6 +42,7 @@ pub enum InvalidVotingProcedures {
 
 pub(crate) fn execute<C>(
     context: &mut C,
+    protocol_version: ProtocolVersion,
     era_history: &EraHistory,
     pointer: TransactionPointer,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
@@ -57,6 +61,10 @@ where
         let mut unknown_proposals = BTreeSet::new();
 
         for (voter, votes) in voting_procedures.iter() {
+            if protocol_version.0 > 10 && is_unelected_committee_voter(context, voter) {
+                return Err(InvalidVotingProcedures::UnelectedCommitteeVoter(voter.clone()));
+            }
+
             if !exists(context, voter) {
                 unknown_voters.insert(voter.clone());
             }
@@ -104,6 +112,24 @@ where
     }
 
     Ok(())
+}
+
+/// Election statushere is membership, not an unexpired term: a member whose term has run out is still
+/// named by the committee, and their vote is discounted when the action is ratified instead.
+///
+/// Voters that are not committee members are never rejected by this check.
+fn is_unelected_committee_voter<C>(context: &C, voter: &Voter) -> bool
+where
+    C: CommitteeSlice,
+{
+    match voter {
+        Voter::ConstitutionalCommitteeKey(_) | Voter::ConstitutionalCommitteeScript(_) => {
+            !CommitteeSlice::lookup_by_hot_credential(context, &voter.owner())
+                .iter()
+                .any(|member| member.valid_until.is_some())
+        }
+        Voter::DRepKey(_) | Voter::DRepScript(_) | Voter::StakePoolKey(_) => false,
+    }
 }
 
 /// Whether the entity a vote is cast by is known at this point in the block.

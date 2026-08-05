@@ -1,0 +1,61 @@
+{
+  "title": "vote cast by an unelected member's hot key while an elected member holds another",
+  "description": "Two authorizations, one by an elected member and one by a member with no term, with the vote naming the unelected member's hot key.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": {
+      "version": {
+        "major": 11,
+        "minor": 0
+      }
+    }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258205a69bb3f301c252d55c3cde9eb24c01988937c00e2dec75ea0f64625fb408a5700",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "committee": [
+      {
+        "coldCredential": "8200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea6",
+        "hotCredential": "8200581cba40f56c8091f0646c5c55e15d5b19d555d4a59aaf1b6d09b5ce19c8",
+        "validUntil": 200
+      },
+      {
+        "coldCredential": "8200581cecc3093b061a9ed426cd9956161fc48d4ed1ac58dc4aaed7e1ce1830",
+        "hotCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": null
+      }
+    ],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 100
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    },
+    "pots": {
+      "treasury": 0,
+      "reserves": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258205a69bb3f301c252d55c3cde9eb24c01988937c00e2dec75ea0f64625fb408a57000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840973b06957b62b5d3149ef6a6137ffc4f4e1305eedbb706cb80c1bcaee815eafb6aa52d14384905d4799726eb4fa4d139c39a292adda60818f17da9d1c75e220df5f6",
+  "expected": {
+    "predicate": "UnelectedCommitteeVoters"
+  }
+}

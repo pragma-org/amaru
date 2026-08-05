@@ -1,0 +1,59 @@
+{
+  "title": "vote cast on a hot key authorized by both an elected and an unelected member",
+  "description": "Two seats authorizing the same hot credential, only one of which holds a term.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": {
+      "version": {
+        "major": 11,
+        "minor": 0
+      }
+    }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820722ef456f8bcb80eab3620934c77b0bf50fc4cd4e1dbd55e443baa3d18161dc100",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "committee": [
+      {
+        "coldCredential": "8200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea6",
+        "hotCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": null
+      },
+      {
+        "coldCredential": "8200581cecc3093b061a9ed426cd9956161fc48d4ed1ac58dc4aaed7e1ce1830",
+        "hotCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 100
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    },
+    "pots": {
+      "treasury": 0,
+      "reserves": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820722ef456f8bcb80eab3620934c77b0bf50fc4cd4e1dbd55e443baa3d18161dc1000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840eb50ad888110eed1b5c885e4f4f9d3780be395bbf58f37811877e95521b479ee7b9a1b893f71ca06a0f3ecd559dc98d0cb2b033302e75c4bda7a4974907a7400f5f6",
+  "expected": "Pass"
+}
