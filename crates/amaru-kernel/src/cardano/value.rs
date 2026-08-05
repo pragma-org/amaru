@@ -58,12 +58,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Value {
             cbor::data::Type::U8 | cbor::data::Type::U16 | cbor::data::Type::U32 | cbor::data::Type::U64 => {
                 Ok(Value::Coin(d.decode_with(ctx)?))
             }
-            cbor::data::Type::Array => {
-                d.array()?;
+            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => cbor::heterogeneous_array(d, |d, assert_len| {
+                assert_len(2)?;
                 let coin = d.decode_with(ctx)?;
                 let multiasset = d.decode_with(ctx)?;
                 Ok(Value::Multiasset(coin, multiasset))
-            }
+            }),
             _ => Err(cbor::decode::Error::message("unknown cbor data type for Value enum")),
         }
     }

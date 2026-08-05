@@ -63,10 +63,10 @@ where
         let x = tag.as_u64();
         match x {
             121..=127 | 1280..=1400 => Ok(Constr { tag: x, fields: d.decode_with(ctx)?, any_constructor: None }),
-            102 => {
-                d.array()?;
+            102 => cbor::heterogeneous_array(d, |d, assert_len| {
+                assert_len(2)?;
                 Ok(Constr { tag: x, any_constructor: Some(d.decode_with(ctx)?), fields: d.decode_with(ctx)? })
-            }
+            }),
             _ => Err(cbor::decode::Error::message("bad tag code for plutus data")),
         }
     }

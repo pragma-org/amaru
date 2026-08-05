@@ -25,8 +25,10 @@ pub struct Anchor {
 
 impl<'b, C> cbor::Decode<'b, C> for Anchor {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        Ok(Self { url: d.decode_with(ctx)?, content_hash: d.decode_with(ctx)? })
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(Self { url: d.decode_with(ctx)?, content_hash: d.decode_with(ctx)? })
+        })
     }
 }
 
