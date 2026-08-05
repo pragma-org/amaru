@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 pub struct HostSample {
     pub at: Instant,
     pub interval: Duration,
+    pub process_memory_bytes: Option<u64>,
     pub memory_used_bytes: u64,
     pub memory_total_bytes: u64,
     pub other_processes_live_read_bytes: u64,
