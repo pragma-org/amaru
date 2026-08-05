@@ -34,6 +34,9 @@ pub(crate) enum LedgerCommand {
     States(states::StatesCommand),
 
     /// Reset the ledger database to the beginning of a specific epoch.
+    ///
+    /// Prefer `amaru node rollback --epoch`, which also realigns the chain store.
+    #[command(hide = true)]
     Reset(reset::Args),
 }
 

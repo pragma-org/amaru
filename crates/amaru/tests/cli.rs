@@ -149,6 +149,19 @@ fn node_help_shows_subcommands() -> Result<(), Box<dyn Error>> {
     let help = amaru_help(&["node"])?;
     assert!(help.contains("run"), "node help should show 'run'");
     assert!(help.contains("bootstrap"), "node help should show 'bootstrap'");
+    assert!(help.contains("rollback"), "node help should show 'rollback'");
+    assert!(help.contains("rm"), "node help should show 'rm'");
+    Ok(())
+}
+
+#[test]
+fn node_rollback_help_shows_targets() -> Result<(), Box<dyn Error>> {
+    let help = amaru_help(&["node", "rollback"])?;
+    assert!(help.contains("--immutable-tip"), "rollback should accept --immutable-tip");
+    assert!(help.contains("--epoch"), "rollback should accept --epoch");
+    assert!(help.contains("--network"), "rollback should accept --network");
+    assert!(help.contains("--chain-dir"), "rollback should accept --chain-dir");
+    assert!(help.contains("--ledger-dir"), "rollback should accept --ledger-dir");
     Ok(())
 }
 

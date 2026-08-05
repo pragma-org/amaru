@@ -54,6 +54,7 @@ pub(crate) enum Command {
     #[command(hide = true, name = "bootstrap")]
     LegacyBootstrap(cmd::node::bootstrap::Args),
 
+    /// Legacy alias for `amaru node rollback --epoch` (positional epoch for compatibility).
     #[command(hide = true, name = "reset-to-epoch")]
     LegacyResetToEpoch(cmd::dev::ledger::reset::Args),
 
@@ -95,7 +96,9 @@ impl Command {
             // Legacy top-level aliases: same behaviour as their modern counterparts.
             Command::LegacyRun(args) | Command::LegacyDaemon(args) => cmd::node::run::runnable(args),
             Command::LegacyBootstrap(args) => cmd::node::bootstrap::runnable(args),
-            Command::LegacyResetToEpoch(args) => cmd::dev::ledger::reset::runnable(args),
+            Command::LegacyResetToEpoch(args) => {
+                cmd::node::rollback::runnable_epoch(args.network, args.epoch, args.ledger_dir, None)
+            }
             Command::LegacyCreateSnapshots(args) => cmd::snapshot::create::runnable(args),
             Command::LegacyDumpChainDB(args) => cmd::dev::chain::dump::runnable(args),
             Command::LegacyRemoveValidationStatus(args) => cmd::dev::chain::clear_invalid::runnable(args),

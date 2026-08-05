@@ -860,6 +860,54 @@
       "description": "Remove ledger and chain database from disk",
       "public": true
     },
+    "amaru::cli::node::ROLLBACK": {
+      "type": "object",
+      "properties": {
+        "chain_dir": {
+          "type": "string"
+        },
+        "ledger_dir": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkName"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "ledger_tip": {
+          "type": "string"
+        },
+        "best_chain": {
+          "type": "string"
+        },
+        "anchor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_dir",
+        "ledger_dir",
+        "network",
+        "mode"
+      ],
+      "optional": [
+        "epoch",
+        "ledger_tip",
+        "best_chain",
+        "anchor"
+      ],
+      "additionalProperties": false,
+      "name": "rollback",
+      "level": "TRACE",
+      "target": "amaru::cli::node",
+      "description": "Roll the node databases back after a failure",
+      "public": true
+    },
     "amaru::cli::snapshot::CREATE": {
       "type": "object",
       "properties": {
