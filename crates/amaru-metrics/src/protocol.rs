@@ -13,75 +13,55 @@
 // limitations under the License.
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use amaru_kernel::Slot;
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Gauge};
+use crate::{Counter, Gauge, METRICS_METER};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
 #[cfg(not(target_arch = "wasm32"))]
-static SERVED_BLOCK_COUNT: OnceLock<Counter<u64>> = OnceLock::new();
+static SERVED_BLOCK_COUNT: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_counter("cardano_node_metrics_served_block_counter")
+        .with_description("total number of blocks served to peers")
+        .with_unit("int")
+        .build()
+});
 #[cfg(not(target_arch = "wasm32"))]
-static SERVED_BLOCK_LATEST: OnceLock<Gauge<u64>> = OnceLock::new();
+static SERVED_BLOCK_LATEST: LazyLock<Gauge<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_gauge("cardano_node_metrics_served_block_latest_int")
+        .with_description("number of blocks served at the highest slot observed so far")
+        .with_unit("int")
+        .build()
+});
 #[cfg(not(target_arch = "wasm32"))]
-static SERVED_HEADER: OnceLock<Counter<u64>> = OnceLock::new();
+static SERVED_HEADER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_counter("cardano_node_metrics_served_header_counter")
+        .with_description("total number of headers served to peers")
+        .with_unit("int")
+        .build()
+});
 #[cfg(not(target_arch = "wasm32"))]
-static CHAIN_SYNC_HEADERS_SERVED: OnceLock<Counter<u64>> = OnceLock::new();
+static CHAIN_SYNC_HEADERS_SERVED: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_counter("cardano_node_metrics_ChainSync_HeadersServed_counter")
+        .with_description("total number of headers served through chain sync")
+        .with_unit("int")
+        .build()
+});
 
 #[cfg(not(target_arch = "wasm32"))]
-fn served_block_count(meter: &Meter) -> &Counter<u64> {
-    SERVED_BLOCK_COUNT.get_or_init(|| {
-        meter
-            .u64_counter("cardano_node_metrics_served_block_counter")
-            .with_description("total number of blocks served to peers")
-            .with_unit("int")
-            .build()
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn served_block_latest(meter: &Meter) -> &Gauge<u64> {
-    SERVED_BLOCK_LATEST.get_or_init(|| {
-        meter
-            .u64_gauge("cardano_node_metrics_served_block_latest_int")
-            .with_description("number of blocks served at the highest slot observed so far")
-            .with_unit("int")
-            .build()
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn served_header(meter: &Meter) -> &Counter<u64> {
-    SERVED_HEADER.get_or_init(|| {
-        meter
-            .u64_counter("cardano_node_metrics_served_header_counter")
-            .with_description("total number of headers served to peers")
-            .with_unit("int")
-            .build()
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn chain_sync_headers_served(meter: &Meter) -> &Counter<u64> {
-    CHAIN_SYNC_HEADERS_SERVED.get_or_init(|| {
-        meter
-            .u64_counter("cardano_node_metrics_ChainSync_HeadersServed_counter")
-            .with_description("total number of headers served through chain sync")
-            .with_unit("int")
-            .build()
-    })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn initialize_metrics(meter: &Meter) {
-    served_block_count(meter).add(0, &[]);
-    served_block_latest(meter).record(0, &[]);
-    served_header(meter).add(0, &[]);
-    chain_sync_headers_served(meter).add(0, &[]);
+pub(crate) fn initialize_metrics(_meter: &Meter) {
+    SERVED_BLOCK_COUNT.add(0, &[]);
+    SERVED_BLOCK_LATEST.record(0, &[]);
+    SERVED_HEADER.add(0, &[]);
+    CHAIN_SYNC_HEADERS_SERVED.add(0, &[]);
 }
 
 // Uses ObservableGauge rather than Gauge: the callback output replaces the previous
@@ -254,11 +234,11 @@ impl ServedBlockLatestState {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ServedBlockLatestMetrics {
-    fn record_to_meter(&self, meter: &Meter) {
-        static STATE: OnceLock<Mutex<ServedBlockLatestState>> = OnceLock::new();
+    fn record_to_meter(&self, _meter: &Meter) {
+        static STATE: LazyLock<Mutex<ServedBlockLatestState>> = LazyLock::new(Default::default);
 
-        if let Ok(mut state) = STATE.get_or_init(Default::default).lock() {
-            served_block_latest(meter).record(state.observe(self.slot), &[]);
+        if let Ok(mut state) = STATE.lock() {
+            SERVED_BLOCK_LATEST.record(state.observe(self.slot), &[]);
         }
     }
 }
@@ -270,16 +250,16 @@ impl MetricRecorder for ServedHeaderMetrics {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ServedHeaderMetrics {
-    fn record_to_meter(&self, meter: &Meter) {
-        served_header(meter).add(self.count, &[]);
-        chain_sync_headers_served(meter).add(self.count, &[]);
+    fn record_to_meter(&self, _meter: &Meter) {
+        SERVED_HEADER.add(self.count, &[]);
+        CHAIN_SYNC_HEADERS_SERVED.add(self.count, &[]);
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ServedBlockCountMetrics {
-    fn record_to_meter(&self, meter: &Meter) {
-        served_block_count(meter).add(self.count, &[]);
+    fn record_to_meter(&self, _meter: &Meter) {
+        SERVED_BLOCK_COUNT.add(self.count, &[]);
     }
 }
 
