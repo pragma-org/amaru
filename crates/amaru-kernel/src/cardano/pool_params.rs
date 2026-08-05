@@ -64,17 +64,19 @@ impl<C> cbor::encode::Encode<C> for PoolParams {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        Ok(PoolParams {
-            id: d.decode_with(ctx)?,
-            vrf: d.decode_with(ctx)?,
-            pledge: d.decode_with(ctx)?,
-            cost: d.decode_with(ctx)?,
-            margin: d.decode_with(ctx)?,
-            reward_account: d.decode_with(ctx)?,
-            owners: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
-            relays: d.decode_with(ctx)?,
-            metadata: d.decode_with(ctx)?,
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(9)?;
+            Ok(PoolParams {
+                id: d.decode_with(ctx)?,
+                vrf: d.decode_with(ctx)?,
+                pledge: d.decode_with(ctx)?,
+                cost: d.decode_with(ctx)?,
+                margin: d.decode_with(ctx)?,
+                reward_account: d.decode_with(ctx)?,
+                owners: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
+                relays: d.decode_with(ctx)?,
+                metadata: d.decode_with(ctx)?,
+            })
         })
     }
 }

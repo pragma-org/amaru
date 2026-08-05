@@ -51,14 +51,15 @@ impl fmt::Display for PoolVotingThresholds {
 
 impl<'b, C> cbor::Decode<'b, C> for PoolVotingThresholds {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-
-        Ok(Self {
-            motion_no_confidence: d.decode_with(ctx)?,
-            committee_normal: d.decode_with(ctx)?,
-            committee_no_confidence: d.decode_with(ctx)?,
-            hard_fork_initiation: d.decode_with(ctx)?,
-            security_voting_threshold: d.decode_with(ctx)?,
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(5)?;
+            Ok(Self {
+                motion_no_confidence: d.decode_with(ctx)?,
+                committee_normal: d.decode_with(ctx)?,
+                committee_no_confidence: d.decode_with(ctx)?,
+                hard_fork_initiation: d.decode_with(ctx)?,
+                security_voting_threshold: d.decode_with(ctx)?,
+            })
         })
     }
 }

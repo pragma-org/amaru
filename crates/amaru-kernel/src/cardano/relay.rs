@@ -82,14 +82,24 @@ impl fmt::Display for Relay {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for Relay {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let variant = d.u16()?;
-        match variant {
-            0 => Ok(Self::SingleHostAddr(d.decode_with(ctx)?, d.decode_with(ctx)?, d.decode_with(ctx)?)),
-            1 => Ok(Self::SingleHostName(d.decode_with(ctx)?, d.decode_with(ctx)?)),
-            2 => Ok(Self::MultiHostName(d.decode_with(ctx)?)),
-            _ => Err(cbor::decode::Error::message("invalid variant id for Relay")),
-        }
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            let variant = d.u16()?;
+            match variant {
+                0 => {
+                    assert_len(4)?;
+                    Ok(Self::SingleHostAddr(d.decode_with(ctx)?, d.decode_with(ctx)?, d.decode_with(ctx)?))
+                }
+                1 => {
+                    assert_len(3)?;
+                    Ok(Self::SingleHostName(d.decode_with(ctx)?, d.decode_with(ctx)?))
+                }
+                2 => {
+                    assert_len(2)?;
+                    Ok(Self::MultiHostName(d.decode_with(ctx)?))
+                }
+                _ => Err(cbor::decode::Error::message("invalid variant id for Relay")),
+            }
+        })
     }
 }
 

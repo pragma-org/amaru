@@ -29,16 +29,29 @@ pub enum DRep {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for DRep {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let variant = d.u16()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            let variant = d.u16()?;
 
-        match variant {
-            0 => Ok(DRep::Key(d.decode_with(ctx)?)),
-            1 => Ok(DRep::Script(d.decode_with(ctx)?)),
-            2 => Ok(DRep::Abstain),
-            3 => Ok(DRep::NoConfidence),
-            _ => Err(cbor::decode::Error::message("invalid variant id for DRep")),
-        }
+            match variant {
+                0 => {
+                    assert_len(2)?;
+                    Ok(DRep::Key(d.decode_with(ctx)?))
+                }
+                1 => {
+                    assert_len(2)?;
+                    Ok(DRep::Script(d.decode_with(ctx)?))
+                }
+                2 => {
+                    assert_len(1)?;
+                    Ok(DRep::Abstain)
+                }
+                3 => {
+                    assert_len(1)?;
+                    Ok(DRep::NoConfidence)
+                }
+                _ => Err(cbor::decode::Error::message("invalid variant id for DRep")),
+            }
+        })
     }
 }
 

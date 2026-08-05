@@ -30,52 +30,53 @@ pub enum GovernanceAction {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for GovernanceAction {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
+        // NOTE: the array length is not asserted here; see the equivalent note on `Certificate`.
+        cbor::heterogeneous_array(d, |d, _assert_len| {
+            let variant = d.u16()?;
 
-        let variant = d.u16()?;
+            match variant {
+                0 => {
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    let c = d.decode_with(ctx)?;
+                    Ok(Self::ParameterChange(a, b, c))
+                }
 
-        match variant {
-            0 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                let c = d.decode_with(ctx)?;
-                Ok(Self::ParameterChange(a, b, c))
+                1 => {
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::HardForkInitiation(a, b))
+                }
+
+                2 => {
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::TreasuryWithdrawals(a, b))
+                }
+
+                3 => {
+                    let a = d.decode_with(ctx)?;
+                    Ok(Self::NoConfidence(a))
+                }
+
+                4 => {
+                    let a = d.decode_with(ctx)?;
+                    let SerialisedAsSet(b) = d.decode_with(ctx)?;
+                    let c = d.decode_with(ctx)?;
+                    let d = d.decode_with(ctx)?;
+                    Ok(Self::UpdateCommittee(a, b, c, d))
+                }
+
+                5 => {
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::NewConstitution(a, b))
+                }
+
+                6 => Ok(Self::Information),
+                _ => Err(cbor::decode::Error::message("unknown variant id for governance action")),
             }
-
-            1 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::HardForkInitiation(a, b))
-            }
-
-            2 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::TreasuryWithdrawals(a, b))
-            }
-
-            3 => {
-                let a = d.decode_with(ctx)?;
-                Ok(Self::NoConfidence(a))
-            }
-
-            4 => {
-                let a = d.decode_with(ctx)?;
-                let SerialisedAsSet(b) = d.decode_with(ctx)?;
-                let c = d.decode_with(ctx)?;
-                let d = d.decode_with(ctx)?;
-                Ok(Self::UpdateCommittee(a, b, c, d))
-            }
-
-            5 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::NewConstitution(a, b))
-            }
-
-            6 => Ok(Self::Information),
-            _ => Err(cbor::decode::Error::message("unknown variant id for governance action")),
-        }
+        })
     }
 }
 

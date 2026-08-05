@@ -131,22 +131,25 @@ impl<C> cbor::Encode<C> for ByronAddress {
 
 impl<'b, C> cbor::Decode<'b, C> for ByronAddress {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
 
-        if d.tag()? != cbor::IanaTag::Cbor.tag() {
-            return Err(cbor::decode::Error::message("invalid tag for Byron address payload"));
-        }
+            if d.tag()? != cbor::IanaTag::Cbor.tag() {
+                return Err(cbor::decode::Error::message("invalid tag for Byron address payload"));
+            }
 
-        let payload = decode_bytes(d)?.into_owned();
-        let crc = d.u32()?;
+            let payload = decode_bytes(d)?.into_owned();
+            let crc = d.u32()?;
 
-        if CRC.checksum(&payload) != crc {
-            return Err(cbor::decode::Error::message("invalid Byron address checksum"));
-        }
+            if CRC.checksum(&payload) != crc {
+                return Err(cbor::decode::Error::message("invalid Byron address checksum"));
+            }
 
-        Ok(Self(
-            cbor::from_cbor(&payload).ok_or_else(|| cbor::decode::Error::message("invalid Byron address payload"))?,
-        ))
+            Ok(Self(
+                cbor::from_cbor(&payload)
+                    .ok_or_else(|| cbor::decode::Error::message("invalid Byron address payload"))?,
+            ))
+        })
     }
 }
 
@@ -201,13 +204,14 @@ impl<C> cbor::Encode<C> for AddressPayload {
 
 impl<'b, C> cbor::Decode<'b, C> for AddressPayload {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(3)?;
+            let root = d.decode_with(ctx)?;
+            let attributes = d.decode_with(ctx)?;
+            let address_type = d.decode_with(ctx)?;
 
-        let root = d.decode_with(ctx)?;
-        let attributes = d.decode_with(ctx)?;
-        let address_type = d.decode_with(ctx)?;
-
-        Ok(Self { root, attributes, address_type })
+            Ok(Self { root, attributes, address_type })
+        })
     }
 }
 
@@ -343,14 +347,16 @@ pub enum SpendingData {
 
 impl<'b, C> cbor::Decode<'b, C> for SpendingData {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        match d.u8()? {
-            0 => Ok(Self::VerificationKey(*d.decode_with::<_, cbor::bytes::ByteArray<64>>(ctx)?.deref())),
-            // 1 was for Script, never used, and eventually removed after the Byron reboot. No
-            // longer parsable today.
-            2 => Ok(Self::RedemptionVoucher(*d.decode_with::<_, cbor::bytes::ByteArray<32>>(ctx)?.deref())),
-            _ => Err(cbor::decode::Error::message("unknown variant id for spending data")),
-        }
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            match d.u8()? {
+                0 => Ok(Self::VerificationKey(*d.decode_with::<_, cbor::bytes::ByteArray<64>>(ctx)?.deref())),
+                // 1 was for Script, never used, and eventually removed after the Byron reboot. No
+                // longer parsable today.
+                2 => Ok(Self::RedemptionVoucher(*d.decode_with::<_, cbor::bytes::ByteArray<32>>(ctx)?.deref())),
+                _ => Err(cbor::decode::Error::message("unknown variant id for spending data")),
+            }
+        })
     }
 }
 

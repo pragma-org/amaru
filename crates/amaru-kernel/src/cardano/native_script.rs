@@ -32,54 +32,37 @@ pub enum NativeScript {
 // MemoizedNativeScript. Ideally, there shouldn't even be two types.
 impl<'b, C> cbor::decode::Decode<'b, C> for NativeScript {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let size = d.array()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            let variant = d.u32()?;
 
-        let assert_size = |expected| {
-            // NOTE: unwrap_or allows for indefinite arrays.
-            if expected != size.unwrap_or(expected) {
-                return Err(cbor::decode::Error::message("unexpected array size in NativeScript"));
+            match variant {
+                0 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptPubkey(d.decode_with(ctx)?))
+                }
+                1 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptAll(d.decode_with(ctx)?))
+                }
+                2 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptAny(d.decode_with(ctx)?))
+                }
+                3 => {
+                    assert_len(3)?;
+                    Ok(NativeScript::ScriptNOfK(d.decode_with(ctx)?, d.decode_with(ctx)?))
+                }
+                4 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::InvalidBefore(d.decode_with(ctx)?))
+                }
+                5 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::InvalidHereafter(d.decode_with(ctx)?))
+                }
+                _ => Err(cbor::decode::Error::message("unknown variant id for native script")),
             }
-            Ok(())
-        };
-
-        let variant = d.u32()?;
-
-        let script = match variant {
-            0 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptPubkey(d.decode_with(ctx)?))
-            }
-            1 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptAll(d.decode_with(ctx)?))
-            }
-            2 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptAny(d.decode_with(ctx)?))
-            }
-            3 => {
-                assert_size(3)?;
-                Ok(NativeScript::ScriptNOfK(d.decode_with(ctx)?, d.decode_with(ctx)?))
-            }
-            4 => {
-                assert_size(2)?;
-                Ok(NativeScript::InvalidBefore(d.decode_with(ctx)?))
-            }
-            5 => {
-                assert_size(2)?;
-                Ok(NativeScript::InvalidHereafter(d.decode_with(ctx)?))
-            }
-            _ => Err(cbor::decode::Error::message("unknown variant id for native script")),
-        }?;
-
-        if size.is_none() {
-            let next = d.datatype()?;
-            if next != cbor::data::Type::Break {
-                return Err(cbor::decode::Error::type_mismatch(next));
-            }
-        }
-
-        Ok(script)
+        })
     }
 }
 

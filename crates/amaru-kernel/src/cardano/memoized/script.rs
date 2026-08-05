@@ -66,15 +66,16 @@ pub fn serialize_memoized_script<S: serde::ser::Serializer>(
 
 impl<'b, C> minicbor::Decode<'b, C> for MemoizedScript {
     fn decode(d: &mut minicbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        d.array()?;
-
-        match d.u8()? {
-            0 => Ok(Self::NativeScript(d.decode()?)),
-            1 => Ok(Self::PlutusV1Script(d.decode()?)),
-            2 => Ok(Self::PlutusV2Script(d.decode()?)),
-            3 => Ok(Self::PlutusV3Script(d.decode()?)),
-            _ => Err(minicbor::decode::Error::message("invalid variant for MemoizedScript enum")),
-        }
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            match d.u8()? {
+                0 => Ok(Self::NativeScript(d.decode()?)),
+                1 => Ok(Self::PlutusV1Script(d.decode()?)),
+                2 => Ok(Self::PlutusV2Script(d.decode()?)),
+                3 => Ok(Self::PlutusV3Script(d.decode()?)),
+                _ => Err(minicbor::decode::Error::message("invalid variant for MemoizedScript enum")),
+            }
+        })
     }
 }
 
