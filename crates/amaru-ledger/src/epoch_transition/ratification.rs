@@ -20,15 +20,15 @@ use amaru_kernel::{
     Epoch,
     EraHistory,
     Lovelace,
+    // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
+    // instances for some types, and the macro rule handling that seems to be explicitly looking
+    // for 'minicbor' in scope, and not an alias of any sort...
     ProposalId,
     ProposalsRoots,
     ProposalsRootsRc,
     ProtocolParameters,
     RatificationStatus,
     StakeCredential,
-    // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
-    // instances for some types, and the macro rule handling that seems to be explicitly looking
-    // for 'minicbor' in scope, and not an alias of any sort...
     cbor,
     cbor as minicbor,
     expect_stake_credential,
@@ -257,7 +257,7 @@ impl GovernanceUpdates {
                     refunds = @opt_map(&deposit_refunds),
                     withdrawals = @opt_map(&ctx.withdrawals),
                     new_constitution =
-                        @opt_str(ctx.new_constitution.as_ref().map(|c| c.anchor.url.clone()).unwrap_or_default()),
+                        @opt_str(ctx.new_constitution.as_ref().map(|c| (*c.anchor.url).to_string()).unwrap_or_default()),
                     constitutional_committee_update = @opt_str(
                         ctx.constitutional_committee_update.as_ref().map(|c| c.to_string()).unwrap_or_default()
                     ),

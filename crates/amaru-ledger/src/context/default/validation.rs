@@ -289,7 +289,7 @@ impl DRepsSlice for DefaultValidationContext {
             deposit = registration.deposit
         );
         if let Some(a) = &anchor {
-            _span.record("anchor_url", &a.url);
+            _span.record("anchor_url", &*a.url);
         }
         let _guard = _span.enter();
         if DRepsSlice::lookup(self, &drep).is_some() {
@@ -306,7 +306,7 @@ impl DRepsSlice for DefaultValidationContext {
     ) -> Result<(), UpdateError<StakeCredential>> {
         let _span = trace_span!(ledger::transaction::CERTIFICATE_DREP_UPDATE, drep = format!("{drep:?}"));
         if let Some(a) = &anchor {
-            _span.record("anchor_url", &a.url);
+            _span.record("anchor_url", &*a.url);
         }
         let _guard = _span.enter();
         self.state.dreps.bind_left(drep, anchor)?;
@@ -366,7 +366,7 @@ impl CommitteeSlice for DefaultValidationContext {
         let _span =
             trace_span!(ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));
         if let Some(a) = &anchor {
-            _span.record("anchor_url", &a.url);
+            _span.record("anchor_url", &*a.url);
         }
         let _guard = _span.enter();
         self.state.committee.consume(cc_member);

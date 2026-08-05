@@ -16,13 +16,13 @@ use std::{fmt, net::Ipv6Addr};
 
 use serde::ser::SerializeStruct;
 
-use crate::{Bytes, cbor};
+use crate::{BoundedString128, Bytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Relay {
     SingleHostAddr(Option<u32>, Option<IPv4>, Option<IPv6>),
-    SingleHostName(Option<u32>, String),
-    MultiHostName(String),
+    SingleHostName(Option<u32>, BoundedString128),
+    MultiHostName(BoundedString128),
 }
 
 type IPv4 = Bytes;

@@ -722,6 +722,7 @@ mod tests {
         cmp::Ordering,
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
+        str::FromStr,
         sync::LazyLock,
     };
 
@@ -1352,12 +1353,16 @@ mod tests {
     }
 
     /// Make a proposal with an optional parent
+    #[expect(clippy::unwrap_used)]
     fn make_proposal(parent: Option<ProposalId>) -> Proposal {
         Proposal {
             deposit: 0,
             reward_account: Bytes::default(),
             gov_action: GovernanceAction::HardForkInitiation(parent, PROTOCOL_VERSION_10),
-            anchor: Anchor { url: "https://example.com".to_string(), content_hash: Hash::new([0u8; 32]) },
+            anchor: Anchor {
+                url: BoundedString128::from_str("https://example.com").unwrap(),
+                content_hash: Hash::new([0u8; 32]),
+            },
         }
     }
 

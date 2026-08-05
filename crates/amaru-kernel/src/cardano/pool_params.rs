@@ -89,7 +89,9 @@ mod tests {
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
-    use crate::{Bytes, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL};
+    use crate::{
+        BoundedString128, Bytes, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL,
+    };
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
 
@@ -116,19 +118,21 @@ mod tests {
     }
 
     prop_compose! {
+        #[expect(clippy::unwrap_used)]
         fn single_host_name()(
             port in any_optional_port(),
             dnsname in any::<String>(),
         ) -> Relay {
-            Relay::SingleHostName(port, dnsname)
+            Relay::SingleHostName(port, BoundedString128::try_from(dnsname).unwrap())
         }
     }
 
     prop_compose! {
+        #[expect(clippy::unwrap_used)]
         fn multi_host_name()(
             dnsname in any::<String>(),
         ) -> Relay {
-            Relay::MultiHostName(dnsname)
+            Relay::MultiHostName(BoundedString128::try_from(dnsname).unwrap())
         }
     }
 

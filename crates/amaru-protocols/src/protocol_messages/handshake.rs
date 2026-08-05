@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor::{self, check_tagged_array_length};
+use amaru_kernel::cbor::{self, check_tagged_array_length, decode_string};
 
 use crate::protocol_messages::{version_data::VersionData, version_number::VersionNumber, version_table::VersionTable};
 
@@ -81,14 +81,14 @@ impl<'b> cbor::Decode<'b, ()> for RefuseReason {
             1 => {
                 check_tagged_array_length(1, len, 3)?;
                 let version = d.decode()?;
-                let msg = d.str()?;
+                let msg = decode_string(d)?;
 
                 Ok(RefuseReason::HandshakeDecodeError(version, msg.to_string()))
             }
             2 => {
                 check_tagged_array_length(2, len, 3)?;
                 let version = d.decode()?;
-                let msg = d.str()?;
+                let msg = decode_string(d)?;
 
                 Ok(RefuseReason::Refused(version, msg.to_string()))
             }
