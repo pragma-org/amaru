@@ -80,12 +80,12 @@ impl Display for ProcessIdHandle {
 }
 
 #[cfg(unix)]
-fn process_exists(pid: u32) -> bool {
+pub fn process_exists(pid: u32) -> bool {
     Command::new("kill").args(["-0", &pid.to_string()]).output().map(|output| output.status.success()).unwrap_or(false)
 }
 
 #[cfg(windows)]
-fn process_exists(pid: u32) -> bool {
+pub fn process_exists(pid: u32) -> bool {
     Command::new("tasklist")
         .args(["/FI", &format!("PID eq {}", pid)])
         .output()

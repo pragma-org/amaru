@@ -96,8 +96,7 @@ pub use cardano::{
     epoch::Epoch,
     era_bound::EraBound,
     era_history::{
-        EraHistory, EraHistoryError, EraHistoryFileError, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY,
-        PREVIEW_ERA_HISTORY, load_era_history_from_file,
+        EraHistory, EraHistoryError, EraHistoryFileError, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY,
     },
     era_name::{EraName, EraNameError},
     era_params::EraParams,

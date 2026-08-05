@@ -57,7 +57,6 @@ jobs:
       TRACE_COMPARE_LOG: trace-compare.log
       AMARU_WITH_OPEN_TELEMETRY: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://localhost:4318/v1/metrics"
       OTEL_METRIC_EXPORT_INTERVAL: 1000
       RUST_BACKTRACE: 1
 

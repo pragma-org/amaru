@@ -19,19 +19,22 @@ pub mod rocksdb;
 pub mod tests {
     use std::collections::BTreeMap;
 
+    #[cfg(not(target_os = "windows"))]
+    use amaru_kernel::any_proposal_id;
     use amaru_kernel::{
         Anchor, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_proposal_id,
-        any_stake_credential,
+        TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_stake_credential,
     };
+    #[cfg(not(target_os = "windows"))]
+    use amaru_ledger::store::columns::proposals;
     use amaru_ledger::{
         epoch_transition::{GovernanceActivity, GovernanceUpdates, pools_updates::PoolCertificates},
         state::volatile::Resettable,
         store::{
             Columns, ReadStore, Store, StoreError, TransactionalContext, apply_governance_updates,
             columns::{
-                accounts, cc_members, dreps, proposals,
+                accounts, cc_members, dreps,
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },

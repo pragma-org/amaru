@@ -87,14 +87,14 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         aligned_pair_lines(vec![
             ("Network", model.startup.process.network.clone()),
             ("Platform", model.startup.process.target.clone()),
-            ("PID", std::process::id().to_string()),
+            ("PID", model.startup.process.pid.to_string()),
             ("Uptime", format_duration(now.duration_since(model.created_at))),
         ]),
         model.interaction_mode,
     );
 
-    let block_rate = blocks_per_second(model, now);
-    let transaction_rate = transactions_per_second(model, now);
+    let block_rate = blocks_per_second(model);
+    let transaction_rate = transactions_per_second(model);
     render_card(
         frame,
         cards[1],
@@ -257,16 +257,12 @@ fn linear_ratio_f64(current: f64, max: f64) -> f64 {
     if max == 0.0 { 0.0 } else { (current / max).clamp(0.0, 1.0) }
 }
 
-fn blocks_per_second(model: &Model, now: Instant) -> f64 {
-    let blocks = model.recent_blocks_count() as f64;
-    let seconds = model.retained_blocks_span(now).as_secs_f64();
-    if seconds == 0.0 { 0.0 } else { blocks / seconds }
+fn blocks_per_second(model: &Model) -> f64 {
+    model.blocks_per_second()
 }
 
-fn transactions_per_second(model: &Model, now: Instant) -> f64 {
-    let transactions = model.recent_transactions_count() as f64;
-    let seconds = model.retained_transactions_span(now).as_secs_f64();
-    if seconds == 0.0 { 0.0 } else { transactions / seconds }
+fn transactions_per_second(model: &Model) -> f64 {
+    model.transactions_per_second()
 }
 
 fn format_kib(bytes: u64) -> String {
@@ -291,10 +287,11 @@ mod tests {
     }
 
     #[test]
-    fn throughput_uses_uptime_until_the_sample_buffer_is_filled() {
+    fn throughput_uses_exponential_moving_average() {
         let mut model = Model::new(
             crate::Config::default(),
             crate::startup::StartupContext::new(
+                42,
                 "preview",
                 "test",
                 "test",
@@ -305,13 +302,13 @@ mod tests {
                 Vec::default(),
             ),
         );
-        let now = model.created_at + Duration::from_secs(10);
-        model.recent_blocks.push_back(model.created_at + Duration::from_secs(1));
-        model.recent_blocks.push_back(model.created_at + Duration::from_secs(4));
-        model.recent_transactions.push_back((model.created_at + Duration::from_secs(2), 9));
+        model.block_rate.record(model.created_at + Duration::from_secs(1), 1);
+        model.block_rate.record(model.created_at + Duration::from_secs(4), 1);
+        model.transaction_rate.record(model.created_at + Duration::from_secs(2), 9);
+        model.transaction_rate.record(model.created_at + Duration::from_secs(4), 3);
 
-        assert_eq!(blocks_per_second(&model, now), 0.2);
-        assert_eq!(transactions_per_second(&model, now), 0.9);
+        assert_eq!(blocks_per_second(&model), 1.0 / 3.0);
+        assert_eq!(transactions_per_second(&model), 1.5);
     }
 
     #[test]

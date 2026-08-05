@@ -15,7 +15,7 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::Modifier,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
@@ -26,11 +26,11 @@ use super::super::{
         render_horizontal_separator, render_scrollbar, scroll_panel_border, scroll_panel_border_type, spans_width,
     },
     format::format_log_wall_time,
-    theme::{accent_primary, emphasis_primary, muted, style_for_level, style_for_level_filter, style_for_target},
+    theme::{emphasis_primary, muted, style_for_level, style_for_level_filter, style_for_target},
 };
 use crate::{
-    events::{TelemetryKind, TelemetryRecord},
-    model::{InteractionMode, LevelFilter, Model, ScrollFocus, TargetFilter},
+    events::TelemetryRecord,
+    model::{LevelFilter, Model, ScrollFocus, TargetFilter},
     ui::Views,
 };
 
@@ -78,8 +78,7 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     let scroll = model.log_scroll.min(logs.len().saturating_sub(visible));
     let end = logs.len().saturating_sub(scroll);
     let start = end.saturating_sub(visible);
-    let lines =
-        logs[start..end].iter().map(|record| log_record_line(record, model.interaction_mode)).collect::<Vec<_>>();
+    let lines = logs[start..end].iter().map(|record| log_record_line(record.as_ref())).collect::<Vec<_>>();
 
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     frame.render_widget(paragraph, layout[2]);
@@ -139,7 +138,7 @@ fn log_toggle_label(model: &Model) -> &'static str {
     if model.log_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
-fn log_record_line(record: &TelemetryRecord, mode: InteractionMode) -> Line<'static> {
+fn log_record_line(record: &TelemetryRecord) -> Line<'static> {
     let fields = crate::model::render_fields(record);
     let mut spans = vec![
         Span::styled(format_log_wall_time(record.wall_time), muted()),
@@ -150,10 +149,6 @@ fn log_record_line(record: &TelemetryRecord, mode: InteractionMode) -> Line<'sta
         Span::raw(" "),
         Span::styled(record.primary_label().to_string(), super::super::theme::emphasis_white()),
     ];
-
-    if record.kind == TelemetryKind::SpanClose {
-        spans.push(Span::styled(" close", Style::default().fg(accent_primary(mode)).add_modifier(Modifier::BOLD)));
-    }
 
     if !fields.is_empty() {
         spans.push(Span::raw(" "));

@@ -13,14 +13,12 @@
 // limitations under the License.
 
 mod field_value;
-mod host_sample;
 mod message;
 mod metric_record;
 mod system_sample;
-mod telemetry_kind;
 mod telemetry_record;
 
 pub use self::{
-    field_value::FieldValue, host_sample::HostSample, message::Message, metric_record::MetricRecord,
-    system_sample::SystemSample, telemetry_kind::TelemetryKind, telemetry_record::TelemetryRecord,
+    field_value::FieldValue, message::Message, metric_record::MetricRecord, system_sample::SystemSample,
+    telemetry_record::TelemetryRecord,
 };

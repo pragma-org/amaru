@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_metrics::{Meter, MetricRecorder, MetricsEvent, notify_subscribers};
+use amaru_metrics::{Meter, MetricRecorder, MetricsEvent};
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
 
 /// Metrics operations available to a stage. This allows a stage to record a MetricsEvent that
@@ -67,8 +67,6 @@ impl ExternalEffect for RecordMetricsEffect {
             if let Ok(meter) = resources.get::<ResourceMeter>() {
                 self.event.record_to_meter(&meter);
             }
-            notify_subscribers(&self.event);
-            // Metric export is optional, but subscribers still receive the typed event stream.
         })
     }
 }

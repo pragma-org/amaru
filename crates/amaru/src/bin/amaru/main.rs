@@ -17,7 +17,7 @@ use std::{error::Error, process::ExitCode, time::Duration};
 use amaru::{
     exit::install_termination_signals,
     lifecycle::{RUNTIME_SHUTDOWN_TIMEOUT, set_signal_stderr_enabled},
-    observability::{Color, ObservabilityHints, setup_observability},
+    observability::{Color, ObservabilityHints, OpenTelemetryHandle, setup_observability},
     panic::panic_handler,
     version,
 };
@@ -71,45 +71,46 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     let runnable = cli.command.into_runnable();
     let rt = runnable.build_runtime().map_err(|e| anyhow!(e).context("failed to build Tokio runtime"))?;
 
-    let tui = if skip_logging {
-        None
+    let with_tui = if !skip_logging
+        && let Some(settings) = tui_settings.filter(|settings| tui::should_enable(settings.no_tui, with_json_traces))
+    {
+        let (_, config, startup) = settings.into_parts();
+        set_signal_stderr_enabled(false);
+        Some(tui::Session::spawn(config, startup, signals.shared_count())?)
     } else {
-        tui_settings
-            .filter(|settings| tui::should_enable(settings.no_tui, with_json_traces))
-            .map(|settings| {
-                let (_, config, startup) = settings.into_parts();
-                tui::Session::spawn(config, startup, signals.shared_count())
-            })
-            .transpose()?
+        set_signal_stderr_enabled(true);
+        None
     };
-    set_signal_stderr_enabled(tui.is_none());
-    let _metrics_subscription = tui.as_ref().map(tui::Session::subscribe_to_metrics);
 
-    let (metrics, teardown) = if skip_logging {
-        (None, Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn Error>> + Send>)
+    let OpenTelemetryHandle { meter, teardown } = if skip_logging {
+        OpenTelemetryHandle::default()
     } else {
         // OpenTelemetry batch exporters require a current Tokio runtime.
         let _enter = rt.enter();
         setup_observability(
             with_open_telemetry,
             with_json_traces,
+            with_tui.as_ref(),
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
-            tui.as_ref().map(tui::Session::layer),
         )
     };
 
-    let result = runnable.run_on(&rt, &signals, metrics);
+    let result = runnable.run_on(&rt, &signals, meter);
 
     // Keep the runtime alive while OTEL providers flush (their batch tasks were spawned on it).
     if let Err(err) = run_teardown_with_timeout(teardown, Duration::from_secs(10)) {
         eprintln!("amaru: failed to teardown tracing: {err}");
     }
 
-    if let Some(tui) = tui
-        && let Err(err) = tui.shutdown()
-    {
-        eprintln!("amaru: failed to shutdown terminal dashboard cleanly: {err}");
+    if let Some(tui) = with_tui {
+        if let Err(err) = tui.shutdown() {
+            eprintln!("amaru: failed to shutdown terminal dashboard cleanly: {err}");
+        }
+
+        if let Err(ref err) = result {
+            eprintln!("amaru: {err}");
+        }
     }
 
     rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);

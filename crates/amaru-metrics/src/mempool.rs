@@ -104,6 +104,10 @@ impl MetricRecorder for MempoolMetrics {
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for MempoolMetrics {
     fn record_to_meter(&self, meter: &Meter) {
+        let Some(meter) = meter.get() else {
+            return;
+        };
+
         static SIZE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static TX_COUNT: OnceLock<Gauge<u64>> = OnceLock::new();
         static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();

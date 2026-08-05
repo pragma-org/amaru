@@ -20,11 +20,10 @@ use std::{
 use amaru_observability::RecordFields;
 use tracing::Level;
 
-use super::{FieldValue, TelemetryKind};
+use super::FieldValue;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TelemetryRecord {
-    pub kind: TelemetryKind,
     pub level: Level,
     pub target: String,
     pub name: String,

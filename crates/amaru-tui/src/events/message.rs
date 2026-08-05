@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{HostSample, MetricRecord, TelemetryRecord};
+use super::{MetricRecord, TelemetryRecord};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Telemetry(TelemetryRecord),
     Metrics(MetricRecord),
-    HostSample(HostSample),
 }

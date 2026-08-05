@@ -102,14 +102,14 @@ impl Model {
 
     pub fn set_level_filter(&mut self, level: LevelFilter) {
         self.level_filter = level;
-        self.logs.retain(|record| self.level_filter.allows(record.level) && self.target_filter.allows(&record.target));
+        self.logs.rebuild_filtered(self.level_filter, self.target_filter);
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
 
     pub fn set_target_filter(&mut self, filter: TargetFilter) {
         self.target_filter = filter;
-        self.logs.retain(|record| self.level_filter.allows(record.level) && self.target_filter.allows(&record.target));
+        self.logs.rebuild_filtered(self.level_filter, self.target_filter);
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
@@ -231,6 +231,9 @@ impl Model {
 
         match key.code {
             KeyCode::Esc => {
+                if !self.is_ready(std::time::Instant::now()) {
+                    return TerminalEventOutcome::Continue;
+                }
                 self.enter_copy_mode();
                 TerminalEventOutcome::EnterCopyMode
             }

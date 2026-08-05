@@ -12,41 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, time::Instant};
+use std::time::Instant;
 
 use amaru_observability::amaru::protocols;
 
+use super::exponential_moving_average::ExponentialMovingAverage;
 use crate::events::TelemetryRecord;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct MeanMicros {
-    samples: VecDeque<(Instant, u64)>,
+    average: ExponentialMovingAverage,
 }
 
 impl MeanMicros {
-    fn record(&mut self, at: Instant, micros: u64, capacity: usize) {
-        self.samples.push_back((at, micros));
-        self.prune(capacity);
+    fn record(&mut self, micros: u64, smoothing: usize) {
+        self.average.record(micros as f64, smoothing);
     }
 
     fn mean(&self) -> Option<u64> {
-        let mut total_micros = 0u128;
-        let sample_count = self.samples.len() as u64;
-        for (_, micros) in &self.samples {
-            total_micros += u128::from(*micros);
-        }
-
-        (sample_count > 0).then(|| (total_micros / u128::from(sample_count)) as u64)
+        self.average.value().map(|micros| micros.round() as u64)
     }
 
     fn clear(&mut self) {
-        self.samples.clear();
-    }
-
-    fn prune(&mut self, capacity: usize) {
-        while self.samples.len() > capacity {
-            self.samples.pop_front();
-        }
+        self.average.clear();
     }
 }
 
@@ -124,23 +112,23 @@ impl PeerState {
     pub fn record_header_lifecycle(
         &mut self,
         at: Instant,
-        capacity: usize,
+        smoothing: usize,
         slot_start_to_header_micros: Option<u64>,
         query_header_micros: Option<u64>,
         get_block_micros: Option<u64>,
         adopt_block_micros: Option<u64>,
     ) {
         if let Some(micros) = slot_start_to_header_micros {
-            self.slot_start_to_header.record(at, micros, capacity);
+            self.slot_start_to_header.record(micros, smoothing);
         }
         if let Some(micros) = query_header_micros {
-            self.query_header.record(at, micros, capacity);
+            self.query_header.record(micros, smoothing);
         }
         if let Some(micros) = get_block_micros {
-            self.get_block.record(at, micros, capacity);
+            self.get_block.record(micros, smoothing);
         }
         if let Some(micros) = adopt_block_micros {
-            self.adopt_block.record(at, micros, capacity);
+            self.adopt_block.record(micros, smoothing);
         }
         self.updated_at = at;
     }

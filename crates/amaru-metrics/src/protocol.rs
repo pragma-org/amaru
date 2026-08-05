@@ -40,6 +40,10 @@ fn update_observable_gauge<T>(
 ) where
     T: Clone + Send + 'static,
 {
+    let Some(meter) = meter.get() else {
+        return;
+    };
+
     let state_ref = state.get_or_init(|| {
         let shared: Arc<Mutex<Option<T>>> = Arc::new(Mutex::new(None));
         let shared_cb = shared.clone();
@@ -118,6 +122,10 @@ impl MetricRecorder for ConnectionManagerMetrics {
         static OUTBOUND_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
         static UNIDIRECTIONAL_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
 
+        let Some(meter) = meter.get() else {
+            return;
+        };
+
         let inbound_connections = INBOUND_CONNECTIONS.get_or_init(|| {
             meter
                 .u64_gauge("cardano_node_metrics_connectionManager_inboundConns_int")
@@ -155,6 +163,10 @@ impl MetricRecorder for ServedBlockCountMetrics {
 impl MetricRecorder for ServedBlockCountMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static SERVED_BLOCK_COUNT: OnceLock<Counter<u64>> = OnceLock::new();
+
+        let Some(meter) = meter.get() else {
+            return;
+        };
 
         let served_block_count = SERVED_BLOCK_COUNT.get_or_init(|| {
             meter

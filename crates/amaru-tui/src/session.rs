@@ -17,16 +17,18 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicU8, Ordering},
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender},
     },
     thread::{self, JoinHandle},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
+use amaru_metrics::MetricsEvent;
 use crossterm::event;
 
 use crate::{
-    Config, TracingLayer, host_metrics, metrics,
+    Config, TracingLayer,
+    events::{Message, MetricRecord},
     model::{Model, TerminalEventOutcome},
     startup::StartupContext,
     terminal_guard::TerminalGuard,
@@ -34,9 +36,7 @@ use crate::{
 };
 
 pub struct Session {
-    layer: TracingLayer,
-    metrics: Arc<metrics::Subscriber>,
-    host_metrics: Option<host_metrics::Sampler>,
+    tx: SyncSender<crate::events::Message>,
     control_tx: Sender<Control>,
     join: Option<JoinHandle<io::Result<()>>>,
 }
@@ -45,32 +45,24 @@ impl Session {
     pub fn spawn(config: Config, startup: StartupContext, signal_count: Arc<AtomicU8>) -> io::Result<Self> {
         let (telemetry_tx, telemetry_rx) = mpsc::sync_channel(config.channel_capacity);
         let (control_tx, control_rx) = mpsc::channel();
-        let layer = TracingLayer::new(telemetry_tx);
-        let metrics = Arc::new(metrics::Subscriber::new(layer.sender()));
 
         let join = thread::Builder::new()
             .name("amaru-tui".into())
             .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx, signal_count))
             .map_err(|err| io::Error::other(format!("failed to spawn tui thread: {err}")))?;
 
-        let host_metrics = match host_metrics::Sampler::spawn(layer.sender()) {
-            Ok(host_metrics) => host_metrics,
-            Err(err) => {
-                let _ = control_tx.send(Control::Shutdown);
-                let _ = join.join();
-                return Err(err);
-            }
-        };
-
-        Ok(Self { layer, metrics, host_metrics: Some(host_metrics), control_tx, join: Some(join) })
+        Ok(Self { tx: telemetry_tx, control_tx, join: Some(join) })
     }
 
-    pub fn layer(&self) -> TracingLayer {
-        self.layer.clone()
+    pub fn tracing_layer(&self) -> TracingLayer {
+        TracingLayer::new(self.tx.clone())
     }
 
-    pub fn subscribe_to_metrics(&self) -> metrics::Subscription {
-        metrics::Subscription::new(self.metrics.clone())
+    pub fn metrics_observer(&self) -> Box<dyn Fn(&MetricsEvent) + Send + Sync> {
+        let tx = self.tx.clone();
+        Box::new(move |event| {
+            let _ = tx.try_send(Message::Metrics(MetricRecord { at: Instant::now(), event: event.clone() }));
+        })
     }
 
     pub fn shutdown(mut self) -> io::Result<()> {
@@ -79,9 +71,6 @@ impl Session {
 
     fn shutdown_inner(&mut self) -> io::Result<()> {
         let _ = self.control_tx.send(Control::Shutdown);
-        if let Some(host_metrics) = self.host_metrics.take() {
-            host_metrics.shutdown()?;
-        }
         if let Some(join) = self.join.take() {
             join.join().map_err(|_| io::Error::other("tui thread panicked"))?
         } else {
@@ -122,14 +111,11 @@ fn run_terminal(
     let mut terminal = TerminalGuard::enter()?;
     let mut model = Model::new(config.clone(), startup);
     let mut views = Views::default();
+    let mut next_draw_at = Instant::now();
 
     loop {
         if control_rx.try_recv().is_ok() {
             return Ok(());
-        }
-
-        while let Ok(message) = telemetry_rx.try_recv() {
-            model.handle_message(message);
         }
 
         if signal_count.load(Ordering::SeqCst) > 0 && !model.is_shutdown_mode() {
@@ -138,24 +124,37 @@ fn run_terminal(
         }
 
         let now = Instant::now();
-        if !model.is_copy_mode() {
-            terminal.terminal().draw(|frame| ui::render(frame, &model, &mut views, now))?;
+        if now >= next_draw_at {
+            if !model.is_copy_mode() {
+                terminal.terminal().draw(|frame| ui::render(frame, &model, &mut views, now))?;
+            }
+            next_draw_at = now + config.tick_interval;
         }
 
-        if !event::poll(config.tick_interval)? {
-            continue;
+        while event::poll(Duration::ZERO)? {
+            match model.handle_terminal_event(event::read()?, &views) {
+                TerminalEventOutcome::Continue => {}
+                TerminalEventOutcome::EnterCopyMode => enter_copy_mode(&mut terminal, &model, &mut views, now)?,
+                TerminalEventOutcome::ExitCopyMode => terminal.set_mouse_capture(true)?,
+                TerminalEventOutcome::Shutdown => request_shutdown()?,
+            }
         }
 
-        match model.handle_terminal_event(event::read()?, &views) {
-            TerminalEventOutcome::Continue => {}
-            TerminalEventOutcome::EnterCopyMode => enter_copy_mode(&mut terminal, &mut model, &mut views, now)?,
-            TerminalEventOutcome::ExitCopyMode => terminal.set_mouse_capture(true)?,
-            TerminalEventOutcome::Shutdown => request_shutdown()?,
+        let timeout = next_draw_at.saturating_duration_since(Instant::now());
+        match telemetry_rx.recv_timeout(timeout) {
+            Ok(message) => {
+                model.handle_message(message);
+                while let Ok(message) = telemetry_rx.try_recv() {
+                    model.handle_message(message);
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {}
         }
     }
 }
 
-fn enter_copy_mode(terminal: &mut TerminalGuard, model: &mut Model, views: &mut Views, now: Instant) -> io::Result<()> {
+fn enter_copy_mode(terminal: &mut TerminalGuard, model: &Model, views: &mut Views, now: Instant) -> io::Result<()> {
     terminal.terminal().draw(|frame| ui::render(frame, model, views, now))?;
     terminal.set_mouse_capture(false)
 }

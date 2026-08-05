@@ -443,6 +443,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-ledger",
  "amaru-mempool",
+ "amaru-metrics",
  "amaru-network",
  "amaru-observability",
  "amaru-ouroboros",
@@ -459,7 +460,6 @@ dependencies = [
  "hex",
  "minicbor",
  "num",
- "opentelemetry",
  "parking_lot",
  "quote",
  "reqwest",
@@ -683,7 +683,6 @@ dependencies = [
  "crossterm 0.29.0",
  "ratatui",
  "signal-hook",
- "sysinfo",
  "tracing",
  "tracing-subscriber",
 ]
