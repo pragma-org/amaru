@@ -13,6 +13,7 @@ fail/<Predicate>/<n>.json
 common/
   protocolParameters/<preset>.json
   eraHistory/<preset>.json
+  test-credentials/<name>.skey, <name>.vkey
 schema.json
 ```
 
@@ -20,8 +21,14 @@ schema.json
 `InvalidWitnessesUTXOW`). `<n>` distinguishes multiple cases for the same
 predicate.
 
-`common/` holds shared canonical documents that fixtures reference instead of
-inlining. See [Shared documents](#shared-documents) below.
+`common/protocolParameters/` and `common/eraHistory/` hold shared canonical documents
+that fixtures reference instead of inlining. See [Shared documents](#shared-documents)
+below.
+
+`common/test-credentials/` holds the Ed25519 test keys the fixtures sign with, as
+hex, so that any implementation can rebuild a witness set or author a new fixture
+with the same credentials. See its
+[README](./common/test-credentials/README.md); `dev-42` is the default signer.
 
 ## Schema
 

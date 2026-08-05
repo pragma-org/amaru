@@ -12,7 +12,7 @@
     "utxo": [
       {
         "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
-        "output": "bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a004c4b40ff"
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
       }
     ],
     "pools": [],
@@ -26,7 +26,7 @@
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a002ab980ff021a00030d4004d9010281850d8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec581cdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef81021a001e84800800ffa100d9010281825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840fb5a87843bc49125db0de79a9aba2473fc0602bcaacb34b374b827ff34a80b93ebfa5cdc0f4724022fd398e1ec0a10cabbd2551818cc2cc0a9c87ae28338900ef5f6",
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002ab980ff021a00030d4004d9010281850d8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581cdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef81021a001e84800800ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840ca5383017890656a81213d4bf73181198b1ed1ef10a9a781c01f4c85a66f76a185dbd08eb85492f68e42776ed325f3b500d781b1990bc9a4c975e25276fa7400f5f6",
   "expected": {
     "predicate": "DelegateeStakePoolNotRegistered"
   }
