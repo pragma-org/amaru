@@ -199,6 +199,7 @@ pub(super) enum Predicate {
     TooManyCollateralInputs,
     ProposalReturnAccountDoesNotExist,
     TreasuryWithdrawalReturnAccountsDoNotExist,
+    TreasuryWithdrawalsAllZeros,
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
     DRepAlreadyRegistered,
@@ -265,6 +266,9 @@ impl From<PhaseOneError> for Predicate {
             },
             PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
                 Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
+            }
+            PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalsAllZeros) => {
+                Predicate::TreasuryWithdrawalsAllZeros
             }
             PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
                 Predicate::ProposalReturnAccountDoesNotExist

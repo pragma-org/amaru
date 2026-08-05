@@ -38,7 +38,7 @@ pub enum InvalidProposals {
     ProposalReturnAccountDoesNotExist(StakeCredential),
 
     #[error("treasury withdrawals total is zero")]
-    ZeroTreasuryWithdrawals,
+    TreasuryWithdrawalsAllZeros,
 
     #[error("treasury withdrawal address has wrong network: expected {expected:?}, actual {actual:?}")]
     TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
@@ -171,7 +171,7 @@ where
             }
 
             if !any_positive {
-                return Err(InvalidProposals::ZeroTreasuryWithdrawals);
+                return Err(InvalidProposals::TreasuryWithdrawalsAllZeros);
             }
 
             if !missing.is_empty() {
