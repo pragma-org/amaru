@@ -23,7 +23,6 @@ test-utils = ["tracing-subscriber"]
 [build-dependencies]
 amaru-kernel.workspace = true
 anyhow.workspace = true
-built = { workspace = true, features = ["git2"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
 ureq.workspace = true

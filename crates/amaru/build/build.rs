@@ -26,7 +26,7 @@ use anyhow::{Context, Result};
 ///  3. The stake distribution test cases for each supported network.
 ///  4. Peer snapshots for known networks (best-effort fetch; embed if present).
 fn main() -> Result<()> {
-    built::write_built_file().context("Failed to acquire build-time information")?;
+    write_built_file().context("Failed to acquire build-time information")?;
     type_aliases::write_type_aliases_file().context("Failed to generate embedded type aliases for dump_schemas")?;
     println!("cargo:rerun-if-env-changed=BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH");
 
@@ -37,6 +37,20 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn write_built_file() -> Result<()> {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR")?;
+    let out_dir = std::env::var("OUT_DIR").context("OUT_DIR")?;
+    let manifest_dir = Path::new(&manifest_dir);
+    let out_dir = Path::new(&out_dir);
+    let built_path = out_dir.join("built.rs");
+    let temp_path = out_dir.join("built.rs.tmp");
+
+    built::write_built_file_with_opts(Some(manifest_dir), &temp_path)?;
+    let contents = fs::read_to_string(&temp_path)?;
+    let _ = fs::remove_file(&temp_path);
+    write_if_changed(&built_path, &contents)
 }
 
 fn emit_rerun_if_exists(path: &Path) {

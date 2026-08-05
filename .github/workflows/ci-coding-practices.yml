@@ -15,6 +15,10 @@ env:
   # NOTE: Necessary for cache
   CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust-toolchain:
     runs-on: ubuntu-24.04
