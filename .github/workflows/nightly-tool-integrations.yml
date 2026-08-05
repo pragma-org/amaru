@@ -194,10 +194,8 @@ jobs:
           docker run -d --network host \
             --name otlp-collector \
             -v "$PWD/monitoring/otlp-collector.yml:/etc/otlp-collector.yml:ro" \
-            -v "$PWD/monitoring/profiles/prometheus/otlp-collector.yml:/etc/otlp-collector-prometheus.yml:ro" \
-            otel/opentelemetry-collector-contrib:0.127.0 \
-              --config=/etc/otlp-collector.yml \
-              --config=/etc/otlp-collector-prometheus.yml
+            otel/opentelemetry-collector-contrib:0.133.0 \
+              --config=/etc/otlp-collector.yml
 
       - name: Start Amaru
         shell: bash
