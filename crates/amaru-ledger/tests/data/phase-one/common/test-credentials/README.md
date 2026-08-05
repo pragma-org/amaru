@@ -46,5 +46,5 @@ witness with no way to rebuild it. Treat it as read-only and add new coverage el
 The transaction id is `blake2b-256` over the transaction body's **original bytes**, and the
 witness signs that id.
 
-Some fixtures deliberately carry malformed witnesses, and are the exception to "a witness must
-verify. All three are still `dev-42` material, so they can be rebuilt.
+Some fixtures deliberately carry malformed witnesses, and are the exception to "a witness must verify."
+All three are still `dev-42` material, so they can be rebuilt.
