@@ -116,6 +116,9 @@ pub fn build_node(
     meter: Option<Meter>,
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
+    // NOTE: Open the chain store first so incompatible DB versions fail before the slower ledger open.
+    let chain_store = make_chain_store(config)?;
+
     // Make the ledger state and get its tip
     let state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
     let ledger_tip = state.tip().into_owned();
@@ -125,7 +128,6 @@ pub fn build_node(
         "build_ledger"
     );
 
-    let chain_store = make_chain_store(config)?;
     let pool_summaries = state.pool_summaries();
     let block_validator = Arc::new(make_block_validator(&config.ledger_config, state, chain_store.clone())?);
     let max_epoch = pool_summaries.max_epoch();

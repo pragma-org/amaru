@@ -1359,6 +1359,36 @@ fn fails_to_open_rw_db_if_it_exists_with_wrong_version() {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
+#[test]
+fn open_with_older_version_recommends_migration() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let target = tempdir.path();
+    let config = RocksDbConfig::new(target.to_path_buf());
+    let source = PathBuf::from("sample-chain-db/v0");
+
+    copy_recursively(source, target).unwrap();
+
+    let err = match RocksDBStore::open(&config) {
+        Err(err) => err,
+        Ok(_) => panic!("opening an older chain DB version must fail"),
+    };
+    let message = err.to_string();
+
+    assert!(
+        matches!(err, StoreError::IncompatibleChainStoreVersions { stored: 0, current } if current == CHAIN_DB_VERSION),
+        "expected IncompatibleChainStoreVersions, got: {err:?}"
+    );
+    assert!(
+        message.contains("amaru dev chain migrate"),
+        "error should recommend `amaru dev chain migrate`, got: {message}"
+    );
+    assert!(
+        message.contains("--migrate-chain-db") || message.contains("AMARU_MIGRATE_CHAIN_DB"),
+        "error should recommend enabling migration on node run, got: {message}"
+    );
+}
+
 #[test]
 fn raises_an_error_when_creating_a_database_given_directory_is_non_empty() {
     let tempdir = tempfile::tempdir().unwrap();
@@ -1438,7 +1468,7 @@ fn can_convert_v0_sample_db_to_v1() {
 
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn can_convert_v1_sample_db_to_v2() {
+fn can_convert_v1_sample_db_to_v4() {
     use std::str::FromStr;
 
     let tempdir = tempfile::tempdir().unwrap();
@@ -1448,12 +1478,19 @@ fn can_convert_v1_sample_db_to_v2() {
 
     copy_recursively(source, target).unwrap();
 
-    let result = migrate_db_path(target).expect("Migration should succeed");
+    let (basedir, db) = open_db(&config).expect("cannot open sample v1 DB");
+    let store = RocksDBStore { db, basedir };
 
-    let db = RocksDBStore::open(&config).expect("DB should successfully be opened as it's been migrated");
-    assert_eq!((1, CHAIN_DB_VERSION), result);
+    assert_eq!(get_version(&store).unwrap(), 1, "sample DB should be v1");
+    migrate_to_v2(&store).expect("Migration to v2 should succeed");
+    assert_eq!(get_version(&store).unwrap(), 2, "sample DB should be v2");
+    migrate_to_v3(&store).expect("Migration to v3 should succeed");
+    assert_eq!(get_version(&store).unwrap(), 3, "sample DB should be v3");
+    migrate_to_v4(&store).expect("Migration to v4 should succeed");
+    assert_eq!(get_version(&store).unwrap(), 4, "sample DB should be v4");
+
     let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore>::load_from_best_chain(
-        &db,
+        &store,
         &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
     );
     assert!(header.is_some(), "Sample data should be preserved");
@@ -1476,13 +1513,29 @@ fn migrate_to_v4_backfills_opcert_entries_from_stored_headers() {
     set_version(&store, 3).unwrap();
     assert_eq!(store.load_opcert_sequence_numbers().count(), 0);
 
-    migrate_db(&store).unwrap();
+    migrate_to_v4(&store).unwrap();
 
-    assert_eq!(get_version(&store).unwrap(), CHAIN_DB_VERSION);
+    assert_eq!(get_version(&store).unwrap(), 4);
     let entries: Vec<_> = store.load_opcert_sequence_numbers().collect();
     assert_eq!(entries.len(), 2);
     assert!(entries.contains(&(header1.pool_id(), Slot::from(10), header1.hash(), 1)));
     assert!(entries.contains(&(header2.pool_id(), Slot::from(20), header2.hash(), 2)));
+}
+
+#[test]
+fn migrate_to_v5_requires_rebootstrap_from_snapshot() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    set_version(&store, 4).unwrap();
+
+    let err = migrate_db(&store).expect_err("migration to v5 must fail");
+    let StoreError::OpenError { error } = err else {
+        panic!("expected OpenError, got: {err:?}");
+    };
+    assert!(error.contains("cannot be migrated to version 5"), "unexpected message: {error}");
+    assert!(error.contains("amaru node rm --wipe-all-dbs"), "missing rm command: {error}");
+    assert!(error.contains("amaru node bootstrap"), "missing bootstrap command: {error}");
+    assert_eq!(get_version(&store).unwrap(), 4, "failed migration must not bump the version");
 }
 
 #[test]
@@ -1503,7 +1556,7 @@ fn migrate_db_fails_given_directory_does_not_exist() {
 
 #[cfg(not(target_os = "windows"))]
 #[test]
-fn open_or_create_succeeds_given_directory_exists() {
+fn open_and_migrate_fails_on_existing_db_that_cannot_reach_v5() {
     let tempdir = tempfile::tempdir().unwrap();
     let target = tempdir.path();
     let config = RocksDbConfig::new(target.to_path_buf());
@@ -1511,10 +1564,13 @@ fn open_or_create_succeeds_given_directory_exists() {
 
     copy_recursively(source, target).unwrap();
 
-    let store = RocksDBStore::open_and_migrate(&config).expect("should create DB successfully");
-    let version = get_version(&store).expect("should read version successfully");
-
-    assert_eq!(version, CHAIN_DB_VERSION);
+    let Err(err) = RocksDBStore::open_and_migrate(&config) else {
+        panic!("migration to v5 must fail");
+    };
+    let StoreError::OpenError { error } = err else {
+        panic!("expected OpenError, got: {err:?}");
+    };
+    assert!(error.contains("cannot be migrated to version 5"), "unexpected message: {error}");
 }
 
 #[test]

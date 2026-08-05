@@ -46,6 +46,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-stores**: bump chain DB schema to version 5. Migration from earlier versions is intentionally refused: opcert sequence numbers must come from a snapshot bootstrap (`amaru node rm --wipe-all-dbs` then `amaru node bootstrap`). Version-mismatch errors on `amaru node run` now suggest `amaru dev chain migrate` / `--migrate-chain-db`. ([#1152](https://github.com/pragma-org/amaru/issues/1152))
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 - **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
 - **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.

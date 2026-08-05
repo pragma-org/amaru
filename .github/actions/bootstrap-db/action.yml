@@ -16,7 +16,7 @@ inputs:
   cache-version:
     description: Cache key version
     required: false
-    default: "v17"
+    default: "v18"
 
 runs:
   using: composite

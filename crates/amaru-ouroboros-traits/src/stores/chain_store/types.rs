@@ -59,7 +59,12 @@ impl Display for StoreError {
             StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
             StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
             StoreError::IncompatibleChainStoreVersions { stored, current } => {
-                write!(f, "Incompatible DB Versions: found {}, expected {}", stored, current)
+                write!(
+                    f,
+                    "Incompatible chain DB versions: found {stored}, expected {current}. \
+Run `amaru dev chain migrate --network <NETWORK>` to migrate, or pass `--migrate-chain-db` \
+(or set `AMARU_MIGRATE_CHAIN_DB=true`) when starting the node with `amaru node run`"
+                )
             }
         }
     }
