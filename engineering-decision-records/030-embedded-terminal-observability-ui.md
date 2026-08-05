@@ -177,6 +177,15 @@ While copy mode is active:
 - the header indicates the mode clearly
 - command hints reflect the reduced interaction surface
 
+The same shell chrome also supports a non-interactive shutdown mode. When the
+first termination signal is observed:
+
+- the TUI suppresses the extra stderr status line that would otherwise corrupt
+  the alternate screen
+- the interaction mode switches to a dimmed shutdown presentation
+- further local keyboard and mouse interaction is ignored while the node drains
+  normally
+
 ### Degrade gracefully under filtered telemetry
 
 The TUI must not assume it sees every event. If the log or metric stream is

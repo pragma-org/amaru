@@ -16,7 +16,7 @@ use std::{error::Error, process::ExitCode, time::Duration};
 
 use amaru::{
     exit::install_termination_signals,
-    lifecycle::RUNTIME_SHUTDOWN_TIMEOUT,
+    lifecycle::{RUNTIME_SHUTDOWN_TIMEOUT, set_signal_stderr_enabled},
     observability::{Color, ObservabilityHints, setup_observability},
     panic::panic_handler,
     version,
@@ -78,10 +78,11 @@ fn try_main() -> Result<(), Box<dyn Error>> {
             .filter(|settings| tui::should_enable(settings.no_tui, with_json_traces))
             .map(|settings| {
                 let (_, config, startup) = settings.into_parts();
-                tui::Session::spawn(config, startup)
+                tui::Session::spawn(config, startup, signals.shared_count())
             })
             .transpose()?
     };
+    set_signal_stderr_enabled(tui.is_none());
     let _metrics_subscription = tui.as_ref().map(tui::Session::subscribe_to_metrics);
 
     let (metrics, teardown) = if skip_logging {

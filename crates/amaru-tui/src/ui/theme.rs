@@ -24,6 +24,7 @@ pub(super) fn accent_primary(mode: InteractionMode) -> Color {
     match mode {
         InteractionMode::Normal => Color::Rgb(110, 228, 150),
         InteractionMode::Copy => Color::Rgb(96, 171, 255),
+        InteractionMode::Shutdown => Color::Rgb(180, 184, 192),
     }
 }
 
@@ -39,6 +40,7 @@ pub(super) fn border_primary(mode: InteractionMode) -> Style {
     match mode {
         InteractionMode::Normal => Style::default().fg(Color::Rgb(80, 156, 105)),
         InteractionMode::Copy => Style::default().fg(Color::Rgb(71, 126, 186)),
+        InteractionMode::Shutdown => Style::default().fg(Color::Rgb(120, 126, 136)),
     }
 }
 
@@ -46,6 +48,7 @@ pub(super) fn border_secondary(mode: InteractionMode) -> Style {
     match mode {
         InteractionMode::Normal => Style::default().fg(Color::Rgb(57, 108, 75)),
         InteractionMode::Copy => Style::default().fg(Color::Rgb(50, 92, 141)),
+        InteractionMode::Shutdown => Style::default().fg(Color::Rgb(88, 94, 104)),
     }
 }
 
@@ -105,6 +108,7 @@ pub(super) fn table_header_style(mode: InteractionMode) -> Style {
     let background = match mode {
         InteractionMode::Normal => Color::Rgb(22, 48, 33),
         InteractionMode::Copy => Color::Rgb(19, 39, 68),
+        InteractionMode::Shutdown => Color::Rgb(40, 44, 52),
     };
 
     Style::default().fg(Color::Rgb(246, 250, 247)).bg(background).add_modifier(Modifier::BOLD)

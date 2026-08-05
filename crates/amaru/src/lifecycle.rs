@@ -18,7 +18,11 @@ use std::{
     error::Error,
     future::Future,
     io, process,
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
@@ -40,6 +44,8 @@ pub const FORCE_EXIT_CODE: i32 = 130;
 /// Grace period for draining the Tokio runtime after command and observability teardown.
 pub const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
+static SIGNAL_STDERR_ENABLED: AtomicBool = AtomicBool::new(true);
+
 /// Which Tokio runtime configuration a subcommand should use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeKind {
@@ -59,6 +65,10 @@ impl RuntimeKind {
             Self::Node => runtime_node(),
         }
     }
+}
+
+pub fn set_signal_stderr_enabled(enabled: bool) {
+    SIGNAL_STDERR_ENABLED.store(enabled, Ordering::SeqCst);
 }
 
 /// How the first termination signal is handled for a subcommand.
@@ -180,7 +190,7 @@ impl ShutdownHandle {
 
     fn request_graceful(&self) {
         if !self.cancel.is_cancelled() {
-            eprintln!("amaru: termination signal received — shutting down");
+            emit_signal_stderr("amaru: termination signal received — shutting down");
             warn!("termination signal received — shutting down");
             self.cancel.cancel();
         }
@@ -252,11 +262,11 @@ pub fn run_until_exit(
         if n >= 1 {
             match first_signal {
                 FirstSignal::ImmediateExit => {
-                    eprintln!("amaru: termination signal received — exiting");
+                    emit_signal_stderr("amaru: termination signal received — exiting");
                     process::exit(FORCE_EXIT_CODE);
                 }
                 FirstSignal::SoftShutdown if n >= 2 => {
-                    eprintln!("amaru: second termination signal — forcing exit");
+                    emit_signal_stderr("amaru: second termination signal — forcing exit");
                     process::exit(FORCE_EXIT_CODE);
                 }
                 FirstSignal::SoftShutdown if !graceful => {
@@ -281,6 +291,12 @@ pub fn run_until_exit(
     }
 
     result.map_err(|msg| msg.into())
+}
+
+fn emit_signal_stderr(message: &str) {
+    if SIGNAL_STDERR_ENABLED.load(Ordering::SeqCst) {
+        eprintln!("{message}");
+    }
 }
 
 #[cfg(test)]

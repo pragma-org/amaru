@@ -54,6 +54,9 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
     frame.render_widget(shell, shell_area);
     if !is_ready {
         render_splash(frame, inner, model, views);
+        if model.is_shutdown_mode() {
+            apply_shutdown_overlay(frame, inner);
+        }
         return;
     }
 
@@ -61,16 +64,25 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
 
     if model.page == Page::Amaru && model.peer_pane_mode.is_maximized() {
         render_peers_table(frame, inner, model, views, now);
+        if model.is_shutdown_mode() {
+            apply_shutdown_overlay(frame, inner);
+        }
         return;
     }
 
     if model.page == Page::Cardano && model.proposal_pane_mode.is_maximized() {
         render_proposals_table(frame, inner, model, views);
+        if model.is_shutdown_mode() {
+            apply_shutdown_overlay(frame, inner);
+        }
         return;
     }
 
     if model.log_pane_mode.is_maximized() && model.page != Page::Config {
         render_logs(frame, inner, model, views);
+        if model.is_shutdown_mode() {
+            apply_shutdown_overlay(frame, inner);
+        }
         return;
     }
 
@@ -113,6 +125,10 @@ pub fn render(frame: &mut Frame<'_>, model: &Model, views: &mut Views, now: Inst
         } else {
             render_splash(frame, layout[0], model, views);
         }
+    }
+
+    if model.is_shutdown_mode() {
+        apply_shutdown_overlay(frame, inner);
     }
 }
 
@@ -174,6 +190,20 @@ fn page_tabs_line(model: &Model) -> Line<'static> {
 }
 
 fn shell_title(model: &Model) -> Line<'static> {
+    if model.is_shutdown_mode() {
+        return border_title_line(
+            vec![Span::styled(
+                " SHUTTING DOWN ",
+                Style::default()
+                    .fg(emphasis_white_color())
+                    .bg(accent_primary(model.interaction_mode))
+                    .add_modifier(Modifier::BOLD),
+            )],
+            model.interaction_mode,
+            false,
+        );
+    }
+
     if model.is_copy_mode() {
         return border_title_line(
             vec![Span::styled(
@@ -200,6 +230,14 @@ fn shell_title(model: &Model) -> Line<'static> {
 }
 
 fn shell_hint(model: &Model) -> Line<'static> {
+    if model.is_shutdown_mode() {
+        return border_title_line(
+            vec![Span::styled("please wait", theme::muted().add_modifier(Modifier::BOLD))],
+            model.interaction_mode,
+            false,
+        );
+    }
+
     if model.is_copy_mode() {
         return border_title_line(
             vec![
@@ -259,4 +297,49 @@ fn page_content_height(model: &Model) -> u16 {
         Page::Cardano => screens::cardano_page_content_height(model),
         Page::Config => screens::config_page_content_height(model),
     }
+}
+
+fn apply_shutdown_overlay(frame: &mut Frame<'_>, area: Rect) {
+    let buffer = frame.buffer_mut();
+
+    for y in area.y..area.y.saturating_add(area.height) {
+        for x in area.x..area.x.saturating_add(area.width) {
+            let Some(cell) = buffer.cell_mut((x, y)) else {
+                continue;
+            };
+            cell.fg = grayscale_color(cell.fg);
+            cell.bg = grayscale_color(cell.bg);
+            cell.modifier.remove(Modifier::BOLD);
+            cell.modifier.insert(Modifier::DIM);
+        }
+    }
+}
+
+fn grayscale_color(color: Color) -> Color {
+    match color {
+        Color::Reset => Color::Reset,
+        Color::Black => Color::Black,
+        Color::Red => grayscale_rgb(205, 49, 49),
+        Color::Green => grayscale_rgb(13, 188, 121),
+        Color::Yellow => grayscale_rgb(229, 229, 16),
+        Color::Blue => grayscale_rgb(36, 114, 200),
+        Color::Magenta => grayscale_rgb(188, 63, 188),
+        Color::Cyan => grayscale_rgb(17, 168, 205),
+        Color::Gray => grayscale_rgb(192, 192, 192),
+        Color::DarkGray => grayscale_rgb(128, 128, 128),
+        Color::LightRed => grayscale_rgb(241, 76, 76),
+        Color::LightGreen => grayscale_rgb(35, 209, 139),
+        Color::LightYellow => grayscale_rgb(245, 245, 67),
+        Color::LightBlue => grayscale_rgb(59, 142, 234),
+        Color::LightMagenta => grayscale_rgb(214, 112, 214),
+        Color::LightCyan => grayscale_rgb(41, 184, 219),
+        Color::White => grayscale_rgb(255, 255, 255),
+        Color::Rgb(r, g, b) => grayscale_rgb(r, g, b),
+        Color::Indexed(_) => Color::DarkGray,
+    }
+}
+
+fn grayscale_rgb(r: u8, g: u8, b: u8) -> Color {
+    let gray = ((299_u32 * r as u32 + 587_u32 * g as u32 + 114_u32 * b as u32) / 1000) as u8;
+    Color::Rgb(gray, gray, gray)
 }

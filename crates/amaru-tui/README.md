@@ -29,7 +29,7 @@ The architectural rationale lives in
 
 Most changes should fall into one of two buckets:
 
-- UI work: layout, formatting, focus, copy mode, new widgets
+- UI work: layout, formatting, focus, copy mode, shutdown mode, new widgets
 - observability work: telemetry or metrics changed and the reducer must follow
 
 The crate should not become a backdoor into Amaru internals. Prefer deriving

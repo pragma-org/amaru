@@ -971,4 +971,23 @@ mod tests {
         assert_eq!(model.page, Page::Cardano);
         assert_eq!(model.scroll_focus, ScrollFocus::Logs);
     }
+
+    #[test]
+    fn shutdown_mode_ignores_follow_up_terminal_input() {
+        let mut model = Model::new(Config::default(), startup_context());
+        model.enter_shutdown_mode();
+
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert_eq!(
+            model.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            TerminalEventOutcome::Continue
+        );
+        assert!(model.is_shutdown_mode());
+        assert_eq!(model.interaction_mode, InteractionMode::Shutdown);
+        assert_eq!(model.page, Page::Amaru);
+        assert_eq!(model.scroll_focus, ScrollFocus::Logs);
+    }
 }
