@@ -18,7 +18,6 @@ use std::time::Instant;
 pub struct SystemSample {
     pub at: Instant,
     pub cpu_percent: f64,
-    pub process_memory_bytes: u64,
     pub rss_bytes: u64,
     pub virtual_bytes: u64,
     pub memory_used_bytes: u64,

@@ -328,9 +328,12 @@ mod tests {
         model.handle_message(metric(
             at,
             MetricsEvent::SystemMetrics(SystemMetrics {
+                node_start_time_seconds: 0,
+                cpu_ticks: 0,
+                network_read_bytes: 0,
+                network_written_bytes: 0,
                 runtime_seconds: 1,
                 cpu_percent: 12.5,
-                process_memory_bytes: 10_000,
                 rss_bytes: 9_000,
                 virtual_bytes: 12_000,
                 disk_read_bytes: 300,
@@ -344,7 +347,7 @@ mod tests {
 
         assert_eq!(model.blocks_in_window(at + Duration::from_secs(1)), 1);
         assert_eq!(model.transactions_in_window(at + Duration::from_secs(1)), 7);
-        assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(10_000));
+        assert_eq!(model.system_samples.back().map(|sample| sample.rss_bytes), Some(9_000));
         assert_eq!(model.system_samples.back().map(|sample| sample.memory_total_bytes), Some(200_000));
         assert_eq!(model.system_samples.back().map(|sample| sample.other_processes_live_read_bytes), Some(300));
     }

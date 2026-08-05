@@ -17,6 +17,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+# Internal Dependencies
+amaru-kernel.workspace = true
+
 # External Dependencies
 serde = { workspace = true, features = ["derive", "alloc"] }
 

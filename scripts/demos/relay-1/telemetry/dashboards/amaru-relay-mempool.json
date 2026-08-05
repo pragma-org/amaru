@@ -669,7 +669,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "label_replace(cardano_node_metrics_txsSyncDurationTotal_int{exported_job=~\"amaru-middle|amaru-downstream\"}, \"panel\", \"revalidation_total_ms\", \"exported_job\", \".*\")",
+          "expr": "label_replace(cardano_node_metrics_txsSyncDurationTotal_counter{exported_job=~\"amaru-middle|amaru-downstream\"}, \"panel\", \"revalidation_total_ms\", \"exported_job\", \".*\")",
           "legendFormat": "{{panel}} {{exported_job}}",
           "range": true,
           "refId": "revalidation_total_ms"

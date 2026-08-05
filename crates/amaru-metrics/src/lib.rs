@@ -38,6 +38,9 @@ pub mod system;
 
 pub const METRICS_METER_NAME: &str = "cardano_node_metrics";
 
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) static METRICS_METER: LazyLock<Meter> = LazyLock::new(|| opentelemetry::global::meter(METRICS_METER_NAME));
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MetricsEvent {
     LedgerMetrics(LedgerMetrics),
@@ -50,6 +53,15 @@ pub enum MetricsEvent {
 pub trait MetricRecorder {
     fn record_to_meter(&self, meter: &Meter);
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn initialize_metrics(meter: &Meter) {
+    mempool::initialize_metrics(meter);
+    protocol::initialize_metrics(meter);
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn initialize_metrics(_meter: &Meter) {}
 
 impl MetricRecorder for MetricsEvent {
     fn record_to_meter(&self, meter: &Meter) {

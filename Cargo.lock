@@ -378,6 +378,7 @@ name = "amaru-metrics"
 version = "0.1.2"
 dependencies = [
  "amaru-deps",
+ "amaru-kernel",
  "opentelemetry",
  "serde",
 ]

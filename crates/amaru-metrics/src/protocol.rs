@@ -13,14 +13,56 @@
 // limitations under the License.
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
+use amaru_kernel::Slot;
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Gauge};
+use crate::{Counter, Gauge, METRICS_METER};
 use crate::{Meter, MetricRecorder, MetricsEvent};
+
+#[cfg(not(target_arch = "wasm32"))]
+static SERVED_BLOCK_COUNT: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_counter("cardano_node_metrics_served_block_counter")
+        .with_description("total number of blocks served to peers")
+        .with_unit("int")
+        .build()
+});
+#[cfg(not(target_arch = "wasm32"))]
+static SERVED_BLOCK_LATEST: LazyLock<Gauge<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_gauge("cardano_node_metrics_served_block_latest_int")
+        .with_description("number of blocks served at the highest slot observed so far")
+        .with_unit("int")
+        .build()
+});
+#[cfg(not(target_arch = "wasm32"))]
+static SERVED_HEADER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_counter("cardano_node_metrics_served_header_counter")
+        .with_description("total number of headers served to peers")
+        .with_unit("int")
+        .build()
+});
+#[cfg(not(target_arch = "wasm32"))]
+static CHAIN_SYNC_HEADERS_SERVED: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METRICS_METER
+        .u64_counter("cardano_node_metrics_ChainSync_HeadersServed_counter")
+        .with_description("total number of headers served through chain sync")
+        .with_unit("int")
+        .build()
+});
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn initialize_metrics(_meter: &Meter) {
+    SERVED_BLOCK_COUNT.add(0, &[]);
+    SERVED_BLOCK_LATEST.record(0, &[]);
+    SERVED_HEADER.add(0, &[]);
+    CHAIN_SYNC_HEADERS_SERVED.add(0, &[]);
+}
 
 // Uses ObservableGauge rather than Gauge: the callback output replaces the previous
 // observation set each collection cycle, so only the current label set is ever exported.
@@ -69,6 +111,8 @@ pub enum ProtocolMetrics {
     ConnectionManager(ConnectionManagerMetrics),
     ServedBlockCount(ServedBlockCountMetrics),
     TipBlock(TipBlockMetrics),
+    ServedBlockLatest(ServedBlockLatestMetrics),
+    ServedHeader(ServedHeaderMetrics),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -80,6 +124,16 @@ pub struct ConnectionManagerMetrics {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServedBlockCountMetrics {
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServedBlockLatestMetrics {
+    pub slot: Slot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServedHeaderMetrics {
     pub count: u64,
 }
 
@@ -102,6 +156,8 @@ impl MetricRecorder for ProtocolMetrics {
             ProtocolMetrics::ConnectionManager(metrics) => metrics.record_to_meter(meter),
             ProtocolMetrics::ServedBlockCount(metrics) => metrics.record_to_meter(meter),
             ProtocolMetrics::TipBlock(metrics) => metrics.record_to_meter(meter),
+            ProtocolMetrics::ServedBlockLatest(metrics) => metrics.record_to_meter(meter),
+            ProtocolMetrics::ServedHeader(metrics) => metrics.record_to_meter(meter),
         }
     }
 }
@@ -151,20 +207,59 @@ impl MetricRecorder for ServedBlockCountMetrics {
     fn record_to_meter(&self, _meter: &Meter) {}
 }
 
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for ServedBlockLatestMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Default)]
+struct ServedBlockLatestState {
+    max_slot: Slot,
+    count: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ServedBlockLatestState {
+    fn observe(&mut self, slot: Slot) -> u64 {
+        if slot > self.max_slot {
+            self.max_slot = slot;
+            self.count = 1;
+        } else if slot == self.max_slot {
+            self.count = self.count.saturating_add(1);
+        }
+        self.count
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MetricRecorder for ServedBlockLatestMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {
+        static STATE: LazyLock<Mutex<ServedBlockLatestState>> = LazyLock::new(Default::default);
+
+        if let Ok(mut state) = STATE.lock() {
+            SERVED_BLOCK_LATEST.record(state.observe(self.slot), &[]);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl MetricRecorder for ServedHeaderMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {}
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl MetricRecorder for ServedHeaderMetrics {
+    fn record_to_meter(&self, _meter: &Meter) {
+        SERVED_HEADER.add(self.count, &[]);
+        CHAIN_SYNC_HEADERS_SERVED.add(self.count, &[]);
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ServedBlockCountMetrics {
-    fn record_to_meter(&self, meter: &Meter) {
-        static SERVED_BLOCK_COUNT: OnceLock<Counter<u64>> = OnceLock::new();
-
-        let served_block_count = SERVED_BLOCK_COUNT.get_or_init(|| {
-            meter
-                .u64_counter("cardano_node_metrics_served_block_count_int")
-                .with_description("total number of blocks served to peers")
-                .with_unit("int")
-                .build()
-        });
-
-        served_block_count.add(self.count, &[]);
+    fn record_to_meter(&self, _meter: &Meter) {
+        SERVED_BLOCK_COUNT.add(self.count, &[]);
     }
 }
 
@@ -212,6 +307,18 @@ impl From<ConnectionManagerMetrics> for MetricsEvent {
 impl From<ServedBlockCountMetrics> for MetricsEvent {
     fn from(value: ServedBlockCountMetrics) -> Self {
         MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedBlockCount(value))
+    }
+}
+
+impl From<ServedBlockLatestMetrics> for MetricsEvent {
+    fn from(value: ServedBlockLatestMetrics) -> Self {
+        MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedBlockLatest(value))
+    }
+}
+
+impl From<ServedHeaderMetrics> for MetricsEvent {
+    fn from(value: ServedHeaderMetrics) -> Self {
+        MetricsEvent::ProtocolMetrics(ProtocolMetrics::ServedHeader(value))
     }
 }
 
