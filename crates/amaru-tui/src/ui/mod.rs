@@ -23,10 +23,7 @@ use ratatui::{
 };
 
 use self::{
-    common::{
-        accent_primary, border_title_chrome_width, border_title_line, border_title_prefix_width, button_label,
-        spans_width, window_label,
-    },
+    common::{accent_primary, border_title_line, border_title_prefix_width, button_label},
     components::{render_epoch_progress, render_logs, render_peers_table, render_proposals_table},
     screens::{render_amaru, render_cardano, render_config, render_splash},
     theme::{border_primary, emphasis_primary, emphasis_white, emphasis_white_color},
@@ -139,14 +136,13 @@ fn shell_block(model: &Model, is_ready: bool) -> Block<'static> {
         block
             .title_top(page_tabs_line(model).left_aligned())
             .title_top(shell_title(model).centered())
-            .title_top(window_controls_line(model).right_aligned())
             .title_bottom(shell_hint(model).right_aligned())
     } else {
         block.title_top(shell_title(model).centered())
     }
 }
 
-fn populate_shell_hotspots(views: &mut Views, area: Rect, model: &Model) {
+fn populate_shell_hotspots(views: &mut Views, area: Rect, _model: &Model) {
     let mut x = area.x + 2 + border_title_prefix_width();
     let y = area.y;
     for (index, page) in Page::ALL.into_iter().enumerate() {
@@ -156,18 +152,6 @@ fn populate_shell_hotspots(views: &mut Views, area: Rect, model: &Model) {
         if index + 1 != Page::ALL.len() {
             x += 1;
         }
-    }
-
-    let labels = model.windows().iter().map(window_label).collect::<Vec<_>>();
-    let total_width =
-        spans_width(labels.iter().map(|label| label.len() as u16)) + labels.len().saturating_sub(1) as u16;
-    let mut x =
-        area.x + area.width.saturating_sub(total_width + border_title_chrome_width() + 1) + border_title_prefix_width();
-    let y = area.y;
-
-    for label in labels {
-        views.window_tabs.push(Rect { x, y, width: label.len() as u16, height: 1 });
-        x += label.len() as u16 + 1;
     }
 }
 
@@ -271,24 +255,6 @@ fn shell_hint(model: &Model) -> Line<'static> {
         model.interaction_mode,
         false,
     )
-}
-
-fn window_controls_line(model: &Model) -> Line<'static> {
-    let mut spans = Vec::new();
-
-    for (index, window) in model.windows().iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::raw(" "));
-        }
-        let style = if index == model.selected_window {
-            emphasis_primary(model.interaction_mode)
-        } else {
-            Style::default().fg(Color::Rgb(210, 220, 235))
-        };
-        spans.push(Span::styled(window_label(window), style));
-    }
-
-    border_title_line(spans, model.interaction_mode, false)
 }
 
 fn page_content_height(model: &Model) -> u16 {

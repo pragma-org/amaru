@@ -14,10 +14,10 @@
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     style::Color,
     text::Span,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders},
 };
 
 use super::super::{
@@ -45,14 +45,8 @@ pub(in crate::ui) fn render_gauge_card(
     let inner = card.inner(area);
     frame.render_widget(card, area);
 
-    if inner.height == 0 {
+    if inner.height == 0 || inner.width == 0 {
         return;
     }
-
-    let layout = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(inner);
-    render_solid_progress_bar(frame, layout[1], ratio, accent_primary(mode), Color::Rgb(10, 22, 17));
-
-    if layout[0].height > 0 {
-        frame.render_widget(Paragraph::new(""), layout[0]);
-    }
+    render_solid_progress_bar(frame, inner, ratio, accent_primary(mode), Color::Rgb(10, 22, 17));
 }

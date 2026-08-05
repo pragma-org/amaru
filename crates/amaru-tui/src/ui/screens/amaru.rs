@@ -33,7 +33,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),
+            Constraint::Length(4),
             Constraint::Length(6),
             Constraint::Length(peers_panel_height(model).max(mempool_panel_height())),
         ])
@@ -100,9 +100,9 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         cards[1],
         "Throughput",
         aligned_pair_lines(vec![
-            ("Blocks", format_count(model.blocks_in_window(now))),
+            ("Blocks", format_count(model.recent_blocks_count())),
             ("Blocks/s", format!("{block_rate:.2}")),
-            ("Txs", format_count(model.transactions_in_window(now))),
+            ("Txs", format_count(model.recent_transactions_count())),
             ("Tx/s", format!("{transaction_rate:.2}")),
         ]),
         model.interaction_mode,
@@ -146,11 +146,14 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
             (
                 "Rollback depth",
                 model
-                    .average_rollback_length(now)
+                    .average_recent_rollback_length()
                     .map(|value| if value == 1.0 { "~1 block".into() } else { format!("~{value:.1} blocks") })
                     .unwrap_or_else(|| "—".into()),
             ),
-            ("Rollback freq.", model.rollback_frequency(now).map(format_secs_frequency).unwrap_or_else(|| "—".into())),
+            (
+                "Rollback freq.",
+                model.recent_rollback_frequency(now).map(format_secs_frequency).unwrap_or_else(|| "—".into()),
+            ),
         ]),
         model.interaction_mode,
     );
@@ -173,7 +176,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
 }
 
 pub(in crate::ui) fn page_content_height(model: &Model) -> u16 {
-    11 + peers_panel_height(model).max(mempool_panel_height())
+    10 + peers_panel_height(model).max(mempool_panel_height())
 }
 
 fn peers_panel_height(model: &Model) -> u16 {
@@ -185,7 +188,7 @@ fn mempool_panel_height() -> u16 {
 }
 
 fn latest_system_sample(model: &Model) -> Option<&SystemSample> {
-    model.system_samples.back()
+    model.system_sample.as_ref()
 }
 
 struct GaugeMetric {
@@ -255,14 +258,14 @@ fn linear_ratio_f64(current: f64, max: f64) -> f64 {
 }
 
 fn blocks_per_second(model: &Model, now: Instant) -> f64 {
-    let blocks = model.blocks_in_window(now) as f64;
-    let seconds = model.effective_window(now).as_secs_f64();
+    let blocks = model.recent_blocks_count() as f64;
+    let seconds = model.retained_blocks_span(now).as_secs_f64();
     if seconds == 0.0 { 0.0 } else { blocks / seconds }
 }
 
 fn transactions_per_second(model: &Model, now: Instant) -> f64 {
-    let transactions = model.transactions_in_window(now) as f64;
-    let seconds = model.effective_window(now).as_secs_f64();
+    let transactions = model.recent_transactions_count() as f64;
+    let seconds = model.retained_transactions_span(now).as_secs_f64();
     if seconds == 0.0 { 0.0 } else { transactions / seconds }
 }
 
@@ -288,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn throughput_uses_uptime_until_the_selected_window_is_filled() {
+    fn throughput_uses_uptime_until_the_sample_buffer_is_filled() {
         let mut model = Model::new(
             crate::Config::default(),
             crate::startup::StartupContext::new(

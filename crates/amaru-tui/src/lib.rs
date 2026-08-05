@@ -25,7 +25,7 @@ mod terminal_guard;
 mod ui;
 
 pub use capture::TracingLayer;
-pub use config::{Config, TimeWindow, format_windows};
+pub use config::Config;
 pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
 pub use session::{Session, should_enable};
 pub use settings::Settings;

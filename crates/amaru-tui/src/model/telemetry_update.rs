@@ -23,33 +23,31 @@ impl Model {
     pub fn handle_message(&mut self, message: Message) {
         match message {
             Message::Telemetry(record) => {
-                self.prune_peer_timings(record.at);
+                self.prune_stale_peers(record.at);
                 self.record_telemetry(record);
             }
             Message::Metrics(record) => {
-                self.prune_peer_timings(record.at);
+                self.prune_stale_peers(record.at);
                 self.record_metrics(record);
             }
             Message::HostSample(sample) => {
-                self.prune_peer_timings(sample.at);
+                self.prune_stale_peers(sample.at);
                 self.record_host_sample(sample);
             }
         }
     }
 
-    fn prune_peer_timings(&mut self, now: Instant) {
-        let max_window = self.max_window();
-        for peer in self.peers.values_mut() {
-            peer.prune_header_lifecycle_samples(now, max_window);
-        }
-        self.peers.retain(|_, peer| !peer.is_stale(now, max_window));
+    fn prune_stale_peers(&mut self, now: Instant) {
+        self.peers.retain(|_, peer| !peer.is_stale(now, self.config.peer_inactivity_timeout));
     }
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
         self.update_state(TelemetryEvent::from_record(&record), &record);
-        self.logs.push_back(record);
-        while self.logs.len() > self.config.log_capacity {
-            self.logs.pop_front();
+        if self.level_filter.allows(record.level) && self.target_filter.allows(&record.target) {
+            self.logs.push_back(record);
+            while self.logs.len() > self.config.log_capacity {
+                self.logs.pop_front();
+            }
         }
     }
 
@@ -282,11 +280,11 @@ impl Model {
                 forward_micros.saturating_sub(query_header_micros.saturating_add(get_block_micros))
             });
 
-        let max_window = self.max_window();
+        let capacity = self.config.peer_timing_capacity;
         let peer = self.peer_mut(peer.as_ref(), record.at);
         peer.record_header_lifecycle(
             record.at,
-            max_window,
+            capacity,
             slot_start_to_header_micros,
             query_header_micros,
             get_block_micros,

@@ -14,14 +14,14 @@
 
 use std::time::Duration;
 
-mod time_window;
-
-pub use self::time_window::TimeWindow;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    pub windows: Vec<TimeWindow>,
     pub log_capacity: usize,
+    pub block_sample_capacity: usize,
+    pub transaction_sample_capacity: usize,
+    pub rollback_sample_capacity: usize,
+    pub peer_timing_capacity: usize,
+    pub peer_inactivity_timeout: Duration,
     pub proposal_capacity: usize,
     pub sample_interval: Duration,
     pub tick_interval: Duration,
@@ -32,42 +32,17 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            windows: vec![TimeWindow::from_secs(300), TimeWindow::from_secs(3_600), TimeWindow::from_secs(21_600)],
-            log_capacity: 1_024,
+            log_capacity: 4_096,
+            block_sample_capacity: 100,
+            transaction_sample_capacity: 100,
+            rollback_sample_capacity: 100,
+            peer_timing_capacity: 100,
+            peer_inactivity_timeout: Duration::from_secs(600),
             proposal_capacity: 24,
             sample_interval: Duration::from_secs(1),
             tick_interval: Duration::from_millis(250),
             splash_timeout: Duration::from_secs(3),
             channel_capacity: 4_096,
         }
-    }
-}
-
-impl Config {
-    pub fn with_windows(self, windows: Vec<TimeWindow>) -> Self {
-        Self { windows, ..self }
-    }
-}
-
-pub fn format_windows(windows: &[TimeWindow]) -> String {
-    windows.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_time_window() {
-        assert_eq!("30s".parse::<TimeWindow>().unwrap(), TimeWindow::from_secs(30));
-        assert_eq!("1min".parse::<TimeWindow>().unwrap(), TimeWindow::from_secs(60));
-        assert_eq!("6h".parse::<TimeWindow>().unwrap(), TimeWindow::from_secs(21_600));
-    }
-
-    #[test]
-    fn formats_time_window() {
-        assert_eq!(TimeWindow::from_secs(30).to_string(), "30s");
-        assert_eq!(TimeWindow::from_secs(300).to_string(), "5min");
-        assert_eq!(TimeWindow::from_secs(7_200).to_string(), "2h");
     }
 }

@@ -36,7 +36,9 @@ pub(in crate::ui) fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, mo
     let wall_time = SystemTime::now();
     let progress = model.sync_progress_at(wall_time);
     let eta = model
-        .sync_eta_at(wall_time)
+        .catching_up
+        .then(|| model.sync_eta_at(wall_time))
+        .flatten()
         .map(|duration| format!(" (ETA {})", format_duration(duration)))
         .unwrap_or_default();
     let epoch_title = match model.network_epoch_at(wall_time) {
@@ -45,13 +47,11 @@ pub(in crate::ui) fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, mo
         }
         _ => format!("Epoch {}{eta}", format_count(tip.epoch)),
     };
-    let (progress_label, ratio) = progress
-        .map(|(current_slot, target_slot, ratio)| (format_ratio(current_slot, target_slot), ratio))
-        .unwrap_or_else(|| {
-            let epoch_length = model.startup.epoch_length.max(1);
-            let slot_in_epoch = tip.slot_in_epoch.min(epoch_length);
-            (format_ratio(slot_in_epoch, epoch_length), slot_in_epoch as f64 / epoch_length as f64)
-        });
+    let epoch_length = model.startup.epoch_length.max(1);
+    let slot_in_epoch = tip.slot_in_epoch.min(epoch_length);
+    let progress_label = format_ratio(slot_in_epoch, epoch_length);
+    let bar_ratio = slot_in_epoch as f64 / epoch_length as f64;
+    let global_ratio = progress.map(|(_, _, ratio)| ratio).unwrap_or(bar_ratio);
     let mut block = Block::default()
         .title_top(
             border_title_line(
@@ -67,7 +67,7 @@ pub(in crate::ui) fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, mo
     if model.catching_up {
         block = block.title_top(
             border_title_line(
-                vec![Span::styled(format!("{:.1}%", ratio * 100.0), emphasis_white())],
+                vec![Span::styled(format!("{:.1}%", global_ratio * 100.0), emphasis_white())],
                 model.interaction_mode,
                 false,
             )
@@ -78,5 +78,5 @@ pub(in crate::ui) fn render_epoch_progress(frame: &mut Frame<'_>, area: Rect, mo
     let inner = block.inner(area);
 
     frame.render_widget(block, area);
-    render_gradient_progress_bar(frame, inner, ratio, &progress_label);
+    render_gradient_progress_bar(frame, inner, bar_ratio, &progress_label);
 }

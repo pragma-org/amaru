@@ -100,20 +100,16 @@ impl Model {
         self.scroll_focus = self.scroll_focus.previous_for(self.page);
     }
 
-    pub fn set_window(&mut self, index: usize) {
-        if index < self.config.windows.len() {
-            self.selected_window = index;
-        }
-    }
-
     pub fn set_level_filter(&mut self, level: LevelFilter) {
         self.level_filter = level;
+        self.logs.retain(|record| self.level_filter.allows(record.level) && self.target_filter.allows(&record.target));
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
 
     pub fn set_target_filter(&mut self, filter: TargetFilter) {
         self.target_filter = filter;
+        self.logs.retain(|record| self.level_filter.allows(record.level) && self.target_filter.allows(&record.target));
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
@@ -182,11 +178,6 @@ impl Model {
 
         if let Some(focus) = views.focus_at(point) {
             self.set_scroll_focus(focus);
-        }
-
-        if let Some(index) = views.window_at(point) {
-            self.set_window(index);
-            return;
         }
 
         if let Some(level) = views.level_filter_at(point) {

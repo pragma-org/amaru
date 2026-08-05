@@ -40,6 +40,13 @@ Shared metrics should remain about the Amaru process itself. When the TUI needs
 host-wide context that would be too expensive or too product-specific to export
 globally, keep that sampling local to `amaru-tui`.
 
+The TUI keeps bounded fixed-capacity samples rather than user-selectable rolling
+time windows. Throughput, rollback, and peer timing widgets therefore summarize
+the most recent retained samples, and the log pane keeps only the lines that
+match the currently active filter from the moment that filter is selected.
+Process and host resource gauges are simpler: they render from the latest merged
+`SystemSample` snapshot rather than keeping historical TUI-local copies.
+
 For telemetry, prefer the schema-generated helpers exported by
 `amaru-observability` for both event matching and field decoding. Avoid raw
 field-name strings in reducers when a generated accessor exists.

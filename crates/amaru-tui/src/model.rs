@@ -14,11 +14,11 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use crate::{
-    config::{Config, TimeWindow},
+    config::Config,
     events::{SystemSample, TelemetryRecord},
     startup::StartupContext,
 };
@@ -68,7 +68,6 @@ pub struct Model {
     pub scroll_focus: ScrollFocus,
     pub level_filter: LevelFilter,
     pub target_filter: TargetFilter,
-    pub selected_window: usize,
     pub catching_up: bool,
     pub log_scroll: usize,
     pub peer_scroll: usize,
@@ -89,7 +88,7 @@ pub struct Model {
     pub rewards_ready: bool,
     pub peers: BTreeMap<String, PeerState>,
     pub logs: VecDeque<TelemetryRecord>,
-    pub system_samples: VecDeque<SystemSample>,
+    pub system_sample: Option<SystemSample>,
     pub recent_blocks: VecDeque<Instant>,
     pub recent_transactions: VecDeque<(Instant, u64)>,
     pub recent_rollbacks: VecDeque<(Instant, usize)>,
@@ -114,7 +113,6 @@ impl Model {
             scroll_focus: ScrollFocus::Logs,
             level_filter: LevelFilter::Debug,
             target_filter: TargetFilter::All,
-            selected_window: 0,
             catching_up: true,
             log_scroll: 0,
             peer_scroll: 0,
@@ -134,7 +132,7 @@ impl Model {
             rewards_ready: false,
             peers: BTreeMap::default(),
             logs: VecDeque::default(),
-            system_samples: VecDeque::default(),
+            system_sample: None,
             recent_blocks: VecDeque::default(),
             recent_transactions: VecDeque::default(),
             recent_rollbacks: VecDeque::default(),
@@ -145,14 +143,6 @@ impl Model {
             proposals_by_id: BTreeMap::default(),
             config,
         }
-    }
-
-    pub fn windows(&self) -> &[TimeWindow] {
-        &self.config.windows
-    }
-
-    pub fn current_window(&self) -> Duration {
-        self.config.windows[self.selected_window].as_duration()
     }
 
     pub fn is_ready(&self, now: Instant) -> bool {
@@ -180,6 +170,8 @@ pub fn render_fields(record: &TelemetryRecord) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use amaru_metrics::{MetricsEvent, ledger::LedgerMetrics, system::SystemMetrics};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tracing::Level;
@@ -340,8 +332,8 @@ mod tests {
             }),
         ));
 
-        assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(15_000));
-        assert_eq!(model.system_samples.back().map(|sample| sample.rss_bytes), Some(9_500));
+        assert_eq!(model.system_sample.as_ref().map(|sample| sample.process_memory_bytes), Some(15_000));
+        assert_eq!(model.system_sample.as_ref().map(|sample| sample.rss_bytes), Some(9_500));
     }
 
     #[test]
@@ -400,11 +392,11 @@ mod tests {
         ));
         model.handle_message(host_sample(at + Duration::from_secs(5), Duration::from_secs(5)));
 
-        assert_eq!(model.blocks_in_window(at + Duration::from_secs(1)), 1);
-        assert_eq!(model.transactions_in_window(at + Duration::from_secs(1)), 7);
-        assert_eq!(model.system_samples.back().map(|sample| sample.process_memory_bytes), Some(10_000));
-        assert_eq!(model.system_samples.back().map(|sample| sample.memory_total_bytes), Some(200_000));
-        assert_eq!(model.system_samples.back().map(|sample| sample.host_live_read_bytes), Some(300));
+        assert_eq!(model.recent_blocks_count(), 1);
+        assert_eq!(model.recent_transactions_count(), 7);
+        assert_eq!(model.system_sample.as_ref().map(|sample| sample.process_memory_bytes), Some(10_000));
+        assert_eq!(model.system_sample.as_ref().map(|sample| sample.memory_total_bytes), Some(200_000));
+        assert_eq!(model.system_sample.as_ref().map(|sample| sample.host_live_read_bytes), Some(300));
     }
 
     #[test]
@@ -468,11 +460,13 @@ mod tests {
     }
 
     #[test]
-    fn prunes_stale_peers_outside_the_maximum_window() {
-        let mut model = Model::new(Config::default(), startup_context());
-        let max_window = model.max_window();
+    fn prunes_stale_peers_after_the_inactivity_timeout() {
+        let mut model = Model::new(
+            Config { peer_inactivity_timeout: Duration::from_secs(30), ..Config::default() },
+            startup_context(),
+        );
         let stale_at = Instant::now();
-        let now = stale_at + max_window + Duration::from_secs(1);
+        let now = stale_at + Duration::from_secs(31);
 
         model.peers.insert("stale.example:3001".into(), PeerState::new("stale.example:3001".into(), stale_at));
         model.peers.insert(
@@ -530,18 +524,15 @@ mod tests {
         )));
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
-        assert_eq!(
-            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(1), model.current_window()),
-            Some(12_000)
-        );
-        assert_eq!(peer.mean_query_header_micros(now + Duration::from_secs(1), model.current_window()), Some(3_000));
-        assert_eq!(peer.mean_get_block_micros(now + Duration::from_secs(1), model.current_window()), Some(6_000));
-        assert_eq!(peer.mean_adopt_block_micros(now + Duration::from_secs(1), model.current_window()), Some(4_000));
+        assert_eq!(peer.mean_slot_start_to_header_micros(), Some(12_000));
+        assert_eq!(peer.mean_query_header_micros(), Some(3_000));
+        assert_eq!(peer.mean_get_block_micros(), Some(6_000));
+        assert_eq!(peer.mean_adopt_block_micros(), Some(4_000));
     }
 
     #[test]
-    fn peer_header_lifecycle_means_follow_the_selected_window() {
-        let config = Config::default().with_windows(vec![TimeWindow::from_secs(5), TimeWindow::from_secs(20)]);
+    fn peer_header_lifecycle_means_keep_the_last_n_samples() {
+        let config = Config { peer_timing_capacity: 1, ..Config::default() };
         let mut model = Model::new(config, startup_context());
         let now = model.created_at;
 
@@ -583,16 +574,8 @@ mod tests {
         )));
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
-        assert_eq!(peer.mean_query_header_micros(now + Duration::from_secs(10), model.current_window()), Some(4_000));
-        assert_eq!(
-            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(10), model.current_window()),
-            Some(15_000)
-        );
-        assert_eq!(peer.mean_query_header_micros(now + Duration::from_secs(10), Duration::from_secs(20)), Some(3_000));
-        assert_eq!(
-            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(10), Duration::from_secs(20)),
-            Some(12_000)
-        );
+        assert_eq!(peer.mean_query_header_micros(), Some(4_000));
+        assert_eq!(peer.mean_slot_start_to_header_micros(), Some(15_000));
     }
 
     #[test]
@@ -614,7 +597,7 @@ mod tests {
         )));
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
-        assert_eq!(peer.mean_slot_start_to_header_micros(now, model.current_window()), None);
+        assert_eq!(peer.mean_slot_start_to_header_micros(), None);
 
         model.handle_message(Message::Telemetry(telemetry_at(
             now + Duration::from_secs(1),
@@ -654,10 +637,7 @@ mod tests {
         )));
 
         let peer = model.peers.get("1.2.3.4:3001").expect("peer must exist");
-        assert_eq!(
-            peer.mean_slot_start_to_header_micros(now + Duration::from_secs(3), model.current_window()),
-            Some(3_000)
-        );
+        assert_eq!(peer.mean_slot_start_to_header_micros(), Some(3_000));
     }
 
     #[test]

@@ -22,7 +22,6 @@ pub struct Views {
     pub log_toggle: Rect,
     pub peer_toggle: Rect,
     pub proposal_toggle: Rect,
-    pub window_tabs: Vec<Rect>,
     pub level_tabs: Vec<(LevelFilter, Rect)>,
     pub target_tabs: Vec<(TargetFilter, Rect)>,
     pub logs_area: Rect,
@@ -34,7 +33,6 @@ pub struct Views {
 impl Views {
     pub fn reset(&mut self) {
         self.page_tabs.clear();
-        self.window_tabs.clear();
         self.level_tabs.clear();
         self.target_tabs.clear();
         self.log_toggle = Rect::default();
@@ -60,10 +58,6 @@ impl Views {
 
     pub fn toggles_proposals(&self, point: Rect) -> bool {
         contains(self.proposal_toggle, point)
-    }
-
-    pub fn window_at(&self, point: Rect) -> Option<usize> {
-        self.window_tabs.iter().position(|area| contains(*area, point))
     }
 
     pub fn level_filter_at(&self, point: Rect) -> Option<LevelFilter> {

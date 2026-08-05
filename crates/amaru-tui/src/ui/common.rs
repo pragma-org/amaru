@@ -22,17 +22,10 @@ use ratatui::{
 };
 
 use super::theme::{border_primary, border_secondary, emphasis_primary, emphasis_white_color};
-use crate::{
-    config::TimeWindow,
-    model::{InteractionMode, LevelFilter},
-};
+use crate::model::{InteractionMode, LevelFilter};
 
 pub(super) fn button_label(label: &str) -> String {
     format!("[ {} ]", label.to_uppercase())
-}
-
-pub(super) fn window_label(window: &TimeWindow) -> String {
-    button_label(&window.to_string())
 }
 
 pub(super) fn border_title_line(spans: Vec<Span<'static>>, mode: InteractionMode, focused: bool) -> Line<'static> {
