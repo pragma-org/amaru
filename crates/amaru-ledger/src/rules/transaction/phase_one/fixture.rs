@@ -188,6 +188,7 @@ pub(super) enum Predicate {
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidWitnessesUTXOW,
+    MalformedReferenceScripts,
     MaxTxSizeUTxO,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
@@ -262,6 +263,9 @@ impl From<PhaseOneError> for Predicate {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
                 [WithPosition { element: InvalidOutput::ValueTooLarge { .. }, .. }] => Predicate::OutputTooBigUTxO,
                 [WithPosition { element: InvalidOutput::WrongNetwork { .. }, .. }] => Predicate::WrongNetworkInTxOutput,
+                [WithPosition { element: InvalidOutput::MalformedReferenceScript(_), .. }] => {
+                    Predicate::MalformedReferenceScripts
+                }
                 _ => unreachable!("no predicate mapping yet for {err}"),
             },
             PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
