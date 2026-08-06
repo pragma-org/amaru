@@ -68,6 +68,7 @@ Other guiding principles:
 - **amaru-consensus**: fix peer_selection to only schedule a single cool-down timer and thus properly bound priority mailbox usage. ([#1112](https://github.com/pragma-org/amaru/issues/1112))
 - **amaru-ledger**: validate provided treasury value matches actual treasury value (ConwayTreasuryValueMismatch) ([#1025][], [#888][])
 - **amaru-ledger**: reject governance proposals whose deposit return account is not registered. ([#928][])
+- **amaru-uplc**: fix the validation of Plutus scripts containing lists of BLS elements when they are empty, since the Haskell node accepts them ([#1159](https://github.com/pragma-org/amaru/issues/1159))
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 
