@@ -44,8 +44,10 @@ pub enum FlatDecodeError {
     UnknownTypeTags(Vec<u8>),
     #[error("Missing type tag")]
     MissingTypeTag,
-    #[error("BLS type not supported")]
-    BlsTypeNotSupported,
+    #[error(
+        "Flat decoding is not supported for BLS12-381 values; G1/G2 points are exchanged as bytestrings via compress/uncompress"
+    )]
+    BlsValueNotSupported,
     #[error("Trailing bytes after script: {0} bytes remaining")]
     TrailingBytes(usize),
     #[error("Builtin function {1} (tag {0}) is not available in the given language version")]

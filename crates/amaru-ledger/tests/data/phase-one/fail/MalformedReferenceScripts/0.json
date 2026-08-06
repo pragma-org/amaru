@@ -1,0 +1,30 @@
+{
+  "title": "reference script carrying a bare BLS G1 element value",
+  "description": "The output carries the reference script (program 1.1.0 (con bls12_381_G1_element ...)). BLS element values have no flat encoding (the Haskell Flat instances always fail), so the script is malformed and the transaction is rejected.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed02800",
+        "output": "bf00581d70d441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf011a004c4b40ff"
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84A400D9010281825820A1C4425C08922D444E4FAD7AD6E73796AC118E27165F0688AC049858938ED028000181BF00581D60A1C146C212ACFE02048AFBF8D2E5E9C806165934D9935C696F85C3DC011A00493E0003D81849820346450101004C80FF021A00030D400F00A101D9010281820180F5F6",
+  "expected": {
+    "predicate": "MalformedReferenceScripts"
+  }
+}

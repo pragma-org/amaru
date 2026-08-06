@@ -208,6 +208,9 @@ fn type_from_tags<'a>(ctx: &Ctx<'a>, tags: &[u8]) -> Result<(&'a Type<'a>, usize
 
             Ok((Type::pair(ctx.arena, sub_typ1, sub_typ2), 3 + consumed1 + consumed2))
         }
+        [tag::BLS12_381_G1_ELEMENT, ..] => Ok((Type::g1(ctx.arena), 1)),
+        [tag::BLS12_381_G2_ELEMENT, ..] => Ok((Type::g2(ctx.arena), 1)),
+        [tag::BLS12_381_ML_RESULT, ..] => Ok((Type::ml_result(ctx.arena), 1)),
         [tag::VALUE, ..] => Ok((Type::value(ctx.arena), 1)),
         [] => Err(FlatDecodeError::MissingTypeTag),
         x => Err(FlatDecodeError::UnknownTypeTags(x.to_vec())),
@@ -267,9 +270,14 @@ fn decode_constant<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder) -> Result<&'a Constan
             let data = minicbor::decode_with(&cbor, &mut SimpleCtx { arena: ctx.arena })?;
             Ok(Constant::data(ctx.arena, data))
         }
-        Type::Bls12_381G1Element => Err(FlatDecodeError::BlsTypeNotSupported),
-        Type::Bls12_381G2Element => Err(FlatDecodeError::BlsTypeNotSupported),
-        Type::Bls12_381MlResult => Err(FlatDecodeError::BlsTypeNotSupported),
+        // BLS12-381 element *values* have no flat encoding: their `Flat` instances fail in the
+        // Haskell implementation (plutus #5663), so a script carrying an actual BLS constant is
+        // malformed there too. The *types* must still decode (see `type_from_tags`) so that
+        // constants like `(con (list bls12_381_G1_element) [])`, which contain no element value,
+        // deserialize exactly as they do on the Haskell side.
+        Type::Bls12_381G1Element | Type::Bls12_381G2Element | Type::Bls12_381MlResult => {
+            Err(FlatDecodeError::BlsValueNotSupported)
+        }
         Type::Value => decode_value(ctx, d),
     }
 }
@@ -328,9 +336,14 @@ fn decode_constant_with_type<'a>(
 
             Ok(Constant::data(ctx.arena, data))
         }
-        Type::Bls12_381G1Element => Err(FlatDecodeError::BlsTypeNotSupported),
-        Type::Bls12_381G2Element => Err(FlatDecodeError::BlsTypeNotSupported),
-        Type::Bls12_381MlResult => Err(FlatDecodeError::BlsTypeNotSupported),
+        // BLS12-381 element *values* have no flat encoding: their `Flat` instances fail in the
+        // Haskell implementation (plutus #5663), so a script carrying an actual BLS constant is
+        // malformed there too. The *types* must still decode (see `type_from_tags`) so that
+        // constants like `(con (list bls12_381_G1_element) [])`, which contain no element value,
+        // deserialize exactly as they do on the Haskell side.
+        Type::Bls12_381G1Element | Type::Bls12_381G2Element | Type::Bls12_381MlResult => {
+            Err(FlatDecodeError::BlsValueNotSupported)
+        }
         Type::Value => decode_value(ctx, d),
     }
 }
