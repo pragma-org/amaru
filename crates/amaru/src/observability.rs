@@ -471,6 +471,18 @@ pub fn setup_open_telemetry(
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{Resource, metrics::Temporality};
 
+    // The OTLP exporters (tonic channels, batch processors) spawn background tasks at
+    // construction time and capture the current tokio runtime. Observability is set up before
+    // the command runtime exists and must outlive it (teardown flushes after the command
+    // returns), so give the exporters their own small runtime.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .thread_name("amaru-otel")
+        .build()
+        .unwrap_or_else(|e| panic!("failed to build the OpenTelemetry runtime: {e}"));
+    let runtime_guard = runtime.enter();
+
     // Build the SDK-default resource to discover attributes already set via
     // OTEL_RESOURCE_ATTRIBUTES. This is used only to guard our *fallback* values;
     // the dedicated OTEL_SERVICE_NAME / OTEL_SERVICE_INSTANCE_ID env vars always
@@ -541,10 +553,16 @@ pub fn setup_open_telemetry(
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
 
+    drop(runtime_guard);
+
     (
         OpenTelemetryHandle {
             metrics: Some(metrics_provider.clone()),
-            teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider, logs_provider)),
+            teardown: Box::new(move || {
+                let result = teardown_open_telemetry(opentelemetry_provider, metrics_provider, logs_provider);
+                drop(runtime);
+                result
+            }),
         },
         warning,
     )
