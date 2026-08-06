@@ -1380,11 +1380,7 @@ fn open_with_older_version_recommends_migration() {
         "expected IncompatibleChainStoreVersions, got: {err:?}"
     );
     assert!(
-        message.contains("amaru dev chain migrate"),
-        "error should recommend `amaru dev chain migrate`, got: {message}"
-    );
-    assert!(
-        message.contains("--migrate-chain-db") || message.contains("AMARU_MIGRATE_CHAIN_DB"),
+        message.contains("--migrate-chain-db") && message.contains("AMARU_MIGRATE_CHAIN_DB"),
         "error should recommend enabling migration on node run, got: {message}"
     );
 }

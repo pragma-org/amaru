@@ -62,8 +62,7 @@ impl Display for StoreError {
                 write!(
                     f,
                     "Incompatible chain DB versions: found {stored}, expected {current}. \
-Run `amaru dev chain migrate --network <NETWORK>` to migrate, or pass `--migrate-chain-db` \
-(or set `AMARU_MIGRATE_CHAIN_DB=true`) when starting the node with `amaru node run`"
+Pass `--migrate-chain-db` (or set `AMARU_MIGRATE_CHAIN_DB=true`) when starting the node with `amaru node run`."
                 )
             }
         }
