@@ -18,7 +18,7 @@ use crate::{
     CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, cbor,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 #[cbor(map)]
 pub struct ProtocolParamUpdate {
     #[n(0)]
@@ -81,6 +81,22 @@ pub struct ProtocolParamUpdate {
     pub drep_inactivity_period: Option<u64>,
     #[n(33)]
     pub minfee_refscript_cost_per_byte: Option<RationalNumber>,
+}
+
+impl ProtocolParamUpdate {
+    /// Whether the update touches any parameter of the 'security group'.
+    pub fn modifies_security_group(&self) -> bool {
+        self.minfee_a.is_some()
+            || self.minfee_b.is_some()
+            || self.max_block_body_size.is_some()
+            || self.max_block_header_size.is_some()
+            || self.max_transaction_size.is_some()
+            || self.ada_per_utxo_byte.is_some()
+            || self.max_block_ex_units.is_some()
+            || self.max_value_size.is_some()
+            || self.governance_action_deposit.is_some()
+            || self.minfee_refscript_cost_per_byte.is_some()
+    }
 }
 
 pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: &str) -> Result<String, fmt::Error> {
@@ -228,4 +244,43 @@ pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: 
     push_opt(&mut s, &mut is_first, prefix, "minfee_refscript_cost_per_byte", &update.minfee_refscript_cost_per_byte)?;
 
     Ok(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+
+    fn one() -> RationalNumber {
+        RationalNumber { numerator: 1, denominator: 1 }
+    }
+
+    #[test_case(|update| update.minfee_a = Some(1); "minfee_a")]
+    #[test_case(|update| update.minfee_b = Some(1); "minfee_b")]
+    #[test_case(|update| update.max_block_body_size = Some(1); "max_block_body_size")]
+    #[test_case(|update| update.max_block_header_size = Some(1); "max_block_header_size")]
+    #[test_case(|update| update.max_transaction_size = Some(1); "max_transaction_size")]
+    #[test_case(|update| update.ada_per_utxo_byte = Some(1); "ada_per_utxo_byte")]
+    #[test_case(|update| update.max_block_ex_units = Some(ExUnits { mem: 1, steps: 1 }); "max_block_ex_units")]
+    #[test_case(|update| update.max_value_size = Some(1); "max_value_size")]
+    #[test_case(|update| update.governance_action_deposit = Some(1); "governance_action_deposit")]
+    #[test_case(|update| update.minfee_refscript_cost_per_byte = Some(one()); "minfee_refscript_cost_per_byte")]
+    fn in_security_group(modify: fn(&mut ProtocolParamUpdate)) {
+        let mut update = ProtocolParamUpdate::default();
+        modify(&mut update);
+        assert!(update.modifies_security_group());
+    }
+
+    #[test_case(|_| (); "nothing modified at all")]
+    #[test_case(|update| update.key_deposit = Some(1); "key_deposit")]
+    #[test_case(|update| update.max_tx_ex_units = Some(ExUnits { mem: 1, steps: 1 }); "max_tx_ex_units")]
+    #[test_case(|update| update.execution_costs = Some(ExUnitPrices { mem_price: one(), step_price: one() }); "execution_costs")]
+    #[test_case(|update| update.cost_models_for_script_languages = Some(CostModels { plutus_v1: None, plutus_v2: None, plutus_v3: None }); "cost_models")]
+    #[test_case(|update| update.drep_deposit = Some(1); "drep_deposit")]
+    fn out_of_security_group(modify: fn(&mut ProtocolParamUpdate)) {
+        let mut update = ProtocolParamUpdate::default();
+        modify(&mut update);
+        assert!(!update.modifies_security_group());
+    }
 }

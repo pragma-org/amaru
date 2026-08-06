@@ -1,0 +1,45 @@
+{
+  "title": "vote cast by a stake pool on a parameter change within the security group",
+  "description": "A change to the minimum fee coefficient, which is a security group parameter.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820f264b1a1f0a418cf7400d3431b061992ae045b24e5b790fd74165c51bbd48d1000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ],
+    "accounts": [],
+    "dreps": [],
+    "committee": [],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 100,
+        "govAction": "8400f6a100182cf6"
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    },
+    "pots": {
+      "treasury": 0,
+      "reserves": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820f264b1a1f0a418cf7400d3431b061992ae045b24e5b790fd74165c51bbd48d10000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18204581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258401bae2da00d1fadf2f0d4611120d77062d630fe9ba15df1043458b1d5c32a73dcd19c83af0423d8d29fd7b686608744ad218b2b7423b76811a5dd2f00c37df40df5f6",
+  "expected": "Pass"
+}

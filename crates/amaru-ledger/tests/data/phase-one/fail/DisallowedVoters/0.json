@@ -1,6 +1,6 @@
 {
-  "title": "vote cast by a committee member on a governance action that does not exist",
-  "description": "An authorized committee hot key naming an absent proposal id.",
+  "title": "vote cast by a committee member on a motion of no confidence",
+  "description": "The constitutional committee has no say over the action that dissolves it.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
@@ -11,7 +11,7 @@
   "initialState": {
     "utxo": [
       {
-        "input": "82582033e3dfb56c093ef6a5e0a85e186f6c4cba64004d1c21d06d868e1168672b9cdc00",
+        "input": "825820b2d63157407a6741a64c9dbb84b29a02a931f2e8d469a7b9bd5f2bf78e06658d00",
         "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
       }
     ],
@@ -29,19 +29,23 @@
       {
         "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
         "validUntil": 100,
-        "govAction": "8106"
+        "govAction": "8203f6"
       }
     ],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
+    },
+    "pots": {
+      "treasury": 0,
+      "reserves": 0
     }
   },
   "point": {
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "84a500d901028182582033e3dfb56c093ef6a5e0a85e186f6c4cba64004d1c21d06d868e1168672b9cdc000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a1825820bbd665a051206b767522b19427cced4e0420a050852f7ba1c875c9ec1e4983e1008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258407c0b8db38f40877a619d45a2da54831f6d6bec42d67d3fa70b4db8a1dca933eaf07e1adf533e05e439c404f15d57cba594cc6bc2155bfc7552d79526896e3002f5f6",
+  "transaction": "84a500d9010281825820b2d63157407a6741a64c9dbb84b29a02a931f2e8d469a7b9bd5f2bf78e06658d000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258401b27d78d82ad1dfb14670f9230ee04ff38278579ab6452c70e24e5ea68048ccfa7adbe2e9fa24b453d9a0cad509110bdad1247c5f021bb81187f99cf42c2f70cf5f6",
   "expected": {
-    "predicate": "GovActionsDoNotExist"
+    "predicate": "DisallowedVoters"
   }
 }

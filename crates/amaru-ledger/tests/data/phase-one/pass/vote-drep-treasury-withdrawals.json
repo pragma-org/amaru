@@ -1,6 +1,6 @@
 {
-  "title": "vote cast by a registered drep key credential",
-  "description": "A DRep voter whose credential is a registered key hash, which is the state voting_procedures::execute resolves a DRep voter against.",
+  "title": "vote cast by a drep on a treasury withdrawal",
+  "description": "The action stake pools are barred from is one dreps carry a threshold on.",
   "network": "preprod",
   "eraHistory": {
     "$ref": "common/eraHistory/preprod-conway.json"
@@ -11,7 +11,7 @@
   "initialState": {
     "utxo": [
       {
-        "input": "825820af9946308273d128030690731934f53c5087b4bb5d34cade4a28dca2c00c1bc500",
+        "input": "8258209c37bdc1e4676c7fc9ff2e0adc4d24b793e13d878c28ac406d47757fdd42f07300",
         "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
       }
     ],
@@ -36,17 +36,21 @@
       {
         "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
         "validUntil": 100,
-        "govAction": "8106"
+        "govAction": "8302a1581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a000f4240f6"
       }
     ],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
+    },
+    "pots": {
+      "treasury": 0,
+      "reserves": 0
     }
   },
   "point": {
     "slot": 0,
     "transactionIndex": 0
   },
-  "transaction": "84a500d9010281825820af9946308273d128030690731934f53c5087b4bb5d34cade4a28dca2c00c1bc5000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258409f86a7c61d7812bb78cc6cbe4e0d7328cd888d587fa2d2bc1df00f036a5fd2ed0f92429e3bfdfb9e06b942b4534490405b88d8f4a67cf734127fbd1d5f277900f5f6",
+  "transaction": "84a500d90102818258209c37bdc1e4676c7fc9ff2e0adc4d24b793e13d878c28ac406d47757fdd42f073000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840cf55f310f371efff5f6f6e15cf6e03721e6b5c776078f87fd7ac6099fd008aad261a71a4cd95fffa80d3d5220076cc0606b8b8d0bae9678390d1c9b1e0ec3f00f5f6",
   "expected": "Pass"
 }
