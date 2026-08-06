@@ -21,8 +21,8 @@ use std::{
 
 use ProtocolError::*;
 use TerminationCause::*;
-use amaru_kernel::{EraHistory, Transaction, TransactionId, to_cbor};
-use amaru_observability::debug_span;
+use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, to_cbor, utils::string::display_collection};
+use amaru_observability::{debug, debug_span};
 use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
@@ -86,6 +86,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         let message_type = input.message_type().to_string();
+        let peer = self.peer.clone();
 
         async move {
             let mempool = MemoryPool::new(eff.clone());
@@ -112,7 +113,8 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         }
         .instrument(debug_span!(
             protocols::tx_submission::responder::TX_SUBMISSION_RESPONDER_STAGE,
-            message_type = message_type
+            message_type = message_type,
+            peer = peer
         ))
         .await
     }
@@ -235,6 +237,8 @@ impl Display for ResponderResult {
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TxSubmissionResponder {
+    /// The connected peer, sending transactions.
+    peer: Peer,
     /// Responder parameters: batch sizes, window sizes, etc.
     params: ResponderParams,
     /// Sequence of tx_ids advertised by the peer in arrival order. May contain duplicates: a
@@ -275,6 +279,7 @@ pub struct TxStateEntry {
 
 impl TxSubmissionResponder {
     pub fn new(
+        peer: Peer,
         muxer: StageRef<MuxMessage>,
         params: ResponderParams,
         origin: TxOrigin,
@@ -284,6 +289,7 @@ impl TxSubmissionResponder {
         (
             State::Init,
             Self {
+                peer,
                 params,
                 unacked: VecDeque::new(),
                 tx_states: BTreeMap::new(),
@@ -314,6 +320,7 @@ impl TxSubmissionResponder {
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<(TransactionId, u32)>,
     ) -> anyhow::Result<FetchOutcome> {
+        debug!(protocols::tx_submission::responder::REPLY_TX_IDS_RECEIVED, peer = self.peer, count = tx_ids.len());
         let max_window: usize = self.params.max_window.get().into();
         if self.unacked.len() + tx_ids.len() > max_window {
             // The peer was told it could send at most `max_window - unacked.len()` ids.
@@ -352,7 +359,12 @@ impl TxSubmissionResponder {
                         entry.refcount.checked_add(1).expect("refcount overflow: protocol invariant violated");
                 }
                 Entry::Vacant(v) => {
-                    let status = if mempool.contains(&tx_id).await { TxStatus::Done } else { TxStatus::Pending(size) };
+                    let status = if mempool.contains(&tx_id).await {
+                        debug!(protocols::tx_submission::responder::SKIP_FETCH, peer = self.peer, tx_id = tx_id);
+                        TxStatus::Done
+                    } else {
+                        TxStatus::Pending(size)
+                    };
                     v.insert(TxStateEntry { status, refcount: one() });
                 }
             }
@@ -412,6 +424,13 @@ impl TxSubmissionResponder {
             .expect("req underflow: protocol invariant violated");
 
         let blocking = if self.unacked.is_empty() { Blocking::Yes } else { Blocking::No };
+        debug!(
+            protocols::tx_submission::responder::REQUEST_TX_IDS,
+            peer = self.peer,
+            ack = ack,
+            req = req,
+            blocking = blocking == Blocking::Yes
+        );
         (ack, req, blocking)
     }
 
@@ -452,6 +471,14 @@ impl TxSubmissionResponder {
             reserved = next_total;
         }
 
+        if !tx_ids.is_empty() {
+            debug!(
+                protocols::tx_submission::responder::REQUEST_TXS,
+                peer = self.peer,
+                count = tx_ids.len(),
+                tx_ids = display_collection(tx_ids.iter().map(|id| id.short()))
+            );
+        }
         tx_ids
     }
 
@@ -464,6 +491,7 @@ impl TxSubmissionResponder {
         txs: Vec<Transaction>,
         eff: &Effects<Inputs<ResponderLocalIn>>,
     ) -> anyhow::Result<Option<ResponderAction>> {
+        debug!(protocols::tx_submission::responder::REPLY_TXS_RECEIVED, peer = self.peer, count = txs.len());
         // De-duplicate transactions by tx_id.
         let txs: Vec<Transaction> =
             txs.into_iter().map(|tx| (tx.tx_id(), tx)).collect::<BTreeMap<_, _>>().into_values().collect();
@@ -561,6 +589,8 @@ impl TxSubmissionResponder {
         if self.capacity_subscribed {
             return;
         }
+        let pending = self.tx_states.values().filter(|e| e.status.is_pending()).count();
+        debug!(protocols::tx_submission::responder::AWAITING_CAPACITY, peer = self.peer, pending = pending);
         if self.capacity_callback.is_blackhole() {
             self.capacity_callback = eff
                 .contramap(eff.me_ref(), "tx_submission_capacity_callback", |_: ()| {
@@ -992,8 +1022,14 @@ mod tests {
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage, era_history);
+        let (_state, mut responder) = TxSubmissionResponder::new(
+            Peer::new("peer"),
+            muxer,
+            test_params(),
+            TxOrigin::Local,
+            mempool_stage,
+            era_history,
+        );
 
         responder.fetch_id = 5;
         add_tx_id(&mut responder, txs[0].tx_id(), TxStatus::Inflight(to_cbor(&txs[0]).len() as u32));
@@ -1009,8 +1045,14 @@ mod tests {
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage, era_history);
+        let (_state, mut responder) = TxSubmissionResponder::new(
+            Peer::new("peer"),
+            muxer,
+            test_params(),
+            TxOrigin::Local,
+            mempool_stage,
+            era_history,
+        );
 
         responder.fetch_id = 7;
         add_tx_id(&mut responder, txs[0].tx_id(), TxStatus::Inflight(to_cbor(&txs[0]).len() as u32));
@@ -1024,8 +1066,14 @@ mod tests {
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage, era_history);
+        let (_state, mut responder) = TxSubmissionResponder::new(
+            Peer::new("peer"),
+            muxer,
+            test_params(),
+            TxOrigin::Local,
+            mempool_stage,
+            era_history,
+        );
 
         responder.fetch_id = 5;
         assert!(responder.handle_inflight_timeout(5).is_none());
@@ -1040,8 +1088,14 @@ mod tests {
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage, era_history);
+        let (_state, mut responder) = TxSubmissionResponder::new(
+            Peer::new("peer"),
+            muxer,
+            test_params(),
+            TxOrigin::Local,
+            mempool_stage,
+            era_history,
+        );
 
         responder.fetch_id = 5;
         add_tx_id(&mut responder, txs[0].tx_id(), TxStatus::Inflight(to_cbor(&txs[0]).len() as u32));
@@ -1056,8 +1110,14 @@ mod tests {
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage, era_history);
+        let (_state, mut responder) = TxSubmissionResponder::new(
+            Peer::new("peer"),
+            muxer,
+            test_params(),
+            TxOrigin::Local,
+            mempool_stage,
+            era_history,
+        );
 
         // Mempool reports zero capacity left, so any pending fetch should yield AwaitingCapacity.
         let mempool = full_mempool();
@@ -1077,8 +1137,14 @@ mod tests {
         let muxer = StageRef::<MuxMessage>::blackhole();
         let mempool_stage = StageRef::<MempoolMsg>::blackhole();
         let era_history = Arc::new(EraHistory::default());
-        let (_state, mut responder) =
-            TxSubmissionResponder::new(muxer, test_params(), TxOrigin::Local, mempool_stage, era_history);
+        let (_state, mut responder) = TxSubmissionResponder::new(
+            Peer::new("peer"),
+            muxer,
+            test_params(),
+            TxOrigin::Local,
+            mempool_stage,
+            era_history,
+        );
 
         // First the mempool is full.
         let full = full_mempool();
@@ -1141,6 +1207,7 @@ mod tests {
     ) -> anyhow::Result<(Vec<ResponderAction>, TxSubmissionResponder)> {
         run_stage_and_return_state_with(
             TxSubmissionResponder::new(
+                Peer::new("peer"),
                 StageRef::named_for_tests("muxer"),
                 test_params(),
                 TxOrigin::Local,

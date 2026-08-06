@@ -1527,20 +1527,81 @@ define_schemas! {
                     /// Handle tx-submission initiator stage messages
                     TX_SUBMISSION_INITIATOR_STAGE {
                         required message_type: String
+                        required peer: amaru_kernel::Peer
                     }
                     /// Handle tx-submission initiator protocol messages
                     TX_SUBMISSION_INITIATOR_PROTOCOL {
                         required message_type: String
+                    }
+                    /// Advertise transaction ids (and their sizes) to the peer in a ReplyTxIds.
+                    REPLY_TX_IDS {
+                        required peer: amaru_kernel::Peer
+                        required count: usize
+                        required tx_ids: String
+                    }
+                    /// Send transaction bodies to the peer in a ReplyTxs. Advertised ids whose
+                    /// tx was evicted before the fetch are listed in `omitted`.
+                    REPLY_TXS {
+                        required peer: amaru_kernel::Peer
+                        required count: usize
+                        optional omitted: String
+                    }
+                    /// The peer acknowledged the advertised ids.
+                    ACKNOWLEDGED {
+                        required peer: amaru_kernel::Peer
+                        required ack: u16
+                        required window: usize
+                    }
+                    /// A blocking RequestTxIds needs to wait until the mempool reaches `seq_no`.
+                    WAIT_FOR_AT_LEAST {
+                        required peer: amaru_kernel::Peer
+                        required seq_no: u64
+                        optional req: u16
                     }
                 }
                 responder {
                     /// Handle tx-submission responder stage messages
                     TX_SUBMISSION_RESPONDER_STAGE {
                         required message_type: String
+                        required peer: amaru_kernel::Peer
                     }
                     /// Handle tx-submission responder protocol messages
                     TX_SUBMISSION_RESPONDER_PROTOCOL {
                         required message_type: String
+                    }
+                    /// The peer advertised transaction ids in a ReplyTxIds.
+                    REPLY_TX_IDS_RECEIVED {
+                        required peer: amaru_kernel::Peer
+                        required count: usize
+                    }
+                    /// The peer delivered transaction bodies in a ReplyTxs.
+                    REPLY_TXS_RECEIVED {
+                        required peer: amaru_kernel::Peer
+                        required count: usize
+                    }
+                    /// An advertised tx is already in our mempool: it will be acknowledged
+                    /// without ever fetching its body.
+                    SKIP_FETCH {
+                        required peer: amaru_kernel::Peer
+                        required tx_id: amaru_kernel::TransactionId
+                    }
+                    /// Request tx ids from the peer, acknowledging processed ones.
+                    REQUEST_TX_IDS {
+                        required peer: amaru_kernel::Peer
+                        required ack: u16
+                        required req: u16
+                        required blocking: bool
+                    }
+                    /// Request tx bodies from the peer.
+                    REQUEST_TXS {
+                        required peer: amaru_kernel::Peer
+                        required count: usize
+                        required tx_ids: String
+                    }
+                    /// Mempool near capacity: fetching is deferred until capacity frees up.
+                    AWAITING_CAPACITY {
+                        required peer: amaru_kernel::Peer
+                        required pending: usize
                     }
                 }
             }
