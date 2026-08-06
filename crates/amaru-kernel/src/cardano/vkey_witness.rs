@@ -12,19 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
 use thiserror::Error;
 
-use crate::{Bytes, cbor, ed25519};
+use crate::{Ed25519Signature, VKey, cbor, ed25519};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct VKeyWitness {
     #[n(0)]
-    pub vkey: Bytes,
+    pub vkey: VKey,
 
     #[n(1)]
-    pub signature: Bytes,
+    pub signature: Ed25519Signature,
 }
 
 #[derive(Debug, Error)]
@@ -33,16 +31,16 @@ pub struct InvalidEd25519Signature;
 
 #[expect(clippy::expect_used, reason = "witness sizes are guaranteed by transaction decoding")]
 pub fn verify_ed25519_signature(
-    vkey: &Bytes,
-    signature: &Bytes,
+    vkey: &VKey,
+    signature: &Ed25519Signature,
     message: &[u8],
 ) -> Result<(), InvalidEd25519Signature> {
     // Key and signature lengths are enforced when the transaction is decoded, so these sized
     // conversions cannot fail for a witness coming from a decoded transaction.
-    let public_key = ed25519::VerifyingKey::try_from(vkey.deref().as_slice())
-        .expect("key size is guaranteed by transaction decoding");
+    let public_key =
+        ed25519::VerifyingKey::try_from(vkey.as_slice()).expect("key size is guaranteed by transaction decoding");
 
-    let signature = ed25519::Signature::try_from(signature.deref().as_slice())
+    let signature = ed25519::Signature::try_from(signature.as_slice())
         .expect("signature size is guaranteed by transaction decoding");
 
     public_key.verify_strict(message, &signature).map_err(|_| InvalidEd25519Signature)

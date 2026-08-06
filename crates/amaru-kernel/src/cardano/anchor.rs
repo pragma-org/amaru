@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BoundedString128, Hash, cbor};
+use crate::{Hash, MaxString128, cbor};
 
 // NOTE: keep fields in lexicographic order
 //
@@ -20,7 +20,7 @@ use crate::{BoundedString128, Hash, cbor};
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Anchor {
     pub content_hash: Hash<32>,
-    pub url: BoundedString128,
+    pub url: MaxString128,
 }
 
 impl<'b, C> cbor::Decode<'b, C> for Anchor {
@@ -53,7 +53,7 @@ mod tests {
     use proptest::{prelude::*, prop_compose, string};
 
     use super::Anchor;
-    use crate::{BoundedString128, Hash};
+    use crate::{Hash, MaxString128};
 
     prop_compose! {
         #[expect(clippy::unwrap_used)]
@@ -66,7 +66,7 @@ mod tests {
             content_hash in any::<[u8; 32]>(),
         ) -> Anchor {
             Anchor {
-                url: BoundedString128::try_from(url).unwrap(),
+                url: MaxString128::try_from(url).unwrap(),
                 content_hash: Hash::from(content_hash),
             }
         }

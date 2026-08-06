@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use amaru_minicbor_extra::decode_bytes;
 
 use crate::{
-    Address, Bytes, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
+    Address, AssetName, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
     ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
     utils::cbor::SerialisedAsCbor,
 };
@@ -281,12 +281,13 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                     .map_err(|_| serde::de::Error::custom(format!("invalid hex string: {policy_id}")))?;
 
                 let mut converted_assets = Vec::new();
-                for (asset_name, quantity) in assets {
-                    let asset_name = hex::decode(&asset_name)
-                        .map_err(|_| serde::de::Error::custom(format!("invalid hex string: {asset_name}")))?;
+                for (asset_name_hex, quantity) in assets {
+                    let asset_name = hex::decode(&asset_name_hex)
+                        .map_err(|_| serde::de::Error::custom(format!("invalid hex string: {asset_name_hex}")))?;
 
                     converted_assets.push((
-                        Bytes::from(asset_name),
+                        AssetName::try_from(&asset_name[..])
+                            .map_err(|_| serde::de::Error::custom(format!("invalid asset name; {asset_name_hex}")))?,
                         quantity
                             .try_into()
                             .map_err(|_| serde::de::Error::custom(format!("invalid quantity value: {quantity}")))?,

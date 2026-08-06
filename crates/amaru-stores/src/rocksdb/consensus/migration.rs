@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use amaru_kernel::{IsHeader, ORIGIN_HASH, Point, to_cbor};
+use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor, to_cbor};
 use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, StoreError, WriteChainStore};
 use rocksdb::DB;
 use tracing::info;
@@ -24,7 +24,7 @@ use crate::rocksdb::{
     consensus::{
         RocksDBStore,
         base_read_chain_store::opcert_key,
-        util::{CHAIN_DB_VERSION, CHAIN_PREFIX, open_db},
+        util::{CHAIN_DB_VERSION, CHAIN_PREFIX, HEADER_PREFIX, open_db},
     },
 };
 
@@ -79,9 +79,9 @@ pub(crate) fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
         return Ok(());
     }
 
-    while let Some(header) = store.load_header(&hash) {
-        store_chain_point(store, &header.point())?;
-        match header.parent() {
+    while let Some((point, parent)) = load_stored_header_point(store, &hash) {
+        store_chain_point(store, &point)?;
+        match parent {
             Some(parent) => hash = parent,
             None => break,
         }
@@ -98,18 +98,16 @@ pub(crate) fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
         "migrating chain DB to version 3 makes possibly incorrect assumption of valid best chain, better set it to the anchor hash"
     );
 
-    let original_best_chain_point = store.get_best_chain_tip().point();
+    let original_best_chain_hash = store.get_best_chain_hash();
+    let original_best_chain_point = load_stored_header_point(store, &original_best_chain_hash)
+        .map(|(point, _)| point)
+        .ok_or_else(|| StoreError::ReadError {
+            error: format!("best chain tip {original_best_chain_hash} was not found during migration"),
+        })?;
     let anchor_hash = store.get_anchor_hash();
-    let anchor_point = match store.load_header(&anchor_hash) {
-        Some(header) => header.point(),
-        None => {
-            if anchor_hash == Point::Origin.hash() {
-                Point::Origin
-            } else {
-                panic!("no header found for anchor hash {}", anchor_hash)
-            }
-        }
-    };
+    let anchor_point = load_stored_header_point(store, &anchor_hash)
+        .map(|(point, _)| point)
+        .unwrap_or_else(|| panic!("no header found for anchor hash {}", anchor_hash));
     store.set_best_chain_hash(&anchor_point.hash())?;
     store.set_block_valid(&anchor_point.hash(), true)?;
 
@@ -195,4 +193,22 @@ fn store_chain_point(store: &RocksDBStore<DB>, point: &Point) -> Result<(), Stor
         .db
         .put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref())
         .map_err(|e| StoreError::WriteError { error: e.to_string() })
+}
+
+fn load_stored_header_point(store: &RocksDBStore<DB>, hash: &HeaderHash) -> Option<(Point, Option<HeaderHash>)> {
+    if hash == &ORIGIN_HASH {
+        return Some((Point::Origin, None));
+    }
+    if let Some(header) = store.load_header(hash) {
+        return Some((header.point(), header.parent()));
+    }
+
+    let bytes = store.db.get([&HEADER_PREFIX[..], &hash[..]].concat()).ok()??;
+    let mut decoder = cbor::Decoder::new(&bytes);
+    decoder.array().ok()?;
+    decoder.array().ok()?;
+    decoder.skip().ok()?;
+    let slot = decoder.u64().ok()?;
+    let parent = decoder.decode().ok()?;
+    Some((Point::Specific(slot.into(), *hash), parent))
 }

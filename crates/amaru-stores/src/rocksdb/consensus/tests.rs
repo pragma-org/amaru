@@ -24,7 +24,7 @@ use amaru_kernel::{
     BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId, RawBlock,
     Slot, Tip, any_header_hash, any_header_with_parent, any_headers_chain,
     cardano::block_header::{any_pool_id, make_block_header_with_op_cert_seq},
-    from_cbor, make_header, make_header_with_op_cert_seq,
+    make_header, make_header_with_op_cert_seq,
     size::HEADER,
     utils::tests::{random_bytes, run_strategy},
 };
@@ -1453,11 +1453,8 @@ fn can_convert_v0_sample_db_to_v1() {
     let store = RocksDBStore { db, basedir };
     migrate_to_v1(&store).expect("Migration should succeed");
 
-    let header: Option<BlockHeader> = store
-        .db
-        .get_pinned([&HEADER_PREFIX[..], hex::decode(SAMPLE_HASH).unwrap().as_slice()].concat())
-        .ok()
-        .and_then(|bytes| from_cbor(bytes?.as_ref()));
+    let header =
+        store.db.get_pinned([&HEADER_PREFIX[..], hex::decode(SAMPLE_HASH).unwrap().as_slice()].concat()).ok().flatten();
 
     assert!(header.is_some(), "Sample data should be preserved");
 }

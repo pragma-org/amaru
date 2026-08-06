@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, cbor};
+use crate::{BoundedBytes, cardano::fixed_bytes::FixedBytes, cbor};
+
+pub const VRF_PROOF: usize = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct VrfCert {
     #[n(0)]
-    pub output: Bytes,
+    pub output: BoundedBytes,
     #[n(1)]
-    pub proof: Bytes,
+    pub proof: FixedBytes<VRF_PROOF>,
 }

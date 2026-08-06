@@ -196,7 +196,7 @@ define_schemas! {
                 }
                 /// Check header cryptographic properties
                 CHECK {
-                    required issuer_key: amaru_kernel::Bytes
+                    required issuer_key: amaru_kernel::VKey
                 }
                 /// Forward to a downstream peer
                 FORWARD {

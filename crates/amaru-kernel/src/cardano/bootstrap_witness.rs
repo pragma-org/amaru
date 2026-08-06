@@ -12,21 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, cbor};
+use crate::{BoundedBytes, Ed25519Signature, VKey, cardano::fixed_bytes::FixedBytes, cbor};
+
+pub const CHAIN_CODE_SIZE: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct BootstrapWitness {
     #[n(0)]
-    pub public_key: Bytes,
+    pub public_key: VKey,
 
     #[n(1)]
-    pub signature: Bytes,
+    pub signature: Ed25519Signature,
 
     #[n(2)]
-    pub chain_code: Bytes,
+    pub chain_code: FixedBytes<CHAIN_CODE_SIZE>,
 
     #[n(3)]
-    pub attributes: Bytes,
+    pub attributes: BoundedBytes,
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::{BoundedString128, Hash, cbor};
+use crate::{Hash, MaxString128, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 pub struct PoolMetadata {
@@ -24,7 +24,7 @@ pub struct PoolMetadata {
     #[n(1)]
     pub content_hash: Hash<32>,
     #[n(0)]
-    pub url: BoundedString128,
+    pub url: MaxString128,
 }
 
 impl<'b, C> cbor::Decode<'b, C> for PoolMetadata {

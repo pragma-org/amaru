@@ -26,6 +26,12 @@ use crate::cbor;
 #[serde(try_from = "String")]
 pub struct BoundedBytes(Vec<u8>);
 
+impl BoundedBytes {
+    pub fn empty() -> Self {
+        Self(Vec::new())
+    }
+}
+
 impl From<Vec<u8>> for BoundedBytes {
     fn from(xs: Vec<u8>) -> Self {
         Self(xs)
@@ -42,6 +48,12 @@ impl Deref for BoundedBytes {
     type Target = Vec<u8>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl From<&[u8]> for BoundedBytes {
+    fn from(xs: &[u8]) -> Self {
+        Self(xs.to_vec())
     }
 }
 
