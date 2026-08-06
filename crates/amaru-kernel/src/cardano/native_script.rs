@@ -14,14 +14,14 @@
 
 use std::collections::BTreeSet;
 
-use crate::{Hash, ValidityInterval, cbor, size::KEY};
+use crate::{cbor, size::KEY, Hash, ValidityInterval};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum NativeScript {
     ScriptPubkey(Hash<{ KEY }>),
     ScriptAll(Vec<NativeScript>),
     ScriptAny(Vec<NativeScript>),
-    ScriptNOfK(u32, Vec<NativeScript>),
+    ScriptNOfK(i64, Vec<NativeScript>),
     InvalidBefore(u64),
     InvalidHereafter(u64),
 }
@@ -122,7 +122,8 @@ impl NativeScript {
             // The NOfK scripts are evaluated lazily, stopping once we have n scripts that evaluate to
             // true. The test `iter_filter_take_evaluates_lazily` illustrates this behavior.
             Self::ScriptNOfK(n, scripts) => {
-                let n = *n as usize;
+                // A non-positive threshold is trivially satisfied, matching the ledger's `m <= satisfied`.
+                let n = (*n).max(0) as usize;
                 scripts.iter().filter(|s| s.eval(vkey_hashes, validity_interval)).take(n).count() == n
             }
             // `lteNegInfty`: a lock requiring `lock_start <= ValidityInterval::lower_bound()` can only be satisfied when
@@ -165,7 +166,7 @@ mod tests {
 
             let some = prop::collection::vec(any_native_script(depth - 1), 0..depth as usize).prop_map(ScriptAny);
 
-            let n_of_k = (any::<u32>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
+            let n_of_k = (any::<i64>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
                 .prop_map(|(n, sigs)| ScriptNOfK(n, sigs));
 
             prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
@@ -184,7 +185,7 @@ mod tests {
 
         use test_case::test_case;
 
-        use crate::{Hash, NativeScript, NativeScript::*, ValidityInterval, size::KEY};
+        use crate::{size::KEY, Hash, NativeScript, NativeScript::*, ValidityInterval};
 
         /// The following test proves that the scriptNOfK evaluate_native_scripts native scripts lazily.
         /// If they weren't, this test would panic.
@@ -272,7 +273,7 @@ mod tests {
             ScriptAny(scripts.into())
         }
 
-        fn at_least<const N: usize>(n: u32, scripts: [NativeScript; N]) -> NativeScript {
+        fn at_least<const N: usize>(n: i64, scripts: [NativeScript; N]) -> NativeScript {
             ScriptNOfK(n, scripts.into())
         }
 
