@@ -31,7 +31,9 @@
         "deposit": 2000000,
         "rewards": 0
       }
-    ]
+    ],
+    "committee": [],
+    "proposals": []
   },
   "point": {
     "slot": 0,
