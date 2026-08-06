@@ -38,7 +38,7 @@ pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
 /// DB schema, create migration function and add it to this array
 /// bumping its length.
 static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
-    [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4];
+    [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4, migrate_to_v5];
 
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
@@ -73,7 +73,7 @@ pub(crate) fn migrate_to_v1(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
 
 /// "Migrate" DB to version 2
 /// Walks the best chain backwards and re-inserts all points.
-fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+pub(crate) fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     let mut hash = store.get_best_chain_hash();
     if hash == ORIGIN_HASH {
         return Ok(());
@@ -91,7 +91,7 @@ fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
 }
 
 #[expect(clippy::panic)]
-fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+pub(crate) fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     // the reason is that v3 stores the block validation result, which cannot be derived from the v2 DB without
     // running the consensus algorithm and ledger validation. previously, blocks were stored before validation,
     tracing::warn!(
@@ -118,7 +118,7 @@ fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     set_version(store, 3)
 }
 
-fn migrate_to_v4(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+pub(crate) fn migrate_to_v4(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     tracing::warn!(
         "migrating chain DB to version 4: opcert sequence numbers are reconstructed from stored \
            headers only; counters from before this database was bootstrapped are unknown, which can \
@@ -133,6 +133,28 @@ fn migrate_to_v4(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
             .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
     }
     set_version(store, 4)
+}
+
+/// Migration to version 5 is intentionally impossible.
+///
+/// Opcert sequence numbers must be seeded from a recent cardano-node snapshot at bootstrap.
+/// Reconstructing them only from headers already in the chain store leaves most pools at an
+/// implicit zero, so live opcert numbers (typically much higher) fail the Praos check.
+fn migrate_to_v5(_store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    Err(StoreError::OpenError {
+        error: "\
+chain database cannot be migrated to version 5 automatically: opcert sequence numbers for pools
+are incomplete unless the chain DB was bootstrapped from a recent snapshot (values reconstructed
+only from stored headers, or defaulting to zero, cause valid headers to be rejected).
+
+Remove the existing node databases and re-bootstrap from a recent snapshot, for example:
+
+  amaru node rm --wipe-all-dbs --network=<NETWORK>
+  amaru node bootstrap --network=<NETWORK>
+
+Then start the node with `amaru node run --network=<NETWORK>`."
+            .to_string(),
+    })
 }
 
 /// Check the version stored in the `store` matches `CHAIN_DB_VERSION`.
