@@ -15,9 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, Bytes, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, MemoizedValue,
-    Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeCredential, Value, from_cbor,
+    Address, AssetName, Bytes, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
+    MemoizedValue, Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress,
+    ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value, from_cbor,
 };
 
 const MAX_VARUINT64_BYTES: usize = 10;
@@ -422,7 +422,7 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
         asset_lengths.insert(*asset_offset, next_offset - *asset_offset);
     }
 
-    let mut bundles: BTreeMap<Hash<28>, Vec<(Bytes, PositiveCoin)>> = BTreeMap::new();
+    let mut bundles: BTreeMap<Hash<28>, Vec<(AssetName, PositiveCoin)>> = BTreeMap::new();
     for (policy_offset, asset_offset, quantity) in triples {
         let policy_end = policy_offset + 28;
         if policy_end > rep.len() {
@@ -437,15 +437,16 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
 
         let quantity: PositiveCoin =
             quantity.try_into().map_err(|_| format!("invalid non-positive asset quantity {quantity}"))?;
-        bundles
-            .entry(Hash::from(&rep[policy_offset..policy_end]))
-            .or_default()
-            .push((Bytes::from(rep[asset_offset..asset_end].to_vec()), quantity));
+        bundles.entry(Hash::from(&rep[policy_offset..policy_end])).or_default().push((
+            AssetName::try_from(&rep[asset_offset..asset_end])
+                .map_err(|_| format!("invalid asset name for offset {asset_offset} and end {asset_end}"))?,
+            quantity,
+        ));
     }
 
     let mut policies = BTreeMap::new();
     for (policy_id, mut assets) in bundles {
-        assets.sort_by(|(a, _), (b, _)| a.cmp(b));
+        assets.sort_by_key(|(a, _)| *a);
         policies.insert(policy_id, NonEmptyKeyValuePairs::try_from(assets).map_err(|e| e.to_string())?);
     }
 

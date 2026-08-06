@@ -90,7 +90,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        BoundedString128, Bytes, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL,
+        Bytes, MaxString128, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL,
     };
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
@@ -123,7 +123,7 @@ mod tests {
             port in any_optional_port(),
             dnsname in any::<String>(),
         ) -> Relay {
-            Relay::SingleHostName(port, BoundedString128::try_from(dnsname).unwrap())
+            Relay::SingleHostName(port, MaxString128::try_from(dnsname).unwrap())
         }
     }
 
@@ -132,7 +132,7 @@ mod tests {
         fn multi_host_name()(
             dnsname in any::<String>(),
         ) -> Relay {
-            Relay::MultiHostName(BoundedString128::try_from(dnsname).unwrap())
+            Relay::MultiHostName(MaxString128::try_from(dnsname).unwrap())
         }
     }
 

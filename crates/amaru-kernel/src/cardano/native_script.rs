@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::{cbor, size::KEY, Hash, ValidityInterval};
+use crate::{Hash, ValidityInterval, cbor, size::KEY};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum NativeScript {
@@ -185,7 +185,7 @@ mod tests {
 
         use test_case::test_case;
 
-        use crate::{size::KEY, Hash, NativeScript, NativeScript::*, ValidityInterval};
+        use crate::{Hash, NativeScript, NativeScript::*, ValidityInterval, size::KEY};
 
         /// The following test proves that the scriptNOfK evaluate_native_scripts native scripts lazily.
         /// If they weren't, this test would panic.

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, utils::string::blanket_try_from_hex_bytes, NativeScript};
+use crate::{NativeScript, cbor, utils::string::blanket_try_from_hex_bytes};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "&str")]
@@ -74,7 +74,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{any_hash28, cbor, size::KEY, to_cbor, utils::cbor::CborArray, Hash, NativeScript};
+    use crate::{Hash, NativeScript, any_hash28, cbor, size::KEY, to_cbor, utils::cbor::CborArray};
 
     // --------------------------------------------------------------------------------------------
     // Tests

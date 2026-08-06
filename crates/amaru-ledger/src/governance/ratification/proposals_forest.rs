@@ -786,7 +786,7 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Anchor, BoundedString128, Bytes, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
+        Anchor, Bytes, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, MaxString128,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer,
         ProtocolParameters, RationalNumber, Slot, TransactionPointer, any_constitution, any_gov_action,
         any_proposal_id, any_proposal_pointer, any_protocol_params_update, any_protocol_version, any_reward_account,
@@ -1423,7 +1423,7 @@ mod tests {
             reward_account: Bytes::default(),
             gov_action: GovernanceAction::HardForkInitiation(parent, PROTOCOL_VERSION_10),
             anchor: Anchor {
-                url: BoundedString128::from_str("https://example.com").unwrap(),
+                url: MaxString128::from_str("https://example.com").unwrap(),
                 content_hash: Hash::new([0u8; 32]),
             },
         }

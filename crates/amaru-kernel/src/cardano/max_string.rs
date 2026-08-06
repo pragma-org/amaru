@@ -16,16 +16,16 @@ use std::{fmt::Display, ops::Deref, str::FromStr};
 
 use crate::cbor;
 
-pub type SizedString128 = SizedString<128>;
+pub type MaxString128 = MaxString<128>;
 
 /// A CDDL `text .size (0 .. 128)`: a URL or DNS name as carried on-chain.
 ///
 /// Accepts the chunked encoding the node accepts, and enforces the length bound the CDDL states.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, Default)]
 #[repr(transparent)]
-pub struct SizedString<const MAX: usize>(pub String);
+pub struct MaxString<const MAX: usize>(pub String);
 
-impl<const MAX: usize> Deref for SizedString<MAX> {
+impl<const MAX: usize> Deref for MaxString<MAX> {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
@@ -33,19 +33,19 @@ impl<const MAX: usize> Deref for SizedString<MAX> {
     }
 }
 
-impl<const MAX: usize> AsRef<str> for SizedString<MAX> {
+impl<const MAX: usize> AsRef<str> for MaxString<MAX> {
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
 
-impl<const MAX: usize> Display for SizedString<MAX> {
+impl<const MAX: usize> Display for MaxString<MAX> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl<const MAX: usize> TryFrom<String> for SizedString<MAX> {
+impl<const MAX: usize> TryFrom<String> for MaxString<MAX> {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -57,7 +57,7 @@ impl<const MAX: usize> TryFrom<String> for SizedString<MAX> {
     }
 }
 
-impl<const MAX: usize> FromStr for SizedString<MAX> {
+impl<const MAX: usize> FromStr for MaxString<MAX> {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -65,7 +65,7 @@ impl<const MAX: usize> FromStr for SizedString<MAX> {
     }
 }
 
-impl<'b, C, const MAX: usize> cbor::Decode<'b, C> for SizedString<MAX> {
+impl<'b, C, const MAX: usize> cbor::Decode<'b, C> for MaxString<MAX> {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let text = cbor::decode_string(d)?;
         if text.len() > MAX {
@@ -75,7 +75,7 @@ impl<'b, C, const MAX: usize> cbor::Decode<'b, C> for SizedString<MAX> {
     }
 }
 
-impl<C, const MAX: usize> cbor::Encode<C> for SizedString<MAX> {
+impl<C, const MAX: usize> cbor::Encode<C> for MaxString<MAX> {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

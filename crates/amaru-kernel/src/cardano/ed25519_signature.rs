@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cardano::max_bytes::MaxBytes;
+use crate::cardano::fixed_bytes::FixedBytes;
 
-pub type AssetName = MaxBytes<32>;
+const SIGNATURE_SIZE: usize = 64;
 
-pub const EMPTY_ASSET_NAME: AssetName = MaxBytes::empty();
+pub type Ed25519Signature = FixedBytes<SIGNATURE_SIZE>;

@@ -17,7 +17,7 @@ use std::{cmp::Ordering, fmt};
 use anyhow::anyhow;
 
 use crate::{
-    BlockHeight, Bytes, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, cbor, ed25519,
+    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, VKey, cbor, ed25519,
     size::{HEADER, POOL_COLD_KEY},
     to_cbor,
 };
@@ -129,7 +129,7 @@ impl BlockHeader {
         self.header.vrf_output()
     }
 
-    pub fn issuer_vkey(&self) -> &Bytes {
+    pub fn issuer_vkey(&self) -> &VKey {
         &self.header_body().issuer_vkey
     }
 

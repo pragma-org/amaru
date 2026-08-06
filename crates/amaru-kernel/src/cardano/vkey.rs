@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cardano::max_bytes::MaxBytes;
+use crate::cardano::{fixed_bytes::FixedBytes, hash::size::VRF_KEY};
 
-pub type AssetName = MaxBytes<32>;
-
-pub const EMPTY_ASSET_NAME: AssetName = MaxBytes::empty();
+pub type VKey = FixedBytes<VRF_KEY>;
