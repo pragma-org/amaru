@@ -47,15 +47,15 @@
 /// - Acknowledgment counts don't exceed advertised transactions
 /// - Only advertised transaction IDs are requested
 /// - Appropriate blocking/non-blocking requests based on acknowledgment state
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
 };
 
 use ProtocolError::*;
-use amaru_kernel::{EraHistory, Transaction, TransactionId, utils::string::display_collection};
-use amaru_observability::debug_span;
+use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, utils::string::display_collection};
+use amaru_observability::{debug, debug_span};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
@@ -101,6 +101,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
                     // Mempool reached the expected seq_no but the tx was removed before we could read it
                     // Send a new wait message with the last_seq_no next value
                     let seq_no = mempool.last_seq_no().await.next();
+                    debug!(protocols::tx_submission::initiator::WAIT_FOR_AT_LEAST, peer = self.peer, seq_no = seq_no.0);
                     eff.send(
                         &self.mempool_stage,
                         MempoolMsg::WaitForAtLeast { seq_no, caller: self.wait_for_at_least_callback.clone() },
@@ -120,6 +121,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         let message_type = input.message_type().to_string();
+        let peer = self.peer.clone();
 
         async move {
             let mempool = MemoryPool::new(eff.clone());
@@ -137,7 +139,8 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         }
         .instrument(debug_span!(
             protocols::tx_submission::initiator::TX_SUBMISSION_INITIATOR_STAGE,
-            message_type = message_type
+            message_type = message_type,
+            peer = peer
         ))
         .await
     }
@@ -261,6 +264,8 @@ impl Display for InitiatorResult {
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TxSubmissionInitiator {
+    /// The connected peer, expecting transactions to be received.
+    peer: Peer,
     /// What we’ve already advertised but has not yet been fully acked.
     window: VecDeque<(TransactionId, MempoolSeqNo)>,
     /// Last seq_no we have ever pulled from the mempool for this peer.
@@ -277,6 +282,7 @@ pub struct TxSubmissionInitiator {
 
 impl TxSubmissionInitiator {
     pub fn new(
+        peer: Peer,
         muxer: StageRef<MuxMessage>,
         mempool_stage: StageRef<MempoolMsg>,
         era_history: Arc<EraHistory>,
@@ -284,6 +290,7 @@ impl TxSubmissionInitiator {
         (
             State::Init,
             Self {
+                peer,
                 window: VecDeque::new(),
                 last_seq: None,
                 pending_blocking_request: None,
@@ -331,6 +338,12 @@ impl TxSubmissionInitiator {
                 })
                 .await;
         }
+        debug!(
+            protocols::tx_submission::initiator::WAIT_FOR_AT_LEAST,
+            peer = self.peer,
+            seq_no = expected_seq_no.0,
+            req = req
+        );
         eff.send(
             &self.mempool_stage,
             MempoolMsg::WaitForAtLeast { seq_no: expected_seq_no, caller: self.wait_for_at_least_callback.clone() },
@@ -380,6 +393,7 @@ impl TxSubmissionInitiator {
             return Ok(None);
         }
         self.pending_blocking_request = None;
+        self.emit_reply_tx_ids(&tx_ids);
         Ok(Some(InitiatorAction::SendReplyTxIds(self.tag_ids(tx_ids))))
     }
 
@@ -406,6 +420,7 @@ impl TxSubmissionInitiator {
         // update the window by discarding acknowledged tx ids and update the last_seq
         self.discard(ack);
         let tx_ids = self.get_next_tx_ids(mempool, req).await?;
+        self.emit_reply_tx_ids(&tx_ids);
         Ok(Some(InitiatorAction::SendReplyTxIds(self.tag_ids(tx_ids))))
     }
 
@@ -422,7 +437,20 @@ impl TxSubmissionInitiator {
             tracing::warn!(?unavailable, "peer requested transactions that are not in our window");
             return terminate(RequestedUnavailableTx);
         }
-        Ok(Some(InitiatorAction::SendReplyTxs(self.tag_txs(mempool.get_txs_for_ids(&tx_ids).await))))
+        let txs = mempool.get_txs_for_ids(&tx_ids).await;
+        let delivered: BTreeSet<TransactionId> = txs.iter().map(|tx| tx.tx_id()).collect();
+        let omitted: Vec<&TransactionId> = tx_ids.iter().filter(|id| !delivered.contains(id)).collect();
+        if omitted.is_empty() {
+            debug!(protocols::tx_submission::initiator::REPLY_TXS, peer = self.peer, count = txs.len());
+        } else {
+            debug!(
+                protocols::tx_submission::initiator::REPLY_TXS,
+                peer = self.peer,
+                count = txs.len(),
+                omitted = display_collection(omitted.iter().map(|id| id.short()))
+            );
+        }
+        Ok(Some(InitiatorAction::SendReplyTxs(self.tag_txs(txs))))
     }
 
     /// Check that `ack` does not exceed the outstanding window.
@@ -460,7 +488,26 @@ impl TxSubmissionInitiator {
     fn discard(&mut self, acknowledged: u16) {
         if self.window.len() >= acknowledged as usize {
             self.window = self.window.drain(acknowledged as usize..).collect();
+            if acknowledged > 0 {
+                debug!(
+                    protocols::tx_submission::initiator::ACKNOWLEDGED,
+                    peer = self.peer,
+                    ack = acknowledged,
+                    window = self.window.len()
+                );
+            }
         }
+    }
+
+    /// Trace the tx ids about to be advertised in a `ReplyTxIds` (possibly none).
+    fn emit_reply_tx_ids(&self, tx_ids: &[(TransactionId, u32)]) {
+        let ids = tx_ids.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+        debug!(
+            protocols::tx_submission::initiator::REPLY_TX_IDS,
+            peer = self.peer,
+            count = ids.len(),
+            tx_ids = ids.as_slice()
+        );
     }
 
     /// We update our window with tx ids retrieved from the mempool and just sent to the server.
@@ -608,8 +655,12 @@ mod tests {
     async fn blocking_request_waits_for_one_new_tx_id() -> anyhow::Result<()> {
         let mempool = new_mempool();
         let txs = create_transactions(1);
-        let (_, mut initiator) =
-            TxSubmissionInitiator::new(StageRef::blackhole(), StageRef::blackhole(), Arc::new(EraHistory::default()));
+        let (_, mut initiator) = TxSubmissionInitiator::new(
+            Peer::new("peer"),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+            Arc::new(EraHistory::default()),
+        );
 
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
@@ -625,8 +676,12 @@ mod tests {
     async fn blocking_request_keeps_pending_when_tx_was_removed() -> anyhow::Result<()> {
         let mempool = new_mempool();
         let txs = create_transactions(1);
-        let (_, mut initiator) =
-            TxSubmissionInitiator::new(StageRef::blackhole(), StageRef::blackhole(), Arc::new(EraHistory::default()));
+        let (_, mut initiator) = TxSubmissionInitiator::new(
+            Peer::new("peer"),
+            StageRef::blackhole(),
+            StageRef::blackhole(),
+            Arc::new(EraHistory::default()),
+        );
 
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
@@ -877,6 +932,7 @@ mod tests {
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         run_stage_and_return_state_with(
             TxSubmissionInitiator::new(
+                Peer::new("peer"),
                 StageRef::named_for_tests("muxer"),
                 StageRef::blackhole(),
                 Arc::new(EraHistory::default()),

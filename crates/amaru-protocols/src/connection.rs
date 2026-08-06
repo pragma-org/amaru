@@ -369,6 +369,7 @@ async fn do_handshake(
     .await;
     let tx_submission = register_tx_submission(
         *role,
+        peer.clone(),
         muxer.clone(),
         &eff,
         TxOrigin::Remote(peer.clone()),
