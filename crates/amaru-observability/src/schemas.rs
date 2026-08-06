@@ -1013,6 +1013,17 @@ define_schemas! {
                     required ledger_dir: String
                     required network: amaru_kernel::NetworkName
                 }
+                /// Roll the node databases back after a failure
+                public ROLLBACK {
+                    required chain_dir: String
+                    required ledger_dir: String
+                    required network: amaru_kernel::NetworkName
+                    required mode: String
+                    optional epoch: u64
+                    optional ledger_tip: String
+                    optional best_chain: String
+                    optional anchor: String
+                }
             }
             snapshot {
                 /// Create snapshots for the given network

@@ -503,6 +503,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
 | `rm` | `TRACE` | public | Remove ledger and chain database from disk | chain_dir, ledger_dir, network |  |
+| `rollback` | `TRACE` | public | Roll the node databases back after a failure | chain_dir, ledger_dir, network, mode | epoch, ledger_tip, best_chain, anchor |
 
 <details><summary>span: `bootstrap`</summary>
 
@@ -522,6 +523,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `chain_dir` | `string` | ✓ |
 | `ledger_dir` | `string` | ✓ |
 | `network` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `rollback`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `chain_dir` | `string` | ✓ |
+| `ledger_dir` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `mode` | `string` | ✓ |
+| `epoch` | `integer` |  |
+| `ledger_tip` | `string` |  |
+| `best_chain` | `string` |  |
+| `anchor` | `string` |  |
 
 </details>
 

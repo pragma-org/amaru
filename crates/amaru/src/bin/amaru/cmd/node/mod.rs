@@ -17,6 +17,7 @@ use clap::Subcommand;
 
 pub(crate) mod bootstrap;
 pub(crate) mod rm;
+pub(crate) mod rollback;
 pub(crate) mod run;
 
 #[derive(Debug, Subcommand)]
@@ -37,6 +38,21 @@ pub(crate) enum NodeCommand {
     #[clap(verbatim_doc_comment)]
     Bootstrap(bootstrap::Args),
 
+    /// Roll the node databases back after a failure (for example a wrongly invalidated block).
+    ///
+    /// The node should be stopped before running this command.
+    ///
+    /// - `--immutable-tip` only realigns the chain store to the ledger's immutable tip. The ledger is
+    ///   left unchanged (the volatile DB is not persisted, so offline it is already gone).
+    ///
+    /// - `--epoch` rewinds the ledger to the start of the given epoch (via historical snapshots) and
+    ///   then realigns the chain store to the new ledger tip.
+    ///
+    /// Chain realignment sets the anchor and best tip to the target point, culls the best-chain
+    /// fragment after it, and clears all block-validation flags on descendant headers so they can be
+    /// re-validated on the next run. Headers and blocks themselves are kept.
+    Rollback(rollback::Args),
+
     /// Remove the node's ledger and chain databases.
     Rm(rm::Args),
 }
@@ -46,6 +62,7 @@ impl NodeCommand {
         match self {
             Self::Run(args) => run::runnable(args),
             Self::Bootstrap(args) => bootstrap::runnable(args),
+            Self::Rollback(args) => rollback::runnable(args),
             Self::Rm(args) => rm::runnable(args),
         }
     }

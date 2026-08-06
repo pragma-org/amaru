@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: add `amaru node rollback` to recover after a wrongly invalidated block or to rewind to an epoch start. Supports `--immutable-tip` (chain store only) and `--epoch` (ledger snapshot reset + chain realign). Clears all descendant validation flags, sets the anchor/best tip, and culls the best-chain fragment. ([#1072](https://github.com/pragma-org/amaru/issues/1072))
 - **amaru**: add `amaru mithril sync` to download verified Mithril immutable files and replay their blocks directly into the chain and ledger stores.
 - **amaru**: add `amaru node rm --wipe-all-dbs` to remove the ledger and chain databases resolved from the selected network.
 - **amaru-tui**: `node run` now launches a feature-rich TUI that feeds from the emitted traces and metrics to provide an out-of-the-box dashboard for Amaru. Can be disabled with `--no-tui`.
@@ -47,6 +48,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-stores**: bump chain DB schema to version 5. Migration from earlier versions is intentionally refused: opcert sequence numbers must come from a snapshot bootstrap (`amaru node rm --wipe-all-dbs` then `amaru node bootstrap`). Version-mismatch errors on `amaru node run` now suggest `amaru dev chain migrate` / `--migrate-chain-db`. ([#1152](https://github.com/pragma-org/amaru/issues/1152))
+- **amaru**: prefer `amaru node rollback --epoch` over `amaru dev ledger reset` / legacy `reset-to-epoch`. The low-level ledger-only reset is hidden; the legacy alias now performs full recovery (ledger + chain realign). ([#1072](https://github.com/pragma-org/amaru/issues/1072))
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 - **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
 - **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.

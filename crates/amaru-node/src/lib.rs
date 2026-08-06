@@ -12,9 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod chain_realign;
+pub mod ledger_reset;
 pub mod peer_snapshot;
 pub mod stages;
 pub mod submit_api;
+
+pub use chain_realign::{ClearValidity, realign_chain_store_to};
+pub use ledger_reset::reset_ledger_to_epoch;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;
