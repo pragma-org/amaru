@@ -20,6 +20,10 @@ mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
+mod git_info {
+    include!(concat!(env!("OUT_DIR"), "/git_info.rs"));
+}
+
 static PACKAGE_VERSION: LazyLock<String> = LazyLock::new(|| {
     let version = format!(
         "{}.{}.{}",
@@ -46,15 +50,15 @@ pub fn display_version() -> &'static str {
 }
 
 pub fn git_commit_hash() -> Option<&'static str> {
-    built_info::GIT_COMMIT_HASH
+    git_info::GIT_COMMIT_HASH
 }
 
 pub fn git_commit_hash_short() -> Option<&'static str> {
-    built_info::GIT_COMMIT_HASH_SHORT
+    git_info::GIT_COMMIT_HASH_SHORT
 }
 
 pub fn git_dirty() -> Option<bool> {
-    built_info::GIT_DIRTY
+    git_info::GIT_DIRTY
 }
 
 pub fn target_os() -> &'static str {

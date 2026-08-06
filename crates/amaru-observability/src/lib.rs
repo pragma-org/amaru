@@ -14,6 +14,7 @@
 
 extern crate self as amaru_observability;
 
+pub mod aliases;
 mod record_fields;
 pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
