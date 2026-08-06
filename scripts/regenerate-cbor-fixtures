@@ -20,6 +20,9 @@ COUNT="${CBOR_FIXTURE_COUNT:-64}"
 SEED="${CBOR_FIXTURE_SEED:-42}"
 ERA="conway"
 
+# How many samples generated as negatives turned out to satisfy the schema anyway.
+RELABELLED=0
+
 # The file actually handed to cuddle: the upstream grammar with the local overrides applied.
 CDDL_FILE="$TOOL_DIR/conway.effective.cddl"
 
@@ -121,6 +124,24 @@ emit() {
     return 1
   fi
 
+  # Label the sample from cuddle's own validator rather than from the generation mode.
+  #
+  # `zapAntiGen` perturbs bytes without knowing which perturbations leave the term conformant, so a
+  # "negative" is frequently still schema-valid — it mutates a uint into another uint, or shortens a
+  # byte string the schema does not bound. Such a sample is a positive wearing the wrong label, and
+  # it only looks like a negative against a decoder that happens to reject it for an unrelated
+  # reason. Asking `validate-cbor` is the only way to tell, and it keeps `well_formed` meaning
+  # "the schema accepts this" rather than "we asked antigen to break it".
+  #
+  # This runs before the era envelope is prepended, since the `block` rule does not describe it.
+  local well_formed=true
+  if ! "$CUDDLE_BIN" validate-cbor -f binary "$kind" "$tmp" "$CDDL_FILE" >/dev/null 2>&1; then
+    well_formed=false
+  fi
+  if [ "$mode" = "negative" ] && [ "$well_formed" = "true" ]; then
+    RELABELLED=$((RELABELLED + 1))
+  fi
+
   # amaru wraps blocks in `[era_tag, block]` (CBOR `82 07 …` for Conway).
   # cuddle generates the bare block per the CDDL `block = [...]` rule, so
   # we prepend the era envelope here.
@@ -139,13 +160,14 @@ emit() {
   mkdir -p "$dest_dir"
   mv "$tmp" "$dest_dir/sample.cbor"
 
-  local well_formed source desc
+  # `source` and `description` record provenance — which generator produced the sample — while
+  # `well_formed` records the validator's verdict. They can legitimately disagree: an
+  # "antigen-negative" that the schema still accepts is a positive.
+  local source desc
   if [ "$mode" = "positive" ]; then
-    well_formed=true
     source=cuddle
     desc="$(printf 'cuddle-positive #%04d' "$idx")"
   else
-    well_formed=false
     source=antigen
     desc="$(printf 'antigen-negative #%04d' "$idx")"
   fi
@@ -212,6 +234,10 @@ run block positive
 run block negative
 run transaction_body positive
 run transaction_body negative
+
+if [ "$RELABELLED" -gt 0 ]; then
+  echo "==> $RELABELLED sample(s) generated as negatives still satisfy the schema; labelled well_formed"
+fi
 
 # Reconcile each fixture's `known_amaru_divergence` flag with amaru's current
 # behavior:
