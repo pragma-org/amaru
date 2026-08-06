@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{NativeScript, cbor, utils::string::blanket_try_from_hex_bytes};
+use crate::{cbor, utils::string::blanket_try_from_hex_bytes, NativeScript};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "&str")]
@@ -74,7 +74,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{Hash, NativeScript, any_hash28, cbor, size::KEY, to_cbor, utils::cbor::CborArray};
+    use crate::{any_hash28, cbor, size::KEY, to_cbor, utils::cbor::CborArray, Hash, NativeScript};
 
     // --------------------------------------------------------------------------------------------
     // Tests
@@ -111,7 +111,7 @@ mod tests {
         ScriptPubkey(Hash<KEY>),
         ScriptAll(CborArray<VariableEncodingNativeScript>),
         ScriptAny(CborArray<VariableEncodingNativeScript>),
-        ScriptNOfK(u32, CborArray<VariableEncodingNativeScript>),
+        ScriptNOfK(i64, CborArray<VariableEncodingNativeScript>),
         InvalidBefore(u64),
         InvalidHereafter(u64),
     }
@@ -133,7 +133,7 @@ mod tests {
                 );
 
                 let n_of_k =
-                    (any::<bool>(), any::<u32>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize))
+                    (any::<bool>(), any::<i64>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize))
                         .prop_map(|(is_def, n, sigs)| {
                             ScriptNOfK(n, if is_def { CborArray::Def(sigs) } else { CborArray::Indef(sigs) })
                         });
