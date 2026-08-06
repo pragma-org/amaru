@@ -90,13 +90,16 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     } else {
         // OpenTelemetry batch exporters require a current Tokio runtime.
         let _enter = rt.enter();
-        setup_observability(
+        let result = setup_observability(
             with_open_telemetry,
             with_json_traces,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
             tui.as_ref().map(tui::Session::layer),
-        )
+        );
+        // Record precise binary identity in operator logs as soon as tracing is live.
+        version::log_build_version();
+        result
     };
 
     let result = runnable.run_on(&rt, &signals, metrics);
