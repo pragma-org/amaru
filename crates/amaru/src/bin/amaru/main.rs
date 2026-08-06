@@ -24,14 +24,13 @@ use amaru::{
 use amaru_observability::error;
 use amaru_tui as tui;
 use anyhow::anyhow;
-use mimalloc::MiMalloc;
 
 mod cli;
 mod cmd;
 mod pid;
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+#[cfg_attr(not(target_family = "windows"), global_allocator)]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> ExitCode {
     panic_handler();
