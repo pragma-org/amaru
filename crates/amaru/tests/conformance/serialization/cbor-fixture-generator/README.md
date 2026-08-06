@@ -14,6 +14,10 @@ and are picked up by the Rust test at `crates/amaru-kernel/tests/test_cbor_seria
 - **`cuddle gen --negative`** uses [`antigen`][antigen]'s `zapAntiGen` to perturb the same generator so the result is
   intentionally malformed.
 - A `--seed N` flag makes every run deterministic (the same seed always produces the same CBOR).
+- `--no-twiddle` is passed for negatives fixtures. Otherwise we might just switch from a definite to an 
+  indefinite-length encoding and that would not produce a truly negative test case.
+- The rules cuddle sees are `conway.cddl` with [`conway.overrides.cddl`](./conway.overrides.cddl) applied; see
+  `build_effective_cddl` in the script.
 
 The companion script [`scripts/regenerate-cbor-fixtures`](../../scripts/regenerate-cbor-fixtures) loops over kind ×
 mode × seed and writes the fixtures + a `meta.json` per sample.
