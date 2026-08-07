@@ -100,9 +100,7 @@ rlimit = "0.10.2"
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 assert_cmd.workspace = true
-quote.workspace = true
 rocksdb.workspace = true
-syn.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
 zstd.workspace = true
@@ -117,9 +115,7 @@ amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
 [build-dependencies]
 anyhow.workspace = true
-built = { workspace = true, features = ["git2"] }
-quote.workspace = true
-syn.workspace = true
+built.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
