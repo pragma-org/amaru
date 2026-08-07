@@ -1,0 +1,33 @@
+{
+  "title": "pool registration with cost one below minimum",
+  "description": "A pool registration certificate with cost one lovelace below minStakePoolCost (339,999,999 vs 340,000,000).",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a1e19b040ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb001a1443fcffd81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60800ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258405bf91c80c433b14df72a12fc8f4732878ff6f7e26084bb64d7ce67ab78a50a638ad280d26f3f721e2db231c4c86207d625b9486fbca65c14cd9950b5776f7203f5f6",
+  "expected": {
+    "predicate": "StakePoolCostTooLowPOOL"
+  }
+}

@@ -8,20 +8,41 @@ to increase confidence their phase-one implementation conforms.
 ## Layout
 
 ```text
-pass/<name>.json
-fail/<Predicate>/<n>.json
+pass/<id>-<name>.json
+fail/<id>-<name>.json
 common/
   protocolParameters/<preset>.json
   eraHistory/<preset>.json
+  test-credentials/<name>.skey, <name>.vkey
 schema.json
 ```
 
-`<Predicate>` matches the Haskell ledger's predicate-failure name (e.g.
-`InvalidWitnessesUTXOW`). `<n>` distinguishes multiple cases for the same
-predicate.
+`pass/` holds transactions that must validate, `fail/` those that must be
+rejected.
 
-`common/` holds shared canonical documents that fixtures reference instead of
-inlining. See [Shared documents](#shared-documents) below.
+`<id>` is a 5-digit number, unique across *both* directories, that identifies the
+fixture on its own; `00065` is one fixture, whichever directory it is in. It is
+a permanent handle: fixtures are never renumbered, and an id is not reused when a
+fixture is deleted, so an external reference to a fixture stays meaningful.
+
+`<name>` is a kebab-case description of the **scenario**
+(`00065-stake-delegation-to-unregistered-pool`), not of the expected failure. The
+predicate a `fail/` fixture must trip is stated once, in `expected.predicate`, so
+that a fixture's location can never contradict its expectation. To list the
+fixtures covering one predicate, grep for it:
+
+```console
+$ grep -l '"predicate": "DelegateeStakePoolNotRegistered"' fail/*.json
+```
+
+`common/protocolParameters/` and `common/eraHistory/` hold shared canonical documents
+that fixtures reference instead of inlining. See [Shared documents](#shared-documents)
+below.
+
+`common/test-credentials/` holds the Ed25519 test keys the fixtures sign with, as
+hex, so that any implementation can rebuild a witness set or author a new fixture
+with the same credentials. See its
+[README](./common/test-credentials/README.md); `dev-42` is the default signer.
 
 ## Schema
 
@@ -30,7 +51,7 @@ required-field rules.
 
 | Field                | Notes                                                  |
 | -------------------- | ------------------------------------------------------ |
-| `title`              | Optional. Informational; ignored by the harness.       |
+| `title`              | Optional, but names the generated test case, so it must be unique across the corpus. Falls back to the fixture's path when absent. |
 | `description`        | Optional. Informational; ignored by the harness.       |
 | `network`            | `mainnet`, `preprod`, `preview`, or `testnet_<magic>`. |
 | `eraHistory`         | Inline `{ stabilityWindow, eras: [EraSummary] }` or a `$ref` to a shared file. |
@@ -38,7 +59,7 @@ required-field rules.
 | `initialState`       | See [Initial state](#initial-state).                   |
 | `point`              | `{ slot, transactionIndex }`.                          |
 | `transaction`        | Hex-encoded CBOR.                                      |
-| `expected`           | `"Pass"` or `{ "predicate": "<Name>", ... }`.          |
+| `expected`           | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decodingFailure": true }`. |
 
 UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 `output` is the transaction output.
@@ -46,9 +67,9 @@ UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 ### Initial state
 
 Initial state represents the state on which the transaction is validated. Currently,
-it is made up of five fields:
+it is made up of six fields:
 
-
+- `utxo`: array of `{ input, output }` pairs of hex-encoded CBOR, as described above.
 - `pools`: array of hex-encoded pool key hashes, does not contain pool's parameters.
 - `accounts`: `[{ credential, deposit, rewards?, pool?, drep? }]`. `credential`
   is hex-encoded CBOR of a `StakeCredential`; `deposit`/`rewards` are lovelace
@@ -58,6 +79,8 @@ it is made up of five fields:
 - `dreps`: `[{ credential, deposit, registeredAt, validUntil }]`, with the same
   `credential` encoding, a `registeredAt` certificate pointer, and a `validUntil`
   epoch.
+- `governanceActivity`: `{ consecutiveDormantEpochs }`.
+- `pots`: `{ treasury, reserves }`, the protocol pots as of the initial state.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:
@@ -111,25 +134,26 @@ A harness should:
 2. Build an initial ledger state from `network`, `eraHistory`,
    `protocolParameters`, and `initialState`. Hex-decode then CBOR-decode each
    UTxO entry's `input` and `output`.
-3. Hex-decode and CBOR-decode the `transaction`.
+3. Hex-decode and CBOR-decode the `transaction`. If `expected` is
+   `{ "decodingFailure": true }`, that decode must itself fail and no validation
+   is run.
 4. Run phase-one validation against that state and `point`.
 5. Compare the result to `expected`:
    - If `expected` is `"Pass"`, validation must succeed.
-   - If `expected` is an object, validation must fail with an error that
-     corresponds to `expected.predicate` (and to any other fields present).
-     Implementations are responsible for mapping their internal error types
-     to the canonical predicate names.
+   - If `expected` carries a `predicate`, validation must fail with an error that
+     corresponds to it (and to any other fields present). Implementations are
+     responsible for mapping their internal error types to the canonical
+     predicate names.
 
 The Amaru implementation lives in
 `crates/amaru-ledger/src/rules/transaction/phase_one/mod.rs`.
 
 ## Adding a fixture
 
-1. Place the JSON in `pass/<name>.json` for a passing fixture, or
-   `fail/<Predicate>/<n>.json` for a failing one. A failing fixture must
-   exercise exactly one predicate failure; the transaction should be valid
-   in every other respect.
-2. Register it in the `#[test_case(...)]` list in `mod.rs`.
-3. If the predicate is new, add a variant to `Predicate` and a match arm in
+1. Place the JSON in `pass/<id>-<name>.json` or `fail/<id>-<name>.json`, taking
+   the next unused id; one above the highest in either directory. A failing
+   fixture must exercise exactly one predicate failure; the transaction should
+   be valid in every other respect.
+2. If the predicate is new, add a variant to `Predicate` and a match arm in
    `From<PhaseOneError> for Predicate` in `fixture.rs`.
-4. Open a PR, proposing the new fixture(s).
+3. Open a PR, proposing the new fixture(s).
