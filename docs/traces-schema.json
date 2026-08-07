@@ -3915,6 +3915,40 @@
       "description": "A connection has been terminated (graceful disconnect, error, handshake refusal, or network error).",
       "public": true
     },
+    "amaru::setup::build::VERSION": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "git_commit": {
+          "type": "string"
+        },
+        "git_dirty": {
+          "type": "boolean"
+        },
+        "os": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "git_commit",
+        "git_dirty",
+        "os",
+        "arch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "version",
+      "level": "TRACE",
+      "target": "amaru::setup::build",
+      "description": "Running binary build/version identity (package version, git commit, target).",
+      "public": true
+    },
     "amaru::setup::observability::INIT": {
       "type": "object",
       "properties": {

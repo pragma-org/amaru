@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: log precise build identity (package version, full git commit, dirty flag, OS/arch) at INFO after tracing is set up, so operator log files identify the running binary. ([#1161](https://github.com/pragma-org/amaru/issues/1161))
 - **amaru**: add `amaru node rollback` to recover after a wrongly invalidated block or to rewind to an epoch start. Supports `--immutable-tip` (chain store only) and `--epoch` (ledger snapshot reset + chain realign). Clears all descendant validation flags, sets the anchor/best tip, and culls the best-chain fragment. ([#1072](https://github.com/pragma-org/amaru/issues/1072))
 - **amaru**: add `amaru mithril sync` to download verified Mithril immutable files and replay their blocks directly into the chain and ledger stores.
 - **amaru**: add `amaru node rm --wipe-all-dbs` to remove the ledger and chain databases resolved from the selected network.

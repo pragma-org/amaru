@@ -1575,6 +1575,16 @@ define_schemas! {
                     required with_colors: bool
                 }
             }
+            build {
+                /// Running binary build/version identity (package version, git commit, target).
+                public VERSION {
+                    required version: String
+                    required git_commit: String
+                    required git_dirty: bool
+                    required os: String
+                    required arch: String
+                }
+            }
             trace {
                 /// Resolution of a trace filter from the environment
                 public FILTER {

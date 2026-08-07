@@ -1846,6 +1846,24 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::setup::build`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `version` | `TRACE` | public | Running binary build/version identity (package version, git commit, target). | version, git_commit, git_dirty, os, arch |  |
+
+<details><summary>span: `version`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `version` | `string` | ✓ |
+| `git_commit` | `string` | ✓ |
+| `git_dirty` | `boolean` | ✓ |
+| `os` | `string` | ✓ |
+| `arch` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::setup::observability`
 
 | name | level | public | description | required fields | optional fields |
