@@ -1,0 +1,61 @@
+{
+  "title": "vote cast by a registered drep key credential at protocol version 11",
+  "description": "A drep vote under an empty committee.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": {
+      "version": {
+        "major": 11,
+        "minor": 0
+      }
+    }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "82582034dddf8594f3f31b278e95c154bf1ce39452cae2308654c224c55661ecfaaaad00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 500000000,
+        "registeredAt": {
+          "transaction": {
+            "slot": 0,
+            "transactionIndex": 0
+          },
+          "certificateIndex": 0
+        },
+        "validUntil": 1000
+      }
+    ],
+    "committee": [],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 100
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    },
+    "pots": {
+      "treasury": 0,
+      "reserves": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d901028182582034dddf8594f3f31b278e95c154bf1ce39452cae2308654c224c55661ecfaaaad000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584045133ca066b7bd4cf08b707e4367485b024b149a4a4d823f85059d9f4cc849a7a72f14ab2892f135c7e4a9eebc36e09b5e03fbab8c47a7a318f5b7f9ce62670ef5f6",
+  "expected": "Pass"
+}

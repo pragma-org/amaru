@@ -43,6 +43,7 @@ Other guiding principles:
 - **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
 - **amaru-ledger**: validate the governance actions a transaction votes on actually exist, counting proposals submitted earlier in the same block. ([#1139][], [#924][])
 - **amaru-ledger**: reject votes cast on governance actions that have expired. A proposal's expiry is now stamped once, when it is submitted, and carried through the volatile state, which will resolve some potential bugs. ([#1143][], [#926][])
+- **amaru-ledger**: from protocol version 11 on, reject votes cast by constitutional committee members the *elected* committee does not name, even when they hold an authorized hot credential. ([#1157][], [#922][])
 
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
@@ -272,6 +273,7 @@ Other guiding principles:
 [#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#922]: https://github.com/pragma-org/amaru/issues/922
 [#923]: https://github.com/pragma-org/amaru/issues/923
 [#924]: https://github.com/pragma-org/amaru/issues/924
 [#926]: https://github.com/pragma-org/amaru/issues/926
@@ -330,3 +332,4 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
+[#1157]: https://github.com/pragma-org/amaru/pull/1157

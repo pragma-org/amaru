@@ -297,6 +297,7 @@ pub(super) enum Predicate {
     StakePoolRetirementWrongEpochPOOL,
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
+    UnelectedCommitteeVoters,
     ValueNotConservedUTxO,
     VotersDoNotExist,
     VotingOnExpiredGovAction,
@@ -364,6 +365,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
                 Predicate::ProposalReturnAccountDoesNotExist
+            }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::UnelectedCommitteeVoter(_)) => {
+                Predicate::UnelectedCommitteeVoters
             }
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::VotersDoNotExist(_)) => {
                 Predicate::VotersDoNotExist
