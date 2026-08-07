@@ -29,7 +29,8 @@ mod cli;
 mod cmd;
 mod pid;
 
-#[cfg_attr(not(target_family = "windows"), global_allocator)]
+#[cfg(not(target_family = "windows"))]
+#[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() -> ExitCode {
