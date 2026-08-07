@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
+### Fixed
+
+- **amaru-kernel**: fix the decoding of data types that were not conforming to the specification ([#1172](https://github.com/pragma-org/amaru/issues/1172))
+
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
 ### Added
