@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
+### Added
+
+- **amaru-consensus**: track peer-sharing reputation (handshake advertisability, connection failures, sticky adversarial flag, and whether a successful connection was ever established) so peer selection can filter share candidates. ([#1167](https://github.com/pragma-org/amaru/issues/1167))
+
 ### Fixed
 
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])

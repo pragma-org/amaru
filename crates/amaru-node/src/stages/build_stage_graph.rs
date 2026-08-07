@@ -76,13 +76,19 @@ pub fn build_stage_graph(
 
     let peer_selection_notify =
         stage_graph.contramap(&peer_selection_ref, "peer_selection_notify", |n: PeerSelectionNotify| match n {
-            PeerSelectionNotify::Connected { peer, conn_id, direction, full_duplex_capable, full_duplex } => {
-                PeerSelectionMsg::Connected(
-                    peer,
-                    peer_selection::Connection::new(conn_id, full_duplex_capable, full_duplex),
-                    direction,
-                )
-            }
+            PeerSelectionNotify::Connected {
+                peer,
+                conn_id,
+                direction,
+                full_duplex_capable,
+                full_duplex,
+                advertisable,
+            } => PeerSelectionMsg::Connected(
+                peer,
+                peer_selection::Connection::new(conn_id, full_duplex_capable, full_duplex),
+                direction,
+                advertisable,
+            ),
             PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry } => {
                 PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
             }

@@ -109,7 +109,8 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///   (if any). A past `Instant` is delivered on the priority path as soon as the runtime
 ///   can run this stage again.
 ///
-/// - **Connected**:
+/// - **Connected** `(peer, conn, direction, advertisable)`:
+///   Records latest handshake advertisability on the Performance resource, then:
 ///   - `Inbound`: If `inbound_peers.len() >= target_downstream_peers`, logs
 ///     `"rejecting inbound connection: too many peers"`, sends `ManagerMessage::Disconnect`,
 ///     and returns early (no insert). Otherwise inserts (or replaces a prior
@@ -128,7 +129,7 @@ const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
 ///     (Connecting-state peers with `!will_retry` reach the arm but the inner
 ///     `let PeerState::Connected` guard fails silently.)
 ///
-/// - **ConnectFailed**: Removes the peer from
+/// - **ConnectFailed**: Records a connection failure on Performance, removes the peer from
 ///   `outbound_peers` (any `PeerState`), then calls `regulate_peers`.
 ///
 /// - **LedgerCheckCandidates**:
@@ -253,7 +254,8 @@ pub enum PeerSelectionMsg {
     /// A peer has connected and the peer_selection stage can start tracking it.
     ///
     /// This may be a downstream peer or the successful result of a connection attempt.
-    Connected(Peer, Connection, ConnectionDirection),
+    /// `advertisable` is the remote handshake peer-sharing willingness (latest wins in Performance).
+    Connected(Peer, Connection, ConnectionDirection, bool),
     /// A peer has disconnected and the peer_selection stage can stop tracking it.
     Disconnected(Peer, ConnectionId, ConnectionDirection, bool),
     /// A (re)connection attempt has failed, the Manager has removed this peer.
@@ -303,7 +305,7 @@ impl PeerSelection {
     async fn ban_peer(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>) {
         let is_static = self.static_peers.contains(&peer);
 
-        eff.external(Performance::forget_peer(peer.clone())).await;
+        eff.external(Performance::peer_adversarial(peer.clone())).await;
 
         let mut send_remove = false;
         if let Some(peer_state) = self.inbound_peers.remove(&peer) {
@@ -547,7 +549,9 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 tracing::info!(%peer, "not adding peer because already added");
             }
         }
-        PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Inbound) => {
+        PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Inbound, advertisable) => {
+            let now = eff.clock().await;
+            eff.external(Performance::record_advertisability(peer.clone(), advertisable, now)).await;
             if state.inbound_peers.len() >= state.target_downstream_peers {
                 tracing::info!(%peer, "rejecting inbound connection: too many peers");
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, connection.id)).await;
@@ -569,7 +573,9 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 eff.send(&state.manager, ManagerMessage::Disconnect(peer, conn.id)).await;
             }
         }
-        PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Outbound) => {
+        PeerSelectionMsg::Connected(peer, connection, ConnectionDirection::Outbound, advertisable) => {
+            let now = eff.clock().await;
+            eff.external(Performance::record_advertisability(peer.clone(), advertisable, now)).await;
             let span = debug_span!(
                 amaru::protocols::peer_selection::peer::CONNECTED,
                 peer = &peer,
@@ -625,6 +631,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
         }
         PeerSelectionMsg::ConnectFailed(peer) => {
+            let now = eff.clock().await;
+            eff.external(Performance::record_connection_failure(peer.clone(), now)).await;
             state.outbound_peers.remove(&peer);
             state.clear_availability_if_gone(&peer, &eff).await;
             state.regulate_peers(&eff).await;

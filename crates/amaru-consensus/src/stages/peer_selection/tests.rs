@@ -27,9 +27,9 @@ use crate::stages::{
     peer_selection::test_setup::{
         TestPrep, cooldown_duration, cooldown_instant, first_schedule_id, first_static_schedule_id,
         peer_selection_stage, second_schedule_id_at, setup, setup_preload, setup_preload_until_sleeping, sim_at,
-        static_cooldown_instant, te_cancel_schedule, te_clear_peer_availability, te_clock, te_clock_suspend,
-        te_forget_peer, te_random_seed, te_schedule, te_send, test_prep, test_prep_with_snapshot,
-        tm_add_stage_starts_with, with_single_cooldown,
+        sim_t0, static_cooldown_instant, te_cancel_schedule, te_clear_peer_availability, te_clock, te_clock_suspend,
+        te_peer_adversarial, te_random_seed, te_record_advertisability, te_record_connection_failure, te_schedule,
+        te_send, test_prep, test_prep_with_snapshot, tm_add_stage_starts_with, with_single_cooldown,
     },
     test_utils::{assert_trace, te_input, te_state, tm_state},
 };
@@ -250,7 +250,7 @@ fn test_add_peer_during_cooldown_cancels_timer() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_forget_peer("ps-1", p.clone()),
+            te_peer_adversarial("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
             te_state("ps-1", &after_ban),
@@ -286,7 +286,7 @@ fn test_adversarial_outbound_connected() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_forget_peer("ps-1", p.clone()),
+            te_peer_adversarial("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
             te_state("ps-1", &after),
@@ -350,7 +350,7 @@ fn test_check_cooldowns_before_due_does_not_lift_ban() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_forget_peer("ps-1", p.clone()),
+            te_peer_adversarial("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid0),
             te_state("ps-1", &after_ban),
@@ -381,35 +381,50 @@ fn test_connected_inbound_success() {
     let prep = test_prep(&[]);
     let p = TestPrep::peer("4.4.4.4:4");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Inbound);
+    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Inbound, true);
     let after = {
         let mut s = state.clone();
         s.inbound_peers.insert(p.clone(), conn());
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &after)]);
+    assert_trace(
+        &running,
+        &[
+            te_state("ps-1", &state),
+            te_input("ps-1", &msg),
+            te_clock_suspend("ps-1"),
+            te_record_advertisability("ps-1", p.clone(), true, sim_t0()),
+            te_state("ps-1", &after),
+        ],
+    );
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
 fn test_connected_inbound_too_many() {
-    let prep = test_prep(&[]);
+    let mut prep = test_prep(&[]);
     let p = TestPrep::peer("3.3.3.3:3");
-    let state = prep.state.clone();
-    let mut state_full = state.clone();
     for i in 0..10u8 {
-        state_full.inbound_peers.insert(TestPrep::peer(&format!("1.1.1.{i}:1")), conn());
+        prep.state.inbound_peers.insert(TestPrep::peer(&format!("1.1.1.{i}:1")), conn());
     }
-    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Inbound);
-    let (running, _guards, mut logs) = setup_preload(&prep, [msg.clone()]);
-    let after = {
-        let mut s = state.clone();
-        s.inbound_peers.insert(p.clone(), conn());
-        s
-    };
-    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &after)]);
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    let state = prep.state.clone();
+    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Inbound, false);
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    // At capacity: still records advertisability, then disconnects without inserting.
+    assert_trace(
+        &running,
+        &[
+            te_state("ps-1", &state),
+            te_input("ps-1", &msg),
+            te_clock_suspend("ps-1"),
+            te_record_advertisability("ps-1", p.clone(), false, sim_t0()),
+            te_send("ps-1", "manager", ManagerMessage::Disconnect(p.clone(), ConnectionId::initial())),
+            te_state("ps-1", &state),
+        ],
+    );
+    logs.assert_and_remove(Level::INFO, &["rejecting inbound connection: too many peers"])
+        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -417,14 +432,52 @@ fn test_connected_outbound() {
     let prep = test_prep(&[]);
     let p = TestPrep::peer("2.2.2.2:2");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Outbound);
+    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Outbound, true);
     let after = {
         let mut s = state.clone();
         s.outbound_peers.insert(p.clone(), PeerState::Connected(conn()));
         s
     };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(&running, &[te_state("ps-1", &state), te_input("ps-1", &msg), te_state("ps-1", &after)]);
+    assert_trace(
+        &running,
+        &[
+            te_state("ps-1", &state),
+            te_input("ps-1", &msg),
+            te_clock_suspend("ps-1"),
+            te_record_advertisability("ps-1", p.clone(), true, sim_t0()),
+            te_state("ps-1", &after),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_connect_failed_records_failure() {
+    let mut prep = test_prep(&[]);
+    let p = TestPrep::peer("5.5.5.5:5");
+    prep.state.outbound_peers.insert(p.clone(), PeerState::Connecting);
+    let state = prep.state.clone();
+    // Empty static/snapshot: regulate finds no replacements after remove.
+    let after = {
+        let mut s = state.clone();
+        s.outbound_peers.remove(&p);
+        s
+    };
+    let msg = PeerSelectionMsg::ConnectFailed(p.clone());
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("ps-1", &state),
+            te_input("ps-1", &msg),
+            te_clock_suspend("ps-1"),
+            te_record_connection_failure("ps-1", p.clone(), sim_t0()),
+            te_clear_peer_availability("ps-1", p.clone()),
+            te_random_seed("ps-1"),
+            te_state("ps-1", &after),
+        ],
+    );
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -504,12 +557,12 @@ fn test_adversarial_twice_extends_cooldown_single_timer() {
         &[
             te_state("ps-1", &state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_forget_peer("ps-1", p.clone()),
+            te_peer_adversarial("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid0),
             te_state("ps-1", &after_first),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p.clone())),
-            te_forget_peer("ps-1", p.clone()),
+            te_peer_adversarial("ps-1", p.clone()),
             te_clock_suspend("ps-1"),
             te_state("ps-1", &after_second),
             te_clock(cooldown_instant()),
@@ -860,12 +913,12 @@ fn test_second_cooldown_does_not_schedule_again() {
         &[
             te_state("ps-1", &prep.state),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p1.clone())),
-            te_forget_peer("ps-1", p1.clone()),
+            te_peer_adversarial("ps-1", p1.clone()),
             te_clock_suspend("ps-1"),
             te_schedule("ps-1", PeerSelectionMsg::CheckCooldowns, sid),
             te_state("ps-1", &after_first),
             te_input("ps-1", &PeerSelectionMsg::adversarial(p2.clone())),
-            te_forget_peer("ps-1", p2.clone()),
+            te_peer_adversarial("ps-1", p2.clone()),
             te_clock_suspend("ps-1"),
             te_state("ps-1", &after_second),
             te_clock(cooldown_instant()),

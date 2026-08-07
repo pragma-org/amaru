@@ -129,18 +129,39 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<ScheduleId>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GenerateRandomSeed>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::ForgetPeerEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::PeerAdversarialEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordAdvertisabilityEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordConnectionFailureEffect>().boxed(),
     ]
 }
 
-pub fn te_forget_peer(at_stage: &str, peer: Peer) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::performance::Performance::forget_peer(peer))))
+/// Simulation clock at t0 (matches `run_simulation` initial clock of +10s).
+pub fn sim_t0() -> Instant {
+    Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time)
+}
+
+pub fn te_peer_adversarial(at_stage: &str, peer: Peer) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::performance::Performance::peer_adversarial(peer))))
 }
 
 pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::clear_peer_availability(peer)),
+    ))
+}
+
+pub fn te_record_advertisability(at_stage: &str, peer: Peer, advertisable: bool, at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_advertisability(peer, advertisable, at)),
+    ))
+}
+
+pub fn te_record_connection_failure(at_stage: &str, peer: Peer, at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_connection_failure(peer, at)),
     ))
 }
 

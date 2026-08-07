@@ -315,6 +315,7 @@ async fn do_handshake(
     let full_duplex_capable = version_data.is_full_duplex_capable();
     // TODO: this needs to change once we actually start supporting full duplex mode
     let full_duplex = false;
+    let advertisable = version_data.is_advertisable();
 
     eff.send(
         manager,
@@ -325,6 +326,7 @@ async fn do_handshake(
             role: *role,
             full_duplex_capable,
             full_duplex,
+            advertisable,
         },
     )
     .await;

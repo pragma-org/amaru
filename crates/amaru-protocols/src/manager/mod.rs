@@ -46,6 +46,7 @@ pub enum PeerSelectionNotify {
         direction: ConnectionDirection,
         full_duplex_capable: bool,
         full_duplex: bool,
+        advertisable: bool,
     },
 
     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
@@ -98,6 +99,7 @@ pub enum ManagerMessage {
         role: Role,
         full_duplex_capable: bool,
         full_duplex: bool,
+        advertisable: bool,
     },
 }
 
@@ -422,13 +424,14 @@ impl Manager {
         role: Role,
         full_duplex_capable: bool,
         full_duplex: bool,
+        advertisable: bool,
         eff: &Effects<ManagerMessage>,
     ) {
         let direction = match role {
             Role::Initiator => ConnectionDirection::Outbound,
             Role::Responder => ConnectionDirection::Inbound,
         };
-        tracing::info!(%peer, %conn_id, full_duplex_capable, full_duplex, "handshake completed");
+        tracing::info!(%peer, %conn_id, full_duplex_capable, full_duplex, advertisable, "handshake completed");
         let peer_state = self.peers.entry(peer.clone()).or_default();
         let accept_this = match direction {
             ConnectionDirection::Outbound => {
@@ -457,6 +460,7 @@ impl Manager {
                     direction,
                     full_duplex_capable,
                     full_duplex,
+                    advertisable,
                 },
             )
             .await;
@@ -656,8 +660,27 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 );
                 manager.connection_died(peer, conn_id, role, &eff).instrument(span).await;
             }
-            ManagerMessage::HandshakeComplete { peer, stage, conn_id, role, full_duplex_capable, full_duplex } => {
-                manager.handshake_complete(peer, stage, conn_id, role, full_duplex_capable, full_duplex, &eff).await;
+            ManagerMessage::HandshakeComplete {
+                peer,
+                stage,
+                conn_id,
+                role,
+                full_duplex_capable,
+                full_duplex,
+                advertisable,
+            } => {
+                manager
+                    .handshake_complete(
+                        peer,
+                        stage,
+                        conn_id,
+                        role,
+                        full_duplex_capable,
+                        full_duplex,
+                        advertisable,
+                        &eff,
+                    )
+                    .await;
             }
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;

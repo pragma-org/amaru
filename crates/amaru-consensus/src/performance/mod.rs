@@ -49,7 +49,9 @@ use amaru_pure_stage::Instant;
 pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
 use parking_lot::Mutex;
-pub use peer::{BlockClaim, ClaimKind, FetchPeerSet, PeerPerformance, PeerScores, PeerSnapshot, SelectPeersParams};
+pub use peer::{
+    BlockClaim, ClaimKind, FetchPeerSet, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot, SelectPeersParams,
+};
 use tokio::{
     sync::{
         mpsc::{UnboundedSender, unbounded_channel},
@@ -137,8 +139,10 @@ pub(crate) enum PerformanceOp {
     RecordBlockDelivery { effect: RecordBlockDeliveryEffect },
     RecordFetchFailure { effect: RecordFetchFailureEffect },
     RecordKeepaliveRtt { effect: RecordKeepaliveRttEffect },
+    RecordAdvertisability { effect: RecordAdvertisabilityEffect },
+    RecordConnectionFailure { effect: RecordConnectionFailureEffect },
     ClearPeerAvailability { effect: ClearPeerAvailabilityEffect },
-    ForgetPeer { effect: ForgetPeerEffect },
+    PeerAdversarial { effect: PeerAdversarialEffect },
     PruneBelow { effect: PruneBelowEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     SelectPeersForFetch { effect: SelectPeersForFetchEffect, reply: oneshot::Sender<FetchPeerSet> },
     PeerCoversFragment { effect: PeerCoversFragmentEffect, reply: oneshot::Sender<bool> },
@@ -146,7 +150,9 @@ pub(crate) enum PerformanceOp {
     FirstAnnouncedAt { effect: FirstAnnouncedAtEffect, reply: oneshot::Sender<Option<(Peer, Instant)>> },
     RankPeersForChurn { effect: RankPeersForChurnEffect, reply: oneshot::Sender<Vec<(Peer, PeerScores)>> },
     Scores { effect: ScoresEffect, reply: oneshot::Sender<PeerScores> },
+    ShareFlags { effect: ShareFlagsEffect, reply: oneshot::Sender<Option<PeerShareFlags>> },
     Snapshot { effect: SnapshotEffect, reply: oneshot::Sender<Option<PeerSnapshot>> },
+    OkForSharing { effect: OkForSharingEffect, reply: oneshot::Sender<bool> },
     RecordRollback { effect: RecordRollbackEffect },
     RecordHeaderAbandoned { effect: RecordHeaderAbandonedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordForkStarted { effect: RecordForkStartedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
@@ -277,11 +283,17 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
         PerformanceOp::RecordKeepaliveRtt { effect } => {
             peers.apply_keepalive_rtt(effect.peer, effect.rtt, effect.at);
         }
+        PerformanceOp::RecordAdvertisability { effect } => {
+            peers.apply_advertisability(effect.peer, effect.advertisable, effect.at);
+        }
+        PerformanceOp::RecordConnectionFailure { effect } => {
+            peers.apply_connection_failure(effect.peer, effect.at);
+        }
         PerformanceOp::ClearPeerAvailability { effect } => {
             peers.apply_clear_peer_availability(&effect.peer);
         }
-        PerformanceOp::ForgetPeer { effect } => {
-            peers.apply_forget_peer(&effect.peer);
+        PerformanceOp::PeerAdversarial { effect } => {
+            peers.apply_peer_adversarial(&effect.peer);
         }
         PerformanceOp::PruneBelow { effect, reply } => {
             peers.apply_prune_below(effect.min_height);
@@ -312,8 +324,16 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             let result = peers.apply_scores(&effect.peer);
             let _ = reply.send(result);
         }
+        PerformanceOp::ShareFlags { effect, reply } => {
+            let result = peers.apply_share_flags(&effect.peer);
+            let _ = reply.send(result);
+        }
         PerformanceOp::Snapshot { effect, reply } => {
             let result = peers.apply_snapshot(&effect.peer);
+            let _ = reply.send(result);
+        }
+        PerformanceOp::OkForSharing { effect, reply } => {
+            let result = peers.apply_ok_for_sharing(&effect.peer);
             let _ = reply.send(result);
         }
         PerformanceOp::RecordRollback { effect } => {

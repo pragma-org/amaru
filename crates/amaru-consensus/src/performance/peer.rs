@@ -66,11 +66,41 @@ pub struct PeerScores {
     pub last_change: Option<Instant>,
 }
 
+/// Share-relevant reputation flags stored on the performance map.
+///
+/// Origin (ledger / snapshot / static) and listen-address policy live in peer selection;
+/// this type only exposes what Performance observes across stages.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PeerShareFlags {
+    /// Whether a successful connection (handshake) was ever established with this peer.
+    ///
+    /// Distinct from map presence: connection failures upsert a reputation stub without
+    /// setting this flag.
+    pub ever_connected: bool,
+    /// Latest handshake peer-sharing willingness (`peer_sharing == 1`).
+    pub advertisable: bool,
+    /// Connection / protocol failure count; sharing requires zero.
+    pub failure_count: u32,
+    /// Sticky adversarial marker retained across [`PeerPerformance::apply_peer_adversarial`].
+    pub adversarial: bool,
+}
+
+impl PeerShareFlags {
+    /// Whether Performance would allow this peer into a share reply filter.
+    ///
+    /// Peer selection still applies origin and listen-address rules on top of this check.
+    /// Map presence is required separately (no record ⇒ not shareable).
+    pub fn ok_for_sharing(self) -> bool {
+        self.ever_connected && self.advertisable && self.failure_count == 0 && !self.adversarial
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PeerSnapshot {
     pub peer: Peer,
     pub scores: PeerScores,
     pub tips: Vec<BlockClaim>,
+    pub share: PeerShareFlags,
 }
 
 /// Result of peer selection for a fetch batch.
@@ -108,6 +138,25 @@ struct ClaimMeta {
 struct PeerState {
     tips: BTreeMap<HeaderHash, ClaimMeta>,
     scores: PeerScores,
+    /// Sticky once a successful handshake is observed; not set by connection-failure upserts.
+    ever_connected: bool,
+    /// Latest handshake peer-sharing willingness; latest successful handshake wins.
+    advertisable: bool,
+    /// Connection / protocol failures (distinct from blockfetch `fetch_timeouts`).
+    failure_count: u32,
+    /// Sticky once set by [`PeerPerformance::apply_peer_adversarial`]; not cleared by clear/availability.
+    adversarial: bool,
+}
+
+impl PeerState {
+    fn share_flags(&self) -> PeerShareFlags {
+        PeerShareFlags {
+            ever_connected: self.ever_connected,
+            advertisable: self.advertisable,
+            failure_count: self.failure_count,
+            adversarial: self.adversarial,
+        }
+    }
 }
 
 /// Peer performance map (availability + scores). Owned by the performance worker thread.
@@ -179,12 +228,43 @@ impl PeerPerformance {
         self.direct.retain(|_, claimants| !claimants.is_empty());
     }
 
-    pub fn apply_forget_peer(&mut self, peer: &Peer) {
-        self.peers.remove(peer);
+    /// Mark peer adversarial: clear claims and scores, keep a durable reputation stub.
+    ///
+    /// Retains `ever_connected`, `failure_count`, and last `advertisable`; sets `adversarial = true`.
+    /// The peer entry remains so share filters and cool-down policy can still see the ban history.
+    ///
+    /// This is not a generic “forget”: a future erase-without-adversarial path would be a
+    /// separate operation.
+    pub fn apply_peer_adversarial(&mut self, peer: &Peer) {
         for claimants in self.direct.values_mut() {
             claimants.remove(peer);
         }
         self.direct.retain(|_, claimants| !claimants.is_empty());
+
+        let state = self.peers.entry(peer.clone()).or_default();
+        state.tips.clear();
+        state.scores = PeerScores::default();
+        state.adversarial = true;
+    }
+
+    /// Record latest handshake peer-sharing willingness (overwrites prior value).
+    ///
+    /// Marks the peer as ever-connected (successful handshake). Connection-failure
+    /// upserts do not set that flag.
+    pub fn apply_advertisability(&mut self, peer: Peer, advertisable: bool, at: Instant) {
+        let state = self.peers.entry(peer).or_default();
+        state.ever_connected = true;
+        state.advertisable = advertisable;
+        state.scores.last_change = Some(at);
+    }
+
+    /// Increment connection/protocol failure count (e.g. outbound connect exhausted).
+    ///
+    /// Upserts a reputation stub when needed, but does **not** set `ever_connected`.
+    pub fn apply_connection_failure(&mut self, peer: Peer, at: Instant) {
+        let state = self.peers.entry(peer).or_default();
+        state.failure_count = state.failure_count.saturating_add(1);
+        state.scores.last_change = Some(at);
     }
 
     pub fn apply_prune_below(&mut self, min_height: BlockHeight) {
@@ -216,8 +296,19 @@ impl PeerPerformance {
         self.peers.get(peer).map(|s| s.scores.clone()).unwrap_or_default()
     }
 
+    pub fn apply_share_flags(&self, peer: &Peer) -> Option<PeerShareFlags> {
+        self.peers.get(peer).map(|s| s.share_flags())
+    }
+
     pub fn apply_snapshot(&self, peer: &Peer) -> Option<PeerSnapshot> {
         self.snapshot(peer)
+    }
+
+    /// Whether this peer has a Performance record and passes share reputation checks.
+    ///
+    /// Peer selection still excludes ledger/snapshot origins and pure inbound addresses.
+    pub fn apply_ok_for_sharing(&self, peer: &Peer) -> bool {
+        self.peers.get(peer).is_some_and(|s| s.share_flags().ok_for_sharing())
     }
 
     /// Re-tip a peer after chainsync rollback to `point`.
@@ -362,7 +453,7 @@ impl PeerPerformance {
                 at: meta.at,
             })
             .collect();
-        Some(PeerSnapshot { peer: peer.clone(), scores: state.scores.clone(), tips })
+        Some(PeerSnapshot { peer: peer.clone(), scores: state.scores.clone(), tips, share: state.share_flags() })
     }
 
     fn record_rollback(&mut self, peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) {
