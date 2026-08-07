@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
+### Added
+
+- **amaru-consensus**: add more debug events for the txsubmission stage ([#1173](https://github.com/pragma-org/amaru/issues/1173))
+
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
 ### Added
