@@ -22,10 +22,12 @@ pub struct Constitution {
 
 impl<'b, C> cbor::Decode<'b, C> for Constitution {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let anchor = d.decode_with(ctx)?;
-        let guardrail_script = d.decode_with(ctx)?;
-        Ok(Self { anchor, guardrail_script })
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            let anchor = d.decode_with(ctx)?;
+            let guardrail_script = d.decode_with(ctx)?;
+            Ok(Self { anchor, guardrail_script })
+        })
     }
 }
 

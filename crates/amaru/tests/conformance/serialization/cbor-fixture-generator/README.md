@@ -9,11 +9,15 @@ and are picked up by the Rust test at `crates/amaru-kernel/tests/test_cbor_seria
 ## How it works
 
 - **`cuddle gen`** parses [`conway.cddl`](./conway.cddl) (the Conway-era CDDL schema, bundled here from
-  `cardano-ledger-conway-1.22.1.0`),
+  `cardano-ledger-conway-1.23.0.0`),
   then emits a random CBOR term that matches a named rule (either `block` or `transaction_body`).
 - **`cuddle gen --negative`** uses [`antigen`][antigen]'s `zapAntiGen` to perturb the same generator so the result is
   intentionally malformed.
 - A `--seed N` flag makes every run deterministic (the same seed always produces the same CBOR).
+- `--no-twiddle` is passed for negatives fixtures. Otherwise we might just switch from a definite to an 
+  indefinite-length encoding and that would not produce a truly negative test case.
+- The rules cuddle sees are `conway.cddl` with [`conway.overrides.cddl`](./conway.overrides.cddl) applied; see
+  `build_effective_cddl` in the script.
 
 The companion script [`scripts/regenerate-cbor-fixtures`](../../scripts/regenerate-cbor-fixtures) loops over kind ×
 mode × seed and writes the fixtures + a `meta.json` per sample.
@@ -126,8 +130,14 @@ If positives feel thin after annotation, bump `CBOR_FIXTURE_COUNT` so enough unf
 
 ```bash
 curl -sL https://raw.githubusercontent.com/IntersectMBO/cardano-ledger/cardano-ledger-conway-<VERSION>/eras/conway/impl/cddl/data/conway.cddl \
-    -o conformance-tests/cbor-fixture-generator/conway.cddl
+    -o crates/amaru/tests/conformance/serialization/cbor-fixture-generator/conway.cddl
 ```
+
+Then re-run `make regenerate-cbor-fixtures`: the samples are generated from the grammar, so a
+refreshed grammar invalidates the ones already committed. 
+
+Check `conway.overrides.cddl` at the same time and update it if necessary. 
+An override becomes dead weight once upstream fixes the rule it works around.
 
 [cuddle]: https://github.com/input-output-hk/cuddle
 

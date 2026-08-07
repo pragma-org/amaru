@@ -14,28 +14,20 @@
 
 use crate::{Hash, Hasher, KeyValuePairs, MemoizedNativeScript, Metadatum, NULL_HASH32, PlutusScript, cbor};
 
-#[derive(Debug, Clone, PartialEq, Eq, cbor::Encode, serde::Serialize, serde::Deserialize)]
-#[cbor(map)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuxiliaryData {
-    #[cbor(skip)]
     original_size: u64,
 
-    #[cbor(skip)]
     hash: Hash<{ AuxiliaryData::HASH_SIZE }>,
 
-    #[n(0)]
     metadata: KeyValuePairs<u64, Metadatum>,
 
-    #[n(1)]
     native_scripts: Vec<MemoizedNativeScript>,
 
-    #[n(2)]
     plutus_v1_scripts: Vec<PlutusScript<1>>,
 
-    #[n(3)]
     plutus_v2_scripts: Vec<PlutusScript<2>>,
 
-    #[n(4)]
     plutus_v3_scripts: Vec<PlutusScript<3>>,
 }
 
@@ -145,6 +137,51 @@ impl<'b, C> cbor::Decode<'b, C> for AuxiliaryData {
     }
 }
 
+/// Auxiliary data is always re-encoded in the Conway form, whichever era's form it was decoded from,
+/// with empty entries omitted.
+impl<C> cbor::Encode<C> for AuxiliaryData {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.tag(cbor::TAG_MAP_259)?;
+
+        let present = [
+            !self.metadata.is_empty(),
+            !self.native_scripts.is_empty(),
+            !self.plutus_v1_scripts.is_empty(),
+            !self.plutus_v2_scripts.is_empty(),
+            !self.plutus_v3_scripts.is_empty(),
+        ];
+
+        e.map(present.iter().filter(|is_present| **is_present).count() as u64)?;
+
+        if present[0] {
+            e.u8(0)?;
+            e.encode_with(&self.metadata, ctx)?;
+        }
+        if present[1] {
+            e.u8(1)?;
+            e.encode_with(&self.native_scripts, ctx)?;
+        }
+        if present[2] {
+            e.u8(2)?;
+            e.encode_with(&self.plutus_v1_scripts, ctx)?;
+        }
+        if present[3] {
+            e.u8(3)?;
+            e.encode_with(&self.plutus_v2_scripts, ctx)?;
+        }
+        if present[4] {
+            e.u8(4)?;
+            e.encode_with(&self.plutus_v3_scripts, ctx)?;
+        }
+
+        Ok(())
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Internals
 // ----------------------------------------------------------------------------
@@ -204,5 +241,52 @@ impl AuxiliaryData {
         )?;
 
         Ok(st)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::AuxiliaryData;
+    use crate::{Hasher, from_cbor_no_leftovers, to_cbor};
+
+    // metadata = {721: 42}
+    const METADATA: &str = "a11902d1182a";
+
+    #[test_case("a11902d1182a", "d90103a100a11902d1182a" ; "shelley bare metadata map")]
+    #[test_case("a0", "d90103a0" ; "shelley empty metadata map")]
+    #[test_case("82a11902d1182a80", "d90103a100a11902d1182a" ; "allegra without scripts")]
+    #[test_case("82a080", "d90103a0" ; "allegra with neither metadata nor scripts")]
+    #[test_case("d90103a100a11902d1182a", "d90103a100a11902d1182a" ; "alonzo is unchanged")]
+    #[test_case(
+        "d90103a500a11902d1182a0180028003800480",
+        "d90103a100a11902d1182a" ;
+        "alonzo empty entries are omitted"
+    )]
+    #[test_case(
+        "82a11902d1182a818200581c00000000000000000000000000000000000000000000000000000000",
+        "d90103a200a11902d1182a01818200581c00000000000000000000000000000000000000000000000000000000" ;
+        "allegra with a native script"
+    )]
+    fn encodes_as_conway(input: &str, expected: &str) {
+        let aux: AuxiliaryData = from_cbor_no_leftovers(&hex::decode(input).unwrap()).unwrap();
+
+        let encoded = to_cbor(&aux);
+        assert_eq!(hex::encode(&encoded), expected, "unexpected encoding");
+
+        let re_decoded: AuxiliaryData = from_cbor_no_leftovers(&encoded).unwrap();
+        assert_eq!(to_cbor(&re_decoded), encoded, "encoding is not a fixed point");
+    }
+
+    #[test]
+    fn hash_and_size_come_from_the_original_bytes() {
+        let original = hex::decode(METADATA).unwrap();
+        let aux: AuxiliaryData = from_cbor_no_leftovers(&original).unwrap();
+
+        assert_eq!(aux.hash(), Hasher::<256>::hash(&original));
+        assert_eq!(aux.len(), original.len() as u64);
+
+        assert_ne!(aux.hash(), Hasher::<256>::hash(&to_cbor(&aux)));
     }
 }

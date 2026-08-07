@@ -21,7 +21,7 @@ pub enum NativeScript {
     ScriptPubkey(Hash<{ KEY }>),
     ScriptAll(Vec<NativeScript>),
     ScriptAny(Vec<NativeScript>),
-    ScriptNOfK(u32, Vec<NativeScript>),
+    ScriptNOfK(i64, Vec<NativeScript>),
     InvalidBefore(u64),
     InvalidHereafter(u64),
 }
@@ -32,54 +32,37 @@ pub enum NativeScript {
 // MemoizedNativeScript. Ideally, there shouldn't even be two types.
 impl<'b, C> cbor::decode::Decode<'b, C> for NativeScript {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let size = d.array()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            let variant = d.u32()?;
 
-        let assert_size = |expected| {
-            // NOTE: unwrap_or allows for indefinite arrays.
-            if expected != size.unwrap_or(expected) {
-                return Err(cbor::decode::Error::message("unexpected array size in NativeScript"));
+            match variant {
+                0 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptPubkey(d.decode_with(ctx)?))
+                }
+                1 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptAll(d.decode_with(ctx)?))
+                }
+                2 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptAny(d.decode_with(ctx)?))
+                }
+                3 => {
+                    assert_len(3)?;
+                    Ok(NativeScript::ScriptNOfK(d.decode_with(ctx)?, d.decode_with(ctx)?))
+                }
+                4 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::InvalidBefore(d.decode_with(ctx)?))
+                }
+                5 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::InvalidHereafter(d.decode_with(ctx)?))
+                }
+                _ => Err(cbor::decode::Error::message("unknown variant id for native script")),
             }
-            Ok(())
-        };
-
-        let variant = d.u32()?;
-
-        let script = match variant {
-            0 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptPubkey(d.decode_with(ctx)?))
-            }
-            1 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptAll(d.decode_with(ctx)?))
-            }
-            2 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptAny(d.decode_with(ctx)?))
-            }
-            3 => {
-                assert_size(3)?;
-                Ok(NativeScript::ScriptNOfK(d.decode_with(ctx)?, d.decode_with(ctx)?))
-            }
-            4 => {
-                assert_size(2)?;
-                Ok(NativeScript::InvalidBefore(d.decode_with(ctx)?))
-            }
-            5 => {
-                assert_size(2)?;
-                Ok(NativeScript::InvalidHereafter(d.decode_with(ctx)?))
-            }
-            _ => Err(cbor::decode::Error::message("unknown variant id for native script")),
-        }?;
-
-        if size.is_none() {
-            let next = d.datatype()?;
-            if next != cbor::data::Type::Break {
-                return Err(cbor::decode::Error::type_mismatch(next));
-            }
-        }
-
-        Ok(script)
+        })
     }
 }
 
@@ -139,7 +122,8 @@ impl NativeScript {
             // The NOfK scripts are evaluated lazily, stopping once we have n scripts that evaluate to
             // true. The test `iter_filter_take_evaluates_lazily` illustrates this behavior.
             Self::ScriptNOfK(n, scripts) => {
-                let n = *n as usize;
+                // A non-positive threshold is trivially satisfied, matching the ledger's `m <= satisfied`.
+                let n = (*n).max(0) as usize;
                 scripts.iter().filter(|s| s.eval(vkey_hashes, validity_interval)).take(n).count() == n
             }
             // `lteNegInfty`: a lock requiring `lock_start <= ValidityInterval::lower_bound()` can only be satisfied when
@@ -182,7 +166,7 @@ mod tests {
 
             let some = prop::collection::vec(any_native_script(depth - 1), 0..depth as usize).prop_map(ScriptAny);
 
-            let n_of_k = (any::<u32>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
+            let n_of_k = (any::<i64>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
                 .prop_map(|(n, sigs)| ScriptNOfK(n, sigs));
 
             prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
@@ -289,7 +273,7 @@ mod tests {
             ScriptAny(scripts.into())
         }
 
-        fn at_least<const N: usize>(n: u32, scripts: [NativeScript; N]) -> NativeScript {
+        fn at_least<const N: usize>(n: i64, scripts: [NativeScript; N]) -> NativeScript {
             ScriptNOfK(n, scripts.into())
         }
 

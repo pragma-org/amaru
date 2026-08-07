@@ -24,13 +24,14 @@ pub struct Proposal {
 
 impl<'b, C> cbor::Decode<'b, C> for Proposal {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-
-        Ok(Self {
-            deposit: d.decode_with(ctx)?,
-            reward_account: d.decode_with(ctx)?,
-            gov_action: d.decode_with(ctx)?,
-            anchor: d.decode_with(ctx)?,
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(4)?;
+            Ok(Self {
+                deposit: d.decode_with(ctx)?,
+                reward_account: d.decode_with(ctx)?,
+                gov_action: d.decode_with(ctx)?,
+                anchor: d.decode_with(ctx)?,
+            })
         })
     }
 }

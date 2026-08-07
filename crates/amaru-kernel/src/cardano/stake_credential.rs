@@ -47,14 +47,16 @@ impl fmt::Display for StakeCredential {
 
 impl<'b, C> cbor::Decode<'b, C> for StakeCredential {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let variant = d.u16()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            let variant = d.u16()?;
 
-        match variant {
-            0 => Ok(StakeCredential::AddrKeyhash(d.decode_with(ctx)?)),
-            1 => Ok(StakeCredential::ScriptHash(d.decode_with(ctx)?)),
-            _ => Err(cbor::decode::Error::message("invalid variant id for StakeCredential")),
-        }
+            match variant {
+                0 => Ok(StakeCredential::AddrKeyhash(d.decode_with(ctx)?)),
+                1 => Ok(StakeCredential::ScriptHash(d.decode_with(ctx)?)),
+                _ => Err(cbor::decode::Error::message("invalid variant id for StakeCredential")),
+            }
+        })
     }
 }
 

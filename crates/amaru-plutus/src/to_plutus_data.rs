@@ -15,9 +15,10 @@
 use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
-    Address, BorrowedScript, Bytes, CurrencySymbol, Epoch, HasScriptHash, Hash, Int, KeyValuePairs, MemoizedDatum,
-    MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, RequiredSigners, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value, plutus_data::BigInt,
+    Address, AssetName, BorrowedScript, Bytes, CurrencySymbol, EMPTY_ASSET_NAME, Epoch, HasScriptHash, Hash, Int,
+    KeyValuePairs, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, ProtocolVersion,
+    RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value,
+    plutus_data::BigInt,
 };
 use thiserror::Error;
 
@@ -83,7 +84,7 @@ where
 fn canonical_value_map(
     value: &Value,
     include_zero_lovelace: bool,
-) -> BTreeMap<CurrencySymbol, BTreeMap<Cow<'_, Bytes>, u64>> {
+) -> BTreeMap<CurrencySymbol, BTreeMap<Cow<'_, AssetName>, u64>> {
     let (coin, multiasset) = match value {
         Value::Coin(coin) => (*coin, None),
         Value::Multiasset(coin, multiasset) => (*coin, Some(multiasset)),
@@ -92,7 +93,7 @@ fn canonical_value_map(
     let mut map = BTreeMap::new();
 
     if include_zero_lovelace || coin > 0 {
-        map.insert(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(Bytes::from(vec![])), coin)]));
+        map.insert(CurrencySymbol::Lovelace, BTreeMap::from([(Cow::Owned(EMPTY_ASSET_NAME), coin)]));
     }
 
     if let Some(multiasset) = multiasset {
@@ -274,6 +275,15 @@ where
     }
 }
 
+impl<const V: u8> ToPlutusData<V> for AssetName
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::BoundedBytes(self.to_vec().into()))
+    }
+}
+
 impl<const V: u8> ToPlutusData<V> for BorrowedScript<'_>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
@@ -351,6 +361,16 @@ where
     #[allow(clippy::unwrap_used)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         u64::from(*self).to_plutus_data()
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for ProtocolVersion
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    #[allow(clippy::unwrap_used)]
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        (self.major(), self.minor()).to_plutus_data()
     }
 }
 

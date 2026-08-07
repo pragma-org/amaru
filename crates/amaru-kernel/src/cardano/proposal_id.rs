@@ -50,9 +50,10 @@ impl<C> cbor::Encode<C> for ProposalId {
 
 impl<'b, C> cbor::Decode<'b, C> for ProposalId {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-
-        Ok(Self { transaction_id: d.decode_with(ctx)?, action_index: d.decode_with(ctx)? })
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(Self { transaction_id: d.decode_with(ctx)?, action_index: d.decode_with(ctx)? })
+        })
     }
 }
 

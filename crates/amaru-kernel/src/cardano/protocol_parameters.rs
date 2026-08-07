@@ -85,7 +85,7 @@ impl ProtocolParameters {
         set(&mut self.max_transaction_size, u.max_transaction_size);
         set(
             &mut self.max_block_header_size,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.max_block_header_size.map(|x| x as u16),
         );
         set(&mut self.stake_credential_deposit, u.key_deposit);
@@ -93,7 +93,7 @@ impl ProtocolParameters {
         set(&mut self.stake_pool_max_retirement_epoch, u.maximum_epoch);
         set(
             &mut self.optimal_stake_pools_count,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.desired_number_of_stake_pools.map(|x| x as u16),
         );
         set(&mut self.pledge_influence, u.pool_pledge_influence);
@@ -129,19 +129,19 @@ impl ProtocolParameters {
         set(&mut self.max_value_size, u.max_value_size);
         set(
             &mut self.collateral_percentage,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.collateral_percentage.map(|x| x as u16),
         );
         set(
             &mut self.max_collateral_inputs,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.max_collateral_inputs.map(|x| x as u16),
         );
         set(&mut self.pool_voting_thresholds, u.pool_voting_thresholds);
         set(&mut self.drep_voting_thresholds, u.drep_voting_thresholds);
         set(
             &mut self.min_committee_size,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.min_committee_size.map(|x| x as u16),
         );
         set(&mut self.max_committee_term_length, u.committee_term_limit);
@@ -226,7 +226,6 @@ mod proxy {
         delegate_representative_voting_thresholds: DRepVotingThresholds,
         delegate_representative_deposit: Lovelace,
         delegate_representative_max_idle_time: u64,
-        #[serde(deserialize_with = "deserialize_proxy")]
         version: ProtocolVersion,
     }
 
@@ -289,19 +288,6 @@ fn decode_rationale(d: &mut cbor::Decoder<'_>) -> Result<RationalNumber, cbor::d
     })
 }
 
-fn decode_protocol_version(d: &mut cbor::Decoder<'_>) -> Result<ProtocolVersion, cbor::decode::Error> {
-    cbor::heterogeneous_array(d, |d, assert_len| {
-        assert_len(2)?;
-        let major = d.u8()?;
-
-        // See: https://github.com/IntersectMBO/cardano-ledger/blob/693218df6cd90263da24e6c2118bac420ceea3a1/eras/conway/impl/cddl-files/conway.cddl#L126
-        if major > 12 {
-            return Err(cbor::decode::Error::message("invalid protocol version's major: too high"));
-        }
-        Ok((major as u64, d.u64()?))
-    })
-}
-
 impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
@@ -317,7 +303,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         let pledge_influence = decode_rationale(d)?;
         let monetary_expansion_rate = decode_rationale(d)?;
         let treasury_expansion_rate = decode_rationale(d)?;
-        let protocol_version = decode_protocol_version(d)?;
+        let protocol_version = d.decode_with(ctx)?;
         let min_pool_cost = d.u64()?;
         let lovelace_per_utxo_byte = d.u64()?;
 
@@ -416,16 +402,6 @@ fn encode_rationale<W: cbor::encode::Write>(
     Ok(())
 }
 
-fn encode_protocol_version<W: cbor::encode::Write>(
-    e: &mut cbor::Encoder<W>,
-    v: &ProtocolVersion,
-) -> Result<(), cbor::encode::Error<W::Error>> {
-    e.array(2)?;
-    e.u64(v.0)?;
-    e.u64(v.1)?;
-    Ok(())
-}
-
 impl<C> cbor::encode::Encode<C> for ProtocolParameters {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -445,7 +421,7 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
         encode_rationale(e, &self.pledge_influence)?;
         encode_rationale(e, &self.monetary_expansion_rate)?;
         encode_rationale(e, &self.treasury_expansion_rate)?;
-        encode_protocol_version(e, &self.protocol_version)?;
+        e.encode_with(self.protocol_version, ctx)?;
         e.u64(self.min_pool_cost)?;
         e.u64(self.lovelace_per_utxo_byte)?;
 
@@ -543,7 +519,7 @@ mod tests {
             major in any::<u8>(),
             minor in any::<u64>(),
         ) -> ProtocolVersion {
-            ((major % 13) as u64, minor)
+            ProtocolVersion::new((major % 13) as u64, minor)
         }
     }
 

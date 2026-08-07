@@ -16,8 +16,10 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::{
-    Bytes, Hash, Header, OperationalCert, VrfCert, any_hash28, cardano::network_block::make_block_with_header, ed25519,
-    size::BLOCK_BODY, to_cbor,
+    BoundedBytes, Bytes, Hash, Header, OperationalCert, ProtocolVersion, VrfCert, any_hash28,
+    cardano::{fixed_bytes::FixedBytes, network_block::make_block_with_header},
+    size::BLOCK_BODY,
+    to_cbor,
 };
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
@@ -40,18 +42,18 @@ pub fn make_header_with_op_cert_seq(
             block_number,
             slot,
             prev_hash,
-            issuer_vkey: Bytes::from(vec![0u8; ed25519::PUBLIC_KEY_LENGTH]),
-            vrf_vkey: Bytes::from(vec![]),
-            vrf_result: VrfCert { output: Bytes::from(vec![]), proof: Bytes::from(vec![]) },
+            issuer_vkey: VKey::empty(),
+            vrf_vkey: VKey::empty(),
+            vrf_result: VrfCert { output: BoundedBytes::empty(), proof: FixedBytes::empty() },
             block_body_size: 0,
             block_body_hash: block_hash,
             operational_cert: OperationalCert {
-                operational_cert_hot_vkey: Bytes::from(vec![]),
+                operational_cert_hot_vkey: VKey::empty(),
                 operational_cert_sequence_number: op_cert_seq,
                 operational_cert_kes_period: 0,
                 operational_cert_sigma: Bytes::from(vec![]),
             },
-            protocol_version: (1, 2),
+            protocol_version: ProtocolVersion::new(1, 2),
         },
         body_signature: Bytes::from(vec![]),
     }

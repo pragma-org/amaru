@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AuxiliaryData, Bytes, TransactionBody, TransactionId, WitnessSet, cbor, ed25519};
+use crate::{AuxiliaryData, TransactionBody, TransactionId, WitnessSet, cbor, ed25519};
 
 const CHAIN_CODE_SIZE: usize = 32;
 
@@ -69,28 +69,28 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Transaction {
 
 /// Ed25519 keys and signatures have a fixed size which we check here.
 ///
-/// TODO: We should move this validation to the Witness decoding once we move from `pallas` our
+/// FIXME(cbor): We should move this validation to the Witness decoding once we move from `pallas` our
 /// our own data types.
 fn assert_sized_witnesses(witnesses: &WitnessSet) -> Result<(), cbor::decode::Error> {
     if let Some(vkey_witnesses) = witnesses.vkeywitness.as_deref() {
         for witness in vkey_witnesses {
-            assert_bytes_len("verification key", &witness.vkey, ed25519::PUBLIC_KEY_LENGTH)?;
-            assert_bytes_len("verification key signature", &witness.signature, ed25519::SIGNATURE_LENGTH)?;
+            assert_bytes_len("verification key", witness.vkey.as_slice(), ed25519::PUBLIC_KEY_LENGTH)?;
+            assert_bytes_len("verification key signature", witness.signature.as_slice(), ed25519::SIGNATURE_LENGTH)?;
         }
     }
 
     if let Some(bootstrap_witnesses) = witnesses.bootstrap_witness.as_deref() {
         for witness in bootstrap_witnesses {
-            assert_bytes_len("bootstrap public key", &witness.public_key, ed25519::PUBLIC_KEY_LENGTH)?;
-            assert_bytes_len("bootstrap signature", &witness.signature, ed25519::SIGNATURE_LENGTH)?;
-            assert_bytes_len("bootstrap chain code", &witness.chain_code, CHAIN_CODE_SIZE)?;
+            assert_bytes_len("bootstrap public key", witness.public_key.as_slice(), ed25519::PUBLIC_KEY_LENGTH)?;
+            assert_bytes_len("bootstrap signature", witness.signature.as_slice(), ed25519::SIGNATURE_LENGTH)?;
+            assert_bytes_len("bootstrap chain code", witness.chain_code.as_slice(), CHAIN_CODE_SIZE)?;
         }
     }
 
     Ok(())
 }
 
-fn assert_bytes_len(field: &str, bytes: &Bytes, expected: usize) -> Result<(), cbor::decode::Error> {
+fn assert_bytes_len(field: &str, bytes: &[u8], expected: usize) -> Result<(), cbor::decode::Error> {
     let actual = bytes.len();
     if actual == expected {
         Ok(())

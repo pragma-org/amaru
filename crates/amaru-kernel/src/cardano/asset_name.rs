@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::Bytes;
+use crate::cardano::max_bytes::MaxBytes;
 
-pub type AssetName = Bytes;
+pub type AssetName = MaxBytes<32>;
+
+pub const EMPTY_ASSET_NAME: AssetName = MaxBytes::empty();

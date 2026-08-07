@@ -64,17 +64,19 @@ impl<C> cbor::encode::Encode<C> for PoolParams {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        Ok(PoolParams {
-            id: d.decode_with(ctx)?,
-            vrf: d.decode_with(ctx)?,
-            pledge: d.decode_with(ctx)?,
-            cost: d.decode_with(ctx)?,
-            margin: d.decode_with(ctx)?,
-            reward_account: d.decode_with(ctx)?,
-            owners: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
-            relays: d.decode_with(ctx)?,
-            metadata: d.decode_with(ctx)?,
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(9)?;
+            Ok(PoolParams {
+                id: d.decode_with(ctx)?,
+                vrf: d.decode_with(ctx)?,
+                pledge: d.decode_with(ctx)?,
+                cost: d.decode_with(ctx)?,
+                margin: d.decode_with(ctx)?,
+                reward_account: d.decode_with(ctx)?,
+                owners: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
+                relays: d.decode_with(ctx)?,
+                metadata: d.decode_with(ctx)?,
+            })
         })
     }
 }
@@ -87,7 +89,9 @@ mod tests {
     use proptest::{option, prelude::*, prop_compose};
 
     use super::*;
-    use crate::{Bytes, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL};
+    use crate::{
+        Bytes, MaxString128, RationalNumber, Relay, any_hash28, any_hash32, prop_cbor_roundtrip, size::CREDENTIAL,
+    };
 
     prop_cbor_roundtrip!(PoolParams, any_pool_params());
 
@@ -114,19 +118,21 @@ mod tests {
     }
 
     prop_compose! {
+        #[expect(clippy::unwrap_used)]
         fn single_host_name()(
             port in any_optional_port(),
             dnsname in any::<String>(),
         ) -> Relay {
-            Relay::SingleHostName(port, dnsname)
+            Relay::SingleHostName(port, MaxString128::try_from(dnsname).unwrap())
         }
     }
 
     prop_compose! {
+        #[expect(clippy::unwrap_used)]
         fn multi_host_name()(
             dnsname in any::<String>(),
         ) -> Relay {
-            Relay::MultiHostName(dnsname)
+            Relay::MultiHostName(MaxString128::try_from(dnsname).unwrap())
         }
     }
 

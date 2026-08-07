@@ -14,6 +14,8 @@
 
 use std::{fmt, ops::Deref, str::FromStr};
 
+use amaru_minicbor_extra::decode_bytes;
+
 use crate::cbor;
 
 // -----------------------------------------------------------------------------
@@ -144,10 +146,10 @@ impl<C, const BYTES: usize> cbor::Encode<C> for Hash<BYTES> {
 
 impl<'a, C, const BYTES: usize> cbor::Decode<'a, C> for Hash<BYTES> {
     fn decode(d: &mut cbor::Decoder<'a>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let bytes = d.bytes()?;
+        let bytes = decode_bytes(d)?;
         if bytes.len() == BYTES {
             let mut hash = [0; BYTES];
-            hash.copy_from_slice(bytes);
+            hash.copy_from_slice(&bytes);
             Ok(Self::new(hash))
         } else {
             Err(cbor::decode::Error::message("invalid hash size"))

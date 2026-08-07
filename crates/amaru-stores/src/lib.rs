@@ -17,12 +17,12 @@ pub mod rocksdb;
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, str::FromStr};
 
     #[cfg(not(target_os = "windows"))]
     use amaru_kernel::any_proposal_id;
     use amaru_kernel::{
-        Anchor, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput,
+        Anchor, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
         TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_stake_credential,
     };
@@ -129,8 +129,10 @@ pub mod tests {
             amaru_ledger::store::columns::dreps::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
 
         if drep_row.anchor.is_none() {
-            drep_row.anchor =
-                Some(Box::new(Anchor { url: "https://example.com".to_string(), content_hash: Hash::from([0u8; 32]) }));
+            drep_row.anchor = Some(Box::new(Anchor {
+                url: MaxString128::from_str("https://example.com").unwrap(),
+                content_hash: Hash::from([0u8; 32]),
+            }));
         }
         let anchor = drep_row.anchor.clone().expect("Expected anchor to be Some");
         let deposit = drep_row.deposit;

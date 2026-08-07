@@ -300,7 +300,7 @@ pub mod test_vectors {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Bytes, Hash, NonEmptyKeyValuePairs, PositiveCoin, Value};
+    use amaru_kernel::{EMPTY_ASSET_NAME, Hash, NonEmptyKeyValuePairs, PositiveCoin, Value};
     use proptest::{
         prelude::{any, prop},
         prop_assert, proptest,
@@ -315,11 +315,9 @@ mod tests {
         let multiasset = policies
             .iter()
             .map(|policy| {
-                let assets = NonEmptyKeyValuePairs::try_from(vec![(
-                    Bytes::from(vec![1u8]),
-                    PositiveCoin::try_from(100u64).unwrap(),
-                )])
-                .unwrap();
+                let assets =
+                    NonEmptyKeyValuePairs::try_from(vec![(EMPTY_ASSET_NAME, PositiveCoin::try_from(100u64).unwrap())])
+                        .unwrap();
                 (Hash::from(*policy), assets)
             })
             .collect();

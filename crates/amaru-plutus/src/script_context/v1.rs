@@ -15,8 +15,8 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
 use amaru_kernel::{
-    Address, Certificate, Hash, MemoizedDatum, MemoizedTransactionOutput, PlutusData, PoolParams, StakePayload,
-    TransactionInput, size::DATUM,
+    Address, Certificate, EMPTY_ASSET_NAME, Hash, MemoizedDatum, MemoizedTransactionOutput, PlutusData, PoolParams,
+    StakePayload, TransactionInput, size::DATUM,
 };
 
 use crate::{
@@ -227,7 +227,7 @@ where
         let mut mint =
             self.0.iter().map(|(policy, multiasset)| (policy.to_vec(), multiasset)).collect::<BTreeMap<_, _>>();
 
-        let ada_bundle = BTreeMap::from([(Cow::Owned(vec![].into()), 0)]);
+        let ada_bundle = BTreeMap::from([(Cow::Owned(EMPTY_ASSET_NAME), 0)]);
         mint.insert(vec![], &ada_bundle);
 
         <BTreeMap<_, _> as ToPlutusData<1>>::to_plutus_data(&mint)

@@ -118,7 +118,7 @@ where
             |d, st, k| {
                 // Check for absence of duplicate key.
                 //
-                // FIXME:
+                // FIXME(cbor):
                 // - in protocol version < 2: enforce strict key ordering with no duplicate
                 // - in protocol version >= 2 && < 9: allow (and silently ignore) duplicate keys
                 for (j, _) in st.iter() {

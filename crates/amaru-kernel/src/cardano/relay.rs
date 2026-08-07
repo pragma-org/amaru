@@ -16,13 +16,13 @@ use std::{fmt, net::Ipv6Addr};
 
 use serde::ser::SerializeStruct;
 
-use crate::{Bytes, cbor};
+use crate::{Bytes, MaxString128, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Relay {
     SingleHostAddr(Option<u32>, Option<IPv4>, Option<IPv6>),
-    SingleHostName(Option<u32>, String),
-    MultiHostName(String),
+    SingleHostName(Option<u32>, MaxString128),
+    MultiHostName(MaxString128),
 }
 
 type IPv4 = Bytes;
@@ -82,14 +82,24 @@ impl fmt::Display for Relay {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for Relay {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let variant = d.u16()?;
-        match variant {
-            0 => Ok(Self::SingleHostAddr(d.decode_with(ctx)?, d.decode_with(ctx)?, d.decode_with(ctx)?)),
-            1 => Ok(Self::SingleHostName(d.decode_with(ctx)?, d.decode_with(ctx)?)),
-            2 => Ok(Self::MultiHostName(d.decode_with(ctx)?)),
-            _ => Err(cbor::decode::Error::message("invalid variant id for Relay")),
-        }
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            let variant = d.u16()?;
+            match variant {
+                0 => {
+                    assert_len(4)?;
+                    Ok(Self::SingleHostAddr(d.decode_with(ctx)?, d.decode_with(ctx)?, d.decode_with(ctx)?))
+                }
+                1 => {
+                    assert_len(3)?;
+                    Ok(Self::SingleHostName(d.decode_with(ctx)?, d.decode_with(ctx)?))
+                }
+                2 => {
+                    assert_len(2)?;
+                    Ok(Self::MultiHostName(d.decode_with(ctx)?))
+                }
+                _ => Err(cbor::decode::Error::message("invalid variant id for Relay")),
+            }
+        })
     }
 }
 
