@@ -110,7 +110,7 @@ build: ## &cmd compile the main binary
 	mkdir -p "$(BINDIR)"
 	cp "$$($(CABAL) list-bin exe:conformance)" "$(CONFORMANCE_BIN)"
 
-test: ## &cmd run all phase-one conformance fixtures against the Haskell ledger rules
+test: ## &cmd run all transaction conformance fixtures against the Haskell ledger rules
 	./all-conformance-tests.sh
 
 secp256k1: ## &cmd install secp256k1 as required for Cardano

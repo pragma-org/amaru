@@ -157,10 +157,10 @@ findFixtureRoot fixturePath =
     go (takeDirectory fixturePath)
   where
     go directory
-        | takeFileName directory == "phase-one" =
+        | takeFileName directory == "transaction" =
             Right directory
         | parent == directory =
-            Left (FixtureReferenceError ("could not locate the phase-one fixture root from " <> toText fixturePath))
+            Left (FixtureReferenceError ("could not locate the transaction fixture root from " <> toText fixturePath))
         | otherwise =
             go parent
       where

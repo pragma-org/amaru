@@ -1,0 +1,32 @@
+{
+  "title": "plutus spend, fee at minimum including ex-units cost",
+  "description": "A Plutus V3 script spend; the minimum includes the redeemer's execution-unit cost, and the declared fee equals it.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820111111111111111111111111111111111111111111111111111111111111111100",
+        "output": "bf00581d70186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4011a00989680ff"
+      },
+      {
+        "input": "825820222222222222222222222222222222222222222222222222222222222222222200",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d90102818258201111111111111111111111111111111111111111111111111111111111111111000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0096028fff021a000293f10b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820222222222222222222222222222222222222222222222222222222222222222200ffa300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840a63cc45e2fd871100eacc67d5c81187a0ac07949b98e6ed1791582b1a483f4a554acaad10cf27a48908e28ab18c38876bdb9ce45cdb41a49189021a23ad44b0207d90102814645010100249905a18200008200821907d01a000f4240f5f6",
+  "expected": "Pass"
+}
