@@ -26,6 +26,9 @@ use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalsSlice, Wit
 pub enum InvalidVotingProcedures {
     #[error("voters do not exist: {0:?}")]
     VotersDoNotExist(BTreeSet<Voter>),
+
+    #[error("governance actions do not exist: {0:?}")]
+    GovActionsDoNotExist(BTreeSet<ProposalId>),
 }
 
 pub(crate) fn execute<C>(
@@ -38,11 +41,27 @@ where
     if let Some(voting_procedures) = voting_procedures {
         let voting_procedures = voting_procedures.into_iter().collect::<BTreeMap<_, _>>();
 
-        let unknown_voters =
-            voting_procedures.keys().filter(|voter| !exists(context, voter)).cloned().collect::<BTreeSet<_>>();
+        let mut unknown_voters = BTreeSet::new();
+        let mut unknown_proposals = BTreeSet::new();
+
+        for (voter, votes) in voting_procedures.iter() {
+            if !exists(context, voter) {
+                unknown_voters.insert(voter.clone());
+            }
+
+            for (proposal_id, _) in votes.iter() {
+                if !ProposalsSlice::exists(context, proposal_id) {
+                    unknown_proposals.insert(*proposal_id);
+                }
+            }
+        }
 
         if !unknown_voters.is_empty() {
             return Err(InvalidVotingProcedures::VotersDoNotExist(unknown_voters));
+        }
+
+        if !unknown_proposals.is_empty() {
+            return Err(InvalidVotingProcedures::GovActionsDoNotExist(unknown_proposals));
         }
 
         voting_procedures.into_iter().enumerate().for_each(|(index, (voter, votes))| {

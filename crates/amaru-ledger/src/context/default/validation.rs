@@ -398,8 +398,7 @@ impl CommitteeSlice for DefaultValidationContext {
 
 impl ProposalsSlice for DefaultValidationContext {
     fn exists(&self, id: &ProposalId) -> bool {
-        // FIXME: also fold proposals discovered in the block during validation
-        self.proposals.contains(id)
+        self.proposals.contains(id) || self.state.proposals.contains_key(id)
     }
 
     fn roots(&self) -> &ProposalsRoots {

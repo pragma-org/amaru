@@ -41,6 +41,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
+- **amaru-ledger**: validate the governance actions a transaction votes on actually exist, counting proposals submitted earlier in the same block. ([#1139][], [#924][])
 
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
@@ -271,6 +272,7 @@ Other guiding principles:
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#923]: https://github.com/pragma-org/amaru/issues/923
+[#924]: https://github.com/pragma-org/amaru/issues/924
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
 [#942]: https://github.com/pragma-org/amaru/pull/942
@@ -324,3 +326,4 @@ Other guiding principles:
 [#1109]: https://github.com/pragma-org/amaru/pull/1109
 [#1118]: https://github.com/pragma-org/amaru/pull/1118
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
+[#1139]: https://github.com/pragma-org/amaru/pull/1139
