@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BoundedBytes, Ed25519Signature, VKey, cardano::fixed_bytes::FixedBytes, cbor};
+use crate::{BoundedBytes, Ed25519Signature, VKey, cbor};
 
 pub const CHAIN_CODE_SIZE: usize = 32;
 
@@ -24,8 +24,9 @@ pub struct BootstrapWitness {
     #[n(1)]
     pub signature: Ed25519Signature,
 
+    /// FIXME(cbor): this is era-dependent. V11 is unbounded but V12 is bounded to 32 bytes.
     #[n(2)]
-    pub chain_code: FixedBytes<CHAIN_CODE_SIZE>,
+    pub chain_code: BoundedBytes,
 
     #[n(3)]
     pub attributes: BoundedBytes,

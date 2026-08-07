@@ -9,7 +9,7 @@ and are picked up by the Rust test at `crates/amaru-kernel/tests/test_cbor_seria
 ## How it works
 
 - **`cuddle gen`** parses [`conway.cddl`](./conway.cddl) (the Conway-era CDDL schema, bundled here from
-  `cardano-ledger-conway-1.22.1.0`),
+  `cardano-ledger-conway-1.23.0.0`),
   then emits a random CBOR term that matches a named rule (either `block` or `transaction_body`).
 - **`cuddle gen --negative`** uses [`antigen`][antigen]'s `zapAntiGen` to perturb the same generator so the result is
   intentionally malformed.
@@ -130,8 +130,14 @@ If positives feel thin after annotation, bump `CBOR_FIXTURE_COUNT` so enough unf
 
 ```bash
 curl -sL https://raw.githubusercontent.com/IntersectMBO/cardano-ledger/cardano-ledger-conway-<VERSION>/eras/conway/impl/cddl/data/conway.cddl \
-    -o conformance-tests/cbor-fixture-generator/conway.cddl
+    -o crates/amaru/tests/conformance/serialization/cbor-fixture-generator/conway.cddl
 ```
+
+Then re-run `make regenerate-cbor-fixtures`: the samples are generated from the grammar, so a
+refreshed grammar invalidates the ones already committed. 
+
+Check `conway.overrides.cddl` at the same time and update it if necessary. 
+An override becomes dead weight once upstream fixes the rule it works around.
 
 [cuddle]: https://github.com/input-output-hk/cuddle
 
