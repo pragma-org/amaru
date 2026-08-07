@@ -18,7 +18,6 @@ run-amaru: ## Run Amaru with OpenTelemetry enabled
 	cd $(AMARU_DIR) && \
 	OTEL_SERVICE_NAME=amaru \
 	OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
-	OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://localhost:4318/v1/metrics \
 	OTEL_METRIC_EXPORT_INTERVAL=1000 \
 	amaru --with-open-telemetry node run
 

@@ -45,18 +45,24 @@ pub enum TelemetryEvent {
     ProtocolUpgrade,
     RatificationSummarize,
     RewardsSummarize,
+    RollForward,
     StakeDistributionInitialBegin,
     StakeDistributionInitialProgress,
     StakeDistributionInitialReady,
     StateSwitchToFork,
     StakeSnapshot,
     TipUpdate,
+    TransactionValidate,
 }
 
 impl TelemetryEvent {
     pub fn from_record(record: &TelemetryRecord) -> Option<Self> {
         if ledger::tip::UPDATE::matches(&record.target, &record.name) {
             Some(Self::TipUpdate)
+        } else if ledger::transaction::VALIDATE::matches(&record.target, &record.name) {
+            Some(Self::TransactionValidate)
+        } else if ledger::state::ROLL_FORWARD::matches(&record.target, &record.name) {
+            Some(Self::RollForward)
         } else if consensus::tip::ADOPT::matches(&record.target, &record.name) {
             Some(Self::BlockAdopt)
         } else if ledger::stake_distribution::INITIAL_BEGIN::matches(&record.target, &record.name) {

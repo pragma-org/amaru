@@ -33,13 +33,13 @@ pub struct StartupContext {
     pub system_start_millis: u64,
     pub era_history: Option<EraHistory>,
     pub runtime_sections: Vec<ConfigSection>,
-    pub global_sections: Vec<ConfigSection>,
     pub protocol_sections: Vec<ConfigSection>,
 }
 
 impl StartupContext {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        pid: u32,
         network: impl Into<String>,
         software_version: impl Into<String>,
         target: impl Into<String>,
@@ -50,7 +50,7 @@ impl StartupContext {
         runtime_sections: Vec<ConfigSection>,
     ) -> Self {
         Self {
-            process: ProcessInfo::new(network, software_version, target),
+            process: ProcessInfo::new(pid, network, software_version, target),
             protocol_version: protocol_parameters
                 .map(|parameters| protocol_version::fmt(&parameters.protocol_version))
                 .unwrap_or_else(|| "unknown".to_string()),
@@ -62,7 +62,6 @@ impl StartupContext {
             system_start_millis: global_parameters.system_start,
             era_history,
             runtime_sections,
-            global_sections: global_sections(global_parameters),
             protocol_sections: protocol_sections(protocol_parameters),
         }
     }
@@ -94,14 +93,20 @@ impl StartupContext {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessInfo {
+    pub pid: u32,
     pub network: String,
     pub software_version: String,
     pub target: String,
 }
 
 impl ProcessInfo {
-    pub fn new(network: impl Into<String>, software_version: impl Into<String>, target: impl Into<String>) -> Self {
-        Self { network: network.into(), software_version: software_version.into(), target: target.into() }
+    pub fn new(
+        pid: u32,
+        network: impl Into<String>,
+        software_version: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self { pid, network: network.into(), software_version: software_version.into(), target: target.into() }
     }
 }
 
@@ -184,21 +189,6 @@ fn is_runtime_config_arg(arg: &Arg) -> bool {
     !matches!(id, "help" | "version" | "help_global_parameters") && arg.get_long().is_some()
 }
 
-fn global_sections(global_parameters: &GlobalParameters) -> Vec<ConfigSection> {
-    vec![ConfigSection::new(
-        "Global Parameters",
-        vec![
-            config_entry("security param k", global_parameters.consensus_security_param.to_string()),
-            config_entry("epoch length factor", global_parameters.epoch_length_scale_factor.to_string()),
-            config_entry("active slot coeff inverse", global_parameters.active_slot_coeff_inverse.to_string()),
-            config_entry("max lovelace supply", global_parameters.max_lovelace_supply.to_string()),
-            config_entry("slots per KES period", global_parameters.slots_per_kes_period.to_string()),
-            config_entry("max KES evolution", global_parameters.max_kes_evolution.to_string()),
-            config_entry("system start", global_parameters.system_start.to_string()),
-        ],
-    )]
-}
-
 fn protocol_sections(protocol_parameters: Option<&ProtocolParameters>) -> Vec<ConfigSection> {
     let Some(protocol_parameters) = protocol_parameters else {
         return Vec::default();
@@ -272,12 +262,33 @@ mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
     use amaru_kernel::{PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
+    use clap::Parser;
 
-    use super::StartupContext;
+    use super::{ConfigSection, RuntimeSettingsSource, StartupContext};
+
+    #[derive(Debug, Parser)]
+    struct FixtureSettings {
+        #[arg(long, help_heading = "Essential")]
+        network: String,
+
+        #[arg(long, help_heading = "Network Global Parameters Overrides")]
+        consensus_security_param: u64,
+    }
+
+    impl RuntimeSettingsSource for FixtureSettings {
+        fn value_for(&self, id: &str) -> Option<String> {
+            match id {
+                "network" => Some(self.network.clone()),
+                "consensus_security_param" => Some(self.consensus_security_param.to_string()),
+                _ => None,
+            }
+        }
+    }
 
     #[test]
     fn target_slot_at_uses_era_history_slot_lengths() {
         let startup = StartupContext::new(
+            42,
             "preprod",
             "test",
             "test",
@@ -296,6 +307,7 @@ mod tests {
     #[test]
     fn target_slot_proximity_uses_security_param_as_lag_tolerance() {
         let startup = StartupContext::new(
+            42,
             "preprod",
             "test",
             "test",
@@ -325,5 +337,19 @@ mod tests {
             ),
             Some(false)
         );
+    }
+
+    #[test]
+    fn runtime_sections_include_global_parameter_overrides() {
+        let settings = FixtureSettings { network: "preview".to_string(), consensus_security_param: 42 };
+        let sections = ConfigSection::from_runtime_settings(&settings);
+
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].title, "Essential");
+        assert_eq!(sections[0].entries.len(), 1);
+        assert_eq!(sections[0].entries[0].label, "network");
+        assert_eq!(sections[1].title, "Network Global Parameters Overrides");
+        assert_eq!(sections[1].entries.len(), 1);
+        assert_eq!(sections[1].entries[0].label, "consensus security param");
     }
 }

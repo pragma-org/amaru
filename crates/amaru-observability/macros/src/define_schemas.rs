@@ -1586,6 +1586,14 @@ fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macr
     let field_count = schema.required_fields.len() + schema.optional_fields.len();
     let is_public = schema.public;
     let record_fields = record_fields_trait_path();
+    let field_constants = schema.required_fields.iter().chain(schema.optional_fields.iter()).map(|field| {
+        let field_const_ident = make_ident(&format!("FIELD_{}", field.name.to_uppercase()));
+        let field_name = field.name.as_str();
+
+        quote! {
+            pub const #field_const_ident: &str = #field_name;
+        }
+    });
 
     let accessors = if config.export_macros {
         let required_accessors = schema.required_fields.iter().map(|field| {
@@ -1640,9 +1648,10 @@ fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macr
             pub const TARGET: &str = #schema_target;
             pub const PATH: &str = #schema_path;
             pub const VALIDATION: &str = #validation_string;
+            #(#field_constants)*
 
             #[doc(hidden)]
-            pub const FIELD_COUNT: usize = #field_count;
+            pub const SCHEMA_FIELD_COUNT: usize = #field_count;
 
             #[doc(hidden)]
             pub const PUBLIC: bool = #is_public;

@@ -63,6 +63,17 @@ impl MetricRecorder for LedgerMetrics {
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for LedgerMetrics {
     fn record_to_meter(&self, meter: &Meter) {
+        crate::protocol::TipBlockMetrics {
+            hash: self.block_header_hash.clone(),
+            parent_hash: self.parent_block_header_hash.clone(),
+            issuer_verification_key_hash: self.issuer_verification_key_hash.clone(),
+        }
+        .record_to_meter(meter);
+
+        let Some(meter) = meter.get() else {
+            return;
+        };
+
         static BLOCK_HEIGHT: OnceLock<Gauge<u64>> = OnceLock::new();
         static SLOT_NUM: OnceLock<Gauge<u64>> = OnceLock::new();
         static SLOT_IN_EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
@@ -128,13 +139,6 @@ impl MetricRecorder for LedgerMetrics {
         density.record(self.density, &[]);
         current_kes_period.record(self.current_kes_period, &[]);
         remaining_kes_periods.record(self.remaining_kes_periods, &[]);
-
-        crate::protocol::TipBlockMetrics {
-            hash: self.block_header_hash.clone(),
-            parent_hash: self.parent_block_header_hash.clone(),
-            issuer_verification_key_hash: self.issuer_verification_key_hash.clone(),
-        }
-        .record_to_meter(meter);
     }
 }
 

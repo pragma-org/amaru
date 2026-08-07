@@ -53,6 +53,7 @@ Other guiding principles:
 - **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
 - **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.
 - **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
+- **amaru**: metrics are now (also) exported through gRPC on `:4317` by default instead of `:4318` over HTTP.
 
 ### Removed
 

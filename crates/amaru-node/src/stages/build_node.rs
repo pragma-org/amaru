@@ -28,6 +28,7 @@ use amaru_ledger::{
     state::State,
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
+use amaru_metrics::Meter;
 use amaru_network::connection::TokioConnections;
 use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool};
 use amaru_plutus::arena_pool::ArenaPool;
@@ -42,7 +43,6 @@ use amaru_pure_stage::{
 };
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, consensus::RocksDBStore};
 use anyhow::anyhow;
-use opentelemetry::metrics::Meter;
 use parking_lot::Mutex;
 use tokio::runtime::Handle;
 
@@ -55,7 +55,7 @@ use crate::{
 };
 
 /// Build a node given the provided configuration and run it using Tokio.
-pub fn build_and_run_node(config: Config, meter: Option<Meter>) -> anyhow::Result<NodeRunning> {
+pub fn build_and_run_node(config: Config, meter: Arc<Meter>) -> anyhow::Result<NodeRunning> {
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default()
         .with_trace_buffer(trace_buffer)
@@ -115,7 +115,7 @@ impl NodeRunning {
 pub fn build_node(
     config: &Config,
     global_parameters: &GlobalParameters,
-    meter: Option<Meter>,
+    meter: Arc<Meter>,
     stage_builder: &mut impl StageGraph,
 ) -> anyhow::Result<NodeStages> {
     // NOTE: Open the chain store first so incompatible DB versions fail before the slower ledger open.
@@ -217,7 +217,7 @@ fn register_resources(
     block_validator: Arc<BlockValidator<RocksDB, RocksDBHistoricalStores>>,
     consensus_parameters: Arc<ConsensusParameters>,
     era_history: EraHistory,
-    meter: Option<Meter>,
+    meter: Arc<Meter>,
     mempool_config: MempoolConfig,
 ) {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
@@ -233,9 +233,7 @@ fn register_resources(
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
     stage_graph.resources().put::<ResourceEraHistory>(era_history);
 
-    if let Some(meter) = meter {
-        stage_graph.resources().put::<ResourceMeter>(Arc::new(meter));
-    };
+    stage_graph.resources().put::<ResourceMeter>(meter);
 
     stage_graph.resources().put::<amaru_consensus::performance::ResourcePerformance>(Arc::new(
         amaru_consensus::performance::Performance::new(),

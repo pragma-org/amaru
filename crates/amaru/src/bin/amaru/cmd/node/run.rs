@@ -31,7 +31,7 @@ use amaru::{
 };
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
 use amaru_mempool::MempoolConfig;
-use amaru_metrics::METRICS_METER_NAME;
+use amaru_metrics::Meter;
 use amaru_node::{
     DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS,
     peer_snapshot::{embedded_configs_commit, load_embedded_peer_snapshot, load_peer_snapshot},
@@ -45,14 +45,13 @@ use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_tui as tui;
-use anyhow::anyhow;
 use clap::{self, ArgAction, Parser};
-use opentelemetry::metrics::MeterProvider;
-use opentelemetry_sdk::metrics::SdkMeterProvider;
 use parking_lot::Mutex;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+#[cfg(unix)]
+use tracing::error;
+use tracing::{info, warn};
 
 use crate::pid::optional_pid_file;
 
@@ -282,13 +281,17 @@ impl Args {
         tui::Settings::new(
             self.no_tui,
             tui::StartupContext::new(
+                std::process::id(),
                 self.network.to_string(),
                 version::display_version(),
                 format!("{}/{}", version::target_os(), version::target_arch()),
                 MempoolConfig::default().max_bytes,
                 &global_parameters,
                 self.network.as_protocol_parameters(),
-                self.network.as_era_history().cloned().or_else(|| load_era_history(self.era_history.as_deref()).ok()),
+                self.network
+                    .as_era_history()
+                    .cloned()
+                    .or_else(|| self.era_history.as_deref().and_then(|path| EraHistory::load(path).ok())),
                 tui::ConfigSection::from_runtime_settings(self),
             ),
         )
@@ -305,13 +308,19 @@ impl tui::RuntimeSettingsSource for Args {
 
         match id {
             "network" => Some(self.network.to_string()),
-            "chain_dir" => {
-                Some(self.chain_dir.as_deref().map(path_value).unwrap_or_else(|| default_chain_dir(self.network)))
-            }
+            "chain_dir" => Some(
+                self.chain_dir
+                    .as_deref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| default_chain_dir(self.network)),
+            ),
             "migrate_chain_db" => Some(self.migrate_chain_db.to_string()),
-            "ledger_dir" => {
-                Some(self.ledger_dir.as_deref().map(path_value).unwrap_or_else(|| default_ledger_dir(self.network)))
-            }
+            "ledger_dir" => Some(
+                self.ledger_dir
+                    .as_deref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| default_ledger_dir(self.network)),
+            ),
             "listen_address" => Some(self.listen_address.clone()),
             "submit_api_address" => Some(self.submit_api_address.clone().unwrap_or_else(|| "disabled".to_string())),
             "no_tui" => Some(self.no_tui.to_string()),
@@ -321,14 +330,25 @@ impl tui::RuntimeSettingsSource for Args {
             "downstream_peers" => Some(self.downstream_peers.to_string()),
             "max_extra_ledger_snapshots" => Some(self.max_extra_ledger_snapshots.to_string()),
             "peer_removal_cooldown_secs" => Some(self.peer_removal_cooldown_secs.to_string()),
-            "pid_file" => Some(self.pid_file.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string())),
+            "pid_file" => Some(
+                self.pid_file
+                    .as_deref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "disabled".to_string()),
+            ),
             "trace_buffer" => Some(self.trace_buffer.clone().unwrap_or_else(|| "disabled".to_string())),
-            "dump_trace_buffer" => {
-                Some(self.dump_trace_buffer.as_deref().map(path_value).unwrap_or_else(|| "disabled".to_string()))
-            }
-            "era_history" => {
-                Some(self.era_history.as_deref().map(path_value).unwrap_or_else(|| era_history_value(self.network)))
-            }
+            "dump_trace_buffer" => Some(
+                self.dump_trace_buffer
+                    .as_deref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "disabled".to_string()),
+            ),
+            "era_history" => Some(
+                self.era_history
+                    .as_deref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| self.network.to_string()),
+            ),
             "consensus_security_param" => Some(global_parameters.consensus_security_param.to_string()),
             "epoch_length_scale_factor" => Some(global_parameters.epoch_length_scale_factor.to_string()),
             "active_slot_coeff_inverse" => Some(global_parameters.active_slot_coeff_inverse.to_string()),
@@ -341,14 +361,6 @@ impl tui::RuntimeSettingsSource for Args {
     }
 }
 
-fn era_history_value(network: NetworkName) -> String {
-    if network.as_era_history().is_some() { format!("builtin for {network}") } else { "not set".to_string() }
-}
-
-fn path_value(path: &Path) -> String {
-    path.display().to_string()
-}
-
 fn peer_addresses_value(args: &Args) -> String {
     if args.peer_address.is_empty() {
         default_peer_for_network(args.network).to_string()
@@ -359,7 +371,7 @@ fn peer_addresses_value(args: &Args) -> String {
 
 fn peer_snapshot_value(args: &Args) -> String {
     if let Some(path) = args.peer_snapshot.as_deref() {
-        return path_value(path);
+        return path.display().to_string();
     }
 
     if PEER_SNAPSHOT_NETWORKS.contains(&args.network) {
@@ -374,14 +386,10 @@ fn peer_snapshot_value(args: &Args) -> String {
 const SUBMIT_API_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) fn runnable(args: Args) -> Runnable {
-    Runnable::soft(RuntimeKind::Node, move |shutdown, meter_provider| run(args, meter_provider, shutdown))
+    Runnable::soft(RuntimeKind::Node, move |shutdown, meter| run(args, meter, shutdown))
 }
 
-async fn run(
-    args: Args,
-    meter_provider: Option<SdkMeterProvider>,
-    shutdown: ShutdownHandle,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> Result<(), Box<dyn std::error::Error>> {
     let _pid_file = optional_pid_file(args.pid_file.clone());
 
     let config = parse_args(args)?;
@@ -389,8 +397,8 @@ async fn run(
     let submit_api_address = config.submit_api_address()?;
     pre_flight_checks()?;
 
-    let metrics = track_system_metrics(meter_provider.clone())?;
-    let meter = meter_provider.map(|mp| mp.meter(METRICS_METER_NAME));
+    let meter = Arc::new(meter);
+    let metrics = track_system_metrics(meter.clone())?;
     let running = build_and_run_node(config, meter)?;
 
     // Main-thread signal path can abort stages without scheduling this future.
@@ -502,8 +510,12 @@ fn parse_trace_buffer_limits(s: &str) -> Result<(usize, usize), String> {
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let network = args.network;
 
-    let era_history =
-        network.as_era_history().cloned().map(Ok).unwrap_or_else(|| load_era_history(args.era_history.as_deref()))?;
+    let era_history = network.as_era_history().cloned().map(Ok).unwrap_or_else(|| {
+        args.era_history
+            .as_deref()
+            .ok_or_else(|| "missing era history for custom network".into())
+            .and_then(|path| EraHistory::load(path).map_err(|err| -> Box<dyn std::error::Error> { Box::new(err) }))
+    })?;
 
     let global_parameters = network.as_global_parameters().cloned().unwrap_or(args.global_parameters);
 
@@ -629,13 +641,6 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     })
 }
 
-fn load_era_history(path: Option<&Path>) -> Result<EraHistory, Box<dyn std::error::Error>> {
-    match path {
-        Some(path) => Ok(serde_json::from_slice(&std::fs::read(path)?)?),
-        None => Err(anyhow!("missing era history for custom network").into()),
-    }
-}
-
 fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru_node::peer_snapshot::PeerSnapshot) {
     if snapshot.peers.is_empty() {
         warn!(
@@ -657,6 +662,7 @@ fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru_node::peer_snapshot
     }
 }
 
+#[allow(dead_code, reason = "Debug instance is unused but useful to keep")]
 #[derive(Debug, Error)]
 pub enum PreFlightError {
     #[error("File descriptors limit too low: minimum required {0}, available {1}")]

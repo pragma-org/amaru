@@ -789,7 +789,7 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     let categories = meta.categories();
     let record_macro_ident = make_ident(&make_record_macro_name(&categories, &meta.schema_name));
     let assign_macro_ident = make_ident(&make_assign_macro_name(&categories, &meta.schema_name));
-    let field_count_path = build_schema_associated_const_path(&meta, &args.schema_path, "FIELD_COUNT");
+    let field_count_path = build_schema_associated_const_path(&meta, &args.schema_path, "SCHEMA_FIELD_COUNT");
     let public_const_path = build_schema_associated_const_path(&meta, &args.schema_path, "PUBLIC");
     let private_emit_guard = private_emit_guard_tokens();
 

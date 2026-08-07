@@ -12,20 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    rc::Rc,
+    time::{Duration, SystemTime},
+};
 
 use super::*;
+use crate::events::TelemetryRecord;
 
 impl Model {
-    pub fn filtered_logs(&self) -> Vec<&TelemetryRecord> {
-        self.logs
-            .iter()
-            .filter(|record| self.level_filter.allows(record.level) && self.target_filter.allows(&record.target))
-            .collect()
+    pub fn filtered_logs(&self) -> &[Rc<TelemetryRecord>] {
+        self.logs.filtered()
     }
 
-    pub fn recent_blocks_count(&self) -> usize {
-        self.recent_blocks.len()
+    pub fn recent_blocks_count(&self) -> u64 {
+        self.block_rate.total_count()
     }
 
     pub fn last_block_elapsed(&self, now: Instant) -> Option<Duration> {
@@ -64,7 +65,7 @@ impl Model {
     }
 
     pub fn recent_transactions_count(&self) -> u64 {
-        self.recent_transactions.iter().map(|(_, count)| *count).sum()
+        self.transaction_rate.total_count()
     }
 
     pub fn average_recent_rollback_length(&self) -> Option<f64> {
@@ -77,12 +78,12 @@ impl Model {
     }
 
     pub fn recent_rollback_frequency(&self, now: Instant) -> Option<f64> {
-        let span = self.retained_span(
-            now,
-            self.recent_rollbacks.front().map(|(at, _)| *at),
-            self.recent_rollbacks.len(),
-            self.config.rollback_sample_capacity,
-        );
+        let origin = if self.recent_rollbacks.len() >= self.config.rollback_sample_capacity {
+            self.recent_rollbacks.front().map(|(at, _)| *at).unwrap_or(self.created_at)
+        } else {
+            self.created_at
+        };
+        let span = now.saturating_duration_since(origin);
 
         (span > Duration::ZERO).then_some(self.recent_rollbacks.len() as f64 / span.as_secs_f64())
     }
@@ -102,26 +103,11 @@ impl Model {
         peers
     }
 
-    pub(crate) fn retained_blocks_span(&self, now: Instant) -> Duration {
-        self.retained_span(
-            now,
-            self.recent_blocks.front().copied(),
-            self.recent_blocks.len(),
-            self.config.block_sample_capacity,
-        )
+    pub fn blocks_per_second(&self) -> f64 {
+        self.block_rate.rate_per_second()
     }
 
-    pub(crate) fn retained_transactions_span(&self, now: Instant) -> Duration {
-        self.retained_span(
-            now,
-            self.recent_transactions.front().map(|(at, _)| *at),
-            self.recent_transactions.len(),
-            self.config.transaction_sample_capacity,
-        )
-    }
-
-    fn retained_span(&self, now: Instant, oldest: Option<Instant>, len: usize, capacity: usize) -> Duration {
-        let origin = if len >= capacity { oldest.unwrap_or(self.created_at) } else { self.created_at };
-        now.saturating_duration_since(origin)
+    pub fn transactions_per_second(&self) -> f64 {
+        self.transaction_rate.rate_per_second()
     }
 }

@@ -1613,6 +1613,7 @@ fn iterator_over_chain() {
 
 // HELPERS
 
+#[cfg(not(target_os = "windows"))]
 const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b0089e6e81c947";
 
 #[derive(Clone)]

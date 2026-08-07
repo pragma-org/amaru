@@ -26,7 +26,7 @@ use tracing::{
 };
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
-use crate::events::{FieldValue, Message, TelemetryKind, TelemetryRecord};
+use crate::events::{FieldValue, Message, TelemetryRecord};
 
 const TAG_FIELD_PREFIX: &str = "amaru.tag.";
 
@@ -38,10 +38,6 @@ pub struct TracingLayer {
 impl TracingLayer {
     pub fn new(tx: SyncSender<Message>) -> Self {
         Self { tx }
-    }
-
-    pub fn sender(&self) -> SyncSender<Message> {
-        self.tx.clone()
     }
 
     fn emit(&self, record: TelemetryRecord) {
@@ -72,7 +68,6 @@ where
         event.record(&mut visitor);
 
         self.emit(TelemetryRecord {
-            kind: TelemetryKind::Event,
             level: *event.metadata().level(),
             target: event.metadata().target().to_string(),
             name: event.metadata().name().to_string(),
@@ -124,7 +119,6 @@ where
         };
 
         self.emit(TelemetryRecord {
-            kind: TelemetryKind::SpanClose,
             level: state.level,
             target: state.target,
             name: state.name,
@@ -192,6 +186,8 @@ impl Visit for FieldVisitor {
 mod tests {
     use std::sync::mpsc::sync_channel;
 
+    use amaru_kernel::{Epoch, NULL_HASH32, Slot, TransactionId};
+    use amaru_observability::{amaru::ledger, info, info_span};
     use tracing_subscriber::prelude::*;
 
     use super::*;
@@ -202,16 +198,20 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(TracingLayer::new(tx));
 
         tracing::subscriber::with_default(subscriber, || {
-            tracing::info!(message = "hello", transaction_id = "abc", "amaru.tag.cpu" = true);
+            info!(ledger::transaction::VALIDATE, transaction_id = TransactionId::new(NULL_HASH32),);
         });
 
         let Message::Telemetry(record) = rx.recv().expect("telemetry event") else {
             panic!("expected telemetry event")
         };
 
-        assert_eq!(record.kind, TelemetryKind::Event);
-        assert_eq!(record.fields.get("transaction_id"), Some(&FieldValue::String("abc".into())));
-        assert!(!record.fields.contains_key("amaru.tag.cpu"));
+        assert_eq!(record.target, ledger::transaction::VALIDATE::TARGET);
+        assert_eq!(record.name, ledger::transaction::VALIDATE::NAME);
+        assert_eq!(
+            record.fields.get(ledger::transaction::VALIDATE::FIELD_TRANSACTION_ID),
+            Some(&FieldValue::String(TransactionId::new(NULL_HASH32).to_string()))
+        );
+        assert!(record.fields.keys().all(|name| !name.starts_with(TAG_FIELD_PREFIX)));
     }
 
     #[test]
@@ -220,14 +220,26 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(TracingLayer::new(tx));
 
         tracing::subscriber::with_default(subscriber, || {
-            let span = tracing::info_span!("test_span", slot = 42u64, "amaru.tag.cpu" = true);
+            let span = info_span!(
+                ledger::tip::UPDATE,
+                slot = Slot::from(42u64),
+                header_hash = NULL_HASH32,
+                block_height = 1u64,
+                tx_count = 2usize,
+                epoch = Epoch::from(3u64),
+                slot_in_epoch = Slot::from(4u64),
+                density = 0.5f64,
+                current_kes_period = 5u64,
+                remaining_kes_periods = 6u64,
+            );
             let _guard = span.enter();
         });
 
         let Message::Telemetry(record) = rx.recv().expect("telemetry span") else { panic!("expected telemetry span") };
 
-        assert_eq!(record.kind, TelemetryKind::SpanClose);
-        assert_eq!(record.fields.get("slot"), Some(&FieldValue::U64(42)));
-        assert!(!record.fields.contains_key("amaru.tag.cpu"));
+        assert_eq!(record.target, ledger::tip::UPDATE::TARGET);
+        assert_eq!(record.name, ledger::tip::UPDATE::NAME);
+        assert_eq!(record.fields.get(ledger::tip::UPDATE::FIELD_SLOT), Some(&FieldValue::String("42".to_string())));
+        assert!(record.fields.keys().all(|name| !name.starts_with(TAG_FIELD_PREFIX)));
     }
 }

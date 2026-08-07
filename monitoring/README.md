@@ -79,7 +79,7 @@ docker compose -f monitoring/docker-compose.yml up -d
 
 The stack includes:
 
-- **OpenTelemetry Collector** on `localhost:4317` (OTLP/gRPC) and `localhost:4318` (OTLP/HTTP)
+- **OpenTelemetry Collector** on `localhost:4317` (OTLP/gRPC)
 - **Tempo** for spans and span-derived metrics
 - **Prometheus** for application and span-derived metrics
 - **Loki** for OpenTelemetry logs and their structured metadata
@@ -132,14 +132,10 @@ Amaru recognizes standard OpenTelemetry env variable for its configuration:
 
 - `OTEL_SERVICE_NAME`: Sets the [service.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-name) key used to identify metrics, logs, and spans. Defaults to `amaru`.
 - `OTEL_SERVICE_INSTANCE_ID`: Sets the [service.instance.id](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-instance-id) key used to identify this specific amaru instance
-- `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the endpoint used to send logs and spans, defaults to `http://localhost:4317`
-- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: Sets the OTLP/gRPC endpoint used to send metrics, logs, and spans. Defaults to `http://localhost:4317`
 
-Note that two different transports are used internally:
-
-- OTLP/gRPC for logs and spans
-- OTLP/HTTP for metrics
-
-This helps maximize compatibility with 3rd party tools receiving those data.
+If you override signal-specific OTLP endpoint variables such as `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
+`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, or `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, they should also point to the same
+OTLP/gRPC endpoint and should not include a `/v1/...` suffix.
 
 One can find more available env variables [here](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/) and [here](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/protocol/exporter.md).

@@ -47,13 +47,7 @@ pub(in crate::ui) fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Mo
         .constraints([Constraint::Percentage(left_width), Constraint::Percentage(100 - left_width)])
         .split(content_area);
 
-    render_section_groups(
-        frame,
-        columns[0],
-        &[&model.startup.runtime_sections, &model.startup.global_sections],
-        scroll,
-        model.interaction_mode,
-    );
+    render_section_groups(frame, columns[0], &[&model.startup.runtime_sections], scroll, model.interaction_mode);
     render_section_groups(frame, columns[1], &[&model.startup.protocol_sections], scroll, model.interaction_mode);
 
     if overflowing {
@@ -62,9 +56,7 @@ pub(in crate::ui) fn render_config(frame: &mut Frame<'_>, area: Rect, model: &Mo
 }
 
 pub(in crate::ui) fn page_content_height(model: &Model) -> u16 {
-    config_column_height(&model.startup.runtime_sections)
-        .saturating_add(config_column_height(&model.startup.global_sections))
-        .max(config_column_height(&model.startup.protocol_sections))
+    config_column_height(&model.startup.runtime_sections).max(config_column_height(&model.startup.protocol_sections))
 }
 
 fn config_column_height(sections: &[crate::startup::ConfigSection]) -> u16 {

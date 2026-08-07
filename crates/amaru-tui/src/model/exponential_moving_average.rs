@@ -12,8 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TelemetryKind {
-    Event,
-    SpanClose,
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ExponentialMovingAverage {
+    value: Option<f64>,
+}
+
+impl ExponentialMovingAverage {
+    pub fn clear(&mut self) {
+        self.value = None;
+    }
+
+    pub fn record(&mut self, sample: f64, smoothing: usize) {
+        let alpha = 2.0 / (smoothing.max(1) as f64 + 1.0);
+        self.value = Some(match self.value {
+            Some(value) => alpha * sample + (1.0 - alpha) * value,
+            None => sample,
+        });
+    }
+
+    pub fn value(&self) -> Option<f64> {
+        self.value
+    }
 }

@@ -12,14 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    sync::{
-        Arc, LazyLock, Mutex, MutexGuard,
-        atomic::{AtomicU32, Ordering},
-    },
-};
-
 pub use crate::{
     consensus::ConsensusMetrics,
     ledger::LedgerMetrics,
@@ -53,6 +45,7 @@ pub trait MetricRecorder {
 
 impl MetricRecorder for MetricsEvent {
     fn record_to_meter(&self, meter: &Meter) {
+        meter.notify_local_observer_if_any(self);
         match self {
             MetricsEvent::LedgerMetrics(ledger_metrics) => ledger_metrics.record_to_meter(meter),
             MetricsEvent::MempoolMetrics(mempool_metrics) => mempool_metrics.record_to_meter(meter),
@@ -60,43 +53,5 @@ impl MetricRecorder for MetricsEvent {
             MetricsEvent::ConsensusMetrics(consensus_metrics) => consensus_metrics.record_to_meter(meter),
             MetricsEvent::SystemMetrics(system_metrics) => system_metrics.record_to_meter(meter),
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct Subscription {
-    id: u32,
-}
-
-static NEXT_SUBSCRIBER_ID: AtomicU32 = AtomicU32::new(1);
-type Subscriber = dyn Fn(&MetricsEvent) + Send + Sync;
-
-static SUBSCRIBERS: LazyLock<Mutex<BTreeMap<u32, Arc<Subscriber>>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
-
-fn subscribers() -> MutexGuard<'static, BTreeMap<u32, Arc<Subscriber>>> {
-    SUBSCRIBERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-pub fn subscribe(subscriber: Arc<Subscriber>) -> Subscription {
-    let id = NEXT_SUBSCRIBER_ID.fetch_add(1, Ordering::Relaxed);
-    subscribers().insert(id, subscriber);
-    Subscription { id }
-}
-
-pub fn has_subscribers() -> bool {
-    !subscribers().is_empty()
-}
-
-pub fn notify_subscribers(event: &MetricsEvent) {
-    let subscribers = subscribers().values().cloned().collect::<Vec<_>>();
-
-    for subscriber in subscribers {
-        subscriber(event);
-    }
-}
-
-impl Drop for Subscription {
-    fn drop(&mut self) {
-        subscribers().remove(&self.id);
     }
 }

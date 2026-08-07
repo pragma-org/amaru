@@ -14,7 +14,10 @@
 
 use std::time::Instant;
 
-use amaru_observability::amaru::{bootstrap, consensus, ledger, mempool, protocols};
+use amaru_observability::{
+    RecordFields,
+    amaru::{bootstrap, consensus, ledger, mempool, protocols},
+};
 
 use super::*;
 use crate::events::{Message, TelemetryRecord};
@@ -30,10 +33,6 @@ impl Model {
                 self.prune_stale_peers(record.at);
                 self.record_metrics(record);
             }
-            Message::HostSample(sample) => {
-                self.prune_stale_peers(sample.at);
-                self.record_host_sample(sample);
-            }
         }
     }
 
@@ -43,12 +42,7 @@ impl Model {
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
         self.update_state(TelemetryEvent::from_record(&record), &record);
-        if self.level_filter.allows(record.level) && self.target_filter.allows(&record.target) {
-            self.logs.push_back(record);
-            while self.logs.len() > self.config.log_capacity {
-                self.logs.pop_front();
-            }
-        }
+        self.logs.push(record, &self.config, self.level_filter, self.target_filter);
     }
 
     fn update_state(&mut self, event: Option<TelemetryEvent>, record: &TelemetryRecord) {
@@ -57,7 +51,11 @@ impl Model {
         };
 
         match event {
-            TelemetryEvent::BlockAdopt => self.update_catch_up(record),
+            TelemetryEvent::BlockAdopt => {
+                self.update_catch_up(record);
+            }
+            TelemetryEvent::RollForward => self.push_recent_block(record.at),
+            TelemetryEvent::TransactionValidate => self.push_recent_transaction_count(record.at, 1),
             TelemetryEvent::TipUpdate => self.update_tip(record),
             TelemetryEvent::StakeSnapshot => self.update_stake_snapshot(record),
             TelemetryEvent::MempoolStateUpdate => self.update_mempool(record),
@@ -264,6 +262,10 @@ impl Model {
     }
 
     fn update_peer_header_lifecycle(&mut self, record: &TelemetryRecord) {
+        if record.str(consensus::perf::header::LIFECYCLE::FIELD_OUTCOME) != Some("valid") {
+            return;
+        }
+
         let Some(peer) = consensus::perf::header::LIFECYCLE::peer(record) else {
             return;
         };
