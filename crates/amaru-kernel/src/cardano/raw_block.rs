@@ -21,7 +21,12 @@ use std::{
 
 use minicbor::decode;
 
-use crate::{Block, cardano::network_block::NetworkBlock, cbor, utils::debug_bytes};
+use crate::{
+    Block,
+    cardano::{block::TransactionIndex, network_block::NetworkBlock},
+    cbor,
+    utils::debug_bytes,
+};
 
 /// Cheaply cloneable block bytes
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
@@ -79,8 +84,8 @@ impl RawBlock {
         decoder.skip()?;
         let bodies = cbor::collect_array_item_bytes(&mut decoder)?;
         let witnesses = cbor::collect_array_item_bytes(&mut decoder)?;
-        let auxiliary_data = cbor::collect_map_value_bytes(&mut decoder, |d| d.u32())?;
-        let invalid_transactions: Option<BTreeSet<u32>> = decoder.decode()?;
+        let auxiliary_data = cbor::collect_map_value_bytes(&mut decoder, |d| d.u16())?;
+        let invalid_transactions: Option<BTreeSet<TransactionIndex>> = decoder.decode()?;
 
         if bodies.len() != witnesses.len() {
             return Err(decode::Error::message(format!(
@@ -118,9 +123,9 @@ pub fn extract_block_header_cbor(input: &[u8]) -> Result<&[u8], cbor::decode::Er
 pub struct RawBlockTransactions {
     bodies: std::vec::IntoIter<Vec<u8>>,
     witnesses: std::vec::IntoIter<Vec<u8>>,
-    auxiliary_data: BTreeMap<u32, Vec<u8>>,
-    invalid_transactions: Option<BTreeSet<u32>>,
-    index: u32,
+    auxiliary_data: BTreeMap<TransactionIndex, Vec<u8>>,
+    invalid_transactions: Option<BTreeSet<TransactionIndex>>,
+    index: TransactionIndex,
 }
 
 impl Iterator for RawBlockTransactions {

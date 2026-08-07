@@ -75,7 +75,7 @@ pub use cardano::{
     auxiliary_data::AuxiliaryData,
     ballot::Ballot,
     ballot_id::BallotId,
-    block::Block,
+    block::{Block, TransactionIndex},
     block_header::BlockHeader,
     block_height::BlockHeight,
     bootstrap_witness::BootstrapWitness,

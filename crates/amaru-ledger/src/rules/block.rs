@@ -48,13 +48,35 @@ pub enum TransactionInvalid {
 }
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
-    BlockSizeMismatch { supplied: u64, actual: u64 },
-    TooManyExUnits { provided: ExUnits, max: ExUnits },
-    HeaderSizeTooBig { supplied: u64, max: u64 },
-    InvalidBodyHash { header: Hash<BLOCK_BODY>, actual: Hash<BLOCK_BODY> },
-    HeaderProtVerTooHigh { header_major: u64, max_major: u64 },
-    RefScriptSizeTooBig { provided: u64, allowed: u64 },
-    Transaction { transaction_id: TransactionId, transaction_index: u32, violation: Box<TransactionInvalid> },
+    BlockSizeMismatch {
+        supplied: u64,
+        actual: u64,
+    },
+    TooManyExUnits {
+        provided: ExUnits,
+        max: ExUnits,
+    },
+    HeaderSizeTooBig {
+        supplied: u64,
+        max: u64,
+    },
+    InvalidBodyHash {
+        header: Hash<BLOCK_BODY>,
+        actual: Hash<BLOCK_BODY>,
+    },
+    HeaderProtVerTooHigh {
+        header_major: u64,
+        max_major: u64,
+    },
+    RefScriptSizeTooBig {
+        provided: u64,
+        allowed: u64,
+    },
+    Transaction {
+        transaction_id: TransactionId,
+        transaction_index: TransactionIndex,
+        violation: Box<TransactionInvalid>,
+    },
 }
 
 #[derive(Debug)]

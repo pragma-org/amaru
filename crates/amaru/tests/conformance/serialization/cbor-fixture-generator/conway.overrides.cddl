@@ -4,9 +4,10 @@
 ; directly. Each rule here replaces the upstream definition of the same name at generation
 ; time; see `build_effective_cddl` in scripts/regenerate-cbor-fixtures.
 ;
-; Every override exists for the same reason: the upstream grammar is looser than the node,
-; so cuddle generates samples the node would reject. Those are not valid positives, and
-; generating them only produces noise in the conformance report.
+; Every override exists to close a gap between the upstream grammar and the node, in one of two
+; directions. Where upstream is looser, cuddle generates samples the node would reject. Those are
+; not valid positives. Where upstream is tighter, the validator rejects samples the node accepts,
+; mislabelling them as negatives. Either way the conformance report gains noise, not signal.
 
 ; Upstream says `address = bytes`, which admits the empty byte string and arbitrary garbage.
 ; The real structure is documented only in a prose comment upstream, because CDDL cannot
@@ -42,3 +43,14 @@ address =
 ; and 2-byte "hashes". The second element is a blake2b-256 of the metadata document; other eras'
 ; CDDL spells this `metadata_hash = bytes .size 32`.
 pool_metadata = [url, bytes .size 32]
+
+; Upstream defines the three Plutus script rules as `distinct_bytes`, a union of six fixed sizes.
+; Its own comment says why: "The cddl tool we use for roundtrip testing doesn't generate distinct
+; collections, so we use sized variants to ensure uniqueness." Real Plutus scripts are opaque
+; bytestrings of any length, as the comment above `plutus_v1_script` states. Keeping the upstream
+; sizes makes the validator reject perfectly valid scripts and mislabel them as negatives.
+plutus_v1_script = bytes
+
+plutus_v2_script = bytes
+
+plutus_v3_script = bytes
