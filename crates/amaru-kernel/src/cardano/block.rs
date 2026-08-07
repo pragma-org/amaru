@@ -129,7 +129,7 @@ impl IntoIterator for Block {
     }
 }
 
-// FIXME: Constraints & multi-era decoding
+// FIXME(cbor): Constraints & multi-era decoding
 //
 // There are various decoding rules that aren't enforced but that should be; for example (and
 // non-exhaustively):
@@ -154,7 +154,7 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
             let (transaction_witnesses, transaction_witnesses_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
 
             let (auxiliary_data, auxiliary_data_bytes) =
-                // FIXME: duplicate keys in aux data top-level map?
+                // FIXME(cbor): duplicate keys in aux data top-level map?
                 //
                 // We must double-check and confirm (i.e. have tests for) the behaviour of the
                 // decoder regarding duplicate keys: if allowed, should they overwrite a previously

@@ -113,7 +113,7 @@ pub fn tee<'d, A>(
 
 /// Decode any heterogeneous CBOR array, irrespective of whether they're indefinite or definite.
 ///
-/// FIXME: Allow callers to check that the length is not static, but simply matches what is
+/// FIXME(cbor): Allow callers to check that the length is not static, but simply matches what is
 /// advertised; e.g. using `Option<u64>` as a callback.
 pub fn heterogeneous_array<'d, A>(
     d: &mut cbor::Decoder<'d>,
@@ -179,7 +179,7 @@ pub fn collect_array_item_bytes(decoder: &mut cbor::Decoder<'_>) -> Result<Vec<V
 /// This function checks the size of an array containing a tagged value.
 /// The `label` parameter is used to identify which variant is being checked.
 ///
-/// FIXME: suspicious check_tagged_array_length
+/// FIXME(cbor): suspicious check_tagged_array_length
 ///
 /// This function is a code smell and seems to indicate that we are manually decoding def
 /// array somewhere, instead of using the heterogeneous_array above to also deal indef arrays.

@@ -16,7 +16,7 @@ use std::{fmt, ops::Deref};
 
 use crate::cbor;
 
-// TODO: BoundedBytes should not exists
+// FIXME(cbor): BoundedBytes should not exists
 //
 // Move this as a serialisation/deserialisation helper rather than being a type that
 // transpires through the type system.

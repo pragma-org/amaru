@@ -44,10 +44,9 @@ pub enum Metadatum {
     Map(Vec<(Metadatum, Metadatum)>),
 }
 
-/// FIXME: Multi-era + length checks on bytes and text
+/// FIXME(cbor): Multi-era
 ///
-/// Ensure that this decoder is multi-era capable and also correctly checks for bytes and
-/// (utf-8-encoded) text to be encoded as chunks.
+/// Ensure that this decoder is multi-era capable
 impl<'b, C> cbor::Decode<'b, C> for Metadatum {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         use cbor::data::Type::*;
@@ -102,11 +101,11 @@ impl<C> cbor::Encode<C> for Metadatum {
             Metadatum::Int(a) => {
                 e.encode_with(a, ctx)?;
             }
-            // FIXME: Use stream encoding for length > 64
+            // FIXME(cbor): Use stream encoding for length > 64
             Metadatum::Bytes(a) => {
                 e.encode_with(<&cbor::bytes::ByteSlice>::from(a.as_slice()), ctx)?;
             }
-            // FIXME: Use stream encoding for length > 64
+            // FIXME(cbor): Use stream encoding for length > 64
             Metadatum::Text(a) => {
                 e.encode_with(a, ctx)?;
             }

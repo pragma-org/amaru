@@ -238,7 +238,7 @@ impl<C> cbor::Encode<C> for AddressAttributes {
         e: &mut cbor::Encoder<W>,
         _ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        // FIXME: Worry about definite vs indefinite length here?
+        // FIXME(cbor): Worry about definite vs indefinite length here?
         e.map(self.0.len() as u64)?;
 
         for (k, v) in &self.0 {
