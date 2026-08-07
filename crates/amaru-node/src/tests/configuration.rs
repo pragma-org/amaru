@@ -19,8 +19,8 @@ use std::{
 
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{
-    BlockHeader, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction, TransactionId,
-    cardano::network_block::make_encoded_block,
+    Anchor, BlockHeader, Constitution, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters,
+    Transaction, TransactionId, cardano::network_block::make_encoded_block,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -298,6 +298,12 @@ impl NodeTestConfig {
             )?;
             tx.set_protocol_parameters(pp)?;
             tx.set_governance_activity(governance_activity)?;
+            // A bootstrapped ledger always has a constitution; these tests never propose one, so
+            // any anchor will do and there is no guardrails script to enforce.
+            tx.set_constitution(&Constitution {
+                anchor: Anchor { url: "https://example.com".to_string(), content_hash: [0; 32].into() },
+                guardrail_script: None,
+            })?;
             tx.commit()?;
             // initial_stake_distributions needs snapshots at most_recent, most_recent - 1, and
             // most_recent - 2; take three so that for_epoch(0) and for_epoch(1) both succeed.

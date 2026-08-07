@@ -45,10 +45,11 @@ UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 
 ### Initial state
 
-Initial state represents the state on which the transaction is validated. Currently,
-it is made up of five fields:
+Initial state represents the state on which the transaction is validated. Every
+field is required — nothing about the state a transaction is judged against is
+implicit.
 
-
+- `utxo`: array of `{ input, output }` pairs of hex-encoded CBOR.
 - `pools`: array of hex-encoded pool key hashes, does not contain pool's parameters.
 - `accounts`: `[{ credential, deposit, rewards?, pool?, drep? }]`. `credential`
   is hex-encoded CBOR of a `StakeCredential`; `deposit`/`rewards` are lovelace
@@ -58,6 +59,11 @@ it is made up of five fields:
 - `dreps`: `[{ credential, deposit, registeredAt, validUntil }]`, with the same
   `credential` encoding, a `registeredAt` certificate pointer, and a `validUntil`
   epoch.
+- `governanceActivity`: `{ consecutiveDormantEpochs }`.
+- `pots`: `{ treasury, reserves }`, in lovelace.
+- `guardrailScript`: hex-encoded script hash of the enacted constitution's
+  guardrails script, or `null` when the constitution has none. A proposal
+  carrying a policy must name exactly this script.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:

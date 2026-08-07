@@ -24,7 +24,8 @@
     "pots": {
       "treasury": 2000000,
       "reserves": 0
-    }
+    },
+    "guardrailScript": null
   },
   "point": {
     "slot": 0,

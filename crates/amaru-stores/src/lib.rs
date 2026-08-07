@@ -22,7 +22,7 @@ pub mod tests {
     #[cfg(not(target_os = "windows"))]
     use amaru_kernel::any_proposal_id;
     use amaru_kernel::{
-        Anchor, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput,
+        Anchor, Constitution, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput,
         PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
         TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_stake_credential,
     };
@@ -196,6 +196,13 @@ pub mod tests {
                 Columns::empty(),
                 std::iter::empty(),
             )?;
+
+            // A bootstrapped ledger always has a constitution, and an enacted governance update
+            // reads it back to report the guardrails script in force.
+            context.set_constitution(&Constitution {
+                anchor: Anchor { url: "https://example.com".to_string(), content_hash: Hash::from([0u8; 32]) },
+                guardrail_script: None,
+            })?;
 
             context.commit()?;
         }

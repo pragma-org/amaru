@@ -31,7 +31,8 @@
         "deposit": 2000000,
         "rewards": 0
       }
-    ]
+    ],
+    "guardrailScript": null
   },
   "point": {
     "slot": 0,

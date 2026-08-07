@@ -23,7 +23,7 @@ pub mod tests {
     };
 
     use amaru_kernel::{
-        Account, Bytes, CertificatePointer, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
+        Account, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
         DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
         PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalState as NewEpochProposalState,
         ProtocolParameters, Slot, StakeCredential, Transaction, TransactionInput, TransactionPointer, WitnessSet, cbor,
@@ -116,6 +116,7 @@ pub mod tests {
         pparams_hash: &'b cbor::bytes::ByteSlice,
         dormant_epochs: Epoch,
         treasury: Lovelace,
+        constitution: Constitution,
     }
 
     fn decode_ledger_state<'b>(d: &mut cbor::Decoder<'b>) -> Result<DecodedLedgerState<'b>, cbor::decode::Error> {
@@ -202,7 +203,7 @@ pub mod tests {
         ];
         let proposals = d.decode()?;
         let cc_state = d.decode::<SerialisedAsArray<_>>()?.0;
-        d.skip()?; // constitution
+        let constitution: Constitution = d.decode()?;
         let pparams_hash = d.decode()?;
         d.skip()?; // previous_pparams_hash
         d.skip()?; // future_pparams
@@ -228,6 +229,7 @@ pub mod tests {
             pparams_hash,
             dormant_epochs,
             treasury,
+            constitution,
         })
     }
 
@@ -343,6 +345,7 @@ pub mod tests {
                 &protocol_parameters,
                 era_history,
                 governance_activity,
+                decoded.constitution.guardrail_script,
                 pointer,
                 true,
                 tx.body,

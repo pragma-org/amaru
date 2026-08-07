@@ -1,0 +1,45 @@
+{
+  "title": "treasury withdrawals proposal with a policy the constitution has no script for",
+  "description": "A TreasuryWithdrawals proposal carrying a policy, against a constitution that names no guardrails script. The named script is witnessed, and both the return and withdrawal accounts are registered.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b00000017489879c0"
+      }
+    ],
+    "pools": [],
+    "accounts": [
+      {
+        "credential": "8200581cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "deposit": 2000000,
+        "rewards": 0
+      },
+      {
+        "credential": "8200581caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    },
+    "guardrailScript": null
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480021a00030d400f0014d9010281841b000000174876e800581de0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb8302a1581de0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1a000f4240581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840ff3239747eff53d9595a30757a4f037003b6e8e6df584f4f18ed4d36e92296414ae20fe46e29488d1a69fc7722cfd9640e4253b41617157672a43b0dd0ccec060181820180f5f6",
+  "expected": {
+    "predicate": "InvalidGuardrailsScriptHash"
+  }
+}

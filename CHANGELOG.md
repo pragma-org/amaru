@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
+### Changed
+
+- **amaru-ledger**: reject a governance proposal whose policy is not the enacted constitution's guardrails script. ([#931][])
+
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
 ### Added
@@ -268,6 +272,7 @@ Other guiding principles:
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
+[#931]: https://github.com/pragma-org/amaru/issues/931
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953

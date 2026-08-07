@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ConstitutionalCommitteeStatus, Lovelace, PoolId, ProposalId, ProtocolParameters, RatificationStatus,
-    RationalNumber, StakeCredential, StakeCredentialKind,
+    AsHash, ConstitutionalCommitteeStatus, Hash, Lovelace, PoolId, ProposalId, ProtocolParameters, RatificationStatus,
+    RationalNumber, StakeCredential, StakeCredentialKind, size::SCRIPT,
 };
 use amaru_observability::{debug, debug_span};
 use num::BigUint;
@@ -222,13 +222,17 @@ pub fn update_or_retire_pools<'store>(
 pub fn apply_governance_updates<'store>(
     db: &impl TransactionalContext<'store>,
     updates: &GovernanceUpdates,
-) -> Result<(ProtocolParameters, GovernanceActivity), StoreError> {
+) -> Result<(ProtocolParameters, GovernanceActivity, Option<Hash<SCRIPT>>), StoreError> {
     debug_span!(stores::ledger::overlay::APPLY_GOVERNANCE_UPDATES,).in_scope(|| {
         db.set_proposals_roots(&updates.roots)?;
 
-        if let Some(new_constitution) = updates.new_constitution.as_ref() {
-            db.set_constitution(new_constitution)?;
-        }
+        let guardrail_script = match updates.new_constitution.as_ref() {
+            Some(new_constitution) => {
+                db.set_constitution(new_constitution)?;
+                new_constitution.guardrail_script
+            }
+            None => db.constitution()?.guardrail_script,
+        };
 
         if let Some(committee_update) = updates.constitutional_committee.as_ref() {
             update_constitutional_committee(db, committee_update)?;
@@ -260,7 +264,7 @@ pub fn apply_governance_updates<'store>(
 
         db.remove_proposals(updates.pruned_proposals.keys())?;
 
-        Ok((updates.protocol_parameters.clone(), governance_activity))
+        Ok((updates.protocol_parameters.clone(), governance_activity, guardrail_script))
     })
 }
 

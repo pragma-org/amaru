@@ -176,6 +176,11 @@
       "pattern": "^[0-9a-fA-F]{56}$",
       "description": "Hex-encoded stake pool key hash (28 bytes)."
     },
+    "ScriptHash": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{56}$",
+      "description": "Hex-encoded script hash (28 bytes)."
+    },
     "CertificatePointer": {
       "type": "object",
       "required": ["transaction", "certificateIndex"],
@@ -254,7 +259,8 @@
         "accounts",
         "dreps",
         "governanceActivity",
-        "pots"
+        "pots",
+        "guardrailScript"
       ],
       "properties": {
         "utxo": {
@@ -277,7 +283,11 @@
           "description": "Registered delegate representatives. Empty when no DRep state is seeded."
         },
         "governanceActivity": { "$ref": "#/$defs/VotingState" },
-        "pots": { "$ref": "#/$defs/Pots" }
+        "pots": { "$ref": "#/$defs/Pots" },
+        "guardrailScript": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ScriptHash" }],
+          "description": "Guardrails script of the enacted constitution. A proposal carrying a policy must name exactly this script; null requires proposals to carry no policy at all."
+        }
       }
     },
     "Pots": {
