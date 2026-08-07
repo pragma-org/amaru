@@ -99,6 +99,12 @@ pub trait VolatileState {
         Self: 'a;
     fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a>;
 
+    /// Cold credentials whose hot-key delegation was touched inside this window. Membership is never
+    /// established by a block, so this does not enumerate members; together with the stable store's
+    /// rows it bounds the members that can currently authorize a hot credential. Needed because a
+    /// vote names its member by hot credential, which is not a key any layer is indexed by.
+    fn touched_cc_members(&self) -> impl Iterator<Item = &StakeCredential>;
+
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;
     fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal;

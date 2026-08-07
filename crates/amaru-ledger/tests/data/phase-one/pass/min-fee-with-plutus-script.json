@@ -19,6 +19,8 @@
         "output": "BF00581D606E478CB3EDB8B8F9E9105F2C29CF561E8472796E871A9E9E760CDC03011A004C4B40FF"
       }
     ],
+    "committee": [],
+    "proposals": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
     }

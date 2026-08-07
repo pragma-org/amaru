@@ -1,0 +1,37 @@
+{
+  "title": "vote cast by a drep key credential that is not registered",
+  "description": "A DRep voter whose key credential has no registration in the dreps state.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820e9dbbc7adabc18be00c69527d6dcce23cf59c15ddc362d777085484710040df800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "committee": [],
+    "proposals": [
+      "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00"
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820e9dbbc7adabc18be00c69527d6dcce23cf59c15ddc362d777085484710040df8000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840d554193b177806ce224ee644f7a3ae9350f8da34c4d02a95210221922d05ab5c5701e4b58839b166b6c52471870a9aa4d07380cce4bce114339d9a58947aca00f5f6",
+  "expected": {
+    "predicate": "VotersDoNotExist"
+  }
+}

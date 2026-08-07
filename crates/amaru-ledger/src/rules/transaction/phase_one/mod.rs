@@ -51,6 +51,7 @@ pub mod vkey_witness;
 pub use vkey_witness::InvalidVKeyWitness;
 
 pub mod voting_procedures;
+pub use voting_procedures::InvalidVotingProcedures;
 
 pub mod withdrawals;
 pub use withdrawals::InvalidWithdrawals;
@@ -96,6 +97,9 @@ pub enum PhaseOneError {
 
     #[error("invalid proposals: {0}")]
     Proposals(#[from] proposals::InvalidProposals),
+
+    #[error("invalid voting procedures: {0}")]
+    VotingProcedures(#[from] InvalidVotingProcedures),
 
     #[error("invalid transaction metadata: {0}")]
     Metadata(#[from] InvalidTransactionMetadata),
@@ -283,7 +287,7 @@ where
         })?;
 
         debug_span!(ledger::rules::phase_one::VOTES)
-            .in_scope(|| voting_procedures::execute(context, mem::take(&mut transaction_body.votes)));
+            .in_scope(|| voting_procedures::execute(context, mem::take(&mut transaction_body.votes)))?;
     } else {
         debug_span!(ledger::rules::phase_one::CERTIFICATES).in_scope(|| {
             certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates))
@@ -406,8 +410,8 @@ mod tests {
             fixture.initial_state.pools,
             fixture.initial_state.accounts,
             fixture.initial_state.dreps,
-            Default::default(),
-            Default::default(),
+            fixture.initial_state.committee,
+            fixture.initial_state.proposals,
             Default::default(),
             fixture.initial_state.pots.treasury,
         );

@@ -32,7 +32,6 @@
 "conway/fail-gov-policy-is-respected-by-proposals/0" = "Expected failure, got success"
 "conway/fail-gov-proposals-submitted-without-proper-parent-fail/0" = "Expected failure, got success"
 "conway/fail-gov-valid-govpurposeid-but-invalid-purpose/0" = "Expected failure, got success"
-"conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
 "conway/fail-govcert-resigning-a-non-cc-key/0" = "Expected failure, got success"
 "conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected failure, got success"
 "conway/fail-utxos-delegtxcert-v1/0" = "Expected failure, got success"

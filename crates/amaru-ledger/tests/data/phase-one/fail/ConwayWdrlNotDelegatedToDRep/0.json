@@ -22,6 +22,8 @@
         "rewards": 0
       }
     ],
+    "committee": [],
+    "proposals": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
     }

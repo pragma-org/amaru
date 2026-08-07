@@ -463,6 +463,8 @@ define_schemas! {
                     public HYDRATE {
                         optional from_volatile: u64
                         optional from_db: u64
+                        /// Members scanned to match a vote's hot credential, which is not a store key.
+                        optional scanned: u64
                     }
                 }
                 proposals {

@@ -31,6 +31,8 @@
         "validUntil": 1000
       }
     ],
+    "committee": [],
+    "proposals": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
     }

@@ -123,6 +123,13 @@ impl VolatileAggregate {
         }
     }
 
+    /// Every cold credential whose hot-key delegation this aggregate recorded a verdict for. Since no
+    /// fragment establishes membership (see [`Self::resolve_cc_member`]), this is exactly the members
+    /// whose hot key was authorized or resigned inside the window; each still needs resolving.
+    pub fn cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
+        self.committee.keys()
+    }
+
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is
     /// `Exists` or `Unknown`; pruning only happens at the boundary.
     pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<()> {

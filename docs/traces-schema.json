@@ -3343,12 +3343,16 @@
         },
         "from_db": {
           "type": "integer"
+        },
+        "scanned": {
+          "type": "integer"
         }
       },
       "required": [],
       "optional": [
         "from_volatile",
-        "from_db"
+        "from_db",
+        "scanned"
       ],
       "additionalProperties": false,
       "name": "hydrate",

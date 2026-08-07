@@ -147,6 +147,14 @@ impl VolatileState for VolatileDB {
         )
     }
 
+    /// The overlay is not a source here: it only carries boundary membership changes, never a hot-key
+    /// authorization. An authorization only ever arrives through a block, so it is in one of the two
+    /// series or has already been flushed to the stable store -- including one declared by a member
+    /// that is not (yet) elected, which the store keeps as a row with a hot key and no term.
+    fn touched_cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
+        self.current.touched_cc_members().chain(self.draining.touched_cc_members())
+    }
+
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal = Existence<()>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay

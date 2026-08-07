@@ -16,19 +16,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Lovelace, MemoizedTransactionOutput,
-    NetworkName, PoolId, Pots, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    NetworkName, PoolId, Pots, ProposalId, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer,
+    cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
-    context::{AccountState, DelegateError},
+    context::{AccountState, CCMember, DelegateError},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
         transaction::phase_one::{
             InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
-            InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
+            InvalidVKeyWitness, InvalidValidityInterval, InvalidVotingProcedures, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
             proposals::InvalidProposals,
         },
@@ -59,6 +60,10 @@ pub(super) struct InitialState {
     pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
     pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
+    #[serde(deserialize_with = "deserialize_committee")]
+    pub(super) committee: BTreeMap<StakeCredential, CCMember>,
+    #[serde(deserialize_with = "deserialize_proposals")]
+    pub(super) proposals: BTreeSet<ProposalId>,
     #[serde(default)]
     pub(super) governance_activity: GovernanceActivity,
     #[serde(default)]
@@ -73,6 +78,20 @@ where
     let hex = String::deserialize(deserializer)?;
     let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
     cbor::decode(&bytes).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_optional_cbor_hex<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: for<'b> cbor::Decode<'b, ()>,
+{
+    match Option::<String>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(hex) => {
+            let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
+            cbor::decode(&bytes).map(Some).map_err(serde::de::Error::custom)
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -151,6 +170,48 @@ where
         .collect())
 }
 
+/// A row of the constitutional committee, keyed by cold credential. `hotCredential` is absent for a
+/// member that has never authorized one or has resigned; `validUntil` is absent for a member that is
+/// not (or no longer) elected, which is a state a member can still authorize a hot key from.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitteeMemberProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    cold_credential: StakeCredential,
+    #[serde(default, deserialize_with = "deserialize_optional_cbor_hex")]
+    hot_credential: Option<StakeCredential>,
+    #[serde(default)]
+    valid_until: Option<Epoch>,
+}
+
+fn deserialize_committee<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, CCMember>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<CommitteeMemberProxy>::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let member = CCMember { hot_credential: entry.hot_credential, valid_until: entry.valid_until };
+            (entry.cold_credential, member)
+        })
+        .collect())
+}
+
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeSet<ProposalId>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<String>::deserialize(deserializer)?;
+    entries
+        .into_iter()
+        .map(|hex| {
+            let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
+            cbor::decode::<ProposalId>(&bytes).map_err(serde::de::Error::custom)
+        })
+        .collect()
+}
+
 pub(super) enum Expected {
     Pass,
     DecodingFailure,
@@ -212,6 +273,7 @@ pub(super) enum Predicate {
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
     ValueNotConservedUTxO,
+    VotersDoNotExist,
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -276,6 +338,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
                 Predicate::ProposalReturnAccountDoesNotExist
+            }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::VotersDoNotExist(_)) => {
+                Predicate::VotersDoNotExist
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
