@@ -4,7 +4,7 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LEDGER_TEST_DATA_PATH="${LEDGER_TEST_DATA_PATH:-$(cd "$SCRIPT_DIR/../../../../amaru-ledger/tests/data" && pwd)}"
-PHASE_ONE_ROOT="$LEDGER_TEST_DATA_PATH/phase-one"
+FIXTURE_ROOT="$LEDGER_TEST_DATA_PATH/transaction"
 
 banner() {
   printf '\n\033[1;36m'
@@ -20,8 +20,8 @@ run_suite() {
 
   summary_file="$(mktemp)"
 
-  cabal run -v0 exe:conformance -- validate-phase-one --test-directory "$PHASE_ONE_ROOT/$dir" 2>"$summary_file" |
-    jq -r --arg root "$PHASE_ONE_ROOT" '
+  cabal run -v0 exe:conformance -- validate-phase-one --test-directory "$FIXTURE_ROOT/$dir" 2>"$summary_file" |
+    jq -r --arg root "$FIXTURE_ROOT" '
         def pad($n): . + (" " * ($n - length));
         if has("error") then
           (.path | ltrimstr($root + "/")) as $path

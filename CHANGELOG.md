@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
+### Fixed
+
+- **amaru-ledger**: a transaction marked invalid that carries no Plutus script is no longer accepted. ([#894][])
+
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
 ### Added
@@ -259,6 +263,7 @@ Other guiding principles:
 [#888]: https://github.com/pragma-org/amaru/issues/888
 [#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
+[#894]: https://github.com/pragma-org/amaru/issues/894
 [#895]: https://github.com/pragma-org/amaru/issues/895
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/pragma-org/amaru/blob/main/crates/amaru-ledger/tests/data/phase-one/schema.json",
-  "title": "Phase-one validation fixture",
-  "description": "An implementation-generic test vector for Cardano phase-one transaction validation.",
+  "$id": "https://github.com/pragma-org/amaru/blob/main/crates/amaru-ledger/tests/data/transaction/schema.json",
+  "title": "Transaction validation fixture",
+  "description": "An implementation-generic test vector for Cardano transaction validation, covering both the phase-one rules and phase-two script evaluation.",
   "type": "object",
   "required": [
     "network",
@@ -519,8 +519,13 @@
         {
           "type": "object",
           "required": ["predicate"],
+          "description": "The predicate the transaction must fail. Some predicates carry additional fields that narrow which of their cases is expected.",
           "properties": {
-            "predicate": { "type": "string" }
+            "predicate": { "type": "string" },
+            "description": {
+              "enum": ["PassedUnexpectedly", "FailedUnexpectedly"],
+              "description": "Required for ValidationTagMismatch: which way round the transaction's is_valid flag disagrees with script evaluation. PassedUnexpectedly covers a transaction with no Plutus script at all, since an empty script set trivially passes."
+            }
           }
         }
       ]

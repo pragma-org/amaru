@@ -1,0 +1,35 @@
+{
+  "title": "invalid transaction collects fee from collateral",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, with the fee collected from the collateral input.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed02800",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820333333333333333333333333333333333333333333333333333333333333333300",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a600d9010281825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed028000181a200581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a0049b77b021a000293c50b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258203333333333333333333333333333333333333333333333333333333333333333000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584038377d404fb5ed5f27dfd8216e12a69eb3cc92251dc54de635ddc8038344c5baa5166864e61a9f1922019f4058ba382e580b335beb3e99e3986c4dd78024cd0e05a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}
