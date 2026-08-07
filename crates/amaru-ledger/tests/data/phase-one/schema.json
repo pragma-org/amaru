@@ -267,7 +267,7 @@
     },
     "Proposal": {
       "type": "object",
-      "required": ["id", "validUntil"],
+      "required": ["id", "validUntil", "govAction"],
       "properties": {
         "id": {
           "$ref": "#/$defs/HexCbor",
@@ -277,6 +277,10 @@
           "type": "integer",
           "minimum": 0,
           "description": "Last epoch in which a vote on the action still counts."
+        },
+        "govAction": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of GovAction. Decides which voters may vote on the proposal at all, so it is required even when a case does not turn on it; use \"8106\" (Information) for the action no voter is barred from."
         }
       }
     },

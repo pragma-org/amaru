@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProtocolVersion, RedeemerTag,
-    RequiredScript, StakeCredential, TransactionPointer, Voter, VotingProcedure,
+    EraHistory, GovernanceAction, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProtocolVersion,
+    RedeemerTag, RequiredScript, StakeCredential, TransactionPointer, Voter, VotingProcedure,
 };
 use thiserror::Error;
 
@@ -35,6 +35,9 @@ pub enum InvalidVotingProcedures {
 
     #[error("votes cast on governance actions that have expired: Voter {0:?} on proposal {1:?}")]
     VotingOnExpiredGovAction(Voter, ProposalId),
+
+    #[error("vote cast on a governance action the voter has no say over: Voter {0:?} on proposal {1:?}")]
+    DisallowedVoter(Voter, ProposalId),
 
     #[error("era history error: {0}")]
     EraHistory(#[from] amaru_kernel::EraHistoryError),
@@ -79,6 +82,10 @@ where
                         return Err(InvalidVotingProcedures::VotingOnExpiredGovAction(voter.clone(), *proposal_id));
                     }
 
+                    Some(state) if !is_entitled_to_vote(voter, &state.proposal.gov_action) => {
+                        return Err(InvalidVotingProcedures::DisallowedVoter(voter.clone(), *proposal_id));
+                    }
+
                     Some(..) => {}
                 }
             }
@@ -114,7 +121,7 @@ where
     Ok(())
 }
 
-/// Election statushere is membership, not an unexpired term: a member whose term has run out is still
+/// Election status here is membership, not an unexpired term: a member whose term has run out is still
 /// named by the committee, and their vote is discounted when the action is ratified instead.
 ///
 /// Voters that are not committee members are never rejected by this check.
@@ -129,6 +136,28 @@ where
                 .any(|member| member.valid_until.is_some())
         }
         Voter::DRepKey(_) | Voter::DRepScript(_) | Voter::StakePoolKey(_) => false,
+    }
+}
+
+/// Whether a voter has any say over this kind of governance action
+fn is_entitled_to_vote(voter: &Voter, action: &GovernanceAction) -> bool {
+    match voter {
+        Voter::ConstitutionalCommitteeKey(..) | Voter::ConstitutionalCommitteeScript(..) => {
+            !matches!(action, GovernanceAction::NoConfidence(..) | GovernanceAction::UpdateCommittee(..))
+        }
+
+        Voter::StakePoolKey(..) => match action {
+            GovernanceAction::ParameterChange(_, update, _) => update.modifies_security_group(),
+
+            GovernanceAction::NewConstitution(..) | GovernanceAction::TreasuryWithdrawals(..) => false,
+
+            GovernanceAction::NoConfidence(..)
+            | GovernanceAction::UpdateCommittee(..)
+            | GovernanceAction::HardForkInitiation(..)
+            | GovernanceAction::Information => true,
+        },
+
+        Voter::DRepKey(..) | Voter::DRepScript(..) => true,
     }
 }
 

@@ -1,0 +1,49 @@
+{
+  "title": "vote cast by a committee member on a new constitution",
+  "description": "The committee's say extends to the constitution it is charged with upholding.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258209bba1ec996e9f3e37fcc36f6d5ac872320660b109ddac964e664779980fc611300",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "committee": [
+      {
+        "coldCredential": "8200581cecc3093b061a9ed426cd9956161fc48d4ed1ac58dc4aaed7e1ce1830",
+        "hotCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 100,
+        "govAction": "8305f68282781f68747470733a2f2f616d6172752e746573742f666978747572652e6a736f6e58200000000000000000000000000000000000000000000000000000000000000000f6"
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    },
+    "pots": {
+      "treasury": 0,
+      "reserves": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258209bba1ec996e9f3e37fcc36f6d5ac872320660b109ddac964e664779980fc6113000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258404b2b1da57dc207d56b3b6d65258f90f4da0798817b1b35fefcfbec59121e6647956797709357aa033848a773b1d84d268b4296f1f9008bbd3f97b14e9b53cd02f5f6",
+  "expected": "Pass"
+}

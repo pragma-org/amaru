@@ -205,11 +205,10 @@ struct ProposalProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     id: ProposalId,
     valid_until: Epoch,
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    gov_action: GovernanceAction,
 }
 
-/// The identity and expiry of a seeded proposal are the only parts a fixture states; the rest of
-/// [`ProposalState`] is stood up as an `Information` action, the one governance action that
-/// constrains nothing about who may vote on it.
 fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalState>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -227,7 +226,7 @@ where
                 proposal: Proposal {
                     deposit: 0,
                     reward_account: RewardAccount::from(vec![]),
-                    gov_action: GovernanceAction::Information,
+                    gov_action: entry.gov_action,
                     anchor: Anchor { content_hash: Hash::new([0; 32]), url: String::new() },
                 },
             };
@@ -266,6 +265,7 @@ pub(super) enum Predicate {
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
+    DisallowedVoters,
     FeeTooSmallUTxO,
     GovActionsDoNotExist,
     IncorrectDepositDELEG,
@@ -377,6 +377,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::VotingOnExpiredGovAction(_, _)) => {
                 Predicate::VotingOnExpiredGovAction
+            }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::DisallowedVoter(_, _)) => {
+                Predicate::DisallowedVoters
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
