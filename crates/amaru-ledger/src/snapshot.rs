@@ -76,26 +76,21 @@ pub fn committee_members(
 
 /// A governance proposal's block-start state from a snapshot. `proposed_in` is synthesized to the
 /// start of its proposing epoch, the only position a NewEpochState records.
+///
+/// The expiry is the one the snapshot recorded, not `proposed_in + gov_action_lifetime`: the two
+/// agree only if the lifetime never changed since the action was submitted.
 pub fn proposal_state(
     proposal: NewEpochProposalState,
     era_history: &EraHistory,
-    protocol_parameters: &ProtocolParameters,
 ) -> Result<(ProposalId, ProposalState), EraHistoryError> {
-    let NewEpochProposalState { id, procedure, proposed_in, .. } = proposal;
+    let NewEpochProposalState { id, procedure, proposed_in, expires_after, .. } = proposal;
 
     let proposed_in_pointer = ProposalPointer {
         transaction: TransactionPointer { slot: era_history.epoch_bounds(proposed_in)?.start, transaction_index: 0 },
         proposal_index: id.action_index as usize,
     };
 
-    Ok((
-        id,
-        ProposalState {
-            proposed_in: proposed_in_pointer,
-            valid_until: proposed_in + protocol_parameters.gov_action_lifetime,
-            proposal: procedure,
-        },
-    ))
+    Ok((id, ProposalState { proposed_in: proposed_in_pointer, valid_until: expires_after, proposal: procedure }))
 }
 
 /// The governance roots, the latest enacted action per category, as of the snapshot.

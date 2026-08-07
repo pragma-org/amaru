@@ -1,0 +1,40 @@
+{
+  "title": "no vote cast by a registered stake pool on an action expiring in the current epoch",
+  "description": "A registered stake pool voting no on an action whose validUntil is the current epoch, the last one in which a vote on it still counts.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820e739e85e21f50c6d6f618293706eb45e99763ac5517fe42e4fdf73cb0a31114f00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ],
+    "accounts": [],
+    "dreps": [],
+    "committee": [],
+    "proposals": [
+      {
+        "id": "8258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b00",
+        "validUntil": 1
+      }
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 432000,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820e739e85e21f50c6d6f618293706eb45e99763ac5517fe42e4fdf73cb0a31114f000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18204581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008200f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b17a427ee7fcc255bf23ab559011ddc8d03330dfb44ba40e2e5ec2d4a2099d74b9b56af33cb6d7245174b3bc62c5e40af8bdcf0b475de62db912b0d6a86e8806f5f6",
+  "expected": "Pass"
+}

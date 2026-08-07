@@ -21,8 +21,8 @@ use std::{
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, ProposalId, ProposalsRoots, RequiredScript,
+    StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -31,8 +31,8 @@ use amaru_observability::trace_span;
 use crate::{
     context::{
         AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
-        WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        PotsSlice, ProposalState, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
+        ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     state::volatile::VolatileFragment,
 };
@@ -44,7 +44,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeSet<ProposalId>,
+    proposals: BTreeMap<ProposalId, ProposalState>,
     proposals_roots: ProposalsRoots,
     treasury: Lovelace,
     state: VolatileFragment,
@@ -65,7 +65,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeSet<ProposalId>,
+        proposals: BTreeMap<ProposalId, ProposalState>,
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
     ) -> Self {
@@ -397,16 +397,16 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn exists(&self, id: &ProposalId) -> bool {
-        self.proposals.contains(id) || self.state.proposals.contains_key(id)
+    fn lookup(&self, id: &ProposalId) -> Option<&ProposalState> {
+        self.proposals.get(id).or_else(|| self.state.proposals.get(id).map(|state| state.as_ref()))
     }
 
     fn roots(&self) -> &ProposalsRoots {
         &self.proposals_roots
     }
 
-    fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
-        self.state.proposals.insert(id, Arc::new((proposal, pointer)));
+    fn acknowledge(&mut self, id: ProposalId, state: ProposalState) {
+        self.state.proposals.insert(id, Arc::new(state));
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {

@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, mem};
+use std::{collections::VecDeque, mem, sync::Arc};
 
 use amaru_kernel::{Lovelace, MemoizedTransactionOutput, Point, PoolId, ProposalId, StakeCredential, TransactionInput};
 use amaru_observability::debug_span;
 
-use crate::state::{
-    AnchoredVolatileFragment,
-    volatile::{
-        AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+use crate::{
+    context::ProposalState,
+    state::{
+        AnchoredVolatileFragment,
+        volatile::{
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+        },
     },
 };
 
@@ -73,7 +76,7 @@ impl VolatileState for VolatileSeries {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<()>;
+    type Proposal = Existence<Arc<ProposalState>>;
     fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {
         self.aggregate.resolve_proposal(id)
     }

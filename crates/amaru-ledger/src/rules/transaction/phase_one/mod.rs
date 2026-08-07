@@ -286,8 +286,9 @@ where
             )
         })?;
 
-        debug_span!(ledger::rules::phase_one::VOTES)
-            .in_scope(|| voting_procedures::execute(context, mem::take(&mut transaction_body.votes)))?;
+        debug_span!(ledger::rules::phase_one::VOTES).in_scope(|| {
+            voting_procedures::execute(context, era_history, pointer, mem::take(&mut transaction_body.votes))
+        })?;
     } else {
         debug_span!(ledger::rules::phase_one::CERTIFICATES).in_scope(|| {
             certificates::count_lovelace(context, protocol_parameters, mem::take(&mut transaction_body.certificates))

@@ -21,7 +21,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{AccountsSlice, BalanceSlice, ProposalsSlice, WitnessSlice};
+use crate::context::{AccountsSlice, BalanceSlice, ProposalState, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -89,7 +89,11 @@ where
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
         let id = ProposalId { transaction_id: *transaction.0, action_index: proposal_index as u32 };
-        context.acknowledge(id, pointer, proposal)
+
+        let valid_until = era_history.slot_to_epoch(transaction.1.slot, transaction.1.slot)?
+            + protocol_parameters.gov_action_lifetime;
+
+        context.acknowledge(id, ProposalState { proposed_in: pointer, valid_until, proposal })
     }
 
     Ok(())

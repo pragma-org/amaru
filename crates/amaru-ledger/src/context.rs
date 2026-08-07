@@ -343,13 +343,14 @@ pub struct ProposalState {
 }
 
 pub trait ProposalsSlice {
-    /// The proposal at this point in the block, including ones acknowledged earlier in the block.
-    fn exists(&self, id: &ProposalId) -> bool;
+    /// The state of the proposal at this point in the block, including ones acknowledged earlier in
+    /// the block.
+    fn lookup(&self, id: &ProposalId) -> Option<&ProposalState>;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;
 
-    fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
+    fn acknowledge(&mut self, id: ProposalId, state: ProposalState);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
 }

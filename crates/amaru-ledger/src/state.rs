@@ -326,7 +326,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
                 // Persist changes for this block
                 let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, donations, add, remove, withdrawals } =
-                    now_stable.into_store_update(immutable_epoch, protocol_parameters);
+                    now_stable.into_store_update();
 
                 self.stable.lock().unwrap()
                     .with_transaction(|batch| {

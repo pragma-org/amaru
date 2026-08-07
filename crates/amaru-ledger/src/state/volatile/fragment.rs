@@ -19,11 +19,11 @@ use std::{
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProtocolParameters, Slot, StakeCredential, Tip,
-    TransactionInput,
+    Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential, Tip, TransactionInput,
 };
 
 use crate::{
+    context::ProposalState,
     state::volatile::{Bind, Empty, Resettable},
     store::{self, columns::*},
 };
@@ -60,7 +60,7 @@ pub struct VolatileFragment {
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffSet<StakeCredential, StakeCredential>,
     pub withdrawals: BTreeSet<StakeCredential>,
-    pub proposals: BTreeMap<ProposalId, Arc<(Proposal, ProposalPointer)>>,
+    pub proposals: BTreeMap<ProposalId, Arc<ProposalState>>,
     pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
     pub donations: Lovelace,
@@ -97,8 +97,6 @@ impl AnchoredVolatileFragment {
     #[allow(clippy::type_complexity)]
     pub fn into_store_update(
         self,
-        epoch: Epoch,
-        protocol_parameters: &ProtocolParameters,
     ) -> StoreUpdate<
         impl Iterator<Item = accounts::Key>,
         store::Columns<
@@ -120,8 +118,6 @@ impl AnchoredVolatileFragment {
             impl Iterator<Item = ()>,
         >,
     > {
-        let gov_action_lifetime = protocol_parameters.gov_action_lifetime;
-
         let Self {
             fragment:
                 VolatileFragment {
@@ -152,7 +148,7 @@ impl AnchoredVolatileFragment {
                 accounts: add_accounts(accounts.registered.into_iter()),
                 dreps: add_dreps(dreps.registered.into_iter()),
                 cc_members: add_committee(committee.produced.into_iter()),
-                proposals: add_proposals(proposals.into_iter(), epoch + gov_action_lifetime),
+                proposals: add_proposals(proposals.into_iter()),
                 votes: votes.produced.into_iter(),
             },
             remove: store::Columns {
@@ -264,11 +260,10 @@ pub(crate) fn add_committee(
 // --------------------------------------------------------------------------------------- Proposals
 
 pub(crate) fn add_proposals(
-    iterator: impl Iterator<Item = (ProposalId, Arc<(Proposal, ProposalPointer)>)>,
-    expiration: Epoch,
+    iterator: impl Iterator<Item = (ProposalId, Arc<ProposalState>)>,
 ) -> impl Iterator<Item = (proposals::Key, proposals::Value)> {
     iterator.map(move |(proposal_id, value)| {
-        let (proposal, proposed_in) = Arc::unwrap_or_clone(value);
-        (proposal_id, proposals::Value { proposed_in, valid_until: expiration, proposal })
+        let ProposalState { proposed_in, valid_until, proposal } = Arc::unwrap_or_clone(value);
+        (proposal_id, proposals::Value { proposed_in, valid_until, proposal })
     })
 }
