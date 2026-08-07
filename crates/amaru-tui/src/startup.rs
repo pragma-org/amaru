@@ -14,7 +14,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use amaru_kernel::{EraHistory, GlobalParameters, ProtocolParameters, protocol_version};
+use amaru_kernel::{EraHistory, GlobalParameters, ProtocolParameters};
 use clap::{Arg, CommandFactory};
 
 pub trait RuntimeSettingsSource: CommandFactory {
@@ -52,7 +52,7 @@ impl StartupContext {
         Self {
             process: ProcessInfo::new(pid, network, software_version, target),
             protocol_version: protocol_parameters
-                .map(|parameters| protocol_version::fmt(&parameters.protocol_version))
+                .map(|parameters| parameters.protocol_version.to_string())
                 .unwrap_or_else(|| "unknown".to_string()),
             mempool_max_bytes,
             epoch_length: global_parameters.epoch_length(),

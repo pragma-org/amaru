@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, EraHistory, GovernanceAction, ProtocolParameters, protocol_version};
+use amaru_kernel::{Epoch, EraHistory, GovernanceAction, ProtocolParameters};
 use amaru_observability::info;
 
 use crate::store::{self, ReadStore, StoreError};
@@ -76,7 +76,7 @@ fn emit_protocol_parameters<S: ReadStore>(database: &Database<'_, S>) {
 
     info!(
         ledger::protocol_parameters::LOAD,
-        protocol_version = protocol_version::fmt(&protocol_parameters.protocol_version),
+        protocol_version = protocol_parameters.protocol_version.to_string(),
         max_block_body_size = protocol_parameters.max_block_body_size.to_string(),
         max_transaction_size = protocol_parameters.max_transaction_size.to_string(),
         max_tx_ex_units = protocol_parameters.max_tx_ex_units.to_string(),
@@ -154,7 +154,7 @@ fn proposal_kind(proposal: &GovernanceAction) -> &'static str {
 
 fn proposal_detail(proposal: &GovernanceAction) -> Option<String> {
     match proposal {
-        GovernanceAction::HardForkInitiation(_, version) => Some(protocol_version::fmt(version)),
+        GovernanceAction::HardForkInitiation(_, version) => Some(version.to_string()),
         GovernanceAction::TreasuryWithdrawals(withdrawals, _) => {
             Some(format!("{} lovelace", withdrawals.iter().map(|(_, amount)| *amount).sum::<u64>()))
         }
