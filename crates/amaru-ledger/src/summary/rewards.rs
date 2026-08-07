@@ -604,7 +604,7 @@ mod test {
     #[test]
     fn a_leader_reward_is_credited_to_an_unregistered_reward_account() {
         let pool = pool(1);
-        let (accounts, _) = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
+        let (accounts, _) = apply_leader_rewards(&pool, &stake_summary(&pool, BTreeMap::new()));
         assert!(accounts.contains_key(&credential(1)));
     }
 
@@ -618,7 +618,7 @@ mod test {
             AccountState { balance: STAKE, pool: Some(pool.parameters.id), drep: None },
         )]);
 
-        let (accounts, _) = apply_leader_rewards(&pool, &stake_distribution(&pool, delegators));
+        let (accounts, _) = apply_leader_rewards(&pool, &stake_summary(&pool, delegators));
 
         assert!(accounts.contains_key(&credential(1)));
     }
@@ -629,7 +629,7 @@ mod test {
     #[test]
     fn a_leader_reward_records_its_recipient() {
         let pool = pool(1);
-        let (_, leader_recipients) = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
+        let (_, leader_recipients) = apply_leader_rewards(&pool, &stake_summary(&pool, BTreeMap::new()));
         assert_eq!(leader_recipients, BTreeSet::from([credential(1)]));
     }
 
@@ -638,7 +638,7 @@ mod test {
     #[test]
     fn a_pool_earning_no_leader_reward_records_no_recipient() {
         let pool = pool(1);
-        let stake_distribution = stake_distribution(&pool, BTreeMap::new());
+        let summary = stake_summary(&pool, BTreeMap::new());
 
         let mut accounts = BTreeMap::new();
         let mut leader_recipients = BTreeSet::new();
@@ -651,7 +651,7 @@ mod test {
             1,
             1_000_000_000,
             STAKE,
-            &stake_distribution,
+            &summary,
             &pool,
             &MAINNET_DEFAULT_PROTOCOL_PARAMETERS,
         );
@@ -694,7 +694,10 @@ mod test {
         }
     }
 
-    fn stake_distribution(pool: &PoolState, accounts: BTreeMap<StakeCredential, AccountState>) -> StakeSummary {
+    fn stake_summary(
+        pool: &PoolState,
+        accounts: BTreeMap<StakeCredential, AccountState>,
+    ) -> StakeSummary {
         StakeSummary {
             stake_distribution: StakeDistribution {
                 epoch: Epoch::from(0),
@@ -714,7 +717,7 @@ mod test {
     /// recipients were recorded.
     fn apply_leader_rewards(
         pool: &PoolState,
-        stake_distribution: &StakeSummary,
+        stake_summary: &StakeSummary,
     ) -> (BTreeMap<StakeCredential, Lovelace>, BTreeSet<StakeCredential>) {
         let mut accounts = BTreeMap::new();
         let mut leader_recipients = BTreeSet::new();
@@ -727,12 +730,13 @@ mod test {
             1,
             1_000_000_000,
             STAKE,
-            stake_distribution,
+            stake_summary,
             pool,
             &MAINNET_DEFAULT_PROTOCOL_PARAMETERS,
         );
 
         assert!(rewards.leader > 0, "the fixture should reward the leader");
+
         (accounts, leader_recipients)
     }
 }

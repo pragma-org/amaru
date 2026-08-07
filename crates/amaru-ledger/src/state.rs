@@ -125,6 +125,7 @@ where
     /// Background computation calculating rewards and stake distributions
     rewards_join_handle: Option<JoinHandle<Result<RewardsSummary, StateError>>>,
 
+    /// A local debounced tip emitter avoid flooding logs with tip updates during sync
     tip_update_emitter: TipUpdateEmitter,
 }
 
@@ -1141,14 +1142,13 @@ where
         .map(|snapshot| {
             let epoch = snapshot.epoch();
             let mut printed = Instant::now();
-            compute_stake_summary(&snapshot, network, era_history, move |progress| {
+            compute_stake_distribution(&snapshot, network, era_history, None, |progress| {
                 let now = Instant::now();
                 if emit_progress_ticks && now.saturating_duration_since(printed) > Duration::from_millis(100) {
                     printed = now;
                     info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch = epoch, progress);
                 }
             })
-            .map(|summary| summary.stake_distribution)
         })
         .collect::<Result<VecDeque<_>, _>>()
         .map_err(|err| StoreError::Internal(err.into()))?;
@@ -1161,15 +1161,25 @@ where
     Ok(stake_distributions)
 }
 
-fn compute_stake_summary(
+fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     network: NetworkName,
     era_history: &EraHistory,
-    notify: impl FnMut(f64),
-) -> Result<StakeSummary, StateError> {
+    notify_observer: Option<&(dyn Fn(&crate::observers::LedgerStateSnapshot) + Send + Sync)>,
+    notify_progress: impl FnMut(f64),
+) -> Result<StakeDistribution, StateError> {
     info_span!(ledger::stake_distribution::COMPUTE, epoch = snapshot.epoch(),).in_scope(|| {
-        StakeSummary::new(snapshot, GovernanceSummary::new(snapshot, era_history)?, network, notify)
-            .map_err(StateError::Storage)
+        let summary =
+            StakeSummary::new(snapshot, GovernanceSummary::new(snapshot, era_history)?, network, notify_progress)
+                .map_err(StateError::Storage)?;
+
+        // Opt-in: show the full summary (incl. accounts) by reference before we only
+        // retain the slim in-memory distribution. Observer clones individual fields if needed.
+        if let Some(notify) = &notify_observer {
+            notify(&summary);
+        }
+
+        Ok(summary.stake_distribution)
     })
 }
 
@@ -1220,15 +1230,13 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
             .unwrap_or(true);
 
         if should_push_summary {
-            let summary = compute_stake_summary(&snapshot, self.network, &self.era_history, |_| {})?;
-
-            // Opt-in: show the full summary (incl. accounts) by reference before we only
-            // retain the slim in-memory distribution. Observer clones individual fields if needed.
-            if let Some(notify) = &self.on_ledger_snapshot {
-                notify(&summary);
-            }
-
-            let distr = summary.stake_distribution;
+            let distr = compute_stake_distribution(
+                &snapshot,
+                self.network,
+                &self.era_history,
+                self.on_ledger_snapshot.as_deref(),
+                |_| {},
+            )?;
 
             let mut stake_distributions = self.stake_distributions.lock().unwrap();
 
@@ -1262,17 +1270,20 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
             using_stake_distribution_from_epoch = stake_distribution_from
         )
         .in_scope(|| {
-            let stake_distribution = compute_stake_summary(
-                &self.snapshots.for_epoch(stake_distribution_from)?,
+            let snapshot = self.snapshots.for_epoch(stake_distribution_from).map_err(StateError::Storage)?;
+
+            let stake_summary = StakeSummary::new(
+                &snapshot,
+                GovernanceSummary::new(&snapshot, &self.era_history)?,
                 self.network,
-                &self.era_history,
                 |_| {},
-            )?;
+            )
+            .map_err(StateError::Storage)?;
 
             let previous_epoch = self.snapshots.for_epoch(self.epoch - 1)?;
 
             Ok(RewardsSummary::new(
-                stake_distribution,
+                stake_summary,
                 &self.global_parameters,
                 &self.protocol_parameters,
                 previous_epoch.iter_block_issuers().map_err(StateError::Storage)?.map(|(_, block)| block.slot_leader),
