@@ -79,9 +79,9 @@ pub const HEIGHT_RECHECK_INTERVAL: Duration = Duration::from_millis(200);
 ///
 /// `TrackPeers::try_roll_forward` runs protocol checks (parent, consecutive height, monotonic
 /// slot, clock skew) and Praos validation via ledger `validate_header`. On success it advances
-/// the peer tip, stores the header if new, and notifies `downstream` with [`NewTip`]. If
-/// `RequestNext` was not already sent (e.g. after a height defer is released), it is sent after
-/// success.
+/// the peer tip, stores the header with its nonces, and notifies `downstream` with [`NewTip`]
+/// when the header was not in the store yet. If `RequestNext` was not already sent (e.g. after a
+/// height defer is released), it is sent after success.
 ///
 /// # Deferral
 ///
@@ -382,7 +382,8 @@ impl TrackPeers {
     /// returned, together with the nonces to store alongside it.
     ///
     /// Note: a header can already sit in the chain store without carrying any nonces, as is the
-    /// case for headers imported during bootstrap. Those still need to be validated.
+    /// case for headers imported during bootstrap. Those still need to be validated, but they are
+    /// not forwarded downstream again (see `TrackPeers::try_roll_forward`).
     #[expect(clippy::too_many_arguments)]
     async fn validate_header(
         &mut self,
@@ -659,18 +660,52 @@ impl TrackPeers {
         let header_tip = header.tip();
         let current = header_tip.point();
         let header_parent = header.parent_hash();
-        match validated {
+        let parent_of_new_header = if let Some((parent, nonces)) = validated {
+            // A header can already be in the store without carrying nonces, as is the case for
+            // headers imported during bootstrap. Such a header may have had its block validated
+            // by the startup recovery already, and chain selection only accepts tips whose block
+            // has no validity verdict yet, so only headers new to the store are forwarded.
+            let is_new = !store.has_header(&current.hash()).await;
+
+            // the header and its nonces are stored atomically, so that stored nonces always
+            // denote a fully validated header, and follow-up headers can be validated
+            store
+                .store_validated_header(&header, &nonces)
+                .or_terminate_with(eff, async |e| {
+                    let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
+                    error!(
+                        consensus::perf::header::LIFECYCLE,
+                        peer = peer.clone(),
+                        header_hash = current.hash(),
+                        error = %error,
+                        outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
+                    );
+                    record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
+                })
+                .await;
+
+            is_new.then_some(parent)
+        } else {
+            None
+        };
+
+        let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
+        eff.external(Performance::record_header_announcement(
+            peer.clone(),
+            header_tip,
+            header_parent,
+            received_at,
+            slot_start_to_header_micros,
+        ))
+        .await;
+
+        match parent_of_new_header {
+            Some(parent) => {
+                tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward with new header");
+                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context }).await;
+            }
             None => {
                 tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward, header already stored");
-                let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
-                eff.external(Performance::record_header_announcement(
-                    peer.clone(),
-                    header_tip,
-                    header_parent,
-                    received_at,
-                    slot_start_to_header_micros,
-                ))
-                .await;
                 debug!(
                     consensus::perf::header::LIFECYCLE,
                     peer = peer.clone(),
@@ -678,35 +713,6 @@ impl TrackPeers {
                     outcome = HeaderLifecycleOutcome::DuplicateHeader.as_str()
                 );
                 record_header_rejected(eff, HeaderLifecycleOutcome::DuplicateHeader).await;
-            }
-            Some((parent, nonces)) => {
-                // the header and its nonces are stored atomically, so that stored nonces always
-                // denote a fully validated header, and follow-up headers can be validated
-                store
-                    .store_validated_header(&header, &nonces)
-                    .or_terminate_with(eff, async |e| {
-                        let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
-                        error!(
-                            consensus::perf::header::LIFECYCLE,
-                            peer = peer.clone(),
-                            header_hash = current.hash(),
-                            error = %error,
-                            outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
-                        );
-                        record_header_rejected(eff, HeaderLifecycleOutcome::StoreHeaderError).await;
-                    })
-                    .await;
-                let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
-                eff.external(Performance::record_header_announcement(
-                    peer.clone(),
-                    header_tip,
-                    header_parent,
-                    received_at,
-                    slot_start_to_header_micros,
-                ))
-                .await;
-                tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward with new header");
-                eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context }).await;
             }
         }
 
