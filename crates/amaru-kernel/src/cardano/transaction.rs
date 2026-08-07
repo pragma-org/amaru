@@ -69,7 +69,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Transaction {
 
 /// Ed25519 keys and signatures have a fixed size which we check here.
 ///
-/// TODO: We should move this validation to the Witness decoding once we move from `pallas` our
+/// FIXME(cbor): We should move this validation to the Witness decoding once we move from `pallas` our
 /// our own data types.
 fn assert_sized_witnesses(witnesses: &WitnessSet) -> Result<(), cbor::decode::Error> {
     if let Some(vkey_witnesses) = witnesses.vkeywitness.as_deref() {

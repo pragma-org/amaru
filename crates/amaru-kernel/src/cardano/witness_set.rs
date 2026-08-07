@@ -16,7 +16,7 @@ use crate::{
     BootstrapWitness, MemoizedNativeScript, NonEmptyVec, PlutusDataSet, PlutusScript, Redeemers, VKeyWitness, cbor,
 };
 
-/// FIXME: Accidentally not a set
+/// FIXME(cbor): Accidentally not a set
 ///
 ///   NonEmptyVec below are supposed to be a NonEmptySet where duplicates would fail to decode. But it isn't.
 ///   In the Haskell's codebsae, the default decoder for Set fails on duplicate starting from
@@ -40,7 +40,7 @@ pub struct WitnessSet {
     #[n(1)]
     pub native_script: Option<NonEmptyVec<MemoizedNativeScript>>,
 
-    /// FIXME: Accidentally not a set
+    /// FIXME(cbor): Accidentally not a set
     ///
     /// See note on vkeywitness.
     #[n(2)]

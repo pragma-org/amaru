@@ -85,7 +85,7 @@ impl ProtocolParameters {
         set(&mut self.max_transaction_size, u.max_transaction_size);
         set(
             &mut self.max_block_header_size,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.max_block_header_size.map(|x| x as u16),
         );
         set(&mut self.stake_credential_deposit, u.key_deposit);
@@ -93,7 +93,7 @@ impl ProtocolParameters {
         set(&mut self.stake_pool_max_retirement_epoch, u.maximum_epoch);
         set(
             &mut self.optimal_stake_pools_count,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.desired_number_of_stake_pools.map(|x| x as u16),
         );
         set(&mut self.pledge_influence, u.pool_pledge_influence);
@@ -129,19 +129,19 @@ impl ProtocolParameters {
         set(&mut self.max_value_size, u.max_value_size);
         set(
             &mut self.collateral_percentage,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.collateral_percentage.map(|x| x as u16),
         );
         set(
             &mut self.max_collateral_inputs,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.max_collateral_inputs.map(|x| x as u16),
         );
         set(&mut self.pool_voting_thresholds, u.pool_voting_thresholds);
         set(&mut self.drep_voting_thresholds, u.drep_voting_thresholds);
         set(
             &mut self.min_committee_size,
-            // FIXME: update in Pallas; should be a u16
+            // FIXME(cbor): update in Pallas; should be a u16
             u.min_committee_size.map(|x| x as u16),
         );
         set(&mut self.max_committee_term_length, u.committee_term_limit);
