@@ -44,11 +44,15 @@ pub struct Block {
     pub transaction_witnesses: Vec<WithSize<WitnessSet>>,
 
     #[n(3)]
-    pub auxiliary_data: BTreeMap<u32, AuxiliaryData>,
+    pub auxiliary_data: BTreeMap<TransactionIndex, AuxiliaryData>,
 
     #[n(4)]
-    pub invalid_transactions: Option<BTreeSet<u32>>,
+    pub invalid_transactions: Option<BTreeSet<TransactionIndex>>,
 }
+
+/// Position of a transaction within a block.
+/// There can only be a maximum of 65535 transactions in a block, so this is a `u16`.
+pub type TransactionIndex = u16;
 
 impl Block {
     /// Number of top-level CBOR fields in a serialized block.
@@ -94,11 +98,11 @@ impl Block {
 }
 
 impl IntoIterator for Block {
-    type Item = (u32, Transaction, u64);
+    type Item = (TransactionIndex, Transaction, u64);
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(mut self) -> Self::IntoIter {
-        (0u32..)
+        (0..)
             .zip(self.transaction_bodies)
             .zip(self.transaction_witnesses)
             .map(|((i, body), witnesses)| {
@@ -162,7 +166,7 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
                 // we should loudly fail.
                 //
                 // See #866.
-                cbor::tee(d, |d| cbor::heterogeneous_map(d, BTreeMap::new(), |d| d.u32(), |d, st, field| {
+                cbor::tee(d, |d| cbor::heterogeneous_map(d, BTreeMap::new(), |d| d.u16(), |d, st, field| {
                     st.insert(field, d.decode_with(ctx)?);
                     Ok(())
                 }))?;
