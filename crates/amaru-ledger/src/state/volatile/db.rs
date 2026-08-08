@@ -16,7 +16,7 @@ use std::{iter, mem};
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    Point, PoolId, Pots, ProposalId, ProposalLineage, ProposalsRoots, ProtocolParameters, StakeCredential,
+    Point, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots, ProtocolParameters, StakeCredential,
     TransactionInput,
 };
 
@@ -149,7 +149,7 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<ProposalLineage>;
+    type Proposal = Existence<ProposalKind>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.

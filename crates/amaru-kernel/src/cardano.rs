@@ -80,6 +80,7 @@ pub mod pots;
 pub mod proposal;
 pub mod proposal_enum;
 pub mod proposal_id;
+pub mod proposal_kind;
 pub mod proposal_pointer;
 pub mod proposal_state;
 pub mod proposals_roots;

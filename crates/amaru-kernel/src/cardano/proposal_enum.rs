@@ -19,18 +19,6 @@ use crate::{
     ProtocolVersion, expect_stake_credential, into_safe_ratio,
 };
 
-/// An enriched lineage
-pub type ProposalEnum = ProposalCategory<
-    Box<ProtocolParamUpdate>,
-    ProtocolVersion,
-    ConstitutionalCommitteeUpdate,
-    Constitution,
-    OrphanProposal,
->;
-
-/// A type capturing just the proposal lineage across their respective groups.
-pub type ProposalLineage = ProposalCategory<(), (), (), (), ()>;
-
 /// Akin to a GovAction, but with a split that is more tailored to the ratification needs.
 /// In particular:
 ///
@@ -41,15 +29,15 @@ pub type ProposalLineage = ProposalCategory<(), (), (), (), ()>;
 ///   the only actions that do not need to form a chain; they have no parents (hence,
 ///   `OrphanProposal`)
 #[derive(Debug, Clone)]
-pub enum ProposalCategory<ProtocolParametersT, HardForkT, ConstitutionalCommitteeT, ConstitutionT, OrphanT> {
-    ProtocolParameters(ProtocolParametersT, Option<Rc<ProposalId>>),
-    HardFork(HardForkT, Option<Rc<ProposalId>>),
-    ConstitutionalCommittee(ConstitutionalCommitteeT, Option<Rc<ProposalId>>),
-    Constitution(ConstitutionT, Option<Rc<ProposalId>>),
-    Orphan(OrphanT),
+pub enum ProposalEnum {
+    ProtocolParameters(Box<ProtocolParamUpdate>, Option<Rc<ProposalId>>),
+    HardFork(ProtocolVersion, Option<Rc<ProposalId>>),
+    ConstitutionalCommittee(ConstitutionalCommitteeUpdate, Option<Rc<ProposalId>>),
+    Constitution(Constitution, Option<Rc<ProposalId>>),
+    Orphan(OrphanProposal),
 }
 
-impl<P, H, CC, C, O> ProposalCategory<P, H, CC, C, O> {
+impl ProposalEnum {
     /// The parent this proposal chains onto, if any. Orphan proposals never chain.
     pub fn parent(&self) -> Option<&ProposalId> {
         match self {
@@ -60,17 +48,6 @@ impl<P, H, CC, C, O> ProposalCategory<P, H, CC, C, O> {
             Self::Orphan(_) => None,
         }
     }
-
-    pub fn is_hardfork(&self) -> bool {
-        matches!(self, Self::HardFork(..))
-    }
-
-    pub fn is_orphan(&self) -> bool {
-        matches!(self, Self::Orphan(..))
-    }
-}
-
-impl ProposalEnum {
     pub fn display_kind(&self) -> String {
         use ConstitutionalCommitteeUpdate::*;
         use OrphanProposal::*;
@@ -131,6 +108,14 @@ impl ProposalEnum {
         }
     }
 
+    pub fn is_hardfork(&self) -> bool {
+        matches!(self, Self::HardFork(..))
+    }
+
+    pub fn is_orphan(&self) -> bool {
+        matches!(self, Self::Orphan(..))
+    }
+
     pub fn is_no_confidence(&self) -> bool {
         use ConstitutionalCommitteeUpdate::*;
         matches!(self, Self::ConstitutionalCommittee(NoConfidence, _))
@@ -142,31 +127,6 @@ impl ProposalEnum {
     }
     pub fn is_nice_poll(&self) -> bool {
         matches!(self, Self::Orphan(OrphanProposal::NicePoll))
-    }
-}
-
-impl From<&GovernanceAction> for ProposalLineage {
-    fn from(action: &GovernanceAction) -> Self {
-        use GovernanceAction::*;
-
-        #[inline]
-        fn parent_id(parent: &Option<ProposalId>) -> Option<Rc<ProposalId>> {
-            parent.as_ref().copied().map(Rc::new)
-        }
-
-        match action {
-            ParameterChange(parent, _, _) => Self::ProtocolParameters((), parent_id(parent)),
-
-            HardForkInitiation(parent, _) => Self::HardFork((), parent_id(parent)),
-
-            UpdateCommittee(parent, _, _, _) | NoConfidence(parent) => {
-                Self::ConstitutionalCommittee((), parent_id(parent))
-            }
-
-            NewConstitution(parent, _) => Self::Constitution((), parent.map(Rc::new)),
-
-            TreasuryWithdrawals(_, _) | Information => Self::Orphan(()),
-        }
     }
 }
 

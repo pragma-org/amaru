@@ -18,7 +18,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalLineage, ProposalsRoots,
+    DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalKind, ProposalsRoots,
     StakeCredential, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
@@ -121,7 +121,7 @@ impl<'block> DefaultPreparationContext<'block> {
             Account<'volatile> = (Existence<AccountBind<'volatile>>, RewardsAtTip),
             DRep<'volatile> = Existence<DRepBind<'volatile>>,
             CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>,
-            Proposal = Existence<ProposalLineage>,
+            Proposal = Existence<ProposalKind>,
         >,
         db: &impl ReadStore,
     ) -> Result<DefaultValidationContext, ContextHydratationError> {
@@ -436,10 +436,10 @@ fn resolve_committee<'block, 'volatile>(
 /// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
 /// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
 pub fn resolve_proposals(
-    volatile: &impl VolatileState<Proposal = Existence<ProposalLineage>>,
+    volatile: &impl VolatileState<Proposal = Existence<ProposalKind>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ProposalId>,
-) -> Result<BTreeMap<ProposalId, ProposalLineage>, ContextHydratationError> {
+) -> Result<BTreeMap<ProposalId, ProposalKind>, ContextHydratationError> {
     debug_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -461,7 +461,7 @@ pub fn resolve_proposals(
                 Existence::Unknown => {
                     if let Some(row) = db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)? {
                         from_db += 1;
-                        proposals.insert(id, ProposalLineage::from(&row.proposal.gov_action));
+                        proposals.insert(id, ProposalKind::from(&row.proposal.gov_action));
                     }
 
                     Ok(proposals)
