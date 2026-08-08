@@ -21,7 +21,8 @@
     "dreps": [],
     "governanceActivity": {
       "consecutiveDormantEpochs": 0
-    }
+    },
+    "guardrailScript": null
   },
   "point": {
     "slot": 0,

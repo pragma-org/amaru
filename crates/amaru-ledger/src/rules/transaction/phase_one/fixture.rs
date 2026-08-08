@@ -15,8 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Lovelace, MemoizedTransactionOutput,
+    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash, Lovelace, MemoizedTransactionOutput,
     NetworkName, PoolId, Pots, ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
@@ -63,6 +64,11 @@ pub(super) struct InitialState {
     pub(super) governance_activity: GovernanceActivity,
     #[serde(default)]
     pub(super) pots: Pots,
+    /// Guardrails script of the enacted constitution, if it has one. A proposal carrying a policy
+    /// must name exactly this script; `null` requires proposals to carry no policy at all.
+    ///
+    /// Deliberately not defaulted: which script guards proposals is never implicit.
+    pub(super) guardrail_script: Option<Hash<SCRIPT>>,
 }
 
 fn deserialize_cbor_hex<'de, T, D>(deserializer: D) -> Result<T, D::Error>
@@ -193,6 +199,7 @@ pub(super) enum Predicate {
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
     MissingVKeyWitnessesUTXOW,
+    InvalidGuardrailsScriptHash,
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
@@ -276,6 +283,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::ProposalReturnAccountDoesNotExist(_)) => {
                 Predicate::ProposalReturnAccountDoesNotExist
+            }
+            PhaseOneError::Proposals(InvalidProposals::InvalidGuardrailsScriptHash { .. }) => {
+                Predicate::InvalidGuardrailsScriptHash
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {

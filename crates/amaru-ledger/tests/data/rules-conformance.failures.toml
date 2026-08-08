@@ -29,12 +29,19 @@
 "conway/fail-gov-expired-gov-actions/0" = "Expected failure, got success"
 "conway/fail-gov-invalid-index-in-govpurposeid/0" = "Expected failure, got success"
 "conway/fail-gov-non-existent-gov-actions/0" = "Expected failure, got success"
-"conway/fail-gov-policy-is-respected-by-proposals/0" = "Expected failure, got success"
+"conway/fail-gov-policy-is-respected-by-proposals/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided Some(Hash<28>("232fdf92265c01c8869aec72869c35d83eedd0ff1d139f2c680a0f37")), expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
 "conway/fail-gov-proposals-submitted-without-proper-parent-fail/0" = "Expected failure, got success"
 "conway/fail-gov-valid-govpurposeid-but-invalid-purpose/0" = "Expected failure, got success"
 "conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
 "conway/fail-govcert-resigning-a-non-cc-key/0" = "Expected failure, got success"
-"conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected failure, got success"
+"conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided Some(Hash<28>("e4ed1d2a73cfad8751a777ff93ad6763603d633c47f2a0480acc6db9")), expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
+# Every vector in the gov-policy family enacts a new constitution mid-sequence, through a proposal,
+# votes and two epoch transitions. The harness skips PassTick/PassEpoch and does not ratify, so the
+# enacted guardrails script stays the one in the initial state and no policy in these transactions
+# can match it. This one no longer even reaches its own defect: the transaction it expects to fail
+# now fails at the guardrails check, leaving less of the shared context mutated than the value
+# preservation of a later transaction was recorded against.
+"conway/fail-utxos-failing-native-script-govpolicy/0" = "Expected success, got failure: value not preserved: balance = (123, [])"
 "conway/fail-utxos-delegtxcert-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-delegtxcert-v2/0" = "Expected failure, got success"
 "conway/fail-utxos-fails-when-using-inline-datums-for-plutusv1/0" = "Expected failure, got success"
@@ -63,5 +70,6 @@
 "conway/pass-govcert-registering-a-resigned-cc-member-hotkey/0" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7]"
 "conway/pass-ratify-rewards-contribute-to-active-voting-stake-even-in-the-absence-of-stakedistr/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 918, must satisfy 45 < epoch <= 50"
 "conway/pass-ratify-stakepool-rewards-contribute-to-active-voting-stake-even-in-the-absence-of-e489f777/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 918, must satisfy 45 < epoch <= 50"
-"conway/pass-utxos-updating-costmodels-and-setting-the-govpolicy-afterwards-succeeds/0" = "Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: V3"
-"conway/pass-utxos-updating-costmodels-with-alwaysfails-govpolicy-does-not-validate/0" = "Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: V3"
+"conway/pass-utxos-alwayssucceeds-plutus-govpolicy-validates/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided Some(Hash<28>("71d5fb4f7ac68b9df1d234fc0f6ae0aad3c9dff1b0cb9451a51679fb")), expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
+"conway/pass-utxos-updating-costmodels-and-setting-the-govpolicy-afterwards-succeeds/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided None, expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
+"conway/pass-utxos-updating-costmodels-with-alwaysfails-govpolicy-does-not-validate/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided None, expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
