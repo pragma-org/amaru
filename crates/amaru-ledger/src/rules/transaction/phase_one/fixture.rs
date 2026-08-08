@@ -16,8 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, GovernanceAction, Hash, Lovelace,
-    MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalEnum, ProposalId, ProposalsRoots, ProtocolParameters,
-    StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalLineage, ProposalsRoots,
+    ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
@@ -61,7 +61,7 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_dreps", default)]
     pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
     #[serde(deserialize_with = "deserialize_proposals", default)]
-    pub(super) proposals: BTreeMap<ProposalId, ProposalEnum>,
+    pub(super) proposals: BTreeMap<ProposalId, ProposalLineage>,
     #[serde(deserialize_with = "deserialize_proposals_roots", default)]
     pub(super) proposals_roots: ProposalsRoots,
     #[serde(default)]
@@ -177,12 +177,15 @@ struct ProposalProxy {
     gov_action: GovernanceAction,
 }
 
-fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalEnum>, D::Error>
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalLineage>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let entries = Vec::<ProposalProxy>::deserialize(deserializer)?;
-    Ok(entries.into_iter().map(|entry| (ProposalId::from(entry.id), ProposalEnum::from(&entry.gov_action))).collect())
+    Ok(entries
+        .into_iter()
+        .map(|entry| (ProposalId::from(entry.id), ProposalLineage::from(&entry.gov_action)))
+        .collect())
 }
 
 #[derive(Deserialize, Default)]

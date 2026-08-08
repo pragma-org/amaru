@@ -200,10 +200,10 @@ mod tests {
         ) {
             let parent = parent.map(Rc::new);
 
-            let proposal_in_security_group = ProposalEnum::ProtocolParameters(update_in_security_group, parent.clone());
+            let proposal_in_security_group = ProposalEnum::ProtocolParameters(Box::new(update_in_security_group), parent.clone());
             let result_in = voting_threshold(is_no_confidence, &thresholds, &proposal_in_security_group);
 
-            let proposal_no_security_group = ProposalEnum::ProtocolParameters(update_no_security_group, parent.clone());
+            let proposal_no_security_group = ProposalEnum::ProtocolParameters(Box::new(update_no_security_group), parent.clone());
             let result_no = voting_threshold(is_no_confidence, &thresholds, &proposal_no_security_group);
 
             let is_null_threshold = thresholds.security_voting_threshold.numerator == 0;

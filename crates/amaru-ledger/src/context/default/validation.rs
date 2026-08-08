@@ -21,7 +21,7 @@ use std::{
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalEnum, ProposalId,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalLineage,
     ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
@@ -44,7 +44,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeMap<ProposalId, ProposalEnum>,
+    proposals: BTreeMap<ProposalId, ProposalLineage>,
     proposals_roots: ProposalsRoots,
     treasury: Lovelace,
     state: VolatileFragment,
@@ -65,7 +65,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeMap<ProposalId, ProposalEnum>,
+        proposals: BTreeMap<ProposalId, ProposalLineage>,
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
     ) -> Self {
@@ -375,7 +375,7 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn exists(&self, id: &ProposalId, kind: &ProposalEnum) -> bool {
+    fn exists(&self, id: &ProposalId, kind: &ProposalLineage) -> bool {
         let target = mem::discriminant(kind);
 
         // block-start proposals
@@ -387,7 +387,7 @@ impl ProposalsSlice for DefaultValidationContext {
 
         // proposals acknowledged earlier in this block
         if let Some(existing) = self.state.proposals.get(id)
-            && mem::discriminant(&ProposalEnum::from(&existing.0.gov_action)) == target
+            && mem::discriminant(&ProposalLineage::from(&existing.0.gov_action)) == target
         {
             return true;
         }

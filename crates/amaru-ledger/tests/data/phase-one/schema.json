@@ -256,20 +256,6 @@
     },
     "InitialState": {
       "type": "object",
-<<<<<<< HEAD
-      "required": [
-        "utxo",
-        "pools",
-        "accounts",
-        "dreps",
-        "governanceActivity",
-        "pots"
-      ],
-||||||| parent of 107dab54c (feat: introduce InvalidPrevGovActionId logic and fixtures)
-      "required": ["utxo", "pools", "accounts", "dreps", "governanceActivity"],
-=======
-      "required": ["utxo", "pools", "accounts", "dreps", "proposals", "proposalsRoots", "governanceActivity"],
->>>>>>> 107dab54c (feat: introduce InvalidPrevGovActionId logic and fixtures)
       "properties": {
         "utxo": {
           "type": "array",
@@ -290,21 +276,6 @@
           "items": { "$ref": "#/$defs/DRepRegistration" },
           "description": "Registered delegate representatives. Empty when no DRep state is seeded."
         },
-<<<<<<< HEAD
-        "governanceActivity": { "$ref": "#/$defs/VotingState" },
-        "pots": { "$ref": "#/$defs/Pots" }
-      }
-    },
-    "Pots": {
-      "type": "object",
-      "description": "Protocol pots as of the initial state.",
-      "required": ["treasury", "reserves"],
-      "properties": {
-        "treasury": { "type": "integer", "minimum": 0 },
-        "reserves": { "type": "integer", "minimum": 0 }
-||||||| parent of 107dab54c (feat: introduce InvalidPrevGovActionId logic and fixtures)
-        "governanceActivity": { "$ref": "#/$defs/VotingState" }
-=======
         "proposals": {
           "type": "array",
           "items": { "$ref": "#/$defs/ProposalEntry" },
@@ -314,8 +285,16 @@
           "$ref": "#/$defs/ProposalsRoots",
           "description": "The latest enacted governance action id per purpose. Absent purposes default to none."
         },
-        "governanceActivity": { "$ref": "#/$defs/VotingState" }
->>>>>>> 107dab54c (feat: introduce InvalidPrevGovActionId logic and fixtures)
+        "governanceActivity": { "$ref": "#/$defs/VotingState" },
+        "pots": { "$ref": "#/$defs/Pots" }
+      }
+    },
+    "Pots": {
+      "type": "object",
+      "description": "Protocol pots as of the initial state.",
+      "properties": {
+        "treasury": { "type": "integer", "minimum": 0 },
+        "reserves": { "type": "integer", "minimum": 0 }
       }
     },
     "ProposalEntry": {

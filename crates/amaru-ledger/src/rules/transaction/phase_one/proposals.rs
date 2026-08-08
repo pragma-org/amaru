@@ -15,9 +15,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalEnum,
-    ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
-    StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
+    Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
+    ProposalLineage, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
+    RequiredScript, StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -131,12 +131,12 @@ where
         });
     }
 
-    let kind = ProposalEnum::from(&proposal.gov_action);
+    let kind = ProposalLineage::from(&proposal.gov_action);
     if !kind.is_orphan() {
         let parent = kind.parent();
         let follows_root = parent == context.roots().root_of(&kind);
         let follows_in_flight = matches!(parent, Some(id) if context.exists(id, &kind));
-        if !(follows_root || follows_in_flight) {
+        if !follows_root && !follows_in_flight {
             return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
         }
     }

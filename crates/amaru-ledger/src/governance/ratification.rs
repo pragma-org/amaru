@@ -228,7 +228,7 @@ impl<'distr> RatificationContext<'distr> {
 
             match proposal {
                 ProposalEnum::ProtocolParameters(params_update, _parent) => {
-                    self.protocol_parameters.update(params_update);
+                    self.protocol_parameters.update(*params_update);
                 }
 
                 ProposalEnum::HardFork(protocol_version, _parent) => {

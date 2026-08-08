@@ -144,7 +144,7 @@ impl ProposalsForest {
         proposed_in: ProposalPointer,
         proposal: GovernanceAction,
     ) -> Result<(), ProposalsInsertError<ProposalId>> {
-        let proposal = ProposalEnum::from(&proposal);
+        let proposal = ProposalEnum::from(proposal);
 
         match &proposal {
             ProposalEnum::ProtocolParameters(_, parent) => {
@@ -356,7 +356,6 @@ impl ProposalsForestCompass {
     ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
         use ConstitutionalCommitteeUpdate::*;
         use OrphanProposal::*;
-        use ProposalEnum::*;
 
         let id = forest.sequence.get(self.cursor)?.clone();
 
@@ -394,7 +393,7 @@ impl ProposalsForestCompass {
         // treasury. This is necessary since there can be an arbitrary number of
         // withdrawals that have been ratified and enacted just before; possibly depleting
         // the treasury.
-        if let Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
+        if let ProposalEnum::Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
             let total_withdrawn = withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n));
             if total_withdrawn > forest.treasury() {
                 debug!(
@@ -413,7 +412,7 @@ impl ProposalsForestCompass {
         // On constitutional committee updates, we should ensure that any term limit is still
         // valid. This can happen if a protocol parameter change that changes the max term limit
         // is ratified *before* a committee update, possibly rendering it invalid.
-        if let ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
+        if let ProposalEnum::ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
             let max_term_length = protocol_parameters.max_committee_term_length;
             let is_now_invalid = |valid_until| valid_until > &(forest.current_epoch + max_term_length);
             if added.values().any(is_now_invalid) {
@@ -839,11 +838,9 @@ mod tests {
         fn prop_compass_sometimes_yield_treasury_withdrawals(
             DebugAsDisplay(forest) in any_proposals_forest(),
         ) {
-            use super::ProposalEnum::*;
-
             let mut compass = forest.new_compass();
             while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                prop_assert!(!matches!(proposal, Orphan(OrphanProposal::TreasuryWithdrawal(..))));
+                prop_assert!(!matches!(proposal, ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(..))));
             }
         }
     }
@@ -855,11 +852,9 @@ mod tests {
         fn prop_compass_sometimes_yield_parameter_changes(
             DebugAsDisplay(forest) in any_proposals_forest(),
         ) {
-            use super::ProposalEnum::*;
-
             let mut compass = forest.new_compass();
             while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                prop_assert!(!matches!(proposal, ProtocolParameters(..)));
+                prop_assert!(!matches!(proposal, ProposalEnum::ProtocolParameters(..)));
             }
         }
     }
@@ -906,8 +901,6 @@ mod tests {
         fn prop_compass_traverse_whole_forest_and_eventually_yield_none(
             DebugAsDisplay(forest) in any_proposals_forest(),
         ) {
-            use super::ProposalEnum::*;
-
             let mut previous_proposal = None;
             let mut compass = forest.new_compass();
 
@@ -915,17 +908,17 @@ mod tests {
                 // Controls that the yielded proposal always has a matching root.
                 let roots = forest.roots();
                 match proposal {
-                    ProtocolParameters(_, parent) => prop_assert_eq!(
+                    ProposalEnum::ProtocolParameters(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.protocol_parameters.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     ),
-                    HardFork(_, parent) => prop_assert_eq!(
+                    ProposalEnum::HardFork(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.hard_fork.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     ),
-                    ConstitutionalCommittee(committee, parent) => {
+                    ProposalEnum::ConstitutionalCommittee(committee, parent) => {
                         prop_assert_eq!(
                         parent.as_ref(),
                         roots.constitutional_committee.as_ref(),
@@ -939,16 +932,16 @@ mod tests {
                             );
                         }
                     },
-                    Constitution(_, parent) => prop_assert_eq!(
+                    ProposalEnum::Constitution(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.constitution.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     ),
-                    Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => prop_assert!(
+                    ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => prop_assert!(
                         withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n)) <= forest.treasury(),
                         "yielded proposal is a treasury withdrawal larger than treasury"
                     ),
-                    Orphan(..) => ()
+                    ProposalEnum::Orphan(..) => ()
                 }
 
                 prop_assert!(
@@ -1269,7 +1262,7 @@ mod tests {
     // ----------------------------------------------------------------------------
 
     fn possible_parents(forest: &ProposalsForest, action: &GovernanceAction) -> Vec<Option<Rc<ProposalId>>> {
-        use super::{GovernanceAction::*, ProposalEnum::*};
+        use super::GovernanceAction::*;
 
         let root = match action {
             ParameterChange(..) => vec![forest.roots().protocol_parameters],
@@ -1291,10 +1284,10 @@ mod tests {
             .filter_map(|id| {
                 let keep = || Some(Some(id.clone()));
                 match (&forest.proposals.get(id)?.proposal, action) {
-                    (ProtocolParameters(..), ParameterChange(..)) => keep(),
-                    (Constitution(..), NewConstitution(..)) => keep(),
-                    (HardFork(..), HardForkInitiation(..)) => keep(),
-                    (ConstitutionalCommittee(..), UpdateCommittee(..)) => keep(),
+                    (ProposalEnum::ProtocolParameters(..), ParameterChange(..)) => keep(),
+                    (ProposalEnum::Constitution(..), NewConstitution(..)) => keep(),
+                    (ProposalEnum::HardFork(..), HardForkInitiation(..)) => keep(),
+                    (ProposalEnum::ConstitutionalCommittee(..), UpdateCommittee(..)) => keep(),
                     (_, _) => None,
                 }
             })

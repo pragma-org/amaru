@@ -140,7 +140,7 @@ pub use cardano::{
     positive_coin::PositiveCoin,
     pots::{self, Pots},
     proposal::Proposal,
-    proposal_enum::{self, ProposalEnum},
+    proposal_enum::{self, ProposalEnum, ProposalLineage},
     proposal_id::{self, ProposalId},
     proposal_pointer::ProposalPointer,
     proposal_state::ProposalState,
