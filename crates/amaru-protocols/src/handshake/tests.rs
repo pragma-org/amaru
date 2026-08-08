@@ -69,7 +69,7 @@ fn test_against_node() {
         handshake::HandshakeInitiator::new(
             mux.clone().without_state(),
             output.clone(),
-            VersionTable::v11_and_above(network_magic, true),
+            VersionTable::v11_and_above(network_magic, true, false),
         ),
     );
 
@@ -138,7 +138,7 @@ fn test_against_node_with_tokio() {
         handshake::HandshakeInitiator::new(
             mux.clone().without_state(),
             output.clone(),
-            VersionTable::v11_and_above(network_magic, true),
+            VersionTable::v11_and_above(network_magic, true, false),
         ),
     );
 

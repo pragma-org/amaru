@@ -26,7 +26,7 @@ use crate::{
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
     network_effects::{ConnectError, Network, NetworkOps},
-    peer_sharing::ShareResult,
+    peer_sharing::{SharePeersReply, ShareResult},
     protocol::Role,
     tx_submission::ResponderParams,
 };
@@ -60,6 +60,9 @@ pub enum PeerSelectionNotify {
     /// An outbound connection attempt has failed (e.g. connection timeout, handshake refusal, network error)
     /// for a number of tries, see [`ManagerConfig::connect_retries`].
     ConnectFailed { peer: Peer },
+
+    /// Inbound peer-sharing request: select addresses to advertise and reply on `reply_to`.
+    ShareRequest { peer: Peer, amount: u8, reply_to: StageRef<SharePeersReply> },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -91,6 +94,8 @@ pub enum ManagerMessage {
         interval: std::time::Duration,
         reply_to: StageRef<ShareResult>,
     },
+    /// Server-side peer-sharing: ask peer selection for addresses to return to `peer`.
+    ShareRequest { peer: Peer, amount: u8, reply_to: StageRef<SharePeersReply> },
     /// Advertise this new tip to all downstream peers.
     NewTip(Tip, TraceContext),
     /// INTERNAL message sent by the connector stage after a connection attempt completes.
@@ -125,6 +130,7 @@ impl ManagerMessage {
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
             ManagerMessage::RequestSharePeers { .. } => "RequestSharePeers",
+            ManagerMessage::ShareRequest { .. } => "ShareRequest",
             ManagerMessage::NewTip(_, _) => "NewTip",
             ManagerMessage::ConnectionResult(..) => "ConnectionResult",
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
@@ -726,6 +732,9 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::RequestSharePeers { peer, amount, initial_delay, interval, reply_to } => {
                 manager.request_share_peers(peer, amount, initial_delay, interval, reply_to, &eff).await;
+            }
+            ManagerMessage::ShareRequest { peer, amount, reply_to } => {
+                eff.send(&manager.peer_selection, PeerSelectionNotify::ShareRequest { peer, amount, reply_to }).await;
             }
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;

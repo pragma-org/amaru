@@ -31,7 +31,7 @@ use crate::{
     keepalive::register_keepalive,
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, HandlerMessage, MuxMessage},
-    peer_sharing::{PeerSharingMessage, ShareResult, register_peer_sharing_initiator},
+    peer_sharing::{PeerSharingMessage, ShareResult, register_peer_sharing_initiator, register_peer_sharing_responder},
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
@@ -109,6 +109,7 @@ struct StateResponder {
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
     blockfetch_responder: StageRef<StreamBlocks>,
+    peer_sharing_responder: StageRef<crate::peer_sharing::ResponderMessage>,
 }
 
 /// Identity of a supervised child stage of a connection.
@@ -284,7 +285,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
                 handshake::HandshakeInitiator::new(
                     muxer.clone(),
                     handshake_result,
-                    VersionTable::v11_and_above(*magic, true),
+                    VersionTable::v11_and_above(*magic, true, true),
                 ),
             )
             .await
@@ -299,7 +300,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
                     handshake_result,
                     // Use initiator_only_diffusion_mode = false so downstream peers
                     // know we can serve as chainsync/blockfetch server
-                    VersionTable::v11_and_above(*magic, false),
+                    VersionTable::v11_and_above(*magic, false, true),
                 ),
             )
             .await
@@ -429,10 +430,19 @@ async fn do_handshake(
         .await;
         let blockfetch_responder =
             register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
+        let peer_sharing_responder = register_peer_sharing_responder(
+            &muxer,
+            peer.clone(),
+            manager.clone(),
+            &eff,
+            ConnectionMessage::ChildDied(ChildId::PeerSharing),
+        )
+        .await;
 
         State::Responder(StateResponder {
             chainsync_responder,
             blockfetch_responder,
+            peer_sharing_responder,
             muxer,
             handshake,
             keepalive,

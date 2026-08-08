@@ -128,11 +128,13 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ScheduleId>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_protocols::peer_sharing::ShareResult>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<amaru_protocols::peer_sharing::SharePeersReply>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GenerateRandomSeed>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PeerAdversarialEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordAdvertisabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordConnectionFailureEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::OkForSharingEffect>().boxed(),
     ]
 }
 
@@ -224,6 +226,10 @@ fn setup_preload_with_mode(
             // NOTE: This makes peer selection's random choices fully deterministic in tests.
             running
                 .override_external_effect::<GenerateRandomSeed>(usize::MAX, |_| OverrideResult::handled([0x42u8; 32]));
+            // Peer-sharing filters: treat all candidates as shareable unless a test overrides.
+            running.override_external_effect::<crate::performance::OkForSharingEffect>(usize::MAX, |_| {
+                OverrideResult::handled(true)
+            });
         },
         mode,
     )

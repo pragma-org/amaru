@@ -14,19 +14,20 @@
 
 //! Peer-sharing responder (server).
 //!
-//! The protocol half is complete. Connection wiring is deferred until peer selection can supply
-//! shareable candidates (#1169). Callers inject the peer list via
-//! [`ResponderMessage::SharePeers`].
+//! On `MsgShareRequest`, forwards the query via the manager to peer selection and replies with
+//! `MsgSharePeers` once a [`SharePeersReply`] arrives.
 
 use std::net::SocketAddr;
 
+use amaru_kernel::Peer;
 use amaru_observability::debug_span;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
+    manager::ManagerMessage,
     mux::MuxMessage,
-    peer_sharing::{State, messages::Message},
+    peer_sharing::{SharePeersReply, State, messages::Message},
     protocol::{
         Inputs, Miniprotocol, Outcome, PROTO_N2N_PEER_SHARE, ProtocolState, Responder, StageState, miniprotocol,
         outcome,
@@ -39,11 +40,42 @@ pub fn register_deserializers() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<(State, PeerSharingResponder)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ResponderMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ResponderResult>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<SharePeersReply>().boxed(),
     ]
 }
 
 pub fn responder() -> Miniprotocol<State, PeerSharingResponder, Responder> {
     miniprotocol(PROTO_N2N_PEER_SHARE.responder())
+}
+
+/// Register the peer-sharing **responder** (server) on the mux.
+///
+/// On `MsgShareRequest`, the responder asks the manager to query peer selection and waits for
+/// a [`SharePeersReply`] before sending `MsgSharePeers`.
+pub async fn register_peer_sharing_responder<M: amaru_pure_stage::SendData>(
+    muxer: &StageRef<MuxMessage>,
+    peer: Peer,
+    manager: StageRef<ManagerMessage>,
+    eff: &Effects<M>,
+    tombstone: M,
+) -> StageRef<ResponderMessage> {
+    use crate::{mux::Frame, peer_sharing::MAX_MESSAGE_BYTES};
+
+    let (state, stage) = PeerSharingResponder::new(muxer.clone(), peer, manager);
+    let ps = eff.stage("peer_sharing", responder()).await;
+    let ps = eff.supervise(ps, tombstone);
+    let ps = eff.wire_up(ps, (state, stage)).await;
+    eff.send(
+        muxer,
+        MuxMessage::Register {
+            protocol: PROTO_N2N_PEER_SHARE.responder().erase(),
+            frame: Frame::OneCborItem,
+            handler: eff.contramap(&ps, "peer_sharing_responder_network", Inputs::<ResponderMessage>::Network).await,
+            max_buffer: MAX_MESSAGE_BYTES,
+        },
+    )
+    .await;
+    eff.contramap(&ps, "peer_sharing_responder_local", Inputs::<ResponderMessage>::Local).await
 }
 
 /// Local messages into the responder stage.
@@ -56,13 +88,18 @@ pub enum ResponderMessage {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PeerSharingResponder {
     muxer: StageRef<MuxMessage>,
+    peer: Peer,
+    manager: StageRef<ManagerMessage>,
+    /// Bridges [`SharePeersReply`] from peer selection into [`ResponderMessage::SharePeers`].
+    /// Created lazily on the first request.
+    reply_bridge: Option<StageRef<SharePeersReply>>,
     /// Requested amount while waiting for a local [`ResponderMessage::SharePeers`].
     awaiting: Option<u8>,
 }
 
 impl PeerSharingResponder {
-    pub fn new(muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { muxer, awaiting: None })
+    pub fn new(muxer: StageRef<MuxMessage>, peer: Peer, manager: StageRef<ManagerMessage>) -> (State, Self) {
+        (State::Idle, Self { muxer, peer, manager, reply_bridge: None, awaiting: None })
     }
 }
 
@@ -92,16 +129,28 @@ impl StageState<State, Responder> for PeerSharingResponder {
         mut self,
         _proto: &State,
         input: ResponderResult,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<ResponderAction>, Self)> {
         match input {
             ResponderResult::ShareRequest { amount } => {
-                // Leave agency to the local stage (peer selection / share provider).
-                // Until #1169 wires a provider, the stage waits for [`ResponderMessage`].
                 let span =
                     debug_span!(protocols::peer_sharing::responder::PEER_SHARING_RESPONDER_STAGE, amount = amount);
                 async move {
+                    let reply_to = match self.reply_bridge.clone() {
+                        Some(bridge) => bridge,
+                        None => {
+                            let bridge = eff
+                                .contramap(&eff.me(), "share_peers_reply", |r: SharePeersReply| {
+                                    Inputs::Local(ResponderMessage::SharePeers { peers: r.peers })
+                                })
+                                .await;
+                            self.reply_bridge = Some(bridge.clone());
+                            bridge
+                        }
+                    };
                     self.awaiting = Some(amount);
+                    eff.send(&self.manager, ManagerMessage::ShareRequest { peer: self.peer.clone(), amount, reply_to })
+                        .await;
                     Ok((None, self))
                 }
                 .instrument(span)

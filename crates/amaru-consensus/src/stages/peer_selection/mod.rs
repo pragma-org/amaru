@@ -15,6 +15,7 @@
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map::Entry},
+    hash::{Hash, Hasher},
     net::SocketAddr,
     time::Duration,
 };
@@ -22,9 +23,16 @@ use std::{
 use amaru_kernel::{BlockHeight, Peer};
 use amaru_observability::{TraceContext, debug_span, info};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
-use amaru_protocols::{manager::ManagerMessage, peer_sharing::ShareResult};
+use amaru_protocols::{
+    manager::ManagerMessage,
+    peer_sharing::{SharePeersReply, ShareResult},
+};
 use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
-use rand::{SeedableRng, rngs::StdRng, seq::IteratorRandom};
+use rand::{
+    SeedableRng,
+    rngs::StdRng,
+    seq::{IteratorRandom, SliceRandom},
+};
 use tracing::Instrument;
 
 use crate::{
@@ -39,6 +47,9 @@ pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_millis(100);
 pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// How many peers to request per share call (network-spec amount is `Word8`).
 pub const SHARE_REQUEST_AMOUNT: u8 = 20;
+
+/// Upper bound on peers returned in one share response (policy; also caps requested amount).
+pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 
 /// Peer selection stage for the Amaru consensus node.
 ///
@@ -300,6 +311,8 @@ pub enum PeerSelectionMsg {
     LedgerCheckCandidates(BTreeSet<Peer>),
     /// Reply from the peer-sharing initiator (one result per request cycle).
     SharePeersResult { peer: Peer, peers: Vec<SocketAddr> },
+    /// Server-side peer-sharing: select addresses to advertise to `peer` and reply on `reply_to`.
+    ShareRequest { peer: Peer, amount: u8, reply_to: StageRef<SharePeersReply> },
 }
 
 impl PeerSelectionMsg {
@@ -403,6 +416,62 @@ impl PeerSelection {
             let id = eff.schedule_at(PeerSelectionMsg::CheckCooldowns, when).await;
             self.cooldown_timer = Some(id);
         }
+    }
+
+    /// Peers we may advertise: known listen addresses that are not ledger/snapshot-derived.
+    ///
+    /// Pure inbound-only peers are omitted (remote port is not a listen address).
+    fn share_candidate_pool(&self) -> BTreeSet<Peer> {
+        let mut pool = BTreeSet::new();
+        for p in &self.static_peers {
+            pool.insert(p.clone());
+        }
+        for p in self.outbound_peers.keys() {
+            pool.insert(p.clone());
+        }
+        // Exclude on-chain / big-ledger sources (ticket 1169).
+        pool.retain(|p| !self.ledger_candidates.contains(p) && !self.snapshot_candidates.contains(p));
+        pool
+    }
+
+    /// Filter + sticky sample shareable addresses for a requester.
+    async fn select_peers_to_share(
+        &self,
+        requester: &Peer,
+        amount: u8,
+        eff: &Effects<PeerSelectionMsg>,
+    ) -> Vec<SocketAddr> {
+        let n = (amount.min(SHARE_POLICY_MAX)) as usize;
+        if n == 0 {
+            return Vec::new();
+        }
+
+        let mut eligible = Vec::new();
+        for peer in self.share_candidate_pool() {
+            if &peer == requester {
+                continue;
+            }
+            // Need a parseable listen address to put on the wire.
+            let Ok(addr) = peer.name.parse::<SocketAddr>() else {
+                continue;
+            };
+            // Performance map presence + advertisable + zero failures + not adversarial.
+            if !eff.external(Performance::ok_for_sharing(peer.clone())).await {
+                continue;
+            }
+            eligible.push((peer, addr));
+        }
+
+        // Sticky: same requester + same eligible set → similar subset (seed only from requester).
+        eligible.sort_by(|a, b| a.0.cmp(&b.0));
+        let seed = {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            requester.name.hash(&mut hasher);
+            hasher.finish()
+        };
+        let mut rng = StdRng::seed_from_u64(seed);
+        eligible.shuffle(&mut rng);
+        eligible.into_iter().take(n).map(|(_, addr)| addr).collect()
     }
 
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
@@ -702,7 +771,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             }
             let total = state.shared_peers.len();
             info!(
-                protocols::peer_selection::peer::SHARE_PEERS,
+                protocols::peer_selection::sharing::RECEIVED,
                 peer = peer,
                 peers = peers_list,
                 added = added,
@@ -715,6 +784,19 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         PeerSelectionMsg::LedgerCheckCandidates(candidates) => {
             state.ledger_candidates = candidates;
             state.regulate_peers(&eff).await;
+        }
+        PeerSelectionMsg::ShareRequest { peer, amount, reply_to } => {
+            let selected = state.select_peers_to_share(&peer, amount, &eff).await;
+            let peers_list = selected.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+            let count = selected.len();
+            info!(
+                protocols::peer_selection::sharing::SENT,
+                peer = peer,
+                peers = peers_list,
+                requested = amount,
+                count = count,
+            );
+            eff.send(&reply_to, SharePeersReply { peers: selected }).await;
         }
     }
     state

@@ -3930,20 +3930,29 @@
         },
         "total": {
           "type": "integer"
+        },
+        "requested": {
+          "type": "integer"
+        },
+        "count": {
+          "type": "integer"
         }
       },
       "required": [
         "peer",
-        "peers",
-        "added",
-        "total"
+        "peers"
       ],
-      "optional": [],
+      "optional": [
+        "added",
+        "total",
+        "requested",
+        "count"
+      ],
       "additionalProperties": false,
       "name": "share_peers",
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::peer",
-      "description": "Addresses received from a peer-sharing reply on an outbound connection.",
+      "description": "Peer-sharing address list (inbound learn path or outbound advertise path).",
       "public": true
     },
     "amaru::setup::build::VERSION": {

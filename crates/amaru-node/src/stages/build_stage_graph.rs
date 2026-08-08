@@ -93,6 +93,9 @@ pub fn build_stage_graph(
                 PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
             }
             PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
+            PeerSelectionNotify::ShareRequest { peer, amount, reply_to } => {
+                PeerSelectionMsg::ShareRequest { peer, amount, reply_to }
+            }
         });
 
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);

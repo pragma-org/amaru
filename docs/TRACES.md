@@ -1822,7 +1822,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `connected` | `TRACE` | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
 | `disconnected` | `TRACE` | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
-| `share_peers` | `TRACE` | public | Addresses received from a peer-sharing reply on an outbound connection. | peer, peers, added, total |  |
+| `share_peers` | `TRACE` | public | Peer-sharing address list (inbound learn path or outbound advertise path). | peer, peers | added, total, requested, count |
 
 <details><summary>span: `connected`</summary>
 
@@ -1853,8 +1853,10 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
 | `peers` | `string` | ✓ |
-| `added` | `integer` | ✓ |
-| `total` | `integer` | ✓ |
+| `added` | `integer` |  |
+| `total` | `integer` |  |
+| `requested` | `integer` |  |
+| `count` | `integer` |  |
 
 </details>
 

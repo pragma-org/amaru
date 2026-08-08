@@ -514,7 +514,7 @@ fn test_share_peers_result_records_shared_peers() {
             ),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.share_peers"])
+    logs.assert_and_remove(Level::INFO, &["peer_selection.sharing.received"])
         .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -1046,4 +1046,92 @@ fn test_earlier_cooldown_reschedules_timer() {
         .assert_and_remove(Level::WARN, &["removing peer (outbound)"])
         .assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
         .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+}
+
+// ---------------------------------------------------------------------------
+// Peer-sharing responder selection (ticket 1169)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_share_candidate_pool_excludes_ledger_and_snapshot() {
+    let mut prep = test_prep_with_snapshot(&["10.0.0.1:3001"], &["10.0.0.2:3001"]);
+    let ledger = TestPrep::peer("10.0.0.3:3001");
+    let outbound = TestPrep::peer("10.0.0.4:3001");
+    prep.state.ledger_candidates.insert(ledger.clone());
+    prep.state.outbound_peers.insert(outbound.clone(), PeerState::Connected(conn()));
+    // Pure inbound should not be shareable (no known listen address in our model).
+    prep.state.inbound_peers.insert(TestPrep::peer("10.0.0.5:9999"), conn());
+
+    let pool = prep.state.share_candidate_pool();
+    assert!(pool.contains(&TestPrep::peer("10.0.0.1:3001"))); // static
+    assert!(pool.contains(&outbound));
+    assert!(!pool.contains(&TestPrep::peer("10.0.0.2:3001"))); // snapshot
+    assert!(!pool.contains(&ledger));
+    assert!(!pool.contains(&TestPrep::peer("10.0.0.5:9999"))); // inbound-only
+}
+
+#[test]
+fn test_share_request_replies_with_selected_peers() {
+    use amaru_protocols::peer_sharing::SharePeersReply;
+    use amaru_pure_stage::StageRef;
+
+    let static_a = TestPrep::peer("10.0.0.1:3001");
+    let static_b = TestPrep::peer("10.0.0.2:3001");
+    let requester = TestPrep::peer("10.0.0.9:3001");
+    let mut prep = test_prep(&[static_a.as_ref(), static_b.as_ref()]);
+    prep.state.outbound_peers.insert(static_a.clone(), PeerState::Connected(conn()));
+    prep.state.outbound_peers.insert(static_b.clone(), PeerState::Connected(conn()));
+
+    let reply_to: StageRef<SharePeersReply> = StageRef::named_for_tests("share_reply");
+    let msg = PeerSelectionMsg::ShareRequest { peer: requester, amount: 10, reply_to: reply_to.clone() };
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            tm_send_match("ps-1", "share_reply", |r: &SharePeersReply| {
+                r.peers.len() == 2
+                    && r.peers.iter().any(|a| a.to_string() == "10.0.0.1:3001")
+                    && r.peers.iter().any(|a| a.to_string() == "10.0.0.2:3001")
+            }),
+        ],
+    );
+    logs.assert_and_remove(Level::INFO, &["peer_selection.sharing.sent"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_share_request_excludes_requester_and_respects_amount() {
+    use amaru_protocols::peer_sharing::SharePeersReply;
+    use amaru_pure_stage::StageRef;
+
+    let peers: Vec<_> = (1..=5).map(|i| TestPrep::peer(&format!("10.0.0.{i}:3001"))).collect();
+    let names: Vec<_> = peers.iter().map(|p| p.name.as_str()).collect();
+    let mut prep = test_prep(&names);
+    for p in &peers {
+        prep.state.outbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+    }
+    let requester = peers[0].clone();
+    let reply_to: StageRef<SharePeersReply> = StageRef::named_for_tests("share_reply");
+    let msg = PeerSelectionMsg::ShareRequest { peer: requester.clone(), amount: 2, reply_to };
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &msg).into(),
+            tm_send_match("ps-1", "share_reply", move |r: &SharePeersReply| {
+                r.peers.len() == 2 && r.peers.iter().all(|a| a.to_string() != requester.name)
+            }),
+        ],
+    );
+    logs.assert_and_remove(Level::INFO, &["peer_selection.sharing.sent"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }
