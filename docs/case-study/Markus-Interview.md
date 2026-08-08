@@ -19,7 +19,7 @@ There is no documentation available on configuring a resilient node pool. The be
 -> A syscall flag to switch the BP node state from "waiting" to "producer" is currently lacking.
 However, Markus notes that he has never needed to activate his secondary node, as the Haskell node is pretty stable.
 
-### Operational needs from Livio’s setup perspective:
+### Operational needs from Markus’s setup perspective:
 
 - The ability to have a "standby" BlockProducer node that can switch to producer state without restarting.
 
