@@ -1,5 +1,5 @@
 {
-  "title": "treasury withdrawal proposal is accepted",
+  "title": "gov treasury withdrawal",
   "description": "A TreasuryWithdrawals proposal (an orphan purpose, exempt from parent chaining) is accepted; its return account is registered.",
   "network": "preprod",
   "eraHistory": {
@@ -15,19 +15,12 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c64080ff"
       }
     ],
-    "pools": [],
     "accounts": [
       {
         "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "deposit": 2000000
       }
-    ],
-    "dreps": [],
-    "proposals": [],
-    "proposalsRoots": {},
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
-    }
+    ]
   },
   "point": {
     "slot": 100,

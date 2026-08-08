@@ -1,5 +1,5 @@
 {
-  "title": "no confidence proposal is accepted",
+  "title": "gov no confidence",
   "description": "A NoConfidence proposal with no previous action is accepted when no constitutional-committee root has been enacted.",
   "network": "preprod",
   "eraHistory": {
@@ -15,14 +15,12 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c64080ff"
       }
     ],
-    "pools": [],
-    "accounts": [],
-    "dreps": [],
-    "proposals": [],
-    "proposalsRoots": {},
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
-    }
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000
+      }
+    ]
   },
   "point": {
     "slot": 100,

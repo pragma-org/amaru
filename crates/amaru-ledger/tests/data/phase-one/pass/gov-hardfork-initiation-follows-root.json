@@ -1,5 +1,5 @@
 {
-  "title": "hard fork initiation proposal chaining to the enacted root is accepted",
+  "title": "gov hardfork initiation follows root",
   "description": "A hard fork initiation proposal whose previous action equals the enacted hardFork root is accepted.",
   "network": "preprod",
   "eraHistory": {
@@ -15,18 +15,17 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c64080ff"
       }
     ],
-    "pools": [],
-    "accounts": [],
-    "dreps": [],
-    "proposals": [],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000
+      }
+    ],
     "proposalsRoots": {
       "hardFork": {
         "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3",
         "proposalIndex": 0
       }
-    },
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
     }
   },
   "point": {

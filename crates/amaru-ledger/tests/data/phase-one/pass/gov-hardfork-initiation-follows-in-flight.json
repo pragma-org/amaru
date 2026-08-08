@@ -1,5 +1,5 @@
 {
-  "title": "hard fork initiation proposal chaining to an in-flight parent is accepted",
+  "title": "gov hardfork initiation follows in-flight",
   "description": "A hard fork initiation proposal whose previous action points at an in-flight proposal of the same purpose is accepted.",
   "network": "preprod",
   "eraHistory": {
@@ -16,7 +16,12 @@
       }
     ],
     "pools": [],
-    "accounts": [],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000
+      }
+    ],
     "dreps": [],
     "proposals": [
       {
