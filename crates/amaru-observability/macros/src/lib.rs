@@ -44,6 +44,136 @@
 //! to emit spans and records created from private schemas.
 //!
 //! Truthy values are any non-empty values except `0` and `false`.
+//!
+//! # Schema definition embedded DSL for `define_schemas!` / `define_local_schemas!`.
+//!
+//! This module parses the schema language with [`syn`] and emits nested modules, schema
+//! marker types, and the declarative helper macros used by `trace_span!`, `trace_event!`,
+//! and `trace_record!`. Identifiers and types from the definition are re-emitted with their
+//! original spans so rust-analyzer can go-to-definition from generated items back into the
+//! schema source.
+//!
+//! # Embedded DSL specification
+//!
+//! A schema file is a sequence of **category** blocks. Categories nest arbitrarily and form
+//! the module path of every schema declared beneath them. Schema names are distinguished
+//! from category names by capitalization.
+//!
+//! ```text
+//! define_schemas! {
+//!     <category> {
+//!         tags: <tag>, <tag>, ...          // optional; inherited by nested schemas
+//!         <category> { ... }               // nested category
+//!         /// Description of the event     // required doc comment on every schema
+//!         [public] <SCHEMA> {
+//!             tags: <tag>, ...             // optional; overrides inherited module tags
+//!             required <field>: <Type> [,]
+//!             optional <field>: <Type> [,]
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! ## Grammar
+//!
+//! ```text
+//! input            := category+
+//! category         := ident "{" category_body "}"
+//! category_body    := ( tags_decl | category | schema )*
+//!
+//! schema           := attrs "public"? UPPER_IDENT "{" schema_body "}"
+//! schema_body      := ( tags_decl | field )*
+//!
+//! tags_decl        := "tags" ":" tag ("," tag)*
+//! tag              := lowercase_ident
+//!
+//! field            := attrs ("required" | "optional") ident ":" Type ","?
+//! attrs            := outer_attribute*     // typically `///` doc comments
+//! ```
+//!
+//! Where:
+//!
+//! - **`ident`** is a Rust identifier (letters, digits, `_`; not starting with a digit).
+//! - **`UPPER_IDENT`** is an identifier whose first character is uppercase (by convention
+//!   `SCREAMING_SNAKE_CASE`). These introduce schemas; all other identifiers introduce
+//!   categories.
+//! - **`Type`** is any Rust type accepted by [`syn::Type`] (primitives, paths, generics, …).
+//! - **`public`** may only appear immediately before a schema name, never before a category.
+//! - **`required` / `optional`** are prefix keywords on individual fields. Block forms such
+//!   as `required { ... }` are not part of the language.
+//! - Trailing commas after field type annotations are allowed.
+//! - Square brackets `[` `]` are not used; field lists always use curly braces.
+//!
+//! ## Categories
+//!
+//! Categories are lowercase module segments. Nested categories produce a matching nested
+//! `pub mod` tree in the expansion. The category path becomes part of:
+//!
+//! - the schema's fully-qualified path (`amaru::ledger::state::ROLL_FORWARD`);
+//! - the tracing `target` (first two segments, e.g. `amaru::ledger`);
+//! - the tracing event/span `name` (remaining segments plus schema name, lowercased and
+//!   joined with `.`, e.g. `state.roll_forward`).
+//!
+//! ## Schemas
+//!
+//! Every schema **must** have at least one doc comment (`/// …`). Multi-line docs are
+//! joined with spaces into the runtime registry description.
+//!
+//! Schemas are **private by default**. Mark with `public` to:
+//!
+//! - always emit spans/events/records (private ones need `AMARU_TRACE_EMIT_PRIVATE`);
+//! - include the schema in the runtime registry dump used by documentation tooling.
+//!
+//! Empty field lists are valid: `ROLL_FORWARD {}`.
+//!
+//! ## Fields
+//!
+//! Each field is either `required` or `optional`:
+//!
+//! - **required** — must be supplied at every `trace_span!` / `trace_event!` call site;
+//! - **optional** — may be omitted; may still be recorded later with `trace_record!`.
+//!
+//! Field names must be valid Rust identifiers (no string-literal names). The names
+//! `name`, `schema`, and `message` are reserved by the tracing macros.
+//!
+//! Field types drive compile-time type checks in the generated `_RECORD!` helpers and the
+//! typed accessors on the schema marker type. `String` is accepted for any `AsRef<str>`
+//! value; other types are checked by reference against the declared type and must implement
+//! [`Display`](std::fmt::Display) when recorded without an explicit formatter.
+//!
+//! Doc comments on individual fields are accepted and currently ignored by code generation
+//! (they document the schema source for readers).
+//!
+//! ## Tags
+//!
+//! `tags: cpu, io` declares functional tags recorded automatically on every span as
+//! boolean attributes `amaru.tag.<name>`. Tags declared on a category apply to all schemas
+//! nested inside that have no local `tags:` line. A schema-level `tags:` fully replaces the
+//! inherited set (it does not merge). Tags must be lowercase identifiers; duplicates in a
+//! single declaration are rejected.
+//!
+//! Spans can be selected with an `EnvFilter` directive, for example:
+//! `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'`.
+//!
+//! ## What the expansion produces
+//!
+//! For each schema `amaru::ledger::state::ROLL_FORWARD` the macro emits:
+//!
+//! 1. Nested modules mirroring the category path, with identifiers taken from the definition
+//!    (preserving source spans for go-to-definition).
+//! 2. A unit struct `ROLL_FORWARD` with associated constants:
+//!    - `NAME`, `TARGET`, `PATH`, `VALIDATION`, `PUBLIC`, `SCHEMA_FIELD_COUNT`
+//!    - `FIELD_<NAME>` string constants for each field
+//!    - typed `fn field_name(record) -> …` accessors (exported schemas only)
+//! 3. Hidden declarative macros used by the instrumentation proc-macros:
+//!    - `__…_REQUIRE!` — required-field presence
+//!    - `__…_RECORD!` / `__…_ASSIGN!` — field type checks and value assignment
+//!    - `__…_INSTRUMENT!` — span construction with metadata and tags
+//!    - `__VALIDATE_…!` — module-level schema name check
+//! 4. An `inventory` submission for the runtime registry (`define_schemas!` only).
+//!
+//! Call-site macros (`trace_span!`, `trace_event!`, `trace_record!`) remain source-compatible;
+//! only the parser and the way identifiers are threaded through the expansion change.
 
 use std::env::var;
 
@@ -65,8 +195,12 @@ fn is_trace_no_emit() -> bool {
 
 /// Defines tracing schemas with compile-time validation.
 ///
-/// This macro generates validator macros for each schema that ensure
-/// fields have correct names and types at compile time.
+/// Parses the schema embedded DSL with [`syn`] and emits nested modules, schema marker
+/// types, and declarative helper macros used by [`trace_span!`], [`trace_event!`], and
+/// [`trace_record!`]. Identifiers and types from the definition keep their original spans
+/// so go-to-definition reaches the schema source.
+///
+/// Full language reference: see the `define_schemas` module documentation in this crate.
 ///
 /// A `tags: <name>, ...` declaration assigns functional tags to schemas, each recorded
 /// automatically on every span as a boolean `amaru.tag.<name>` attribute. Tags can be
@@ -75,7 +209,7 @@ fn is_trace_no_emit() -> bool {
 /// directive, e.g. `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'`.
 ///
 /// Generated macros are exported with `#[macro_export]` for use across crates.
-/// For local/test schemas that won't be exported, use `define_local_schemas!` instead.
+/// For local/test schemas that won't be exported, use [`define_local_schemas!`] instead.
 #[proc_macro]
 pub fn define_schemas(input: TokenStream) -> TokenStream {
     define_schemas::expand(input)

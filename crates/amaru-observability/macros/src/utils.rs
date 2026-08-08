@@ -27,6 +27,7 @@ pub fn format_field_spec(name: &str, ty: &str) -> String {
 /// Check if a string starts with an alphabetic or underscore character.
 ///
 /// Used to identify valid Rust identifiers.
+#[cfg(test)]
 pub fn is_identifier_start(token: &str) -> bool {
     token.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
 }
@@ -34,6 +35,7 @@ pub fn is_identifier_start(token: &str) -> bool {
 /// Check if a string starts with an uppercase character.
 ///
 /// Used to identify schema names (which follow SCREAMING_SNAKE_CASE convention).
+#[cfg(test)]
 pub fn is_uppercase_identifier(token: &str) -> bool {
     token.chars().next().is_some_and(char::is_uppercase)
 }
@@ -46,6 +48,7 @@ pub fn is_uppercase_identifier(token: &str) -> bool {
 /// - Does not contain special characters like ::, -, etc.
 ///
 /// Used to validate schema and category names to prevent invalid Rust identifiers.
+#[cfg(test)]
 pub fn is_valid_identifier(token: &str) -> bool {
     if token.is_empty() {
         return false;
