@@ -3915,6 +3915,37 @@
       "description": "A connection has been terminated (graceful disconnect, error, handshake refusal, or network error).",
       "public": true
     },
+    "amaru::protocols::peer_selection::peer::SHARE_PEERS": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "peers": {
+          "type": "string"
+        },
+        "added": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "peers",
+        "added",
+        "total"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "share_peers",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "Addresses received from a peer-sharing reply on an outbound connection.",
+      "public": true
+    },
     "amaru::setup::build::VERSION": {
       "type": "object",
       "properties": {

@@ -26,6 +26,7 @@ use crate::{
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
     network_effects::{ConnectError, Network, NetworkOps},
+    peer_sharing::ShareResult,
     protocol::Role,
     tx_submission::ResponderParams,
 };
@@ -78,6 +79,18 @@ pub enum ManagerMessage {
     /// When `peers` is `Some`, only those peers' initiating connections are asked.
     /// When `None`, every initiating connection is asked (cold-start / empty-selection fallback).
     FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64, peers: Option<Vec<Peer>> },
+    /// Start periodic peer-sharing requests on one outbound connection.
+    ///
+    /// The initiator schedules the first request after `initial_delay`, then every `interval`
+    /// after each reply. Results are delivered on `reply_to` until the connection ends.
+    /// If no initiating connection exists, an empty [`ShareResult`] is sent once.
+    RequestSharePeers {
+        peer: Peer,
+        amount: u8,
+        initial_delay: std::time::Duration,
+        interval: std::time::Duration,
+        reply_to: StageRef<ShareResult>,
+    },
     /// Advertise this new tip to all downstream peers.
     NewTip(Tip, TraceContext),
     /// INTERNAL message sent by the connector stage after a connection attempt completes.
@@ -111,6 +124,7 @@ impl ManagerMessage {
             ManagerMessage::Disconnect(..) => "Disconnect",
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
+            ManagerMessage::RequestSharePeers { .. } => "RequestSharePeers",
             ManagerMessage::NewTip(_, _) => "NewTip",
             ManagerMessage::ConnectionResult(..) => "ConnectionResult",
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
@@ -616,6 +630,23 @@ impl Manager {
             eff.send(&cr, Blocks::PeersAsked(id, contacted)).await;
         }
     }
+
+    async fn request_share_peers(
+        &self,
+        peer: Peer,
+        amount: u8,
+        initial_delay: std::time::Duration,
+        interval: std::time::Duration,
+        reply_to: StageRef<ShareResult>,
+        eff: &Effects<ManagerMessage>,
+    ) {
+        let Some(conn) = self.connections.values().find(|c| c.may_initiate && c.peer == peer) else {
+            tracing::debug!(%peer, "no initiating connection for peer sharing request");
+            eff.send(&reply_to, ShareResult { peer, peers: Vec::new() }).await;
+            return;
+        };
+        eff.send(&conn.stage, ConnectionMessage::RequestSharePeers { amount, initial_delay, interval, reply_to }).await;
+    }
 }
 
 /// The manager stage is responsible for managing the connections to the peers.
@@ -692,6 +723,9 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
             }
             ManagerMessage::FetchBlocks { from, through, cr, id, peers } => {
                 manager.fetch_blocks(from, through, cr, id, peers, &eff).await;
+            }
+            ManagerMessage::RequestSharePeers { peer, amount, initial_delay, interval, reply_to } => {
+                manager.request_share_peers(peer, amount, initial_delay, interval, reply_to, &eff).await;
             }
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;

@@ -432,7 +432,8 @@ fn test_connected_outbound() {
     let prep = test_prep(&[]);
     let p = TestPrep::peer("2.2.2.2:2");
     let state = prep.state.clone();
-    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Outbound, true);
+    // advertisable=false: no peer-sharing schedule (see test_connected_outbound_schedules_share).
+    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Outbound, false);
     let after = {
         let mut s = state.clone();
         s.outbound_peers.insert(p.clone(), PeerState::Connected(conn()));
@@ -445,11 +446,77 @@ fn test_connected_outbound() {
             te_state("ps-1", &state),
             te_input("ps-1", &msg),
             te_clock_suspend("ps-1"),
-            te_record_advertisability("ps-1", p.clone(), true, sim_t0()),
+            te_record_advertisability("ps-1", p.clone(), false, sim_t0()),
             te_state("ps-1", &after),
         ],
     );
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_connected_outbound_starts_peer_sharing() {
+    let prep = test_prep(&[]);
+    let p = TestPrep::peer("6.6.6.6:6");
+    let state = prep.state.clone();
+    let msg = PeerSelectionMsg::Connected(p.clone(), conn(), ConnectionDirection::Outbound, true);
+    let after = {
+        let mut s = state.clone();
+        s.outbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+        s
+    };
+    let p_send = p.clone();
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("ps-1", &state).into(),
+            te_input("ps-1", &msg).into(),
+            te_record_advertisability("ps-1", p.clone(), true, sim_t0()).into(),
+            tm_send_match("ps-1", "manager", move |m: &ManagerMessage| {
+                matches!(
+                    m,
+                    ManagerMessage::RequestSharePeers {
+                        peer,
+                        amount,
+                        initial_delay,
+                        interval,
+                        ..
+                    } if peer == &p_send
+                        && *amount == super::SHARE_REQUEST_AMOUNT
+                        && *initial_delay == super::SHARE_REQUEST_INITIAL_DELAY
+                        && *interval == super::SHARE_REQUEST_INTERVAL
+                )
+            }),
+            te_state("ps-1", &after).into(),
+        ],
+    );
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_share_peers_result_records_shared_peers() {
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
+    let p = TestPrep::peer("7.7.7.7:7");
+    let learned = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(9, 9, 9, 9), 3001));
+    let mut prep = test_prep(&[]);
+    prep.state.outbound_peers.insert(p.clone(), PeerState::Connected(conn()));
+    let reply = PeerSelectionMsg::SharePeersResult { peer: p.clone(), peers: vec![learned] };
+    let (running, _guards, mut logs) = setup(&prep, reply.clone());
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("ps-1", &reply).into(),
+            tm_state(
+                "ps-1",
+                move |s: &PeerSelection| s.shared_peers.contains(&Peer::from_addr(&learned)),
+                "shared peer recorded",
+            ),
+        ],
+    );
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.share_peers"])
+        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]

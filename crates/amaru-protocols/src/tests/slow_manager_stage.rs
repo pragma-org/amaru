@@ -38,6 +38,7 @@ pub async fn slow_manager_stage(manager: Manager, msg: ManagerMessage, eff: Effe
         ManagerMessage::Listen(_) => {}
         ManagerMessage::NewTip(_, _) => {}
         ManagerMessage::FetchBlocks { .. } => {}
+        ManagerMessage::RequestSharePeers { .. } => {}
         ManagerMessage::ConnectionResult(..) => {}
     }
     manager::stage(manager, msg, eff).await

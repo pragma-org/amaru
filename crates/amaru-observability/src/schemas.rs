@@ -1424,6 +1424,17 @@ define_schemas! {
                         required direction: String
                         optional reason: String
                     }
+                    /// Addresses received from a peer-sharing reply on an outbound connection.
+                    public SHARE_PEERS {
+                        /// Peer that answered the share request.
+                        required peer: amaru_kernel::Peer
+                        /// Comma-separated list of shared listen addresses.
+                        required peers: String
+                        /// How many of those addresses were newly added to the shared pool.
+                        required added: usize
+                        /// Size of the shared-peers pool after this reply.
+                        required total: usize
+                    }
                 }
             }
             chainsync {

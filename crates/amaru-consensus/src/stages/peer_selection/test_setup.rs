@@ -127,6 +127,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ScheduleId>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<amaru_protocols::peer_sharing::ShareResult>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GenerateRandomSeed>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::ClearPeerAvailabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PeerAdversarialEffect>().boxed(),

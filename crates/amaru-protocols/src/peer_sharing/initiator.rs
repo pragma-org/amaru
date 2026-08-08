@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Peer-sharing initiator (client): non-pipelined request/response.
+//! Peer-sharing initiator (client): non-pipelined request/response with internal cadence.
+//!
+//! Lifecycle follows the connection: once [`PeerSharingMessage::Start`] is received, the stage
+//! schedules itself for the first request after `initial_delay`, then again after each successful
+//! reply using `interval`. Timers die with the stage when the connection is torn down.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use amaru_kernel::Peer;
 use amaru_observability::debug_span;
 use amaru_ouroboros::ConnectionId;
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use amaru_pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
@@ -44,19 +48,24 @@ pub fn initiator() -> Miniprotocol<State, PeerSharingInitiator, Initiator> {
     miniprotocol(PROTO_N2N_PEER_SHARE)
 }
 
-/// Local request to ask the remote peer for addresses.
+/// Local messages into the peer-sharing initiator stage.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum PeerSharingMessage {
-    /// Request up to `amount` peers; reply is sent to `reply_to`.
+    /// Begin (or restart) periodic share requests for this connection.
     ///
-    /// Non-pipelined: at most one request is in flight. A second request while busy is queued
-    /// (replacing any previous queued request) and sent only after the current reply arrives.
-    ShareRequest { amount: u8, reply_to: StageRef<ShareResult> },
+    /// - First network request after `initial_delay`.
+    /// - Further requests after each reply, delayed by `interval`.
+    /// - `reply_to` is used for every result until the protocol stage ends.
+    Start { amount: u8, initial_delay: Duration, interval: Duration, reply_to: StageRef<ShareResult> },
+    /// Internal timer: send the next share request if idle.
+    Tick,
 }
 
 /// Reply delivered to the requester after `MsgSharePeers`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ShareResult {
+    /// Peer that answered the share request (the remote we asked).
+    pub peer: Peer,
     pub peers: Vec<SocketAddr>,
 }
 
@@ -65,15 +74,41 @@ pub struct PeerSharingInitiator {
     muxer: StageRef<MuxMessage>,
     peer: Peer,
     conn_id: ConnectionId,
-    /// In-flight request: (requested amount, reply destination).
-    in_flight: Option<(u8, StageRef<ShareResult>)>,
-    /// At most one queued request while busy (non-pipelined).
-    pending: Option<(u8, StageRef<ShareResult>)>,
+    /// Configured request size (from last [`PeerSharingMessage::Start`]).
+    amount: u8,
+    /// Delay between a reply and the next request.
+    interval: Duration,
+    /// Destination for every share result while this connection is live.
+    reply_to: Option<StageRef<ShareResult>>,
+    /// Outstanding timer for the next [`PeerSharingMessage::Tick`].
+    timer: Option<ScheduleId>,
+    /// True while waiting for `MsgSharePeers`.
+    in_flight: bool,
 }
 
 impl PeerSharingInitiator {
     pub fn new(muxer: StageRef<MuxMessage>, peer: Peer, conn_id: ConnectionId) -> (State, Self) {
-        (State::Idle, Self { muxer, peer, conn_id, in_flight: None, pending: None })
+        (
+            State::Idle,
+            Self {
+                muxer,
+                peer,
+                conn_id,
+                amount: 0,
+                interval: Duration::ZERO,
+                reply_to: None,
+                timer: None,
+                in_flight: false,
+            },
+        )
+    }
+
+    async fn arm_timer(&mut self, delay: Duration, eff: &Effects<Inputs<PeerSharingMessage>>) -> anyhow::Result<()> {
+        if let Some(old) = self.timer.take() {
+            eff.cancel_schedule(old).await;
+        }
+        self.timer = Some(eff.schedule_after(Inputs::Local(PeerSharingMessage::Tick), delay).await);
+        Ok(())
     }
 }
 
@@ -84,29 +119,35 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
         mut self,
         proto: &State,
         input: Self::LocalIn,
-        _eff: &Effects<Inputs<Self::LocalIn>>,
+        eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         match input {
-            PeerSharingMessage::ShareRequest { amount, reply_to } => match proto {
-                State::Idle => {
-                    debug_assert!(self.in_flight.is_none());
-                    self.in_flight = Some((amount, reply_to));
-                    Ok((Some(InitiatorAction::ShareRequest { amount }), self))
+            PeerSharingMessage::Start { amount, initial_delay, interval, reply_to } => {
+                self.amount = amount;
+                self.interval = interval;
+                self.reply_to = Some(reply_to);
+                // First request after initial_delay; connection tear-down cancels the timer with the stage.
+                self.arm_timer(initial_delay, eff).await?;
+                Ok((None, self))
+            }
+            PeerSharingMessage::Tick => {
+                self.timer = None;
+                if self.reply_to.is_none() {
+                    return Ok((None, self));
                 }
-                State::Busy => {
-                    // Non-pipelined: do not send while waiting; keep only the latest pending.
-                    if self.pending.is_some() {
-                        tracing::debug!(
-                            peer = %self.peer,
-                            conn_id = %self.conn_id,
-                            "replacing queued peer-sharing request"
-                        );
+                match proto {
+                    State::Idle if !self.in_flight => {
+                        self.in_flight = true;
+                        let amount = self.amount;
+                        Ok((Some(InitiatorAction::ShareRequest { amount }), self))
                     }
-                    self.pending = Some((amount, reply_to));
-                    Ok((None, self))
+                    State::Busy | State::Idle => {
+                        // Still waiting for a reply (or already in flight); do not pipeline.
+                        Ok((None, self))
+                    }
+                    State::Done => Ok((None, self)),
                 }
-                State::Done => anyhow::bail!("peer-sharing initiator already done"),
-            },
+            }
         }
     }
 
@@ -124,26 +165,25 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
         async move {
             match input {
                 InitiatorResult::SharePeers { peers } => {
-                    let Some((amount, reply_to)) = self.in_flight.take() else {
+                    if !self.in_flight {
                         tracing::warn!("received SharePeers without in-flight request; terminating");
                         return eff.terminate().await;
-                    };
-                    if peers.len() > amount as usize {
+                    }
+                    if peers.len() > self.amount as usize {
                         tracing::warn!(
-                            requested = amount,
+                            requested = self.amount,
                             received = peers.len(),
                             "peer returned more addresses than requested; terminating"
                         );
                         return eff.terminate().await;
                     }
-                    eff.send(&reply_to, ShareResult { peers }).await;
-
-                    if let Some((amount, reply_to)) = self.pending.take() {
-                        self.in_flight = Some((amount, reply_to));
-                        Ok((Some(InitiatorAction::ShareRequest { amount }), self))
-                    } else {
-                        Ok((None, self))
+                    self.in_flight = false;
+                    if let Some(reply_to) = self.reply_to.as_ref() {
+                        eff.send(reply_to, ShareResult { peer: self.peer.clone(), peers }).await;
                     }
+                    // Next request after the configured interval (same reply_to until stage ends).
+                    self.arm_timer(self.interval, eff).await?;
+                    Ok((None, self))
                 }
             }
         }
@@ -163,7 +203,7 @@ impl ProtocolState<Initiator> for State {
     type Error = Void;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        // Client agency in Idle: wait for a local ShareRequest (no WantNext until we send).
+        // Client agency in Idle: wait for local Start / Tick (no WantNext until we send).
         Ok((outcome(), *self))
     }
 

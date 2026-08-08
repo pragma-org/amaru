@@ -31,7 +31,7 @@ use crate::{
     keepalive::register_keepalive,
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, HandlerMessage, MuxMessage},
-    peer_sharing::{PeerSharingMessage, register_peer_sharing_initiator},
+    peer_sharing::{PeerSharingMessage, ShareResult, register_peer_sharing_initiator},
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
@@ -134,6 +134,13 @@ pub enum ConnectionMessage {
         id: u64,
         cr: StageRef<Blocks>,
     },
+    /// Start periodic peer-sharing requests on this connection's initiator.
+    RequestSharePeers {
+        amount: u8,
+        initial_delay: std::time::Duration,
+        interval: std::time::Duration,
+        reply_to: StageRef<ShareResult>,
+    },
     NewTip(Tip, TraceContext),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
@@ -146,6 +153,7 @@ impl ConnectionMessage {
             ConnectionMessage::Disconnect => "Disconnect",
             ConnectionMessage::Handshake(_) => "Handshake",
             ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
+            ConnectionMessage::RequestSharePeers { .. } => "RequestSharePeers",
             ConnectionMessage::NewTip(_, _) => "NewTip",
             ConnectionMessage::ChildDied(_) => "ChildDied",
         }
@@ -183,6 +191,17 @@ pub async fn stage(
                 eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, id, cr }).await;
                 State::Initiator(s)
             }
+            (
+                State::Initiator(s),
+                ConnectionMessage::RequestSharePeers { amount, initial_delay, interval, reply_to },
+            ) => {
+                eff.send(
+                    &s.peer_sharing_initiator,
+                    PeerSharingMessage::Start { amount, initial_delay, interval, reply_to },
+                )
+                .await;
+                State::Initiator(s)
+            }
             (State::Responder(s), ConnectionMessage::NewTip(tip, trace_context)) => {
                 eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip, trace_context)).await;
                 State::Responder(s)
@@ -196,6 +215,10 @@ pub async fn stage(
                 // If the peer eventually can't be fully initialized, the caller timeout will trigger.
                 // We schedule after the reconnect delay (2s by default) which is shorter than the call
                 // timeout (5s) (whereas a full connection timeout is 10s).
+                eff.schedule_after(msg, params.config.reconnect_delay).await;
+                state
+            }
+            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::RequestSharePeers { .. }) => {
                 eff.schedule_after(msg, params.config.reconnect_delay).await;
                 state
             }
