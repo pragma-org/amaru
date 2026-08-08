@@ -31,6 +31,7 @@ use crate::{
     keepalive::register_keepalive,
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, HandlerMessage, MuxMessage},
+    peer_sharing::{PeerSharingMessage, register_peer_sharing_initiator},
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
@@ -91,6 +92,7 @@ enum State {
 struct StateInitiator {
     chainsync_initiator: StageRef<chainsync::InitiatorMessage>,
     blockfetch_initiator: StageRef<blockfetch::BlockFetchMessage>,
+    peer_sharing_initiator: StageRef<PeerSharingMessage>,
     version_number: VersionNumber,
     version_data: VersionData,
     muxer: StageRef<MuxMessage>,
@@ -118,6 +120,7 @@ pub enum ChildId {
     TxSubmission,
     ChainSync,
     BlockFetch,
+    PeerSharing,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -370,9 +373,18 @@ async fn do_handshake(
             ConnectionMessage::ChildDied(ChildId::BlockFetch),
         )
         .await;
+        let peer_sharing_initiator = register_peer_sharing_initiator(
+            &muxer,
+            peer.clone(),
+            *conn_id,
+            &eff,
+            ConnectionMessage::ChildDied(ChildId::PeerSharing),
+        )
+        .await;
         State::Initiator(StateInitiator {
             chainsync_initiator,
             blockfetch_initiator,
+            peer_sharing_initiator,
             version_number,
             version_data,
             muxer,

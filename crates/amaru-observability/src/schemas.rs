@@ -1522,6 +1522,29 @@ define_schemas! {
                     }
                 }
             }
+            peer_sharing {
+                initiator {
+                    /// Handle peer-sharing initiator stage messages
+                    PEER_SHARING_INITIATOR_STAGE {
+                        required peer: String
+                        required conn_id: String
+                    }
+                    /// Handle peer-sharing initiator protocol messages
+                    PEER_SHARING_INITIATOR_PROTOCOL {
+                        required message_type: String
+                    }
+                }
+                responder {
+                    /// Handle peer-sharing responder stage messages
+                    PEER_SHARING_RESPONDER_STAGE {
+                        required amount: u8
+                    }
+                    /// Handle peer-sharing responder protocol messages
+                    PEER_SHARING_RESPONDER_PROTOCOL {
+                        required message_type: String
+                    }
+                }
+            }
             tx_submission {
                 initiator {
                     /// Handle tx-submission initiator stage messages

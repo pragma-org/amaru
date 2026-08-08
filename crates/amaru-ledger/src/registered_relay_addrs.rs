@@ -61,15 +61,22 @@ fn nullable_to_port(port: &Option<u32>) -> Option<u16> {
     port.and_then(|p| u16::try_from(p).ok())
 }
 
+// NOTE: The Haskell node usees the `iproute` package for writing IP addresses from the ledger, first stores the bytes in word32 in network byte order.
+// The ledger then uses putWord32le for serializing those words, swapping their byte order in the byte string.
+// https://github.com/kazu-yamamoto/iproute/blob/main/Data/IP/Addr.hs#L400
+// https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Encoding/Encoder.hs#L563
 fn nullable_ipv4_to_ip(null: &Option<Bytes>) -> Option<IpAddr> {
-    let bytes = <[u8; 4]>::try_from(null.as_ref()?).ok()?;
+    let mut bytes = <[u8; 4]>::try_from(null.as_ref()?).ok()?;
+    bytes.reverse();
     Some(IpAddr::V4(Ipv4Addr::from_octets(bytes)))
 }
 
+// NOTE: The Haskell node usees the `iproute` package for writing IP addresses from the ledger, first stores the bytes in word32 in network byte order.
+// The ledger then uses putWord32le for serializing those words, swapping their byte order in the byte string.
+// https://github.com/kazu-yamamoto/iproute/blob/main/Data/IP/Addr.hs#L431
+// https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Encoding/Encoder.hs#L569
 fn nullable_ipv6_to_ip(null: &Option<Bytes>) -> Option<IpAddr> {
     let mut bytes = <[u8; 16]>::try_from(null.as_ref()?).ok()?;
-    // manual inspection of the ledger contents has confirmed that Haskell node
-    // serialization of IPv6 addresses is in “screwed-endian” byte order
     bytes[0..4].reverse();
     bytes[4..8].reverse();
     bytes[8..12].reverse();
