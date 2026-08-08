@@ -25,9 +25,9 @@ pub mod tests {
     use amaru_kernel::{
         Account, Bytes, CertificatePointer, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
         DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
-        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalState as NewEpochProposalState,
-        ProtocolParameters, Slot, StakeCredential, Transaction, TransactionInput, TransactionPointer, WitnessSet, cbor,
-        cbor as minicbor, utils::cbor::SerialisedAsArray,
+        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalKind,
+        ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, Transaction,
+        TransactionInput, TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
     };
     use amaru_ledger::{
         self,
@@ -293,7 +293,11 @@ pub mod tests {
             .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
             .collect();
         let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
-        let proposals = decoded.proposals.into_iter().map(|st| st.id).collect::<BTreeSet<_>>();
+        let proposals = decoded
+            .proposals
+            .into_iter()
+            .map(|st| (st.id, ProposalKind::from(&st.procedure.gov_action)))
+            .collect::<BTreeMap<_, _>>();
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
         let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
 

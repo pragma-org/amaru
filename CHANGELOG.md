@@ -38,6 +38,10 @@ Other guiding principles:
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
+### Fixed
+
+- **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
+
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
 ### Added
@@ -268,6 +272,7 @@ Other guiding principles:
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
+[#932]: https://github.com/pragma-org/amaru/issues/932
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
@@ -313,6 +318,7 @@ Other guiding principles:
 [#1078]: https://github.com/pragma-org/amaru/issues/1078
 [#1082]: https://github.com/pragma-org/amaru/pull/1082
 [#1087]: https://github.com/pragma-org/amaru/pull/1087
+[#1090]: https://github.com/pragma-org/amaru/pull/1090
 [#1095]: https://github.com/pragma-org/amaru/issues/1095
 [#1098]: https://github.com/pragma-org/amaru/pull/1098
 [#1101]: https://github.com/pragma-org/amaru/pull/1101

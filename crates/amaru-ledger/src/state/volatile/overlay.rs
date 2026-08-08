@@ -15,8 +15,8 @@
 use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    Epoch, Lovelace, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus, StakeCredential,
-    TreasuryDelta,
+    ConstitutionalCommitteeUpdate, Epoch, Lovelace, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
+    RatificationStatus, StakeCredential, TreasuryDelta,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -25,7 +25,6 @@ use crate::{
     epoch_transition::{
         Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
-    governance::ratification::CommitteeUpdate,
     state::{
         StateError,
         volatile::{Bind, CommitteeMemberBind, Existence, Resettable},
@@ -365,7 +364,7 @@ impl StateOverlay {
     /// so it defers to the layers below. `Unknown` outside the straddle window.
     pub fn committee_verdict<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
-            Some(CommitteeUpdate::ChangeMembers { added, removed, .. }) => {
+            Some(ConstitutionalCommitteeUpdate::ChangeMembers { added, removed, .. }) => {
                 if removed.contains(credential) {
                     Existence::Gone
                 } else if let Some(epoch) = added.get(credential) {
@@ -379,7 +378,7 @@ impl StateOverlay {
                     Existence::Unknown
                 }
             }
-            Some(CommitteeUpdate::NoConfidence) | None => Existence::Unknown,
+            Some(ConstitutionalCommitteeUpdate::NoConfidence) | None => Existence::Unknown,
         }
     }
 

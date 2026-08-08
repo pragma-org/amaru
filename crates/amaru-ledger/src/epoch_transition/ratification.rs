@@ -16,6 +16,7 @@ use std::{collections::BTreeMap, fmt, rc::Rc};
 
 use amaru_kernel::{
     Constitution,
+    ConstitutionalCommitteeUpdate,
     Epoch,
     EraHistory,
     Lovelace,
@@ -36,7 +37,7 @@ use amaru_kernel::{
 use amaru_observability::{debug, info, info_span};
 
 use crate::{
-    governance::ratification::{CandidateProposal, CommitteeUpdate, RatificationContext},
+    governance::ratification::{CandidateProposal, RatificationContext},
     state::StateError,
     store::columns::proposals::Row as Proposal,
 };
@@ -70,7 +71,7 @@ pub struct GovernanceUpdates {
 
     /// The current constitutional committee, if any. No committee signals a state of
     /// no-confidence.
-    pub constitutional_committee: Option<CommitteeUpdate>,
+    pub constitutional_committee: Option<ConstitutionalCommitteeUpdate>,
 
     /// A new constitution that has been voted and approved, if any.
     pub new_constitution: Option<Constitution>,

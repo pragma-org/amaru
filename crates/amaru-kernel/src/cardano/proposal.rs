@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Anchor, GovernanceAction, Lovelace, RewardAccount, cbor};
+use crate::{Anchor, GovernanceAction, Lovelace, ProposalId, RewardAccount, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Proposal {
@@ -20,6 +20,20 @@ pub struct Proposal {
     pub reward_account: RewardAccount,
     pub gov_action: GovernanceAction,
     pub anchor: Anchor,
+}
+
+impl Proposal {
+    pub fn parent(&self) -> Option<&ProposalId> {
+        use GovernanceAction::*;
+        match &self.gov_action {
+            ParameterChange(parent, _, _)
+            | HardForkInitiation(parent, _)
+            | NoConfidence(parent)
+            | UpdateCommittee(parent, _, _, _)
+            | NewConstitution(parent, _) => parent.as_ref(),
+            TreasuryWithdrawals(..) | Information => None,
+        }
+    }
 }
 
 impl<'b, C> cbor::Decode<'b, C> for Proposal {

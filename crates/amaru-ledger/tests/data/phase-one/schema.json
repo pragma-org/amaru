@@ -150,6 +150,14 @@
         "transactionIndex": { "type": "integer", "minimum": 0 }
       }
     },
+    "ProposalId": {
+      "type": "object",
+      "required": ["transactionId", "proposalIndex"],
+      "properties": {
+        "transactionId": { "type": "string", "description": "Hex-encoded 32-byte hash of the transaction that submitted the governance action." },
+        "proposalIndex": { "type": "integer", "minimum": 0, "description": "Index of the governance action within that transaction." }
+      }
+    },
     "UtxoEntry": {
       "type": "object",
       "required": ["input", "output"],
@@ -248,14 +256,6 @@
     },
     "InitialState": {
       "type": "object",
-      "required": [
-        "utxo",
-        "pools",
-        "accounts",
-        "dreps",
-        "governanceActivity",
-        "pots"
-      ],
       "properties": {
         "utxo": {
           "type": "array",
@@ -276,6 +276,15 @@
           "items": { "$ref": "#/$defs/DRepRegistration" },
           "description": "Registered delegate representatives. Empty when no DRep state is seeded."
         },
+        "proposals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ProposalEntry" },
+          "description": "In-flight governance proposals seeding the block-start proposal set. Empty when none are seeded."
+        },
+        "proposalsRoots": {
+          "$ref": "#/$defs/ProposalsRoots",
+          "description": "The latest enacted governance action id per purpose. Absent purposes default to none."
+        },
         "governanceActivity": { "$ref": "#/$defs/VotingState" },
         "pots": { "$ref": "#/$defs/Pots" }
       }
@@ -283,10 +292,26 @@
     "Pots": {
       "type": "object",
       "description": "Protocol pots as of the initial state.",
-      "required": ["treasury", "reserves"],
       "properties": {
         "treasury": { "type": "integer", "minimum": 0 },
         "reserves": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ProposalEntry": {
+      "type": "object",
+      "required": ["id", "govAction"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ProposalId" },
+        "govAction": { "type": "string", "description": "CBOR-hex of the proposal's governance action." }
+      }
+    },
+    "ProposalsRoots": {
+      "type": "object",
+      "properties": {
+        "protocolParameters": { "$ref": "#/$defs/ProposalId", "description": "The enacted protocol-parameters root id." },
+        "hardFork": { "$ref": "#/$defs/ProposalId", "description": "The enacted hard-fork root id." },
+        "constitutionalCommittee": { "$ref": "#/$defs/ProposalId", "description": "The enacted constitutional-committee root id." },
+        "constitution": { "$ref": "#/$defs/ProposalId", "description": "The enacted constitution root id." }
       }
     },
     "MinFeeReferenceScripts": {

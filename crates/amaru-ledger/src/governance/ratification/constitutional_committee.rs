@@ -19,12 +19,12 @@ use std::{
     sync::LazyLock,
 };
 
-use amaru_kernel::{Epoch, StakeCredential, Vote};
+use amaru_kernel::{
+    Epoch, OrphanProposal, ProposalEnum, StakeCredential, Vote,
+    rational_number::{SafeRatio, safe_ratio},
+};
 use amaru_observability::warn;
 use num::Zero;
-
-use super::{OrphanProposal, ProposalEnum};
-use crate::summary::{SafeRatio, safe_ratio};
 
 static ZERO: LazyLock<SafeRatio> = LazyLock::new(SafeRatio::zero);
 
@@ -185,13 +185,13 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Epoch, Hash, StakeCredential, VOTE_NO, VOTE_YES, Vote, any_rational_number, any_stake_credential, any_vote_ref,
+        Epoch, Hash, SafeRatio, StakeCredential, VOTE_NO, VOTE_YES, Vote, any_rational_number, any_stake_credential,
+        any_vote_ref, into_safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
 
     use super::ConstitutionalCommittee;
-    use crate::summary::{SafeRatio, into_safe_ratio};
 
     const MIN_ARBITRARY_EPOCH: u64 = 10;
     const MAX_COMMITTEE_SIZE: usize = 10;

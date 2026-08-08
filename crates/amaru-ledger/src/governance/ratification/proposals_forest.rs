@@ -20,18 +20,15 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, Constitution, Epoch, EraHistory, GovernanceAction, Lovelace, ProposalId, ProposalPointer, ProposalsRootsRc,
-    ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RatificationStatus, display_protocol_parameters_update,
-    expect_stake_credential, utils::string::display_collection,
+    AsHash, Constitution, ConstitutionalCommitteeUpdate, Epoch, EraHistory, GovernanceAction, Lovelace, OrphanProposal,
+    ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters,
+    ProtocolVersion, RatificationStatus, display_protocol_parameters_update, utils::string::display_collection,
 };
 use amaru_observability::{debug, info};
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
-use super::{
-    CommitteeUpdate, OrphanProposal, ProposalEnum,
-    proposals_tree::{ProposalsTree, Sibling},
-};
-use crate::{store::columns::proposals, summary::into_safe_ratio};
+use super::proposals_tree::{ProposalsTree, Sibling};
+use crate::store::columns::proposals;
 
 #[derive(Debug, Clone)]
 pub struct ProposalsForest {
@@ -147,82 +144,31 @@ impl ProposalsForest {
         proposed_in: ProposalPointer,
         proposal: GovernanceAction,
     ) -> Result<(), ProposalsInsertError<ProposalId>> {
-        use amaru_kernel::GovernanceAction::*;
+        let proposal = ProposalEnum::from(proposal);
 
-        let mut insert = |proposal| -> Result<(), ProposalsInsertError<ProposalId>> {
-            priority_insert(&mut self.sequence, id.clone(), (&proposed_in, &proposal), &self.proposals);
-
-            let slot = proposed_in.slot();
-
-            let epoch = era_history
-                .slot_to_epoch(slot, slot)
-                .map_err(|e| ProposalsInsertError::InternalSlotToEpochError(slot, e))?;
-
-            self.proposals.insert(id.clone(), ProposedIn { epoch, pointer: proposed_in, proposal });
-
-            Ok(())
-        };
-
-        match proposal {
-            ParameterChange(parent, update, _guardrails_script) => {
-                let parent = into_parent_id(parent);
-
-                self.protocol_parameters.insert(id.clone(), parent.clone())?;
-
-                insert(ProposalEnum::ProtocolParameters(*update, parent))
+        match &proposal {
+            ProposalEnum::ProtocolParameters(_, parent) => {
+                self.protocol_parameters.insert(id.clone(), parent.clone())?
             }
-
-            HardForkInitiation(parent, protocol_version) => {
-                let parent = into_parent_id(parent);
-
-                self.hard_fork.insert(id.clone(), parent.clone())?;
-
-                insert(ProposalEnum::HardFork(protocol_version, parent))
+            ProposalEnum::HardFork(_, parent) => self.hard_fork.insert(id.clone(), parent.clone())?,
+            ProposalEnum::ConstitutionalCommittee(_, parent) => {
+                self.constitutional_committee.insert(id.clone(), parent.clone())?
             }
-
-            TreasuryWithdrawals(withdrawals, _guardrails_script) => {
-                let withdrawals =
-                    withdrawals.into_iter().fold(BTreeMap::new(), |mut accum, (reward_account, amount)| {
-                        accum.insert(expect_stake_credential(&reward_account), amount);
-                        accum
-                    });
-
-                insert(ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)))
-            }
-
-            UpdateCommittee(parent, removed, added, threshold) => {
-                let parent = into_parent_id(parent);
-
-                self.constitutional_committee.insert(id.clone(), parent.clone())?;
-
-                insert(ProposalEnum::ConstitutionalCommittee(
-                    CommitteeUpdate::ChangeMembers {
-                        removed: removed.into_iter().collect(),
-                        added: added.into_iter().collect(),
-                        threshold: into_safe_ratio(&threshold),
-                    },
-                    parent,
-                ))
-            }
-
-            NoConfidence(parent) => {
-                let parent = into_parent_id(parent);
-
-                self.constitutional_committee.insert(id.clone(), parent.clone())?;
-
-                insert(ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, parent))
-            }
-
-            NewConstitution(parent, constitution) => {
-                let parent = into_parent_id(parent);
-
-                self.constitution.insert(id.clone(), parent.clone())?;
-
-                insert(ProposalEnum::Constitution(constitution, parent))
-            }
-
-            Information => insert(ProposalEnum::Orphan(OrphanProposal::NicePoll)),
+            ProposalEnum::Constitution(_, parent) => self.constitution.insert(id.clone(), parent.clone())?,
+            ProposalEnum::Orphan(_) => {}
         }
+
+        priority_insert(&mut self.sequence, id.clone(), (&proposed_in, &proposal), &self.proposals);
+
+        let slot = proposed_in.slot();
+
+        let epoch = era_history
+            .slot_to_epoch(slot, slot)
+            .map_err(|e| ProposalsInsertError::InternalSlotToEpochError(slot, e))?;
+
+        self.proposals.insert(id.clone(), ProposedIn { epoch, pointer: proposed_in, proposal });
+
+        Ok(())
     }
 
     /// Get the current roots of the forest.
@@ -408,9 +354,8 @@ impl ProposalsForestCompass {
         forest: &'forest ProposalsForest,
         protocol_parameters: &'_ ProtocolParameters,
     ) -> Option<(Rc<ProposalId>, (&'forest ProposalEnum, &'forest ProposalPointer))> {
-        use CommitteeUpdate::*;
+        use ConstitutionalCommitteeUpdate::*;
         use OrphanProposal::*;
-        use ProposalEnum::*;
 
         let id = forest.sequence.get(self.cursor)?.clone();
 
@@ -448,7 +393,7 @@ impl ProposalsForestCompass {
         // treasury. This is necessary since there can be an arbitrary number of
         // withdrawals that have been ratified and enacted just before; possibly depleting
         // the treasury.
-        if let Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
+        if let ProposalEnum::Orphan(TreasuryWithdrawal(withdrawals)) = proposal {
             let total_withdrawn = withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n));
             if total_withdrawn > forest.treasury() {
                 debug!(
@@ -467,7 +412,7 @@ impl ProposalsForestCompass {
         // On constitutional committee updates, we should ensure that any term limit is still
         // valid. This can happen if a protocol parameter change that changes the max term limit
         // is ratified *before* a committee update, possibly rendering it invalid.
-        if let ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
+        if let ProposalEnum::ConstitutionalCommittee(ChangeMembers { added, .. }, _) = proposal {
             let max_term_length = protocol_parameters.max_committee_term_length;
             let is_now_invalid = |valid_until| valid_until > &(forest.current_epoch + max_term_length);
             if added.values().any(is_now_invalid) {
@@ -613,7 +558,7 @@ impl fmt::Display for ProposalsForest {
             write!(f, "empty")?;
         }
 
-        section::<CommitteeUpdate>(
+        section::<ConstitutionalCommitteeUpdate>(
             f,
             "Constitutional Committee Updates",
             Rc::new(|id| {
@@ -726,10 +671,6 @@ pub struct ProposedIn<T> {
     pub proposal: T,
 }
 
-fn into_parent_id(nullable: Option<ProposalId>) -> Option<Rc<ProposalId>> {
-    nullable.map(Rc::new)
-}
-
 /// Insert a proposal in a sequence while maintaining a priority order. The priority is given by
 /// the type of proposal.
 fn priority_insert(
@@ -783,17 +724,17 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Anchor, Bytes, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        PROTOCOL_VERSION_10, Proposal, ProposalId, ProposalPointer, ProtocolParameters, RationalNumber, Slot,
-        TransactionPointer, any_constitution, any_gov_action, any_proposal_id, any_proposal_pointer,
-        any_protocol_params_update, any_protocol_version, any_reward_account,
+        Anchor, Bytes, ConstitutionalCommitteeUpdate, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
+        OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalEnum, ProposalId,
+        ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, Slot, TransactionPointer,
+        any_constitution, any_constitutional_committee_update, any_gov_action, any_proposal_enum, any_proposal_id,
+        any_proposal_pointer, any_protocol_params_update, any_protocol_version, any_reward_account,
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
 
     use super::ProposalsForest;
     use crate::governance::ratification::{
-        CandidateProposal, CommitteeUpdate, OrphanProposal, ProposalEnum, ProposalsRootsRc, any_committee_update,
-        any_proposal_enum,
+        CandidateProposal,
         tests::{ERA_HISTORY, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
     };
 
@@ -897,11 +838,9 @@ mod tests {
         fn prop_compass_sometimes_yield_treasury_withdrawals(
             DebugAsDisplay(forest) in any_proposals_forest(),
         ) {
-            use super::ProposalEnum::*;
-
             let mut compass = forest.new_compass();
             while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                prop_assert!(!matches!(proposal, Orphan(OrphanProposal::TreasuryWithdrawal(..))));
+                prop_assert!(!matches!(proposal, ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(..))));
             }
         }
     }
@@ -913,11 +852,9 @@ mod tests {
         fn prop_compass_sometimes_yield_parameter_changes(
             DebugAsDisplay(forest) in any_proposals_forest(),
         ) {
-            use super::ProposalEnum::*;
-
             let mut compass = forest.new_compass();
             while let Some((_, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                prop_assert!(!matches!(proposal, ProtocolParameters(..)));
+                prop_assert!(!matches!(proposal, ProposalEnum::ProtocolParameters(..)));
             }
         }
     }
@@ -930,7 +867,7 @@ mod tests {
             let mut compass = forest.new_compass();
             let mut cc_update = None;
             while let Some((id, (proposal, _))) = compass.next(&forest, &PROTOCOL_PARAMETERS) {
-                if let ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { added, .. }, _) = proposal {
+                if let ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { added, .. }, _) = proposal {
                     let min_valid_until = added.values().min();
                     if min_valid_until >= Some(&Epoch::from(1)) {
                         cc_update = Some((id, *min_valid_until.unwrap()));
@@ -964,8 +901,6 @@ mod tests {
         fn prop_compass_traverse_whole_forest_and_eventually_yield_none(
             DebugAsDisplay(forest) in any_proposals_forest(),
         ) {
-            use super::ProposalEnum::*;
-
             let mut previous_proposal = None;
             let mut compass = forest.new_compass();
 
@@ -973,23 +908,23 @@ mod tests {
                 // Controls that the yielded proposal always has a matching root.
                 let roots = forest.roots();
                 match proposal {
-                    ProtocolParameters(_, parent) => prop_assert_eq!(
+                    ProposalEnum::ProtocolParameters(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.protocol_parameters.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     ),
-                    HardFork(_, parent) => prop_assert_eq!(
+                    ProposalEnum::HardFork(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.hard_fork.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     ),
-                    ConstitutionalCommittee(committee, parent) => {
+                    ProposalEnum::ConstitutionalCommittee(committee, parent) => {
                         prop_assert_eq!(
                         parent.as_ref(),
                         roots.constitutional_committee.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     );
-                        if let CommitteeUpdate::ChangeMembers { added, .. } = committee {
+                        if let ConstitutionalCommitteeUpdate::ChangeMembers { added, .. } = committee {
                             prop_assert!(
                                 added
                                     .values()
@@ -997,16 +932,16 @@ mod tests {
                             );
                         }
                     },
-                    Constitution(_, parent) => prop_assert_eq!(
+                    ProposalEnum::Constitution(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
                         roots.constitution.as_ref(),
                         "yielded proposal has a different root than latest enacted one",
                     ),
-                    Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => prop_assert!(
+                    ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => prop_assert!(
                         withdrawals.values().fold(0_u64, |total, n| total.saturating_add(*n)) <= forest.treasury(),
                         "yielded proposal is a treasury withdrawal larger than treasury"
                     ),
-                    Orphan(..) => ()
+                    ProposalEnum::Orphan(..) => ()
                 }
 
                 prop_assert!(
@@ -1170,19 +1105,21 @@ mod tests {
             let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
             let any_constitutional_committee_tree = any_proposals_tree(
                 ids[lo..hi].into(),
-                any_committee_update((MIN_ARBITRARY_EPOCH..MAX_ARBITRARY_EPOCH).prop_map(Epoch::from)),
+                any_constitutional_committee_update((MIN_ARBITRARY_EPOCH..MAX_ARBITRARY_EPOCH).prop_map(Epoch::from)),
                 |parent, update| match update {
-                    CommitteeUpdate::NoConfidence => GovernanceAction::NoConfidence(parent),
-                    CommitteeUpdate::ChangeMembers { threshold, added, removed } => GovernanceAction::UpdateCommittee(
-                        parent,
-                        removed.into_iter().collect::<Vec<_>>(),
-                        KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
-                        #[expect(clippy::unwrap_used)]
-                        RationalNumber {
-                            numerator: threshold.numer().try_into().unwrap(),
-                            denominator: threshold.denom().try_into().unwrap(),
-                        },
-                    ),
+                    ConstitutionalCommitteeUpdate::NoConfidence => GovernanceAction::NoConfidence(parent),
+                    ConstitutionalCommitteeUpdate::ChangeMembers { threshold, added, removed } => {
+                        GovernanceAction::UpdateCommittee(
+                            parent,
+                            removed.into_iter().collect::<Vec<_>>(),
+                            KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
+                            #[expect(clippy::unwrap_used)]
+                            RationalNumber {
+                                numerator: threshold.numer().try_into().unwrap(),
+                                denominator: threshold.denom().try_into().unwrap(),
+                            },
+                        )
+                    }
                 },
             );
 
@@ -1325,7 +1262,7 @@ mod tests {
     // ----------------------------------------------------------------------------
 
     fn possible_parents(forest: &ProposalsForest, action: &GovernanceAction) -> Vec<Option<Rc<ProposalId>>> {
-        use super::{GovernanceAction::*, ProposalEnum::*};
+        use super::GovernanceAction::*;
 
         let root = match action {
             ParameterChange(..) => vec![forest.roots().protocol_parameters],
@@ -1347,10 +1284,10 @@ mod tests {
             .filter_map(|id| {
                 let keep = || Some(Some(id.clone()));
                 match (&forest.proposals.get(id)?.proposal, action) {
-                    (ProtocolParameters(..), ParameterChange(..)) => keep(),
-                    (Constitution(..), NewConstitution(..)) => keep(),
-                    (HardFork(..), HardForkInitiation(..)) => keep(),
-                    (ConstitutionalCommittee(..), UpdateCommittee(..)) => keep(),
+                    (ProposalEnum::ProtocolParameters(..), ParameterChange(..)) => keep(),
+                    (ProposalEnum::Constitution(..), NewConstitution(..)) => keep(),
+                    (ProposalEnum::HardFork(..), HardForkInitiation(..)) => keep(),
+                    (ProposalEnum::ConstitutionalCommittee(..), UpdateCommittee(..)) => keep(),
                     (_, _) => None,
                 }
             })

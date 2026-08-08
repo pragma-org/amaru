@@ -16,8 +16,8 @@ use std::collections::BTreeSet;
 
 use amaru_kernel::{
     Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
-    ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
-    StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
+    ProposalKind, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
+    RequiredScript, StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -57,6 +57,9 @@ pub enum InvalidProposals {
 
     #[error("committee member expiration epoch {expiry} is not greater than current epoch {current}")]
     ExpirationEpochTooSmall { expiry: Epoch, current: Epoch },
+
+    #[error("invalid previous governance action id: {parent:?}")]
+    InvalidPrevGovActionId { parent: Option<ProposalId> },
 
     #[error("era history error: {0}")]
     EraHistory(#[from] amaru_kernel::EraHistoryError),
@@ -119,13 +122,23 @@ fn validate_proposal<C>(
     pointer: TransactionPointer,
 ) -> Result<(), InvalidProposals>
 where
-    C: AccountsSlice,
+    C: AccountsSlice + ProposalsSlice,
 {
     if proposal.deposit != protocol_parameters.gov_action_deposit {
         return Err(InvalidProposals::IncorrectDeposit {
             provided: proposal.deposit,
             expected: protocol_parameters.gov_action_deposit,
         });
+    }
+
+    let kind = ProposalKind::from(&proposal.gov_action);
+    if !matches!(kind, ProposalKind::Orphan) {
+        let parent = proposal.parent();
+        let follows_root = parent == context.roots().root_of(kind);
+        let follows_in_flight = matches!(parent, Some(id) if context.exists(id, &kind));
+        if !follows_root && !follows_in_flight {
+            return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
+        }
     }
 
     match Address::from_bytes(&proposal.reward_account[..]) {

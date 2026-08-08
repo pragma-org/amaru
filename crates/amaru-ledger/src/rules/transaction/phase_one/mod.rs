@@ -407,8 +407,8 @@ mod tests {
             fixture.initial_state.accounts,
             fixture.initial_state.dreps,
             Default::default(),
-            Default::default(),
-            Default::default(),
+            fixture.initial_state.proposals,
+            fixture.initial_state.proposals_roots,
             fixture.initial_state.pots.treasury,
         );
 
