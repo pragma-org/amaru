@@ -24,7 +24,8 @@ use std::{
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
 use amaru_observability::{
-    CborAwareMakeVisitor, CborJsonEventFormat, CborJsonFields, CborOtelLogBridge, TelemetryCaptureLayer, info, warn,
+    CborJsonEventFormat, CborJsonFields, CborOtelLogBridge, CborTraceArrayLayer, TelemetryCaptureLayer,
+    console_field_formatter, info, warn,
 };
 use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_sdk::{
@@ -47,7 +48,7 @@ use tracing_subscriber::{
     filter::Filtered,
     fmt::{
         Layer,
-        format::{DefaultFields, FmtSpan, Writer},
+        format::{FmtSpan, Writer},
     },
     layer::{Context, Filter, Layered, SubscriberExt},
     prelude::*,
@@ -68,14 +69,18 @@ const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
 // TracingSubscriber
 // -----------------------------------------------------------------------------
 
-type InnerOtelStack<S> = Layered<OpenTelemetryFilter<S>, S>;
+/// Registry → OTEL trace layer.
+type AfterTrace<S> = Layered<OpenTelemetryFilter<S>, S>;
 
-type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, InnerOtelStack<S>>;
+/// After trace: upgrade CBOR homogeneous arrays on spans to `Value::Array`.
+type AfterTraceArrays<S> = Layered<CborTraceArrayLayer, AfterTrace<S>>;
+
+type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, AfterTraceArrays<S>>;
 
 type LogBridgeFilter<S> = Filtered<
     CborOtelLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
     ThrottledEnvFilter,
-    InnerOtelStack<S>,
+    AfterTraceArrays<S>,
 >;
 
 type OpenTelemetryFilter<S> =
@@ -226,7 +231,9 @@ impl TracingSubscriber<Registry> {
     pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>, log_bridge: LogBridgeFilter<Registry>) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer).with(log_bridge));
+                *self = TracingSubscriber::WithOpenTelemetry(
+                    registry.with(layer).with(CborTraceArrayLayer::new()).with(log_bridge),
+                );
             }
             _ => panic!("'with_open_telemetry' called after 'with_json' or another terminal layer"),
         }
@@ -287,7 +294,7 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(CborAwareMakeVisitor(DefaultFields::new())))
+                            .fmt_fields(HideTagFields(console_field_formatter()))
                             .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
                             .with_span_events(FmtSpan::CLOSE)
                             .with_filter(default_filter),
@@ -301,7 +308,7 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(CborAwareMakeVisitor(DefaultFields::new())))
+                            .fmt_fields(HideTagFields(console_field_formatter()))
                             .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
                             .with_span_events(FmtSpan::CLOSE)
                             .with_filter(default_filter),
@@ -704,6 +711,8 @@ mod tests {
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
     };
+
+    use tracing_subscriber::fmt::format::DefaultFields;
 
     use super::*;
 

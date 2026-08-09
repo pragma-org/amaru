@@ -13,24 +13,3 @@ error: Unknown field 'typo_field' for schema STRICT_TEST. Available fields: actu
    |                   ------------------------------------------------------------------------------------------------------ in this macro invocation
    |
    = note: this error originates in the macro `__TEST__EXAMPLE__STRICT_TEST_RECORD` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error: trailing semicolon in macro used in expression position
-  --> tests/ui/compile_fail/custom_expr_unknown_field.rs:23:1
-   |
-23 | / define_local_schemas! {
-24 | |     test {
-25 | |         example {
-26 | |             /// Test schema for custom expression validation
-...  |
-33 | | }
-   | |_^
-...
-42 |       let _span = trace_span!(crate::test::example::STRICT_TEST, actual_field = &actual_field, typo_field = get_value());
-   |                   ------------------------------------------------------------------------------------------------------ in this macro invocation
-   |
-   = note: macro invocations at the end of a block are treated as expressions
-   = note: to ignore the value produced by the macro, add a semicolon after the invocation of `__TEST__EXAMPLE__STRICT_TEST_RECORD`
-   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
-   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
-   = note: `#[deny(semicolon_in_expressions_from_macros)]` (part of `#[deny(future_incompatible)]`) on by default
-   = note: this error originates in the macro `__TEST__EXAMPLE__STRICT_TEST_RECORD` which comes from the expansion of the macro `trace_span` (in Nightly builds, run with -Z macro-backtrace for more info)

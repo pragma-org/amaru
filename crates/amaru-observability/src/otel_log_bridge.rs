@@ -18,18 +18,17 @@
 //! Amaru's CBOR `record_bytes` payloads become nested [`AnyValue`] maps/lists instead
 //! of opaque [`AnyValue::Bytes`].
 //!
-//! ## Why vendor rather than wait for upstream?
+//! ## Why a project-owned bridge?
 //!
-//! Yes, including (a focused subset of) the tracing log bridge in-tree is a good option:
+//! This module vendors a focused subset of the stock tracing → OTEL logs bridge so that:
 //!
-//! - We own the field transport contract (typed primitives + CBOR for complex values).
-//! - Upstream `EventVisitor` stores `record_bytes` as opaque Bytes and has open TODOs for
-//!   richer `AnyValue` shapes (`ListAny` / `Map`).
-//! - We can evolve Visit → `AnyValue` without coupling to appender-tracing releases.
+//! - we own the field transport contract (typed primitives + CBOR for complex values);
+//! - CBOR `record_bytes` become nested `AnyValue` maps/lists rather than opaque Bytes
+//!   (upstream still treats them as Bytes and has open TODOs for richer shapes);
+//! - Visit → `AnyValue` can evolve without coupling to `opentelemetry-appender-tracing` releases.
 //!
-//! This module intentionally omits experimental stock features (log crate metadata
-//! attributes, copying tracing-span fields onto log records). Those can be added later
-//! if needed.
+//! Experimental stock features (log-crate metadata attributes, copying tracing-span fields
+//! onto log records) are intentionally omitted and can be added later if needed.
 
 use opentelemetry::{
     Key,

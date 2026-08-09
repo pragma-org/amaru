@@ -138,7 +138,8 @@
 //!
 //! Field types drive compile-time type checks in the generated `_RECORD!` helpers and the
 //! typed accessors on the schema marker type. Transport across `tracing` is type-driven:
-//! - primitives (`bool`, integers, floats, `String` / `AsRef<str>`) use typed `tracing::Value`;
+//! - primitives (`bool`, integers, floats) and fields declared exactly as `String` use typed
+//!   `tracing::Value`; other string-like types (`&str`, `Cow<'_, str>`) take the CBOR path;
 //! - all other types must implement [`Serialize`](serde::Serialize) and are encoded as CBOR
 //!   (`record_bytes`). Explicit `%` / `?` formatters still require Display/Debug.
 //!

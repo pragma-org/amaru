@@ -16,20 +16,21 @@
 //!
 //! ## Contract
 //!
-//! - **Primitives** (`bool`, integers, `f64`, `String` / `AsRef<str>`) are recorded with the
-//!   matching typed `tracing::Value` path (`record_bool`, `record_u64`, `record_str`, …).
+//! - **Primitives** (`bool`, integers, `f64`) and fields declared exactly as `String` are
+//!   recorded with the matching typed `tracing::Value` path (`record_bool`, `record_u64`,
+//!   `record_str`, …). Other string-like types (`&str`, `Cow<'_, str>`) take the CBOR path
+//!   unless the schema macro transport is broadened later.
 //! - **All other values** are serialized with [`cbor4ii`] via [`serde::Serialize`] and recorded
 //!   with [`Visit::record_bytes`](tracing::field::Visit::record_bytes). Within Amaru every
 //!   `record_bytes` payload is therefore CBOR (a bare `[u8]` is encoded as a CBOR byte string).
 //!
 //! Downstream layers owned by this crate decode those bytes for human/JSON/OTEL presentation.
 
-use std::fmt;
-
 use cbor_data::Cbor;
-use opentelemetry::{Key, logs::AnyValue};
+use opentelemetry::{Array, Key, StringValue, Value as TraceValue, logs::AnyValue};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
+use thiserror::Error;
 
 /// Maximum length of CBOR diagnostic / JSON fallback text printed to the console.
 pub const DIAG_TRUNCATION_LIMIT: usize = 512;
@@ -121,7 +122,7 @@ fn truncate_diag(text: &str) -> String {
 /// Maps, arrays, and scalars become first-class JSON. CBOR byte strings become a JSON
 /// string of lowercase hex (prefixed with `h'…'` is avoided so consumers can decode).
 pub fn cbor_to_json(bytes: &[u8]) -> Result<JsonValue, CborJsonError> {
-    let cbor = Cbor::checked(bytes).map_err(CborJsonError::Parse)?;
+    let cbor = Cbor::checked(bytes)?;
     cbor_item_to_json(cbor)
 }
 
@@ -137,6 +138,105 @@ pub fn cbor_to_any_value(bytes: &[u8]) -> AnyValue {
     match Cbor::checked(bytes) {
         Ok(cbor) => cbor_item_to_any(cbor).unwrap_or_else(|_| AnyValue::from(bytes)),
         Err(_) => AnyValue::from(bytes),
+    }
+}
+
+/// Decode CBOR into a **trace** attribute [`TraceValue`].
+///
+/// Prefer a native span value when possible: a scalar or a **homogeneous** array of
+/// bool / i64 / f64 / string. Maps, mixed arrays, byte strings, and invalid CBOR become a
+/// [diagnostic-notation](cbor_diagnostic) string so operators never see only a hex dump
+/// (stock `tracing-opentelemetry` has no `record_bytes` handler).
+///
+/// Nested maps for **logs** use [`cbor_to_any_value`]; classic span attributes cannot hold them.
+pub fn cbor_to_trace_value(bytes: &[u8]) -> TraceValue {
+    match Cbor::checked(bytes).ok().and_then(cbor_item_to_trace_value) {
+        Some(value) => value,
+        None => TraceValue::String(cbor_diagnostic(bytes).into()),
+    }
+}
+
+fn cbor_item_to_trace_value(cbor: &Cbor) -> Option<TraceValue> {
+    if cbor.try_null().is_ok() {
+        return None;
+    }
+    if let Ok(b) = cbor.try_bool() {
+        return Some(TraceValue::Bool(b));
+    }
+    if let Ok(n) = cbor.try_number() {
+        return number_to_trace_value(n);
+    }
+    if let Ok(s) = cbor.try_str() {
+        return Some(TraceValue::String(s.into_owned().into()));
+    }
+    if cbor.try_bytes().is_ok() {
+        // Trace Value has no Bytes variant.
+        return None;
+    }
+    if let Ok(items) = cbor.try_array() {
+        return homogeneous_array_to_trace_value(&items);
+    }
+    // Maps and other kinds are not representable as classic TraceValue.
+    None
+}
+
+fn number_to_trace_value(n: cbor_data::value::Number<'_>) -> Option<TraceValue> {
+    use cbor_data::value::Number;
+    match n {
+        Number::Int(i) => i64::try_from(i).ok().map(TraceValue::I64),
+        Number::IEEE754(f) => Some(TraceValue::F64(f)),
+        Number::Decimal(_) | Number::Float(_) => None,
+    }
+}
+
+/// Classify a CBOR array as a homogeneous `Value::Array`, or `None` if mixed / nested.
+fn homogeneous_array_to_trace_value(items: &[std::borrow::Cow<'_, Cbor>]) -> Option<TraceValue> {
+    use cbor_data::value::Number;
+
+    if items.is_empty() {
+        // Empty array: prefer empty string array (common for tag lists).
+        return Some(TraceValue::Array(Array::String(Vec::new())));
+    }
+
+    // Probe first element kind, then require all match.
+    let first = items[0].as_ref();
+    if first.try_bool().is_ok() {
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            out.push(item.as_ref().try_bool().ok()?);
+        }
+        return Some(TraceValue::Array(Array::Bool(out)));
+    }
+    if first.try_str().is_ok() {
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            let s = item.as_ref().try_str().ok()?;
+            out.push(StringValue::from(s.into_owned()));
+        }
+        return Some(TraceValue::Array(Array::String(out)));
+    }
+    match first.try_number() {
+        Ok(Number::IEEE754(_)) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                match item.as_ref().try_number().ok()? {
+                    Number::IEEE754(f) => out.push(f),
+                    Number::Int(_) | Number::Decimal(_) | Number::Float(_) => return None,
+                }
+            }
+            Some(TraceValue::Array(Array::F64(out)))
+        }
+        Ok(Number::Int(_)) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                match item.as_ref().try_number().ok()? {
+                    Number::Int(i) => out.push(i64::try_from(i).ok()?),
+                    Number::IEEE754(_) | Number::Decimal(_) | Number::Float(_) => return None,
+                }
+            }
+            Some(TraceValue::Array(Array::I64(out)))
+        }
+        Ok(Number::Decimal(_) | Number::Float(_)) | Err(_) => None,
     }
 }
 
@@ -189,9 +289,6 @@ fn number_to_any(n: cbor_data::value::Number<'_>) -> AnyValue {
         Number::Int(i) => {
             if let Ok(s) = i64::try_from(i) {
                 AnyValue::from(s)
-            } else if let Ok(u) = u64::try_from(i) {
-                // Prefer i64 for OTEL; large u64 as string.
-                if let Ok(s) = i64::try_from(u) { AnyValue::from(s) } else { AnyValue::from(u.to_string()) }
             } else {
                 AnyValue::from(i.to_string())
             }
@@ -202,22 +299,13 @@ fn number_to_any(n: cbor_data::value::Number<'_>) -> AnyValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum CborJsonError {
-    Parse(cbor_data::ParseError),
+    #[error("invalid CBOR: {0}")]
+    Parse(#[from] cbor_data::ParseError),
+    #[error("unsupported CBOR for JSON: {0}")]
     Type(String),
 }
-
-impl fmt::Display for CborJsonError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Parse(e) => write!(f, "invalid CBOR: {e}"),
-            Self::Type(msg) => write!(f, "unsupported CBOR for JSON: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for CborJsonError {}
 
 fn cbor_item_to_json(cbor: &Cbor) -> Result<JsonValue, CborJsonError> {
     // Prefer high-level try_* accessors when they succeed.
@@ -350,6 +438,49 @@ mod tests {
         // Stock Visit::record_bytes falls through to Debug of the raw byte slice.
         assert_ne!(text, format!("{:?}", bytes.as_ref()), "must not be raw bytes Debug");
         assert!(text.contains('1') && text.contains('2'), "diagnostic={text}");
+    }
+
+    #[test]
+    fn cbor_to_trace_value_preserves_homogeneous_arrays() {
+        use opentelemetry::Array;
+
+        let strings = cbor_to_trace_value(&encode_cbor(&vec!["a:1".to_string(), "b:2".to_string()]));
+        let TraceValue::Array(Array::String(items)) = strings else {
+            panic!("expected string array, got {strings:?}");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].as_str(), "a:1");
+
+        let ints = cbor_to_trace_value(&encode_cbor(&vec![1_i64, 2, 3]));
+        let TraceValue::Array(Array::I64(items)) = ints else {
+            panic!("expected i64 array, got {ints:?}");
+        };
+        assert_eq!(items, vec![1, 2, 3]);
+
+        let empty = cbor_to_trace_value(&encode_cbor(&Vec::<String>::new()));
+        let TraceValue::Array(Array::String(items)) = empty else {
+            panic!("expected empty string array, got {empty:?}");
+        };
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn cbor_to_trace_value_maps_and_mixed_use_diagnostic() {
+        #[derive(Serialize)]
+        struct M {
+            a: u64,
+        }
+        let map = cbor_to_trace_value(&encode_cbor(&M { a: 1 }));
+        let TraceValue::String(s) = map else {
+            panic!("expected diagnostic for map, got {map:?}");
+        };
+        assert!(!s.as_str().is_empty());
+
+        let mixed = cbor_to_trace_value(&encode_cbor(&(1_u64, "x")));
+        let TraceValue::String(s) = mixed else {
+            panic!("expected diagnostic for mixed array, got {mixed:?}");
+        };
+        assert!(!s.as_str().is_empty());
     }
 
     #[test]

@@ -135,43 +135,87 @@ impl<'writer> FormatFields<'writer> for CborJsonFields {
         let s = serde_json::to_string(&visitor.values).map_err(|_| fmt::Error)?;
         write!(writer, "{s}")
     }
+
+    /// Merge newly recorded span fields into the existing JSON object string.
+    ///
+    /// Stock [`tracing_subscriber::fmt::format::JsonFields`] does the same: the JSON event
+    /// formatter later re-parses `FormattedFields` as a **single** object. The default
+    /// `add_fields` only appends with a space, which would yield `{...} {...}` and panic
+    /// in debug builds (`trailing characters`).
+    fn add_fields(
+        &self,
+        current: &'writer mut FormattedFields<Self>,
+        fields: &tracing::span::Record<'_>,
+    ) -> fmt::Result {
+        if current.is_empty() {
+            return self.format_fields(current.as_writer(), fields);
+        }
+
+        // Parse the previously serialized object, merge, re-serialize.
+        let existing: BTreeMap<String, JsonValue> = serde_json::from_str(current.as_str()).map_err(|_| fmt::Error)?;
+        let mut visitor = CborJsonVisitor { values: existing };
+        fields.record(&mut visitor);
+        current.fields = serde_json::to_string(&visitor.values).map_err(|_| fmt::Error)?;
+        Ok(())
+    }
 }
 
 #[derive(Default)]
 struct CborJsonVisitor {
-    values: BTreeMap<&'static str, JsonValue>,
+    /// Owned keys so we can merge with objects re-parsed from `FormattedFields` text.
+    values: BTreeMap<String, JsonValue>,
 }
 
 impl Visit for CborJsonVisitor {
     fn record_f64(&mut self, field: &Field, value: f64) {
         if let Some(n) = serde_json::Number::from_f64(value) {
-            self.values.insert(field.name(), JsonValue::Number(n));
+            self.values.insert(field.name().to_owned(), JsonValue::Number(n));
         }
     }
 
     fn record_i64(&mut self, field: &Field, value: i64) {
-        self.values.insert(field.name(), JsonValue::Number(value.into()));
+        self.values.insert(field.name().to_owned(), JsonValue::Number(value.into()));
     }
 
     fn record_u64(&mut self, field: &Field, value: u64) {
-        self.values.insert(field.name(), JsonValue::Number(value.into()));
+        self.values.insert(field.name().to_owned(), JsonValue::Number(value.into()));
+    }
+
+    fn record_i128(&mut self, field: &Field, value: i128) {
+        if let Ok(v) = i64::try_from(value) {
+            self.record_i64(field, v);
+        } else {
+            self.values.insert(field.name().to_owned(), JsonValue::String(value.to_string()));
+        }
+    }
+
+    fn record_u128(&mut self, field: &Field, value: u128) {
+        if let Ok(v) = u64::try_from(value) {
+            self.record_u64(field, v);
+        } else {
+            self.values.insert(field.name().to_owned(), JsonValue::String(value.to_string()));
+        }
     }
 
     fn record_bool(&mut self, field: &Field, value: bool) {
-        self.values.insert(field.name(), JsonValue::Bool(value));
+        self.values.insert(field.name().to_owned(), JsonValue::Bool(value));
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.values.insert(field.name(), JsonValue::String(value.to_owned()));
+        self.values.insert(field.name().to_owned(), JsonValue::String(value.to_owned()));
     }
 
     fn record_bytes(&mut self, field: &Field, value: &[u8]) {
         let json = cbor_to_json(value).unwrap_or_else(|_| JsonValue::String(hex::encode(value)));
-        self.values.insert(field.name(), json);
+        self.values.insert(field.name().to_owned(), json);
+    }
+
+    fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
+        self.values.insert(field.name().to_owned(), JsonValue::String(value.to_string()));
     }
 
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-        self.values.insert(field.name(), JsonValue::String(format!("{value:?}")));
+        self.values.insert(field.name().to_owned(), JsonValue::String(format!("{value:?}")));
     }
 }
 
@@ -183,7 +227,7 @@ impl Visit for CborJsonVisitor {
 ///
 /// Stock `tracing_subscriber` JSON formatting serializes event fields via
 /// `tracing_serde`, which cannot decode our CBOR `record_bytes` convention.
-/// This formatter records event fields with [`CborJsonVisitor`] instead.
+/// This formatter records event fields with `CborJsonVisitor` instead.
 pub struct CborJsonEventFormat(Format<Json>);
 
 impl CborJsonEventFormat {
@@ -274,6 +318,12 @@ impl<V: Visit> Visit for CborToStringVisit<V> {
     fn record_u64(&mut self, field: &Field, value: u64) {
         self.0.record_u64(field, value);
     }
+    fn record_i128(&mut self, field: &Field, value: i128) {
+        self.0.record_i128(field, value);
+    }
+    fn record_u128(&mut self, field: &Field, value: u128) {
+        self.0.record_u128(field, value);
+    }
     fn record_bool(&mut self, field: &Field, value: bool) {
         self.0.record_bool(field, value);
     }
@@ -283,6 +333,9 @@ impl<V: Visit> Visit for CborToStringVisit<V> {
     fn record_bytes(&mut self, field: &Field, value: &[u8]) {
         let diag = cbor_diagnostic(value);
         self.0.record_str(field, &diag);
+    }
+    fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
+        self.0.record_error(field, value);
     }
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         self.0.record_debug(field, value);
@@ -340,6 +393,46 @@ mod tests {
     }
 
     #[test]
+    fn json_span_record_merges_fields_without_malformed_panic() {
+        // Reproduces: debug_span!(…, tag) + span.record(…) + event inside the span.
+        // Without a proper add_fields merge, FormattedFields becomes `{...} {...}` and the
+        // stock JSON FormatEvent panics in debug builds when re-parsing span fields.
+        let writer = CaptureWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(writer.clone())
+            .event_format(CborJsonEventFormat::new())
+            .fmt_fields(CborJsonFields::new())
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            // Later record() only applies to fields declared at creation (Empty placeholders).
+            let span = tracing::debug_span!(
+                "ledger.snapshots.validate",
+                amaru.tag.db = true,
+                snapshot_count = tracing::field::Empty,
+                continuous_ranges = tracing::field::Empty,
+            );
+            let _g = span.enter();
+            span.record("snapshot_count", 3_u64);
+            span.record("continuous_ranges", 1_u64);
+            tracing::debug!("inside validate");
+        });
+
+        let output = writer.contents();
+        assert!(!output.is_empty(), "expected JSON log lines, got empty");
+        // Every line must parse as a single JSON value. Pre-fix, FormattedFields held
+        // space-joined objects and re-parse panicked with "trailing characters".
+        for line in output.lines().filter(|l| !l.is_empty()) {
+            let _: JsonValue = serde_json::from_str(line).unwrap_or_else(|e| panic!("invalid JSON line ({e}): {line}"));
+        }
+        assert!(
+            output.contains("snapshot_count") && output.contains("continuous_ranges"),
+            "expected merged span fields in JSON output:\n{output}"
+        );
+    }
+
+    #[test]
     fn json_event_format_emits_typed_primitives_and_cbor_arrays() {
         let writer = CaptureWriter::default();
         let subscriber = tracing_subscriber::fmt()
@@ -388,7 +481,7 @@ mod tests {
 
         let output = writer.contents();
         assert!(output.contains("hello"), "output={output}");
-        // cbor-data diagnostic for a string array includes the element text (quoted form ok).
-        assert!(output.contains("a:1") || output.contains("peers"), "expected peers diagnostic content, got: {output}");
+        // cbor-data diagnostic for a string array must include the element text (quoted form ok).
+        assert!(output.contains("a:1"), "expected decoded peers diagnostic content, got: {output}");
     }
 }

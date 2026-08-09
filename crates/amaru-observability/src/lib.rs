@@ -18,6 +18,7 @@ pub mod aliases;
 pub mod field;
 pub mod layers;
 pub mod otel_log_bridge;
+pub mod otel_trace_arrays;
 mod record_fields;
 pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
@@ -28,13 +29,16 @@ mod trace_context;
 
 // Re-export the macros for convenient use
 pub use amaru_observability_macros::{define_schemas, trace_event as __trace_event, trace_record, trace_span};
-pub use field::{DecodedField, as_str_value, cbor_to_any_value, cbor_to_decoded_field, encode_cbor};
+pub use field::{
+    DecodedField, as_str_value, cbor_to_any_value, cbor_to_decoded_field, cbor_to_trace_value, encode_cbor,
+};
 pub use layers::{
     CborAwareMakeVisitor, CborDiagVisitor, CborJsonEventFormat, CborJsonFields, CborToStringVisit,
     console_field_formatter,
 };
 pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;
+pub use otel_trace_arrays::CborTraceArrayLayer;
 pub use record_fields::RecordFields;
 pub use schemas::*;
 /// Re-export for schema macros that require `Serialize` on complex field types.

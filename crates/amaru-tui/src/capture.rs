@@ -100,13 +100,14 @@ mod tests {
 
         let record = from_observability(rx.recv().expect("span close"));
         assert_eq!(record.target, ledger::tip::UPDATE::TARGET);
-        // Slot is a Serialize newtype → CBOR `record_bytes` → decoded back to U64.
+        // Slot is a Serialize newtype → CBOR `record_bytes` → decoded back to U64
+        // (handled in TelemetryCaptureLayer, not in this thin converter).
         assert_eq!(
             record.fields.get(ledger::tip::UPDATE::FIELD_SLOT),
             Some(&FieldValue::U64(42)),
             "slot must be typed U64 after CBOR decode, not raw bytes Debug"
         );
-        assert_eq!(record.fields.get(ledger::tip::UPDATE::FIELD_EPOCH), Some(&FieldValue::U64(1)),);
+        assert_eq!(record.fields.get(ledger::tip::UPDATE::FIELD_EPOCH), Some(&FieldValue::U64(1)));
         let _ = Message::Telemetry(record);
     }
 }

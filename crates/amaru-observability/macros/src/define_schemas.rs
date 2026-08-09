@@ -1111,7 +1111,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
             ($name:literal, $expr:expr, format_typed) => {
                 compile_error!(concat!(
@@ -1121,7 +1121,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
             ($name:literal, $expr:expr, validate_event_display) => {
                 compile_error!(concat!(
@@ -1131,7 +1131,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
             ($name:literal, $expr:expr, validate_event_debug) => {
                 compile_error!(concat!(
@@ -1141,7 +1141,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
             ($name:literal, $expr:expr, validate_event_value) => {
                 compile_error!(concat!(
@@ -1151,7 +1151,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
 
             #(#validate_exact_patterns)*
