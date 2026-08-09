@@ -18,7 +18,7 @@ build = "build/build.rs"
 include = ["src/**/*", "config/**", "Cargo.toml", "build.rs"]
 
 [features]
-test-utils = ["tracing-subscriber"]
+test-utils = []
 
 [build-dependencies]
 amaru-kernel.workspace = true
@@ -35,6 +35,11 @@ futures-util.workspace = true
 hex.workspace = true
 minicbor.workspace = true
 num.workspace = true
+opentelemetry.workspace = true
+opentelemetry-appender-tracing.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry-semantic-conventions.workspace = true
+opentelemetry_sdk = { workspace = true, features = ["logs", "metrics", "rt-tokio"] }
 parking_lot.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -49,7 +54,8 @@ tokio = { workspace = true, features = [
 ] }
 tokio-util.workspace = true
 tracing.workspace = true
-tracing-subscriber = { workspace = true, optional = true }
+tracing-opentelemetry.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus.workspace = true
@@ -70,6 +76,7 @@ amaru-deps.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+anyhow.workspace = true
 assert_cmd.workspace = true
 diff_json.workspace = true
 quote.workspace = true

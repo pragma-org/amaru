@@ -22,6 +22,7 @@ serde = { workspace = true, features = ["derive"] }
 syn.workspace = true
 tracing-opentelemetry.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["std"] }

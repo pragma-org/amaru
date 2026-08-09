@@ -14,9 +14,6 @@
 
 use amaru_kernel::NetworkName;
 
-pub mod aws;
-pub mod bootstrap;
-pub mod cardano_node;
 pub mod exit;
 pub mod lifecycle;
 pub mod metrics;
@@ -24,37 +21,20 @@ pub mod observability;
 pub mod panic;
 pub mod version;
 
-pub const SNAPSHOTS_DIR: &str = "snapshots";
+// Re-export bootstrap for CLI and legacy callers; new code should depend on `amaru-bootstrap`.
+pub use amaru_bootstrap as bootstrap;
+pub use amaru_bootstrap::{
+    AnonymousS3Client, DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Client, S3Config,
+    S3Snapshot, aws, cardano_node, default_snapshots_dir,
+};
+pub use amaru_node::{
+    DEFAULT_LISTEN_ADDRESS, DEFAULT_PEER_ADDRESS, MAINNET_DEFAULT_PEER_ADDRESS, PREPROD_DEFAULT_PEER_ADDRESS,
+    PREVIEW_DEFAULT_PEER_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
+};
 
-pub const DEFAULT_PEER_ADDRESS: &str = "127.0.0.1:3001";
-
-/// Default public bootstrap peer for mainnet.
-pub const MAINNET_DEFAULT_PEER_ADDRESS: &str = "backbone.cardano.iog.io:3001";
-
-/// Default public bootstrap peer for preprod.
-pub const PREPROD_DEFAULT_PEER_ADDRESS: &str = "preprod-node.play.dev.cardano.org:3001";
-
-/// Default public bootstrap peer for preview.
-pub const PREVIEW_DEFAULT_PEER_ADDRESS: &str = "preview-node.play.dev.cardano.org:3001";
-
-/// Default address to listen on for incoming connections.
-pub const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
+pub const SNAPSHOTS_DIR: &str = amaru_bootstrap::SNAPSHOTS_PATH;
 
 pub const DEFAULT_CONFIG_DIR: &str = "data";
-
-const SNAPSHOTS_PATH: &str = "snapshots";
-
-pub fn default_ledger_dir(network: NetworkName) -> String {
-    format!("./ledger.{}.db", network.to_string().to_lowercase())
-}
-
-pub fn default_chain_dir(network: NetworkName) -> String {
-    format!("./chain.{}.db", network.to_string().to_lowercase())
-}
-
-pub fn default_snapshots_dir(network: NetworkName) -> String {
-    format!("{}/{}", SNAPSHOTS_PATH, network.to_string().to_lowercase())
-}
 
 pub fn default_data_dir(network: NetworkName) -> String {
     format!("{}/{}", DEFAULT_CONFIG_DIR, network.to_string().to_lowercase())
@@ -106,16 +86,6 @@ pub mod value_names {
 
     /// For HTTP or HTTPS URLs.
     pub const URL: &str = "URL";
-}
-
-/// Get the default peer address for a given network.
-pub fn default_peer_for_network(network: NetworkName) -> &'static str {
-    match network {
-        NetworkName::Mainnet => MAINNET_DEFAULT_PEER_ADDRESS,
-        NetworkName::Preprod => PREPROD_DEFAULT_PEER_ADDRESS,
-        NetworkName::Preview => PREVIEW_DEFAULT_PEER_ADDRESS,
-        NetworkName::Testnet(_) => DEFAULT_PEER_ADDRESS, // localhost for custom networks
-    }
 }
 
 /// Environment variables used across command-line options.

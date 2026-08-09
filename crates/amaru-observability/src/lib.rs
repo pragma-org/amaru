@@ -20,6 +20,7 @@ pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
 // the amaru module with all schema constants and validation macros
 mod schemas;
+pub mod telemetry_capture;
 mod trace_context;
 
 // Re-export the macros for convenient use
@@ -27,6 +28,7 @@ pub use amaru_observability_macros::{define_schemas, trace_event as __trace_even
 pub use opentelemetry;
 pub use record_fields::RecordFields;
 pub use schemas::*;
+pub use telemetry_capture::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
 pub use trace_context::TraceContext;
 pub use tracing;
 pub use tracing_opentelemetry;

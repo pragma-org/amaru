@@ -140,6 +140,21 @@ impl RollbackGuard<'_> {
     pub fn rollback_length(&self) -> usize {
         self.recovery.rollback_length()
     }
+
+    /// Discarded fragments in **tip-first** order (newest undone block first).
+    pub fn discarded_tip_first(&self) -> Vec<&AnchoredVolatileFragment> {
+        match &self.recovery {
+            VolatileDBRecovery::RecoverInEpoch { discarded, .. } => discarded.iter().rev().collect(),
+            VolatileDBRecovery::RecoverAcrossEpoch { old_current, drained, .. } => {
+                // Chronological discard: drained (suffix of closing epoch) then full opening epoch.
+                // Tip-first reverses that: opening epoch newest→oldest, then drained newest→oldest.
+                let mut out: Vec<&AnchoredVolatileFragment> = old_current.iter().collect();
+                out.reverse();
+                out.extend(drained.iter().rev());
+                out
+            }
+        }
+    }
 }
 
 /// The discarded parts of a within-window rollback, enough to restore the pre-rollback state after

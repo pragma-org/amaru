@@ -16,7 +16,7 @@ use std::{
     io::{self, IsTerminal},
     sync::{
         Arc,
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender},
     },
     thread::{self, JoinHandle},
@@ -24,10 +24,12 @@ use std::{
 };
 
 use amaru_metrics::MetricsEvent;
+use amaru_observability::TelemetryCaptureLayer;
 use crossterm::event;
 
 use crate::{
-    Config, TracingLayer,
+    Config,
+    capture::from_observability,
     events::{Message, MetricRecord},
     model::{Model, TerminalEventOutcome},
     startup::StartupContext,
@@ -37,25 +39,58 @@ use crate::{
 
 pub struct Session {
     tx: SyncSender<crate::events::Message>,
+    capture_layer: TelemetryCaptureLayer,
     control_tx: Sender<Control>,
     join: Option<JoinHandle<io::Result<()>>>,
+    bridge: Option<JoinHandle<()>>,
+    /// Signals the telemetry bridge to exit without waiting for all capture-layer
+    /// sender clones (held by the tracing subscriber) to drop.
+    bridge_stop: Arc<AtomicBool>,
 }
 
 impl Session {
     pub fn spawn(config: Config, startup: StartupContext, signal_count: Arc<AtomicU8>) -> io::Result<Self> {
+        let (obs_tx, obs_rx) = mpsc::sync_channel(config.channel_capacity);
         let (telemetry_tx, telemetry_rx) = mpsc::sync_channel(config.channel_capacity);
         let (control_tx, control_rx) = mpsc::channel();
+
+        let bridge_stop = Arc::new(AtomicBool::new(false));
+        let bridge_stop_flag = Arc::clone(&bridge_stop);
+        let bridge_tx = telemetry_tx.clone();
+        let bridge = thread::Builder::new()
+            .name("amaru-tui-telemetry-bridge".into())
+            .spawn(move || {
+                // Poll so shutdown does not depend on every TelemetryCaptureLayer clone dropping.
+                while !bridge_stop_flag.load(Ordering::SeqCst) {
+                    match obs_rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(record) => {
+                            let _ = bridge_tx.try_send(Message::Telemetry(from_observability(record)));
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            })
+            .map_err(|err| io::Error::other(format!("failed to spawn tui telemetry bridge: {err}")))?;
 
         let join = thread::Builder::new()
             .name("amaru-tui".into())
             .spawn(move || run_terminal(config, startup, telemetry_rx, control_rx, signal_count))
             .map_err(|err| io::Error::other(format!("failed to spawn tui thread: {err}")))?;
 
-        Ok(Self { tx: telemetry_tx, control_tx, join: Some(join) })
+        Ok(Self {
+            tx: telemetry_tx,
+            capture_layer: TelemetryCaptureLayer::new(obs_tx),
+            control_tx,
+            join: Some(join),
+            bridge: Some(bridge),
+            bridge_stop,
+        })
     }
 
-    pub fn tracing_layer(&self) -> TracingLayer {
-        TracingLayer::new(self.tx.clone())
+    /// Shared observability capture layer (same type embedders use via `amaru-node`).
+    pub fn tracing_layer(&self) -> TelemetryCaptureLayer {
+        self.capture_layer.clone()
     }
 
     pub fn metrics_observer(&self) -> Box<dyn Fn(&MetricsEvent) + Send + Sync> {
@@ -72,10 +107,14 @@ impl Session {
     fn shutdown_inner(&mut self) -> io::Result<()> {
         let _ = self.control_tx.send(Control::Shutdown);
         if let Some(join) = self.join.take() {
-            join.join().map_err(|_| io::Error::other("tui thread panicked"))?
-        } else {
-            Ok(())
+            join.join().map_err(|_| io::Error::other("tui thread panicked"))??;
         }
+        // Unblock the bridge even if tracing still holds TelemetryCaptureLayer clones.
+        self.bridge_stop.store(true, Ordering::SeqCst);
+        if let Some(bridge) = self.bridge.take() {
+            let _ = bridge.join();
+        }
+        Ok(())
     }
 }
 

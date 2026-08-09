@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Drive the amaru-node `run_until` example to a target epoch (EDR 031).
+# When AMARU_WITH_OPEN_TELEMETRY=true, the example installs OTLP via
+# amaru_node::Telemetry so e2e metrics reach the collector on :8889.
+
 set -u
 
 function status() {
@@ -28,75 +32,28 @@ if [ -z "$TARGET_EPOCH" ]; then
 fi
 
 status "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
-cargo build --profile $BUILD_PROFILE --locked --bin amaru
 
 export AMARU_TRACE="${AMARU_TRACE:-amaru=info}"
 
-function run() {
-  /bin/sh -c "echo exitPID=\$\$; exec cargo run --profile $BUILD_PROFILE --locked -- --with-json-traces run"
-}
-
-function watchTargetEpoch() {
-  jq --unbuffered -Rr '
-    if startswith("exitPID=") then
-      "pid\t" + ltrimstr("exitPID=")
-    else
-      (try fromjson catch empty)
-      | select(.level == "INFO")
-      | select(.fields.message == "exit")
-      | select(.span.name == "epoch_transition.compute")
-      | select((.span.into // .into) != null)
-      | "epoch\t" + ((.span.into // .into) | tostring)
-    end
-  '
-}
-
-function filterTraceLines() {
-  grep --line-buffered -Ev '"level":"TRACE"'
-}
-
-function targetEpochEvents() {
-  watchTargetEpoch
-}
-
-function handleTargetEpoch() {
-  local ended=false
-  local pid=""
-
-  while IFS=$'\t' read -r kind value; do
-    case "$kind" in
-      pid)
-        pid="$value"
-        status "PID=$pid (me=$$)"
-        ;;
-      epoch)
-        status "Epoch $value"
-        if [ "$value" -eq "$TARGET_EPOCH" ]; then
-          status "Target epoch reached, stopping the process."
-          kill -INT "$pid"
-          ended=true
-          break
-        fi
-        ;;
-    esac
-  done
-
-  printf '%s\n' "$ended"
-}
-
-ENDED_FILE="$(mktemp -t amaru-run-until-ended.XXXXXX)"
-trap 'rm -f "$ENDED_FILE"' EXIT
-
-run \
-  | tee >(targetEpochEvents | handleTargetEpoch > "$ENDED_FILE") \
-  | filterTraceLines
-
-ENDED="$(tr -d '\n' < "$ENDED_FILE")"
-
-if [ -z "$ENDED" ]; then
-  ENDED=false
+# Thin embedder: observe adopted blocks and stop when the target epoch is reached.
+# No JSON log scraping; lifecycle owned by the example binary (EDR 031).
+extra_args=()
+if [ -n "${AMARU_NETWORK:-}" ]; then
+  extra_args+=(--network "$AMARU_NETWORK")
+fi
+if [ -n "${AMARU_LEDGER_DIR:-}" ]; then
+  extra_args+=(--ledger-dir "$AMARU_LEDGER_DIR")
+fi
+if [ -n "${AMARU_CHAIN_DIR:-}" ]; then
+  extra_args+=(--chain-dir "$AMARU_CHAIN_DIR")
+fi
+if [ -n "${AMARU_PEER_ADDRESS:-}" ]; then
+  extra_args+=(--peer-address "$AMARU_PEER_ADDRESS")
+fi
+if [ -n "${AMARU_UPSTREAM_PEERS:-}" ]; then
+  extra_args+=(--upstream-peers "$AMARU_UPSTREAM_PEERS")
 fi
 
-# return value needs to reflect whether target epoch was reached
-status "ENDED=$ENDED"
-test "$ENDED" = true
+cargo run --profile "$BUILD_PROFILE" --locked -p amaru-node --example run_until -- \
+  --epoch "$TARGET_EPOCH" \
+  "${extra_args[@]}"

@@ -23,8 +23,7 @@ use std::{
 };
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
-use amaru_observability::{info, warn};
-use amaru_tui::TracingLayer as TuiTracingLayer;
+use amaru_observability::{TelemetryCaptureLayer, info, warn};
 use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{
@@ -86,9 +85,9 @@ type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
 type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
 
-type TuiFilter<S> = Filtered<TuiTracingLayer, ThrottledEnvFilter, S>;
+type LocalTelemetryFilter<S> = Filtered<TelemetryCaptureLayer, ThrottledEnvFilter, S>;
 
-type TuiLayer<S> = Layered<TuiFilter<S>, S>;
+type LocalTelemetryLayer<S> = Layered<LocalTelemetryFilter<S>, S>;
 
 type DelayedWarning = Option<Box<dyn FnOnce()>>;
 
@@ -270,8 +269,8 @@ pub enum TracingSubscriber<S> {
     Empty,
     Registry(Registry),
     WithOpenTelemetry(OpenTelemetryLayer<S>),
-    WithTui(TuiLayer<S>),
-    WithTuiAndOpenTelemetry(TuiLayer<OpenTelemetryLayer<S>>),
+    WithLocalTelemetry(LocalTelemetryLayer<S>),
+    WithLocalTelemetryAndOpenTelemetry(LocalTelemetryLayer<OpenTelemetryLayer<S>>),
     WithJson(JsonLayer<S>),
     WithJsonAndOpenTelemetry(JsonLayer<OpenTelemetryLayer<S>>),
 }
@@ -292,19 +291,25 @@ impl TracingSubscriber<Registry> {
         }
     }
 
+    /// Install a local in-process telemetry capture layer (TUI or embedder subscription).
+    ///
+    /// Accepts the shared [`TelemetryCaptureLayer`] from `amaru-observability` so product setup
+    /// does not depend on TUI types.
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_tui(&mut self, layer: TuiTracingLayer) -> DelayedWarning {
+    pub fn with_local_telemetry(&mut self, layer: TelemetryCaptureLayer) -> DelayedWarning {
         let (default_filter, warning) = new_trace_filter();
 
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                *self = TracingSubscriber::WithTui(registry.with(layer.with_filter(default_filter)));
+                *self = TracingSubscriber::WithLocalTelemetry(registry.with(layer.with_filter(default_filter)));
             }
             Self::WithOpenTelemetry(layered) => {
-                *self = TracingSubscriber::WithTuiAndOpenTelemetry(layered.with(layer.with_filter(default_filter)));
+                *self = TracingSubscriber::WithLocalTelemetryAndOpenTelemetry(
+                    layered.with(layer.with_filter(default_filter)),
+                );
             }
-            _ => panic!("'with_tui' called after as third layer"),
+            _ => panic!("'with_local_telemetry' called after as third layer"),
         }
 
         warning
@@ -363,10 +368,10 @@ impl TracingSubscriber<Registry> {
                     .init();
                 return warning;
             }
-            TracingSubscriber::WithTui(layered) => {
+            TracingSubscriber::WithLocalTelemetry(layered) => {
                 layered.init();
             }
-            TracingSubscriber::WithTuiAndOpenTelemetry(layered) => {
+            TracingSubscriber::WithLocalTelemetryAndOpenTelemetry(layered) => {
                 layered.init();
             }
             TracingSubscriber::WithJson(layered) => {
@@ -676,10 +681,17 @@ fn new_trace_filter() -> (ThrottledEnvFilter, DelayedWarning) {
     new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER)
 }
 
+/// Optional in-process telemetry sinks supplied by the product binary or an embedder
+/// (TUI, custom dashboards, test harnesses). Types intentionally avoid naming `amaru-tui`.
+pub struct LocalTelemetry {
+    pub metrics_observer: Option<Box<dyn Fn(&amaru_metrics::MetricsEvent) + Send + Sync>>,
+    pub capture_layer: Option<TelemetryCaptureLayer>,
+}
+
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
-    with_tui: Option<&amaru_tui::Session>,
+    local: Option<LocalTelemetry>,
     color: bool,
     hints: &impl ObservabilityHints,
 ) -> OpenTelemetryHandle {
@@ -691,9 +703,11 @@ pub fn setup_observability(
         (OpenTelemetryHandle::default(), None)
     };
 
-    let warning_tui = if let Some(tui) = with_tui {
-        meter.set_local_observer(tui.metrics_observer());
-        subscriber.with_tui(tui.tracing_layer())
+    let warning_local = if let Some(local) = local {
+        if let Some(observer) = local.metrics_observer {
+            meter.set_local_observer(observer);
+        }
+        if let Some(layer) = local.capture_layer { subscriber.with_local_telemetry(layer) } else { None }
     } else {
         None
     };
@@ -702,7 +716,7 @@ pub fn setup_observability(
 
     let warning_log = subscriber.init(color);
 
-    for notify in [warning_otlp, warning_tui, warning_json, warning_log].into_iter().flatten() {
+    for notify in [warning_otlp, warning_local, warning_json, warning_log].into_iter().flatten() {
         notify();
     }
 

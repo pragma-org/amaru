@@ -44,6 +44,16 @@ Other guiding principles:
 - **amaru-protocols**: add peer-sharing mini-protocol (client and server) and wire it into the connection manager. ([#1168](https://github.com/pragma-org/amaru/issues/1168))
 - **amaru-consensus**: use shared peers to populate the peer candidate pool and serve share requests. ([#1169](https://github.com/pragma-org/amaru/issues/1169))
 - **amaru-consensus**: allow configuration of peer mixture from static, shared, snapshot, and ledger peers. ([#1180](https://github.com/pragma-org/amaru/issues/1180))
+- **amaru-node / embedding**: first-class embedding surface for running Amaru in-process without the product CLI or TUI (EDR 031). `NodeBuilder` for network-aware setup; `build_and_run_node(config, runtime_handle)` takes an explicit Tokio handle (never ambient context); metrics are optional on the config. Ledger observers for adopted blocks and opt-in stake-summary views (by reference; field-level clone); stop policy remains with the outer app. Examples: `run_until`, `address_watch`.
+- **amaru-bootstrap**: new crate owning cold-start snapshot download/import (S3/CDN, archives, chain-store seeding). Product CLI re-exports it for compatibility.
+- **amaru-observability**: shared `TelemetryCaptureLayer` / `subscribe_telemetry` for schema-oriented in-process event subscription (used by the TUI and embedders).
+- **amaru-ledger**: `LedgerObservers` with `on_block` / `LedgerBlockEvent` (adopt + tip-first undo on successful fork switch) and opt-in `on_ledger_snapshot` (full `StakeSummary` by reference before slim in-memory retention).
+
+### Changed
+
+- **amaru / amaru-tui**: product observability setup no longer types against TUI-specific capture types; the TUI installs the shared observability capture layer.
+- **scripts/run-until**: drives the `amaru-node` `run_until` example (observer-based stop). The example installs OTLP via `amaru_node::Telemetry` when `AMARU_WITH_OPEN_TELEMETRY` is set, so e2e metrics still flow to the collector.
+- **amaru-node**: `Telemetry::install` embedder helper for fmt / JSON / OTLP (metrics + traces + logs) using the same env knobs as the product binary.
 
 ### Fixed
 
