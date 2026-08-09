@@ -71,6 +71,7 @@ pub fn build_stage_graph(
             config.target_upstream_peers,
             config.target_downstream_peers,
             config.peer_removal_cooldown_secs,
+            config.peer_mix.clone(),
         ),
     );
 

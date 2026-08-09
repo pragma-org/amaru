@@ -43,6 +43,8 @@ pub struct Config {
     pub peer_snapshot_peers: BTreeSet<Peer>,
     pub target_upstream_peers: usize,
     pub target_downstream_peers: usize,
+    /// Outbound source mix formula (EDR-031); default prefers static floor then shared/snapshot/ledger.
+    pub peer_mix: amaru_consensus::stages::peer_selection::PeerMix,
     pub network_magic: NetworkMagic,
     pub listen_address: String,
     pub migrate_chain_db: bool,
@@ -122,6 +124,7 @@ impl Default for Config {
             peer_snapshot_peers: BTreeSet::new(),
             target_upstream_peers: DEFAULT_UPSTREAM_PEERS,
             target_downstream_peers: DEFAULT_DOWNSTREAM_PEERS,
+            peer_mix: amaru_consensus::stages::peer_selection::PeerMix::default(),
             network_magic: NetworkMagic::PREPROD,
             listen_address: "0.0.0.0:3000".to_string(),
             migrate_chain_db: false,

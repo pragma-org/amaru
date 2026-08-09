@@ -32,8 +32,8 @@ use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Instant, Re
 use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerShareFlags,
-    PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectPeersParams,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, OutboundCandidateWeight,
+    PeerScores, PeerShareFlags, PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectPeersParams,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -135,9 +135,10 @@ impl Performance {
         ClearPeerAvailabilityEffect { peer }
     }
 
-    /// Mark a peer as adversarial: clear claims/scores, keep a reputation stub with `adversarial = true`.
-    pub fn peer_adversarial(peer: Peer) -> PeerAdversarialEffect {
-        PeerAdversarialEffect { peer }
+    /// Mark a peer as adversarial: clear claims/scores, keep a reputation stub with `adversarial = true`,
+    /// and apply an adversarial malus impulse at `at`.
+    pub fn peer_adversarial(peer: Peer, at: Instant) -> PeerAdversarialEffect {
+        PeerAdversarialEffect { peer, at }
     }
 
     pub fn prune_below(min_height: BlockHeight, now: Instant) -> PruneBelowEffect {
@@ -176,8 +177,17 @@ impl Performance {
         SnapshotEffect { peer }
     }
 
-    pub fn ok_for_sharing(peer: Peer) -> OkForSharingEffect {
-        OkForSharingEffect { peer }
+    pub fn ok_for_sharing(peer: Peer, now: Instant) -> OkForSharingEffect {
+        OkForSharingEffect { peer, now }
+    }
+
+    /// Sampling weights for outbound peer selection (malus at `half_life`, goodness from scores).
+    pub fn outbound_weights(
+        candidates: Vec<Peer>,
+        half_life: std::time::Duration,
+        now: Instant,
+    ) -> OutboundWeightsEffect {
+        OutboundWeightsEffect { candidates, half_life, now }
     }
 
     pub fn record_rollback(peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) -> RecordRollbackEffect {
@@ -400,6 +410,7 @@ impl ExternalEffectAPI for ClearPeerAvailabilityEffect {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PeerAdversarialEffect {
     pub(crate) peer: Peer,
+    pub(crate) at: Instant,
 }
 
 impl ExternalEffect for PeerAdversarialEffect {
@@ -580,6 +591,27 @@ impl ExternalEffectAPI for SnapshotEffect {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OkForSharingEffect {
     pub(crate) peer: Peer,
+    pub(crate) now: Instant,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OutboundWeightsEffect {
+    pub(crate) candidates: Vec<Peer>,
+    pub(crate) half_life: std::time::Duration,
+    pub(crate) now: Instant,
+}
+
+impl ExternalEffect for OutboundWeightsEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::OutboundWeights { effect: *self, reply }).await
+        })
+    }
+}
+
+impl ExternalEffectAPI for OutboundWeightsEffect {
+    type Response = Vec<OutboundCandidateWeight>;
 }
 
 impl ExternalEffect for OkForSharingEffect {

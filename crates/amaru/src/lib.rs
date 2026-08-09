@@ -83,6 +83,9 @@ pub mod value_names {
     /// Designates a well-known Cardano network name, or a custom dev network.
     pub const NETWORK: &str = "mainnet|preprod|preview|testnet_<U32>";
 
+    /// A formula for describing the desired mix of peers to connect to.
+    pub const PEER_MIX: &str = "PEER_MIX";
+
     /// A blockchain point, formatted as slot.hash
     pub const POINT: &str = "SLOT.HEADER_HASH";
 
@@ -179,6 +182,9 @@ pub mod env_vars {
 
     /// --peer-removal-cooldown-secs
     pub const PEER_REMOVAL_COOLDOWN_SECS: &str = "AMARU_PEER_REMOVAL_COOLDOWN_SECS";
+
+    /// --peer-mix
+    pub const PEER_MIX: &str = "AMARU_PEER_MIX";
 
     /// --pid-file
     pub const PID_FILE: &str = "AMARU_PID_FILE";

@@ -63,9 +63,9 @@ Stages emit domain events, not low-level map mutations, currently:
 
 - **Peer / chain tips:** `record_intersection`, `record_header_announcement`, `record_rollback`, `record_block_delivery`, `record_fetch_failure`
 - **Header lifecycle / forks:** `record_blocks_requested`, `record_block_valid`, `record_block_pruned`, `record_header_abandoned`, `record_header_rejected`, `record_fork_started`
-- **Peer lifecycle:** `record_advertisability` (successful handshake: sets `ever_connected`, records peer-sharing willingness; overwrites advertisability), `record_connection_failure` (increments failure count; does not set `ever_connected`), `clear_peer_availability` (disconnect / no remaining live connection; scores and reputation kept, claims cleared), `peer_adversarial` (adversarial ban: claims and scores cleared, entry retained with `adversarial = true` and prior `ever_connected` / `failure_count` / last `advertisable`; not a generic erase)
+- **Peer lifecycle:** `record_advertisability` (successful handshake: sets `ever_connected`, records peer-sharing willingness; overwrites advertisability), `record_connection_failure` (increments failure counter telemetry, raises connection malus; does not set `ever_connected`), `clear_peer_availability` (disconnect / no remaining live connection; scores and reputation kept, claims cleared), `peer_adversarial` (adversarial ban: claims and scores cleared, entry retained with `adversarial = true` and prior `ever_connected` / `failure_count` / last `advertisable`, plus adversarial malus impulse; not a generic erase)
 - **Horizon:** `prune_below(min_height, now)`
-- **Queries:** `select_peers_for_fetch`, `peer_covers_fragment`, `direct_claimants`, `rank_peers_for_churn`, `scores`, `share_flags`, `snapshot` (includes share flags), `ok_for_sharing`
+- **Queries:** `select_peers_for_fetch`, `peer_covers_fragment`, `direct_claimants`, `rank_peers_for_churn`, `scores`, `share_flags`, `snapshot` (includes share flags), `ok_for_sharing(now)`, `outbound_weights`
 
 Timestamps use pure-stage `Instant` so simulation remains deterministic ([EDR-014][edr-time] for wall-clock vs monotonic concerns at the node boundary).
 
@@ -86,23 +86,25 @@ Header lifecycles must always reach a terminal outcome so the map won't grow wit
 
 The immutable horizon is `tip.height − k` after anchor drag in `adopt_chain` (`drag_anchor_forward`).
 Peer **claims** are cleared on connection end (`clear_peer_availability` when no live connection remains).
-Adversarial ban uses `peer_adversarial`, which clears claims and scores but **retains a reputation stub** (`adversarial`, `failure_count`, last `advertisable`) so peer-sharing and reconnection policy can still see the ban. A future plain-forget (drop memory without implying adversarial behaviour) would be a separate operation.
+Adversarial ban uses `peer_adversarial`, which clears claims and scores but **retains a reputation stub** (`ever_connected`, `adversarial`, `failure_count`, last `advertisable`, malus) so peer-sharing and reconnection policy can still see the ban. A future plain-forget (drop memory without implying adversarial behaviour) would be a separate operation.
 
 ### Peer-sharing reputation (Performance half)
 
 Peer-sharing reply filters need observations that span handshake, connection attempts, and bans.
 Performance stores only the reputation half; peer selection applies origin and address rules.
+Connection quality for dial and share rehab uses lazy-decay **malus** ([EDR-031](./031-peer-source-mix.md)).
 
 | Flag / rule | Owner | Notes |
 | --- | --- | --- |
 | `ever_connected` | Performance | Sticky; set on successful handshake only (not by connection-failure upserts); sharing requires true |
 | `advertisable` | Performance | Latest handshake wins (`VersionData.peer_sharing == 1`) |
-| `failure_count` | Performance | Incremented on outbound connect exhaustion (`ConnectFailed`); sharing requires zero |
-| `adversarial` | Performance | Set sticky by `peer_adversarial`; sharing requires false |
+| `failure_count` | Performance | Lifetime connect-failure counter (telemetry); soft policy uses malus |
+| connection malus | Performance | Lazy half-life decay; sharing requires evolved malus below threshold (see EDR-031) |
+| `adversarial` | Performance | Set sticky by `peer_adversarial`; sharing requires false (outbound may dial after cool-down) |
 | Not ledger / not snapshot (big-ledger) | Peer selection | Origin pools live there; snapshot peers are excluded from sharing |
 | Known listen address (not pure inbound) | Peer selection | Inbound remote port is not a listen advertisement; optional outbound probe (~3000) may promote a peer later |
 
-`ok_for_sharing` / `share_flags` expose the Performance half so peer selection can compose the full filter without duplicating counters.
+`ok_for_sharing(now)` / `share_flags` / `outbound_weights` expose the Performance half so peer selection can compose share filters and mix sampling without duplicating counters.
 
 ### Relation to tracing and metrics
 
@@ -133,7 +135,7 @@ Probe points should stay aligned: the same stage moments that open/close [EDR-02
 2. **Churn** — peer selection should demote/promote using `rank_peers_for_churn` (or successor) on a schedule, not only react to adversarial bans.
 3. **Scoring policy** — replace provisional EWMA heuristics with an explicit, testable policy (document knobs; avoid silent retunes).
 4. **Horizon / dual-connection edge cases** — keep pruning and clear/forget rules aligned with multi-connection peers (inbound+outbound) so availability is cleared only when no usable connection remains.
-5. **Failure-count decay** — optionally reset `failure_count` after a connection remains healthy for a policy window (network-spec style), if sharing should rehabilitate peers without a full forget cycle.
+5. **Failure-count decay** — superseded by connection **malus** with lazy half-life decay ([EDR-031](./031-peer-source-mix.md)); telemetry may still keep a raw failure counter.
 6. **Peer-sharing consumer** — peer selection / peer-sharing responder composes Performance `ok_for_sharing` with origin (exclude ledger and big-ledger snapshot) and listen-address rules; sticky sampling lives there, not in this resource.
 
 ## Discussion points

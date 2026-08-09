@@ -24,6 +24,22 @@ const EWMA_ALPHA: f64 = 0.2;
 /// it only bounds pathological maps that lack usable height information.
 const MAX_PARENT_WALK: usize = 512;
 
+/// Global half-life used when evolving stored malus on write (impulses).
+/// Per-source half-lives from `peer-mix` apply only when *reading* scores for outbound pick.
+pub const MALUS_STORAGE_HALF_LIFE: Duration = Duration::from_secs(6 * 60 * 60);
+/// Added to connection malus on outbound connect exhaustion.
+pub const CONNECT_FAIL_IMPULSE: f64 = 1.0;
+/// Added when a peer is marked adversarial (cool-down is separate, in peer selection).
+pub const ADVERSARIAL_IMPULSE: f64 = 12.0;
+/// Sharing requires evolved malus strictly below this (with storage half-life).
+pub const SHARE_MALUS_THRESHOLD: f64 = 0.05;
+/// Scale of malus in outbound score: `goodness - λ * malus`.
+pub const OUTBOUND_MALUS_LAMBDA: f64 = 1.0;
+/// Softmax temperature for weighted outbound sampling.
+pub const OUTBOUND_PICK_TEMPERATURE: f64 = 1.0;
+/// Bonus for peers with no Performance observation yet (never connected / unknown).
+pub const NEVER_CONNECTED_BONUS: f64 = 0.5;
+
 /// Why we believe a peer can serve a block at a given hash.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum ClaimKind {
@@ -70,6 +86,9 @@ pub struct PeerScores {
 ///
 /// Origin (ledger / snapshot / static) and listen-address policy live in peer selection;
 /// this type only exposes what Performance observes across stages.
+///
+/// Sharing eligibility also requires evolved connection malus below [`SHARE_MALUS_THRESHOLD`]
+/// (see [`PeerPerformance::apply_ok_for_sharing`]); that check needs `now` and is not on this struct.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PeerShareFlags {
     /// Whether a successful connection (handshake) was ever established with this peer.
@@ -79,20 +98,21 @@ pub struct PeerShareFlags {
     pub ever_connected: bool,
     /// Latest handshake peer-sharing willingness (`peer_sharing == 1`).
     pub advertisable: bool,
-    /// Connection / protocol failure count; sharing requires zero.
+    /// Lifetime connection/protocol failure counter (telemetry; policy uses malus).
     pub failure_count: u32,
     /// Sticky adversarial marker retained across [`PeerPerformance::apply_peer_adversarial`].
+    /// Permanent for **sharing** only; outbound dial after cool-down is allowed (malus soft-deprioritises).
     pub adversarial: bool,
 }
 
-impl PeerShareFlags {
-    /// Whether Performance would allow this peer into a share reply filter.
-    ///
-    /// Peer selection still applies origin and listen-address rules on top of this check.
-    /// Map presence is required separately (no record ⇒ not shareable).
-    pub fn ok_for_sharing(self) -> bool {
-        self.ever_connected && self.advertisable && self.failure_count == 0 && !self.adversarial
-    }
+/// Sampling weight and components for one outbound candidate (higher weight ⇒ more likely pick).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OutboundCandidateWeight {
+    pub peer: Peer,
+    pub weight: f64,
+    pub malus: f64,
+    pub goodness: f64,
+    pub never_connected: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -142,10 +162,15 @@ struct PeerState {
     ever_connected: bool,
     /// Latest handshake peer-sharing willingness; latest successful handshake wins.
     advertisable: bool,
-    /// Connection / protocol failures (distinct from blockfetch `fetch_timeouts`).
+    /// Connection / protocol failures (distinct from blockfetch `fetch_timeouts`); telemetry.
     failure_count: u32,
     /// Sticky once set by [`PeerPerformance::apply_peer_adversarial`]; not cleared by clear/availability.
+    /// Permanent for peer-sharing filters only.
     adversarial: bool,
+    /// Connection-reputation malus at [`Self::malus_as_of`] (lazy exponential decay).
+    malus: f64,
+    /// Instant when [`Self::malus`] was last evolved for storage.
+    malus_as_of: Option<Instant>,
 }
 
 impl PeerState {
@@ -230,12 +255,13 @@ impl PeerPerformance {
 
     /// Mark peer adversarial: clear claims and scores, keep a durable reputation stub.
     ///
-    /// Retains `ever_connected`, `failure_count`, and last `advertisable`; sets `adversarial = true`.
-    /// The peer entry remains so share filters and cool-down policy can still see the ban history.
+    /// Retains `ever_connected`, `failure_count`, and last `advertisable`; sets `adversarial = true`
+    /// (sharing only). Adds [`ADVERSARIAL_IMPULSE`] to connection malus. Cool-down remains
+    /// peer-selection’s job.
     ///
     /// This is not a generic “forget”: a future erase-without-adversarial path would be a
     /// separate operation.
-    pub fn apply_peer_adversarial(&mut self, peer: &Peer) {
+    pub fn apply_peer_adversarial(&mut self, peer: &Peer, at: Instant) {
         for claimants in self.direct.values_mut() {
             claimants.remove(peer);
         }
@@ -245,12 +271,13 @@ impl PeerPerformance {
         state.tips.clear();
         state.scores = PeerScores::default();
         state.adversarial = true;
+        apply_malus_impulse(state, ADVERSARIAL_IMPULSE, at);
     }
 
     /// Record latest handshake peer-sharing willingness (overwrites prior value).
     ///
-    /// Marks the peer as ever-connected (successful handshake). Connection-failure
-    /// upserts do not set that flag.
+    /// Marks the peer as ever-connected (successful handshake). Connection-failure upserts do
+    /// not set that flag.
     pub fn apply_advertisability(&mut self, peer: Peer, advertisable: bool, at: Instant) {
         let state = self.peers.entry(peer).or_default();
         state.ever_connected = true;
@@ -258,13 +285,14 @@ impl PeerPerformance {
         state.scores.last_change = Some(at);
     }
 
-    /// Increment connection/protocol failure count (e.g. outbound connect exhausted).
+    /// Increment connection/protocol failure count and raise connection malus.
     ///
     /// Upserts a reputation stub when needed, but does **not** set `ever_connected`.
     pub fn apply_connection_failure(&mut self, peer: Peer, at: Instant) {
         let state = self.peers.entry(peer).or_default();
         state.failure_count = state.failure_count.saturating_add(1);
         state.scores.last_change = Some(at);
+        apply_malus_impulse(state, CONNECT_FAIL_IMPULSE, at);
     }
 
     pub fn apply_prune_below(&mut self, min_height: BlockHeight) {
@@ -306,9 +334,53 @@ impl PeerPerformance {
 
     /// Whether this peer has a Performance record and passes share reputation checks.
     ///
-    /// Peer selection still excludes ledger/snapshot origins and pure inbound addresses.
-    pub fn apply_ok_for_sharing(&self, peer: &Peer) -> bool {
-        self.peers.get(peer).is_some_and(|s| s.share_flags().ok_for_sharing())
+    /// Requires a successful handshake (`ever_connected`), advertisable willingness, not
+    /// sticky-adversarial, and connection malus below [`SHARE_MALUS_THRESHOLD`] after decay with
+    /// [`MALUS_STORAGE_HALF_LIFE`]. Peer selection still excludes ledger/snapshot origins and pure
+    /// inbound addresses.
+    pub fn apply_ok_for_sharing(&self, peer: &Peer, now: Instant) -> bool {
+        let Some(state) = self.peers.get(peer) else {
+            return false;
+        };
+        if !state.ever_connected || !state.advertisable || state.adversarial {
+            return false;
+        }
+        let malus = malus_at(state.malus, state.malus_as_of, now, MALUS_STORAGE_HALF_LIFE);
+        malus < SHARE_MALUS_THRESHOLD
+    }
+
+    /// Sampling weights for outbound candidate picks (does not mutate malus storage).
+    pub fn apply_outbound_weights(
+        &self,
+        candidates: &[Peer],
+        half_life: Duration,
+        now: Instant,
+    ) -> Vec<OutboundCandidateWeight> {
+        candidates
+            .iter()
+            .map(|peer| {
+                let (malus, goodness, never_connected) = match self.peers.get(peer) {
+                    None => (0.0, 0.0, true),
+                    Some(state) => {
+                        let malus = malus_at(state.malus, state.malus_as_of, now, half_life);
+                        // Fresh / unknown to Performance: no successful handshake yet and no scores
+                        // or tip activity. Failure-only stubs set `last_change` (and malus) so they
+                        // do not receive the never-connected exploration bonus.
+                        let never_connected = !state.ever_connected
+                            && state.scores.last_change.is_none()
+                            && state.tips.is_empty();
+                        let goodness = outbound_goodness(Some(&state.scores));
+                        (malus, goodness, never_connected)
+                    }
+                };
+                let mut score = goodness - OUTBOUND_MALUS_LAMBDA * malus;
+                if never_connected {
+                    score += NEVER_CONNECTED_BONUS;
+                }
+                let weight = outbound_sampling_weight(score);
+                OutboundCandidateWeight { peer: peer.clone(), weight, malus, goodness, never_connected }
+            })
+            .collect()
     }
 
     /// Re-tip a peer after chainsync rollback to `point`.
@@ -587,6 +659,44 @@ fn is_ancestor_of(
         }
     }
     false
+}
+
+/// Evolve a stored malus charge to `now` with half-life `half_life`.
+pub fn malus_at(malus: f64, as_of: Option<Instant>, now: Instant, half_life: Duration) -> f64 {
+    if malus <= 0.0 || !malus.is_finite() {
+        return 0.0;
+    }
+    let Some(as_of) = as_of else {
+        return malus;
+    };
+    if half_life.is_zero() {
+        return malus;
+    }
+    let dt = now.saturating_since(as_of);
+    if dt.is_zero() {
+        return malus;
+    }
+    let hl = half_life.as_secs_f64().max(f64::EPSILON);
+    let factor = 0.5_f64.powf(dt.as_secs_f64() / hl);
+    let next = malus * factor;
+    if next.is_finite() { next } else { 0.0 }
+}
+
+fn apply_malus_impulse(state: &mut PeerState, impulse: f64, at: Instant) {
+    let evolved = malus_at(state.malus, state.malus_as_of, at, MALUS_STORAGE_HALF_LIFE);
+    state.malus = (evolved + impulse).max(0.0);
+    state.malus_as_of = Some(at);
+}
+
+fn outbound_goodness(scores: Option<&PeerScores>) -> f64 {
+    // Reuse fetch-oriented heuristics with need_len=1 (no fragment context for dial).
+    rank_score(scores, 1)
+}
+
+fn outbound_sampling_weight(score: f64) -> f64 {
+    let t = OUTBOUND_PICK_TEMPERATURE.max(f64::EPSILON);
+    let w = (score / t).exp();
+    if w.is_finite() && w > 0.0 { w } else { f64::EPSILON }
 }
 
 fn ewma_duration(prev: Option<Duration>, sample: Duration) -> Duration {

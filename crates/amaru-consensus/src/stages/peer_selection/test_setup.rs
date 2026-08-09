@@ -117,7 +117,15 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
     let manager = StageRef::named_for_tests("manager");
     let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| Peer::new(n)).collect();
     let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| Peer::new(n)).collect();
-    let state = PeerSelection::new(manager, static_peers, snapshot_candidates, 3, 10, COOLDOWN_SECS);
+    let state = PeerSelection::new(
+        manager,
+        static_peers,
+        snapshot_candidates,
+        3,
+        10,
+        COOLDOWN_SECS,
+        crate::stages::peer_selection::PeerMix::default(),
+    );
     TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
 }
 
@@ -135,6 +143,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordAdvertisabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordConnectionFailureEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::OkForSharingEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::OutboundWeightsEffect>().boxed(),
     ]
 }
 
@@ -144,7 +153,10 @@ pub fn sim_t0() -> Instant {
 }
 
 pub fn te_peer_adversarial(at_stage: &str, peer: Peer) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::performance::Performance::peer_adversarial(peer))))
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::peer_adversarial(peer, sim_t0())),
+    ))
 }
 
 pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
@@ -229,6 +241,21 @@ fn setup_preload_with_mode(
             // Peer-sharing filters: treat all candidates as shareable unless a test overrides.
             running.override_external_effect::<crate::performance::OkForSharingEffect>(usize::MAX, |_| {
                 OverrideResult::handled(true)
+            });
+            // Equal weights so peer-selection tests stay deterministic about mix/allotment, not Performance.
+            running.override_external_effect::<crate::performance::OutboundWeightsEffect>(usize::MAX, |effect| {
+                let weights = effect
+                    .candidates
+                    .iter()
+                    .map(|peer| crate::performance::OutboundCandidateWeight {
+                        peer: peer.clone(),
+                        weight: 1.0,
+                        malus: 0.0,
+                        goodness: 0.0,
+                        never_connected: true,
+                    })
+                    .collect::<Vec<_>>();
+                OverrideResult::handled(weights)
             });
         },
         mode,

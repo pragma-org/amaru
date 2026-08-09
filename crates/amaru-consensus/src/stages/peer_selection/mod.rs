@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod peer_mix;
+
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map::Entry},
@@ -28,11 +30,8 @@ use amaru_protocols::{
     peer_sharing::{SharePeersReply, ShareResult},
 };
 use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
-use rand::{
-    SeedableRng,
-    rngs::StdRng,
-    seq::{IteratorRandom, SliceRandom},
-};
+pub use peer_mix::{DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
+use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use tracing::Instrument;
 
 use crate::{
@@ -64,9 +63,9 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 /// - `ledger_candidates` (dynamic BTreeSet, updated via the child ledger-check protocol).
 /// - `shared_peers` (dynamic; addresses learned via peer-sharing initiator replies).
 ///
-/// Outbound regulation uses a random refill (via `GenerateRandomSeed` external effect)
-/// preferring static peers, then snapshot candidates, then ledger candidates, then shared
-/// peers, while skipping any peer currently tracked in `outbound_peers` or `cooldown_until`.
+/// Outbound regulation uses the admin [`PeerMix`] formula (floors, proportional weights, spill)
+/// and quality-weighted sampling within each source (connection malus + scores; see EDR-031).
+/// Hard excludes: peers already in `outbound_peers` or under cool-down.
 /// Inbound connections are accepted up to `target_downstream_peers` (excess are
 /// immediately rejected with a `Disconnect`).
 ///
@@ -78,6 +77,7 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 /// ## State
 ///
 /// - `target_upstream_peers`, `target_downstream_peers`: configuration targets.
+/// - `peer_mix`: admin source mix formula ([`PeerMix`]).
 /// - `manager`: `StageRef<ManagerMessage>` for all outbound commands.
 /// - `static_peers`, `snapshot_candidates`, `ledger_candidates`, `shared_peers`: candidate pools.
 /// - `peer_removal_cooldown`: duration for non-static bans.
@@ -187,12 +187,9 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 /// `regulate_peers` (called from `CheckCooldowns`, outbound non-retry disconnect,
 /// `ConnectFailed`, `LedgerCheckCandidates`, and outbound removal inside `ban_peer`)
 /// early-returns if `outbound_peers.len() >= target_upstream_peers`. Otherwise it
-/// obtains a seed via `eff.external(GenerateRandomSeed)`, builds an `StdRng`, and
-/// does three passes (statics, then snapshot_candidates, then ledger_candidates):
-/// - Filters candidates to those absent from `outbound_peers` and `cooldown_until`.
-/// - `choose_multiple` up to the deficit.
-/// - For each: logs `"peer_selection.add_peer"`, sends `ManagerMessage::AddPeer`,
-///   inserts as `Connecting`.
+/// obtains a seed via `eff.external(GenerateRandomSeed)`, allots open slots with
+/// [`PeerMix`] (floors, weights, spill), and quality-weighted samples within each
+/// source (canonical origin; hard exclude outbound + cool-down).
 ///
 /// Schedules (via `Effects`):
 /// - At most one `CheckCooldowns` armed via `schedule_at` (from `cool_down` /
@@ -230,6 +227,7 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 pub struct PeerSelection {
     target_upstream_peers: usize,
     target_downstream_peers: usize,
+    peer_mix: PeerMix,
     manager: StageRef<ManagerMessage>,
     static_peers: BTreeSet<Peer>,
     snapshot_candidates: BTreeSet<Peer>,
@@ -250,6 +248,7 @@ impl PartialEq for PeerSelection {
     fn eq(&self, other: &Self) -> bool {
         self.target_upstream_peers == other.target_upstream_peers
             && self.target_downstream_peers == other.target_downstream_peers
+            && self.peer_mix == other.peer_mix
             && self.manager == other.manager
             && self.static_peers == other.static_peers
             && self.snapshot_candidates == other.snapshot_candidates
@@ -330,10 +329,12 @@ impl PeerSelection {
         target_upstream_peers: usize,
         target_downstream_peers: usize,
         peer_removal_cooldown_secs: u64,
+        peer_mix: PeerMix,
     ) -> Self {
         Self {
             target_upstream_peers,
             target_downstream_peers,
+            peer_mix,
             ledger_candidates: BTreeSet::new(),
             shared_peers: BTreeSet::new(),
             manager,
@@ -358,8 +359,6 @@ impl PeerSelection {
     async fn ban_peer(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>) {
         let is_static = self.static_peers.contains(&peer);
 
-        eff.external(Performance::peer_adversarial(peer.clone())).await;
-
         let mut send_remove = false;
         if let Some(peer_state) = self.inbound_peers.remove(&peer) {
             tracing::warn!(%peer, ?peer_state, is_static, "removing peer (inbound)");
@@ -376,7 +375,9 @@ impl PeerSelection {
             eff.send(&self.manager, ManagerMessage::RemovePeer(peer.clone())).await;
         }
 
-        self.cool_down(peer, eff, is_static).await;
+        let now = eff.clock().await;
+        eff.external(Performance::peer_adversarial(peer.clone(), now)).await;
+        self.cool_down(peer, eff, is_static, now).await;
     }
 
     /// Drop availability claims when a peer has no remaining live connections (scores kept).
@@ -386,9 +387,8 @@ impl PeerSelection {
         }
     }
 
-    async fn cool_down(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>, is_static: bool) {
+    async fn cool_down(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>, is_static: bool, now: Instant) {
         let ban_period = if is_static { STATIC_PEER_BAN_PERIOD } else { self.peer_removal_cooldown };
-        let now = eff.clock().await;
         let when = now + ban_period;
 
         let was_empty = self.cooldowns.add_and_is_first(peer.clone(), when);
@@ -446,6 +446,7 @@ impl PeerSelection {
             return Vec::new();
         }
 
+        let now = eff.clock().await;
         let mut eligible = Vec::new();
         for peer in self.share_candidate_pool() {
             if &peer == requester {
@@ -455,8 +456,8 @@ impl PeerSelection {
             let Ok(addr) = peer.name.parse::<SocketAddr>() else {
                 continue;
             };
-            // Performance map presence + advertisable + zero failures + not adversarial.
-            if !eff.external(Performance::ok_for_sharing(peer.clone())).await {
+            // Performance: advertisable, not sticky-adversarial, malus below share threshold.
+            if !eff.external(Performance::ok_for_sharing(peer.clone(), now)).await {
                 continue;
             }
             eligible.push((peer, addr));
@@ -474,6 +475,38 @@ impl PeerSelection {
         eligible.into_iter().take(n).map(|(_, addr)| addr).collect()
     }
 
+    /// Canonical origin for mix accounting: static > shared > snapshot > ledger.
+    fn canonical_source(&self, peer: &Peer) -> Option<PeerSource> {
+        if self.static_peers.contains(peer) {
+            Some(PeerSource::Static)
+        } else if self.shared_peers.contains(peer) {
+            Some(PeerSource::Shared)
+        } else if self.snapshot_candidates.contains(peer) {
+            Some(PeerSource::Snapshot)
+        } else if self.ledger_candidates.contains(peer) {
+            Some(PeerSource::Ledger)
+        } else {
+            None
+        }
+    }
+
+    fn eligible_for_source(&self, source: PeerSource) -> Vec<Peer> {
+        let pool: &BTreeSet<Peer> = match source {
+            PeerSource::Static => &self.static_peers,
+            PeerSource::Shared => &self.shared_peers,
+            PeerSource::Snapshot => &self.snapshot_candidates,
+            PeerSource::Ledger => &self.ledger_candidates,
+        };
+        pool.iter()
+            .filter(|p| {
+                self.canonical_source(p) == Some(source)
+                    && !self.outbound_peers.contains_key(*p)
+                    && !self.cooldowns.is_cooling(p)
+            })
+            .cloned()
+            .collect()
+    }
+
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
         let target_upstream_peers = self.target_upstream_peers;
         let outbound = self.outbound_peers.len();
@@ -481,23 +514,42 @@ impl PeerSelection {
         if outbound >= target_upstream_peers {
             return;
         }
+        let open = target_upstream_peers - outbound;
 
         // NOTE: randomness only enters this way and tests override the effect
         let seed: [u8; 32] = eff.external(GenerateRandomSeed).await;
         let mut rng = StdRng::from_seed(seed);
 
-        // Prefer static, then peers learned via sharing, then snapshot, then live ledger.
-        for pool in [&self.static_peers, &self.shared_peers, &self.snapshot_candidates, &self.ledger_candidates] {
-            let outbound = self.outbound_peers.len();
-            if outbound >= target_upstream_peers {
-                break;
+        let mut eligible_counts = BTreeMap::new();
+        let mut eligible_by_source: BTreeMap<PeerSource, Vec<Peer>> = BTreeMap::new();
+        for entry in self.peer_mix.entries() {
+            let list = self.eligible_for_source(entry.source);
+            eligible_counts.insert(entry.source, list.len());
+            eligible_by_source.insert(entry.source, list);
+        }
+
+        let allotment = self.peer_mix.allot(open, &eligible_counts);
+        if allotment.values().all(|&n| n == 0) {
+            return;
+        }
+
+        let now = eff.clock().await;
+        for entry in self.peer_mix.entries() {
+            let n = allotment.get(&entry.source).copied().unwrap_or(0);
+            if n == 0 {
+                continue;
             }
-            let candidates = pool
-                .iter()
-                .filter(|p| !self.outbound_peers.contains_key(p) && !self.cooldowns.is_cooling(p))
-                .cloned()
-                .choose_multiple(&mut rng, target_upstream_peers - outbound);
-            for peer in candidates {
+            let candidates = eligible_by_source.remove(&entry.source).unwrap_or_default();
+            if candidates.is_empty() {
+                continue;
+            }
+            let half_life = entry.half_life_or_default();
+            let weights = eff.external(Performance::outbound_weights(candidates, half_life, now)).await;
+            let mut items: Vec<(Peer, f64)> = weights.into_iter().map(|w| (w.peer, w.weight)).collect();
+            // Drop peers that became outbound mid-loop (should not happen across sources due to canonical).
+            items.retain(|(p, _)| !self.outbound_peers.contains_key(p));
+            let picked = weighted_sample_without_replacement(&mut rng, items, n);
+            for peer in picked {
                 tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
                 eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
                 self.outbound_peers.insert(peer, PeerState::Connecting);
@@ -527,6 +579,36 @@ impl PeerSelection {
         )
         .await;
     }
+}
+
+/// Weighted sample without replacement; higher weight is more likely.
+fn weighted_sample_without_replacement(rng: &mut StdRng, mut items: Vec<(Peer, f64)>, n: usize) -> Vec<Peer> {
+    let mut out = Vec::with_capacity(n.min(items.len()));
+    for _ in 0..n {
+        if items.is_empty() {
+            break;
+        }
+        let total: f64 = items.iter().map(|(_, w)| *w).filter(|w| w.is_finite() && *w > 0.0).sum();
+        let idx = if total <= 0.0 || !total.is_finite() {
+            rng.random_range(0..items.len())
+        } else {
+            let mut r = rng.random::<f64>() * total;
+            let mut chosen = items.len() - 1;
+            for (i, (_, w)) in items.iter().enumerate() {
+                if *w <= 0.0 || !w.is_finite() {
+                    continue;
+                }
+                r -= w;
+                if r <= 0.0 {
+                    chosen = i;
+                    break;
+                }
+            }
+            chosen
+        };
+        out.push(items.swap_remove(idx).0);
+    }
+    out
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

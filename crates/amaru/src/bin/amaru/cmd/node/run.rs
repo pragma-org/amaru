@@ -212,6 +212,21 @@ pub struct Args {
     )]
     peer_removal_cooldown_secs: u64,
 
+    /// Outbound peer source mix formula (floors `!n`, weights `~n`, optional malus half-lives `@Nd`).
+    ///
+    /// Leaving a source out of the formula disables it, peer slots not used by the formula are filled from the remaining sources in proportion to their weights.
+    ///
+    /// Example: `static!2@2h, shared~6, snapshot~8@12h, ledger~4`
+    #[arg(
+        long,
+        value_name = amaru::value_names::PEER_MIX,
+        env = amaru::env_vars::PEER_MIX,
+        default_value = amaru_consensus::stages::peer_selection::DEFAULT_PEER_MIX,
+        display_order = 0,
+        help_heading = "Advanced Options",
+    )]
+    peer_mix: String,
+
     /// Path to the PID file managed by Amaru.
     #[arg(
         long,
@@ -330,6 +345,7 @@ impl tui::RuntimeSettingsSource for Args {
             "downstream_peers" => Some(self.downstream_peers.to_string()),
             "max_extra_ledger_snapshots" => Some(self.max_extra_ledger_snapshots.to_string()),
             "peer_removal_cooldown_secs" => Some(self.peer_removal_cooldown_secs.to_string()),
+            "peer_mix" => Some(self.peer_mix.clone()),
             "pid_file" => Some(
                 self.pid_file
                     .as_deref()
@@ -635,6 +651,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         trace_buffer_max_size,
         trace_dump_path,
         peer_removal_cooldown_secs: args.peer_removal_cooldown_secs,
+        peer_mix: args.peer_mix.parse().map_err(|e| anyhow::anyhow!("invalid --peer-mix: {e}"))?,
         mempool,
         tx_submission_responder_params: tx_submission_params,
         ..Config::default()

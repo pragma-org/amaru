@@ -50,7 +50,9 @@ pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
 use parking_lot::Mutex;
 pub use peer::{
-    BlockClaim, ClaimKind, FetchPeerSet, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot, SelectPeersParams,
+    ADVERSARIAL_IMPULSE, BlockClaim, CONNECT_FAIL_IMPULSE, ClaimKind, FetchPeerSet, MALUS_STORAGE_HALF_LIFE,
+    NEVER_CONNECTED_BONUS, OutboundCandidateWeight, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot,
+    SHARE_MALUS_THRESHOLD, SelectPeersParams, malus_at,
 };
 use tokio::{
     sync::{
@@ -153,6 +155,7 @@ pub(crate) enum PerformanceOp {
     ShareFlags { effect: ShareFlagsEffect, reply: oneshot::Sender<Option<PeerShareFlags>> },
     Snapshot { effect: SnapshotEffect, reply: oneshot::Sender<Option<PeerSnapshot>> },
     OkForSharing { effect: OkForSharingEffect, reply: oneshot::Sender<bool> },
+    OutboundWeights { effect: OutboundWeightsEffect, reply: oneshot::Sender<Vec<OutboundCandidateWeight>> },
     RecordRollback { effect: RecordRollbackEffect },
     RecordHeaderAbandoned { effect: RecordHeaderAbandonedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordForkStarted { effect: RecordForkStartedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
@@ -293,7 +296,7 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             peers.apply_clear_peer_availability(&effect.peer);
         }
         PerformanceOp::PeerAdversarial { effect } => {
-            peers.apply_peer_adversarial(&effect.peer);
+            peers.apply_peer_adversarial(&effect.peer, effect.at);
         }
         PerformanceOp::PruneBelow { effect, reply } => {
             peers.apply_prune_below(effect.min_height);
@@ -333,7 +336,11 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             let _ = reply.send(result);
         }
         PerformanceOp::OkForSharing { effect, reply } => {
-            let result = peers.apply_ok_for_sharing(&effect.peer);
+            let result = peers.apply_ok_for_sharing(&effect.peer, effect.now);
+            let _ = reply.send(result);
+        }
+        PerformanceOp::OutboundWeights { effect, reply } => {
+            let result = peers.apply_outbound_weights(&effect.candidates, effect.half_life, effect.now);
             let _ = reply.send(result);
         }
         PerformanceOp::RecordRollback { effect } => {
