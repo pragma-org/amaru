@@ -216,7 +216,7 @@ pub struct Args {
     ///
     /// Leaving a source out of the formula disables it, peer slots not used by the formula are filled from the remaining sources in proportion to their weights.
     ///
-    /// Example: `static!2@2h, shared~6, snapshot~8@12h, ledger~4`
+    /// Example: `@12h, static!2, shared~6, snapshot~8, ledger~4@48h` (naked `@12h` is the default half-life for following sources)
     #[arg(
         long,
         value_name = amaru::value_names::PEER_MIX,

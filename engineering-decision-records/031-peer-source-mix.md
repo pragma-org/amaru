@@ -27,12 +27,14 @@ Admins need a **small formula** for the desired source mix that:
 One string configures floors, proportional weights, and optional per-source malus half-lives:
 
 ```text
-peer-mix = entry ("," entry)*
+peer-mix = item ("," item)*
+item     = entry | naked_decay
 entry    = name floor? weight? decay?
+naked_decay = "@" duration                        # sets default half-life for *following* entries
 name     = static | shared | snapshot | ledger   # registry; unknown ⇒ config error
 floor    = "!" uint                               # minimum slots if eligible peers exist
 weight   = "~" uint                               # proportionality (not numeric equality)
-decay    = "@" duration                           # malus half-life for this source
+decay    = "@" duration                           # malus half-life for this source only
 duration = N"s" | N"m" | N"h" | N"d"
 ```
 
@@ -40,8 +42,11 @@ duration = N"s" | N"m" | N"h" | N"d"
 
 ```text
 static!2@2h, shared~6@6h, snapshot~8@12h, ledger~4@24h
+@12h, static!2, shared~6, snapshot~8, ledger~4@48h
 ledger~1@48h, static~0, shared~0, snapshot~0
 ```
+
+A **naked** `@duration` (no source name) updates the running default half-life for subsequent entries that omit `@…`. A per-entry `@…` overrides that default for that source only and does not change the running default. The initial running default is **6h**.
 
 Defaults when a field is omitted:
 
@@ -49,7 +54,7 @@ Defaults when a field is omitted:
 | --- | --- |
 | `!floor` | `0` |
 | `~weight` | `1` if the entry is present (including floor-only `static!2`); use `~0` to exclude a source from proportional fill |
-| `@decay` | global `peer-malus-half-life` (default **6h**) |
+| `@decay` on an entry | current running default (from the last naked `@…`, else **6h**) |
 
 **No** `=` for weights (reads as equality). **No** arithmetic, conditionals, or nested groups.
 
@@ -79,6 +84,19 @@ A peer counts only toward its canonical source’s allotment.
 | Adversarial | Cool-down is **hard** for the ban window; after that, dial is allowed. Sticky `adversarial` remains **only** for peer-sharing filters ([EDR-030][edr-performance]) |
 | Observed scores (lag, fetch, …) | **Soft** — **goodness** for ranking |
 
+### Where sources and mix live
+
+**Candidate pools** (static, shared, snapshot, ledger) and the admin **`PeerMix`** live in the **Performance resource**, not in the peer-selection stage state.
+
+Reasons:
+
+1. **Consistent malus physics** — every evolve (impulse, share check, outbound ranking) uses the half-life of the peer’s **canonical source** from the mix (`@…` or default 6h). Performance must know source membership to pick τ.
+2. **TraceBuffer / message size** — large peer sets must not ride pure-stage stage state or high-frequency messages; the resource is outside the stage graph’s serialized footprint.
+
+Peer selection keeps only connection maps, cool-downs, and targets. It calls Performance for `select_outbound`, `select_share_peers`, `ingest_shared_peers`, `set_ledger_candidates`, etc.
+
+Static/snapshot pools and the mix formula are fixed at **`Performance::with_peer_sources` construction** (node resource registration). They are never reconfigured on the live resource. Live ledger candidates and shared peers still update via effects (`set_ledger_candidates`, `ingest_shared_peers`).
+
 ### Lazy-decay connection malus
 
 Performance stores `(malus, malus_as_of)` per peer (plus optional telemetry counters).
@@ -87,9 +105,13 @@ Performance stores `(malus, malus_as_of)` per peer (plus optional telemetry coun
 malus(now, τ) = malus_as_of × 0.5^((now − as_of) / τ)
 ```
 
-- **On failure / adversarial impulse:** evolve stored malus to `now` with the **global** half-life, add impulse, store `(value, now)`.
-- **On outbound ranking:** compute `malus(now, τ_source)` from stored state **without** writing bucket-specific evolution (so different `@` half-lives can score the same peer differently).
-- Decay proceeds even if the peer is never selected again until the next touch/event.
+where **τ = half-life for the peer’s canonical source** (from `peer-mix`), same for:
+
+- connection-failure / adversarial **impulses** (evolve then add, store at `now`);
+- **outbound** quality scoring;
+- **share** eligibility (`malus(now, τ) < share_threshold`).
+
+Decay proceeds even if the peer is never selected again until the next touch/event.
 
 Impulses (policy constants, not admin surface v1):
 
@@ -98,7 +120,7 @@ Impulses (policy constants, not admin surface v1):
 | Connect exhausted | `+1` |
 | Adversarial (with cool-down) | `+12` |
 
-Peer-sharing uses the same malus axis: `ok_for_sharing` requires `advertisable`, `!adversarial` (sticky, permanent for sharing only), and `malus(now, τ_global) < share_threshold` (default `0.05`).
+Peer-sharing also requires `advertisable` and `!adversarial` (sticky adversarial is permanent for sharing only).
 
 ### Within-bucket selection
 
@@ -115,9 +137,9 @@ After allotting `n` slots to a source:
 
 | Concern | Owner |
 | --- | --- |
-| Source pools, cool-downs, mix, allotment | Peer selection |
-| Malus + scores + sticky adversarial for sharing | Performance resource ([EDR-030][edr-performance]) |
-| Formula parse / registry | Peer selection (`PeerMix`) |
+| Source pools, mix, allotment, quality sample, malus τ | Performance resource ([EDR-030][edr-performance]) |
+| Cool-downs, outbound/inbound connection maps, targets | Peer selection |
+| Formula parse / registry | Performance (`PeerMix`) |
 
 ## Consequences
 

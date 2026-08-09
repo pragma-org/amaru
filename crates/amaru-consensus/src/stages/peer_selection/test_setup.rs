@@ -101,11 +101,22 @@ pub fn te_clock_suspend(at_stage: impl AsRef<str>) -> TraceEntry {
 pub struct TestPrep {
     pub state: PeerSelection,
     pub rt: Runtime,
+    /// Seeded into the Performance resource at simulation start (not stage state).
+    pub static_peers: BTreeSet<Peer>,
+    pub snapshot_candidates: BTreeSet<Peer>,
+    pub ledger_candidates: BTreeSet<Peer>,
+    pub peer_mix: crate::performance::PeerMix,
 }
 
 impl TestPrep {
     pub fn peer(name: &str) -> Peer {
         Peer::new(name)
+    }
+
+    /// Seed ledger candidates for the Performance resource installed in [`setup_preload`].
+    pub fn with_ledger(mut self, names: &[&str]) -> Self {
+        self.ledger_candidates = names.iter().map(|n| Peer::new(n)).collect();
+        self
     }
 }
 
@@ -117,16 +128,16 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
     let manager = StageRef::named_for_tests("manager");
     let static_peers: BTreeSet<Peer> = static_names.iter().map(|n| Peer::new(n)).collect();
     let snapshot_candidates: BTreeSet<Peer> = snapshot_names.iter().map(|n| Peer::new(n)).collect();
-    let state = PeerSelection::new(
-        manager,
+    let peer_mix = crate::performance::PeerMix::default();
+    let state = PeerSelection::new(manager, 3, 10, COOLDOWN_SECS);
+    TestPrep {
+        state,
+        rt: Builder::new_current_thread().build().unwrap(),
         static_peers,
         snapshot_candidates,
-        3,
-        10,
-        COOLDOWN_SECS,
-        crate::stages::peer_selection::PeerMix::default(),
-    );
-    TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
+        ledger_candidates: BTreeSet::new(),
+        peer_mix,
+    }
 }
 
 pub fn register_guards() -> DeserializerGuards {
@@ -143,7 +154,14 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordAdvertisabilityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordConnectionFailureEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::OkForSharingEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<crate::performance::OutboundWeightsEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectOutboundEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectSharePeersEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::IsStaticPeerEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::StaticPeersEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SourceCountsEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::IngestSharedPeersEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SetLedgerCandidatesEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SharedContainsEffect>().boxed(),
     ]
 }
 
@@ -157,6 +175,10 @@ pub fn te_peer_adversarial(at_stage: &str, peer: Peer) -> TraceEntry {
         at_stage,
         Box::new(crate::performance::Performance::peer_adversarial(peer, sim_t0())),
     ))
+}
+
+pub fn te_is_static_peer(at_stage: &str, peer: Peer) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(crate::performance::Performance::is_static_peer(peer))))
 }
 
 pub fn te_clear_peer_availability(at_stage: &str, peer: Peer) -> TraceEntry {
@@ -222,7 +244,12 @@ fn setup_preload_with_mode(
         },
         |resources| {
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
-                crate::performance::Performance::new(),
+                crate::performance::Performance::with_peer_sources(
+                    prep.static_peers.clone(),
+                    prep.snapshot_candidates.clone(),
+                    prep.ledger_candidates.clone(),
+                    prep.peer_mix.clone(),
+                ),
             ));
         },
         |running| {
@@ -241,21 +268,6 @@ fn setup_preload_with_mode(
             // Peer-sharing filters: treat all candidates as shareable unless a test overrides.
             running.override_external_effect::<crate::performance::OkForSharingEffect>(usize::MAX, |_| {
                 OverrideResult::handled(true)
-            });
-            // Equal weights so peer-selection tests stay deterministic about mix/allotment, not Performance.
-            running.override_external_effect::<crate::performance::OutboundWeightsEffect>(usize::MAX, |effect| {
-                let weights = effect
-                    .candidates
-                    .iter()
-                    .map(|peer| crate::performance::OutboundCandidateWeight {
-                        peer: peer.clone(),
-                        weight: 1.0,
-                        malus: 0.0,
-                        goodness: 0.0,
-                        never_connected: true,
-                    })
-                    .collect::<Vec<_>>();
-                OverrideResult::handled(weights)
             });
         },
         mode,

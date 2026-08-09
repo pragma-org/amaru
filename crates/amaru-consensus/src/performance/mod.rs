@@ -33,6 +33,7 @@
 mod effects;
 mod header;
 mod peer;
+mod peer_mix;
 
 use std::{
     fmt,
@@ -50,10 +51,11 @@ pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
 use parking_lot::Mutex;
 pub use peer::{
-    ADVERSARIAL_IMPULSE, BlockClaim, CONNECT_FAIL_IMPULSE, ClaimKind, FetchPeerSet, MALUS_STORAGE_HALF_LIFE,
-    NEVER_CONNECTED_BONUS, OutboundCandidateWeight, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot,
-    SHARE_MALUS_THRESHOLD, SelectPeersParams, malus_at,
+    ADVERSARIAL_IMPULSE, BlockClaim, CONNECT_FAIL_IMPULSE, ClaimKind, DEFAULT_PEER_MALUS_HALF_LIFE, FetchPeerSet,
+    NEVER_CONNECTED_BONUS, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot, SHARE_MALUS_THRESHOLD,
+    SHARE_POLICY_MAX, SelectOutboundParams, SelectPeersParams, SharedIngestResult, SourceCounts, malus_at,
 };
+pub use peer_mix::{DEFAULT_MALUS_HALF_LIFE, DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
 use tokio::{
     sync::{
         mpsc::{UnboundedSender, unbounded_channel},
@@ -155,7 +157,14 @@ pub(crate) enum PerformanceOp {
     ShareFlags { effect: ShareFlagsEffect, reply: oneshot::Sender<Option<PeerShareFlags>> },
     Snapshot { effect: SnapshotEffect, reply: oneshot::Sender<Option<PeerSnapshot>> },
     OkForSharing { effect: OkForSharingEffect, reply: oneshot::Sender<bool> },
-    OutboundWeights { effect: OutboundWeightsEffect, reply: oneshot::Sender<Vec<OutboundCandidateWeight>> },
+    SetLedgerCandidates { effect: SetLedgerCandidatesEffect },
+    IngestSharedPeers { effect: IngestSharedPeersEffect, reply: oneshot::Sender<SharedIngestResult> },
+    SelectOutbound { effect: SelectOutboundEffect, reply: oneshot::Sender<Vec<Peer>> },
+    SelectSharePeers { effect: SelectSharePeersEffect, reply: oneshot::Sender<Vec<std::net::SocketAddr>> },
+    IsStaticPeer { effect: IsStaticPeerEffect, reply: oneshot::Sender<bool> },
+    StaticPeers { effect: StaticPeersEffect, reply: oneshot::Sender<std::collections::BTreeSet<Peer>> },
+    SharedContains { effect: SharedContainsEffect, reply: oneshot::Sender<bool> },
+    SourceCounts { effect: SourceCountsEffect, reply: oneshot::Sender<SourceCounts> },
     RecordRollback { effect: RecordRollbackEffect },
     RecordHeaderAbandoned { effect: RecordHeaderAbandonedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
     RecordForkStarted { effect: RecordForkStartedEffect, reply: oneshot::Sender<Vec<HeaderTelemetry>> },
@@ -170,9 +179,24 @@ impl Performance {
     /// (after it drains remaining ops). Prefer that drop on a non-hot path (node teardown), not
     /// from a multi-thread Tokio worker task.
     pub fn new() -> Self {
+        Self::with_peer_sources(Default::default(), Default::default(), Default::default(), PeerMix::default())
+    }
+
+    /// Start the worker with outbound candidate sources and mix.
+    ///
+    /// This is the **only** place static/snapshot pools and the peer-mix formula are set;
+    /// there is no live reconfiguration effect.
+    pub fn with_peer_sources(
+        static_peers: std::collections::BTreeSet<Peer>,
+        snapshot_candidates: std::collections::BTreeSet<Peer>,
+        ledger_candidates: std::collections::BTreeSet<Peer>,
+        peer_mix: PeerMix,
+    ) -> Self {
         let (tx, mut rx) = unbounded_channel::<PerformanceOp>();
         let pending = Arc::new(AtomicUsize::new(0));
         let pending_worker = Arc::clone(&pending);
+        let initial_peers =
+            PeerPerformance::with_sources(static_peers, snapshot_candidates, ledger_candidates, peer_mix);
 
         #[expect(clippy::expect_used)]
         let join = thread::Builder::new()
@@ -183,7 +207,7 @@ impl Performance {
                     .build()
                     .expect("performance worker runtime");
                 rt.block_on(async move {
-                    let mut peers = PeerPerformance::new();
+                    let mut peers = initial_peers;
                     let mut headers = HeaderPerformance::new();
                     while let Some(op) = rx.recv().await {
                         pending_worker.fetch_sub(1, Ordering::Relaxed);
@@ -339,8 +363,35 @@ fn dispatch(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, op: Pe
             let result = peers.apply_ok_for_sharing(&effect.peer, effect.now);
             let _ = reply.send(result);
         }
-        PerformanceOp::OutboundWeights { effect, reply } => {
-            let result = peers.apply_outbound_weights(&effect.candidates, effect.half_life, effect.now);
+        PerformanceOp::SetLedgerCandidates { effect } => {
+            peers.apply_set_ledger_candidates(effect.candidates);
+        }
+        PerformanceOp::IngestSharedPeers { effect, reply } => {
+            let result = peers.apply_ingest_shared_peers(&effect.from, &effect.peers);
+            let _ = reply.send(result);
+        }
+        PerformanceOp::SelectOutbound { effect, reply } => {
+            let result = peers.apply_select_outbound(effect.params);
+            let _ = reply.send(result);
+        }
+        PerformanceOp::SelectSharePeers { effect, reply } => {
+            let result = peers.apply_select_share_peers(&effect.requester, effect.amount, effect.now);
+            let _ = reply.send(result);
+        }
+        PerformanceOp::IsStaticPeer { effect, reply } => {
+            let result = peers.apply_is_static_peer(&effect.peer);
+            let _ = reply.send(result);
+        }
+        PerformanceOp::StaticPeers { effect: StaticPeersEffect, reply } => {
+            let result = peers.apply_static_peers();
+            let _ = reply.send(result);
+        }
+        PerformanceOp::SharedContains { effect, reply } => {
+            let result = peers.apply_shared_contains(&effect.peer);
+            let _ = reply.send(result);
+        }
+        PerformanceOp::SourceCounts { effect: SourceCountsEffect, reply } => {
+            let result = peers.apply_source_counts();
             let _ = reply.send(result);
         }
         PerformanceOp::RecordRollback { effect } => {

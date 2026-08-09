@@ -3915,7 +3915,7 @@
       "description": "A connection has been terminated (graceful disconnect, error, handshake refusal, or network error).",
       "public": true
     },
-    "amaru::protocols::peer_selection::peer::SHARE_PEERS": {
+    "amaru::protocols::peer_selection::sharing::RECEIVED": {
       "type": "object",
       "properties": {
         "peer": {
@@ -3930,6 +3930,31 @@
         },
         "total": {
           "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "peers",
+        "added",
+        "total"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "received",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::sharing",
+      "description": "Peer-sharing address list received from peer.",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::sharing::SENT": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "peers": {
+          "type": "string"
         },
         "requested": {
           "type": "integer"
@@ -3940,19 +3965,16 @@
       },
       "required": [
         "peer",
-        "peers"
-      ],
-      "optional": [
-        "added",
-        "total",
+        "peers",
         "requested",
         "count"
       ],
+      "optional": [],
       "additionalProperties": false,
-      "name": "share_peers",
+      "name": "sent",
       "level": "TRACE",
-      "target": "amaru::protocols::peer_selection::peer",
-      "description": "Peer-sharing address list (inbound learn path or outbound advertise path).",
+      "target": "amaru::protocols::peer_selection::sharing",
+      "description": "Peer-sharing request served for peer.",
       "public": true
     },
     "amaru::setup::build::VERSION": {

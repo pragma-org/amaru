@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod peer_mix;
-
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap, btree_map::Entry},
-    hash::{Hash, Hasher},
     net::SocketAddr,
     time::Duration,
 };
@@ -30,13 +27,12 @@ use amaru_protocols::{
     peer_sharing::{SharePeersReply, ShareResult},
 };
 use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
-pub use peer_mix::{DEFAULT_PEER_MIX, MixEntry, PeerMix, PeerMixParseError, PeerSource};
-use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use tracing::Instrument;
 
+pub use crate::performance::{DEFAULT_PEER_MIX, PeerMix, PeerMixParseError};
 use crate::{
     effects::{GenerateRandomSeed, Ledger, LedgerOps},
-    performance::Performance,
+    performance::{Performance, SelectOutboundParams, SharedIngestResult},
 };
 
 const STATIC_PEER_BAN_PERIOD: Duration = Duration::from_secs(10);
@@ -47,9 +43,6 @@ pub const SHARE_REQUEST_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// How many peers to request per share call (network-spec amount is `Word8`).
 pub const SHARE_REQUEST_AMOUNT: u8 = 20;
 
-/// Upper bound on peers returned in one share response (policy; also caps requested amount).
-pub(crate) const SHARE_POLICY_MAX: u8 = 10;
-
 /// Peer selection stage for the Amaru consensus node.
 ///
 /// This stage is responsible for maintaining the desired number of outbound (upstream)
@@ -57,22 +50,17 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 /// the `Manager` (via `ManagerMessage`) which peers to `AddPeer` or `RemovePeer`/`Disconnect`,
 /// while reacting to connection lifecycle events and adversarial signals.
 ///
-/// It maintains four primary peer pools:
-/// - `static_peers` (immutable, configured at construction; preferred for outbound).
-/// - `snapshot_candidates` (immutable, from a ledger peer snapshot file at construction).
-/// - `ledger_candidates` (dynamic BTreeSet, updated via the child ledger-check protocol).
-/// - `shared_peers` (dynamic; addresses learned via peer-sharing initiator replies).
-///
-/// Outbound regulation uses the admin [`PeerMix`] formula (floors, proportional weights, spill)
-/// and quality-weighted sampling within each source (connection malus + scores; see EDR-031).
-/// Hard excludes: peers already in `outbound_peers` or under cool-down.
+/// Outbound candidate sources and the admin peer-mix formula live in the **Performance** resource
+/// (installed only via `Performance::with_peer_sources` at construction). This stage keeps
+/// connection maps and cool-downs, and asks Performance to select dials / share replies
+/// (see EDR-031). Hard excludes for dials: peers already in `outbound_peers` or under cool-down.
 /// Inbound connections are accepted up to `target_downstream_peers` (excess are
 /// immediately rejected with a `Disconnect`).
 ///
 /// The stage creates (on `Initialize`, with no supervision) a child stage
 /// `"peer-selection/ledger-check"` running `get_ledger_candidates` (backed by `LedgerCheck`
-/// state) that periodically queries the ledger for registered relay addresses and
-/// feeds candidates back via `LedgerCheckCandidates`.
+/// state) that periodically queries the ledger, writes candidates into the Performance
+/// resource, then nudges this stage with a payload-free [`PeerSelectionMsg::Regulate`].
 ///
 /// ## State
 ///
@@ -156,8 +144,7 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 /// - **SharePeersResult**: Inserts learned addresses into `shared_peers`, then
 ///   `regulate_peers` (no reschedule — initiator keeps the cadence).
 ///
-/// - **LedgerCheckCandidates**:
-///   Replaces `ledger_candidates` wholesale, then calls `regulate_peers`.
+/// - **Regulate**: Calls `regulate_peers` (e.g. after the ledger-check child updates Performance).
 ///
 /// ## Helper Methods
 ///
@@ -175,20 +162,20 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 /// - If insufficient height delta: `reschedule_check`.
 /// - Queries `registered_relay_socket_addrs()`, maps to `Peer::from_addr`.
 /// - On error: warns `"failed to get ledger entries"`, reschedules.
-/// - On success: sends `PeerSelectionMsg::LedgerCheckCandidates(...)` to parent
-///   (via the captured `stage` ref), updates `last_height`, reschedules.
+/// - On success: writes the set into Performance via `set_ledger_candidates` (not via the
+///   parent mailbox), then sends payload-free `PeerSelectionMsg::Regulate` so the parent
+///   can refill outbound slots, updates `last_height`, reschedules.
 /// - `reschedule_check` always does `eff.schedule_after((), cadence)`.
 ///
-/// The child is created exactly once on `Initialize` and communicates back only
-/// via the `LedgerCheckCandidates` message.
+/// The child is created exactly once on `Initialize`.
 ///
 /// ## Regulation, Schedules, and Effects
 ///
 /// `regulate_peers` (called from `CheckCooldowns`, outbound non-retry disconnect,
-/// `ConnectFailed`, `LedgerCheckCandidates`, and outbound removal inside `ban_peer`)
+/// `ConnectFailed`, `Regulate`, and outbound removal inside `ban_peer`)
 /// early-returns if `outbound_peers.len() >= target_upstream_peers`. Otherwise it
-/// obtains a seed via `eff.external(GenerateRandomSeed)`, allots open slots with
-/// [`PeerMix`] (floors, weights, spill), and quality-weighted samples within each
+/// obtains a seed via `eff.external(GenerateRandomSeed)` and asks Performance to
+/// select dials (mix + quality-weighted sample within each
 /// source (canonical origin; hard exclude outbound + cool-down).
 ///
 /// Schedules (via `Effects`):
@@ -227,13 +214,7 @@ pub(crate) const SHARE_POLICY_MAX: u8 = 10;
 pub struct PeerSelection {
     target_upstream_peers: usize,
     target_downstream_peers: usize,
-    peer_mix: PeerMix,
     manager: StageRef<ManagerMessage>,
-    static_peers: BTreeSet<Peer>,
-    snapshot_candidates: BTreeSet<Peer>,
-    ledger_candidates: BTreeSet<Peer>,
-    /// Candidates learned from peer-sharing replies.
-    shared_peers: BTreeSet<Peer>,
     peer_removal_cooldown: Duration,
     cooldowns: Cooldowns,
     cooldown_timer: Option<ScheduleId>,
@@ -248,12 +229,7 @@ impl PartialEq for PeerSelection {
     fn eq(&self, other: &Self) -> bool {
         self.target_upstream_peers == other.target_upstream_peers
             && self.target_downstream_peers == other.target_downstream_peers
-            && self.peer_mix == other.peer_mix
             && self.manager == other.manager
-            && self.static_peers == other.static_peers
-            && self.snapshot_candidates == other.snapshot_candidates
-            && self.ledger_candidates == other.ledger_candidates
-            && self.shared_peers == other.shared_peers
             && self.peer_removal_cooldown == other.peer_removal_cooldown
             && self.cooldowns == other.cooldowns
             && self.cooldown_timer == other.cooldown_timer
@@ -306,8 +282,10 @@ pub enum PeerSelectionMsg {
     Disconnected(Peer, ConnectionId, ConnectionDirection, bool),
     /// A (re)connection attempt has failed, the Manager has removed this peer.
     ConnectFailed(Peer),
-    /// Internal message from ledger check with new candidates.
-    LedgerCheckCandidates(BTreeSet<Peer>),
+    /// Ask the stage to refill outbound slots (no payload).
+    ///
+    /// Used by the ledger-check child after it has already written candidates into Performance.
+    Regulate,
     /// Reply from the peer-sharing initiator (one result per request cycle).
     SharePeersResult { peer: Peer, peers: Vec<SocketAddr> },
     /// Server-side peer-sharing: select addresses to advertise to `peer` and reply on `reply_to`.
@@ -322,24 +300,21 @@ impl PeerSelectionMsg {
 }
 
 impl PeerSelection {
+    /// Construct connection-selection state only.
+    ///
+    /// Outbound candidate sources and the peer-mix formula are installed exclusively when
+    /// constructing the [`Performance`] resource
+    /// (`with_peer_sources`), never via live reconfiguration.
     pub fn new(
         manager: StageRef<ManagerMessage>,
-        static_peers: BTreeSet<Peer>,
-        snapshot_candidates: BTreeSet<Peer>,
         target_upstream_peers: usize,
         target_downstream_peers: usize,
         peer_removal_cooldown_secs: u64,
-        peer_mix: PeerMix,
     ) -> Self {
         Self {
             target_upstream_peers,
             target_downstream_peers,
-            peer_mix,
-            ledger_candidates: BTreeSet::new(),
-            shared_peers: BTreeSet::new(),
             manager,
-            static_peers,
-            snapshot_candidates,
             peer_removal_cooldown: Duration::from_secs(peer_removal_cooldown_secs),
             cooldowns: Cooldowns::default(),
             cooldown_timer: None,
@@ -357,7 +332,7 @@ impl PeerSelection {
     }
 
     async fn ban_peer(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>) {
-        let is_static = self.static_peers.contains(&peer);
+        let is_static = eff.external(Performance::is_static_peer(peer.clone())).await;
 
         let mut send_remove = false;
         if let Some(peer_state) = self.inbound_peers.remove(&peer) {
@@ -418,142 +393,29 @@ impl PeerSelection {
         }
     }
 
-    /// Peers we may advertise: known listen addresses that are not ledger/snapshot-derived.
-    ///
-    /// Pure inbound-only peers are omitted (remote port is not a listen address).
-    fn share_candidate_pool(&self) -> BTreeSet<Peer> {
-        let mut pool = BTreeSet::new();
-        for p in &self.static_peers {
-            pool.insert(p.clone());
-        }
-        for p in self.outbound_peers.keys() {
-            pool.insert(p.clone());
-        }
-        // Exclude on-chain / big-ledger sources (ticket 1169).
-        pool.retain(|p| !self.ledger_candidates.contains(p) && !self.snapshot_candidates.contains(p));
-        pool
-    }
-
-    /// Filter + sticky sample shareable addresses for a requester.
-    async fn select_peers_to_share(
-        &self,
-        requester: &Peer,
-        amount: u8,
-        eff: &Effects<PeerSelectionMsg>,
-    ) -> Vec<SocketAddr> {
-        let n = (amount.min(SHARE_POLICY_MAX)) as usize;
-        if n == 0 {
-            return Vec::new();
-        }
-
-        let now = eff.clock().await;
-        let mut eligible = Vec::new();
-        for peer in self.share_candidate_pool() {
-            if &peer == requester {
-                continue;
-            }
-            // Need a parseable listen address to put on the wire.
-            let Ok(addr) = peer.name.parse::<SocketAddr>() else {
-                continue;
-            };
-            // Performance: advertisable, not sticky-adversarial, malus below share threshold.
-            if !eff.external(Performance::ok_for_sharing(peer.clone(), now)).await {
-                continue;
-            }
-            eligible.push((peer, addr));
-        }
-
-        // Sticky: same requester + same eligible set → similar subset (seed only from requester).
-        eligible.sort_by(|a, b| a.0.cmp(&b.0));
-        let seed = {
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            requester.name.hash(&mut hasher);
-            hasher.finish()
-        };
-        let mut rng = StdRng::seed_from_u64(seed);
-        eligible.shuffle(&mut rng);
-        eligible.into_iter().take(n).map(|(_, addr)| addr).collect()
-    }
-
-    /// Canonical origin for mix accounting: static > shared > snapshot > ledger.
-    fn canonical_source(&self, peer: &Peer) -> Option<PeerSource> {
-        if self.static_peers.contains(peer) {
-            Some(PeerSource::Static)
-        } else if self.shared_peers.contains(peer) {
-            Some(PeerSource::Shared)
-        } else if self.snapshot_candidates.contains(peer) {
-            Some(PeerSource::Snapshot)
-        } else if self.ledger_candidates.contains(peer) {
-            Some(PeerSource::Ledger)
-        } else {
-            None
-        }
-    }
-
-    fn eligible_for_source(&self, source: PeerSource) -> Vec<Peer> {
-        let pool: &BTreeSet<Peer> = match source {
-            PeerSource::Static => &self.static_peers,
-            PeerSource::Shared => &self.shared_peers,
-            PeerSource::Snapshot => &self.snapshot_candidates,
-            PeerSource::Ledger => &self.ledger_candidates,
-        };
-        pool.iter()
-            .filter(|p| {
-                self.canonical_source(p) == Some(source)
-                    && !self.outbound_peers.contains_key(*p)
-                    && !self.cooldowns.is_cooling(p)
-            })
-            .cloned()
-            .collect()
-    }
-
     async fn regulate_peers(&mut self, eff: &Effects<PeerSelectionMsg>) {
         let target_upstream_peers = self.target_upstream_peers;
         let outbound = self.outbound_peers.len();
-
         if outbound >= target_upstream_peers {
             return;
         }
         let open = target_upstream_peers - outbound;
 
-        // NOTE: randomness only enters this way and tests override the effect
         let seed: [u8; 32] = eff.external(GenerateRandomSeed).await;
-        let mut rng = StdRng::from_seed(seed);
-
-        let mut eligible_counts = BTreeMap::new();
-        let mut eligible_by_source: BTreeMap<PeerSource, Vec<Peer>> = BTreeMap::new();
-        for entry in self.peer_mix.entries() {
-            let list = self.eligible_for_source(entry.source);
-            eligible_counts.insert(entry.source, list.len());
-            eligible_by_source.insert(entry.source, list);
-        }
-
-        let allotment = self.peer_mix.allot(open, &eligible_counts);
-        if allotment.values().all(|&n| n == 0) {
-            return;
-        }
-
         let now = eff.clock().await;
-        for entry in self.peer_mix.entries() {
-            let n = allotment.get(&entry.source).copied().unwrap_or(0);
-            if n == 0 {
+        let mut excluded = self.outbound_peers.keys().cloned().collect::<BTreeSet<_>>();
+        for p in self.cooldowns.cooling_peers() {
+            excluded.insert(p);
+        }
+        let picked =
+            eff.external(Performance::select_outbound(SelectOutboundParams { open, excluded, seed, now })).await;
+        for peer in picked {
+            if self.outbound_peers.contains_key(&peer) {
                 continue;
             }
-            let candidates = eligible_by_source.remove(&entry.source).unwrap_or_default();
-            if candidates.is_empty() {
-                continue;
-            }
-            let half_life = entry.half_life_or_default();
-            let weights = eff.external(Performance::outbound_weights(candidates, half_life, now)).await;
-            let mut items: Vec<(Peer, f64)> = weights.into_iter().map(|w| (w.peer, w.weight)).collect();
-            // Drop peers that became outbound mid-loop (should not happen across sources due to canonical).
-            items.retain(|(p, _)| !self.outbound_peers.contains_key(p));
-            let picked = weighted_sample_without_replacement(&mut rng, items, n);
-            for peer in picked {
-                tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
-                eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
-                self.outbound_peers.insert(peer, PeerState::Connecting);
-            }
+            tracing::info!(%peer, was_banned = false, "peer_selection.add_peer");
+            eff.send(&self.manager, ManagerMessage::AddPeer(peer.clone())).await;
+            self.outbound_peers.insert(peer, PeerState::Connecting);
         }
     }
 
@@ -579,36 +441,6 @@ impl PeerSelection {
         )
         .await;
     }
-}
-
-/// Weighted sample without replacement; higher weight is more likely.
-fn weighted_sample_without_replacement(rng: &mut StdRng, mut items: Vec<(Peer, f64)>, n: usize) -> Vec<Peer> {
-    let mut out = Vec::with_capacity(n.min(items.len()));
-    for _ in 0..n {
-        if items.is_empty() {
-            break;
-        }
-        let total: f64 = items.iter().map(|(_, w)| *w).filter(|w| w.is_finite() && *w > 0.0).sum();
-        let idx = if total <= 0.0 || !total.is_finite() {
-            rng.random_range(0..items.len())
-        } else {
-            let mut r = rng.random::<f64>() * total;
-            let mut chosen = items.len() - 1;
-            for (i, (_, w)) in items.iter().enumerate() {
-                if *w <= 0.0 || !w.is_finite() {
-                    continue;
-                }
-                r -= w;
-                if r <= 0.0 {
-                    chosen = i;
-                    break;
-                }
-            }
-            chosen
-        };
-        out.push(items.swap_remove(idx).0);
-    }
-    out
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -659,6 +491,10 @@ impl Cooldowns {
         self.cooldown_until.contains_key(peer)
     }
 
+    fn cooling_peers(&self) -> impl Iterator<Item = Peer> + '_ {
+        self.cooldown_until.keys().cloned()
+    }
+
     /// Removes a peer from the cooldowns, returning true if this empties the cooldowns.
     fn remove_and_was_last(&mut self, peer: &Peer) -> bool {
         let was_banned = self.cooldown_until.remove(peer).is_some();
@@ -686,16 +522,18 @@ impl PartialEq for Cooldowns {
 pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects<PeerSelectionMsg>) -> PeerSelection {
     match msg {
         PeerSelectionMsg::Initialize => {
+            let counts = eff.external(Performance::source_counts()).await;
             tracing::info!(
-                static_peers = state.static_peers.len(),
-                snapshot_peers = state.snapshot_candidates.len(),
+                static_peers = counts.static_peers,
+                snapshot_peers = counts.snapshot_candidates,
                 "peer_selection.connect_initial"
             );
-            for p in &state.static_peers {
+            let static_peers = eff.external(Performance::static_peers()).await;
+            for p in static_peers {
                 eff.send(&state.manager, ManagerMessage::AddPeer(p.clone())).await;
-                state.outbound_peers.insert(p.clone(), PeerState::Connecting);
+                state.outbound_peers.insert(p, PeerState::Connecting);
             }
-            // Fill any remaining outbound slots from snapshot (then ledger when available).
+            // Fill remaining outbound slots via mix + quality selection in Performance.
             state.regulate_peers(&eff).await;
             // NOTE: no supervision, failure in ledger-check shall tear down the node.
             let ledger_check = eff
@@ -837,21 +675,8 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         PeerSelectionMsg::SharePeersResult { peer, peers } => {
             // FIXME emit array once observability supports it
             let peers_list = peers.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-            let mut added = 0usize;
-            for addr in peers {
-                let shared = Peer::from_addr(&addr);
-                if state.static_peers.contains(&shared)
-                    || state.snapshot_candidates.contains(&shared)
-                    || state.ledger_candidates.contains(&shared)
-                    || shared == peer
-                {
-                    continue;
-                }
-                if state.shared_peers.insert(shared) {
-                    added += 1;
-                }
-            }
-            let total = state.shared_peers.len();
+            let SharedIngestResult { added, total } =
+                eff.external(Performance::ingest_shared_peers(peer.clone(), peers)).await;
             info!(
                 protocols::peer_selection::sharing::RECEIVED,
                 peer = peer,
@@ -863,12 +688,12 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
                 state.regulate_peers(&eff).await;
             }
         }
-        PeerSelectionMsg::LedgerCheckCandidates(candidates) => {
-            state.ledger_candidates = candidates;
+        PeerSelectionMsg::Regulate => {
             state.regulate_peers(&eff).await;
         }
         PeerSelectionMsg::ShareRequest { peer, amount, reply_to } => {
-            let selected = state.select_peers_to_share(&peer, amount, &eff).await;
+            let now = eff.clock().await;
+            let selected = eff.external(Performance::select_share_peers(peer.clone(), amount, now)).await;
             let peers_list = selected.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
             let count = selected.len();
             info!(
@@ -914,7 +739,9 @@ async fn get_ledger_candidates(mut state: LedgerCheck, _msg: (), eff: Effects<()
         }
     };
     let ledger_entries = ledger_entries.into_iter().map(|entry| Peer::from_addr(&entry)).collect();
-    eff.send(&state.stage, PeerSelectionMsg::LedgerCheckCandidates(ledger_entries)).await;
+    // Keep the large candidate set out of the parent stage mailbox / TraceBuffer path.
+    eff.external(Performance::set_ledger_candidates(ledger_entries)).await;
+    eff.send(&state.stage, PeerSelectionMsg::Regulate).await;
     state.last_height = current_height;
     reschedule_check(state, eff).await
 }

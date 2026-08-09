@@ -227,12 +227,7 @@ fn clear_availability_keeps_scores_and_share_flags() {
     assert!(peers.apply_direct_claimants(&hash(1)).is_empty());
     assert_eq!(
         peers.apply_share_flags(&alice),
-        Some(PeerShareFlags {
-            ever_connected: true,
-            advertisable: true,
-            failure_count: 0,
-            adversarial: false
-        })
+        Some(PeerShareFlags { ever_connected: true, advertisable: true, failure_count: 0, adversarial: false })
     );
     assert!(peers.apply_ok_for_sharing(&alice, t(10)));
 }
@@ -263,12 +258,7 @@ fn peer_adversarial_keeps_reputation_stub_clears_claims_and_scores() {
     assert!(snap.scores.block_response_ewma.is_none());
     assert_eq!(
         snap.share,
-        PeerShareFlags {
-            ever_connected: true,
-            advertisable: true,
-            failure_count: 1,
-            adversarial: true
-        }
+        PeerShareFlags { ever_connected: true, advertisable: true, failure_count: 1, adversarial: true }
     );
     assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
     assert!(peers.apply_direct_claimants(&hash(1)).is_empty());
@@ -285,12 +275,7 @@ fn advertisability_latest_handshake_wins() {
     peers.apply_advertisability(alice.clone(), false, t(2));
     assert_eq!(
         peers.apply_share_flags(&alice),
-        Some(PeerShareFlags {
-            ever_connected: true,
-            advertisable: false,
-            failure_count: 0,
-            adversarial: false
-        })
+        Some(PeerShareFlags { ever_connected: true, advertisable: false, failure_count: 0, adversarial: false })
     );
     assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
 
@@ -327,56 +312,57 @@ fn connection_failure_only_does_not_mark_ever_connected() {
 
     assert_eq!(
         peers.apply_share_flags(&alice),
-        Some(PeerShareFlags {
-            ever_connected: false,
-            advertisable: false,
-            failure_count: 1,
-            adversarial: false
-        })
+        Some(PeerShareFlags { ever_connected: false, advertisable: false, failure_count: 1, adversarial: false })
     );
     assert!(!peers.apply_ok_for_sharing(&alice, t(10)));
-    // Failure stubs are not treated as never-connected exploration targets.
-    let weights =
-        peers.apply_outbound_weights(std::slice::from_ref(&alice), crate::performance::MALUS_STORAGE_HALF_LIFE, t(1));
-    assert!(!weights[0].never_connected);
 }
 
 #[test]
 fn connection_malus_decays_with_half_life_without_new_samples() {
-    use crate::performance::{CONNECT_FAIL_IMPULSE, MALUS_STORAGE_HALF_LIFE, malus_at};
+    use crate::performance::{CONNECT_FAIL_IMPULSE, DEFAULT_PEER_MALUS_HALF_LIFE, malus_at};
 
     let mut peers = PeerPerformance::new();
     let alice = peer("alice");
     peers.apply_connection_failure(alice.clone(), t(0));
 
-    let weights0 = peers.apply_outbound_weights(std::slice::from_ref(&alice), MALUS_STORAGE_HALF_LIFE, t(0));
-    assert!((weights0[0].malus - CONNECT_FAIL_IMPULSE).abs() < 1e-9);
+    let hl = peers.half_life_for(&alice);
+    assert_eq!(hl, DEFAULT_PEER_MALUS_HALF_LIFE);
+    let m0 = malus_at(CONNECT_FAIL_IMPULSE, Some(t(0)), t(0), hl);
+    assert!((m0 - CONNECT_FAIL_IMPULSE).abs() < 1e-9);
 
-    // One storage half-life later (no intervening events): malus halves via lazy evaluate.
-    let half = MALUS_STORAGE_HALF_LIFE.as_secs();
-    let later = t(half);
-    let weights_hl = peers.apply_outbound_weights(std::slice::from_ref(&alice), MALUS_STORAGE_HALF_LIFE, later);
-    assert!((weights_hl[0].malus - CONNECT_FAIL_IMPULSE * 0.5).abs() < 1e-9, "malus={}", weights_hl[0].malus);
-
-    let m = malus_at(CONNECT_FAIL_IMPULSE, Some(t(0)), later, MALUS_STORAGE_HALF_LIFE);
+    // One half-life later (no intervening events): malus halves via lazy evaluate.
+    let later = t(hl.as_secs());
+    let m = malus_at(CONNECT_FAIL_IMPULSE, Some(t(0)), later, hl);
     assert!((m - CONNECT_FAIL_IMPULSE * 0.5).abs() < 1e-9, "m={m}");
 }
 
 #[test]
-fn outbound_weights_prefer_never_connected_over_fresh_failure() {
-    use crate::performance::MALUS_STORAGE_HALF_LIFE;
+fn outbound_selection_prefers_never_connected_over_fresh_failure() {
+    use std::collections::BTreeSet;
 
-    let mut peers = PeerPerformance::new();
-    let good = peer("good");
-    let bad = peer("bad");
+    use crate::performance::{PeerMix, SelectOutboundParams};
+
+    let good = peer("good:1");
+    let bad = peer("bad:1");
+    let mut peers = PeerPerformance::with_sources(
+        BTreeSet::from([good.clone(), bad.clone()]),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        PeerMix::parse("static~1").unwrap(),
+    );
     peers.apply_connection_failure(bad.clone(), t(1));
 
-    let weights = peers.apply_outbound_weights(&[good.clone(), bad.clone()], MALUS_STORAGE_HALF_LIFE, t(1));
-    let w_good = weights.iter().find(|w| w.peer == good).unwrap();
-    let w_bad = weights.iter().find(|w| w.peer == bad).unwrap();
-    assert!(w_good.never_connected);
-    assert!(!w_bad.never_connected);
-    assert!(w_good.weight > w_bad.weight);
+    // Open=1: should strongly prefer never-connected good over failed bad.
+    let mut good_picks = 0;
+    for i in 0..20u8 {
+        let seed = [i; 32];
+        let picked =
+            peers.apply_select_outbound(SelectOutboundParams { open: 1, excluded: BTreeSet::new(), seed, now: t(1) });
+        if picked == vec![good.clone()] {
+            good_picks += 1;
+        }
+    }
+    assert!(good_picks >= 15, "good_picks={good_picks}");
 }
 
 #[test]

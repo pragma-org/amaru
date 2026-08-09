@@ -14,16 +14,20 @@
 
 //! Admin `peer-mix` formula: floors, proportional weights, per-source malus half-lives.
 //!
-//! See [EDR-031](../../../../../../engineering-decision-records/031-peer-source-mix.md).
+//! A comma-separated token that is only `@duration` (no source name) sets the default
+//! half-life for **following** entries until another naked `@…` appears. Per-entry `@…`
+//! still overrides that default for that source only.
+//!
+//! See [EDR-031](../../../../../engineering-decision-records/031-peer-source-mix.md).
 
 use std::{collections::BTreeMap, fmt, str::FromStr, time::Duration};
 
 use thiserror::Error;
 
 /// Default formula shipped with the node (static floor, then shared / snapshot / ledger proportions).
-pub const DEFAULT_PEER_MIX: &str = "static!2@2h, shared~6@6h, snapshot~8@12h, ledger~4@24h";
+pub const DEFAULT_PEER_MIX: &str = "static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h";
 
-/// Global malus half-life when an entry omits `@…`.
+/// Initial running half-life before any naked `@…` token (and fallback when none is set).
 pub const DEFAULT_MALUS_HALF_LIFE: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Named outbound candidate source (extensible registry).
@@ -70,14 +74,9 @@ pub struct MixEntry {
     pub floor: u32,
     /// Proportional weight (`~n`). Zero excludes the source from proportional fill (floors still apply).
     pub weight: u32,
-    /// Optional per-source malus half-life (`@duration`); `None` ⇒ [`DEFAULT_MALUS_HALF_LIFE`].
-    pub half_life: Option<Duration>,
-}
-
-impl MixEntry {
-    pub fn half_life_or_default(&self) -> Duration {
-        self.half_life.unwrap_or(DEFAULT_MALUS_HALF_LIFE)
-    }
+    /// Malus half-life for this source (`@duration` on the entry, else the running default
+    /// from a preceding naked `@…` token, else [`DEFAULT_MALUS_HALF_LIFE`]).
+    pub half_life: Duration,
 }
 
 /// Parsed peer-mix configuration (declaration order preserved for spill).
@@ -91,30 +90,10 @@ impl Default for PeerMix {
         // Keep in sync with [`DEFAULT_PEER_MIX`].
         Self {
             entries: vec![
-                MixEntry {
-                    source: PeerSource::Static,
-                    floor: 2,
-                    weight: 1,
-                    half_life: Some(Duration::from_secs(2 * 3600)),
-                },
-                MixEntry {
-                    source: PeerSource::Shared,
-                    floor: 0,
-                    weight: 6,
-                    half_life: Some(Duration::from_secs(6 * 3600)),
-                },
-                MixEntry {
-                    source: PeerSource::Snapshot,
-                    floor: 0,
-                    weight: 8,
-                    half_life: Some(Duration::from_secs(12 * 3600)),
-                },
-                MixEntry {
-                    source: PeerSource::Ledger,
-                    floor: 0,
-                    weight: 4,
-                    half_life: Some(Duration::from_secs(24 * 3600)),
-                },
+                MixEntry { source: PeerSource::Static, floor: 2, weight: 1, half_life: Duration::from_secs(15 * 60) },
+                MixEntry { source: PeerSource::Shared, floor: 0, weight: 6, half_life: Duration::from_secs(6 * 3600) },
+                MixEntry { source: PeerSource::Snapshot, floor: 0, weight: 3, half_life: Duration::from_secs(3600) },
+                MixEntry { source: PeerSource::Ledger, floor: 0, weight: 3, half_life: Duration::from_secs(24 * 3600) },
             ],
         }
     }
@@ -132,12 +111,18 @@ impl PeerMix {
         }
         let mut entries = Vec::new();
         let mut seen = BTreeMap::new();
+        // Running default half-life for entries that omit `@…`. Updated by naked `@duration` tokens.
+        let mut running_half_life = DEFAULT_MALUS_HALF_LIFE;
         for (part_idx, part) in s.split(',').enumerate() {
             let part = part.trim();
             if part.is_empty() {
                 return Err(PeerMixParseError::EmptyEntry { index: part_idx });
             }
-            let entry = parse_entry(part, part_idx)?;
+            if let Some(default_hl) = parse_naked_half_life(part, part_idx)? {
+                running_half_life = default_hl;
+                continue;
+            }
+            let entry = parse_entry(part, part_idx, running_half_life)?;
             if let Some(prev) = seen.insert(entry.source, part_idx) {
                 return Err(PeerMixParseError::DuplicateSource {
                     name: entry.source.to_string(),
@@ -146,6 +131,9 @@ impl PeerMix {
                 });
             }
             entries.push(entry);
+        }
+        if entries.is_empty() {
+            return Err(PeerMixParseError::Empty);
         }
         Ok(Self { entries })
     }
@@ -217,8 +205,8 @@ impl fmt::Display for PeerMix {
             if e.weight != 1 || e.floor == 0 {
                 write!(f, "~{}", e.weight)?;
             }
-            if let Some(hl) = e.half_life {
-                write!(f, "@{}", format_duration(hl))?;
+            if e.half_life != DEFAULT_MALUS_HALF_LIFE {
+                write!(f, "@{}", format_duration(e.half_life))?;
             }
         }
         Ok(())
@@ -241,7 +229,34 @@ pub enum PeerMixParseError {
     InvalidDuration { raw: String, index: usize },
 }
 
-fn parse_entry(part: &str, index: usize) -> Result<MixEntry, PeerMixParseError> {
+/// A token that is only `@duration` (no source name): updates the running default half-life.
+fn parse_naked_half_life(part: &str, index: usize) -> Result<Option<Duration>, PeerMixParseError> {
+    let part = part.trim();
+    if !part.starts_with('@') {
+        return Ok(None);
+    }
+    // Must not look like a source entry (sources start with a letter).
+    let rest = part[1..].trim_start();
+    if rest.is_empty() {
+        return Err(PeerMixParseError::InvalidEntry { index, detail: "expected duration after naked '@'".into() });
+    }
+    // Reject `@2hstatic` style: the whole rest must be a single duration token.
+    let (tok, after) = take_token(rest);
+    if !after.trim().is_empty() {
+        return Ok(None); // not a pure naked default; let parse_entry fail if malformed
+    }
+    // If it doesn't parse as a duration, treat as invalid naked default rather than unknown source.
+    let Some(d) = parse_duration(tok) else {
+        // Could be `@foo` — still invalid as both naked default and source entry.
+        if PeerSource::parse(part).is_none() && !part.as_bytes().get(1).is_some_and(|b| b.is_ascii_alphabetic()) {
+            return Err(PeerMixParseError::InvalidDuration { raw: tok.to_string(), index });
+        }
+        return Ok(None);
+    };
+    Ok(Some(d))
+}
+
+fn parse_entry(part: &str, index: usize, running_half_life: Duration) -> Result<MixEntry, PeerMixParseError> {
     // name [ !floor ] [ ~weight ] [ @duration ]
     let bytes = part.as_bytes();
     let mut i = 0;
@@ -257,7 +272,7 @@ fn parse_entry(part: &str, index: usize) -> Result<MixEntry, PeerMixParseError> 
 
     let mut floor = 0u32;
     let mut weight: Option<u32> = None;
-    let mut half_life = None;
+    let mut half_life = running_half_life;
     let mut rest = part[i..].trim_start();
 
     while !rest.is_empty() {
@@ -288,10 +303,8 @@ fn parse_entry(part: &str, index: usize) -> Result<MixEntry, PeerMixParseError> 
                         detail: "expected duration after '@'".into(),
                     });
                 }
-                half_life = Some(
-                    parse_duration(tok)
-                        .ok_or_else(|| PeerMixParseError::InvalidDuration { raw: tok.to_string(), index })?,
-                );
+                half_life = parse_duration(tok)
+                    .ok_or_else(|| PeerMixParseError::InvalidDuration { raw: tok.to_string(), index })?;
                 rest = next.trim_start();
             }
             _ => {
@@ -412,13 +425,41 @@ mod tests {
         assert_eq!(m.entries()[0].source, PeerSource::Static);
         assert_eq!(m.entries()[0].floor, 2);
         assert_eq!(m.entries()[1].weight, 6);
+
+        let def = PeerMix::parse(DEFAULT_PEER_MIX).unwrap();
+        assert_eq!(m, def);
     }
 
     #[test]
     fn parse_weights_and_decay() {
         let m = PeerMix::parse("static!2@2h, shared~6@6h, ledger~0").unwrap();
-        assert_eq!(m.entries()[0].half_life, Some(Duration::from_secs(2 * 3600)));
+        assert_eq!(m.entries()[0].half_life, Duration::from_secs(2 * 3600));
         assert_eq!(m.entries()[2].weight, 0);
+        // No `@` and no preceding naked default ⇒ built-in 6h default applied at parse.
+        assert_eq!(m.entries()[2].half_life, DEFAULT_MALUS_HALF_LIFE);
+    }
+
+    #[test]
+    fn naked_half_life_sets_default_for_following_entries() {
+        let m = PeerMix::parse("@12h, static!2, shared~6, ledger~4@48h").unwrap();
+        assert_eq!(m.entries().len(), 3);
+        assert_eq!(m.entries()[0].half_life, Duration::from_secs(12 * 3600));
+        assert_eq!(m.entries()[1].half_life, Duration::from_secs(12 * 3600));
+        // Per-entry `@` overrides the running default for that entry only.
+        assert_eq!(m.entries()[2].half_life, Duration::from_secs(48 * 3600));
+    }
+
+    #[test]
+    fn naked_half_life_can_change_mid_formula() {
+        let m = PeerMix::parse("static!1, @2h, shared~1, @1d, ledger~1").unwrap();
+        assert_eq!(m.entries()[0].half_life, DEFAULT_MALUS_HALF_LIFE);
+        assert_eq!(m.entries()[1].half_life, Duration::from_secs(2 * 3600));
+        assert_eq!(m.entries()[2].half_life, Duration::from_secs(24 * 3600));
+    }
+
+    #[test]
+    fn only_naked_defaults_is_empty() {
+        assert!(matches!(PeerMix::parse("@6h, @12h"), Err(PeerMixParseError::Empty)));
     }
 
     #[test]
