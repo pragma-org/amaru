@@ -80,8 +80,8 @@ impl<'a> AdoptedBlock<'a> {
             move |(ix, (body, witnesses))| TransactionRef {
                 body,
                 witnesses: witnesses.as_ref(),
-                is_expected_valid: invalid.is_none_or(|set| !set.contains(&(ix as u32))),
-                auxiliary_data: self.block.auxiliary_data.get(&(ix as u32)),
+                is_expected_valid: invalid.is_none_or(|set| !set.contains(&(ix as u16))),
+                auxiliary_data: self.block.auxiliary_data.get(&(ix as u16)),
             },
         )
     }

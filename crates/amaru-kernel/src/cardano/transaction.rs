@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AuxiliaryData, TransactionBody, TransactionId, WitnessSet, cbor, ed25519};
+use crate::{AuxiliaryData, TransactionBody, TransactionId, TransactionRef, WitnessSet, cbor, ed25519};
 
 const CHAIN_CODE_SIZE: usize = 32;
 

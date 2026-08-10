@@ -727,9 +727,9 @@ mod tests {
     };
 
     use amaru_kernel::{
-        Anchor, Bytes, ConstitutionalCommitteeUpdate, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace, MaxString128,
-        OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalEnum, ProposalId,
-        ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, Slot, TransactionPointer,
+        Anchor, Bytes, ConstitutionalCommitteeUpdate, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
+        MaxString128, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalEnum,
+        ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, Slot, TransactionPointer,
         any_constitution, any_constitutional_committee_update, any_gov_action, any_proposal_enum, any_proposal_id,
         any_proposal_pointer, any_protocol_params_update, any_protocol_version, any_reward_account,
     };

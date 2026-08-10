@@ -135,11 +135,11 @@ impl IntoIterator for Block {
 }
 
 impl<'a> IntoIterator for &'a Block {
-    type Item = (u32, TransactionRef<'a>, u64);
+    type Item = (u16, TransactionRef<'a>, u64);
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Box::new((0u32..).zip(self.transaction_bodies.iter()).zip(&self.transaction_witnesses).map(
+        Box::new((0u16..).zip(self.transaction_bodies.iter()).zip(&self.transaction_witnesses).map(
             |((i, body), witnesses)| {
                 let is_expected_valid =
                     !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);

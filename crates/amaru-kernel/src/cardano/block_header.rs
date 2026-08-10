@@ -17,7 +17,8 @@ use std::{cmp::Ordering, fmt};
 use anyhow::anyhow;
 
 use crate::{
-    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, VKey, cbor, ed25519,
+    BlockHeight, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Point, PoolId, Slot, Tip, VerificationKey, cbor,
+    ed25519,
     size::{HEADER, POOL_COLD_KEY},
     to_cbor,
 };

@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{
     Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot,
-    TransactionId, TransactionPointer, cardano::transaction_ref::TransactionRef, size::BLOCK_BODY,
+    TransactionId, TransactionIndex, TransactionPointer, cardano::transaction_ref::TransactionRef, size::BLOCK_BODY,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
