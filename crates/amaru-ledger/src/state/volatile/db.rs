@@ -22,7 +22,7 @@ use amaru_kernel::{
 
 use crate::{
     epoch_transition::{
-        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
     state::{
         AnchoredVolatileFragment, StateError,
@@ -324,6 +324,10 @@ impl VolatileDB {
     /// Whether the rewards for the in-flight epoch are still to be computed.
     pub fn rewards_not_ready(&self) -> bool {
         matches!(self.overlay.rewards(), RewardsState::NotReady)
+    }
+
+    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
+        self.overlay.take_computed_rewards()
     }
 
     /// Ensure that the 'draining' sequence is empty before we cross an epoch boundary. Note that

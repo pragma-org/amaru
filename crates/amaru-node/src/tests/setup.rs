@@ -178,13 +178,14 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
         }
         Action::Rollback { rollback_point, .. } => {
             tracing::info!(point = %rollback_point, "rollback");
+            let tip = Tip::new(*rollback_point, BlockHeight::from(rollback_point.slot_or_default().as_u64()));
             store
                 .switch_to_fork(rollback_point, &NonEmptyVec::singleton(*rollback_point))
                 .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot rollback the chain to {}: {e:?}. The seed is {seed}", &rollback_point,);
                 })
                 .await;
-            Tip::new(*rollback_point, BlockHeight::from(rollback_point.slot_or_default().as_u64()))
+            tip
         }
     };
     store

@@ -23,7 +23,7 @@ use tracing::Span;
 
 use crate::{
     epoch_transition::{
-        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
     state::{
         StateError,
@@ -432,6 +432,10 @@ impl StateOverlay {
     /// A read-only handle on the rewards state.
     pub fn rewards(&self) -> &RewardsState {
         &self.rewards
+    }
+
+    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
+        self.rewards.take_computed_rewards()
     }
 }
 

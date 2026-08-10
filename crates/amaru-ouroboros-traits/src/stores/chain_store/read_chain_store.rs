@@ -148,16 +148,16 @@ pub trait ReadChainStore: BaseReadChainStore {
         };
         let mut forward_points = Vec::new();
         for ancestor in ancestors_on_snapshot(header, &*snapshot) {
-            let point = ancestor.point();
-            if snapshot.load_from_best_chain(&point).is_some() {
+            let tip = ancestor.point();
+            if snapshot.load_from_best_chain(&tip).is_some() {
                 forward_points.reverse();
                 if let Ok(forward_points) = NonEmptyVec::try_from(forward_points) {
-                    return Ok(FindAncestorOnBestChainResult::Found { fork_point: point, forward_points });
+                    return Ok(FindAncestorOnBestChainResult::Found { fork_point: tip, forward_points });
                 } else {
                     break;
                 }
             }
-            forward_points.push(point);
+            forward_points.push(tip);
         }
         Ok(FindAncestorOnBestChainResult::NotFound)
     }

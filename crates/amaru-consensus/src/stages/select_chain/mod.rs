@@ -279,22 +279,22 @@ impl SelectChain {
             return eff.terminate().await;
         }
 
+        let tip_hash = tip.hash();
         store
-            .set_block_valid(&tip.hash(), valid)
+            .set_block_valid(&tip_hash, valid)
             .or_terminate_with(&eff, async |error| {
                 tracing::error!(%error, %valid, "failed to store block validation result");
             })
             .await;
 
         if valid {
-            let h = tip.hash();
             self.tips.values_mut().for_each(|v| {
-                if let Some(idx) = v.iter().position(|hash| hash == &h) {
+                if let Some(idx) = v.iter().position(|hash| hash == &tip_hash) {
                     v.drain(0..=idx);
                 }
             });
             let now = eff.clock().await;
-            eff.external(Performance::record_block_valid(h, now, syncing)).await;
+            eff.external(Performance::record_block_valid(tip_hash, now, syncing)).await;
             return;
         }
         // INVALID CASE
@@ -303,7 +303,7 @@ impl SelectChain {
         // (if a peer sends further headers on this chain, we will ignore them)
         let prev_tips = self.tips.len();
         let pruned: Vec<HeaderHash> =
-            self.tips.extract_if(.., |_k, v| v.first() == Some(&tip.hash())).flat_map(|(_, v)| v).collect();
+            self.tips.extract_if(.., |_k, v| v.contains(&tip_hash)).flat_map(|(_, v)| v).collect();
         let removed = prev_tips - self.tips.len();
 
         let mut switched_to = None;
@@ -348,7 +348,7 @@ impl SelectChain {
         // we dropped because a better chain is available
         let now = eff.clock().await;
         for hash in &pruned {
-            eff.external(Performance::record_block_pruned(*hash, hash == &tip.hash(), now, syncing)).await;
+            eff.external(Performance::record_block_pruned(*hash, hash == &tip_hash, now, syncing)).await;
         }
 
         // switching away from the invalidated best tip to another candidate is a fork switch

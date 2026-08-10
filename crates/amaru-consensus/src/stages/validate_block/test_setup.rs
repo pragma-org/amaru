@@ -201,8 +201,8 @@ pub fn te_validate_block(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(&point))))
 }
 
-pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(point))))
+pub fn te_rollback_ledger(at_stage: &str, tip: &Tip) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(tip))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {

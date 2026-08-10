@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{BlockHeight, Point, Tip};
+use amaru_metrics::LedgerMetrics;
 use amaru_observability::{TraceContext, debug_span};
+use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
 use tracing::Instrument;
 
@@ -30,25 +32,27 @@ use crate::{
 /// On receipt:
 /// - If `parent == Point::Origin`: log error and `eff.terminate()` (no downstream signals).
 /// - `state.max_block_height = msg.max_block_height.max(state.max_block_height)`.
-/// - If `msg.parent != state.current`: invoke `roll_back_to_ancestor` (which may emit `contains_volatile_point`,
-///   `rollback`, `load_header_with_validity`, etc. effects). On `Err` from the helper: send
-///   `SelectChainMsg::BlockValidationResult(msg.tip, false, state.max_block_height)` and `BlockSourceMsg::Validation { valid: false, point: msg.tip.point() }`
-///   then return (no adopt). On success, set `current` and (if needed) roll forward over `forward_points`, calling
-///   `validate(...)` on each; any failure during forward sends `...Result(msg.tip, false)` + `Validation { valid: false, point }` (the failing ancestor)
-///   and returns early.
-/// - Always (if still running): call `validate(msg.tip.point(), ...)` (emits `ValidateBlockEffect` via `Ledger`).
+/// - If `msg.parent == state.current`: the block extends the ledger and is validated via
+///   `Ledger::validate_block` (a `ValidateBlockEffect`).
 ///   - Success: record `LedgerMetrics`, send `SelectChainMsg::BlockValidationResult(msg.tip, true, state.max_block_height)`,
 ///     `BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }`, and
-///     `AdoptChainMsg::new(msg.tip, msg.max_block_height)` to manager; update `state.current = msg.tip.point()`.
-///   - `Err`: log warn "invalid block", send `...Result(msg.tip, false)` + `Validation { valid: false, ... }` (no adopt, no current update).
+///     `AdoptChainMsg::new(msg.tip, state.max_block_height)` to manager; update `state.current = msg.tip.point()`.
+///   - `Err`: log warn, send `...Result(msg.tip, false)` + `Validation { valid: false, ... }` (no adopt, no current update).
+/// - Otherwise: ask the ledger to switch to the fork ending at `msg.tip` (`Ledger::switch_to_fork`,
+///   a `SwitchToForkEffect`) and route its `ForkSwitchOutcome`:
+///   - `Completed`: same signals as a successful extension.
+///   - `Partial { applied_tip, failure, .. }`: the ledger kept the fork's valid prefix; signal `applied_tip`
+///     as a successful extension (metrics, results, adopt, `current = applied_tip.point()`), then send
+///     `...Result(failure.tip, false)` + `Validation { valid: false, ... }` for the failing block. No result
+///     is sent for `msg.tip` itself: select_chain condemns descendants of an invalid block transitively.
+///   - `RolledBack { failure }`: the ledger restored its pre-switch state; send
+///     `...Result(failure.tip, false)` + `Validation { valid: false, ... }` (the failing block may differ
+///     from `msg.tip`).
 ///
 /// Validation is never direct; it is always via external effects (handled by `ResourceBlockValidation` etc.).
-/// The stage tracks "current" (ledger tip invariant) and max height but only signals adopt on *final tip success*.
-/// Partial ancestor work (successful rollbacks/forwards) updates local state + metrics but produces no select/block_source/manager messages.
-/// Error signaling for `valid: false` is *not* uniform: some paths send the false messages and continue; others
-/// (ledger failures inside `validate`/`roll_back_to_ancestor`, genesis, certain rollback ops) hit `or_terminate_with` or direct `terminate` and produce no `false` signals (or terminate the stage entirely).
+/// Ledger infrastructure errors hit `or_terminate_with` and terminate the stage without `false` signals.
 ///
-/// See `validate` and `roll_back_to_ancestor` helpers for details.
+/// See the `completed` and `error` helpers for the exact signal sequences.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlock {
     adopt_chain: StageRef<AdoptChainMsg>,
@@ -108,44 +112,82 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
         let ledger = Ledger::new(eff.clone()).with_trace_context(&stage_context);
         tracing::debug!(parent = %msg.parent, current = %state.current, tip = %tip, "validating block");
 
-        let result = if msg.parent == state.current {
-            ledger.validate_block(&tip.point())
+        if msg.parent == state.current {
+            let result = ledger
+                .validate_block(&tip.point())
+                .or_terminate_with(&eff, async |err| {
+                    tracing::warn!(tip = %msg.tip, err = %err, "failed to validate the new block");
+                })
+                .await;
+            match result {
+                Ok(metrics) => completed(&mut state, tip, &eff, metrics).await,
+                Err(err) => {
+                    error(
+                        &mut state,
+                        tip,
+                        msg.parent,
+                        &eff,
+                        &err.to_string(),
+                        "failed to advance the ledger to a new tip",
+                    )
+                    .await;
+                }
+            }
         } else {
             tracing::info!(parent = %msg.parent, current = %state.current, "switching the ledger to a new fork");
-            ledger.switch_to_fork(&tip.point())
-        }
-        .or_terminate_with(&eff, async |err| {
-            tracing::warn!(tip = %msg.tip, err = %err, "failed to validate the new block");
-        })
-        .await;
-
-        match result {
-            Ok(metrics) => {
-                Metrics::new(&eff).record(metrics.into()).await;
-                eff.send(
-                    &state.select_chain,
-                    SelectChainMsg::BlockValidationResult(msg.tip, true, state.max_block_height),
-                )
+            let result = ledger
+                .switch_to_fork(&tip)
+                .or_terminate_with(&eff, async |err| {
+                    tracing::warn!(tip = %msg.tip, err = %err, "failed to switch to a new fork");
+                })
                 .await;
-                eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }).await;
-                eff.send(&state.adopt_chain, AdoptChainMsg::new(msg.tip, state.max_block_height)).await;
-                state.current = msg.tip.point();
-            }
-            Err(err) => {
-                tracing::warn!(error = %err, parent = %msg.parent, "failed to fork the ledger to a new tip");
-                eff.send(
-                    &state.select_chain,
-                    SelectChainMsg::BlockValidationResult(msg.tip, false, state.max_block_height),
-                )
-                .await;
-                eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: msg.tip.point() })
+            match result {
+                ForkSwitchOutcome::Completed { metrics } => completed(&mut state, tip, &eff, metrics).await,
+                ForkSwitchOutcome::Partial { metrics, applied_tip, failure } => {
+                    // mark blocks up to applied_tip as valid
+                    completed(&mut state, applied_tip, &eff, metrics).await;
+                    // marks blocks from failure.tip as invalid and sends the appropriate signals to other stages
+                    error(&mut state, failure.tip, msg.parent, &eff, &failure.reason, "fork switch partially applied")
+                        .await;
+                }
+                ForkSwitchOutcome::Failed { failure } => {
+                    error(
+                        &mut state,
+                        failure.tip,
+                        msg.parent,
+                        &eff,
+                        &failure.reason,
+                        "failed to fork the ledger to a new tip",
+                    )
                     .await;
+                }
             }
-        }
+        };
         state
     }
     .instrument(span)
     .await
+}
+
+async fn completed(state: &mut ValidateBlock, tip: Tip, eff: &Effects<ValidateBlockMsg>, metrics: LedgerMetrics) {
+    Metrics::new(eff).record(metrics.into()).await;
+    eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(tip, true, state.max_block_height)).await;
+    eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: tip.point() }).await;
+    eff.send(&state.adopt_chain, AdoptChainMsg::new(tip, state.max_block_height)).await;
+    state.current = tip.point();
+}
+
+async fn error(
+    state: &mut ValidateBlock,
+    tip: Tip,
+    parent: Point,
+    eff: &Effects<ValidateBlockMsg>,
+    reason: &str,
+    message: &str,
+) {
+    tracing::warn!(error = %reason, parent = %parent, message);
+    eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(tip, false, state.max_block_height)).await;
+    eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: tip.point() }).await;
 }
 
 #[cfg(test)]

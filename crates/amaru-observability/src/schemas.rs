@@ -286,6 +286,7 @@ define_schemas! {
                     required fork_point: amaru_kernel::Point
                     required fork_length: usize
                     required rollback_length: usize
+                    optional outcome: String
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}
