@@ -21,15 +21,15 @@ use crate::{PoolSummaries, PoolSummary};
 /// Helper for tests. Use `to_pool_summaries` (with the pool id of the header issuer) to
 /// obtain a `PoolSummaries` that will answer for the given pool.
 pub struct MockLedgerState {
-    pub vrf_vkey_hash: Hash<VRF_KEY>,
+    pub vrf_verification_key_hash: Hash<VRF_KEY>,
     pub stake: Lovelace,
     pub active_stake: Lovelace,
 }
 
 impl MockLedgerState {
     #[expect(clippy::unwrap_used)]
-    pub fn new(vrf_vkey_hash: &str, stake: Lovelace, active_stake: Lovelace) -> Self {
-        Self { vrf_vkey_hash: vrf_vkey_hash.parse().unwrap(), stake, active_stake }
+    pub fn new(vrf_verification_key_hash: &str, stake: Lovelace, active_stake: Lovelace) -> Self {
+        Self { vrf_verification_key_hash: vrf_verification_key_hash.parse().unwrap(), stake, active_stake }
     }
 
     /// Build a PoolSummaries that will return the mocked data for the specified pool at epoch 0.
@@ -37,7 +37,10 @@ impl MockLedgerState {
     /// header's slot such that (slot_epoch - 2) == 0, or populate additional epochs.
     pub fn to_pool_summaries(&self, pool: PoolId, epoch: Epoch) -> PoolSummaries {
         let mut pools = BTreeMap::new();
-        pools.insert(pool, PoolSummary { vrf: self.vrf_vkey_hash, stake: self.stake, active_stake: self.active_stake });
+        pools.insert(
+            pool,
+            PoolSummary { vrf: self.vrf_verification_key_hash, stake: self.stake, active_stake: self.active_stake },
+        );
         let mut by_epoch = BTreeMap::new();
         by_epoch.insert(epoch, pools);
         PoolSummaries { by_epoch }

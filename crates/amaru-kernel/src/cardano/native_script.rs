@@ -112,11 +112,11 @@ impl<C> cbor::encode::Encode<C> for NativeScript {
 
 impl NativeScript {
     /// Evaluate a native script against a set of required signer key hashes and a transaction validity interval.
-    pub fn eval(&self, vkey_hashes: &BTreeSet<Hash<KEY>>, validity_interval: ValidityInterval) -> bool {
+    pub fn eval(&self, verification_key_hashes: &BTreeSet<Hash<KEY>>, validity_interval: ValidityInterval) -> bool {
         match self {
-            Self::ScriptPubkey(key) => vkey_hashes.contains(key),
-            Self::ScriptAll(scripts) => scripts.iter().all(|s| s.eval(vkey_hashes, validity_interval)),
-            Self::ScriptAny(scripts) => scripts.iter().any(|s| s.eval(vkey_hashes, validity_interval)),
+            Self::ScriptPubkey(key) => verification_key_hashes.contains(key),
+            Self::ScriptAll(scripts) => scripts.iter().all(|s| s.eval(verification_key_hashes, validity_interval)),
+            Self::ScriptAny(scripts) => scripts.iter().any(|s| s.eval(verification_key_hashes, validity_interval)),
             // NOTE: Laziness of ScriptNOfK
             //
             // The NOfK scripts are evaluated lazily, stopping once we have n scripts that evaluate to
@@ -124,7 +124,7 @@ impl NativeScript {
             Self::ScriptNOfK(n, scripts) => {
                 // A non-positive threshold is trivially satisfied, matching the ledger's `m <= satisfied`.
                 let n = (*n).max(0) as usize;
-                scripts.iter().filter(|s| s.eval(vkey_hashes, validity_interval)).take(n).count() == n
+                scripts.iter().filter(|s| s.eval(verification_key_hashes, validity_interval)).take(n).count() == n
             }
             // `lteNegInfty`: a lock requiring `lock_start <= ValidityInterval::lower_bound()` can only be satisfied when
             // `tx_start` is given. A missing lower bound is treated as -inf and always fails.
@@ -224,7 +224,7 @@ mod tests {
         "nested all any timelock all conditions pass"
     )]
         fn ok(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
-            assert!(script.eval(&context_vkey_hashes(context_keys), validity_interval));
+            assert!(script.eval(&context_verification_key_hashes(context_keys), validity_interval));
         }
 
         #[test_case(vk(3), &[vk(1), vk(2)], always(); "script pubkey absent")]
@@ -256,7 +256,7 @@ mod tests {
         "nested all any timelock key check fails"
     )]
         fn ko(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
-            assert!(!script.eval(&context_vkey_hashes(context_keys), validity_interval));
+            assert!(!script.eval(&context_verification_key_hashes(context_keys), validity_interval));
         }
 
         // ------------------------------------------------------------------------ Helpers
@@ -294,7 +294,7 @@ mod tests {
         }
 
         #[allow(clippy::wildcard_enum_match_arm)]
-        fn context_vkey_hashes(context_keys: &[NativeScript]) -> BTreeSet<Hash<KEY>> {
+        fn context_verification_key_hashes(context_keys: &[NativeScript]) -> BTreeSet<Hash<KEY>> {
             context_keys
                 .iter()
                 .map(|script| match script {

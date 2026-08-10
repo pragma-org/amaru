@@ -47,8 +47,8 @@ pub use outputs::InvalidOutputs;
 
 pub mod proposals;
 
-pub mod vkey_witness;
-pub use vkey_witness::InvalidVKeyWitness;
+pub mod verification_key_witness;
+pub use verification_key_witness::InvalidVerificationKeyWitness;
 
 pub mod voting_procedures;
 
@@ -86,7 +86,7 @@ pub enum PhaseOneError {
     Withdrawals(#[from] InvalidWithdrawals),
 
     #[error("invalid transaction verification key witness: {0}")]
-    VKeyWitness(#[from] InvalidVKeyWitness),
+    VerificationKeyWitness(#[from] InvalidVerificationKeyWitness),
 
     #[error("invalid transaction scripts: {0}")]
     Scripts(#[from] InvalidScripts),
@@ -306,14 +306,14 @@ where
 
     debug_span!(ledger::rules::phase_one::SIGNATURES).in_scope(|| {
         for vk_hash in transaction_body.required_signers.as_deref().unwrap_or(&[]) {
-            context.require_vkey_witness(*vk_hash);
+            context.require_verification_key_witness(*vk_hash);
         }
 
-        vkey_witness::execute(
+        verification_key_witness::execute(
             context,
             transaction_id,
             transaction_witness_set.bootstrap_witness.as_deref(),
-            transaction_witness_set.vkeywitness.as_deref(),
+            transaction_witness_set.verification_key_witness.as_deref(),
         )
     })?;
 

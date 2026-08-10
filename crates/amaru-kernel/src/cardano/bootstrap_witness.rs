@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BoundedBytes, Ed25519Signature, VKey, cbor};
+use crate::{BoundedBytes, Ed25519Signature, VerificationKey, cbor};
 
 pub const CHAIN_CODE_SIZE: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct BootstrapWitness {
     #[n(0)]
-    pub public_key: VKey,
+    pub public_key: VerificationKey,
 
     #[n(1)]
     pub signature: Ed25519Signature,

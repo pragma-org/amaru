@@ -162,13 +162,13 @@ where
         Certificate::PoolRegistration(params) => {
             let PoolParams { id, cost, reward_account, owners, .. } = params.as_ref();
 
-            context.require_vkey_witness(*id);
+            context.require_verification_key_witness(*id);
 
             // https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/UTxO.hs#L250-L256
             // The Haskell node requires both the owners and the operators, which may be the same pkh.
             // TODO: We need coverage for this branch, we have none in either conformance tests or unit tests.
             for owner in owners.iter() {
-                context.require_vkey_witness(*owner);
+                context.require_verification_key_witness(*owner);
             }
 
             let reward_account_network =
@@ -201,7 +201,7 @@ where
         }
 
         Certificate::PoolRetirement(id, retirement_epoch) => {
-            context.require_vkey_witness(id);
+            context.require_verification_key_witness(id);
 
             // NOTE: Some conformance tests fail this check because the Haskell imp tests run on
             // a synthetic test chain whose epoch/slot mapping differs from our era_history. Our
@@ -248,7 +248,7 @@ where
             if deposit > 0 {
                 match credential {
                     StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                    StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                    StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
                 };
             }
 
@@ -266,7 +266,7 @@ where
         Certificate::StakeDeregistration(credential) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
 
             let account = AccountsSlice::lookup(context, &credential)
@@ -285,7 +285,7 @@ where
         Certificate::UnReg(credential, refund) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
 
             let account = AccountsSlice::lookup(context, &credential)
@@ -308,7 +308,7 @@ where
         Certificate::StakeDelegation(credential, pool) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
 
             context.delegate_pool(credential, pool, pointer)?;
@@ -319,7 +319,7 @@ where
         Certificate::RegDRepCert(drep, deposit, anchor) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
 
             let expected = protocol_parameters.drep_deposit;
@@ -346,7 +346,7 @@ where
         Certificate::UnRegDRepCert(drep, refund) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
 
             let deposit = match DRepsSlice::lookup(context, &drep) {
@@ -367,7 +367,7 @@ where
         Certificate::UpdateDRepCert(drep, anchor) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
 
             DRepsSlice::update(context, drep, anchor)?;
@@ -378,7 +378,7 @@ where
         Certificate::VoteDeleg(credential, drep) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
 
             AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
@@ -389,7 +389,7 @@ where
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
             match cold_credential {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
             CommitteeSlice::delegate_cold_key(context, cold_credential, hot_credential)?;
             Ok(())
@@ -398,7 +398,7 @@ where
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
             match cold_credential {
                 StakeCredential::ScriptHash(hash) => context.require_script_witness(into_required_script(hash)),
-                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
             };
             CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())

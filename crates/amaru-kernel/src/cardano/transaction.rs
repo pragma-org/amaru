@@ -72,9 +72,9 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Transaction {
 /// FIXME(cbor): We should move this validation to the Witness decoding once we move from `pallas` our
 /// our own data types.
 fn assert_sized_witnesses(witnesses: &WitnessSet) -> Result<(), cbor::decode::Error> {
-    if let Some(vkey_witnesses) = witnesses.vkeywitness.as_deref() {
-        for witness in vkey_witnesses {
-            assert_bytes_len("verification key", witness.vkey.as_slice(), ed25519::PUBLIC_KEY_LENGTH)?;
+    if let Some(verification_key_witnesses) = witnesses.verification_key_witness.as_deref() {
+        for witness in verification_key_witnesses {
+            assert_bytes_len("verification key", witness.verification_key.as_slice(), ed25519::PUBLIC_KEY_LENGTH)?;
             assert_bytes_len("verification key signature", witness.signature.as_slice(), ed25519::SIGNATURE_LENGTH)?;
         }
     }

@@ -28,6 +28,6 @@
   },
   "transaction": "84a400d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400f00a0f5f6",
   "expected": {
-    "predicate": "MissingVKeyWitnessesUTXOW"
+    "predicate": "MissingVerificationKeyWitnessesUTXOW"
   }
 }

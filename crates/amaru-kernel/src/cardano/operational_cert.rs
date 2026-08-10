@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, VKey, cbor};
+use crate::{Bytes, VerificationKey, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct OperationalCert {
     #[n(0)]
-    pub operational_cert_hot_vkey: VKey,
+    pub operational_cert_hot_verification_key: VerificationKey,
 
     #[n(1)]
     pub operational_cert_sequence_number: u64,

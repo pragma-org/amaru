@@ -67,30 +67,32 @@ pub fn validate_header(
     let nonces = debug_span!(consensus::header::EVOLVE_NONCE, header_hash = header.hash())
         .in_scope(|| PraosChainStore::new(consensus_parameters.clone(), store.clone()).evolve_nonce(header))?;
 
-    debug_span!(consensus::header::CHECK, issuer_key = &header.header_body().issuer_vkey).in_scope(|| {
-        let pool_id = header.pool_id();
-        let last_opcert_sequence_number =
-            store.get_latest_opcert_sequence_number(&pool_id, header).map_err(ConsensusError::StoreError)?;
+    debug_span!(consensus::header::CHECK, issuer_key = &header.header_body().issuer_verification_key).in_scope(
+        || {
+            let pool_id = header.pool_id();
+            let last_opcert_sequence_number =
+                store.get_latest_opcert_sequence_number(&pool_id, header).map_err(ConsensusError::StoreError)?;
 
-        let pool_summary = pool_summaries
-            .get_pool(header.slot(), &pool_id, era_history.as_ref())
-            .map_err(ConsensusError::GetPoolError)?
-            .ok_or(ConsensusError::UnknownPool { pool_id })?;
+            let pool_summary = pool_summaries
+                .get_pool(header.slot(), &pool_id, era_history.as_ref())
+                .map_err(ConsensusError::GetPoolError)?
+                .ok_or(ConsensusError::UnknownPool { pool_id })?;
 
-        praos::header::assert_all(
-            consensus_parameters,
-            header.header(),
-            to_cbor(&header.header_body()).as_slice(),
-            last_opcert_sequence_number,
-            &pool_summary,
-            &nonces.active,
-        )
-        .and_then(|assertions| {
-            use rayon::prelude::*;
-            assertions.into_par_iter().try_for_each(|assert| assert())
-        })
-        .map_err(ValidateHeaderError::Assert)
-    })?;
+            praos::header::assert_all(
+                consensus_parameters,
+                header.header(),
+                to_cbor(&header.header_body()).as_slice(),
+                last_opcert_sequence_number,
+                &pool_summary,
+                &nonces.active,
+            )
+            .and_then(|assertions| {
+                use rayon::prelude::*;
+                assertions.into_par_iter().try_for_each(|assert| assert())
+            })
+            .map_err(ValidateHeaderError::Assert)
+        },
+    )?;
 
     Ok(nonces)
 }

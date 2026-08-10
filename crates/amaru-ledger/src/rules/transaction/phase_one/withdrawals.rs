@@ -100,7 +100,7 @@ where
                         purpose: RedeemerTag::Reward,
                         datum: MemoizedDatum::None,
                     }),
-                    amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                    amaru_kernel::StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
                 };
 
                 context.consume_lovelace(amount);

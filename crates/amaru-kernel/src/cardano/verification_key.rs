@@ -14,4 +14,4 @@
 
 use crate::cardano::{fixed_bytes::FixedBytes, hash::size::VRF_KEY};
 
-pub type VKey = FixedBytes<VRF_KEY>;
+pub type VerificationKey = FixedBytes<VRF_KEY>;

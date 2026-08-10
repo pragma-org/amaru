@@ -409,8 +409,8 @@ impl ProposalsSlice for DefaultValidationContext {
 }
 
 impl WitnessSlice for DefaultValidationContext {
-    fn require_vkey_witness(&mut self, vkey_hash: Hash<KEY>) {
-        self.required_signers.insert(vkey_hash);
+    fn require_verification_key_witness(&mut self, verification_key_hash: Hash<KEY>) {
+        self.required_signers.insert(verification_key_hash);
     }
 
     fn require_script_witness(&mut self, script: RequiredScript) {

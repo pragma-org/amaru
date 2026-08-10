@@ -345,7 +345,7 @@ mod tests {
         )
         .unwrap();
 
-        let vrf_vkey = PublicKey::try_from(
+        let vrf_verification_key = PublicKey::try_from(
             hex::decode(
                 "e0ff2371508ac339431b50af7d69cde0f120d952bb876806d3136f\
                  9a7fda4381",
@@ -355,6 +355,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(vrf_vkey, PublicKey::from(&vrf_skey),);
+        assert_eq!(vrf_verification_key, PublicKey::from(&vrf_skey),);
     }
 }

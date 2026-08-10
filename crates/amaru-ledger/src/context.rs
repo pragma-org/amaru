@@ -391,9 +391,9 @@ pub trait WitnessSlice {
     /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
     fn require_script_witness(&mut self, script: RequiredScript);
 
-    /// Indicate that a vkey witness is required to be present (and valid) for the corresponding
+    /// Indicate that a verification key witness is required to be present (and valid) for the corresponding
     /// key hash.
-    fn require_vkey_witness(&mut self, vkey_hash: Hash<KEY>);
+    fn require_verification_key_witness(&mut self, verification_key_hash: Hash<KEY>);
 
     /// Indicate that a bootstrap witness is required to be present (and valid) for the corresponding
     /// root.

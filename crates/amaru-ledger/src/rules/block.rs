@@ -290,7 +290,7 @@ where
 /// This runs:
 ///
 /// - Phase-one and phase-two ledger rules.
-/// - Records required vkey witnesses, and consumes the transaction inputs in the provided context after both
+/// - Records required verification key witnesses, and consumes the transaction inputs in the provided context after both
 ///   phases succeed.
 ///
 /// The caller is responsible for preparing the context with the UTxO and other ledger slices required by the transaction.

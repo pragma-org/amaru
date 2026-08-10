@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    BootstrapWitness, MemoizedNativeScript, NonEmptyVec, PlutusDataSet, PlutusScript, Redeemers, VKeyWitness, cbor,
+    BootstrapWitness, MemoizedNativeScript, NonEmptyVec, PlutusDataSet, PlutusScript, Redeemers,
+    VerificationKeyWitness, cbor,
 };
 
 /// FIXME(cbor): Accidentally not a set
@@ -35,14 +36,14 @@ use crate::{
 #[cbor(map)]
 pub struct WitnessSet {
     #[n(0)]
-    pub vkeywitness: Option<NonEmptyVec<VKeyWitness>>,
+    pub verification_key_witness: Option<NonEmptyVec<VerificationKeyWitness>>,
 
     #[n(1)]
     pub native_script: Option<NonEmptyVec<MemoizedNativeScript>>,
 
     /// FIXME(cbor): Accidentally not a set
     ///
-    /// See note on vkeywitness.
+    /// See note on verification_key_witness.
     #[n(2)]
     pub bootstrap_witness: Option<NonEmptyVec<BootstrapWitness>>,
 
@@ -79,7 +80,7 @@ mod tests {
     #[test_case("81", ""; "bare definite array, as found on-chain before Conway")]
     #[test_case("9f", "ff"; "indefinite-length array")]
     #[test_case("d9010281", ""; "tagged set, as the Conway CDDL prescribes")]
-    fn vkey_witnesses_always_re_encode_as_a_tagged_definite_set(prefix: &str, suffix: &str) {
+    fn verification_key_witnesses_always_re_encode_as_a_tagged_definite_set(prefix: &str, suffix: &str) {
         let input = format!("a100{prefix}825820{KEY}5840{SIGNATURE}{suffix}");
         let expected = format!("a100d9010281825820{KEY}5840{SIGNATURE}");
 

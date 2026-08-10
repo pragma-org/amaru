@@ -15,8 +15,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    BootstrapWitness, ByronAddress, Hash, Hasher, InvalidEd25519Signature, TransactionId, VKeyWitness, size::KEY,
-    utils::string::display_collection, verify_ed25519_signature,
+    BootstrapWitness, ByronAddress, Hash, Hasher, InvalidEd25519Signature, TransactionId, VerificationKeyWitness,
+    size::KEY, utils::string::display_collection, verify_ed25519_signature,
 };
 use thiserror::Error;
 
@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
-pub enum InvalidVKeyWitness {
+pub enum InvalidVerificationKeyWitness {
     #[error("missing required signatures for keys or roots: [{}]", display_collection(missing_keys_or_roots))]
     MissingRequiredKeysOrRoots { missing_keys_or_roots: Vec<Hash<KEY>> },
 
@@ -41,17 +41,17 @@ pub fn execute(
     context: &mut impl WitnessSlice,
     transaction_id: TransactionId,
     bootstrap_witnesses: Option<&[BootstrapWitness]>,
-    vkey_witnesses: Option<&[VKeyWitness]>,
-) -> Result<(), InvalidVKeyWitness> {
+    verification_key_witnesses: Option<&[VerificationKeyWitness]>,
+) -> Result<(), InvalidVerificationKeyWitness> {
     let empty_vec = vec![];
-    let vkey_witnesses = vkey_witnesses.unwrap_or(&empty_vec);
+    let verification_key_witnesses = verification_key_witnesses.unwrap_or(&empty_vec);
 
     let empty_vec = vec![];
     let bootstrap_witnesses = bootstrap_witnesses.unwrap_or(&empty_vec);
 
     let mut provided_keys_or_roots = BTreeSet::new();
-    vkey_witnesses.iter().for_each(|witness| {
-        provided_keys_or_roots.insert(Hasher::<224>::hash(&witness.vkey));
+    verification_key_witnesses.iter().for_each(|witness| {
+        provided_keys_or_roots.insert(Hasher::<224>::hash(&witness.verification_key));
     });
     bootstrap_witnesses.iter().for_each(|witness| {
         provided_keys_or_roots.insert(ByronAddress::root(witness));
@@ -64,17 +64,17 @@ pub fn execute(
 
     if !missing_keys_or_roots.is_empty() {
         // TODO: (Maybe?) return distinct errors for missing keys and for missing roots.
-        return Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots });
+        return Err(InvalidVerificationKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots });
     }
 
     let mut invalid_witnesses = vec![];
-    vkey_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_slice())
+    verification_key_witnesses.iter().enumerate().for_each(|(position, witness)| {
+        verify_ed25519_signature(&witness.verification_key, &witness.signature, transaction_id.as_slice())
             .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
     });
 
     if !invalid_witnesses.is_empty() {
-        return Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses });
+        return Err(InvalidVerificationKeyWitness::InvalidSignatures { invalid_witnesses });
     }
 
     let mut invalid_witnesses = vec![];
@@ -84,7 +84,7 @@ pub fn execute(
     });
 
     if !invalid_witnesses.is_empty() {
-        return Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses });
+        return Err(InvalidVerificationKeyWitness::InvalidSignatures { invalid_witnesses });
     }
 
     Ok(())

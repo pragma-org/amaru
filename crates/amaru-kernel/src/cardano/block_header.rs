@@ -130,17 +130,17 @@ impl BlockHeader {
         self.header.vrf_output()
     }
 
-    pub fn issuer_vkey(&self) -> &VKey {
-        &self.header_body().issuer_vkey
+    pub fn issuer_verification_key(&self) -> &VerificationKey {
+        &self.header_body().issuer_verification_key
     }
 
     pub fn issuer(&self) -> Result<ed25519::VerifyingKey, anyhow::Error> {
-        ed25519::VerifyingKey::try_from(&self.header_body().issuer_vkey[..])
-            .map_err(|e| anyhow!("cannot convert issuer_vkey bytes to Ed25519 VerifyingKey").context(e))
+        ed25519::VerifyingKey::try_from(&self.header_body().issuer_verification_key[..])
+            .map_err(|e| anyhow!("cannot convert issuer_verification_key bytes to Ed25519 VerifyingKey").context(e))
     }
 
     pub fn pool_id(&self) -> PoolId {
-        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.header_body().issuer_vkey[..])
+        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.header_body().issuer_verification_key[..])
     }
 
     pub fn op_cert_seq(&self) -> u64 {

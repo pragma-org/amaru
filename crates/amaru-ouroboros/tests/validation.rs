@@ -163,7 +163,7 @@ fn validate_header(
 }
 
 fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
-    MockLedgerState { vrf_vkey_hash: context.vrf_vkey_hash, stake: 1, active_stake: 1 }
+    MockLedgerState { vrf_verification_key_hash: context.vrf_verification_key_hash, stake: 1, active_stake: 1 }
 }
 
 #[allow(clippy::expect_used)]
@@ -220,8 +220,8 @@ struct GeneratorContext {
     kes_secret_key: KesKeyWrapper,
     #[serde(rename = "coldSignKey", deserialize_with = "deserialize_secret_ed25519_key")]
     cold_secret_key: ed25519::SecretKey,
-    #[serde(rename = "vrfVKeyHash", deserialize_with = "deserialize_vrf_vkey_hash")]
-    vrf_vkey_hash: Hash<32>,
+    #[serde(rename = "vrfVKeyHash", deserialize_with = "deserialize_vrf_verification_key_hash")]
+    vrf_verification_key_hash: Hash<32>,
     #[serde(deserialize_with = "deserialize_nonce")]
     nonce: Nonce,
     #[serde(rename = "ocertCounters")]
@@ -237,7 +237,7 @@ impl std::fmt::Debug for GeneratorContext {
             .field("praos_max_kes_evolution", &self.praos_max_kes_evolution)
             .field("kes_secret_key", &self.kes_secret_key)
             .field("cold_secret_key", &self.cold_secret_key)
-            .field("vrf_vkey_hash", &self.vrf_vkey_hash)
+            .field("vrf_verification_key_hash", &self.vrf_verification_key_hash)
             .field("nonce", &self.nonce)
             .field("operational_certificate_counters", &self.operational_certificate_counters)
             .field("active_slot_coeff", &self.active_slot_coeff)
@@ -306,7 +306,7 @@ where
     Ok(bytes)
 }
 
-fn deserialize_vrf_vkey_hash<'de, D>(deserializer: D) -> Result<Hash<32>, D::Error>
+fn deserialize_vrf_verification_key_hash<'de, D>(deserializer: D) -> Result<Hash<32>, D::Error>
 where
     D: Deserializer<'de>,
 {

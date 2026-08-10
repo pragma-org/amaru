@@ -770,7 +770,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // 2. Epoch transition
             BlockValidation::from(self.try_epoch_transition(*point))?;
 
-            let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+            let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_verification_key[..]);
 
             let metrics = self.new_metrics(point, block, issuer);
 
