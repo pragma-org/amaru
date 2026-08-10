@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{
     BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip,
-    cardano::block_header::make_block_header_with_op_cert_seq, make_header,
+    cardano::block_header::{make_block_header, make_block_header_with_op_cert_seq},
 };
 use amaru_ouroboros_traits::{
     MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
@@ -43,10 +43,6 @@ use crate::{
         test_utils::{Logs, TraceMatch, run_simulation, tm_external_effect},
     },
 };
-
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(make_header(block_number, slot, parent))
-}
 
 /// Header tree for testing validate_block2 control flow.
 /// Structure matches select_chain_new + adopt_chain for consistency:
