@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Live Plot</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+
+      body {
+        margin: 0;
+        background: #0f1115;
+        color: #e5e7eb;
+      }
+
+      header {
+        padding: 12px 16px;
+        border-bottom: 1px solid #1f2937;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      code {
+        color: #86efac;
+      }
+
+      img {
+        display: block;
+        width: 1600px;
+        height: 900px;
+        margin: auto auto;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>Watching <code id="path"></code></div>
+      <div>Refresh: <code id="interval"></code> ms</div>
+    </header>
+    <img id="plot" alt="Live plot">
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const imagePath = params.get("img") ?? "../plot.png";
+      const refreshMs = Number(params.get("interval") ?? "5000");
+      const pathNode = document.getElementById("path");
+      const intervalNode = document.getElementById("interval");
+      const image = document.getElementById("plot");
+      let currentObjectUrl = null;
+      let refreshing = false;
+
+      pathNode.textContent = imagePath;
+      intervalNode.textContent = String(refreshMs);
+
+      const loadImage = async (url) => {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`failed to fetch ${url}: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const nextImage = new Image();
+        nextImage.src = objectUrl;
+        await nextImage.decode();
+        return objectUrl;
+      };
+
+      const refresh = async () => {
+        if (refreshing) {
+          return;
+        }
+
+        refreshing = true;
+
+        try {
+          const separator = imagePath.includes("?") ? "&" : "?";
+          const nextUrl = `${imagePath}${separator}t=${Date.now()}`;
+          const nextObjectUrl = await loadImage(nextUrl);
+          const previousObjectUrl = currentObjectUrl;
+          image.src = nextObjectUrl;
+          currentObjectUrl = nextObjectUrl;
+
+          if (previousObjectUrl !== null) {
+            URL.revokeObjectURL(previousObjectUrl);
+          }
+        } catch (error) {
+          console.error(error);
+        } finally {
+          refreshing = false;
+        }
+      };
+
+      void refresh();
+      window.setInterval(() => {
+        void refresh();
+      }, refreshMs);
+    </script>
+  </body>
+</html>

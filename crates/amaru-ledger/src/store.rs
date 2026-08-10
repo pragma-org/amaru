@@ -158,6 +158,23 @@ impl fmt::Display for EpochTransitionProgress {
     }
 }
 
+/// Snapshot of the storage backend memory that materially contributes to Amaru's RSS.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StoreMemoryStats {
+    /// Configured block cache capacity.
+    pub block_cache_capacity: u64,
+    /// Bytes currently used by the RocksDB block cache.
+    pub block_cache_usage: u64,
+    /// Bytes pinned in the RocksDB block cache.
+    pub block_cache_pinned_usage: u64,
+    /// Bytes held by the current mutable memtables.
+    pub cur_size_all_mem_tables: u64,
+    /// Bytes held by all memtables, including immutable ones awaiting flush.
+    pub size_all_mem_tables: u64,
+    /// Estimated bytes retained by table readers and related metadata.
+    pub estimate_table_readers_mem: u64,
+}
+
 // Snapshot
 // ----------------------------------------------------------------------------
 
@@ -359,6 +376,15 @@ pub trait ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn governance_activity(&self) -> Result<GovernanceActivity> {
         unimplemented!("ReadStore.governance_activity()");
+    }
+
+    /// Retrieve storage-backend memory statistics when the backend can expose them.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn memory_stats(&self) -> Result<Option<StoreMemoryStats>>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn memory_stats(&self) -> Result<Option<StoreMemoryStats>> {
+        Ok(None)
     }
 
     /// Get details about all utxos

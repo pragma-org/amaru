@@ -43,6 +43,7 @@ use crate::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards,
     },
     governance::ratification::RatificationContext,
+    memory_stats,
     observers::LedgerObservers,
     rules::{
         self,
@@ -52,7 +53,7 @@ use crate::{
     state::volatile::{
         AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
     },
-    store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
+    store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, StoreMemoryStats, TransactionalContext},
     summary::{
         governance::{self, GovernanceSummary},
         rewards::RewardsSummary,
@@ -296,6 +297,14 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         &self.global_parameters
     }
 
+    fn stable_memory_stats(&self) -> Option<StoreMemoryStats> {
+        self.stable.lock().ok().and_then(|stable| stable.memory_stats().ok().flatten())
+    }
+
+    fn record_memory_stats(&self, stage: &'static str, epoch: Epoch) {
+        memory_stats::record(stage, epoch, self.stable_memory_stats());
+    }
+
     pub fn most_recent_snapshot(&self) -> Epoch {
         self.volatile.most_recent_snapshot(self.snapshots.as_ref())
     }
@@ -411,6 +420,8 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
     fn epoch_transition(&mut self, next_epoch: Epoch) -> Result<(), StateError> {
         info_span!(ledger::epoch_transition::COMPUTE, from = next_epoch - 1, into = next_epoch).in_scope(|| {
+            self.record_memory_stats("epoch_transition.begin", next_epoch);
+
             let computed_rewards = if let Some(handle) = mem::take(&mut self.rewards_join_handle) {
                 let task =
                     handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: "rewards".to_string() })?;
@@ -421,101 +432,108 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 self.volatile.take_computed_rewards()
             };
 
-            #[allow(clippy::unwrap_used)]
-            let db = self.stable.lock().unwrap();
+            self.record_memory_stats("epoch_transition.rewards_joined", next_epoch);
 
-            let progress = db.epoch_transition_progress()?;
+            let (effective_rewards, pools_updates, governance_updates, donations, unreachable_accounts) = {
+                #[allow(clippy::unwrap_used)]
+                let db = self.stable.lock().unwrap();
 
-            if let Some(resuming_from) = progress {
-                Span::current().record("resuming_from", resuming_from.to_string());
-            }
+                let progress = db.epoch_transition_progress()?;
 
-            // NOTE: Crossing states during epoch transition
-            //
-            // The volatile at this point MUST NOT contain any block applications belonging to
-            // two epochs; So it is crucical for this view to only be created before we introduce
-            // any block from the next epoch.
-            //
-            // We could possible replace the direct access on the volatile here with an
-            // aggregated state as a proof that the volatile was indeed only containing the
-            // last k blocks for a single epoch. Or carry some kind of type-level guard that
-            // the this is called within an acceptable context (i.e. the volatile
-            // pre-conditions have been checked).
-            let mut volatile_view = VolatileView::new(&self.volatile, &*db);
+                if let Some(resuming_from) = progress {
+                    Span::current().record("resuming_from", resuming_from.to_string());
+                }
 
-            // Compute the updates to perform on pools at the epoch boundary. This uses information
-            // from both the immutable store and the volatile database, since we compute the updates
-            // before they are "stable" and safe to store.
-            let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
+                // NOTE: Crossing states during epoch transition
+                //
+                // The volatile at this point MUST NOT contain any block applications belonging to
+                // two epochs; So it is crucical for this view to only be created before we introduce
+                // any block from the next epoch.
+                //
+                // We could possible replace the direct access on the volatile here with an
+                // aggregated state as a proof that the volatile was indeed only containing the
+                // last k blocks for a single epoch. Or carry some kind of type-level guard that
+                // the this is called within an acceptable context (i.e. the volatile
+                // pre-conditions have been checked).
+                let mut volatile_view = VolatileView::new(&self.volatile, &*db);
 
-            // NOTE: No rewards during epoch transition?
-            //
-            // It is fine in some situation to compute an epoch transition and yet have no rewards.
-            // This happens if Amaru is interrupted *while it is flushing* an epoch transition to
-            // disk.
-            //
-            // This happens artificially every time someone bootstraps; because the bootstrapping
-            // process behaves as if we had interrupted the transition just after taking the
-            // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
-            // pool updates, etc...) but not the end (rewards).
-            let (treasury, effective_rewards, unreachable_accounts) = if progress.is_none() {
-                let computed_rewards = computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?;
+                // Compute the updates to perform on pools at the epoch boundary. This uses information
+                // from both the immutable store and the volatile database, since we compute the updates
+                // before they are "stable" and safe to store.
+                let pools_updates = PoolsEpochTransitionUpdates::new(volatile_view.iter_pools()?, next_epoch);
 
-                let unreachable_accounts =
-                    volatile_view.iter_unreachable_accounts(computed_rewards.pools_owners())?.collect::<BTreeSet<_>>();
+                // NOTE: No rewards during epoch transition?
+                //
+                // It is fine in some situation to compute an epoch transition and yet have no rewards.
+                // This happens if Amaru is interrupted *while it is flushing* an epoch transition to
+                // disk.
+                //
+                // This happens artificially every time someone bootstraps; because the bootstrapping
+                // process behaves as if we had interrupted the transition just after taking the
+                // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
+                // pool updates, etc...) but not the end (rewards).
+                let (treasury, effective_rewards, unreachable_accounts) = if progress.is_none() {
+                    let computed_rewards = computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?;
 
-                let unclaimed_rewards = computed_rewards.unclaimed_rewards(unreachable_accounts.iter().copied());
+                    let unreachable_accounts = volatile_view
+                        .iter_unreachable_accounts(computed_rewards.pools_owners())?
+                        .collect::<BTreeSet<_>>();
 
-                let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed_rewards);
+                    let unclaimed_rewards = computed_rewards.unclaimed_rewards(unreachable_accounts.iter().copied());
 
-                let treasury = db.pots()?.treasury + effective_rewards.delta_treasury();
+                    let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed_rewards);
 
-                (treasury, Some(effective_rewards), unreachable_accounts)
-            } else {
-                let unreachable_accounts =
-                    volatile_view.iter_unreachable_accounts(BTreeSet::new())?.collect::<BTreeSet<_>>();
+                    let treasury = db.pots()?.treasury + effective_rewards.delta_treasury();
 
-                (db.pots()?.treasury, None, unreachable_accounts)
+                    (treasury, Some(effective_rewards), unreachable_accounts)
+                } else {
+                    let unreachable_accounts =
+                        volatile_view.iter_unreachable_accounts(BTreeSet::new())?.collect::<BTreeSet<_>>();
+
+                    (db.pots()?.treasury, None, unreachable_accounts)
+                };
+
+                let protocol_parameters = self.protocol_parameters();
+
+                let ratification_context = RatificationContext::new(
+                    // Ratification happens with one epoch of delay, and at the next epoch transition. So,
+                    // if we ratify votes that happened in epoch `e`, the ratification is done during the
+                    // transition from `e + 1` to `e + 2`;
+                    //
+                    // Here, we have `next_epoch = e + 2`. And so, we have to pull the data and stake
+                    // distribution from at `next_epoch - 2`.
+                    self.snapshots.for_epoch(next_epoch - 2)?,
+                    self.stake_distribution(next_epoch - 2)?,
+                    protocol_parameters.clone(),
+                    // NOTE: ratification treasury value
+                    //
+                    // Ratification occurs after rewards have been paid out; and thus, uses the value
+                    // of the treasury that already includes any unpaid rewards.
+                    treasury,
+                )?;
+
+                // Ratify and enact proposals at the epoch boundary. Note that this does not modify the
+                // immutable store in any fashion (db is read-only here) but produces a series of
+                // governance updates to be applied to the database once stable; and use in-memory in the
+                // meantime.
+                let governance_updates = GovernanceUpdates::new(
+                    volatile_view.proposals_roots()?,
+                    volatile_view.iter_proposals()?,
+                    &self.era_history,
+                    protocol_parameters,
+                    ratification_context,
+                )?;
+
+                let donations = volatile_view.donations()?;
+
+                (effective_rewards, pools_updates, governance_updates, donations, unreachable_accounts)
             };
 
-            let protocol_parameters = self.protocol_parameters();
+            self.volatile.transition(effective_rewards, pools_updates, governance_updates, donations, |account| {
+                !unreachable_accounts.contains(account)
+            });
 
-            let ratification_context = RatificationContext::new(
-                // Ratification happens with one epoch of delay, and at the next epoch transition. So,
-                // if we ratify votes that happened in epoch `e`, the ratification is done during the
-                // transition from `e + 1` to `e + 2`;
-                //
-                // Here, we have `next_epoch = e + 2`. And so, we have to pull the data and stake
-                // distribution from at `next_epoch - 2`.
-                self.snapshots.for_epoch(next_epoch - 2)?,
-                self.stake_distribution(next_epoch - 2)?,
-                protocol_parameters.clone(),
-                // NOTE: ratification treasury value
-                //
-                // Ratification occurs after rewards have been paid out; and thus, uses the value
-                // of the treasury that already includes any unpaid rewards.
-                treasury,
-            )?;
-
-            // Ratify and enact proposals at the epoch boundary. Note that this does not modify the
-            // immutable store in any fashion (db is read-only here) but produces a series of
-            // governance updates to be applied to the database once stable; and use in-memory in the
-            // meantime.
-            let governance_updates = GovernanceUpdates::new(
-                volatile_view.proposals_roots()?,
-                volatile_view.iter_proposals()?,
-                &self.era_history,
-                protocol_parameters,
-                ratification_context,
-            )?;
-
-            self.volatile.transition(
-                effective_rewards,
-                pools_updates,
-                governance_updates,
-                volatile_view.donations()?,
-                |account| !unreachable_accounts.contains(account),
-            );
+            self.record_memory_stats("epoch_transition.end", next_epoch);
 
             Ok(())
         })
@@ -1219,6 +1237,7 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
     #[expect(clippy::unwrap_used)]
     fn rotate_stake_distribution(&self) -> Result<(), StateError> {
         let snapshot = self.snapshots.for_epoch(self.epoch - 1)?;
+        memory_stats::record("rotate_stake_distribution.begin", snapshot.epoch(), None);
 
         // Only compute it if we don't already have it; this can happen on restart.
         let should_push_summary = self
@@ -1238,6 +1257,8 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
                 |_| {},
             )?;
 
+            memory_stats::record("rotate_stake_distribution.summary", snapshot.epoch(), None);
+
             let mut stake_distributions = self.stake_distributions.lock().unwrap();
 
             stake_distributions.push_front(distr);
@@ -1255,6 +1276,8 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
                 drop(stake_distributions);
                 notify(pool_summaries);
             }
+
+            memory_stats::record("rotate_stake_distribution.end", snapshot.epoch(), None);
         }
 
         Ok(())
@@ -1263,13 +1286,13 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
     /// Compute rewards for a given epoch using an anterior stake distribution.
     fn compute_rewards(&self) -> Result<RewardsSummary, StateError> {
         let stake_distribution_from = self.epoch - 3;
-
         info_span!(
             ledger::rewards::COMPUTE,
             for_epoch = self.epoch,
             using_stake_distribution_from_epoch = stake_distribution_from
         )
         .in_scope(|| {
+            memory_stats::record("compute_rewards.begin", self.epoch, None);
             let snapshot = self.snapshots.for_epoch(stake_distribution_from).map_err(StateError::Storage)?;
 
             let stake_summary = StakeSummary::new(
@@ -1280,15 +1303,21 @@ impl<HS: HistoricalStores> BackgroundTasks<HS> {
             )
             .map_err(StateError::Storage)?;
 
+            memory_stats::record("compute_rewards.stake_summary", self.epoch, None);
+
             let previous_epoch = self.snapshots.for_epoch(self.epoch - 1)?;
 
-            Ok(RewardsSummary::new(
+            let summary = RewardsSummary::new(
                 stake_summary,
                 &self.global_parameters,
                 &self.protocol_parameters,
                 previous_epoch.iter_block_issuers().map_err(StateError::Storage)?.map(|(_, block)| block.slot_leader),
                 previous_epoch.pots()?,
-            ))
+            );
+
+            memory_stats::record("compute_rewards.end", self.epoch, None);
+
+            Ok(summary)
         })
     }
 }

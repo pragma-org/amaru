@@ -21,17 +21,59 @@ use amaru::{
     panic::panic_handler,
     version,
 };
+#[cfg(feature = "counting-allocator")]
+use amaru_kernel::utils::memory::{AllocationSnapshot, CountingAllocator};
 use amaru_observability::error;
 use amaru_tui as tui;
 use anyhow::anyhow;
 
+#[cfg(feature = "counting-allocator")]
+mod allocator_samples;
 mod cli;
 mod cmd;
 mod pid;
 
-#[cfg(not(target_family = "windows"))]
+#[cfg(any(
+    all(feature = "jemalloc", feature = "mimalloc"),
+    all(feature = "jemalloc", feature = "dhat-heap"),
+    all(feature = "mimalloc", feature = "dhat-heap"),
+))]
+compile_error!(
+    "allocator features are mutually exclusive: enable at most one of `jemalloc`, `mimalloc`, or `dhat-heap`"
+);
+
+#[cfg(all(not(target_family = "windows"), feature = "jemalloc", feature = "counting-allocator"))]
+#[global_allocator]
+static GLOBAL: CountingAllocator<tikv_jemallocator::Jemalloc> = CountingAllocator::new(tikv_jemallocator::Jemalloc);
+
+#[cfg(all(not(target_family = "windows"), feature = "jemalloc", not(feature = "counting-allocator")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(all(not(target_family = "windows"), feature = "mimalloc", feature = "counting-allocator"))]
+#[global_allocator]
+static GLOBAL: CountingAllocator<mimalloc::MiMalloc> = CountingAllocator::new(mimalloc::MiMalloc);
+
+#[cfg(all(not(target_family = "windows"), feature = "mimalloc", not(feature = "counting-allocator")))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(all(feature = "dhat-heap", feature = "counting-allocator"))]
+#[global_allocator]
+static GLOBAL: CountingAllocator<dhat::Alloc> = CountingAllocator::new(dhat::Alloc);
+
+#[cfg(all(feature = "dhat-heap", not(feature = "counting-allocator")))]
+#[global_allocator]
+static GLOBAL: dhat::Alloc = dhat::Alloc;
+
+#[cfg(all(
+    feature = "counting-allocator",
+    not(feature = "jemalloc"),
+    not(feature = "mimalloc"),
+    not(feature = "dhat-heap"),
+))]
+#[global_allocator]
+static GLOBAL: CountingAllocator<std::alloc::System> = CountingAllocator::new(std::alloc::System);
 
 fn main() -> ExitCode {
     panic_handler();
@@ -50,6 +92,9 @@ fn main() -> ExitCode {
 }
 
 fn try_main() -> Result<(), Box<dyn Error>> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let cli = cli::parse(version::display_version())?;
     if cli.command.show_alternative_help()? {
         return Ok(());
@@ -70,6 +115,8 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     // is set up on that same runtime.
     let runnable = cli.command.into_runnable();
     let rt = runnable.build_runtime().map_err(|e| anyhow!(e).context("failed to build Tokio runtime"))?;
+    #[cfg(feature = "counting-allocator")]
+    let allocator_sampler = allocator_samples::Sampler::spawn_from_env(counting_allocator_snapshot)?;
 
     let with_tui = if !skip_logging
         && let Some(settings) = tui_settings.filter(|settings| tui::should_enable(settings.no_tui, with_json_traces))
@@ -120,9 +167,21 @@ fn try_main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    #[cfg(feature = "counting-allocator")]
+    if let Some(sampler) = allocator_sampler
+        && let Err(err) = sampler.shutdown()
+    {
+        eprintln!("amaru: failed to shutdown allocator sampler cleanly: {err}");
+    }
+
     rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
 
     result
+}
+
+#[cfg(feature = "counting-allocator")]
+fn counting_allocator_snapshot() -> AllocationSnapshot {
+    GLOBAL.snapshot()
 }
 
 /// Thin adapter so we can pass a captured listen address after the clap command is consumed.

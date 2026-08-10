@@ -24,8 +24,12 @@ path = "src/bin/amaru/main.rs"
 doc = false
 
 [features]
-default = ["mithril"]
+default = ["mithril", "jemalloc"]
 mithril = ["dep:amaru-mithril"]
+jemalloc = ["dep:tikv-jemallocator", "tikv-jemallocator/stats", "amaru-ledger/jemalloc", "amaru-stores/jemalloc"]
+mimalloc = ["dep:mimalloc"]
+dhat-heap = ["dep:dhat"]
+counting-allocator = []
 test-utils = ["amaru-consensus/test-utils"]
 
 [dependencies]
@@ -34,6 +38,7 @@ anyhow.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
+dhat = { workspace = true, optional = true }
 hex.workspace = true
 indoc.workspace = true
 opentelemetry-otlp.workspace = true
@@ -82,7 +87,8 @@ amaru-stores.workspace = true
 amaru-tui.workspace = true
 
 [target.'cfg(not(windows))'.dependencies]
-tikv-jemallocator.workspace = true
+tikv-jemallocator = { workspace = true, optional = true }
+mimalloc = { workspace = true, optional = true }
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true

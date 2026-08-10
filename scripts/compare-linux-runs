@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: compare-linux-runs [--out FILE] <baseline-run-dir> <candidate-run-dir>
+
+Compare two profiling runs produced by scripts/profile-linux-run and emit a
+markdown summary. When gnuplot is available an overlay chart is also created
+next to the markdown output.
+EOF
+}
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+out_file=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --out)
+      out_file="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+[ "$#" -eq 2 ] || {
+  usage >&2
+  exit 1
+}
+
+require python3
+
+baseline_dir="$(python3 - "$1" <<'PY'
+import os
+import sys
+print(os.path.abspath(sys.argv[1]))
+PY
+)"
+candidate_dir="$(python3 - "$2" <<'PY'
+import os
+import sys
+print(os.path.abspath(sys.argv[1]))
+PY
+)"
+
+baseline_summary="$baseline_dir/summary.json"
+candidate_summary="$candidate_dir/summary.json"
+
+[ -f "$baseline_summary" ] || {
+  echo "missing summary.json in baseline run: $baseline_dir" >&2
+  exit 1
+}
+[ -f "$candidate_summary" ] || {
+  echo "missing summary.json in candidate run: $candidate_dir" >&2
+  exit 1
+}
+
+if [ -z "$out_file" ]; then
+  out_file="$candidate_dir/comparison-vs-$(basename "$baseline_dir").md"
+fi
+
+plot_file="${out_file%.md}.png"
+
+python3 - "$baseline_summary" "$candidate_summary" "$out_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+baseline = json.loads(Path(sys.argv[1]).read_text())
+candidate = json.loads(Path(sys.argv[2]).read_text())
+output = Path(sys.argv[3])
+
+
+def human_bytes(value):
+    if value is None:
+        return "-"
+    value = float(value)
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    for unit in units:
+        if abs(value) < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value):,} {unit}"
+            return f"{value:,.2f} {unit}"
+        value /= 1024
+    return f"{value:,.2f} PiB"
+
+
+def pct_change(baseline_value, candidate_value):
+    if baseline_value in (None, 0) or candidate_value is None:
+        return None
+    return ((candidate_value - baseline_value) / baseline_value) * 100.0
+
+
+def judgement(delta, lower_is_better=True):
+    if delta is None:
+        return "n/a"
+    if abs(delta) < 0.1:
+        return "flat"
+    improved = delta < 0 if lower_is_better else delta > 0
+    return "better" if improved else "worse"
+
+
+def metric(path):
+    current = baseline
+    for part in path:
+        current = current.get(part) if isinstance(current, dict) else None
+    baseline_value = current
+
+    current = candidate
+    for part in path:
+        current = current.get(part) if isinstance(current, dict) else None
+    candidate_value = current
+    return baseline_value, candidate_value
+
+
+metrics = [
+    ("Wall time", ("time", "wall_seconds"), True, lambda v: f"{v:.3f} s" if v is not None else "-"),
+    ("Epoch sync mean", ("epoch_sync_seconds", "mean"), True, lambda v: f"{v:.3f} s" if v is not None else "-"),
+    ("Epoch sync p95", ("epoch_sync_seconds", "p95"), True, lambda v: f"{v:.3f} s" if v is not None else "-"),
+    ("Slowest epoch sync", ("epoch_sync_seconds", "slowest", "seconds"), True, lambda v: f"{v:.3f} s" if v is not None else "-"),
+    ("RSS max", ("samples", "rss_bytes", "max"), True, human_bytes),
+    ("RSS mean", ("samples", "rss_bytes", "mean"), True, human_bytes),
+    ("RSS anon max", ("samples", "rss_anon_bytes", "max"), True, human_bytes),
+    ("Private max", ("samples", "private_bytes", "max"), True, human_bytes),
+    ("Heap live max", ("samples", "heap_live_bytes", "max"), True, human_bytes),
+    ("Heap peak", ("samples", "heap_peak_bytes", "max"), True, human_bytes),
+    ("CPU max", ("samples", "cpu_percent", "max"), True, lambda v: f"{v:.2f} %" if v is not None else "-"),
+    ("CPU mean", ("samples", "cpu_percent", "mean"), True, lambda v: f"{v:.2f} %" if v is not None else "-"),
+]
+
+lines = [
+    f"# Profiling comparison: {candidate['label']} vs {baseline['label']}",
+    "",
+    "## Runs",
+    "",
+    f"- Baseline: `{baseline['label']}` (`{baseline['allocator']}`, `{baseline['profile']}`)",
+    f"- Candidate: `{candidate['label']}` (`{candidate['allocator']}`, `{candidate['profile']}`)",
+    "",
+    "## Headline metrics",
+    "",
+    "| Metric | Baseline | Candidate | Delta | Verdict |",
+    "| --- | ---: | ---: | ---: | --- |",
+]
+
+for name, path, lower_is_better, formatter in metrics:
+    baseline_value, candidate_value = metric(path)
+    delta = pct_change(baseline_value, candidate_value)
+    delta_cell = "-" if delta is None else f"{delta:+.2f}%"
+    lines.append(
+        f"| {name} | {formatter(baseline_value)} | {formatter(candidate_value)} | {delta_cell} | {judgement(delta, lower_is_better)} |"
+    )
+
+baseline_dhat = baseline.get("dhat")
+candidate_dhat = candidate.get("dhat")
+if baseline_dhat or candidate_dhat:
+    b_peak = baseline_dhat.get("peak_bytes") if baseline_dhat else None
+    c_peak = candidate_dhat.get("peak_bytes") if candidate_dhat else None
+    delta = pct_change(b_peak, c_peak)
+    lines.extend(
+        [
+            "",
+            "## Heap peak",
+            "",
+            "| Metric | Baseline | Candidate | Delta | Verdict |",
+            "| --- | ---: | ---: | ---: | --- |",
+            f"| DHAT peak heap | {human_bytes(b_peak)} | {human_bytes(c_peak)} | {'-' if delta is None else f'{delta:+.2f}%'} | {judgement(delta, True)} |",
+        ]
+    )
+
+lines.extend(["", "## Notes", ""])
+
+baseline_slowest = baseline.get("epoch_sync_seconds", {}).get("slowest")
+candidate_slowest = candidate.get("epoch_sync_seconds", {}).get("slowest")
+if baseline_slowest or candidate_slowest:
+    lines.append(
+        "- Slowest measured epoch: baseline "
+        f"`e{baseline_slowest['epoch']}` in `{baseline_slowest['seconds']:.3f} s`"
+        if baseline_slowest
+        else "- Slowest measured epoch: baseline `-`"
+    )
+    lines.append(
+        "- Slowest measured epoch: candidate "
+        f"`e{candidate_slowest['epoch']}` in `{candidate_slowest['seconds']:.3f} s`"
+        if candidate_slowest
+        else "- Slowest measured epoch: candidate `-`"
+    )
+
+baseline_allocator = baseline.get("composition", {}).get("allocator_resident_share_of_rss")
+candidate_allocator = candidate.get("composition", {}).get("allocator_resident_share_of_rss")
+if baseline_allocator is not None or candidate_allocator is not None:
+    lines.append(
+        f"- Allocator-managed RSS share: baseline `{baseline_allocator * 100:.1f}%` / candidate `{candidate_allocator * 100:.1f}%`."
+        if baseline_allocator is not None and candidate_allocator is not None
+        else "- Allocator-managed RSS share was only available for one side of the comparison."
+    )
+
+baseline_rocksdb = baseline.get("rocksdb_max") or {}
+candidate_rocksdb = candidate.get("rocksdb_max") or {}
+if baseline_rocksdb or candidate_rocksdb:
+    def rocksdb_total(payload):
+        return (
+            payload.get("block_cache_usage", 0)
+            + payload.get("size_all_mem_tables", 0)
+            + payload.get("estimate_table_readers_mem", 0)
+        )
+
+    lines.append(
+        f"- RocksDB managed memory peak: baseline `{human_bytes(rocksdb_total(baseline_rocksdb))}` / candidate `{human_bytes(rocksdb_total(candidate_rocksdb))}`."
+    )
+
+for heading, payload in [("Baseline churn hot spots", baseline_dhat), ("Candidate churn hot spots", candidate_dhat)]:
+    if not payload:
+        continue
+    lines.extend(["", f"### {heading}", ""])
+    for entry in payload.get("top_churn_cost_centers", [])[:3]:
+        lines.append(
+            f"- `{human_bytes(entry['transient_bytes'])}` transient, `{human_bytes(entry['bytes_at_global_peak'])}` at peak: `{entry['frames']}`"
+        )
+
+output.write_text("\n".join(lines) + "\n")
+PY
+
+if command -v gnuplot >/dev/null 2>&1; then
+  baseline_samples="$baseline_dir/samples.csv"
+  candidate_samples="$candidate_dir/samples.csv"
+  if [ -f "$baseline_samples" ] && [ -f "$candidate_samples" ]; then
+    gnuplot <<EOF
+set terminal pngcairo size 1600,900 enhanced font "Helvetica,12"
+set output "${plot_file}"
+set datafile separator ","
+set key outside
+set grid
+set xlabel "Elapsed (s)"
+set ylabel "Memory (MiB)"
+set y2label "CPU (%)"
+set y2tics
+set ytics nomirror
+set title "Profiling comparison"
+
+plot \
+  "${baseline_samples}" using 2:(column("rss_bytes") / 1048576.0) with lines linewidth 2 title "Baseline RSS MiB" axes x1y1, \
+  "${candidate_samples}" using 2:(column("rss_bytes") / 1048576.0) with lines linewidth 2 title "Candidate RSS MiB" axes x1y1, \
+  "${baseline_samples}" using 2:(column("heap_live_bytes") / 1048576.0) with lines linewidth 2 title "Baseline heap live MiB" axes x1y1, \
+  "${candidate_samples}" using 2:(column("heap_live_bytes") / 1048576.0) with lines linewidth 2 title "Candidate heap live MiB" axes x1y1, \
+  "${baseline_samples}" using 2:(column("cpu_percent")) with lines linewidth 2 title "Baseline CPU %" axes x1y2, \
+  "${candidate_samples}" using 2:(column("cpu_percent")) with lines linewidth 2 title "Candidate CPU %" axes x1y2
+EOF
+  fi
+fi
+
+printf 'wrote %s\n' "$out_file"
+if [ -f "$plot_file" ]; then
+  printf 'wrote %s\n' "$plot_file"
+fi

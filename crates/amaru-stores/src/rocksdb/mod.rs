@@ -19,7 +19,7 @@ use std::{
     sync::LazyLock,
 };
 
-use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
+use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint, properties};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
@@ -31,7 +31,7 @@ use amaru_ledger::{
     state::volatile::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
+        StoreMemoryStats, TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
     },
 };
 use amaru_observability::{debug_span, info_span, trace_record};
@@ -218,6 +218,46 @@ fn map_rocksdb_open_error(path: &Path, error: rocksdb::Error) -> StoreError {
 fn is_rocksdb_lock_error(message: &str) -> bool {
     let lowercase = message.to_ascii_lowercase();
     lowercase.contains("lock") && (message.contains("/LOCK") || message.contains("\\LOCK"))
+}
+
+trait RocksDbPropertyReader {
+    fn property_int_value(&self, name: &properties::PropName) -> Result<Option<u64>, rocksdb::Error>;
+}
+
+impl RocksDbPropertyReader for OptimisticTransactionDB {
+    fn property_int_value(&self, name: &properties::PropName) -> Result<Option<u64>, rocksdb::Error> {
+        self.property_int_value(name)
+    }
+}
+
+impl RocksDbPropertyReader for DB {
+    fn property_int_value(&self, name: &properties::PropName) -> Result<Option<u64>, rocksdb::Error> {
+        self.property_int_value(name)
+    }
+}
+
+impl RocksDbPropertyReader for Transaction<'_, OptimisticTransactionDB> {
+    fn property_int_value(&self, name: &properties::PropName) -> Result<Option<u64>, rocksdb::Error> {
+        let _ = name;
+        Ok(None)
+    }
+}
+
+fn rocksdb_memory_stats(db: &impl RocksDbPropertyReader) -> Result<Option<StoreMemoryStats>, StoreError> {
+    let read = |name| {
+        db.property_int_value(name)
+            .map_err(|err| StoreError::Internal(err.into()))
+            .map(|value| value.unwrap_or_default())
+    };
+
+    Ok(Some(StoreMemoryStats {
+        block_cache_capacity: read(properties::BLOCK_CACHE_CAPACITY)?,
+        block_cache_usage: read(properties::BLOCK_CACHE_USAGE)?,
+        block_cache_pinned_usage: read(properties::BLOCK_CACHE_PINNED_USAGE)?,
+        cur_size_all_mem_tables: read(properties::CUR_SIZE_ALL_MEM_TABLES)?,
+        size_all_mem_tables: read(properties::SIZE_ALL_MEM_TABLES)?,
+        estimate_table_readers_mem: read(properties::ESTIMATE_TABLE_READERS_MEM)?,
+    }))
 }
 
 // RocksDBReadOnly
@@ -414,6 +454,10 @@ macro_rules! impl_ReadStore_body {
                 Ok(get(|key| self.db.get_pinned(key), &KEY_GOVERNANCE_ACTIVITY)?
                     .unwrap_or_else(|| GovernanceActivity { consecutive_dormant_epochs: 0 })
                 )
+            }
+
+            fn memory_stats(&self) -> Result<Option<StoreMemoryStats>, StoreError> {
+                rocksdb_memory_stats(&self.db)
             }
 
             fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {

@@ -20,6 +20,7 @@ pub mod bootstrap;
 pub mod context;
 pub mod epoch_transition;
 pub mod governance;
+pub mod memory_stats;
 pub mod observers;
 pub mod registered_relay_addrs;
 pub mod rules;
@@ -32,9 +33,9 @@ pub mod summary;
 pub use observers::{AdoptedBlock, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, UndoneBlock, UtxoDiff};
 // Piece types for snapshot observers: clone these (not the aggregate StakeSummary).
 pub use summary::{
-    AccountState, PoolState,
     governance::DRepState,
     stake_distribution::{StakeDistribution, StakeSummary},
+    AccountState, PoolState,
 };
 
 #[macro_export]

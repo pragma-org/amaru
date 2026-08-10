@@ -57,6 +57,7 @@ amaru-plutus.workspace = true
 [features]
 default = ["rocksdb"]
 rocksdb = ["dep:rocksdb", "dep:rand"]
+jemalloc = ["rocksdb", "rocksdb/jemalloc"]
 
 [package.metadata.cargo-machete]
 ignored = ["rand", "amaru-deps"]

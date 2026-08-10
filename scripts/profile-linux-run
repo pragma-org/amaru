@@ -1,0 +1,1383 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: profile-linux-run [options] [-- <node-run args...>]
+
+Run a reproducible Linux profiling session against an already-bootstrapped node,
+sampling RSS, anonymous RSS, private memory, live heap, and CPU over time while
+collecting allocator, RocksDB, and optional DHAT heap diagnostics.
+
+Options:
+  --allocator {jemalloc|system|mimalloc|dhat}  Allocator profile to build/run (default: jemalloc)
+  --profile {dev|profiling|release}            Cargo profile when building (default: dev)
+  --binary PATH                                Reuse an existing amaru binary instead of building
+  --epochs N                                   Stop after N observed epoch transitions (default: 10)
+  --interval SECONDS                           Sampling interval in seconds (default: 1)
+  --network NETWORK                            Network name (default: $AMARU_NETWORK or mainnet)
+  --ledger-dir DIR                             Ledger DB directory (default: ./ledger.<network>.db)
+  --chain-dir DIR                              Chain DB directory (default: ./chain.<network>.db)
+  --trace-filter FILTER                        AMARU_TRACE value (default: ${AMARU_TRACE:-amaru=info})
+  --log-filter FILTER                          AMARU_LOG value (default: ${AMARU_LOG:-warn})
+  --label NAME                                 Run label (default: allocator-timestamp)
+  --out-dir DIR                                Root directory for artifacts (default: runs)
+  --allocator-dump                             Ask the allocator to dump extra diagnostics when supported
+  --env KEY=VALUE                              Extra environment variable passed to amaru (repeatable)
+  --no-build                                   Reuse the binary path implied by --profile/--allocator
+  -h, --help                                   Show this help
+
+Examples:
+  scripts/profile-linux-run --allocator jemalloc --epochs 10
+  scripts/profile-linux-run --allocator system --profile profiling --allocator-dump
+  scripts/profile-linux-run --binary target/release/amaru --epochs 5 -- --upstream-peers 1
+EOF
+}
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+abspath() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+
+print(os.path.abspath(sys.argv[1]))
+PY
+}
+
+binary_path_for_profile() {
+  case "$1" in
+    dev) echo "target/debug/amaru" ;;
+    profiling) echo "target/profiling/amaru" ;;
+    release) echo "target/release/amaru" ;;
+    *)
+      echo "unsupported cargo profile: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+feature_args_for_allocator() {
+  case "$1" in
+    jemalloc) echo "--no-default-features --features mithril,jemalloc,counting-allocator" ;;
+    system) echo "--no-default-features --features mithril,counting-allocator" ;;
+    mimalloc) echo "--no-default-features --features mithril,mimalloc,counting-allocator" ;;
+    dhat) echo "--no-default-features --features mithril,dhat-heap,counting-allocator" ;;
+    *)
+      echo "unsupported allocator: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+allocator="jemalloc"
+profile="dev"
+binary=""
+epochs=10
+interval=1
+network="${AMARU_NETWORK:-mainnet}"
+ledger_dir=""
+chain_dir=""
+trace_filter="${AMARU_TRACE:-amaru=info}"
+log_filter="${AMARU_LOG:-warn}"
+label=""
+out_root="runs"
+allocator_dump=false
+build=true
+declare -a extra_env=()
+declare -a run_args=()
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --allocator)
+      allocator="$2"
+      shift 2
+      ;;
+    --profile)
+      profile="$2"
+      shift 2
+      ;;
+    --binary)
+      binary="$2"
+      build=false
+      shift 2
+      ;;
+    --epochs)
+      epochs="$2"
+      shift 2
+      ;;
+    --interval)
+      interval="$2"
+      shift 2
+      ;;
+    --network)
+      network="$2"
+      shift 2
+      ;;
+    --ledger-dir)
+      ledger_dir="$2"
+      shift 2
+      ;;
+    --chain-dir)
+      chain_dir="$2"
+      shift 2
+      ;;
+    --trace-filter)
+      trace_filter="$2"
+      shift 2
+      ;;
+    --log-filter)
+      log_filter="$2"
+      shift 2
+      ;;
+    --label)
+      label="$2"
+      shift 2
+      ;;
+    --out-dir)
+      out_root="$2"
+      shift 2
+      ;;
+    --allocator-dump)
+      allocator_dump=true
+      shift
+      ;;
+    --env)
+      extra_env+=("$2")
+      shift 2
+      ;;
+    --no-build)
+      build=false
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      run_args=("$@")
+      break
+      ;;
+    *)
+      echo "unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+[[ "$epochs" =~ ^[0-9]+$ ]] || {
+  echo "--epochs must be a non-negative integer" >&2
+  exit 1
+}
+[[ "$interval" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+  echo "--interval must be a positive number" >&2
+  exit 1
+}
+
+host_os="$(uname -s)"
+[ "$host_os" = "Linux" ] || {
+  echo "profile-linux-run requires Linux (/proc-based sampling); current host is ${host_os}" >&2
+  exit 1
+}
+
+require python3
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+cd "$repo_root"
+
+ledger_dir="${ledger_dir:-${AMARU_LEDGER_DIR:-./ledger.${network}.db}}"
+chain_dir="${chain_dir:-${AMARU_CHAIN_DIR:-./chain.${network}.db}}"
+
+[ -d "$ledger_dir" ] || {
+  echo "ledger directory does not exist: $ledger_dir" >&2
+  exit 1
+}
+[ -d "$chain_dir" ] || {
+  echo "chain directory does not exist: $chain_dir" >&2
+  exit 1
+}
+
+ledger_dir="$(abspath "$ledger_dir")"
+chain_dir="$(abspath "$chain_dir")"
+out_root="$(abspath "$out_root")"
+
+if [ -z "$label" ]; then
+  label="${allocator}-$(date +%Y%m%d-%H%M%S)"
+fi
+
+run_dir="$out_root/$label"
+mkdir -p "$run_dir"
+run_dir="$(abspath "$run_dir")"
+
+trace_file="$run_dir/trace.jsonl"
+stderr_file="$run_dir/stderr.log"
+time_file="$run_dir/time.txt"
+samples_file="$run_dir/samples.csv"
+allocator_samples_file="$run_dir/allocator-samples.csv"
+stage_file="$run_dir/memory-stages.csv"
+epoch_file="$run_dir/epochs.json"
+summary_json="$run_dir/summary.json"
+summary_md="$run_dir/report.md"
+plot_file="$run_dir/samples.png"
+allocator_env_file="$run_dir/allocator.env"
+
+if [ -z "$binary" ]; then
+  binary="$(binary_path_for_profile "$profile")"
+fi
+
+if [ "$build" = true ]; then
+  read -r -a feature_args <<< "$(feature_args_for_allocator "$allocator")"
+  cargo build -p amaru --bin amaru --profile "$profile" --locked "${feature_args[@]}"
+fi
+
+binary="$(abspath "$binary")"
+[ -x "$binary" ] || {
+  echo "binary is not executable: $binary" >&2
+  exit 1
+}
+
+run_env=(
+  "AMARU_NETWORK=$network"
+  "AMARU_LEDGER_DIR=$ledger_dir"
+  "AMARU_CHAIN_DIR=$chain_dir"
+  "AMARU_LOG=$log_filter"
+  "AMARU_TRACE=$trace_filter"
+  "AMARU_MEMORY_STATS_FILE=$stage_file"
+  "AMARU_ALLOCATOR_SAMPLES_FILE=$allocator_samples_file"
+  "AMARU_ALLOCATOR_SAMPLES_INTERVAL_MS=$(python3 - "$interval" <<'PY'
+import sys
+
+print(max(int(round(float(sys.argv[1]) * 1000.0)), 1))
+PY
+)"
+)
+
+if [ "$allocator_dump" = true ]; then
+  case "$allocator" in
+    mimalloc)
+      run_env+=("MIMALLOC_SHOW_STATS=1" "MIMALLOC_VERBOSE=1")
+      ;;
+    jemalloc)
+      if [ -n "${MALLOC_CONF:-}" ]; then
+        run_env+=("MALLOC_CONF=${MALLOC_CONF},stats_print:true")
+      else
+        run_env+=("MALLOC_CONF=stats_print:true")
+      fi
+      ;;
+  esac
+fi
+
+if [[ -u extra_env ]]; then
+  run_env+=("${extra_env[@]}")
+fi
+
+{
+  printf 'label=%s\n' "$label"
+  printf 'allocator=%s\n' "$allocator"
+  printf 'profile=%s\n' "$profile"
+  printf 'binary=%s\n' "$binary"
+  printf 'network=%s\n' "$network"
+  printf 'epochs=%s\n' "$epochs"
+  printf 'interval=%s\n' "$interval"
+  printf 'ledger_dir=%s\n' "$ledger_dir"
+  printf 'chain_dir=%s\n' "$chain_dir"
+  printf 'trace_filter=%s\n' "$trace_filter"
+  printf 'log_filter=%s\n' "$log_filter"
+  printf 'run_dir=%s\n' "$run_dir"
+  printf 'run_args=%q\n' "${run_args[@]:-}"
+  printf '\n[environment]\n'
+  printf '%s\n' "${run_env[@]}"
+} >"$allocator_env_file"
+
+git rev-parse HEAD >"$run_dir/git-head.txt" 2>/dev/null || true
+git status --short >"$run_dir/git-status.txt" 2>/dev/null || true
+
+: >"$trace_file"
+: >"$stderr_file"
+
+pid_file="$run_dir/amaru.pid"
+
+export_run_env() {
+  local entry=""
+
+  for entry in "${run_env[@]}"; do
+    export "$entry"
+  done
+}
+
+set +e
+(
+  cd "$run_dir"
+  export_run_env
+  python3 - "$time_file" "$pid_file" "$trace_file" "$stderr_file" "$samples_file" "$interval" "$epoch_file" "$epochs" "$binary" "${run_args[@]+"${run_args[@]}"}" <<'PY'
+import csv
+import json
+import os
+import resource
+import signal
+import subprocess
+import sys
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+time_file, pid_file, trace_file, stderr_file, samples_file, interval, epoch_file, target_epochs, binary, *run_args = sys.argv[1:]
+trace_path = Path(trace_file)
+stderr_path = Path(stderr_file)
+samples_path = Path(samples_file)
+epoch_path = Path(epoch_file)
+interval = float(interval)
+target_epochs = int(target_epochs)
+command = [
+    binary,
+    "--with-json-traces",
+    "node",
+    "run",
+    "--no-tui",
+    *run_args,
+]
+
+start = time.monotonic()
+start_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+page_size = os.sysconf("SC_PAGE_SIZE")
+clock_ticks = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+cpu_count = os.cpu_count() or 1
+count = 0
+first_from = None
+last_into = None
+sent_interrupt = False
+state_lock = threading.Lock()
+
+
+def process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    else:
+        return True
+
+
+def read_stat(pid: int) -> tuple[int, int]:
+    data = Path(f"/proc/{pid}/stat").read_text()
+    fields = data[data.rfind(")") + 2 :].split()
+    return int(fields[11]), int(fields[12])
+
+
+def read_rss(pid: int) -> int:
+    fields = Path(f"/proc/{pid}/statm").read_text().split()
+    return int(fields[1]) * page_size
+
+
+def read_rss_anon(pid: int) -> int:
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+            if line.startswith("RssAnon:"):
+                return int(line.split()[1]) * 1024
+    except OSError:
+        return 0
+
+    return 0
+
+
+def read_private_bytes(pid: int) -> int:
+    smaps_rollup = Path(f"/proc/{pid}/smaps_rollup")
+    if not smaps_rollup.exists():
+        return 0
+
+    try:
+        private_clean = 0
+        private_dirty = 0
+        for line in smaps_rollup.read_text().splitlines():
+            if line.startswith("Private_Clean:"):
+                private_clean = int(line.split()[1]) * 1024
+            elif line.startswith("Private_Dirty:"):
+                private_dirty = int(line.split()[1]) * 1024
+        return private_clean + private_dirty
+    except OSError:
+        return 0
+
+    return 0
+
+
+def request_stop(proc) -> None:
+    global sent_interrupt
+
+    with state_lock:
+        if sent_interrupt:
+            return
+        sent_interrupt = True
+
+    try:
+        proc.send_signal(signal.SIGINT)
+    except ProcessLookupError:
+        pass
+
+
+def process_trace_line(line: str, proc) -> None:
+    global count, first_from, last_into
+
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        return
+
+    span = record.get("span", {})
+    fields = record.get("fields", {})
+    if span.get("name") != "epoch_transition.compute":
+        return
+    if fields.get("message") != "exit":
+        return
+
+    from_epoch = record.get("from", span.get("from"))
+    into_epoch = record.get("into", span.get("into"))
+
+    with state_lock:
+        count += 1
+        if first_from is None:
+            first_from = from_epoch
+        last_into = into_epoch
+        should_stop = count >= target_epochs and not sent_interrupt
+
+    if should_stop:
+        request_stop(proc)
+
+
+def sample_process(pid: int, proc) -> None:
+    with samples_path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "timestamp_ms",
+                "elapsed_s",
+                "cpu_percent",
+                "rss_bytes",
+                "rss_anon_bytes",
+                "private_bytes",
+            ]
+        )
+
+        last_cpu_seconds = None
+        last_wall = None
+
+        while proc.poll() is None and process_exists(pid):
+            now_wall = time.monotonic()
+            timestamp_ms = int(time.time() * 1000)
+
+            try:
+                utime, stime = read_stat(pid)
+                cpu_seconds = (utime + stime) / clock_ticks
+                rss_bytes = read_rss(pid)
+                rss_anon_bytes = read_rss_anon(pid)
+                private_bytes = read_private_bytes(pid)
+            except OSError:
+                break
+
+            if last_cpu_seconds is None or last_wall is None:
+                cpu_percent = 0.0
+            else:
+                elapsed = max(now_wall - last_wall, 1e-9)
+                cpu_percent = max(0.0, ((cpu_seconds - last_cpu_seconds) / elapsed) * 100.0 / cpu_count)
+
+            writer.writerow(
+                [
+                    timestamp_ms,
+                    round(now_wall - start, 3),
+                    round(cpu_percent, 3),
+                    rss_bytes,
+                    rss_anon_bytes,
+                    private_bytes,
+                ]
+            )
+            handle.flush()
+
+            last_cpu_seconds = cpu_seconds
+            last_wall = now_wall
+            time.sleep(interval)
+
+
+proc = None
+
+
+def forward_signal(signum, _frame) -> None:
+    if proc is not None:
+        request_stop(proc)
+
+
+signal.signal(signal.SIGINT, forward_signal)
+signal.signal(signal.SIGTERM, forward_signal)
+
+with trace_path.open("w", encoding="utf-8") as trace_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
+    proc = subprocess.Popen(
+        command,
+        cwd=os.getcwd(),
+        env=os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=stderr_handle,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+    )
+    Path(pid_file).write_text(f"{proc.pid}\n", encoding="utf-8")
+
+    sampler_thread = threading.Thread(target=sample_process, args=(proc.pid, proc), daemon=True)
+    sampler_thread.start()
+
+    def pump_stdout() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            trace_handle.write(line)
+            trace_handle.flush()
+            process_trace_line(line, proc)
+
+    stdout_thread = threading.Thread(target=pump_stdout, daemon=True)
+    stdout_thread.start()
+    status = proc.wait()
+    stdout_thread.join()
+    sampler_thread.join()
+
+end = time.monotonic()
+end_usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+
+Path(time_file).write_text(
+    "".join(
+        [
+            f"Elapsed (wall clock) time (h:mm:ss or m:ss): {end - start:.3f}\n",
+            f"User time (seconds): {max(0.0, end_usage.ru_utime - start_usage.ru_utime):.3f}\n",
+            f"System time (seconds): {max(0.0, end_usage.ru_stime - start_usage.ru_stime):.3f}\n",
+            f"Maximum resident set size (kbytes): {end_usage.ru_maxrss}\n",
+        ]
+    ),
+    encoding="utf-8",
+)
+
+epoch_path.write_text(
+    json.dumps(
+        {
+            "observed_epoch_transitions": count,
+            "target_epoch_transitions": target_epochs,
+            "first_from": first_from,
+            "last_into": last_into,
+            "sent_interrupt": sent_interrupt,
+        },
+        indent=2,
+    ),
+    encoding="utf-8",
+)
+
+if sent_interrupt and status != 0:
+    raise SystemExit(0)
+
+raise SystemExit(status)
+PY
+)
+amaru_status=$?
+set -e
+
+python3 - "$samples_file" "$allocator_samples_file" "$stage_file" "$trace_file" <<'PY'
+import csv
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+samples_path = Path(sys.argv[1])
+allocator_samples_path = Path(sys.argv[2])
+stage_samples_path = Path(sys.argv[3])
+trace_path = Path(sys.argv[4])
+
+
+def parse_timestamp_ms(value: str) -> int | None:
+    if not value:
+        return None
+
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return int(instant.timestamp() * 1000)
+
+
+def load_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+
+    with path.open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def load_epoch_boundaries(path: Path) -> list[dict[str, int | str]]:
+    if not path.exists():
+        return []
+
+    transitions = []
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if record.get("span", {}).get("name") != "epoch_transition.compute":
+                continue
+            if record.get("fields", {}).get("message") != "exit":
+                continue
+
+            timestamp_ms = parse_timestamp_ms(record.get("timestamp", ""))
+            from_epoch = record.get("from", record.get("span", {}).get("from"))
+            into_epoch = record.get("into", record.get("span", {}).get("into"))
+            if timestamp_ms is None or from_epoch is None or into_epoch is None:
+                continue
+
+            transitions.append({"timestamp_ms": timestamp_ms, "from": str(from_epoch), "into": str(into_epoch)})
+
+    return transitions
+
+
+samples = load_rows(samples_path)
+allocator_samples = [
+    {
+        "timestamp_ms": int(row["timestamp_ms"]),
+        "heap_live_bytes": row["heap_live_bytes"],
+        "heap_peak_bytes": row["heap_peak_bytes"],
+    }
+    for row in load_rows(allocator_samples_path)
+]
+stage_samples = [
+    {
+        "timestamp_ms": int(row["timestamp_ms"]),
+        "jemalloc_allocated": row.get("jemalloc_allocated", ""),
+        "jemalloc_active": row.get("jemalloc_active", ""),
+        "jemalloc_metadata": row.get("jemalloc_metadata", ""),
+        "jemalloc_resident": row.get("jemalloc_resident", ""),
+        "jemalloc_mapped": row.get("jemalloc_mapped", ""),
+        "jemalloc_retained": row.get("jemalloc_retained", ""),
+        "block_cache_capacity": row.get("block_cache_capacity", ""),
+        "block_cache_usage": row.get("block_cache_usage", ""),
+        "block_cache_pinned_usage": row.get("block_cache_pinned_usage", ""),
+        "cur_size_all_mem_tables": row.get("cur_size_all_mem_tables", ""),
+        "size_all_mem_tables": row.get("size_all_mem_tables", ""),
+        "estimate_table_readers_mem": row.get("estimate_table_readers_mem", ""),
+    }
+    for row in load_rows(stage_samples_path)
+]
+epoch_boundaries = load_epoch_boundaries(trace_path)
+
+allocator_index = 0
+latest_allocator = None
+stage_index = 0
+latest_stage = None
+epoch_index = 0
+current_epoch = epoch_boundaries[0]["from"] if epoch_boundaries else ""
+
+for row in samples:
+    timestamp_ms = int(row["timestamp_ms"])
+
+    while allocator_index < len(allocator_samples) and allocator_samples[allocator_index]["timestamp_ms"] <= timestamp_ms:
+        latest_allocator = allocator_samples[allocator_index]
+        allocator_index += 1
+
+    while stage_index < len(stage_samples) and stage_samples[stage_index]["timestamp_ms"] <= timestamp_ms:
+        latest_stage = stage_samples[stage_index]
+        stage_index += 1
+
+    while epoch_index < len(epoch_boundaries) and epoch_boundaries[epoch_index]["timestamp_ms"] <= timestamp_ms:
+        current_epoch = epoch_boundaries[epoch_index]["into"]
+        epoch_index += 1
+
+    row["epoch"] = str(current_epoch)
+    row["heap_live_bytes"] = latest_allocator["heap_live_bytes"] if latest_allocator is not None else ""
+    row["heap_peak_bytes"] = latest_allocator["heap_peak_bytes"] if latest_allocator is not None else ""
+    row["jemalloc_allocated"] = latest_stage["jemalloc_allocated"] if latest_stage is not None else ""
+    row["jemalloc_active"] = latest_stage["jemalloc_active"] if latest_stage is not None else ""
+    row["jemalloc_metadata"] = latest_stage["jemalloc_metadata"] if latest_stage is not None else ""
+    row["jemalloc_resident"] = latest_stage["jemalloc_resident"] if latest_stage is not None else ""
+    row["jemalloc_mapped"] = latest_stage["jemalloc_mapped"] if latest_stage is not None else ""
+    row["jemalloc_retained"] = latest_stage["jemalloc_retained"] if latest_stage is not None else ""
+    row["block_cache_capacity"] = latest_stage["block_cache_capacity"] if latest_stage is not None else ""
+    row["block_cache_usage"] = latest_stage["block_cache_usage"] if latest_stage is not None else ""
+    row["block_cache_pinned_usage"] = latest_stage["block_cache_pinned_usage"] if latest_stage is not None else ""
+    row["cur_size_all_mem_tables"] = latest_stage["cur_size_all_mem_tables"] if latest_stage is not None else ""
+    row["size_all_mem_tables"] = latest_stage["size_all_mem_tables"] if latest_stage is not None else ""
+    row["estimate_table_readers_mem"] = latest_stage["estimate_table_readers_mem"] if latest_stage is not None else ""
+
+with samples_path.open("w", newline="", encoding="utf-8") as handle:
+    fieldnames = [
+        "timestamp_ms",
+        "elapsed_s",
+        "epoch",
+        "cpu_percent",
+        "rss_bytes",
+        "rss_anon_bytes",
+        "private_bytes",
+        "heap_live_bytes",
+        "heap_peak_bytes",
+        "jemalloc_allocated",
+        "jemalloc_active",
+        "jemalloc_metadata",
+        "jemalloc_resident",
+        "jemalloc_mapped",
+        "jemalloc_retained",
+        "block_cache_capacity",
+        "block_cache_usage",
+        "block_cache_pinned_usage",
+        "cur_size_all_mem_tables",
+        "size_all_mem_tables",
+        "estimate_table_readers_mem",
+    ]
+    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(samples)
+PY
+
+python3 - "$samples_file" "$epoch_file" "$epochs" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+samples_path = Path(sys.argv[1])
+epoch_path = Path(sys.argv[2])
+target_epochs = int(sys.argv[3])
+
+sample_rows = 0
+if samples_path.exists():
+    with samples_path.open(encoding="utf-8") as handle:
+        next(handle, None)
+        for _ in handle:
+            sample_rows += 1
+
+if sample_rows == 0:
+    raise SystemExit(f"no process samples were captured; inspect {samples_path}")
+
+epoch_info = json.loads(epoch_path.read_text()) if epoch_path.exists() else {}
+observed = int(epoch_info.get("observed_epoch_transitions", 0))
+
+if observed < target_epochs:
+    raise SystemExit(
+        f"observed only {observed}/{target_epochs} epoch transitions; inspect {epoch_path}"
+    )
+PY
+
+python3 - "$label" "$allocator" "$profile" "$network" "$samples_file" "$stage_file" "$time_file" "$epoch_file" "$trace_file" "$summary_json" "$summary_md" <<'PY'
+import csv
+import json
+import statistics
+import sys
+from bisect import bisect_left
+from collections import defaultdict, deque
+from datetime import datetime
+from pathlib import Path
+
+label, allocator, profile, network = sys.argv[1:5]
+samples_path = Path(sys.argv[5])
+stages_path = Path(sys.argv[6])
+time_path = Path(sys.argv[7])
+epoch_path = Path(sys.argv[8])
+trace_path = Path(sys.argv[9])
+summary_json_path = Path(sys.argv[10])
+summary_md_path = Path(sys.argv[11])
+
+
+def load_csv(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with path.open() as handle:
+        return list(csv.DictReader(handle))
+
+
+def load_time(path: Path) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    if not path.exists():
+        return parsed
+
+    for line in path.read_text().splitlines():
+        if ": " not in line:
+            continue
+        key, value = line.split(": ", 1)
+        parsed[key.strip()] = value.strip()
+    return parsed
+
+
+def parse_elapsed(value: str) -> float | None:
+    if not value:
+        return None
+    value = value.strip()
+    if "." in value and "-" not in value and value.count(":") == 0:
+        return float(value)
+
+    days = 0
+    if "-" in value:
+        day_part, value = value.split("-", 1)
+        days = int(day_part)
+
+    parts = value.split(":")
+    if len(parts) == 2:
+        minutes, seconds = parts
+        return days * 86400 + int(minutes) * 60 + float(seconds)
+    if len(parts) == 3:
+        hours, minutes, seconds = parts
+        return days * 86400 + int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    return None
+
+
+def human_bytes(value: float | int | None) -> str:
+    if value is None:
+        return "-"
+    value = float(value)
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    for unit in units:
+        if abs(value) < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value):,} {unit}"
+            return f"{value:,.2f} {unit}"
+        value /= 1024
+    return f"{value:,.2f} PiB"
+
+
+def mean(values: list[float]) -> float | None:
+    return statistics.fmean(values) if values else None
+
+
+def maximum(values: list[float]) -> float | None:
+    return max(values) if values else None
+
+
+def parse_timestamp(value: str) -> float | None:
+    if not value:
+        return None
+
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+
+def percentile(values: list[float], ratio: float) -> float | None:
+    if not values:
+        return None
+
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+
+    position = (len(ordered) - 1) * ratio
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
+def int_or_none(value: str | None) -> int | None:
+    if value in (None, ""):
+        return None
+    return int(value)
+
+
+def stats_summary(values: list[int | float]) -> dict[str, float | int | None]:
+    return {
+        "count": len(values),
+        "mean": mean(values),
+        "max": maximum(values),
+        "min": min(values) if values else None,
+        "p95": percentile(values, 0.95),
+    }
+
+
+def nearest_sample(samples: list[dict[str, int | float | None]], timestamps: list[int], timestamp_ms: int) -> dict[str, int | float | None] | None:
+    if not samples:
+        return None
+
+    index = bisect_left(timestamps, timestamp_ms)
+    if index == 0:
+        return samples[0]
+    if index >= len(samples):
+        return samples[-1]
+
+    previous = samples[index - 1]
+    current = samples[index]
+    previous_distance = abs(previous["timestamp_ms"] - timestamp_ms)
+    current_distance = abs(current["timestamp_ms"] - timestamp_ms)
+    return previous if previous_distance <= current_distance else current
+
+
+def load_epoch_sync_durations(path: Path) -> list[dict[str, float | str]]:
+    if not path.exists():
+        return []
+
+    transitions = []
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if record.get("span", {}).get("name") != "epoch_transition.compute":
+                continue
+            if record.get("fields", {}).get("message") != "exit":
+                continue
+
+            timestamp = parse_timestamp(record.get("timestamp", ""))
+            into = record.get("into", record.get("span", {}).get("into"))
+            if timestamp is None or into is None:
+                continue
+
+            transitions.append({"timestamp": timestamp, "into": str(into)})
+
+    durations = []
+    for previous, current in zip(transitions, transitions[1:]):
+        durations.append(
+            {
+                "epoch": previous["into"],
+                "seconds": current["timestamp"] - previous["timestamp"],
+            }
+        )
+
+    return durations
+
+
+samples = load_csv(samples_path)
+stages = load_csv(stages_path)
+epoch_info = json.loads(epoch_path.read_text()) if epoch_path.exists() else {}
+time_info = load_time(time_path)
+epoch_sync_durations = load_epoch_sync_durations(trace_path)
+
+sample_points = [
+    {
+        "timestamp_ms": int(row["timestamp_ms"]),
+        "heap_live_bytes": int_or_none(row.get("heap_live_bytes")),
+        "heap_peak_bytes": int_or_none(row.get("heap_peak_bytes")),
+        "rss_bytes": int_or_none(row.get("rss_bytes")),
+        "private_bytes": int_or_none(row.get("private_bytes")),
+    }
+    for row in samples
+]
+sample_timestamps = [row["timestamp_ms"] for row in sample_points]
+
+stage_points = []
+for row in stages:
+    point = {
+        "timestamp_ms": int(row["timestamp_ms"]),
+        "stage": row["stage"],
+        "epoch": row["epoch"],
+        "jemalloc_allocated": int_or_none(row.get("jemalloc_allocated")),
+        "jemalloc_active": int_or_none(row.get("jemalloc_active")),
+        "jemalloc_metadata": int_or_none(row.get("jemalloc_metadata")),
+        "jemalloc_resident": int_or_none(row.get("jemalloc_resident")),
+        "jemalloc_mapped": int_or_none(row.get("jemalloc_mapped")),
+        "jemalloc_retained": int_or_none(row.get("jemalloc_retained")),
+        "block_cache_capacity": int_or_none(row.get("block_cache_capacity")),
+        "block_cache_usage": int_or_none(row.get("block_cache_usage")),
+        "block_cache_pinned_usage": int_or_none(row.get("block_cache_pinned_usage")),
+        "cur_size_all_mem_tables": int_or_none(row.get("cur_size_all_mem_tables")),
+        "size_all_mem_tables": int_or_none(row.get("size_all_mem_tables")),
+        "estimate_table_readers_mem": int_or_none(row.get("estimate_table_readers_mem")),
+    }
+    nearest = nearest_sample(sample_points, sample_timestamps, point["timestamp_ms"])
+    if nearest is not None:
+        point["heap_live_bytes"] = nearest["heap_live_bytes"]
+        point["heap_peak_bytes"] = nearest["heap_peak_bytes"]
+        point["rss_bytes"] = nearest["rss_bytes"]
+        point["private_bytes"] = nearest["private_bytes"]
+    else:
+        point["heap_live_bytes"] = None
+        point["heap_peak_bytes"] = None
+        point["rss_bytes"] = None
+        point["private_bytes"] = None
+    stage_points.append(point)
+
+rss_values = [int(row["rss_bytes"]) for row in samples]
+rss_anon_values = [int(row["rss_anon_bytes"]) for row in samples]
+private_values = [int(row["private_bytes"]) for row in samples]
+heap_live_values = [int(value) for row in samples if (value := row.get("heap_live_bytes"))]
+heap_peak_values = [int(value) for row in samples if (value := row.get("heap_peak_bytes"))]
+cpu_values = [float(row["cpu_percent"]) for row in samples]
+elapsed_values = [float(row["elapsed_s"]) for row in samples]
+epoch_sync_seconds = [entry["seconds"] for entry in epoch_sync_durations]
+
+jemalloc_keys = [
+    "jemalloc_allocated",
+    "jemalloc_active",
+    "jemalloc_metadata",
+    "jemalloc_resident",
+    "jemalloc_mapped",
+    "jemalloc_retained",
+]
+rocksdb_keys = [
+    "block_cache_capacity",
+    "block_cache_usage",
+    "block_cache_pinned_usage",
+    "cur_size_all_mem_tables",
+    "size_all_mem_tables",
+    "estimate_table_readers_mem",
+]
+
+jemalloc_max = {key: maximum([int(row[key]) for row in stages]) or 0 for key in jemalloc_keys} if stages else {}
+rocksdb_max = {key: maximum([int(row[key]) for row in stages]) or 0 for key in rocksdb_keys} if stages else {}
+
+stage_intervals = [
+    ("stake_distribution_build", "rotate_stake_distribution.begin", "rotate_stake_distribution.summary"),
+    ("stake_distribution_rotation", "rotate_stake_distribution.begin", "rotate_stake_distribution.end"),
+    ("rewards_stake_summary", "compute_rewards.begin", "compute_rewards.stake_summary"),
+    ("rewards_calculation", "compute_rewards.begin", "compute_rewards.end"),
+    ("epoch_transition_join_rewards", "epoch_transition.begin", "epoch_transition.rewards_joined"),
+    ("epoch_transition", "epoch_transition.begin", "epoch_transition.end"),
+]
+
+
+def paired_stage_summary(points: list[dict[str, str | int | None]], start_stage: str, end_stage: str) -> dict | None:
+    starts_by_epoch: dict[str, deque[dict[str, str | int | None]]] = defaultdict(deque)
+    pairs = []
+
+    for point in sorted(points, key=lambda point: point["timestamp_ms"]):
+        stage = point["stage"]
+        epoch = point["epoch"]
+        if stage == start_stage:
+            starts_by_epoch[epoch].append(point)
+        elif stage == end_stage and starts_by_epoch[epoch]:
+            start = starts_by_epoch[epoch].popleft()
+            if point["timestamp_ms"] >= start["timestamp_ms"]:
+                pairs.append((start, point))
+
+    if not pairs:
+        return None
+
+    durations_ms = [end["timestamp_ms"] - start["timestamp_ms"] for start, end in pairs]
+    heap_live_end = [end["heap_live_bytes"] for _, end in pairs if end["heap_live_bytes"] is not None]
+    heap_live_delta = [
+        end["heap_live_bytes"] - start["heap_live_bytes"]
+        for start, end in pairs
+        if start["heap_live_bytes"] is not None and end["heap_live_bytes"] is not None
+    ]
+    jemalloc_allocated_delta = [
+        end["jemalloc_allocated"] - start["jemalloc_allocated"]
+        for start, end in pairs
+        if start["jemalloc_allocated"] is not None and end["jemalloc_allocated"] is not None
+    ]
+    jemalloc_resident_delta = [
+        end["jemalloc_resident"] - start["jemalloc_resident"]
+        for start, end in pairs
+        if start["jemalloc_resident"] is not None and end["jemalloc_resident"] is not None
+    ]
+
+    return {
+        "count": len(pairs),
+        "duration_ms": stats_summary(durations_ms),
+        "heap_live_end_bytes": stats_summary(heap_live_end),
+        "heap_live_delta_bytes": stats_summary(heap_live_delta),
+        "jemalloc_allocated_delta_bytes": stats_summary(jemalloc_allocated_delta),
+        "jemalloc_resident_delta_bytes": stats_summary(jemalloc_resident_delta),
+    }
+
+
+memory_stage_summary = {
+    name: summary
+    for name, start_stage, end_stage in stage_intervals
+    if (summary := paired_stage_summary(stage_points, start_stage, end_stage)) is not None
+}
+
+dhat_path = summary_json_path.parent / "dhat-heap.json"
+dhat_summary = None
+if dhat_path.exists():
+    dhat = json.loads(dhat_path.read_text())
+    ftbl = dhat.get("ftbl", [])
+    pps = dhat.get("pps", [])
+
+    def frame_summary(pp: dict) -> str:
+        indices = pp.get("fs", [])
+        frames = [ftbl[index] for index in indices[:3] if isinstance(index, int) and index < len(ftbl)]
+        return " > ".join(frames) if frames else "[unknown]"
+
+    peak_pps = sorted(pps, key=lambda pp: int(pp.get("gb", 0)), reverse=True)[:5]
+    churn_pps = sorted(pps, key=lambda pp: int(pp.get("tb", 0)) - int(pp.get("gb", 0)), reverse=True)[:5]
+
+    dhat_summary = {
+        "peak_bytes": sum(int(pp.get("gb", 0)) for pp in pps),
+        "top_peak_cost_centers": [
+            {
+                "bytes_at_global_peak": int(pp.get("gb", 0)),
+                "total_bytes": int(pp.get("tb", 0)),
+                "frames": frame_summary(pp),
+            }
+            for pp in peak_pps
+        ],
+        "top_churn_cost_centers": [
+            {
+                "transient_bytes": int(pp.get("tb", 0)) - int(pp.get("gb", 0)),
+                "bytes_at_global_peak": int(pp.get("gb", 0)),
+                "total_bytes": int(pp.get("tb", 0)),
+                "frames": frame_summary(pp),
+            }
+            for pp in churn_pps
+        ],
+    }
+
+jemalloc_resident = jemalloc_max.get("jemalloc_resident", 0)
+jemalloc_allocated = jemalloc_max.get("jemalloc_allocated", 0)
+rss_max = maximum(rss_values) or 0
+rss_anon_max = maximum(rss_anon_values) or 0
+private_max = maximum(private_values) or 0
+heap_live_max = maximum(heap_live_values) or 0
+heap_peak_max = maximum(heap_peak_values) or 0
+
+composition = {
+    "allocator_resident_share_of_rss": (jemalloc_resident / rss_max) if rss_max and jemalloc_resident else None,
+    "allocator_retained_bytes": max(jemalloc_resident - jemalloc_allocated, 0) if jemalloc_resident else None,
+    "rocksdb_managed_peak_bytes": (
+        rocksdb_max.get("block_cache_usage", 0)
+        + rocksdb_max.get("size_all_mem_tables", 0)
+        + rocksdb_max.get("estimate_table_readers_mem", 0)
+    ),
+    "rss_minus_heap_live_peak_bytes": max(rss_max - heap_live_max, 0),
+    "rss_minus_private_peak_bytes": max(rss_max - private_max, 0),
+    "rss_anon_share_of_rss": (rss_anon_max / rss_max) if rss_max and rss_anon_max else None,
+}
+
+summary = {
+    "label": label,
+    "allocator": allocator,
+    "profile": profile,
+    "network": network,
+    "epoch_transitions": epoch_info,
+    "epoch_sync_seconds": {
+        "count": len(epoch_sync_durations),
+        "mean": mean(epoch_sync_seconds),
+        "median": statistics.median(epoch_sync_seconds) if epoch_sync_seconds else None,
+        "p95": percentile(epoch_sync_seconds, 0.95),
+        "fastest": min(epoch_sync_durations, key=lambda entry: entry["seconds"]) if epoch_sync_durations else None,
+        "slowest": max(epoch_sync_durations, key=lambda entry: entry["seconds"]) if epoch_sync_durations else None,
+    },
+    "samples": {
+        "count": len(samples),
+        "elapsed_seconds": maximum(elapsed_values),
+        "rss_bytes": {"max": rss_max, "mean": mean(rss_values)},
+        "rss_anon_bytes": {"max": rss_anon_max, "mean": mean(rss_anon_values)},
+        "private_bytes": {"max": private_max, "mean": mean(private_values)},
+        "heap_live_bytes": {"max": heap_live_max, "mean": mean(heap_live_values)},
+        "heap_peak_bytes": {"max": heap_peak_max, "mean": mean(heap_peak_values)},
+        "cpu_percent": {"max": maximum(cpu_values), "mean": mean(cpu_values)},
+    },
+    "time": {
+        "wall_seconds": parse_elapsed(time_info.get("Elapsed (wall clock) time (h:mm:ss or m:ss)")),
+        "user_seconds": float(time_info["User time (seconds)"]) if "User time (seconds)" in time_info else None,
+        "system_seconds": float(time_info["System time (seconds)"]) if "System time (seconds)" in time_info else None,
+        "max_rss_kib": int(time_info["Maximum resident set size (kbytes)"])
+        if "Maximum resident set size (kbytes)" in time_info
+        else None,
+    },
+    "jemalloc_max": jemalloc_max or None,
+    "rocksdb_max": rocksdb_max or None,
+    "memory_stages": memory_stage_summary or None,
+    "dhat": dhat_summary,
+    "composition": composition,
+}
+
+summary_json_path.write_text(json.dumps(summary, indent=2, sort_keys=True))
+
+lines = [
+    f"# Linux profiling run: {label}",
+    "",
+    "## Run",
+    "",
+    f"- Allocator: `{allocator}`",
+    f"- Cargo profile: `{profile}`",
+    f"- Network: `{network}`",
+    f"- Observed epoch transitions: `{epoch_info.get('observed_epoch_transitions', 0)}`",
+    f"- Wall time: `{summary['time']['wall_seconds'] if summary['time']['wall_seconds'] is not None else '-'} s`",
+    "",
+    "## Epoch sync",
+    "",
+    f"- Measured epochs: `{summary['epoch_sync_seconds']['count']}`",
+    f"- Mean epoch sync time: `{summary['epoch_sync_seconds']['mean']:.3f} s`"
+    if summary["epoch_sync_seconds"]["mean"] is not None
+    else "- Mean epoch sync time: `-`",
+    f"- Median epoch sync time: `{summary['epoch_sync_seconds']['median']:.3f} s`"
+    if summary["epoch_sync_seconds"]["median"] is not None
+    else "- Median epoch sync time: `-`",
+    f"- P95 epoch sync time: `{summary['epoch_sync_seconds']['p95']:.3f} s`"
+    if summary["epoch_sync_seconds"]["p95"] is not None
+    else "- P95 epoch sync time: `-`",
+    (
+        f"- Fastest measured epoch: `e{summary['epoch_sync_seconds']['fastest']['epoch']}` in "
+        f"`{summary['epoch_sync_seconds']['fastest']['seconds']:.3f} s`"
+    )
+    if summary["epoch_sync_seconds"]["fastest"] is not None
+    else "- Fastest measured epoch: `-`",
+    (
+        f"- Slowest measured epoch: `e{summary['epoch_sync_seconds']['slowest']['epoch']}` in "
+        f"`{summary['epoch_sync_seconds']['slowest']['seconds']:.3f} s`"
+    )
+    if summary["epoch_sync_seconds"]["slowest"] is not None
+    else "- Slowest measured epoch: `-`",
+    "",
+    "## RSS and footprint",
+    "",
+    f"- RSS max: `{human_bytes(summary['samples']['rss_bytes']['max'])}`",
+    f"- RSS mean: `{human_bytes(summary['samples']['rss_bytes']['mean'])}`",
+    f"- RSS anon max: `{human_bytes(summary['samples']['rss_anon_bytes']['max'])}`",
+    f"- RSS anon mean: `{human_bytes(summary['samples']['rss_anon_bytes']['mean'])}`",
+    f"- Private max: `{human_bytes(summary['samples']['private_bytes']['max'])}`",
+    f"- Private mean: `{human_bytes(summary['samples']['private_bytes']['mean'])}`",
+    f"- Heap live max: `{human_bytes(summary['samples']['heap_live_bytes']['max'])}`",
+    f"- Heap live mean: `{human_bytes(summary['samples']['heap_live_bytes']['mean'])}`",
+    f"- Heap peak: `{human_bytes(summary['samples']['heap_peak_bytes']['max'])}`",
+    f"- Peak RSS - heap live gap: `{human_bytes(summary['composition']['rss_minus_heap_live_peak_bytes'])}`",
+    f"- Peak RSS - private gap: `{human_bytes(summary['composition']['rss_minus_private_peak_bytes'])}`",
+    (
+        f"- RSS anon share of peak RSS: `{summary['composition']['rss_anon_share_of_rss'] * 100:.1f}%`"
+        if summary["composition"]["rss_anon_share_of_rss"] is not None
+        else "- RSS anon share of peak RSS: `-`"
+    ),
+    "",
+    "## CPU",
+    "",
+    f"- CPU max: `{summary['samples']['cpu_percent']['max'] if summary['samples']['cpu_percent']['max'] is not None else '-'} %`",
+    f"- CPU mean: `{summary['samples']['cpu_percent']['mean'] if summary['samples']['cpu_percent']['mean'] is not None else '-'} %`",
+    f"- User/System time: `{summary['time']['user_seconds'] if summary['time']['user_seconds'] is not None else '-'} / {summary['time']['system_seconds'] if summary['time']['system_seconds'] is not None else '-'} s`",
+    "",
+    "## RocksDB memory",
+    "",
+]
+
+if rocksdb_max:
+    lines.extend(
+        [
+            f"- Block cache usage max: `{human_bytes(rocksdb_max['block_cache_usage'])}` / `{human_bytes(rocksdb_max['block_cache_capacity'])}`",
+            f"- Block cache pinned max: `{human_bytes(rocksdb_max['block_cache_pinned_usage'])}`",
+            f"- Memtables max: `{human_bytes(rocksdb_max['size_all_mem_tables'])}`",
+            f"- Active memtables max: `{human_bytes(rocksdb_max['cur_size_all_mem_tables'])}`",
+            f"- Table readers max: `{human_bytes(rocksdb_max['estimate_table_readers_mem'])}`",
+        ]
+    )
+else:
+    lines.append("- No RocksDB memory-stage samples were captured.")
+
+lines.extend(["", "## Memory stages", ""])
+
+if memory_stage_summary:
+    stage_labels = {
+        "stake_distribution_build": "Stake distribution build",
+        "stake_distribution_rotation": "Stake distribution rotation",
+        "rewards_stake_summary": "Rewards stake summary",
+        "rewards_calculation": "Rewards calculation",
+        "epoch_transition_join_rewards": "Epoch transition rewards join",
+        "epoch_transition": "Epoch transition",
+    }
+
+    for key, label in stage_labels.items():
+        stage = memory_stage_summary.get(key)
+        if stage is None:
+            continue
+
+        lines.extend(
+            [
+                f"- {label}: `{stage['count']}` samples",
+                f"  - Mean duration: `{stage['duration_ms']['mean'] / 1000:.3f} s`" if stage["duration_ms"]["mean"] is not None else "  - Mean duration: `-`",
+                f"  - Mean end heap live: `{human_bytes(stage['heap_live_end_bytes']['mean'])}`",
+                f"  - Peak end heap live: `{human_bytes(stage['heap_live_end_bytes']['max'])}`",
+                f"  - Mean heap-live delta: `{human_bytes(stage['heap_live_delta_bytes']['mean'])}`",
+                f"  - Worst heap-live delta: `{human_bytes(stage['heap_live_delta_bytes']['max'])}`",
+                f"  - Mean jemalloc allocated delta: `{human_bytes(stage['jemalloc_allocated_delta_bytes']['mean'])}`",
+                f"  - Worst jemalloc allocated delta: `{human_bytes(stage['jemalloc_allocated_delta_bytes']['max'])}`",
+                f"  - Mean jemalloc resident delta: `{human_bytes(stage['jemalloc_resident_delta_bytes']['mean'])}`",
+                f"  - Worst jemalloc resident delta: `{human_bytes(stage['jemalloc_resident_delta_bytes']['max'])}`",
+            ]
+        )
+else:
+    lines.append("- No stage interval summary could be reconstructed from `memory-stages.csv`.")
+
+lines.extend(["", "## Allocator view", ""])
+
+if jemalloc_max:
+    lines.extend(
+        [
+            f"- jemalloc allocated max: `{human_bytes(jemalloc_max['jemalloc_allocated'])}`",
+            f"- jemalloc active max: `{human_bytes(jemalloc_max['jemalloc_active'])}`",
+            f"- jemalloc resident max: `{human_bytes(jemalloc_max['jemalloc_resident'])}`",
+            f"- jemalloc retained max: `{human_bytes(jemalloc_max['jemalloc_retained'])}`",
+            f"- Approx allocator-retained bytes at peak: `{human_bytes(summary['composition']['allocator_retained_bytes'])}`",
+            f"- Approx allocator share of peak RSS: `{summary['composition']['allocator_resident_share_of_rss'] * 100:.1f}%`"
+            if summary["composition"]["allocator_resident_share_of_rss"] is not None
+            else "- Approx allocator share of peak RSS: `-`",
+        ]
+    )
+else:
+    lines.append("- No allocator-specific resident/allocated counters were captured.")
+
+lines.extend(["", "## DHAT heap profile", ""])
+
+if dhat_summary:
+    lines.append(f"- Peak heap allocation (at global peak): `{human_bytes(dhat_summary['peak_bytes'])}`")
+    lines.append("- Main peak cost centers:")
+    for entry in dhat_summary["top_peak_cost_centers"]:
+        lines.append(
+            f"  - `{human_bytes(entry['bytes_at_global_peak'])}` at peak, `{human_bytes(entry['total_bytes'])}` total: `{entry['frames']}`"
+        )
+    lines.append("- Allocation-heavy churn sites:")
+    for entry in dhat_summary["top_churn_cost_centers"]:
+        lines.append(
+            f"  - `{human_bytes(entry['transient_bytes'])}` transient, `{human_bytes(entry['bytes_at_global_peak'])}` at peak: `{entry['frames']}`"
+        )
+else:
+    lines.append("- No `dhat-heap.json` was captured for this run.")
+)
+
+summary_md_path.write_text("\n".join(lines) + "\n")
+PY
+
+if command -v gnuplot >/dev/null 2>&1; then
+  gnuplot <<EOF
+set terminal pngcairo size 1600,900 enhanced font "Helvetica,12"
+set output "${plot_file}"
+set datafile separator ","
+set key outside
+set grid
+set xlabel "Elapsed (s)"
+set ylabel "Memory (MiB)"
+set y2label "CPU (%)"
+set y2tics
+set ytics nomirror
+set title "${label}"
+
+plot \
+  "${samples_file}" using 2:(column("rss_bytes") / 1048576.0) with lines linewidth 2 title "RSS MiB" axes x1y1, \
+  "${samples_file}" using 2:(column("rss_anon_bytes") / 1048576.0) with lines linewidth 2 title "RSS anon MiB" axes x1y1, \
+  "${samples_file}" using 2:(column("private_bytes") / 1048576.0) with lines linewidth 2 title "Private MiB" axes x1y1, \
+  "${samples_file}" using 2:(column("heap_live_bytes") / 1048576.0) with lines linewidth 2 title "Heap live MiB" axes x1y1, \
+  "${samples_file}" using 2:(column("cpu_percent")) with lines linewidth 2 title "CPU %" axes x1y2
+EOF
+fi
+
+watcher_summary="$(python3 - "$epoch_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    print("0")
+else:
+    print(json.loads(path.read_text()).get("observed_epoch_transitions", 0))
+PY
+)"
+
+if [ "$amaru_status" -eq 130 ] && [ "$watcher_summary" -ge "$epochs" ]; then
+  amaru_status=0
+fi
+
+printf 'wrote %s\n' "$samples_file"
+printf 'wrote %s\n' "$stage_file"
+printf 'wrote %s\n' "$summary_json"
+printf 'wrote %s\n' "$summary_md"
+if [ -f "$plot_file" ]; then
+  printf 'wrote %s\n' "$plot_file"
+fi
+
+exit "$amaru_status"
