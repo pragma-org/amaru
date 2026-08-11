@@ -162,7 +162,7 @@ pub fn test_prep() -> TestPrep {
     let block_source = StageRef::named_for_tests("block_source");
     let block_validator = Arc::new(MockBlockValidator::new(Point::Origin));
 
-    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), Point::Origin);
+    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), 10, Point::Origin);
 
     TestPrep {
         state,
@@ -174,6 +174,10 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_many(prep, vec![msg])
+}
+
+pub fn setup_many(prep: &TestPrep, msgs: Vec<ValidateBlockMsg>) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
     run_simulation(
@@ -182,7 +186,7 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
         |mut network| {
             let vb = network.stage("vb", stage);
             let vb = network.wire_up(vb, prep.state.clone());
-            network.preload(&vb, [msg]).unwrap();
+            network.preload(&vb, msgs).unwrap();
             network
         },
         |resources| {

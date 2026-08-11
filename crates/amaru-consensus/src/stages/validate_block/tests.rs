@@ -22,8 +22,8 @@ use crate::stages::{
     select_chain::SelectChainMsg,
     test_utils::{te_input, te_state},
     validate_block::test_setup::{
-        assert_trace, setup, te_rollback_ledger, te_send, te_terminate, te_terminated, te_validate_block, test_prep,
-        tm_record_metrics,
+        assert_trace, setup, setup_many, te_rollback_ledger, te_send, te_terminate, te_terminated, te_validate_block,
+        test_prep, tm_record_metrics,
     },
 };
 // if needed for Literal
@@ -303,6 +303,8 @@ fn test_validation_failure_sends_false() {
     let parent = prep.headers.h1.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
+    let expected =
+        ValidateBlock { invalid_blocks: BTreeMap::from([(tip.hash(), tip.block_height())]), ..prep.state.clone() };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
@@ -312,7 +314,7 @@ fn test_validation_failure_sends_false() {
             te_validate_block("vb-1", tip.point()),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0))),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
-            te_state("vb-1", &prep.state),
+            te_state("vb-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
@@ -334,7 +336,11 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
     let parent = prep.headers.h2a.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
-    let expected = ValidateBlock { current: applied_tip.point(), ..prep.state.clone() };
+    let expected = ValidateBlock {
+        current: applied_tip.point(),
+        invalid_blocks: BTreeMap::from([(tip.hash(), tip.block_height())]),
+        ..prep.state.clone()
+    };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace_contains(
         &running,
@@ -359,6 +365,7 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
+        .assert_and_remove(Level::WARN, &["fork switch partially applied"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -376,6 +383,10 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
     let parent = prep.headers.h2a.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
+    let expected = ValidateBlock {
+        invalid_blocks: BTreeMap::from([(failed.hash(), failed.block_height()), (tip.hash(), tip.block_height())]),
+        ..prep.state.clone()
+    };
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
         &running,
@@ -385,11 +396,127 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
             te_rollback_ledger("vb-1", &tip),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(failed, false, BlockHeight::from(0))),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: failed.point() }),
-            te_state("vb-1", &prep.state),
+            te_state("vb-1", &expected),
         ],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
         .assert_and_remove(Level::WARN, &["failed to fork the ledger to a new tip"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_invalid_block_condemns_in_flight_descendants() {
+    let mut prep = test_prep();
+    prep.set_current(prep.headers.h1.point());
+    prep.block_validator.with_tip(prep.headers.h1.point()).with_validate_fails(prep.headers.h2a.point());
+    prep.store_headers(&prep.headers.all());
+    prep.store_blocks(&prep.headers.all());
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let tip1 = prep.headers.h2a.tip();
+    let msg1 = ValidateBlockMsg::new(tip1, prep.headers.h1.point(), BlockHeight::from(0));
+    let tip2 = prep.headers.h3a.tip();
+    let msg2 = ValidateBlockMsg::new(tip2, prep.headers.h2a.point(), BlockHeight::from(0));
+
+    let after_first =
+        ValidateBlock { invalid_blocks: BTreeMap::from([(tip1.hash(), tip1.block_height())]), ..prep.state.clone() };
+    let after_second = ValidateBlock {
+        invalid_blocks: BTreeMap::from([(tip1.hash(), tip1.block_height()), (tip2.hash(), tip2.block_height())]),
+        ..prep.state.clone()
+    };
+
+    let (running, _guards, mut logs) = setup_many(&prep, vec![msg1.clone(), msg2.clone()]);
+    assert_trace(
+        &running,
+        &[
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg1),
+            te_validate_block("vb-1", tip1.point()),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip1, false, BlockHeight::from(0))),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip1.point() }),
+            te_state("vb-1", &after_first),
+            te_input("vb-1", &msg2),
+            // no ledger effect here: the parent is invalid
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip2, false, BlockHeight::from(0))),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip2.point() }),
+            te_state("vb-1", &after_second),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["validating block"])
+        .assert_and_remove(Level::WARN, &["failed to advance the ledger to a new tip"])
+        .assert_and_remove(Level::WARN, &["refusing to validate the descendant of an invalid block"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_descendant_of_invalid_block_is_refused_without_validation() {
+    let mut prep = test_prep();
+    prep.set_current(prep.headers.h1.point());
+    prep.state.invalid_blocks = BTreeMap::from([(prep.headers.h2a.hash(), prep.headers.h2a.block_height())]);
+    prep.store_headers(&prep.headers.all());
+    prep.store_blocks(&prep.headers.all());
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let tip = prep.headers.h3a.tip();
+    let msg = ValidateBlockMsg::new(tip, prep.headers.h2a.point(), BlockHeight::from(0));
+
+    let expected = ValidateBlock {
+        invalid_blocks: BTreeMap::from([
+            (prep.headers.h2a.hash(), prep.headers.h2a.block_height()),
+            (tip.hash(), tip.block_height()),
+        ]),
+        ..prep.state.clone()
+    };
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg),
+            te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0))),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
+            te_state("vb-1", &expected),
+        ],
+    );
+    logs.assert_and_remove(Level::WARN, &["refusing to validate the descendant of an invalid block"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_invalid_blocks_below_the_security_window_are_evicted() {
+    let mut prep = test_prep();
+    prep.set_current(prep.headers.h1.point());
+    // With k = 2, a block invalid_blocks at height 1 falls out of the window once height 3 validates.
+    prep.state.consensus_security_param = 2;
+    let stale = (HeaderHash::from([9u8; 32]), BlockHeight::from(1));
+    let kept = (prep.headers.h2a.hash(), prep.headers.h2a.block_height());
+    prep.state.invalid_blocks = BTreeMap::from([stale, kept]);
+    prep.store_headers(&prep.headers.main());
+    prep.store_blocks(&prep.headers.main());
+    prep.set_anchor(prep.headers.h0.hash());
+
+    let tip = prep.headers.h2.tip();
+    let msg = ValidateBlockMsg::new(tip, prep.headers.h1.point(), BlockHeight::from(0));
+
+    let expected = ValidateBlock {
+        current: tip.point(),
+        invalid_blocks: BTreeMap::from([kept]),
+        consensus_security_param: 2,
+        ..prep.state.clone()
+    };
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("vb-1", &msg).into(),
+            te_validate_block("vb-1", tip.point()).into(),
+            te_state("vb-1", &expected).into(),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["validating block"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, Point, Tip};
+use std::collections::BTreeMap;
+
+use amaru_kernel::{BlockHeight, HeaderHash, Point, Tip};
 use amaru_metrics::LedgerMetrics;
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros_traits::ForkSwitchOutcome;
@@ -61,6 +63,12 @@ pub struct ValidateBlock {
     /// This is always at the tip of the ledger
     current: Point,
     max_block_height: BlockHeight,
+    consensus_security_param: u64,
+    /// Blocks that failed validation (with their heights), plus in-flight descendants refused
+    /// because of them. Consulted to avoid asking the ledger to validate chains already known to
+    /// be dead. Entries deeper than `consensus_security_param` below the ledger tip are evicted,
+    /// since no chain forking that far down can ever be adopted.
+    invalid_blocks: BTreeMap<HeaderHash, BlockHeight>,
 }
 
 impl ValidateBlock {
@@ -68,9 +76,18 @@ impl ValidateBlock {
         manager: StageRef<AdoptChainMsg>,
         select_chain: StageRef<SelectChainMsg>,
         block_source: StageRef<BlockSourceMsg>,
+        consensus_security_param: u64,
         current: Point,
     ) -> Self {
-        Self { adopt_chain: manager, select_chain, block_source, current, max_block_height: BlockHeight::from(0) }
+        Self {
+            adopt_chain: manager,
+            select_chain,
+            block_source,
+            consensus_security_param,
+            current,
+            max_block_height: BlockHeight::from(0),
+            invalid_blocks: BTreeMap::new(),
+        }
     }
 }
 
@@ -93,15 +110,20 @@ impl ValidateBlockMsg {
     }
 }
 
-pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects<ValidateBlockMsg>) -> ValidateBlock {
+pub async fn stage(
+    mut state: ValidateBlock,
+    mut msg: ValidateBlockMsg,
+    eff: Effects<ValidateBlockMsg>,
+) -> ValidateBlock {
     let tip = msg.tip;
     if msg.parent == Point::Origin {
         tracing::error!(parent = %msg.parent, current = %state.current, tip = %tip, "cannot start from genesis block");
         return eff.terminate().await;
     }
 
+    let trace_context = std::mem::take(&mut msg.trace_context);
     let span = debug_span!(
-            parent_context: msg.trace_context,
+            parent_context: trace_context,
             consensus::block::VALIDATE,
             tip = tip,
             header_hash = tip.hash());
@@ -111,6 +133,21 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
     async {
         let ledger = Ledger::new(eff.clone()).with_trace_context(&stage_context);
         tracing::debug!(parent = %msg.parent, current = %state.current, tip = %tip, "validating block");
+
+        // No need to validate a block that descends from an invalid block or has already been determined to
+        // be invalid.
+        if state.invalid_blocks.contains_key(&msg.parent.hash()) || state.invalid_blocks.contains_key(&tip.hash()) {
+            error(
+                &mut state,
+                msg,
+                tip,
+                &eff,
+                "the block descends from an invalid block",
+                "refusing to validate the descendant of an invalid block",
+            )
+            .await;
+            return state;
+        }
 
         if msg.parent == state.current {
             let result = ledger
@@ -122,15 +159,8 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
             match result {
                 Ok(metrics) => completed(&mut state, tip, &eff, metrics).await,
                 Err(err) => {
-                    error(
-                        &mut state,
-                        tip,
-                        msg.parent,
-                        &eff,
-                        &err.to_string(),
-                        "failed to advance the ledger to a new tip",
-                    )
-                    .await;
+                    error(&mut state, msg, tip, &eff, &err.to_string(), "failed to advance the ledger to a new tip")
+                        .await;
                 }
             }
         } else {
@@ -147,14 +177,13 @@ pub async fn stage(mut state: ValidateBlock, msg: ValidateBlockMsg, eff: Effects
                     // mark blocks up to applied_tip as valid
                     completed(&mut state, applied_tip, &eff, metrics).await;
                     // marks blocks from failure.tip as invalid and sends the appropriate signals to other stages
-                    error(&mut state, failure.tip, msg.parent, &eff, &failure.reason, "fork switch partially applied")
-                        .await;
+                    error(&mut state, msg, failure.tip, &eff, &failure.reason, "fork switch partially applied").await;
                 }
                 ForkSwitchOutcome::Failed { failure } => {
                     error(
                         &mut state,
+                        msg,
                         failure.tip,
-                        msg.parent,
                         &eff,
                         &failure.reason,
                         "failed to fork the ledger to a new tip",
@@ -174,20 +203,28 @@ async fn completed(state: &mut ValidateBlock, tip: Tip, eff: &Effects<ValidateBl
     eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(tip, true, state.max_block_height)).await;
     eff.send(&state.block_source, BlockSourceMsg::Validation { valid: true, point: tip.point() }).await;
     eff.send(&state.adopt_chain, AdoptChainMsg::new(tip, state.max_block_height)).await;
+
+    // Condemned blocks deeper than k below the new tip can never have their header selected again
+    let k = state.consensus_security_param;
+    state.invalid_blocks.retain(|_, height| height.as_u64() + k > tip.block_height().as_u64());
     state.current = tip.point();
 }
 
 async fn error(
     state: &mut ValidateBlock,
-    tip: Tip,
-    parent: Point,
+    msg: ValidateBlockMsg,
+    failed_tip: Tip,
     eff: &Effects<ValidateBlockMsg>,
     reason: &str,
     message: &str,
 ) {
-    tracing::warn!(error = %reason, parent = %parent, message);
-    eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(tip, false, state.max_block_height)).await;
-    eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: tip.point() }).await;
+    tracing::warn!(error = %reason, parent = %msg.parent, failed_tip = %failed_tip, message);
+    state.invalid_blocks.insert(failed_tip.hash(), failed_tip.block_height());
+    state.invalid_blocks.insert(msg.tip.hash(), msg.tip.block_height());
+
+    eff.send(&state.select_chain, SelectChainMsg::BlockValidationResult(failed_tip, false, state.max_block_height))
+        .await;
+    eff.send(&state.block_source, BlockSourceMsg::Validation { valid: false, point: failed_tip.point() }).await;
 }
 
 #[cfg(test)]
