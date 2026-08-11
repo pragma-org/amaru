@@ -287,6 +287,7 @@ define_schemas! {
                     required fork_length: usize
                     required rollback_length: usize
                     optional outcome: String
+                    optional is_longer: bool
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}
