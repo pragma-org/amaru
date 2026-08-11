@@ -71,6 +71,7 @@ Other guiding principles:
 - **amaru-kernel**: fix the decoding of data types that were not conforming to the specification ([#1172](https://github.com/pragma-org/amaru/issues/1172))
 - **amaru-ledger**: a transaction marked invalid that carries no Plutus script is no longer accepted. ([#894][])
 - **amaru-pure-stage**: avoid constructing short string errors when failing to cast types in pure-stage.
+- **amaru**: fix a switch to fork when fork length was than one block. (#1162, #1190).
 
 ## [v10.11.20260807](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
