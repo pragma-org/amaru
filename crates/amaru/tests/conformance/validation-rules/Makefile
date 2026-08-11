@@ -49,6 +49,16 @@ prerequisites: ## &cmd check required tools, libraries, and local build configur
 			failed=1; \
 		fi; \
 	}; \
+	check_optional_cmd() { \
+		label="$$1"; \
+		cmd="$$2"; \
+		note="$$3"; \
+		if command -v "$$cmd" >/dev/null 2>&1; then \
+			printf '\033[1;32m%s\033[00m %s\n' '  ✓' "$$label"; \
+		else \
+			printf '\033[1;33m%s %s\033[00m \033[2m(%s)\033[00m\n' '  ~' "$$label" "$$note"; \
+		fi; \
+	}; \
 	check_pkg() { \
 		label="$$1"; \
 		hint="$$2"; \
@@ -65,6 +75,18 @@ prerequisites: ## &cmd check required tools, libraries, and local build configur
 			printf '\033[1;32m%s\033[00m %s\n' '  ✓' "$$label"; \
 		else \
 			printf '\033[1;31m%s %s\033[00m → \033[1;37m%s %s\033[00m\n' '  ✗' "$$label" "$$install_cmd" "$$hint"; \
+			failed=1; \
+		fi; \
+	}; \
+	check_vendored_pkg() { \
+		label="$$1"; \
+		target="$$2"; \
+		pkg_name="$$3"; \
+		if pkg-config --exists "$$pkg_name"; then \
+			printf '\033[1;32m%s\033[00m %s\n' '  ✓' "$$label"; \
+		else \
+			printf '\033[1;31m%s %s\033[00m → \033[1;37m%s\033[00m\n' '  ✗' "$$label" "sudo make $$target PREFIX=$(PREFIX)"; \
+			printf '\033[2m%s\033[00m\n' "      installed: $$(pkg-config --modversion "$${pkg_name%% *}" 2>/dev/null || echo 'none')"; \
 			failed=1; \
 		fi; \
 	}; \
@@ -95,14 +117,15 @@ prerequisites: ## &cmd check required tools, libraries, and local build configur
 		check_pkg 'libsodium' libsodium libsodium; \
 		check_pkg 'zlib' zlib zlib; \
 		check_pkg 'openssl' openssl openssl; \
-		check_pkg 'secp256k1' libsecp256k1 libsecp256k1; \
-		check_pkg 'blst' libblst libblst; \
+		check_vendored_pkg 'secp256k1' secp256k1 libsecp256k1; \
+		check_vendored_pkg 'blst >= $(BLST_VERSION:v%=%)' blst 'libblst >= $(BLST_VERSION:v%=%)'; \
 	fi; \
-	check_cmd 'llvm-config' llvm-config llvm; \
+	check_optional_cmd 'llvm-config' llvm-config 'only needed to build with -fllvm'; \
 	if [ "$$os_name" = 'Linux' ]; then \
 		check_path 'libnuma headers' '/usr/include/numa.h' 'sudo apt-get install libnuma-dev'; \
 		check_path 'libsystemd headers' '/usr/include/systemd/sd-daemon.h' 'sudo apt-get install libsystemd-dev'; \
 	fi; \
+	exit "$$failed"
 
 build: ## &cmd compile the main binary
 	$(CABAL) update

@@ -18,6 +18,11 @@ run_suite() {
   local dir="$1" title="$2" summary_file rc
   banner "$title"
 
+  if [ ! -d "$PHASE_ONE_ROOT/$dir" ]; then
+    printf '\033[31mNo such fixture directory: %s\033[0m\n' "$PHASE_ONE_ROOT/$dir" >&2
+    return 1
+  fi
+
   summary_file="$(mktemp)"
 
   cabal run -v0 exe:conformance -- validate-phase-one --test-directory "$PHASE_ONE_ROOT/$dir" 2>"$summary_file" |
@@ -55,6 +60,5 @@ fi
 rm -f "$build_log"
 
 overall=0
-run_suite pass "Tests that should PASS (valid transactions)" || overall=1
-run_suite fail "Tests that should FAIL (invalid transactions)" || overall=1
+run_suite scenarios "Phase-one validation rules" || overall=1
 exit "$overall"
