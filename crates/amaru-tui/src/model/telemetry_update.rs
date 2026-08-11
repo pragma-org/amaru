@@ -14,7 +14,10 @@
 
 use std::time::Instant;
 
-use amaru_observability::amaru::{bootstrap, consensus, ledger, mempool, protocols};
+use amaru_observability::{
+    RecordFields,
+    amaru::{bootstrap, consensus, ledger, mempool, protocols},
+};
 
 use super::*;
 use crate::events::{Message, TelemetryRecord};
@@ -23,34 +26,23 @@ impl Model {
     pub fn handle_message(&mut self, message: Message) {
         match message {
             Message::Telemetry(record) => {
-                self.prune_peer_timings(record.at);
+                self.prune_stale_peers(record.at);
                 self.record_telemetry(record);
             }
             Message::Metrics(record) => {
-                self.prune_peer_timings(record.at);
+                self.prune_stale_peers(record.at);
                 self.record_metrics(record);
-            }
-            Message::HostSample(sample) => {
-                self.prune_peer_timings(sample.at);
-                self.record_host_sample(sample);
             }
         }
     }
 
-    fn prune_peer_timings(&mut self, now: Instant) {
-        let max_window = self.max_window();
-        for peer in self.peers.values_mut() {
-            peer.prune_header_lifecycle_samples(now, max_window);
-        }
-        self.peers.retain(|_, peer| !peer.is_stale(now, max_window));
+    fn prune_stale_peers(&mut self, now: Instant) {
+        self.peers.retain(|_, peer| !peer.is_stale(now, self.config.peer_inactivity_timeout));
     }
 
     fn record_telemetry(&mut self, record: TelemetryRecord) {
         self.update_state(TelemetryEvent::from_record(&record), &record);
-        self.logs.push_back(record);
-        while self.logs.len() > self.config.log_capacity {
-            self.logs.pop_front();
-        }
+        self.logs.push(record, &self.config, self.level_filter, self.target_filter);
     }
 
     fn update_state(&mut self, event: Option<TelemetryEvent>, record: &TelemetryRecord) {
@@ -59,7 +51,11 @@ impl Model {
         };
 
         match event {
-            TelemetryEvent::BlockAdopt => self.update_catch_up(record),
+            TelemetryEvent::BlockAdopt => {
+                self.update_catch_up(record);
+            }
+            TelemetryEvent::RollForward => self.push_recent_block(record.at),
+            TelemetryEvent::TransactionValidate => self.push_recent_transaction_count(record.at, 1),
             TelemetryEvent::TipUpdate => self.update_tip(record),
             TelemetryEvent::StakeSnapshot => self.update_stake_snapshot(record),
             TelemetryEvent::MempoolStateUpdate => self.update_mempool(record),
@@ -120,11 +116,18 @@ impl Model {
             return;
         };
 
+        self.tip_sync_origin.get_or_insert((tip.slot, tip.updated_at));
         self.tip = Some(tip);
     }
 
     fn update_catch_up(&mut self, record: &TelemetryRecord) {
-        let catching_up = consensus::tip::ADOPT::max_block_height(record) > consensus::tip::ADOPT::block_height(record);
+        let catching_up_by_height =
+            consensus::tip::ADOPT::max_block_height(record) > consensus::tip::ADOPT::block_height(record);
+        let catching_up_by_slot = self
+            .startup
+            .is_near_target_slot_at(consensus::tip::ADOPT::slot(record), record.wall_time)
+            .is_some_and(|is_near_tip| !is_near_tip);
+        let catching_up = catching_up_by_height || catching_up_by_slot;
 
         if catching_up {
             for peer in self.peers.values_mut() {
@@ -259,6 +262,10 @@ impl Model {
     }
 
     fn update_peer_header_lifecycle(&mut self, record: &TelemetryRecord) {
+        if record.str(consensus::perf::header::LIFECYCLE::FIELD_OUTCOME) != Some("valid") {
+            return;
+        }
+
         let Some(peer) = consensus::perf::header::LIFECYCLE::peer(record) else {
             return;
         };
@@ -275,11 +282,11 @@ impl Model {
                 forward_micros.saturating_sub(query_header_micros.saturating_add(get_block_micros))
             });
 
-        let max_window = self.max_window();
+        let capacity = self.config.peer_timing_capacity;
         let peer = self.peer_mut(peer.as_ref(), record.at);
         peer.record_header_lifecycle(
             record.at,
-            max_window,
+            capacity,
             slot_start_to_header_micros,
             query_header_micros,
             get_block_micros,
@@ -288,8 +295,7 @@ impl Model {
     }
 
     fn peer_mut(&mut self, address: &str, updated_at: Instant) -> &mut PeerState {
-        let trusted = self.startup.trusted_peers.contains(address);
-        self.peers.entry(address.to_owned()).or_insert_with(|| PeerState::new(address.to_owned(), trusted, updated_at))
+        self.peers.entry(address.to_owned()).or_insert_with(|| PeerState::new(address.to_owned(), updated_at))
     }
 
     fn upsert_proposal(&mut self, record: &TelemetryRecord, status: &str, detail: Option<String>) {

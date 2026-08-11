@@ -12,15 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    error::Error,
-    fs,
-    path::{Path, PathBuf},
-};
-
 use amaru_kernel::NetworkName;
-use include_dir::{Dir, include_dir};
 
+pub mod aws;
 pub mod bootstrap;
 pub mod cardano_node;
 pub mod exit;
@@ -49,29 +43,6 @@ pub const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 pub const DEFAULT_CONFIG_DIR: &str = "data";
 
 const SNAPSHOTS_PATH: &str = "snapshots";
-const BOOTSTRAP_PATH: &str = "crates/amaru/config/bootstrap";
-static BOOTSTRAP_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/bootstrap");
-
-fn source_bootstrap_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os(env_vars::BOOTSTRAP_CONFIG_DIR) {
-        return PathBuf::from(path);
-    }
-
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config/bootstrap")
-}
-
-fn read_runtime_bootstrap_file(
-    root: &Path,
-    network: NetworkName,
-    name: &str,
-) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
-    let path = root.join(network.to_string().to_lowercase()).join(name);
-    if !path.is_file() {
-        return Ok(None);
-    }
-
-    Ok(Some(fs::read(path)?))
-}
 
 pub fn default_ledger_dir(network: NetworkName) -> String {
     format!("./ledger.{}.db", network.to_string().to_lowercase())
@@ -79,10 +50,6 @@ pub fn default_ledger_dir(network: NetworkName) -> String {
 
 pub fn default_chain_dir(network: NetworkName) -> String {
     format!("./chain.{}.db", network.to_string().to_lowercase())
-}
-
-pub fn bootstrap_config_dir(network: NetworkName) -> PathBuf {
-    format!("{}/{}", BOOTSTRAP_PATH, network.to_string().to_lowercase()).into()
 }
 
 pub fn default_snapshots_dir(network: NetworkName) -> String {
@@ -93,15 +60,6 @@ pub fn default_data_dir(network: NetworkName) -> String {
     format!("{}/{}", DEFAULT_CONFIG_DIR, network.to_string().to_lowercase())
 }
 
-pub fn get_bootstrap_file(network: NetworkName, name: &str) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
-    if let Some(file) = read_runtime_bootstrap_file(&source_bootstrap_dir(), network, name)? {
-        return Ok(Some(file));
-    }
-
-    let path = format!("{}/{}", network.to_string().to_lowercase(), name);
-    Ok(BOOTSTRAP_DIR.get_file(path).map(|f| f.contents().into()))
-}
-
 /// Value names (a.k.a. metavar) used across command-line options.
 ///
 /// Conventions:
@@ -109,6 +67,9 @@ pub fn get_bootstrap_file(network: NetworkName, name: &str) -> Result<Option<Vec
 /// - Uppercase for types
 /// - Lowercase for enums / verbatim values
 pub mod value_names {
+    /// For S3-compatible bucket names.
+    pub const BUCKET_NAME: &str = "BUCKET_NAME";
+
     /// For directories / folders on the filesystem.
     pub const DIRECTORY: &str = "DIR";
 
@@ -122,6 +83,9 @@ pub mod value_names {
     /// Designates a well-known Cardano network name, or a custom dev network.
     pub const NETWORK: &str = "mainnet|preprod|preview|testnet_<U32>";
 
+    /// A formula for describing the desired mix of peers to connect to.
+    pub const PEER_MIX: &str = "PEER_MIX";
+
     /// A blockchain point, formatted as slot.hash
     pub const POINT: &str = "SLOT.HEADER_HASH";
 
@@ -131,11 +95,17 @@ pub mod value_names {
     /// A snapshot point identifying the last point of an epoch and its parent.
     pub const SNAPSHOT: &str = "SLOT.HEADER_HASH::PARENT_SLOT.PARENT_HEADER_HASH";
 
+    /// For S3-compatible regions, including Cloudflare R2's `auto` region.
+    pub const S3_REGION: &str = "auto|REGION";
+
     /// A non-negative integer value.
     pub const UINT: &str = "UINT";
 
     /// A non-negative integer value, or the keyword 'all'
     pub const UINT_ALL: &str = "UINT|all";
+
+    /// For HTTP or HTTPS URLs.
+    pub const URL: &str = "URL";
 }
 
 /// Get the default peer address for a given network.
@@ -150,9 +120,6 @@ pub fn default_peer_for_network(network: NetworkName) -> &'static str {
 
 /// Environment variables used across command-line options.
 pub mod env_vars {
-    /// Runtime bootstrap config directory override.
-    pub const BOOTSTRAP_CONFIG_DIR: &str = "AMARU_BOOTSTRAP_CONFIG_DIR";
-
     /// --cardano-node-config-dir
     pub const CARDANO_NODE_CONFIG_DIR: &str = "AMARU_CARDANO_NODE_CONFIG_DIR";
 
@@ -216,6 +183,9 @@ pub mod env_vars {
     /// --peer-removal-cooldown-secs
     pub const PEER_REMOVAL_COOLDOWN_SECS: &str = "AMARU_PEER_REMOVAL_COOLDOWN_SECS";
 
+    /// --peer-mix
+    pub const PEER_MIX: &str = "AMARU_PEER_MIX";
+
     /// --pid-file
     pub const PID_FILE: &str = "AMARU_PID_FILE";
 
@@ -230,9 +200,6 @@ pub mod env_vars {
 
     /// --trace-buffer
     pub const TRACE_BUFFER: &str = "AMARU_TRACE_BUFFER";
-
-    /// --tui-windows
-    pub const TUI_TIME_WINDOWS: &str = "AMARU_TUI_TIME_WINDOWS";
 
     /// --dump-trace-buffer
     pub const DUMP_TRACE_BUFFER: &str = "AMARU_DUMP_TRACE_BUFFER";

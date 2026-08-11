@@ -14,6 +14,8 @@
 
 use std::fmt;
 
+use tracing::Level;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
     Bool(bool),
@@ -57,6 +59,65 @@ impl FieldValue {
             Self::String(value) => Some(value),
             Self::Bool(_) | Self::I64(_) | Self::U64(_) | Self::F64(_) => None,
         }
+    }
+
+    pub fn as_level(&self) -> Option<Level> {
+        match self.as_str()? {
+            "TRACE" => Some(Level::TRACE),
+            "DEBUG" => Some(Level::DEBUG),
+            "INFO" => Some(Level::INFO),
+            "WARN" => Some(Level::WARN),
+            "ERROR" => Some(Level::ERROR),
+            _ => None,
+        }
+    }
+}
+
+impl From<bool> for FieldValue {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+impl From<f64> for FieldValue {
+    fn from(value: f64) -> Self {
+        Self::F64(value)
+    }
+}
+
+impl From<i64> for FieldValue {
+    fn from(value: i64) -> Self {
+        Self::I64(value)
+    }
+}
+
+impl From<u32> for FieldValue {
+    fn from(value: u32) -> Self {
+        Self::U64(u64::from(value))
+    }
+}
+
+impl From<u64> for FieldValue {
+    fn from(value: u64) -> Self {
+        Self::U64(value)
+    }
+}
+
+impl From<usize> for FieldValue {
+    fn from(value: usize) -> Self {
+        Self::U64(value as u64)
+    }
+}
+
+impl From<&str> for FieldValue {
+    fn from(value: &str) -> Self {
+        Self::String(value.into())
+    }
+}
+
+impl From<String> for FieldValue {
+    fn from(value: String) -> Self {
+        Self::String(value)
     }
 }
 

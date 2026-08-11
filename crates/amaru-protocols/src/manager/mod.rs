@@ -26,6 +26,7 @@ use crate::{
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage},
     network_effects::{ConnectError, Network, NetworkOps},
+    peer_sharing::{SharePeersReply, ShareResult},
     protocol::Role,
     tx_submission::ResponderParams,
 };
@@ -46,6 +47,7 @@ pub enum PeerSelectionNotify {
         direction: ConnectionDirection,
         full_duplex_capable: bool,
         full_duplex: bool,
+        advertisable: bool,
     },
 
     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
@@ -58,6 +60,9 @@ pub enum PeerSelectionNotify {
     /// An outbound connection attempt has failed (e.g. connection timeout, handshake refusal, network error)
     /// for a number of tries, see [`ManagerConfig::connect_retries`].
     ConnectFailed { peer: Peer },
+
+    /// Inbound peer-sharing request: select addresses to advertise and reply on `reply_to`.
+    ShareRequest { peer: Peer, amount: u8, reply_to: StageRef<SharePeersReply> },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -72,8 +77,25 @@ pub enum ManagerMessage {
     Disconnect(Peer, ConnectionId),
     /// Start listening for incoming connections on the given socket address.
     Listen(SocketAddr),
-    /// Fetch all blocks on the given chain fragment
-    FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64 },
+    /// Fetch blocks on the given chain fragment.
+    ///
+    /// When `peers` is `Some`, only those peers' initiating connections are asked.
+    /// When `None`, every initiating connection is asked (cold-start / empty-selection fallback).
+    FetchBlocks { from: Point, through: Point, cr: StageRef<Blocks>, id: u64, peers: Option<Vec<Peer>> },
+    /// Start periodic peer-sharing requests on one outbound connection.
+    ///
+    /// The initiator schedules the first request after `initial_delay`, then every `interval`
+    /// after each reply. Results are delivered on `reply_to` until the connection ends.
+    /// If no initiating connection exists, an empty [`ShareResult`] is sent once.
+    RequestSharePeers {
+        peer: Peer,
+        amount: u8,
+        initial_delay: std::time::Duration,
+        interval: std::time::Duration,
+        reply_to: StageRef<ShareResult>,
+    },
+    /// Server-side peer-sharing: ask peer selection for addresses to return to `peer`.
+    ShareRequest { peer: Peer, amount: u8, reply_to: StageRef<SharePeersReply> },
     /// Advertise this new tip to all downstream peers.
     NewTip(Tip, TraceContext),
     /// INTERNAL message sent by the connector stage after a connection attempt completes.
@@ -95,6 +117,7 @@ pub enum ManagerMessage {
         role: Role,
         full_duplex_capable: bool,
         full_duplex: bool,
+        advertisable: bool,
     },
 }
 
@@ -106,6 +129,8 @@ impl ManagerMessage {
             ManagerMessage::Disconnect(..) => "Disconnect",
             ManagerMessage::Listen(_) => "Listen",
             ManagerMessage::FetchBlocks { .. } => "FetchBlocks",
+            ManagerMessage::RequestSharePeers { .. } => "RequestSharePeers",
+            ManagerMessage::ShareRequest { .. } => "ShareRequest",
             ManagerMessage::NewTip(_, _) => "NewTip",
             ManagerMessage::ConnectionResult(..) => "ConnectionResult",
             ManagerMessage::ConnectionDied(..) => "ConnectionDied",
@@ -419,13 +444,14 @@ impl Manager {
         role: Role,
         full_duplex_capable: bool,
         full_duplex: bool,
+        advertisable: bool,
         eff: &Effects<ManagerMessage>,
     ) {
         let direction = match role {
             Role::Initiator => ConnectionDirection::Outbound,
             Role::Responder => ConnectionDirection::Inbound,
         };
-        tracing::info!(%peer, %conn_id, full_duplex_capable, full_duplex, "handshake completed");
+        tracing::info!(%peer, %conn_id, full_duplex_capable, full_duplex, advertisable, "handshake completed");
         let peer_state = self.peers.entry(peer.clone()).or_default();
         let accept_this = match direction {
             ConnectionDirection::Outbound => {
@@ -454,6 +480,7 @@ impl Manager {
                     direction,
                     full_duplex_capable,
                     full_duplex,
+                    advertisable,
                 },
             )
             .await;
@@ -576,23 +603,55 @@ impl Manager {
         through: Point,
         cr: StageRef<Blocks>,
         id: u64,
+        peers: Option<Vec<Peer>>,
         eff: &Effects<ManagerMessage>,
     ) {
-        tracing::debug!(?from, ?through, "fetching blocks");
-        let mut sent = 0;
-        for conn in self.connections.values() {
-            if !conn.may_initiate {
-                continue;
+        tracing::debug!(?from, ?through, ?peers, "fetching blocks");
+        let mut contacted = Vec::new();
+        match peers {
+            None => {
+                for conn in self.connections.values() {
+                    if !conn.may_initiate {
+                        continue;
+                    }
+                    contacted.push(conn.peer.clone());
+                    eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+                }
             }
-            eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
-            sent += 1;
+            Some(wanted) => {
+                for peer in wanted {
+                    let Some(conn) = self.connections.values().find(|c| c.may_initiate && c.peer == peer) else {
+                        continue;
+                    };
+                    contacted.push(peer);
+                    eff.send(&conn.stage, ConnectionMessage::FetchBlocks { from, through, cr: cr.clone(), id }).await;
+                }
+            }
         }
-        if sent == 0 {
+        if contacted.is_empty() {
             tracing::debug!(%id, "no connections available to fetch blocks");
             eff.send(&cr, Blocks::NoPeersAvailable(id)).await;
         } else {
-            tracing::debug!(%id, sent, "fetch blocks request sent to connections");
+            tracing::debug!(%id, sent = contacted.len(), "fetch blocks request sent to connections");
+            eff.send(&cr, Blocks::PeersAsked(id, contacted)).await;
         }
+    }
+
+    async fn request_share_peers(
+        &self,
+        peer: Peer,
+        amount: u8,
+        initial_delay: std::time::Duration,
+        interval: std::time::Duration,
+        reply_to: StageRef<ShareResult>,
+        eff: &Effects<ManagerMessage>,
+    ) {
+        let Some(conn) = self.connections.values().find(|c| c.may_initiate && c.peer == peer) else {
+            tracing::debug!(%peer, "no initiating connection for peer sharing request");
+            eff.send(&reply_to, ShareResult { peer, peers: Vec::new() }).await;
+            return;
+        };
+        eff.send(&conn.stage, ConnectionMessage::RequestSharePeers { amount, initial_delay, interval, reply_to }).await;
     }
 }
 
@@ -638,8 +697,27 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 );
                 manager.connection_died(peer, conn_id, role, &eff).instrument(span).await;
             }
-            ManagerMessage::HandshakeComplete { peer, stage, conn_id, role, full_duplex_capable, full_duplex } => {
-                manager.handshake_complete(peer, stage, conn_id, role, full_duplex_capable, full_duplex, &eff).await;
+            ManagerMessage::HandshakeComplete {
+                peer,
+                stage,
+                conn_id,
+                role,
+                full_duplex_capable,
+                full_duplex,
+                advertisable,
+            } => {
+                manager
+                    .handshake_complete(
+                        peer,
+                        stage,
+                        conn_id,
+                        role,
+                        full_duplex_capable,
+                        full_duplex,
+                        advertisable,
+                        &eff,
+                    )
+                    .await;
             }
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;
@@ -649,8 +727,14 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                     eff.send(&conn.stage, ConnectionMessage::NewTip(tip, trace_context.clone())).await;
                 }
             }
-            ManagerMessage::FetchBlocks { from, through, cr, id } => {
-                manager.fetch_blocks(from, through, cr, id, &eff).await;
+            ManagerMessage::FetchBlocks { from, through, cr, id, peers } => {
+                manager.fetch_blocks(from, through, cr, id, peers, &eff).await;
+            }
+            ManagerMessage::RequestSharePeers { peer, amount, initial_delay, interval, reply_to } => {
+                manager.request_share_peers(peer, amount, initial_delay, interval, reply_to, &eff).await;
+            }
+            ManagerMessage::ShareRequest { peer, amount, reply_to } => {
+                eff.send(&manager.peer_selection, PeerSelectionNotify::ShareRequest { peer, amount, reply_to }).await;
             }
             ManagerMessage::ConnectionResult(peer, conn_id) => {
                 manager.connection_result(peer, conn_id, &eff).await;

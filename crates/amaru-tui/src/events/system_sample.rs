@@ -18,6 +18,7 @@ use std::time::Instant;
 pub struct SystemSample {
     pub at: Instant,
     pub cpu_percent: f64,
+    pub process_memory_bytes: u64,
     pub rss_bytes: u64,
     pub virtual_bytes: u64,
     pub memory_used_bytes: u64,
@@ -26,6 +27,16 @@ pub struct SystemSample {
     pub disk_write_bytes: u64,
     pub disk_live_read_bytes: u64,
     pub disk_live_write_bytes: u64,
-    pub processes_live_read_bytes: u64,
-    pub processes_live_write_bytes: u64,
+    pub host_live_read_bytes: u64,
+    pub host_live_write_bytes: u64,
+}
+
+impl SystemSample {
+    pub fn total_live_read_bytes(&self) -> u64 {
+        self.host_live_read_bytes.max(self.disk_live_read_bytes)
+    }
+
+    pub fn total_live_write_bytes(&self) -> u64 {
+        self.host_live_write_bytes.max(self.disk_live_write_bytes)
+    }
 }

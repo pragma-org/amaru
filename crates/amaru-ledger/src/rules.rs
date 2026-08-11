@@ -92,13 +92,32 @@ fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a
 }
 
 fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, proposal: &'a Proposal) {
-    if let GovernanceAction::TreasuryWithdrawals(withdrawals, _) = &proposal.gov_action {
-        withdrawals
-            .iter()
-            .filter_map(|withdrawal| parse_reward_account(&withdrawal.0))
-            .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
+    if let Some((account, _)) = parse_reward_account(&proposal.reward_account) {
+        context.require_account(Cow::Owned(account));
+    }
+
+    match &proposal.gov_action {
+        GovernanceAction::TreasuryWithdrawals(withdrawals, _) => {
+            withdrawals
+                .iter()
+                .filter_map(|withdrawal| parse_reward_account(&withdrawal.0))
+                .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
+        }
+
+        GovernanceAction::ParameterChange(parent, ..)
+        | GovernanceAction::HardForkInitiation(parent, ..)
+        | GovernanceAction::UpdateCommittee(parent, ..)
+        | GovernanceAction::NoConfidence(parent)
+        | GovernanceAction::NewConstitution(parent, ..) => {
+            if let Some(id) = parent {
+                context.require_proposal(id);
+            }
+        }
+
+        GovernanceAction::Information => {}
     }
 }
+
 /// Collect and require values from a single certificate.
 fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificate: &'a Certificate) {
     match certificate {
@@ -179,18 +198,6 @@ pub(crate) mod tests {
         ])
     }
 
-    fn conway_block_context() -> DefaultValidationContext {
-        DefaultValidationContext::new(
-            conway_block_utxo(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        )
-    }
-
     static ARENA_POOL: LazyLock<ArenaPool> = LazyLock::new(|| ArenaPool::new(10, 1_024_000));
 
     #[test]
@@ -207,7 +214,7 @@ pub(crate) mod tests {
         let block = parse_block(&CONWAY_BLOCK).unwrap();
 
         let results = block::execute(
-            &mut conway_block_context(),
+            &mut DefaultValidationContext::default(),
             &ARENA_POOL,
             NetworkName::Preprod,
             &pp,

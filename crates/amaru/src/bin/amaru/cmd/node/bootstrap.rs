@@ -19,6 +19,7 @@ use std::{
 };
 
 use amaru::{
+    aws::{DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION, S3Config},
     bootstrap::bootstrap,
     default_chain_dir, default_ledger_dir,
     lifecycle::{Runnable, RuntimeKind},
@@ -75,6 +76,52 @@ pub struct Args {
     /// Show global network parameter overrides, for custom testnets.
     #[arg(long)]
     pub(crate) help_global_parameters: bool,
+
+    /// S3 bucket containing the bootstrap snapshots.
+    ///
+    /// Defaults to the official Amaru snapshot bucket.
+    #[arg(
+        long,
+        value_name = amaru::value_names::BUCKET_NAME,
+        env = "AMARU_S3_BUCKET",
+        default_value = DEFAULT_BUCKET,
+        help_heading = "S3 Snapshot Options",
+    )]
+    s3_bucket: String,
+
+    /// S3-compatible endpoint URL.
+    ///
+    /// Defaults to the official Amaru R2 endpoint.
+    #[arg(
+        long,
+        value_name = amaru::value_names::URL,
+        env = "AMARU_S3_ENDPOINT",
+        default_value = DEFAULT_ENDPOINT,
+        help_heading = "S3 Snapshot Options",
+    )]
+    s3_endpoint: String,
+
+    /// S3-compatible region.
+    #[arg(
+        long,
+        value_name = amaru::value_names::S3_REGION,
+        env = "AMARU_S3_REGION",
+        default_value = DEFAULT_REGION,
+        help_heading = "S3 Snapshot Options",
+    )]
+    s3_region: String,
+
+    /// Public CDN base URL for anonymous snapshot downloads.
+    ///
+    /// Defaults to the official Amaru public R2 URL.
+    #[arg(
+        long,
+        value_name = amaru::value_names::URL,
+        env = "AMARU_S3_PUBLIC_URL",
+        default_value = DEFAULT_PUBLIC_URL,
+        help_heading = "S3 Snapshot Options",
+    )]
+    s3_public_url: String,
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -121,7 +168,20 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         return Err(messages.join("; ").into());
     }
 
-    bootstrap(network, &global_parameters, ledger_dir, chain_dir, args.epoch).await
+    bootstrap(
+        network,
+        &global_parameters,
+        ledger_dir,
+        chain_dir,
+        args.epoch,
+        S3Config {
+            bucket: args.s3_bucket,
+            endpoint: args.s3_endpoint,
+            region: args.s3_region,
+            public_url: args.s3_public_url,
+        },
+    )
+    .await
 }
 
 /// Whether `dir` holds anything. An empty directory is no more a database than a missing one, and

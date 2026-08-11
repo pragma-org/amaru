@@ -14,6 +14,7 @@
 
 extern crate self as amaru_observability;
 
+pub mod aliases;
 mod record_fields;
 pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
@@ -22,13 +23,24 @@ mod schemas;
 mod trace_context;
 
 // Re-export the macros for convenient use
-pub use amaru_observability_macros::{define_schemas, trace_event, trace_record, trace_span};
+pub use amaru_observability_macros::{define_schemas, trace_event as __trace_event, trace_record, trace_span};
 pub use opentelemetry;
 pub use record_fields::RecordFields;
 pub use schemas::*;
 pub use trace_context::TraceContext;
 pub use tracing;
 pub use tracing_opentelemetry;
+
+#[macro_export]
+macro_rules! trace_event {
+    ($($rest:tt)*) => {
+        {
+            #[allow(unused_imports)]
+            use $crate::tracing;
+            $crate::__trace_event!($($rest)*);
+        }
+    };
+}
 
 #[macro_export]
 macro_rules! trace {

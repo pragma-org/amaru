@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeSet,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use amaru_kernel::{EraHistory, GlobalParameters, ProtocolParameters, protocol_version};
 use clap::{Arg, CommandFactory};
@@ -31,18 +28,18 @@ pub struct StartupContext {
     pub mempool_max_bytes: u64,
     pub epoch_length: u64,
     pub active_slot_coeff_inverse: u64,
+    pub consensus_security_param: u64,
     pub max_lovelace_supply: u64,
     pub system_start_millis: u64,
     pub era_history: Option<EraHistory>,
-    pub trusted_peers: BTreeSet<String>,
     pub runtime_sections: Vec<ConfigSection>,
-    pub global_sections: Vec<ConfigSection>,
     pub protocol_sections: Vec<ConfigSection>,
 }
 
 impl StartupContext {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        pid: u32,
         network: impl Into<String>,
         software_version: impl Into<String>,
         target: impl Into<String>,
@@ -50,23 +47,21 @@ impl StartupContext {
         global_parameters: &GlobalParameters,
         protocol_parameters: Option<&ProtocolParameters>,
         era_history: Option<EraHistory>,
-        trusted_peers: BTreeSet<String>,
         runtime_sections: Vec<ConfigSection>,
     ) -> Self {
         Self {
-            process: ProcessInfo::new(network, software_version, target),
+            process: ProcessInfo::new(pid, network, software_version, target),
             protocol_version: protocol_parameters
                 .map(|parameters| protocol_version::fmt(&parameters.protocol_version))
                 .unwrap_or_else(|| "unknown".to_string()),
             mempool_max_bytes,
             epoch_length: global_parameters.epoch_length(),
             active_slot_coeff_inverse: global_parameters.active_slot_coeff_inverse,
+            consensus_security_param: global_parameters.consensus_security_param,
             max_lovelace_supply: global_parameters.max_lovelace_supply,
             system_start_millis: global_parameters.system_start,
             era_history,
-            trusted_peers,
             runtime_sections,
-            global_sections: global_sections(global_parameters),
             protocol_sections: protocol_sections(protocol_parameters),
         }
     }
@@ -76,22 +71,42 @@ impl StartupContext {
     }
 
     pub fn target_slot_at(&self, now: SystemTime) -> Option<u64> {
+        self.target_slot_and_epoch_at(now).map(|(slot, _)| slot)
+    }
+
+    pub fn target_epoch_at(&self, now: SystemTime) -> Option<u64> {
+        self.target_slot_and_epoch_at(now).map(|(_, epoch)| epoch)
+    }
+
+    pub fn is_near_target_slot_at(&self, slot: u64, now: SystemTime) -> Option<bool> {
+        self.target_slot_at(now).map(|target_slot| target_slot.saturating_sub(slot) <= self.consensus_security_param)
+    }
+
+    fn target_slot_and_epoch_at(&self, now: SystemTime) -> Option<(u64, u64)> {
         let era_history = self.era_history.as_ref()?;
         let system_start = UNIX_EPOCH + Duration::from_millis(self.system_start_millis);
-        era_history.posix_time_to_slot(now, system_start).ok().map(|slot| slot.as_u64())
+        let slot = era_history.posix_time_to_slot(now, system_start).ok()?;
+        let epoch = era_history.slot_to_epoch_unchecked_horizon(slot).ok()?;
+        Some((slot.as_u64(), epoch.into()))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessInfo {
+    pub pid: u32,
     pub network: String,
     pub software_version: String,
     pub target: String,
 }
 
 impl ProcessInfo {
-    pub fn new(network: impl Into<String>, software_version: impl Into<String>, target: impl Into<String>) -> Self {
-        Self { network: network.into(), software_version: software_version.into(), target: target.into() }
+    pub fn new(
+        pid: u32,
+        network: impl Into<String>,
+        software_version: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self { pid, network: network.into(), software_version: software_version.into(), target: target.into() }
     }
 }
 
@@ -174,21 +189,6 @@ fn is_runtime_config_arg(arg: &Arg) -> bool {
     !matches!(id, "help" | "version" | "help_global_parameters") && arg.get_long().is_some()
 }
 
-fn global_sections(global_parameters: &GlobalParameters) -> Vec<ConfigSection> {
-    vec![ConfigSection::new(
-        "Global Parameters",
-        vec![
-            config_entry("security param k", global_parameters.consensus_security_param.to_string()),
-            config_entry("epoch length factor", global_parameters.epoch_length_scale_factor.to_string()),
-            config_entry("active slot coeff inverse", global_parameters.active_slot_coeff_inverse.to_string()),
-            config_entry("max lovelace supply", global_parameters.max_lovelace_supply.to_string()),
-            config_entry("slots per KES period", global_parameters.slots_per_kes_period.to_string()),
-            config_entry("max KES evolution", global_parameters.max_kes_evolution.to_string()),
-            config_entry("system start", global_parameters.system_start.to_string()),
-        ],
-    )]
-}
-
 fn protocol_sections(protocol_parameters: Option<&ProtocolParameters>) -> Vec<ConfigSection> {
     let Some(protocol_parameters) = protocol_parameters else {
         return Vec::default();
@@ -259,18 +259,36 @@ fn config_entry(label: &str, value: impl Into<String>) -> ConfigEntry {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::BTreeSet,
-        time::{Duration, UNIX_EPOCH},
-    };
+    use std::time::{Duration, UNIX_EPOCH};
 
     use amaru_kernel::{PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
+    use clap::Parser;
 
-    use super::StartupContext;
+    use super::{ConfigSection, RuntimeSettingsSource, StartupContext};
+
+    #[derive(Debug, Parser)]
+    struct FixtureSettings {
+        #[arg(long, help_heading = "Essential")]
+        network: String,
+
+        #[arg(long, help_heading = "Network Global Parameters Overrides")]
+        consensus_security_param: u64,
+    }
+
+    impl RuntimeSettingsSource for FixtureSettings {
+        fn value_for(&self, id: &str) -> Option<String> {
+            match id {
+                "network" => Some(self.network.clone()),
+                "consensus_security_param" => Some(self.consensus_security_param.to_string()),
+                _ => None,
+            }
+        }
+    }
 
     #[test]
     fn target_slot_at_uses_era_history_slot_lengths() {
         let startup = StartupContext::new(
+            42,
             "preprod",
             "test",
             "test",
@@ -278,12 +296,60 @@ mod tests {
             &PREPROD_GLOBAL_PARAMETERS,
             None,
             Some(PREPROD_ERA_HISTORY.clone()),
-            BTreeSet::default(),
             Vec::default(),
         );
 
         let now =
             UNIX_EPOCH + Duration::from_millis(PREPROD_GLOBAL_PARAMETERS.system_start) + Duration::from_secs(2_160_000);
         assert_eq!(startup.target_slot_at(now), Some(518_400));
+    }
+
+    #[test]
+    fn target_slot_proximity_uses_security_param_as_lag_tolerance() {
+        let startup = StartupContext::new(
+            42,
+            "preprod",
+            "test",
+            "test",
+            180_224,
+            &PREPROD_GLOBAL_PARAMETERS,
+            None,
+            Some(PREPROD_ERA_HISTORY.clone()),
+            Vec::default(),
+        );
+
+        let now =
+            UNIX_EPOCH + Duration::from_millis(PREPROD_GLOBAL_PARAMETERS.system_start) + Duration::from_secs(2_160_000);
+        let target_slot = startup.target_slot_at(now).expect("target slot");
+
+        assert_eq!(startup.is_near_target_slot_at(target_slot, now), Some(true));
+        assert_eq!(
+            startup.is_near_target_slot_at(
+                target_slot.saturating_sub(PREPROD_GLOBAL_PARAMETERS.consensus_security_param),
+                now
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            startup.is_near_target_slot_at(
+                target_slot.saturating_sub(PREPROD_GLOBAL_PARAMETERS.consensus_security_param + 1),
+                now
+            ),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn runtime_sections_include_global_parameter_overrides() {
+        let settings = FixtureSettings { network: "preview".to_string(), consensus_security_param: 42 };
+        let sections = ConfigSection::from_runtime_settings(&settings);
+
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].title, "Essential");
+        assert_eq!(sections[0].entries.len(), 1);
+        assert_eq!(sections[0].entries[0].label, "network");
+        assert_eq!(sections[1].title, "Network Global Parameters Overrides");
+        assert_eq!(sections[1].entries.len(), 1);
+        assert_eq!(sections[1].entries[0].label, "consensus security param");
     }
 }

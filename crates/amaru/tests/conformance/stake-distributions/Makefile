@@ -1,4 +1,4 @@
-.PHONY: help zst unzst list download upload check-env check-aws-env check-network-dir
+.PHONY: help zst unzst list download upload manifest check-network-dir
 
 THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
 
@@ -6,8 +6,7 @@ NETWORKS := preview preprod mainnet
 NETWORK := $(notdir $(CURDIR))
 IS_NETWORK_DIR := $(filter $(NETWORK),$(NETWORKS))
 BUCKET := cardano-stake-distributions/$(NETWORK)
-DEFAULT_ENDPOINT := https://bd7a351a104d485dcc8b921c273db90c.r2.cloudflarestorage.com
-ENDPOINT ?= $(DEFAULT_ENDPOINT)
+MANIFEST := MANIFEST
 
 help:
 	@if [ -z "$(IS_NETWORK_DIR)" ]; then \
@@ -50,21 +49,12 @@ unzst: check-network-dir ## Uncompress individual .json.zst files using zstd com
 		zstd -d -f -q --rm "$$file"; \
 	done
 
-check-env:
-	@test -n "$(ENDPOINT)" || { echo "Missing ENDPOINT"; exit 1; }
-
-check-aws-env: check-env
-	@test -n "$(AWS_ACCESS_KEY_ID)" || { echo "Missing AWS_ACCESS_KEY_ID"; exit 1; }
-	@test -n "$(AWS_SECRET_ACCESS_KEY)" || { echo "Missing AWS_SECRET_ACCESS_KEY"; exit 1; }
-
-list: check-network-dir check-aws-env ## List all objects in the network-specific S3 bucket
-	@aws s3 ls --recursive --human-readable --summarize --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/"
-
-download: check-network-dir check-env ## Download missing 'epoch_*.json.zst' fixtures from the network-specific S3 bucket
-	@remote_files=$$(aws s3 ls --recursive --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/" | awk '{print $$4}' | sed 's@^[^/]*/@@' | grep '^epoch_.*\.json\.zst$$' || true); \
+download: check-network-dir ## Download the missing 'epoch_*.json.zst' fixtures listed in MANIFEST from the public bucket URL (no credentials needed)
+	@remote_files=$$(grep '^epoch_.*\.json\.zst$$' "$(MANIFEST)" 2>/dev/null || true); \
 	if [ -z "$$remote_files" ]; then \
-		echo "No epoch_*.json.zst files found in s3://$(BUCKET)/"; \
-		exit 0; \
+		echo "No fixtures listed in $(NETWORK)/$(MANIFEST)."; \
+		echo "The file is committed in each network directory and regenerated with 'make manifest' from a directory holding the fixtures."; \
+		exit 1; \
 	fi; \
 	downloaded=0; \
 	skipped=0; \
@@ -74,7 +64,14 @@ download: check-network-dir check-env ## Download missing 'epoch_*.json.zst' fix
 			skipped=$$((skipped + 1)); \
 			continue; \
 		fi; \
-		aws s3 cp --endpoint-url "$(ENDPOINT)" "s3://$(BUCKET)/$$file" "$$file"; \
+		echo "download: $(NETWORK)/$$file"; \
+		tmp="$$file.tmp"; \
+		if ! curl -fsSL -o "$$tmp" "$(PUBLIC_URL)/$(NETWORK)/$$file"; then \
+			rm -f "$$tmp"; \
+			echo "Failed to download $(PUBLIC_URL)/$(NETWORK)/$$file"; \
+			exit 1; \
+		fi; \
+		mv "$$tmp" "$$file"; \
 		downloaded=$$((downloaded + 1)); \
 	done; \
 	echo "Downloaded $$downloaded file(s); skipped $$skipped already present locally."
@@ -97,3 +94,13 @@ upload: check-network-dir check-aws-env ## Upload missing local 'epoch_*.json.zs
 		uploaded=$$((uploaded + 1)); \
 	done; \
 	echo "Uploaded $$uploaded file(s); skipped $$skipped already present in the bucket."
+	@$(MAKE) --no-print-directory -f "$(THIS_MAKEFILE)" manifest
+
+manifest: check-network-dir ## Add the local 'epoch_*.json.zst' fixtures to MANIFEST (run 'make zst' first to compress plain .json files)
+	@files=$$({ cat "$(MANIFEST)" 2>/dev/null; ls epoch_*.json.zst 2>/dev/null; } | grep '^epoch_.*\.json\.zst$$' | sort -t_ -k2 -n | uniq); \
+	if [ -z "$$files" ]; then \
+		echo "No epoch_*.json.zst files found; leaving $(MANIFEST) untouched. Run 'make zst' to compress plain epoch_*.json files first."; \
+		exit 1; \
+	fi; \
+	printf '%s\n' "$$files" > "$(MANIFEST)"; \
+	echo "Wrote $(MANIFEST) with $$(printf '%s\n' "$$files" | grep -c '^epoch_') file(s); commit it if it changed."

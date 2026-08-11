@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{
     BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
@@ -23,10 +23,14 @@ use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
 use tracing::Instrument;
 
-use crate::stages::{block_source::BlockSourceMsg, peer_selection::PeerSelectionMsg, select_chain::SelectChainMsg};
+use crate::{
+    performance::{Performance, SelectPeersParams},
+    stages::{block_source::BlockSourceMsg, peer_selection::PeerSelectionMsg, select_chain::SelectChainMsg},
+};
 
 // TODO make configurable
 const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
+const MAX_FETCH_PEERS: usize = 3;
 
 /// Block fetch coordinator stage.
 ///
@@ -48,20 +52,28 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 /// ## Input messages and behaviour
 /// - `NewTip(tip, parent)`: Update tracked block_height, assert no outstanding missing,
 ///   delegate to `request_missing_blocks` which queries store for gaps and (if any)
-///   sends `ManagerMessage::FetchBlocks` (with cr=child ref for replies) then schedules
-///   a `Timeout(req_id)`.
+///   selects covering peers via `Performance::select_peers_for_fetch`, sends
+///   `ManagerMessage::FetchBlocks` (peer list or all-connections fallback when selection is
+///   weak) then schedules a `Timeout(req_id)`.
 /// - `RecoverStoredBlocks { from, to }`: Startup recovery only, where `from` is the ledger tip and
 ///   `to` the best stored candidate. Walks the stored headers from `to` back down to `from` and
 ///   replays them downstream for re-validation (using `ancestors_between` + `has_block` checks),
 ///   falling back to `request_missing_blocks` on first gap. Terminates on store errors, and on an
 ///   origin `from`, which means the ledger was never bootstrapped.
 /// - `Block(peer, network_block)`: Decode + basic integrity (body_hash match → adversarial
-///   on fail), ordering checks against current `missing` cursor (parent + first point;
-///   stragglers logged and dropped). On match: store block, send `(Tip, parent_boundary, block_height)`
-///   downstream, `shift_one_block` on cursor; if now empty, clear state, cancel timeout,
-///   signal `FetchNextFrom` upstream.
-/// - `Timeout(req_id)`: If matches current, log error (unless paused for no peers), clear
-///   missing/timeout, signal `FetchNextFrom(boundary)` upstream to retry (no direct peer penalty here).
+///   on fail). Any valid body during an active batch is scored via `record_block_delivery`
+///   (including concurrent multi-peer stragglers). Ordering checks against current `missing`
+///   cursor (parent + first point); out-of-order bodies are dropped after scoring. On match:
+///   credit the peer as a contributor (fair timeout), store block, send downstream,
+///   `shift_one_block`; if empty, clear state, cancel timeout, signal `FetchNextFrom` upstream.
+/// - `Timeout(req_id)`: If matches current, log warn (unless paused for no peers),
+///   `record_fetch_failure` for contacted peers that neither settled (`NoBlocks`) nor contributed
+///   an accepted block, clear missing/timeout, signal `FetchNextFrom(boundary)` upstream to retry.
+/// - `PeersAsked(req_id, peers)`: Set the timeout set to manager-contacted peers, excluding peers
+///   already settled for this request (so a late `PeersAsked` cannot re-add a peer that already
+///   sent `NoBlocks`).
+/// - `NoBlocks(req_id, peer)`: Mark the peer settled, `record_fetch_failure` once, and drop them
+///   from the timeout set.
 /// - `NoPeersAvailable(req_id)`: If matches current, log INFO that fetch is paused; leave the
 ///   5s timeout armed so retry is rate-limited without ERROR.
 ///
@@ -69,8 +81,9 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 /// - **cleanup_replies** (dynamic, `StageRef<Blocks>`, lazily `ensure_child`'d on every
 ///   message; factory creates `Cleanup` with self-ref + block_source/peer_selection):
 ///   - Receives `Blocks` replies routed by manager (because `cr` passed in FetchBlocks).
-///   - `NoBlocks(_)`: ignored (timeout will handle).
+///   - `NoBlocks(id, peer)`: forward `FetchBlocksMsg::NoBlocks(id, peer)` for active ids.
 ///   - `NoPeersAvailable(id)`: forward `FetchBlocksMsg::NoPeersAvailable(id)` to parent.
+///   - `PeersAsked(id, peers)`: forward `FetchBlocksMsg::PeersAsked(id, peers)` to parent.
 ///   - `Block(id, peer, nb)`: decode header (adversarial on fail + return), ALWAYS
 ///     `BlockSourceMsg::BlockReceived {peer, tip}` (for stats/selection), forward as
 ///     `FetchBlocksMsg::Block` to parent ONLY if id >= curr_id (straggler filter),
@@ -92,7 +105,10 @@ const MAX_MISSING_BLOCKS_PER_BATCH: usize = 25;
 ///
 /// ## External interactions (which stages it talks to)
 /// - **select_chain (upstream)**: receives `NewTip`/`RecoverStoredBlocks`; sends `SelectChainMsg::FetchNextFrom(point)` on batch done, no-work, timeout, or recovery complete.
-/// - **manager**: sends `ManagerMessage::FetchBlocks {from, through, id, cr: cleanup_replies}` to initiate block fetches (replies flow back via provided child ref).
+/// - **manager**: sends `ManagerMessage::FetchBlocks {from, through, id, cr, peers}` to initiate block fetches
+///   (replies flow back via provided child ref). `peers` is `Some(selected)` from Performance when
+///   selection is strong, or `None` (all initiating connections) when the performance map has no
+///   covering peers (cold start / empty map fallback).
 /// - **downstream** (typically validate_block_input via contramap in build): sends `(Tip, parent_Point, block_height)` for each block (newly fetched or recovered stored).
 /// - **block_source** (via child only): `BlockReceived {peer, tip}` for every header seen in replies (even stragglers/old).
 /// - **peer_selection**: `Adversarial(peer)` on body-hash mismatch (main) or header decode failure (child).
@@ -118,6 +134,14 @@ pub struct FetchBlocks {
     /// Trace context originating from the reception of a new tip. Additional spans created by
     /// this stage are children of that context
     trace_context: Option<TraceContext>,
+    /// When the current fetch batch was requested (for peer delivery timing).
+    fetch_started_at: Option<amaru_pure_stage::Instant>,
+    /// Peers contacted for the current batch and still at risk of timeout failure.
+    fetch_peers: BTreeSet<Peer>,
+    /// Peers already scored for this batch (e.g. `NoBlocks`); never re-added by a late `PeersAsked`.
+    fetch_settled: BTreeSet<Peer>,
+    /// Peers that delivered at least one accepted (ordered) block in the current batch.
+    fetch_contributors: BTreeSet<Peer>,
 }
 
 impl FetchBlocks {
@@ -141,6 +165,10 @@ impl FetchBlocks {
             no_peers_pause: false,
             block_height: BlockHeight::from(0),
             trace_context: Default::default(),
+            fetch_started_at: None,
+            fetch_peers: BTreeSet::new(),
+            fetch_settled: BTreeSet::new(),
+            fetch_contributors: BTreeSet::new(),
         }
     }
 
@@ -323,14 +351,39 @@ impl FetchBlocks {
         let requested: Vec<HeaderHash> = missing.missing_points().into_iter().map(|point| point.hash()).collect();
         self.missing = Some(missing);
 
+        let selected = eff
+            .external(Performance::select_peers_for_fetch(SelectPeersParams {
+                need: requested.clone(),
+                max_peers: MAX_FETCH_PEERS,
+                now,
+            }))
+            .await;
+        let peers_for_manager = if selected.weak || selected.peers.is_empty() {
+            tracing::debug!(
+                weak = selected.weak,
+                "no covering peers selected; falling back to all initiating connections"
+            );
+            None
+        } else {
+            Some(selected.peers)
+        };
+        self.fetch_peers.clear();
+        self.fetch_settled.clear();
+        self.fetch_contributors.clear();
+
         eff.send(
             &self.manager,
-            ManagerMessage::FetchBlocks { from, through, id: self.req_id, cr: self.cleanup_replies.clone() },
+            ManagerMessage::FetchBlocks {
+                from,
+                through,
+                id: self.req_id,
+                cr: self.cleanup_replies.clone(),
+                peers: peers_for_manager,
+            },
         )
         .await;
-        // Tell the select_chain stage when this block was received so it can record the
-        // block_fetch_wait point of its lifecycle.
-        eff.send(&self.upstream, SelectChainMsg::BlocksRequested(requested, now)).await;
+        self.fetch_started_at = Some(now);
+        eff.external(Performance::record_blocks_requested(requested, now)).await;
         let timeout = eff.schedule_after(FetchBlocksMsg::Timeout(self.req_id), Duration::from_secs(5)).await;
         self.timeout = Some(timeout);
     }
@@ -355,10 +408,28 @@ impl FetchBlocks {
             tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
+
         let Some(missing) = self.missing.as_mut() else {
             tracing::debug!(%peer, "received straggler block");
             return;
         };
+
+        // Credit peer delivery for any valid body while a batch is active (including concurrent
+        // multi-peer stragglers that fail the ordering checks below).
+        let now = eff.clock().await;
+        let response = self.fetch_started_at.map(|started| now.saturating_since(started)).unwrap_or(Duration::ZERO);
+        let bytes = network_block.raw_block().len() as u64;
+        eff.external(Performance::record_block_delivery(
+            peer.clone(),
+            point.hash(),
+            header.block_height(),
+            header.parent_hash(),
+            now,
+            response,
+            bytes,
+        ))
+        .await;
+
         if header.parent_hash() != Some(missing.boundary().hash()) {
             // this happens for stragglers when fetching from multiple peers
             tracing::debug!(expected = %missing.boundary().hash(), actual = %header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
@@ -370,10 +441,8 @@ impl FetchBlocks {
             return;
         }
 
-        // Tell the select_chain stage when this block was received so it can record the
-        // block_downloaded point of its lifecycle.
-        let now = eff.clock().await;
-        eff.send(&self.upstream, SelectChainMsg::BlockDownloaded(point.hash(), now)).await;
+        // Accepted ordered body: do not count this peer as a timeout failure.
+        self.fetch_contributors.insert(peer.clone());
 
         store
             .store_block(&point.hash(), &network_block.raw_block())
@@ -394,11 +463,36 @@ impl FetchBlocks {
         if missing.is_empty() {
             self.missing = None;
             self.no_peers_pause = false;
+            self.fetch_started_at = None;
+            self.fetch_peers.clear();
+            self.fetch_settled.clear();
+            self.fetch_contributors.clear();
             if let Some(timeout) = self.timeout.take() {
                 eff.cancel_schedule(timeout).await;
             }
             self.fetch_next_from(eff, point).await;
         }
+    }
+
+    pub async fn peers_asked(&mut self, req_id: u64, peers: Vec<Peer>, _eff: Effects<FetchBlocksMsg>) {
+        if req_id != self.req_id || self.missing.is_none() {
+            return;
+        }
+        // Contacted set from the manager; exclude peers already settled (e.g. NoBlocks raced ahead).
+        self.fetch_peers = peers.into_iter().filter(|p| !self.fetch_settled.contains(p)).collect();
+    }
+
+    pub async fn no_blocks(&mut self, req_id: u64, peer: Peer, eff: Effects<FetchBlocksMsg>) {
+        if req_id != self.req_id || self.missing.is_none() {
+            return;
+        }
+        if !self.fetch_settled.insert(peer.clone()) {
+            // Already scored for this request (duplicate NoBlocks).
+            return;
+        }
+        self.fetch_peers.remove(&peer);
+        let now = eff.clock().await;
+        eff.external(Performance::record_fetch_failure(vec![peer], now)).await;
     }
 
     pub async fn no_peers_available(&mut self, req_id: u64, _eff: Effects<FetchBlocksMsg>) {
@@ -408,6 +502,9 @@ impl FetchBlocks {
 
         tracing::info!(%req_id, "block fetching paused due to no upstream peers");
         self.no_peers_pause = true;
+        self.fetch_peers.clear();
+        self.fetch_settled.clear();
+        self.fetch_contributors.clear();
     }
 
     pub async fn timeout(&mut self, req_id: u64, eff: Effects<FetchBlocksMsg>) {
@@ -415,10 +512,18 @@ impl FetchBlocks {
             return;
         }
 
+        let asked = std::mem::take(&mut self.fetch_peers);
+        let contributors = std::mem::take(&mut self.fetch_contributors);
+        self.fetch_settled.clear();
         if self.no_peers_pause {
             tracing::debug!(%req_id, "retrying block fetch after no-peers pause");
         } else {
             tracing::warn!(%req_id, "timeout fetching blocks");
+            let failed: Vec<Peer> = asked.into_iter().filter(|p| !contributors.contains(p)).collect();
+            if !failed.is_empty() {
+                let now = eff.clock().await;
+                eff.external(Performance::record_fetch_failure(failed, now)).await;
+            }
         }
         match self.missing.as_ref().map(|m| m.boundary()) {
             None => (),
@@ -426,6 +531,7 @@ impl FetchBlocks {
                 self.timeout = None;
                 self.missing = None;
                 self.no_peers_pause = false;
+                self.fetch_started_at = None;
                 self.fetch_next_from(eff, from).await;
             }
         }
@@ -453,10 +559,22 @@ impl DownloadedBlock {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
-    NewTip { tip: Tip, parent: Point, trace_context: TraceContext },
-    RecoverStoredBlocks { from: Point, to: HeaderHash, trace_context: TraceContext },
+    NewTip {
+        tip: Tip,
+        parent: Point,
+        trace_context: TraceContext,
+    },
+    RecoverStoredBlocks {
+        from: Point,
+        to: HeaderHash,
+        trace_context: TraceContext,
+    },
     Block(Peer, NetworkBlock),
     Timeout(u64),
+    /// Peers the manager asked for the current request id (for timeout failure scoring).
+    PeersAsked(u64, Vec<Peer>),
+    /// Peer reported no blocks in the requested range.
+    NoBlocks(u64, Peer),
     NoPeersAvailable(u64),
 }
 
@@ -483,6 +601,8 @@ pub async fn stage(mut state: FetchBlocks, msg: FetchBlocksMsg, eff: Effects<Fet
         }
         FetchBlocksMsg::Block(peer, block) => state.block(peer, block, eff).await,
         FetchBlocksMsg::Timeout(req_id) => state.timeout(req_id, eff).await,
+        FetchBlocksMsg::PeersAsked(req_id, peers) => state.peers_asked(req_id, peers, eff).await,
+        FetchBlocksMsg::NoBlocks(req_id, peer) => state.no_blocks(req_id, peer, eff).await,
         FetchBlocksMsg::NoPeersAvailable(req_id) => state.no_peers_available(req_id, eff).await,
     }
     state
@@ -511,10 +631,18 @@ impl Cleanup {
 /// TODO: keep block hashes in LRU to deduplicate incoming blocks without validation or ordering assumption
 async fn cleanup_replies(mut state: Cleanup, msg: Blocks, eff: Effects<Blocks>) -> Cleanup {
     match msg {
-        // completely ignore empty responses, fetch stage will deal with timeouts
-        Blocks::NoBlocks(_) => {}
+        Blocks::NoBlocks(id, peer) => {
+            if id >= state.curr_id {
+                eff.send(&state.fetch, FetchBlocksMsg::NoBlocks(id, peer)).await;
+            }
+        }
         Blocks::NoPeersAvailable(id) => {
             eff.send(&state.fetch, FetchBlocksMsg::NoPeersAvailable(id)).await;
+        }
+        Blocks::PeersAsked(id, peers) => {
+            if id >= state.curr_id {
+                eff.send(&state.fetch, FetchBlocksMsg::PeersAsked(id, peers)).await;
+            }
         }
         Blocks::Block(id, peer, network_block) => {
             let header = match network_block.decode_header() {

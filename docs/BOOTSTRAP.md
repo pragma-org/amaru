@@ -1,6 +1,6 @@
 # Bootstrap Snapshots
 
-Amaru bootstrap expects a window of three consecutive epoch snapshots. The runtime reads that window from `crates/amaru/config/bootstrap/<network>/snapshots.json`, and each entry points to one compressed archive in `snapshots/<network>/`.
+Amaru bootstrap expects a window of three consecutive epoch snapshots. The runtime discovers that window from `<network>/index.json` in the configured S3-compatible bucket. See [Publishing bootstrap snapshots](./PUBLISHING_SNAPSHOTS.md) to publish a generated snapshot set.
 
 ## Create a Snapshot Set
 
@@ -11,10 +11,10 @@ Amaru bootstrap expects a window of three consecutive epoch snapshots. The runti
 
 ### Running the command
 
-Generate a bootstrap set by passing the target starting epoch for Amaru to `create-snapshots`. For example, to start in epoch 166:
+Generate a bootstrap set by passing the target starting epoch for Amaru to `amaru snapshot create`. For example, to start in epoch 166:
 
 ```shell
-cargo run create-snapshots --network preprod --epoch 166
+cargo run --bin amaru -- snapshot create --network preprod --epoch 166
 ```
 
 This creates the snapshots for epochs `163`, `164`, and `165` on `preprod`:
@@ -27,7 +27,7 @@ The command is fully resumable: Mithril downloads are skipped when the local car
 2. **Download or resume cardano-db** — synchronises immutable files from Mithril up to the required slot; skipped entirely when local data already covers all target slots.
 3. **Run db-analyser** — invokes `db-analyser --store-ledger <slot>` to produce a raw ledger state snapshot.
 4. **Materialize snapshot** — assembles the snapshot directory at `snapshots/<network>/<slot>.<hash>/` (see [Snapshot format](#snapshot-format) below).
-5. **Archive** — compresses the directory into `snapshots/<network>/<slot>.<hash>.tar.gz`.
+5. **Archive** — compresses the directory into `snapshots/<network>/<slot>.<hash>.tar.zst`.
 
 ### Snapshot format
 
@@ -43,34 +43,5 @@ Each materialized snapshot directory contains:
 ├── tables/
 │   └── tvar                 # Binary ledger-state tables file produced by db-analyser
 │                            # (db-analyser writes this as a flat 'tables' file;
-│                            # create-snapshots relocates it to tables/tvar on materialization)
+│                            # amaru snapshot create relocates it to tables/tvar on materialization)
 ```
-
-## Publish a Snapshot Set
-
-Publishing uploads the three generated archives to an S3-compatible bucket and rewrites `crates/amaru/config/bootstrap/<network>/snapshots.json` so bootstrap clients can fetch them.
-
-Set the required environment first:
-
-```shell
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-export AWS_DEFAULT_REGION=auto
-export BUCKET_NAME=...
-export ENDPOINT=https://<s3-compatible-endpoint>
-```
-
-The publish script also requires `aws` and `jq` on `PATH`.
-
-Once the archives already exist locally, publish them with the first epoch in the window:
-
-```shell
-make \
-	AMARU_NETWORK=preprod \
-	BOOTSTRAP_SNAPSHOT_EPOCH=163 \
-	BUCKET_NAME=... \
-	ENDPOINT=https://<s3-compatible-endpoint> \
-	publish-bootstrap-snapshots
-```
-
-Commit the updated `snapshots.json` when you want that new three-epoch window to become the default bootstrap set for the selected network.

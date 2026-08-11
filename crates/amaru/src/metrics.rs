@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::LazyLock, time::Duration};
+use std::{
+    sync::{Arc, LazyLock},
+    time::Duration,
+};
 
-use amaru_metrics::{
-    METRICS_METER_NAME, MetricRecorder, SystemMetrics, has_subscribers, initialize_metrics, notify_subscribers,
-};
+#[cfg(unix)]
+use amaru_kernel::utils::process::sample_process_memory;
+use amaru_metrics::{Meter, MetricRecorder, MetricsEvent, SystemMetrics, initialize_metrics};
 use anyhow::anyhow;
-use opentelemetry::{
-    KeyValue,
-    metrics::{Meter, MeterProvider},
-};
-use opentelemetry_sdk::metrics::SdkMeterProvider;
+use opentelemetry::KeyValue;
 use sysinfo::{
-    CpuRefreshKind, MemoryRefreshKind, Networks, Process, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System,
+    CpuRefreshKind, DiskRefreshKind, Disks, MemoryRefreshKind, Networks, ProcessRefreshKind, ProcessesToUpdate,
+    RefreshKind, System,
 };
 use tokio::task::JoinHandle;
 use tracing::error;
@@ -33,38 +33,30 @@ use crate::version;
 
 static METRICS_POLL_DELAY: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(1));
 
-pub fn track_system_metrics(
-    provider: Option<SdkMeterProvider>,
-) -> Result<Option<JoinHandle<()>>, Box<dyn std::error::Error>> {
-    if provider.is_none() && !has_subscribers() {
-        return Ok(None);
-    }
+#[cfg(unix)]
+fn sampled_process_memory_bytes(pid: sysinfo::Pid, rss_bytes: u64) -> u64 {
+    sample_process_memory(pid.as_u32()).unwrap_or(rss_bytes)
+}
 
-    if let Some(provider) = provider.as_ref() {
-        record_build_info(provider);
-    }
+#[cfg(not(unix))]
+fn sampled_process_memory_bytes(_pid: sysinfo::Pid, rss_bytes: u64) -> u64 {
+    rss_bytes
+}
+
+pub fn track_system_metrics(meter: Arc<Meter>) -> Result<Option<JoinHandle<()>>, Box<dyn std::error::Error>> {
+    record_build_info(&meter);
+    initialize_metrics(&meter);
 
     let mut sys = System::new_with_specifics(
         RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::everything().without_frequency())
-            .with_memory(MemoryRefreshKind::everything().without_swap()),
+            .with_memory(MemoryRefreshKind::nothing().with_ram()),
     );
+    let mut disks = Disks::new_with_refreshed_list_specifics(DiskRefreshKind::nothing().with_io_usage());
+    let mut networks = Networks::new_with_refreshed_list();
     let number_of_cpus = sys.cpus().len() as u64;
-    let meter = provider.as_ref().map(|provider| provider.meter(METRICS_METER_NAME));
-    if let Some(meter) = meter.as_ref() {
-        initialize_metrics(meter);
-    }
 
     let own_pid = sysinfo::get_current_pid().map_err(|err| anyhow!("unable to retrieve own pid: {err}"))?;
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&[own_pid]),
-        true,
-        ProcessRefreshKind::nothing().with_cpu().with_disk_usage().with_memory(),
-    );
-
-    let process = sys.process(own_pid).ok_or_else(|| anyhow!("unable to find amaru's own process (pid={own_pid})"))?;
-    let mut networks = Networks::new_with_refreshed_list();
-    record_system_metrics(process, &networks, number_of_cpus, meter.as_ref());
 
     Ok(Some(tokio::spawn(async move {
         loop {
@@ -75,20 +67,62 @@ pub fn track_system_metrics(
                 true,
                 ProcessRefreshKind::nothing().with_cpu().with_disk_usage().with_memory(),
             );
+            sys.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram());
+            disks.refresh_specifics(false, DiskRefreshKind::nothing().with_io_usage());
             networks.refresh(true);
 
             match sys.process(own_pid) {
                 None => error!("unable to find amaru's own process (pid={own_pid}) ?!"),
                 Some(process) => {
-                    record_system_metrics(process, &networks, number_of_cpus, meter.as_ref());
+                    let disk_usage = process.disk_usage();
+                    let process_memory_live_resident = process.memory();
+                    let (host_live_read_bytes, host_live_write_bytes) =
+                        disks.iter().fold((0u64, 0u64), |(read_total, write_total), disk| {
+                            let usage = disk.usage();
+                            (
+                                read_total.saturating_add(usage.read_bytes),
+                                write_total.saturating_add(usage.written_bytes),
+                            )
+                        });
+                    let (network_read_bytes, network_written_bytes) =
+                        networks.values().fold((0u64, 0u64), |(read_total, write_total), network| {
+                            (
+                                read_total.saturating_add(network.total_received()),
+                                write_total.saturating_add(network.total_transmitted()),
+                            )
+                        });
+                    let event = MetricsEvent::SystemMetrics(SystemMetrics {
+                        node_start_time_seconds: process.start_time(),
+                        cpu_ticks: process.accumulated_cpu_time() / 10,
+                        network_read_bytes,
+                        network_written_bytes,
+                        runtime_seconds: process.run_time(),
+                        cpu_percent: process.cpu_usage() as f64 / number_of_cpus as f64,
+                        process_memory_bytes: sampled_process_memory_bytes(own_pid, process_memory_live_resident),
+                        process_memory_live_resident,
+                        process_memory_available_virtual: process.virtual_memory(),
+                        memory_used_bytes: sys.used_memory(),
+                        memory_total_bytes: sys.total_memory(),
+                        disk_read_bytes: disk_usage.total_read_bytes,
+                        disk_write_bytes: disk_usage.total_written_bytes,
+                        disk_live_read_bytes: disk_usage.read_bytes,
+                        disk_live_write_bytes: disk_usage.written_bytes,
+                        host_live_read_bytes,
+                        host_live_write_bytes,
+                        open_files: process.open_files().map_or(0, |files| files as u64),
+                    });
+
+                    event.record_to_meter(&meter);
                 }
             }
         }
     })))
 }
 
-fn record_build_info(provider: &SdkMeterProvider) {
-    let meter = provider.meter(METRICS_METER_NAME);
+fn record_build_info(meter: &Meter) {
+    let Some(meter) = meter.get() else {
+        return;
+    };
 
     let build_info = meter
         .u64_gauge("cardano_node_metrics_cardano_build_info")
@@ -140,31 +174,4 @@ fn record_build_info(provider: &SdkMeterProvider) {
     if let Some(patch) = version_parts.get(2).and_then(|v| v.split('-').next()?.parse::<u64>().ok()) {
         version_patch.record(patch, &[]);
     }
-}
-
-fn record_system_metrics(process: &Process, networks: &Networks, number_of_cpus: u64, meter: Option<&Meter>) {
-    let disk_usage = process.disk_usage();
-    let (network_read_bytes, network_written_bytes) = networks.values().fold((0u64, 0u64), |totals, network| {
-        (totals.0.saturating_add(network.total_received()), totals.1.saturating_add(network.total_transmitted()))
-    });
-    let metrics = SystemMetrics {
-        node_start_time_seconds: process.start_time(),
-        cpu_ticks: process.accumulated_cpu_time() / 10,
-        network_read_bytes,
-        network_written_bytes,
-        runtime_seconds: process.run_time(),
-        cpu_percent: process.cpu_usage() as f64 / number_of_cpus as f64,
-        rss_bytes: process.memory(),
-        virtual_bytes: process.virtual_memory(),
-        disk_read_bytes: disk_usage.total_read_bytes,
-        disk_write_bytes: disk_usage.total_written_bytes,
-        disk_live_read_bytes: disk_usage.read_bytes,
-        disk_live_write_bytes: disk_usage.written_bytes,
-        open_files: process.open_files().map_or(0, |files| files as u64),
-    };
-
-    if let Some(meter) = meter {
-        metrics.record_to_meter(meter);
-    }
-    notify_subscribers(&metrics.into());
 }

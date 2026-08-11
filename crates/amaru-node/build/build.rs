@@ -19,7 +19,6 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result};
 
 fn main() -> Result<()> {
-    built::write_built_file().context("Failed to acquire build-time information")?;
     peer_snapshot::prepare_peer_snapshots().context("Failed to prepare embedded peer snapshots")?;
     Ok(())
 }

@@ -45,6 +45,11 @@ impl VersionData {
     pub fn is_full_duplex_capable(&self) -> bool {
         !self.initiator_only_diffusion_mode
     }
+
+    /// Whether the remote peer is willing to be advertised via peer sharing (`peer_sharing == 1`).
+    pub fn is_advertisable(&self) -> bool {
+        self.peer_sharing == PEER_SHARING_ENABLED
+    }
 }
 
 impl Display for VersionData {

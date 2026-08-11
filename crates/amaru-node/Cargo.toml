@@ -23,7 +23,6 @@ test-utils = ["tracing-subscriber"]
 [build-dependencies]
 amaru-kernel.workspace = true
 anyhow.workspace = true
-built = { workspace = true, features = ["git2"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
 ureq.workspace = true
@@ -36,7 +35,6 @@ futures-util.workspace = true
 hex.workspace = true
 minicbor.workspace = true
 num.workspace = true
-opentelemetry.workspace = true
 parking_lot.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -58,6 +56,7 @@ amaru-consensus.workspace = true
 amaru-kernel = { workspace = true, features = ["tracing", "clap"] }
 amaru-ledger.workspace = true
 amaru-mempool.workspace = true
+amaru-metrics.workspace = true
 amaru-network.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true

@@ -377,32 +377,6 @@ pub enum EraHistoryFileError {
     JsonParseError(#[from] serde_json::Error),
 }
 
-/// Load an `EraHistory` from a JSON file.
-///
-/// # Arguments
-///
-/// * `path` - Path to the JSON file containing era history data
-///
-/// # Returns
-///
-/// Returns a Result containing the `EraHistory` if successful, or an `EraHistoryFileError` if the file
-/// cannot be read or parsed.
-///
-/// # Example
-///
-/// ```no_run
-/// use amaru_kernel::load_era_history_from_file;
-/// use std::path::Path;
-///
-/// let era_history = load_era_history_from_file(Path::new("era_history.json")).unwrap();
-/// ```
-pub fn load_era_history_from_file(path: &Path) -> Result<EraHistory, EraHistoryFileError> {
-    let file = File::open(path).map_err(EraHistoryFileError::FileOpenError)?;
-    let reader = BufReader::new(file);
-
-    serde_json::from_reader(reader).map_err(EraHistoryFileError::JsonParseError)
-}
-
 impl<C> cbor::Encode<C> for EraHistory {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -451,6 +425,32 @@ pub struct EpochEraBounds {
 // horizon is the end of the epoch containing the end of the current era's safe zone relative to
 // the current tip. Returns number of milliseconds elapsed since the system start time.
 impl EraHistory {
+    /// Load an `EraHistory` from a JSON file.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the JSON file containing era history data
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the `EraHistory` if successful, or an `EraHistoryFileError` if the file
+    /// cannot be read or parsed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use amaru_kernel::EraHistory;
+    /// use std::path::Path;
+    ///
+    /// let era_history = EraHistory::load(Path::new("era_history.json")).unwrap();
+    /// ```
+    pub fn load(path: &Path) -> Result<Self, EraHistoryFileError> {
+        let file = File::open(path).map_err(EraHistoryFileError::FileOpenError)?;
+        let reader = BufReader::new(file);
+
+        serde_json::from_reader(reader).map_err(EraHistoryFileError::JsonParseError)
+    }
+
     pub fn new(eras: &[EraSummary], stability_window: Slot) -> EraHistory {
         #[expect(clippy::panic)]
         if eras.is_empty() {
@@ -751,7 +751,7 @@ mod tests {
     use super::*;
     use crate::{
         Epoch, MAINNET_ERA_HISTORY, PREPROD_ERA_HISTORY, PREVIEW_ERA_HISTORY, Slot, any_era_params, any_network_name,
-        from_cbor_no_leftovers_with, load_era_history_from_file, to_cbor,
+        from_cbor_no_leftovers_with, to_cbor,
     };
 
     prop_compose! {
@@ -1268,7 +1268,7 @@ mod tests {
         file.write_all(json_data.as_bytes()).expect("Failed to write JSON data to file");
 
         let loaded_era_history =
-            load_era_history_from_file(temp_file_path.as_path()).expect("Failed to load EraHistory from file");
+            EraHistory::load(temp_file_path.as_path()).expect("Failed to load EraHistory from file");
 
         assert_eq!(*original_era_history, loaded_era_history, "Era histories don't match");
 
@@ -1289,7 +1289,7 @@ mod tests {
     fn test_era_history_file_open_error() {
         let non_existent_path = Path::new("non_existent_file.json");
 
-        let result = load_era_history_from_file(non_existent_path);
+        let result = EraHistory::load(non_existent_path);
 
         match result {
             Err(EraHistoryFileError::FileOpenError(_)) => {
@@ -1310,7 +1310,7 @@ mod tests {
 
         file.write_all(invalid_json.as_bytes()).expect("Failed to write invalid JSON data to file");
 
-        let result = load_era_history_from_file(temp_file_path.as_path());
+        let result = EraHistory::load(temp_file_path.as_path());
 
         match result {
             Err(EraHistoryFileError::JsonParseError(_)) => {

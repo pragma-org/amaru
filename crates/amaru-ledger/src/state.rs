@@ -434,17 +434,24 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // process behaves as if we had interrupted the transition just after taking the
             // snapshot. So we must proceed with computing the beginning of an epoch (ratification,
             // pool updates, etc...) but not the end (rewards).
-            let (treasury, effective_rewards) = if progress.is_none() {
+            let (treasury, effective_rewards, unreachable_accounts) = if progress.is_none() {
                 let computed_rewards = computed_rewards.ok_or(StateError::RewardsSummaryNotReady)?;
 
-                let unclaimed_rewards = computed_rewards
-                    .unclaimed_rewards(volatile_view.iter_unreachable_accounts(computed_rewards.pools_owners())?);
+                let unreachable_accounts =
+                    volatile_view.iter_unreachable_accounts(computed_rewards.pools_owners())?.collect::<BTreeSet<_>>();
+
+                let unclaimed_rewards = computed_rewards.unclaimed_rewards(unreachable_accounts.iter().copied());
 
                 let effective_rewards = Rewards::<Effective>::new(computed_rewards, unclaimed_rewards);
 
-                (db.pots()?.treasury + effective_rewards.delta_treasury(), Some(effective_rewards))
+                let treasury = db.pots()?.treasury + effective_rewards.delta_treasury();
+
+                (treasury, Some(effective_rewards), unreachable_accounts)
             } else {
-                (db.pots()?.treasury, None)
+                let unreachable_accounts =
+                    volatile_view.iter_unreachable_accounts(BTreeSet::new())?.collect::<BTreeSet<_>>();
+
+                (db.pots()?.treasury, None, unreachable_accounts)
             };
 
             let protocol_parameters = self.protocol_parameters();
@@ -478,9 +485,13 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 ratification_context,
             )?;
 
-            drop(db); // Dropping the *mutable reference*, not the *actual database* :)
-
-            self.volatile.transition(effective_rewards, pools_updates, governance_updates);
+            self.volatile.transition(
+                effective_rewards,
+                pools_updates,
+                governance_updates,
+                volatile_view.donations()?,
+                |account| !unreachable_accounts.contains(account),
+            );
 
             Ok(())
         })

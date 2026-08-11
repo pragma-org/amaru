@@ -52,13 +52,13 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{any_proposal, any_proposal_pointer, prop_cbor_roundtrip};
+    use amaru_kernel::{any_proposal, any_proposal_pointer};
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
 
     #[cfg(not(target_os = "windows"))]
-    prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row(u64::MAX));
+    amaru_kernel::prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row(u64::MAX));
 
     prop_compose! {
         pub fn any_row(max_slot: u64)(

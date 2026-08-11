@@ -41,10 +41,10 @@ use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_chain_state
 use crate::bootstrap::ChainState;
 
 #[expect(clippy::too_many_arguments)]
-pub fn import_snapshot_from_tvar<S, F>(
+pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
     db: &S,
-    state_file: &mut std::fs::File,
-    utxo_file: &mut std::fs::File,
+    state_file: &mut State,
+    utxo_file: &mut Utxo,
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
@@ -54,6 +54,8 @@ pub fn import_snapshot_from_tvar<S, F>(
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
+    State: Read + Seek,
+    Utxo: Read,
 {
     let state_head = read_state_snapshot(state_file)?;
     let (parsed_snapshot, chain_state) = if let Some(tail) = nonce_tail {
@@ -86,14 +88,14 @@ where
     Ok((epoch, point, chain_state))
 }
 
-fn read_state_snapshot(file: &mut std::fs::File) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+fn read_state_snapshot(file: &mut impl Read) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
-fn import_utxo_from_tvar<S, F>(
-    utxo_file: &mut std::fs::File,
+fn import_utxo_from_tvar<S, F, Utxo>(
+    utxo_file: &mut Utxo,
     db: &S,
     with_progress: F,
     point: &Point,
@@ -103,8 +105,9 @@ fn import_utxo_from_tvar<S, F>(
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
+    Utxo: Read,
 {
-    let mut decoder = LazyDecoder::from_file(utxo_file);
+    let mut decoder = LazyDecoder::new(utxo_file);
     import_tvar_utxo(&mut decoder, db, with_progress, point, era_history, network)
 }
 
@@ -129,7 +132,10 @@ where
 
     let estimated_size = size.unwrap_or(network.estimated_utxo_size());
 
-    let progress = with_progress(estimated_size, "UTxO entries [{pos:>7}/{len:7}] {bar:40.green} ({eta} remaining)");
+    let progress = with_progress(
+        estimated_size,
+        "{spinner:.green} Importing UTxO entries {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
+    );
 
     let mut actual_size = 0_usize;
     loop {

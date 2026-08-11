@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalsRoots, StakeCredential,
-    TransactionInput, drep,
+    DRep, DRepRegistration, MemoizedTransactionOutput, PoolId, ProposalId, ProposalKind, ProposalsRoots,
+    StakeCredential, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
 
@@ -121,10 +121,12 @@ impl<'block> DefaultPreparationContext<'block> {
             Account<'volatile> = (Existence<AccountBind<'volatile>>, RewardsAtTip),
             DRep<'volatile> = Existence<DRepBind<'volatile>>,
             CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>,
-            Proposal = Existence<()>,
+            Proposal = Existence<ProposalKind>,
         >,
         db: &impl ReadStore,
     ) -> Result<DefaultValidationContext, ContextHydratationError> {
+        let treasury = volatile.resolve_treasury(&db.pots().map_err(ContextHydratationError::ResolvePots)?);
+
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
@@ -140,6 +142,7 @@ impl<'block> DefaultPreparationContext<'block> {
             resolve_committee(volatile, db, self.committee.into_iter())?,
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
+            treasury,
         ))
     }
 }
@@ -433,32 +436,32 @@ fn resolve_committee<'block, 'volatile>(
 /// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
 /// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
 pub fn resolve_proposals(
-    volatile: &impl VolatileState<Proposal = Existence<()>>,
+    volatile: &impl VolatileState<Proposal = Existence<ProposalKind>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ProposalId>,
-) -> Result<BTreeSet<ProposalId>, ContextHydratationError> {
+) -> Result<BTreeMap<ProposalId, ProposalKind>, ContextHydratationError> {
     debug_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
-        let proposals = keys.try_fold(BTreeSet::new(), |mut proposals, id| {
+        let proposals = keys.try_fold(BTreeMap::new(), |mut proposals, id| {
             match volatile.resolve_proposal(&id) {
                 // pruned at the boundary; skip
                 Existence::Gone => Ok(proposals),
 
                 // newly proposed in the volatile
-                Existence::Exists(()) => {
+                Existence::Exists(kind) => {
                     from_volatile += 1;
-                    proposals.insert(id);
+                    proposals.insert(id, kind);
 
                     Ok(proposals)
                 }
 
                 // not in the volatile; resolve from stable
                 Existence::Unknown => {
-                    if db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)?.is_some() {
+                    if let Some(row) = db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)? {
                         from_db += 1;
-                        proposals.insert(id);
+                        proposals.insert(id, ProposalKind::from(&row.proposal.gov_action));
                     }
 
                     Ok(proposals)

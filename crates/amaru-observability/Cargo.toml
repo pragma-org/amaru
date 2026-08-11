@@ -17,18 +17,14 @@ categories.workspace = true
 amaru-observability-macros.workspace = true
 inventory.workspace = true
 opentelemetry.workspace = true
+quote.workspace = true
 serde = { workspace = true, features = ["derive"] }
-tracing.workspace = true
+syn.workspace = true
 tracing-opentelemetry.workspace = true
-
-[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
-amaru-deps.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["std"] }
-
-[package.metadata.cargo-machete]
-ignored = ["amaru-deps"]
 
 [lints]
 workspace = true

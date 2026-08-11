@@ -56,6 +56,8 @@ fn generated_schema_identity_and_accessors_are_typed() {
 
     assert_eq!(amaru::protocols::peer_selection::peer::CONNECTED::TARGET, "amaru::protocols");
     assert_eq!(amaru::protocols::peer_selection::peer::CONNECTED::NAME, "peer_selection.peer.connected");
+    assert_eq!(amaru::protocols::peer_selection::peer::CONNECTED::FIELD_PEER, "peer");
+    assert_eq!(amaru::protocols::peer_selection::peer::CONNECTED::FIELD_DIRECTION, "direction");
     assert!(amaru::protocols::peer_selection::peer::CONNECTED::matches(
         "amaru::protocols",
         "peer_selection.peer.connected"

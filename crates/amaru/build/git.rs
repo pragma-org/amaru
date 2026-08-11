@@ -13,54 +13,50 @@
 // limitations under the License.
 
 use std::{
-    env,
     path::{Path, PathBuf},
     process::Command,
 };
 
 use anyhow::{Result, bail};
 
-use crate::{emit_rerun_if_changed, emit_rerun_if_exists};
+use crate::{emit_rerun_if_exists, write_if_changed};
 
-/// Return the workspace-relative paths of the rust files under `crates/`, whether they are
-/// tracked or untracked by git, but excluding ignored files.
-pub(crate) fn get_workspace_rust_files(workspace_dir: &Path) -> Result<Vec<PathBuf>> {
-    let output = Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "crates/**/*.rs"])
-        .current_dir(workspace_dir)
-        .output()?;
+pub(crate) fn write_git_info_file(workspace_dir: &Path, out_dir: &Path) -> Result<()> {
+    emit_git_rerun_paths(workspace_dir);
 
-    if !output.status.success() {
-        bail!("git ls-files failed ({}): {}", output.status, String::from_utf8_lossy(&output.stderr));
-    }
+    let commit_hash_short = git_stdout(workspace_dir, &["rev-parse", "--short", "HEAD"]);
+    let commit_hash = git_stdout(workspace_dir, &["rev-parse", "HEAD"]);
+    let dirty = git_dirty(workspace_dir)?;
+    let output = out_dir.join("git_info.rs");
+    let contents = format!(
+        "pub const GIT_COMMIT_HASH_SHORT: Option<&str> = {};\npub const GIT_COMMIT_HASH: Option<&str> = {};\npub const GIT_DIRTY: Option<bool> = {};\n",
+        option_string_literal(commit_hash_short.as_deref()),
+        option_string_literal(commit_hash.as_deref()),
+        option_bool_literal(dirty),
+    );
 
-    emit_git_exclusion_rerun_paths(workspace_dir);
-    Ok(split_nul_terminated_paths(&output.stdout).map(PathBuf::from).collect())
+    write_if_changed(&output, &contents)
 }
 
-/// Ask cargo to rerun this build script when the files driving git's tracked/ignored
-/// decisions change: the root `.gitignore`, the git index, and the exclusion files.
-fn emit_git_exclusion_rerun_paths(workspace_dir: &Path) {
-    emit_rerun_if_changed(&workspace_dir.join(".gitignore"));
+fn emit_git_rerun_paths(workspace_dir: &Path) {
+    emit_git_path_rerun(workspace_dir, "HEAD");
+    emit_git_path_rerun(workspace_dir, "packed-refs");
 
-    for name in ["index", "info/exclude"] {
-        if let Some(path) = git_stdout(workspace_dir, &["rev-parse", "--git-path", name]) {
-            let path = Path::new(&path);
-            let path = if path.is_absolute() { path.to_path_buf() } else { workspace_dir.join(path) };
-            emit_rerun_if_exists(&path);
-        }
-    }
-
-    if let Some(path) = git_stdout(workspace_dir, &["config", "--get", "core.excludesFile"]) {
-        emit_rerun_if_changed(&expand_home(&path));
+    if let Some(reference) = git_stdout(workspace_dir, &["symbolic-ref", "-q", "HEAD"]) {
+        emit_git_path_rerun(workspace_dir, &reference);
     }
 }
 
-/// Substitute a leading `~/` with the home directory, as git allows in `core.excludesFile`.
-fn expand_home(path: &str) -> PathBuf {
-    path.strip_prefix("~/")
-        .and_then(|relative| env::var_os("HOME").map(|home| PathBuf::from(home).join(relative)))
-        .unwrap_or_else(|| PathBuf::from(path))
+fn emit_git_path_rerun(workspace_dir: &Path, name: &str) {
+    if let Some(path) = git_path(workspace_dir, name) {
+        emit_rerun_if_exists(&path);
+    }
+}
+
+fn git_path(workspace_dir: &Path, name: &str) -> Option<PathBuf> {
+    let path = git_stdout(workspace_dir, &["rev-parse", "--git-path", name])?;
+    let path = Path::new(&path);
+    Some(if path.is_absolute() { path.to_path_buf() } else { workspace_dir.join(path) })
 }
 
 /// Run a git command in `workspace_dir` and return its trimmed standard output,
@@ -78,27 +74,27 @@ fn git_stdout(workspace_dir: &Path, args: &[&str]) -> Option<String> {
     (!stdout.is_empty()).then(|| stdout.to_string())
 }
 
-/// Split the NUL-terminated paths produced by `git ls-files -z`, skipping the empty trailer.
-fn split_nul_terminated_paths(paths: &[u8]) -> impl Iterator<Item = &str> {
-    paths.split(|byte| *byte == b'\0').filter(|path| !path.is_empty()).filter_map(|path| std::str::from_utf8(path).ok())
-}
+fn git_dirty(workspace_dir: &Path) -> Result<Option<bool>> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=no"])
+        .current_dir(workspace_dir)
+        .output()?;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_expand_home_only_expands_tilde_prefix() {
-        let home = PathBuf::from(env::var("HOME").expect("HOME should be set in tests"));
-
-        assert_eq!(expand_home("~/.config/git/ignore"), home.join(".config/git/ignore"));
-        assert_eq!(expand_home("/etc/gitignore"), PathBuf::from("/etc/gitignore"));
+    if !output.status.success() {
+        bail!("git status failed ({}): {}", output.status, String::from_utf8_lossy(&output.stderr));
     }
 
-    #[test]
-    fn test_split_nul_terminated_paths_skips_trailing_empty_path() {
-        let paths = split_nul_terminated_paths(b"crates/a/src/lib.rs\0crates/b/src/lib.rs\0").collect::<Vec<_>>();
+    Ok(Some(!output.stdout.is_empty()))
+}
 
-        assert_eq!(paths, vec!["crates/a/src/lib.rs", "crates/b/src/lib.rs"]);
+fn option_string_literal(value: Option<&str>) -> String {
+    value.map(|value| format!("Some({value:?})")).unwrap_or_else(|| "None".to_owned())
+}
+
+fn option_bool_literal(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "Some(true)",
+        Some(false) => "Some(false)",
+        None => "None",
     }
 }

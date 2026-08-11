@@ -61,7 +61,7 @@ impl<'a> LazyDecoder<'a> {
             if should_read_more {
                 let mut buf = [0; Self::CHUNK_SIZE];
                 let read = self.reader.read(&mut buf).map_err(cbor::decode::Error::custom)?;
-                self.bytes.extend_from_slice(&buf);
+                self.bytes.extend_from_slice(&buf[..read]);
                 can_read_more = read > 0;
             }
 

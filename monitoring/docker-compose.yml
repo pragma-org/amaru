@@ -12,7 +12,6 @@ services:
       - tempo
     ports:
       - "4317:4317"
-      - "4318:4318"
       - "8889:8889"
 
   prometheus:

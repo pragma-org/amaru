@@ -15,7 +15,7 @@
 use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, HasTransactionId, Network, NetworkName, ProtocolParameters, TransactionBody,
+    AuxiliaryData, EraHistory, HasTransactionId, Lovelace, Network, NetworkName, ProtocolParameters, TransactionBody,
     TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance,
 };
 use amaru_observability::debug_span;
@@ -106,6 +106,9 @@ pub enum PhaseOneError {
     #[error("transaction too large: provided {provided} bytes, maximum {maximum} bytes")]
     TooLarge { provided: u64, maximum: u64 },
 
+    #[error("current treasury value mismatch: provided {provided}, expected {expected}")]
+    TreasuryValueMismatch { provided: Lovelace, expected: Lovelace },
+
     #[error("invalid transaction validity interval: {0}")]
     ValidityInterval(#[from] InvalidValidityInterval),
 
@@ -171,6 +174,13 @@ where
             protocol_parameters,
         )
     })?;
+
+    if is_valid && let Some(provided) = transaction_body.treasury_value {
+        let expected = context.treasury();
+        if provided != expected {
+            return Err(PhaseOneError::TreasuryValueMismatch { provided, expected });
+        }
+    }
 
     // TODO: The 'collateral' rule group shouldn't exist
     //
@@ -397,8 +407,9 @@ mod tests {
             fixture.initial_state.accounts,
             fixture.initial_state.dreps,
             Default::default(),
-            Default::default(),
-            Default::default(),
+            fixture.initial_state.proposals,
+            fixture.initial_state.proposals_roots,
+            fixture.initial_state.pots.treasury,
         );
 
         let arena_pool = ArenaPool::new(1, 1024);

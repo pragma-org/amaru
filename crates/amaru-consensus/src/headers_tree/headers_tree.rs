@@ -141,8 +141,7 @@ impl Display for HeadersTreeState {
         writeln!(
             f,
             "  peers:\n    {}",
-            &self
-                .peers
+            self.peers
                 .iter()
                 .map(|(p, hs)| format!(
                     "{} -> [{}]",
@@ -154,7 +153,7 @@ impl Display for HeadersTreeState {
                 ))
                 .join(",\n    ")
         )?;
-        writeln!(f, "  max_length: {}", &self.max_length)?;
+        writeln!(f, "  max_length: {}", self.max_length)?;
         Ok(())
     }
 }

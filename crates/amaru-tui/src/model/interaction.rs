@@ -52,12 +52,20 @@ impl Model {
         self.interaction_mode = InteractionMode::Copy;
     }
 
+    pub fn enter_shutdown_mode(&mut self) {
+        self.interaction_mode = InteractionMode::Shutdown;
+    }
+
     pub fn exit_copy_mode(&mut self) {
         self.interaction_mode = InteractionMode::Normal;
     }
 
     pub fn is_copy_mode(&self) -> bool {
         self.interaction_mode == InteractionMode::Copy
+    }
+
+    pub fn is_shutdown_mode(&self) -> bool {
+        self.interaction_mode == InteractionMode::Shutdown
     }
 
     pub fn cycle_log_pane(&mut self) {
@@ -92,20 +100,16 @@ impl Model {
         self.scroll_focus = self.scroll_focus.previous_for(self.page);
     }
 
-    pub fn set_window(&mut self, index: usize) {
-        if index < self.config.windows.len() {
-            self.selected_window = index;
-        }
-    }
-
     pub fn set_level_filter(&mut self, level: LevelFilter) {
         self.level_filter = level;
+        self.logs.rebuild_filtered(self.level_filter, self.target_filter);
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
 
     pub fn set_target_filter(&mut self, filter: TargetFilter) {
         self.target_filter = filter;
+        self.logs.rebuild_filtered(self.level_filter, self.target_filter);
         self.log_scroll = 0;
         self.scroll_focus = ScrollFocus::Logs;
     }
@@ -176,11 +180,6 @@ impl Model {
             self.set_scroll_focus(focus);
         }
 
-        if let Some(index) = views.window_at(point) {
-            self.set_window(index);
-            return;
-        }
-
         if let Some(level) = views.level_filter_at(point) {
             self.set_level_filter(level);
             return;
@@ -217,6 +216,10 @@ impl Model {
     }
 
     pub(super) fn handle_key_event(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {
+        if self.is_shutdown_mode() {
+            return TerminalEventOutcome::Continue;
+        }
+
         if self.is_copy_mode() {
             return if key.code == KeyCode::Esc {
                 self.exit_copy_mode();
@@ -228,6 +231,9 @@ impl Model {
 
         match key.code {
             KeyCode::Esc => {
+                if !self.is_ready(std::time::Instant::now()) {
+                    return TerminalEventOutcome::Continue;
+                }
                 self.enter_copy_mode();
                 TerminalEventOutcome::EnterCopyMode
             }
@@ -296,6 +302,10 @@ impl Model {
     }
 
     fn handle_mouse_event(&mut self, mouse: event::MouseEvent, views: &Views) -> TerminalEventOutcome {
+        if self.is_shutdown_mode() {
+            return TerminalEventOutcome::Continue;
+        }
+
         let point = Rect { x: mouse.column, y: mouse.row, width: 1, height: 1 };
 
         match mouse.kind {

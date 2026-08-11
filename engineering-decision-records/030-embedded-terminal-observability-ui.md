@@ -28,25 +28,25 @@ maintain:
 
 ## Decision
 
-Amaru shall provide an embedded terminal UI through a dedicated `amaru-tui`
-crate.
+Amaru shall provide a terminal UI through a dedicated `amaru-tui` crate.
+
+That UI is launched automatically by `amaru node run` in an interactive
+terminal.
 
 ### The TUI is a consumer, not a control plane
 
 The TUI derives its state from the same observability streams exposed to other
-consumers:
+consumers and runtime producers:
 
-- structured tracing events, captured through a tracing layer
-- shared runtime metrics, captured through the existing metrics publication
-  mechanism
+- structured tracing events, consumed from an in-process tracing layer
+- runtime metrics, consumed from a single in-process callback for local
+  `MetricsEvent`s
 
-Shared runtime metrics remain focused on the Amaru process itself. When the
-dashboard needs host-wide context that would be too expensive or too
-product-specific to export as a normal metric stream, `amaru-tui` samples it
-locally. This currently covers:
-
-- total and used system RAM
-- aggregate live disk I/O observed across all refreshed processes
+Runtime metrics remain focused on the Amaru process and the host-level totals
+that are cheap and meaningful to expose globally. Process memory footprint as
+reported by local host tooling is sampled by Amaru itself and exported through
+the normal system metric stream, so the TUI does not maintain a separate
+process sampler.
 
 The TUI may additionally receive a small startup context for static or
 bootstrapping-time information such as:
@@ -85,20 +85,26 @@ Where possible, that telemetry contract should be consumed through
 schema-generated identity constants and field accessors rather than raw string
 keys, so schema drift causes compile failures instead of silently blank widgets.
 
+For the terminal UI specifically, observability setup installs:
+
+- an in-process tracing layer that forwards typed telemetry records into the
+  TUI thread
+- a single local metrics callback that mirrors `MetricsEvent`s into the TUI
+
+This keeps the embedded mode cheap and direct without introducing a broader
+internal control plane.
+
 ### Model the UI as a fold over events
 
 The TUI maintains a bounded in-memory model that is updated from:
 
 - telemetry records
 - metric records
-- TUI-local host samples
 - local terminal events such as keyboard, mouse, focus, and scrolling
 
 This keeps the architecture simple:
 
-- `capture` converts tracing into TUI messages
-- `metrics` subscribes to the shared metrics stream
-- `host_metrics` samples slower host-wide context for the TUI only
+- `capture` converts in-process tracing records into TUI messages
 - `model` owns bounded UI state and folds incoming messages through focused
   reducer slices
 - `ui` renders from the model through a thin shell plus page and component views
@@ -106,6 +112,20 @@ This keeps the architecture simple:
 
 The TUI stores only the state necessary for rendering. It is not a persistence
 layer and must not grow unbounded over time.
+
+In practice, that bounded model uses fixed-capacity retention rather than
+user-selected rolling windows:
+
+- logs are kept in a single bounded deque
+- when a non-default log filter is active, newly arriving log lines that do not
+  match the current level/target filter are not retained
+- throughput, rollback, and peer timing widgets summarize the most recent
+  retained samples instead of a configurable time slice
+- stale peers are evicted after a fixed inactivity timeout
+
+Instantaneous process and host resource widgets are simpler: they render from
+the latest merged process/host snapshot rather than keeping a bounded history of
+local TUI-only system samples.
 
 Internally, the crate should stay organized around three layers:
 
@@ -176,6 +196,15 @@ While copy mode is active:
 - the accent switches to a dedicated visual treatment
 - the header indicates the mode clearly
 - command hints reflect the reduced interaction surface
+
+The same shell chrome also supports a non-interactive shutdown mode. When the
+first termination signal is observed:
+
+- the TUI suppresses the extra stderr status line that would otherwise corrupt
+  the alternate screen
+- the interaction mode switches to a dimmed shutdown presentation
+- further local keyboard and mouse interaction is ignored while the node drains
+  normally
 
 ### Degrade gracefully under filtered telemetry
 

@@ -15,8 +15,6 @@
 mod capture;
 mod config;
 mod events;
-mod host_metrics;
-mod metrics;
 mod model;
 mod session;
 mod settings;
@@ -25,7 +23,7 @@ mod terminal_guard;
 mod ui;
 
 pub use capture::TracingLayer;
-pub use config::{Config, TimeWindow, format_windows};
+pub use config::Config;
 pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
 pub use session::{Session, should_enable};
 pub use settings::Settings;

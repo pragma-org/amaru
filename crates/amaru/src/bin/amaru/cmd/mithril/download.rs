@@ -15,12 +15,13 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use amaru_kernel::NetworkName;
 use amaru_ledger::store::ReadStore;
 use amaru_mithril::{download_from_mithril, from_chunk_for_resume_point, get_latest_chunk};
-use amaru_progress_bar::TerminalProgressBar;
+use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use tracing::info;
 
@@ -42,9 +43,14 @@ pub(super) async fn run(
 
     info!(tip = %tip, from_chunk, "Downloading Mithril immutable chunks");
 
-    download_from_mithril(network, target_dir, from_chunk, |length, template| {
-        TerminalProgressBar::new(length as u64, template).boxed()
-    })
+    download_from_mithril(
+        network,
+        target_dir,
+        from_chunk,
+        Arc::new(|length, template| {
+            Box::new(TerminalProgressBar::new(length as u64, template)) as Box<dyn ProgressBar + Send + Sync>
+        }),
+    )
     .await?;
 
     Ok(immutable_dir)

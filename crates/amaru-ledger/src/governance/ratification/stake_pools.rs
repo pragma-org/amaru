@@ -14,11 +14,14 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{DRep, PoolId, PoolVotingThresholds, ProtocolParamUpdate, Vote};
+use amaru_kernel::{
+    ConstitutionalCommitteeUpdate, DRep, OrphanProposal, PoolId, PoolVotingThresholds, ProposalEnum,
+    ProtocolParamUpdate, Vote,
+    rational_number::{SafeRatio, into_safe_ratio, safe_ratio},
+};
 use num::Zero;
 
-use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
-use crate::summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution};
+use crate::summary::stake_distribution::StakeDistribution;
 
 // Voting Thresholds
 // ----------------------------------------------------------------------------
@@ -46,11 +49,11 @@ pub fn voting_threshold(
 
         ProposalEnum::HardFork(..) => Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation)),
 
-        ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
+        ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::NoConfidence, _) => {
             Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
         }
 
-        ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _) => {
+        ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::ChangeMembers { .. }, _) => {
             Some(if is_state_of_no_confidence {
                 into_safe_ratio(&voting_thresholds.committee_no_confidence)
             } else {
@@ -136,19 +139,17 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use amaru_kernel::{
-        CertificatePointer, DRep, Hash, PoolId, PoolParams, ProtocolParamUpdate, RationalNumber, Vote, any_ex_units,
-        any_pool_voting_thresholds, any_proposal_id, any_protocol_params_update, any_rational_number, any_vote_ref,
+        CertificatePointer, ConstitutionalCommitteeUpdate, DRep, Hash, PoolId, PoolParams, ProposalEnum,
+        ProtocolParamUpdate, RationalNumber, SafeRatio, Vote, any_ex_units, any_pool_voting_thresholds,
+        any_proposal_enum, any_proposal_id, any_protocol_params_update, any_rational_number, any_vote_ref, safe_ratio,
     };
     use num::{One, Zero};
     use proptest::{collection, option, prelude::*, sample};
 
-    use super::{CommitteeUpdate, tally, voting_threshold};
-    use crate::{
-        governance::ratification::{ProposalEnum, any_proposal_enum},
-        summary::{
-            PoolState, SafeRatio, safe_ratio,
-            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
-        },
+    use super::{tally, voting_threshold};
+    use crate::summary::{
+        PoolState,
+        stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_dreps},
     };
 
     proptest! {
@@ -199,10 +200,10 @@ mod tests {
         ) {
             let parent = parent.map(Rc::new);
 
-            let proposal_in_security_group = ProposalEnum::ProtocolParameters(update_in_security_group, parent.clone());
+            let proposal_in_security_group = ProposalEnum::ProtocolParameters(Box::new(update_in_security_group), parent.clone());
             let result_in = voting_threshold(is_no_confidence, &thresholds, &proposal_in_security_group);
 
-            let proposal_no_security_group = ProposalEnum::ProtocolParameters(update_no_security_group, parent.clone());
+            let proposal_no_security_group = ProposalEnum::ProtocolParameters(Box::new(update_no_security_group), parent.clone());
             let result_no = voting_threshold(is_no_confidence, &thresholds, &proposal_no_security_group);
 
             let is_null_threshold = thresholds.security_voting_threshold.numerator == 0;
@@ -219,7 +220,7 @@ mod tests {
         let pool_id = PoolId::new([1; 28]);
 
         let tally = tally(
-            &ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, None),
+            &ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::NoConfidence, None),
             BTreeMap::new(),
             &stake_summary_with_fallback(pool_id, Some(DRep::NoConfidence)),
         );
@@ -232,7 +233,7 @@ mod tests {
         let pool_id = PoolId::new([1; 28]);
 
         let tally = tally(
-            &ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, None),
+            &ProposalEnum::ConstitutionalCommittee(ConstitutionalCommitteeUpdate::NoConfidence, None),
             BTreeMap::new(),
             &stake_summary_with_fallback(pool_id, Some(DRep::Abstain)),
         );

@@ -23,7 +23,6 @@ clap.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 signal-hook.workspace = true
-sysinfo.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

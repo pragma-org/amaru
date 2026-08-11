@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, Peer, RawBlock,
+    BlockHeader, BlockHeight, EraHistory, HeaderHash, Peer, RawBlock,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
 use amaru_ouroboros_traits::{MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -141,6 +141,11 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<AncestorsBetweenEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlocksRequestedEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockDeliveryEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordFetchFailureEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectPeersForFetchEffect>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<crate::performance::FetchPeerSet>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
@@ -169,6 +174,21 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_with_overrides(prep, [msg], |_| {})
+}
+
+pub fn setup_preload(
+    prep: &TestPrep,
+    messages: impl IntoIterator<Item = FetchBlocksMsg>,
+) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_with_overrides(prep, messages, |_| {})
+}
+
+pub fn setup_with_overrides(
+    prep: &TestPrep,
+    messages: impl IntoIterator<Item = FetchBlocksMsg>,
+    overrides: impl FnOnce(&mut SimulationRunning),
+) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
     run_simulation(
@@ -177,16 +197,16 @@ pub fn setup(prep: &TestPrep, msg: FetchBlocksMsg) -> (SimulationRunning, Deseri
         |mut network| {
             let fb = network.stage("fb", stage);
             let fb = network.wire_up(fb, prep.state.clone());
-            network.preload(&fb, [msg]).unwrap();
+            network.preload(&fb, messages).unwrap();
             network
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
+            resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
+                crate::performance::Performance::new(),
+            ));
         },
-        |_running| {
-            // No additional external effect overrides needed for basic fetch_blocks tests.
-            // Virtual child stages are enabled by default in run_simulation.
-        },
+        overrides,
     )
 }
 
@@ -235,4 +255,48 @@ pub fn te_cancel_schedule(at_stage: impl AsRef<str>, schedule_id: ScheduleId) ->
 
 pub fn te_clock(instant: Instant) -> TraceEntry {
     TraceEntry::Clock(instant)
+}
+
+pub fn te_record_blocks_requested(at_stage: &str, hashes: Vec<HeaderHash>, requested_at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_blocks_requested(hashes, requested_at)),
+    ))
+}
+
+pub fn te_select_peers_for_fetch(at_stage: &str, need: Vec<HeaderHash>, max_peers: usize, now: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::select_peers_for_fetch(crate::performance::SelectPeersParams {
+            need,
+            max_peers,
+            now,
+        })),
+    ))
+}
+
+#[expect(clippy::too_many_arguments)]
+pub fn te_record_block_delivery(
+    at_stage: &str,
+    peer: Peer,
+    hash: HeaderHash,
+    height: BlockHeight,
+    parent: Option<HeaderHash>,
+    at: Instant,
+    response: Duration,
+    bytes: u64,
+) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_block_delivery(
+            peer, hash, height, parent, at, response, bytes,
+        )),
+    ))
+}
+
+pub fn te_record_fetch_failure(at_stage: &str, peers: Vec<Peer>, at: Instant) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(crate::performance::Performance::record_fetch_failure(peers, at)),
+    ))
 }

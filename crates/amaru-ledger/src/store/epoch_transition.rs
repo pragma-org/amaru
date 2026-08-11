@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ConstitutionalCommitteeStatus, Lovelace, PoolId, ProposalId, ProtocolParameters, RatificationStatus,
-    RationalNumber, StakeCredential, StakeCredentialKind,
+    AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Lovelace, PoolId, ProposalId,
+    ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind,
 };
 use amaru_observability::{debug, debug_span};
 use num::BigUint;
@@ -27,7 +27,6 @@ use tracing::Span;
 
 use crate::{
     epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, Rewards},
-    governance::ratification::CommitteeUpdate,
     store::{StoreError, TransactionalContext, columns::pools::Row as Pool},
 };
 
@@ -267,15 +266,15 @@ pub fn apply_governance_updates<'store>(
 /// Flush updates to the constitutional committee.
 pub fn update_constitutional_committee<'store>(
     db: &impl TransactionalContext<'store>,
-    committee_update: &CommitteeUpdate,
+    committee_update: &ConstitutionalCommitteeUpdate,
 ) -> Result<(), StoreError> {
     debug_span!(
         stores::ledger::overlay::UPDATE_CONSTITUTIONAL_COMMITTEE,
-        no_confidence = matches!(committee_update, CommitteeUpdate::NoConfidence)
+        no_confidence = matches!(committee_update, ConstitutionalCommitteeUpdate::NoConfidence)
     )
     .in_scope(|| {
         match committee_update {
-            CommitteeUpdate::NoConfidence => {
+            ConstitutionalCommitteeUpdate::NoConfidence => {
                 db.update_constitutional_committee(
                     &ConstitutionalCommitteeStatus::NoConfidence,
                     BTreeMap::new(),
@@ -297,7 +296,7 @@ pub fn update_constitutional_committee<'store>(
                 })
             }
 
-            CommitteeUpdate::ChangeMembers { removed, added, threshold } => {
+            ConstitutionalCommitteeUpdate::ChangeMembers { removed, added, threshold } => {
                 let unsafe_u64 = |lbl: &str, n: &BigUint| {
                     n.try_into().unwrap_or_else(|e| unreachable!("threshold {lbl}={n} larger than u64?!: {e}"))
                 };

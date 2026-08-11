@@ -36,20 +36,40 @@ Other guiding principles:
 -->
 
 
-## v10.11.20260806 _[unreleased; planned for 2026-08-06]_
+## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
 ### Added
 
+- **amaru-consensus**: track peer-sharing reputation (handshake advertisability, connection failures, sticky adversarial flag, and whether a successful connection was ever established) so peer selection can filter share candidates. ([#1167](https://github.com/pragma-org/amaru/issues/1167))
+- **amaru-protocols**: add peer-sharing mini-protocol (client and server) and wire it into the connection manager. ([#1168](https://github.com/pragma-org/amaru/issues/1168))
+- **amaru-consensus**: use shared peers to populate the peer candidate pool and serve share requests. ([#1169](https://github.com/pragma-org/amaru/issues/1169))
+- **amaru-consensus**: allow configuration of peer mixture from static, shared, snapshot, and ledger peers. ([#1180](https://github.com/pragma-org/amaru/issues/1180))
+
+### Fixed
+
+- **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
+
+## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
+
+### Added
+
+- **amaru**: log precise build identity (package version, full git commit, dirty flag, OS/arch) at INFO after tracing is set up, so operator log files identify the running binary. ([#1161](https://github.com/pragma-org/amaru/issues/1161))
+- **amaru**: add `amaru node rollback` to recover after a wrongly invalidated block or to rewind to an epoch start. Supports `--immutable-tip` (chain store only) and `--epoch` (ledger snapshot reset + chain realign). Clears all descendant validation flags, sets the anchor/best tip, and culls the best-chain fragment. ([#1072](https://github.com/pragma-org/amaru/issues/1072))
 - **amaru**: add `amaru mithril sync` to download verified Mithril immutable files and replay their blocks directly into the chain and ledger stores.
 - **amaru**: add `amaru node rm --wipe-all-dbs` to remove the ledger and chain databases resolved from the selected network.
 - **amaru**: expose process, node state, basic information as metrics.
 - **amaru-tui**: `node run` now launches a feature-rich TUI that feeds from the emitted traces and metrics to provide an out-of-the-box dashboard for Amaru. Can be disabled with `--no-tui`.
+- **amaru-consensus**: add basic peer performance tracking to select up to three peers whenever fetching blocks. ([#1093](https://github.com/pragma-org/amaru/issues/1093))
 
 ### Changed
 
+- **amaru-stores**: bump chain DB schema to version 5. Migration from earlier versions is intentionally refused: opcert sequence numbers must come from a snapshot bootstrap (`amaru node rm --wipe-all-dbs` then `amaru node bootstrap`). Version-mismatch errors on `amaru node run` now suggest `amaru dev chain migrate` / `--migrate-chain-db`. ([#1152](https://github.com/pragma-org/amaru/issues/1152))
+- **amaru**: prefer `amaru node rollback --epoch` over `amaru dev ledger reset` / legacy `reset-to-epoch`. The low-level ledger-only reset is hidden; the legacy alias now performs full recovery (ledger + chain realign). ([#1072](https://github.com/pragma-org/amaru/issues/1072))
 - **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 - **amaru-ledger**: keep only slim stake summaries in runtime memory, and rebuild the full account-heavy stake distribution from snapshots when computing rewards.
 - **amaru-ledger**: compute rewards and stake distributions asynchronously to prevent blocking the main roll forward loop from times to times.
+- **amaru**: bootstrap snapshots now are retrieved directly from R2 (no embedded manifests) and compressed with zstandard. ([#1012][])
+- **amaru**: metrics are now (also) exported through gRPC on `:4317` by default instead of `:4318` over HTTP.
 
 ### Removed
 
@@ -66,6 +86,9 @@ Other guiding principles:
 - **amaru-kernel**: reduce memory footprint of various types on the critical path.
 - **amaru-ledger**: when a leader changes it reward account, the rewards owed to the previous account must return to the treasury ([#1125](https://github.com/pragma-org/amaru/pull/1125)).
 - **amaru-consensus**: fix peer_selection to only schedule a single cool-down timer and thus properly bound priority mailbox usage. ([#1112](https://github.com/pragma-org/amaru/issues/1112))
+- **amaru-ledger**: validate provided treasury value matches actual treasury value (ConwayTreasuryValueMismatch) ([#1025][], [#888][])
+- **amaru-ledger**: reject governance proposals whose deposit return account is not registered. ([#928][])
+- **amaru-uplc**: fix the validation of Plutus scripts containing lists of BLS elements when they are empty, since the Haskell node accepts them ([#1159](https://github.com/pragma-org/amaru/issues/1159))
 
 ## [v10.11.20260730](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260730)
 
@@ -245,6 +268,7 @@ Other guiding principles:
 [#820]: https://github.com/pragma-org/amaru/pull/820
 [#831]: https://github.com/pragma-org/amaru/pull/831
 [#886]: https://github.com/pragma-org/amaru/pull/886
+[#888]: https://github.com/pragma-org/amaru/issues/888
 [#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
 [#895]: https://github.com/pragma-org/amaru/issues/895
@@ -254,7 +278,9 @@ Other guiding principles:
 [#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
+[#932]: https://github.com/pragma-org/amaru/issues/932
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
 [#953]: https://github.com/pragma-org/amaru/pull/953
@@ -273,10 +299,12 @@ Other guiding principles:
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
 [#1011]: https://github.com/pragma-org/amaru/pull/1011
+[#1012]: https://github.com/pragma-org/amaru/pull/1012
 [#1013]: https://github.com/pragma-org/amaru/pull/1013
 [#1017]: https://github.com/pragma-org/amaru/pull/1017
 [#1021]: https://github.com/pragma-org/amaru/pull/1021
 [#1024]: https://github.com/pragma-org/amaru/pull/1024
+[#1025]: https://github.com/pragma-org/amaru/pull/1025
 [#1026]: https://github.com/pragma-org/amaru/pull/1026
 [#1027]: https://github.com/pragma-org/amaru/pull/1027
 [#1029]: https://github.com/pragma-org/amaru/pull/1029
@@ -298,6 +326,7 @@ Other guiding principles:
 [#1078]: https://github.com/pragma-org/amaru/issues/1078
 [#1082]: https://github.com/pragma-org/amaru/pull/1082
 [#1087]: https://github.com/pragma-org/amaru/pull/1087
+[#1090]: https://github.com/pragma-org/amaru/pull/1090
 [#1095]: https://github.com/pragma-org/amaru/issues/1095
 [#1098]: https://github.com/pragma-org/amaru/pull/1098
 [#1101]: https://github.com/pragma-org/amaru/pull/1101

@@ -30,16 +30,15 @@ test-utils = ["amaru-consensus/test-utils"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
-mimalloc.workspace = true
 anyhow.workspace = true
-async-compression.workspace = true
+aws-credential-types.workspace = true
+aws-sdk-s3.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
-flate2.workspace = true
 futures-util.workspace = true
 hex.workspace = true
-include_dir = { workspace = true, features = ["glob"] }
+http-body-util.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
 opentelemetry-appender-tracing.workspace = true
@@ -47,7 +46,6 @@ opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
-pallas-hardano.workspace = true
 pallas-network.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true
@@ -60,6 +58,7 @@ signal-hook.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
 tempfile.workspace = true
+zstd.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [
   "fs",
@@ -92,15 +91,16 @@ amaru-tui.workspace = true
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true
 
+[target.'cfg(not(target_family="windows"))'.dependencies]
+tikv-jemallocator.workspace = true
+
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 assert_cmd.workspace = true
-quote.workspace = true
 rocksdb.workspace = true
-syn.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
 zstd.workspace = true
@@ -115,9 +115,7 @@ amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
 [build-dependencies]
 anyhow.workspace = true
-built = { workspace = true, features = ["git2"] }
-quote.workspace = true
-syn.workspace = true
+built.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true

@@ -29,6 +29,7 @@ use amaru_kernel::{
     MemoizedTransactionOutput,
     Point,
     PoolId,
+    Pots,
     ProposalId,
     ProposalsRoots,
     ProtocolParameters,
@@ -44,7 +45,7 @@ use amaru_kernel::{
 use columns::*;
 use thiserror::Error;
 
-use crate::{epoch_transition::GovernanceActivity, store::columns::pots::Row as Pots};
+use crate::epoch_transition::GovernanceActivity;
 
 pub mod columns;
 

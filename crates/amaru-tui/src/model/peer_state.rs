@@ -12,54 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::time::Instant;
 
 use amaru_observability::amaru::protocols;
 
+use super::exponential_moving_average::ExponentialMovingAverage;
 use crate::events::TelemetryRecord;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct MeanMicros {
-    samples: VecDeque<(Instant, u64)>,
+    average: ExponentialMovingAverage,
 }
 
 impl MeanMicros {
-    fn record(&mut self, at: Instant, micros: u64, max_window: Duration) {
-        self.samples.push_back((at, micros));
-        self.prune(at, max_window);
+    fn record(&mut self, micros: u64, smoothing: usize) {
+        self.average.record(micros as f64, smoothing);
     }
 
-    fn mean(&self, now: Instant, window: Duration) -> Option<u64> {
-        let mut total_micros = 0u128;
-        let mut sample_count = 0u64;
-
-        for (at, micros) in self.samples.iter().rev() {
-            if now.saturating_duration_since(*at) > window {
-                break;
-            }
-
-            total_micros += u128::from(*micros);
-            sample_count += 1;
-        }
-
-        (sample_count > 0).then(|| (total_micros / u128::from(sample_count)) as u64)
+    fn mean(&self) -> Option<u64> {
+        self.average.value().map(|micros| micros.round() as u64)
     }
 
     fn clear(&mut self) {
-        self.samples.clear();
-    }
-
-    fn prune(&mut self, now: Instant, max_window: Duration) {
-        while self.samples.front().is_some_and(|(at, _)| now.saturating_duration_since(*at) > max_window) {
-            self.samples.pop_front();
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.samples.is_empty()
+        self.average.clear();
     }
 }
 
@@ -69,7 +44,6 @@ pub struct PeerState {
     pub inbound: bool,
     pub outbound: bool,
     pub connected: bool,
-    pub trusted: bool,
     pub last_conn_id: Option<String>,
     pub last_rtt_micros: Option<u64>,
     pub last_reason: Option<String>,
@@ -83,13 +57,12 @@ pub struct PeerState {
 }
 
 impl PeerState {
-    pub fn new(address: String, trusted: bool, updated_at: Instant) -> Self {
+    pub fn new(address: String, updated_at: Instant) -> Self {
         Self {
             address,
             inbound: false,
             outbound: false,
             connected: false,
-            trusted,
             last_conn_id: None,
             last_rtt_micros: None,
             last_reason: None,
@@ -132,61 +105,47 @@ impl PeerState {
         self.slot_start_to_header.clear();
     }
 
-    pub fn prune_header_lifecycle_samples(&mut self, now: Instant, max_window: Duration) {
-        self.slot_start_to_header.prune(now, max_window);
-        self.query_header.prune(now, max_window);
-        self.get_block.prune(now, max_window);
-        self.adopt_block.prune(now, max_window);
-    }
-
-    pub fn is_stale(&self, now: Instant, max_window: Duration) -> bool {
-        now.saturating_duration_since(self.updated_at) > max_window && !self.has_recent_header_lifecycle_samples()
+    pub fn is_stale(&self, now: Instant, inactivity_timeout: std::time::Duration) -> bool {
+        now.saturating_duration_since(self.updated_at) > inactivity_timeout
     }
 
     pub fn record_header_lifecycle(
         &mut self,
         at: Instant,
-        max_window: Duration,
+        smoothing: usize,
         slot_start_to_header_micros: Option<u64>,
         query_header_micros: Option<u64>,
         get_block_micros: Option<u64>,
         adopt_block_micros: Option<u64>,
     ) {
         if let Some(micros) = slot_start_to_header_micros {
-            self.slot_start_to_header.record(at, micros, max_window);
+            self.slot_start_to_header.record(micros, smoothing);
         }
         if let Some(micros) = query_header_micros {
-            self.query_header.record(at, micros, max_window);
+            self.query_header.record(micros, smoothing);
         }
         if let Some(micros) = get_block_micros {
-            self.get_block.record(at, micros, max_window);
+            self.get_block.record(micros, smoothing);
         }
         if let Some(micros) = adopt_block_micros {
-            self.adopt_block.record(at, micros, max_window);
+            self.adopt_block.record(micros, smoothing);
         }
         self.updated_at = at;
     }
 
-    pub fn mean_query_header_micros(&self, now: Instant, window: Duration) -> Option<u64> {
-        self.query_header.mean(now, window)
+    pub fn mean_query_header_micros(&self) -> Option<u64> {
+        self.query_header.mean()
     }
 
-    pub fn mean_slot_start_to_header_micros(&self, now: Instant, window: Duration) -> Option<u64> {
-        self.slot_start_to_header.mean(now, window)
+    pub fn mean_slot_start_to_header_micros(&self) -> Option<u64> {
+        self.slot_start_to_header.mean()
     }
 
-    pub fn mean_get_block_micros(&self, now: Instant, window: Duration) -> Option<u64> {
-        self.get_block.mean(now, window)
+    pub fn mean_get_block_micros(&self) -> Option<u64> {
+        self.get_block.mean()
     }
 
-    pub fn mean_adopt_block_micros(&self, now: Instant, window: Duration) -> Option<u64> {
-        self.adopt_block.mean(now, window)
-    }
-
-    fn has_recent_header_lifecycle_samples(&self) -> bool {
-        !self.slot_start_to_header.is_empty()
-            || !self.query_header.is_empty()
-            || !self.get_block.is_empty()
-            || !self.adopt_block.is_empty()
+    pub fn mean_adopt_block_micros(&self) -> Option<u64> {
+        self.adopt_block.mean()
     }
 }

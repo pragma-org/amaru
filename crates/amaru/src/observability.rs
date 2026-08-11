@@ -22,11 +22,17 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use amaru_metrics::{METRICS_METER_NAME, Meter};
 use amaru_observability::{info, warn};
 use amaru_tui::TracingLayer as TuiTracingLayer;
-use opentelemetry::trace::TracerProvider;
+use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_sdk::{logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider};
+use opentelemetry_sdk::{
+    Resource,
+    logs::SdkLoggerProvider,
+    metrics::{SdkMeterProvider, Temporality},
+    trace::SdkTracerProvider,
+};
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
 use tracing::{
     Metadata, Subscriber,
@@ -80,9 +86,9 @@ type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
 type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
 
-type TuiLayer<S> = Layered<TuiFilter<S>, S>;
-
 type TuiFilter<S> = Filtered<TuiTracingLayer, ThrottledEnvFilter, S>;
+
+type TuiLayer<S> = Layered<TuiFilter<S>, S>;
 
 type DelayedWarning = Option<Box<dyn FnOnce()>>;
 
@@ -282,8 +288,26 @@ impl TracingSubscriber<Registry> {
             Self::Registry(registry) => {
                 *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer).with(log_bridge));
             }
-            _ => panic!("'with_open_telemetry' called after 'with_json' or 'with_tui'"),
+            _ => panic!("'with_open_telemetry' called after 'with_json' or another terminal layer"),
         }
+    }
+
+    #[expect(clippy::panic)]
+    #[expect(clippy::wildcard_enum_match_arm)]
+    pub fn with_tui(&mut self, layer: TuiTracingLayer) -> DelayedWarning {
+        let (default_filter, warning) = new_trace_filter();
+
+        match std::mem::take(self) {
+            Self::Registry(registry) => {
+                *self = TracingSubscriber::WithTui(registry.with(layer.with_filter(default_filter)));
+            }
+            Self::WithOpenTelemetry(layered) => {
+                *self = TracingSubscriber::WithTuiAndOpenTelemetry(layered.with(layer.with_filter(default_filter)));
+            }
+            _ => panic!("'with_tui' called after as third layer"),
+        }
+
+        warning
     }
 
     #[expect(clippy::panic)]
@@ -308,28 +332,6 @@ impl TracingSubscriber<Registry> {
         }
     }
 
-    #[expect(clippy::panic)]
-    #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_tui<F, G>(&mut self, registry_layer: F, otel_layer: G) -> DelayedWarning
-    where
-        F: FnOnce() -> (TuiFilter<Registry>, DelayedWarning),
-        G: FnOnce() -> (TuiFilter<OpenTelemetryLayer<Registry>>, DelayedWarning),
-    {
-        match std::mem::take(self) {
-            Self::Registry(registry) => {
-                let (layer, warning) = registry_layer();
-                *self = TracingSubscriber::WithTui(registry.with(layer));
-                warning
-            }
-            Self::WithOpenTelemetry(layered) => {
-                let (layer, warning) = otel_layer();
-                *self = TracingSubscriber::WithTuiAndOpenTelemetry(layered.with(layer));
-                warning
-            }
-            _ => panic!("'with_tui' called after as third layer"),
-        }
-    }
-
     pub fn init(self, color: bool) -> DelayedWarning {
         match self {
             TracingSubscriber::Empty => unreachable!(),
@@ -345,7 +347,7 @@ impl TracingSubscriber<Registry> {
                             .with_filter(default_filter),
                     )
                     .init();
-                warning
+                return warning;
             }
             TracingSubscriber::WithOpenTelemetry(layered) => {
                 let (default_filter, warning) = new_log_filter();
@@ -359,46 +361,24 @@ impl TracingSubscriber<Registry> {
                             .with_filter(default_filter),
                     )
                     .init();
-                warning
+                return warning;
             }
             TracingSubscriber::WithTui(layered) => {
                 layered.init();
-                None
             }
             TracingSubscriber::WithTuiAndOpenTelemetry(layered) => {
                 layered.init();
-                None
             }
             TracingSubscriber::WithJson(layered) => {
                 layered.init();
-                None
             }
             TracingSubscriber::WithJsonAndOpenTelemetry(layered) => {
                 layered.init();
-                None
             }
         }
+
+        None
     }
-}
-
-// -----------------------------------------------------------------------------
-// TUI TRACES
-// -----------------------------------------------------------------------------
-
-pub fn setup_tui_traces(subscriber: &mut TracingSubscriber<Registry>, layer: TuiTracingLayer) -> DelayedWarning {
-    let registry_layer = {
-        let layer = layer.clone();
-        move || {
-            let (default_filter, warning) = new_trace_filter();
-            (layer.clone().with_filter(default_filter), warning)
-        }
-    };
-    let otel_layer = move || {
-        let (default_filter, warning) = new_trace_filter();
-        (layer.with_filter(default_filter), warning)
-    };
-
-    subscriber.with_tui(registry_layer, otel_layer)
 }
 
 // -----------------------------------------------------------------------------
@@ -441,14 +421,14 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
 // -----------------------------------------------------------------------------
 
 pub struct OpenTelemetryHandle {
-    pub metrics: Option<SdkMeterProvider>,
+    pub meter: Meter,
     pub teardown: Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
 }
 
 impl Default for OpenTelemetryHandle {
     fn default() -> Self {
         OpenTelemetryHandle {
-            metrics: None::<SdkMeterProvider>,
+            meter: Meter::default(),
             teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>,
         }
     }
@@ -463,14 +443,7 @@ pub trait ObservabilityHints {
     fn listen_address(&self) -> Option<&str>;
 }
 
-#[expect(clippy::panic)]
-pub fn setup_open_telemetry(
-    subscriber: &mut TracingSubscriber<Registry>,
-    hints: &impl ObservabilityHints,
-) -> (OpenTelemetryHandle, DelayedWarning) {
-    use opentelemetry::KeyValue;
-    use opentelemetry_sdk::{Resource, metrics::Temporality};
-
+pub fn new_resource(hints: &impl ObservabilityHints) -> Resource {
     // Build the SDK-default resource to discover attributes already set via
     // OTEL_RESOURCE_ATTRIBUTES. This is used only to guard our *fallback* values;
     // the dedicated OTEL_SERVICE_NAME / OTEL_SERVICE_INSTANCE_ID env vars always
@@ -480,6 +453,7 @@ pub fn setup_open_telemetry(
 
     let explicit_service_instance_id =
         var("OTEL_SERVICE_INSTANCE_ID").ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+
     let service_instance_id: Option<String> = explicit_service_instance_id.clone().or_else(|| {
         let listen_addr = hints.listen_address()?;
         let hostname = sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string());
@@ -492,10 +466,23 @@ pub fn setup_open_telemetry(
     if let Some(instance_id) = service_instance_id {
         attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, instance_id));
     }
-    let resource = Resource::builder().with_attributes(attributes).build();
 
-    // Traces & span
-    let opentelemetry_provider = SdkTracerProvider::builder()
+    Resource::builder().with_attributes(attributes).build()
+}
+
+#[expect(clippy::panic)]
+#[expect(clippy::expect_used)]
+pub fn setup_open_telemetry(
+    subscriber: &mut TracingSubscriber<Registry>,
+    resource: Resource,
+) -> (OpenTelemetryHandle, DelayedWarning) {
+    let service_name = resource
+        .get(&Key::from(SERVICE_NAME))
+        .expect("missing 'service_name' on the provided OTLP resource")
+        .as_str()
+        .to_string();
+
+    let traces_provider = SdkTracerProvider::builder()
         .with_resource(resource.clone())
         .with_batch_exporter(
             opentelemetry_otlp::SpanExporter::builder()
@@ -505,46 +492,45 @@ pub fn setup_open_telemetry(
         )
         .build();
 
-    // Metrics
-    // NOTE: We use the http exporter here because not every OTLP receiver supports gRPC for metrics.
+    let logs_provider = SdkLoggerProvider::builder()
+        .with_resource(resource.clone())
+        .with_batch_exporter(
+            opentelemetry_otlp::LogExporter::builder()
+                .with_tonic()
+                .build()
+                .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}")),
+        )
+        .build();
+
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_http()
+        .with_tonic()
         .with_temporality(Temporality::default())
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
 
-    let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build();
-
-    let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
-        .with_reader(metric_reader)
+    let meter_provider = SdkMeterProvider::builder()
         .with_resource(resource.clone())
+        .with_reader(opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build())
         .build();
 
-    opentelemetry::global::set_meter_provider(metrics_provider.clone());
-
     // Subscriber
-    let opentelemetry_tracer = opentelemetry_provider.tracer(service_name);
     let (default_filter, warning) = new_trace_filter();
 
-    let opentelemetry_layer =
-        tracing_opentelemetry::layer().with_tracer(opentelemetry_tracer).with_level(true).with_filter(default_filter);
+    let opentelemetry_layer = tracing_opentelemetry::layer()
+        .with_tracer(traces_provider.tracer(service_name))
+        .with_level(true)
+        .with_target(true)
+        .with_filter(default_filter);
 
     // Logs
-    let logs_exporter = opentelemetry_otlp::LogExporter::builder()
-        .with_tonic()
-        .build()
-        .unwrap_or_else(|e| panic!("failed to setup opentelemetry log exporter: {e}"));
-    let logs_provider = SdkLoggerProvider::builder().with_resource(resource).with_batch_exporter(logs_exporter).build();
-    let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider);
-    let (log_bridge_filter, _) = new_trace_filter();
-    let log_bridge = log_bridge.with_filter(log_bridge_filter);
+    let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider).with_filter(new_trace_filter().0);
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
 
     (
         OpenTelemetryHandle {
-            metrics: Some(metrics_provider.clone()),
-            teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider, logs_provider)),
+            meter: Meter::from(meter_provider.meter(METRICS_METER_NAME)),
+            teardown: Box::new(|| teardown_open_telemetry(traces_provider, meter_provider, logs_provider)),
         },
         warning,
     )
@@ -552,13 +538,13 @@ pub fn setup_open_telemetry(
 
 fn teardown_open_telemetry(
     tracing: SdkTracerProvider,
-    metrics: SdkMeterProvider,
+    meter: SdkMeterProvider,
     logs: SdkLoggerProvider,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Shut down the providers so that it flushes any remaining spans.
     // The process lifecycle layer applies an outer timeout around this teardown.
     tracing.shutdown()?;
-    metrics.shutdown()?;
+    meter.shutdown()?;
     logs.shutdown()?;
 
     Ok(())
@@ -609,7 +595,7 @@ impl<S: Subscriber> Filter<S> for ThrottledEnvFilter {
             // that is acceptable — we only need best-effort throttling here.
             return self
                 .last_otel_event
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
                     (now.saturating_sub(last) >= self.throttle_ms).then_some(now)
                 })
                 .is_ok();
@@ -656,8 +642,9 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
         Ok(filter) => {
             let var = var.to_string();
             let value = std::env::var(&var).unwrap_or_default();
-            let notice =
-                Box::new(move || info!(setup::trace::FILTER, var, value, provided_by_user = true)) as Box<dyn FnOnce()>;
+            let notice = Box::new(move || {
+                info!(setup::trace::FILTER, var, value, provided_by_user = true);
+            }) as Box<dyn FnOnce()>;
             (filter, Some(notice))
         }
         Err(e) => {
@@ -665,13 +652,12 @@ fn new_default_filter(var: &str, default: &str) -> (ThrottledEnvFilter, DelayedW
             let fallback = default.to_string();
             let var = var.to_string();
             let warning = match e.source().and_then(|e| e.downcast_ref::<VarError>()) {
-                Some(VarError::NotPresent) => {
-                    Box::new(move || info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false))
-                        as Box<dyn FnOnce()>
-                }
-                _ => Box::new(
-                    move || warn!(setup::trace::FILTER, var, value = fallback, provided_by_user = true, provided_invalid = true, error = %e),
-                ) as Box<dyn FnOnce()>,
+                Some(VarError::NotPresent) => Box::new(move || {
+                    info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false);
+                }) as Box<dyn FnOnce()>,
+                _ => Box::new(move || {
+                    warn!(setup::trace::FILTER, var, value = fallback, provided_by_user = true, provided_invalid = true, error = %e);
+                }) as Box<dyn FnOnce()>,
             };
 
             #[expect(clippy::expect_used)]
@@ -693,34 +679,36 @@ fn new_trace_filter() -> (ThrottledEnvFilter, DelayedWarning) {
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
+    with_tui: Option<&amaru_tui::Session>,
     color: bool,
     hints: &impl ObservabilityHints,
-    tui_layer: Option<TuiTracingLayer>,
-) -> (Option<SdkMeterProvider>, Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>> + Send>) {
+) -> OpenTelemetryHandle {
     let mut subscriber = TracingSubscriber::new();
 
-    let (OpenTelemetryHandle { metrics, teardown }, warning_otlp) = if with_open_telemetry {
-        setup_open_telemetry(&mut subscriber, hints)
+    let (OpenTelemetryHandle { mut meter, teardown }, warning_otlp) = if with_open_telemetry {
+        setup_open_telemetry(&mut subscriber, new_resource(hints))
     } else {
         (OpenTelemetryHandle::default(), None)
     };
 
-    let warning_tui = tui_layer.and_then(|layer| setup_tui_traces(&mut subscriber, layer));
+    let warning_tui = if let Some(tui) = with_tui {
+        meter.set_local_observer(tui.metrics_observer());
+        subscriber.with_tui(tui.tracing_layer())
+    } else {
+        None
+    };
+
     let warning_json = if with_json_traces { setup_json_traces(&mut subscriber) } else { None };
 
     let warning_log = subscriber.init(color);
 
-    // NOTE: Both warnings are bound to the same ENV var, so `.or` prevents from logging it twice.
-    if let Some(notify) = warning_log.or(warning_tui) {
-        notify();
-    }
-    if let Some(notify) = warning_otlp.or(warning_json) {
+    for notify in [warning_otlp, warning_tui, warning_json, warning_log].into_iter().flatten() {
         notify();
     }
 
     info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color,);
 
-    (metrics, teardown)
+    OpenTelemetryHandle { meter, teardown }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

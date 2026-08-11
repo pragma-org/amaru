@@ -12,149 +12,50 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Instant};
 
-use amaru_metrics::{LedgerMetrics, MempoolMetrics, MetricsEvent, SystemMetrics};
+use amaru_metrics::MetricsEvent;
 
 use super::*;
-use crate::events::{HostSample, MetricRecord, SystemSample};
+use crate::events::{MetricRecord, SystemSample};
 
 impl Model {
-    pub fn push_system_sample(&mut self, sample: SystemSample) {
-        self.system_samples.push_back(sample);
-        while self.system_samples.len() > self.system_capacity() {
-            self.system_samples.pop_front();
-        }
-    }
-
     pub(crate) fn record_metrics(&mut self, record: MetricRecord) {
-        match record.event {
-            MetricsEvent::LedgerMetrics(metrics) => self.record_ledger_metrics(record.at, metrics),
-            MetricsEvent::MempoolMetrics(metrics) => self.record_mempool_metrics(record.at, metrics),
-            MetricsEvent::SystemMetrics(metrics) => self.record_system_metrics(record.at, metrics),
-            MetricsEvent::ProtocolMetrics(_) | MetricsEvent::ConsensusMetrics(_) => {}
+        if let MetricsEvent::SystemMetrics(metrics) = record.event {
+            self.system_sample = Some(SystemSample {
+                at: record.at,
+                cpu_percent: metrics.cpu_percent,
+                process_memory_bytes: metrics.process_memory_bytes,
+                rss_bytes: metrics.process_memory_live_resident,
+                virtual_bytes: metrics.process_memory_available_virtual,
+                memory_used_bytes: metrics.memory_used_bytes,
+                memory_total_bytes: metrics.memory_total_bytes,
+                disk_read_bytes: metrics.disk_read_bytes,
+                disk_write_bytes: metrics.disk_write_bytes,
+                disk_live_read_bytes: metrics.disk_live_read_bytes,
+                disk_live_write_bytes: metrics.disk_live_write_bytes,
+                host_live_read_bytes: metrics.host_live_read_bytes,
+                host_live_write_bytes: metrics.host_live_write_bytes,
+            });
         }
     }
 
-    fn push_recent_transaction_count(&mut self, at: Instant, tx_count: u64) {
-        let max_window = self.max_window();
-        self.recent_transactions.push_back((at, tx_count));
-
-        while self.recent_transactions.front().is_some_and(|(entry_at, _)| at.duration_since(*entry_at) > max_window) {
-            self.recent_transactions.pop_front();
-        }
-    }
-
-    fn record_ledger_metrics(&mut self, at: Instant, metrics: LedgerMetrics) {
-        self.push_recent_block(at);
-        self.push_recent_transaction_count(at, metrics.tx_count);
-    }
-
-    fn record_mempool_metrics(&mut self, at: Instant, metrics: MempoolMetrics) {
-        self.mempool = MempoolState { tx_count: metrics.tx_count, size_bytes: metrics.size_bytes, updated_at: at };
-    }
-
-    fn record_system_metrics(&mut self, at: Instant, metrics: SystemMetrics) {
-        let (memory_used_bytes, memory_total_bytes, processes_live_read_bytes, processes_live_write_bytes) =
-            self.latest_host_metrics();
-
-        self.push_system_sample(SystemSample {
-            at,
-            cpu_percent: metrics.cpu_percent,
-            rss_bytes: metrics.rss_bytes,
-            virtual_bytes: metrics.virtual_bytes,
-            memory_used_bytes,
-            memory_total_bytes,
-            disk_read_bytes: metrics.disk_read_bytes,
-            disk_write_bytes: metrics.disk_write_bytes,
-            disk_live_read_bytes: metrics.disk_live_read_bytes,
-            disk_live_write_bytes: metrics.disk_live_write_bytes,
-            processes_live_read_bytes,
-            processes_live_write_bytes,
-        });
-    }
-
-    pub(crate) fn record_host_sample(&mut self, sample: HostSample) {
-        let (
-            cpu_percent,
-            rss_bytes,
-            virtual_bytes,
-            disk_read_bytes,
-            disk_write_bytes,
-            disk_live_read_bytes,
-            disk_live_write_bytes,
-        ) = self.latest_process_metrics();
-
-        self.push_system_sample(SystemSample {
-            at: sample.at,
-            cpu_percent,
-            rss_bytes,
-            virtual_bytes,
-            memory_used_bytes: sample.memory_used_bytes,
-            memory_total_bytes: sample.memory_total_bytes,
-            disk_read_bytes,
-            disk_write_bytes,
-            disk_live_read_bytes,
-            disk_live_write_bytes,
-            processes_live_read_bytes: sample.processes_live_read_bytes_per_second(),
-            processes_live_write_bytes: sample.processes_live_write_bytes_per_second(),
-        });
+    pub(crate) fn push_recent_transaction_count(&mut self, at: Instant, tx_count: u64) {
+        self.transaction_rate.record(at, tx_count);
     }
 
     pub(crate) fn push_recent_block(&mut self, at: Instant) {
-        let max_window = self.max_window();
-        self.recent_blocks.push_back(at);
-        prune_recent(&mut self.recent_blocks, at, max_window);
+        self.block_rate.record(at, 1);
     }
 
     pub(crate) fn push_recent_rollback(&mut self, rollback_length: usize, at: Instant) {
-        let max_window = self.max_window();
         self.recent_rollbacks.push_back((at, rollback_length));
-
-        while self.recent_rollbacks.front().is_some_and(|(entry_at, _)| at.duration_since(*entry_at) > max_window) {
-            self.recent_rollbacks.pop_front();
-        }
+        prune_recent_count(&mut self.recent_rollbacks, self.config.rollback_sample_capacity);
     }
 }
 
-pub(crate) fn prune_recent(entries: &mut VecDeque<Instant>, now: Instant, max_window: Duration) {
-    while entries.front().is_some_and(|at| now.duration_since(*at) > max_window) {
+pub(crate) fn prune_recent_count<T>(entries: &mut VecDeque<T>, capacity: usize) {
+    while entries.len() > capacity {
         entries.pop_front();
-    }
-}
-
-impl Model {
-    fn latest_host_metrics(&self) -> (u64, u64, u64, u64) {
-        self.system_samples
-            .back()
-            .map(|sample| {
-                (
-                    sample.memory_used_bytes,
-                    sample.memory_total_bytes,
-                    sample.processes_live_read_bytes,
-                    sample.processes_live_write_bytes,
-                )
-            })
-            .unwrap_or((0, 0, 0, 0))
-    }
-
-    fn latest_process_metrics(&self) -> (f64, u64, u64, u64, u64, u64, u64) {
-        self.system_samples
-            .back()
-            .map(|sample| {
-                (
-                    sample.cpu_percent,
-                    sample.rss_bytes,
-                    sample.virtual_bytes,
-                    sample.disk_read_bytes,
-                    sample.disk_write_bytes,
-                    sample.disk_live_read_bytes,
-                    sample.disk_live_write_bytes,
-                )
-            })
-            .unwrap_or((0.0, 0, 0, 0, 0, 0, 0))
     }
 }

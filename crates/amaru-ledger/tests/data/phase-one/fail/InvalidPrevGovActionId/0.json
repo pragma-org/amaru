@@ -1,0 +1,35 @@
+{
+  "title": "parameter change proposal chaining to a non-existent parent",
+  "description": "A ParameterChange governance action whose previous action id points to a proposal that neither exists in the current state nor was submitted earlier, and does not match the enacted protocol-parameters root.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c33340ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "proposals": [],
+    "proposalsRoots": {},
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d40080014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8840082582053d52871c6d872c4303cbfb3eec556c5227f9a0d14df146011e72d609b39862800a100182cf6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584001f3ff4ed4d768290453a5fa5165f32133fd0d53103da8f9e9ab057b3060fb5dfe929b898d97e94441d9f423d95e8d930adeb12639363be3f2a969e398757406f5f6",
+  "expected": {
+    "predicate": "InvalidPrevGovActionId"
+  }
+}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use ratatui::{
     Frame,
@@ -41,7 +41,7 @@ pub(in crate::ui) fn render_peers_table(
     area: Rect,
     model: &Model,
     views: &mut Views,
-    now: Instant,
+    _now: Instant,
 ) {
     views.peers_area = area;
     let focused = model.scroll_focus == ScrollFocus::Peers;
@@ -69,7 +69,7 @@ pub(in crate::ui) fn render_peers_table(
         .skip(start)
         .take(visible)
         .enumerate()
-        .map(|(index, peer)| peer_row(start + index, peer, model.interaction_mode, now, model.current_window()))
+        .map(|(index, peer)| peer_row(start + index, peer, model.interaction_mode))
         .collect::<Vec<_>>();
     views.peer_toggle = Rect {
         x: area.x
@@ -110,7 +110,7 @@ fn peer_toggle_label(model: &Model) -> &'static str {
     if model.peer_pane_mode.is_maximized() { "-" } else { "+" }
 }
 
-fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode, now: Instant, window: Duration) -> Row<'static> {
+fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode) -> Row<'static> {
     let direction = if peer.full_duplex == Some(true) {
         "↕"
     } else {
@@ -124,11 +124,10 @@ fn peer_row(index: usize, peer: &PeerState, mode: InteractionMode, now: Instant,
     let state_dot = " ●";
     let rtt =
         peer.last_rtt_micros.map(|value| format!("{:.1} ms", value as f64 / 1_000.0)).unwrap_or_else(|| "—".into());
-    let slot_start_to_header =
-        peer.mean_slot_start_to_header_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
-    let query_header = peer.mean_query_header_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
-    let get_block = peer.mean_get_block_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
-    let adopt_block = peer.mean_adopt_block_micros(now, window).map(format_micros).unwrap_or_else(|| "—".into());
+    let slot_start_to_header = peer.mean_slot_start_to_header_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let query_header = peer.mean_query_header_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let get_block = peer.mean_get_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
+    let adopt_block = peer.mean_adopt_block_micros().map(format_micros).unwrap_or_else(|| "—".into());
     let can_duplex = match peer.full_duplex_capable {
         Some(true) => "yes",
         Some(false) => "no",

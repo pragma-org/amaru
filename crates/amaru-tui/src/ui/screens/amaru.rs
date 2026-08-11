@@ -20,7 +20,9 @@ use ratatui::{
 };
 
 use super::super::{
-    components::{render_card, render_gauge_card, render_peers_table},
+    components::{
+        render_card, render_gauge_card, render_peers_table, render_process_memory_card, render_rss_memory_card,
+    },
     format::{
         aligned_pair_lines, format_count, format_density, format_duration, format_secs_frequency, format_slot_ratio,
     },
@@ -31,7 +33,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),
+            Constraint::Length(4),
             Constraint::Length(6),
             Constraint::Length(peers_panel_height(model).max(mempool_panel_height())),
         ])
@@ -40,43 +42,36 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
     let charts = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
+            Constraint::Fill(1),
         ])
         .split(layout[0]);
     let sample = latest_system_sample(model);
-    let memory = memory_gauge(sample);
-    render_gauge_card(
-        frame,
-        charts[0],
-        "Memory (RSS)",
-        memory.label,
-        memory.ratio,
-        memory.detail,
-        model.interaction_mode,
-    );
+    render_process_memory_card(frame, charts[0], sample, model.interaction_mode);
+    render_rss_memory_card(frame, charts[1], sample, model.interaction_mode);
     let cpu = cpu_gauge(sample);
-    render_gauge_card(frame, charts[1], "CPU", cpu.label, cpu.ratio, cpu.detail, model.interaction_mode);
+    render_gauge_card(frame, charts[2], "CPU", cpu.value, cpu.ratio, cpu.percent, model.interaction_mode);
     let disk_read = disk_read_gauge(sample);
     render_gauge_card(
         frame,
-        charts[2],
+        charts[3],
         "Disk Read",
-        disk_read.label,
+        disk_read.value,
         disk_read.ratio,
-        disk_read.detail,
+        disk_read.percent,
         model.interaction_mode,
     );
     let disk_write = disk_write_gauge(sample);
     render_gauge_card(
         frame,
-        charts[3],
+        charts[4],
         "Disk Write",
-        disk_write.label,
+        disk_write.value,
         disk_write.ratio,
-        disk_write.detail,
+        disk_write.percent,
         model.interaction_mode,
     );
 
@@ -92,22 +87,22 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         aligned_pair_lines(vec![
             ("Network", model.startup.process.network.clone()),
             ("Platform", model.startup.process.target.clone()),
-            ("Protocol", model.protocol_version.clone()),
+            ("PID", model.startup.process.pid.to_string()),
             ("Uptime", format_duration(now.duration_since(model.created_at))),
         ]),
         model.interaction_mode,
     );
 
-    let block_rate = blocks_per_second(model, now);
-    let transaction_rate = transactions_per_second(model, now);
+    let block_rate = blocks_per_second(model);
+    let transaction_rate = transactions_per_second(model);
     render_card(
         frame,
         cards[1],
         "Throughput",
         aligned_pair_lines(vec![
-            ("Blocks", format_count(model.blocks_in_window(now))),
+            ("Blocks", format_count(model.recent_blocks_count())),
             ("Blocks/s", format!("{block_rate:.2}")),
-            ("Txs", format_count(model.transactions_in_window(now))),
+            ("Txs", format_count(model.recent_transactions_count())),
             ("Tx/s", format!("{transaction_rate:.2}")),
         ]),
         model.interaction_mode,
@@ -117,13 +112,13 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
         render_card(
             frame,
             cards[2],
-            "Last Block",
+            "Local Tip",
             aligned_pair_lines(vec![
                 ("Hash", tip.header_hash.chars().take(12).collect()),
                 ("Slot", format_slot_ratio(tip.slot, model.startup.target_slot())),
                 ("Height", format_count(tip.block_height)),
                 (
-                    "When",
+                    "Adopted",
                     model
                         .last_block_elapsed(now)
                         .map(|duration| format!("{} ago", format_duration(duration)))
@@ -151,11 +146,14 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
             (
                 "Rollback depth",
                 model
-                    .average_rollback_length(now)
+                    .average_recent_rollback_length()
                     .map(|value| if value == 1.0 { "~1 block".into() } else { format!("~{value:.1} blocks") })
                     .unwrap_or_else(|| "—".into()),
             ),
-            ("Rollback freq.", model.rollback_frequency(now).map(format_secs_frequency).unwrap_or_else(|| "—".into())),
+            (
+                "Rollback freq.",
+                model.recent_rollback_frequency(now).map(format_secs_frequency).unwrap_or_else(|| "—".into()),
+            ),
         ]),
         model.interaction_mode,
     );
@@ -178,7 +176,7 @@ pub(in crate::ui) fn render_amaru(frame: &mut Frame<'_>, area: Rect, model: &Mod
 }
 
 pub(in crate::ui) fn page_content_height(model: &Model) -> u16 {
-    11 + peers_panel_height(model).max(mempool_panel_height())
+    10 + peers_panel_height(model).max(mempool_panel_height())
 }
 
 fn peers_panel_height(model: &Model) -> u16 {
@@ -190,48 +188,33 @@ fn mempool_panel_height() -> u16 {
 }
 
 fn latest_system_sample(model: &Model) -> Option<&SystemSample> {
-    model.system_samples.back()
+    model.system_sample.as_ref()
 }
 
 struct GaugeMetric {
-    label: String,
+    value: Option<String>,
     ratio: f64,
-    detail: Option<String>,
-}
-
-fn memory_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
-    let Some(sample) = sample else {
-        return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
-    };
-
-    let current_mib = bytes_to_mib(sample.rss_bytes);
-    let total_mib = bytes_to_mib(sample.memory_total_bytes);
-    let ratio = linear_ratio(sample.rss_bytes, sample.memory_total_bytes);
-    GaugeMetric {
-        label: format!("{} / {} MiB", format_count(current_mib), format_count(total_mib)),
-        ratio,
-        detail: Some(format!("{:.1}%", ratio * 100.0)),
-    }
+    percent: Option<String>,
 }
 
 fn cpu_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
     let Some(sample) = sample else {
-        return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
+        return GaugeMetric { value: None, ratio: 0.0, percent: None };
     };
 
     GaugeMetric {
-        label: format!("{:.1} / 100.0%", sample.cpu_percent),
+        value: None,
         ratio: linear_ratio_f64(sample.cpu_percent, 100.0),
-        detail: Some(format!("{:.1}%", sample.cpu_percent)),
+        percent: Some(format!("{:.1}%", sample.cpu_percent)),
     }
 }
 
 fn disk_read_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
-    disk_gauge(sample, |sample| sample.disk_live_read_bytes, |sample| sample.processes_live_read_bytes)
+    disk_gauge(sample, |sample| sample.disk_live_read_bytes, SystemSample::total_live_read_bytes)
 }
 
 fn disk_write_gauge(sample: Option<&SystemSample>) -> GaugeMetric {
-    disk_gauge(sample, |sample| sample.disk_live_write_bytes, |sample| sample.processes_live_write_bytes)
+    disk_gauge(sample, |sample| sample.disk_live_write_bytes, SystemSample::total_live_write_bytes)
 }
 
 fn disk_gauge(
@@ -240,25 +223,30 @@ fn disk_gauge(
     total: impl Fn(&SystemSample) -> u64,
 ) -> GaugeMetric {
     let Some(sample) = sample else {
-        return GaugeMetric { label: "—".into(), ratio: 0.0, detail: None };
+        return GaugeMetric { value: None, ratio: 0.0, percent: None };
     };
 
     let current = current(sample);
     let total = total(sample);
     let raw_ratio = linear_ratio(current, total);
     GaugeMetric {
-        label: format!("{} / {} KiB/s", format_count(bytes_to_kib(current)), format_count(bytes_to_kib(total))),
-        ratio: log_ratio(current, total),
-        detail: Some(format!("{:.1}%", raw_ratio * 100.0)),
+        value: Some(format_disk_rate(current)),
+        ratio: raw_ratio,
+        percent: Some(format!("{:.1}%", raw_ratio * 100.0)),
     }
-}
-
-fn bytes_to_mib(bytes: u64) -> u64 {
-    bytes.div_ceil(1_048_576)
 }
 
 fn bytes_to_kib(bytes: u64) -> u64 {
     bytes.div_ceil(1_024)
+}
+
+fn format_disk_rate(bytes: u64) -> String {
+    let kib = bytes_to_kib(bytes);
+    if kib >= 2_000 {
+        format!("{:.1} MiB/s", bytes as f64 / 1_048_576.0)
+    } else {
+        format!("{} KiB/s", format_count(kib))
+    }
 }
 
 fn linear_ratio(current: u64, max: u64) -> f64 {
@@ -269,20 +257,12 @@ fn linear_ratio_f64(current: f64, max: f64) -> f64 {
     if max == 0.0 { 0.0 } else { (current / max).clamp(0.0, 1.0) }
 }
 
-fn log_ratio(current: u64, max: u64) -> f64 {
-    if current == 0 || max == 0 { 0.0 } else { ((current as f64 + 1.0).ln() / (max as f64 + 1.0).ln()).clamp(0.0, 1.0) }
+fn blocks_per_second(model: &Model) -> f64 {
+    model.blocks_per_second()
 }
 
-fn blocks_per_second(model: &Model, now: Instant) -> f64 {
-    let blocks = model.blocks_in_window(now) as f64;
-    let seconds = model.current_window().as_secs_f64();
-    if seconds == 0.0 { 0.0 } else { blocks / seconds }
-}
-
-fn transactions_per_second(model: &Model, now: Instant) -> f64 {
-    let transactions = model.transactions_in_window(now) as f64;
-    let seconds = model.current_window().as_secs_f64();
-    if seconds == 0.0 { 0.0 } else { transactions / seconds }
+fn transactions_per_second(model: &Model) -> f64 {
+    model.transactions_per_second()
 }
 
 fn format_kib(bytes: u64) -> String {
@@ -295,36 +275,45 @@ fn format_kib_ratio(bytes: u64, capacity_bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
-    fn log_ratio_keeps_bounds() {
-        assert_eq!(log_ratio(0, 1_000), 0.0);
-        assert_eq!(log_ratio(1_000, 1_000), 1.0);
-        assert!(log_ratio(1, 1_000) > linear_ratio(1, 1_000));
+    fn linear_ratio_keeps_bounds() {
+        assert_eq!(linear_ratio(0, 1_000), 0.0);
+        assert_eq!(linear_ratio(1_000, 1_000), 1.0);
+        assert_eq!(linear_ratio(42, 300), 0.14);
     }
 
     #[test]
-    fn memory_gauge_uses_rss_against_total_memory() {
-        let sample = SystemSample {
-            at: Instant::now(),
-            cpu_percent: 0.0,
-            rss_bytes: 512 * 1_048_576,
-            virtual_bytes: 0,
-            memory_used_bytes: 0,
-            memory_total_bytes: 2 * 1_048_576 * 1_024,
-            disk_read_bytes: 0,
-            disk_write_bytes: 0,
-            disk_live_read_bytes: 0,
-            disk_live_write_bytes: 0,
-            processes_live_read_bytes: 0,
-            processes_live_write_bytes: 0,
-        };
+    fn throughput_uses_exponential_moving_average() {
+        let mut model = Model::new(
+            crate::Config::default(),
+            crate::startup::StartupContext::new(
+                42,
+                "preview",
+                "test",
+                "test",
+                180_224,
+                &amaru_kernel::PREVIEW_GLOBAL_PARAMETERS,
+                None,
+                None,
+                Vec::default(),
+            ),
+        );
+        model.block_rate.record(model.created_at + Duration::from_secs(1), 1);
+        model.block_rate.record(model.created_at + Duration::from_secs(4), 1);
+        model.transaction_rate.record(model.created_at + Duration::from_secs(2), 9);
+        model.transaction_rate.record(model.created_at + Duration::from_secs(4), 3);
 
-        let gauge = memory_gauge(Some(&sample));
+        assert_eq!(blocks_per_second(&model), 1.0 / 3.0);
+        assert_eq!(transactions_per_second(&model), 1.5);
+    }
 
-        assert_eq!(gauge.label, "512 / 2,048 MiB");
-        assert_eq!(gauge.detail.as_deref(), Some("25.0%"));
-        assert_eq!(gauge.ratio, 0.25);
+    #[test]
+    fn disk_rate_switches_to_mib_per_second_above_threshold() {
+        assert_eq!(format_disk_rate(1_999 * 1_024), "1,999 KiB/s");
+        assert_eq!(format_disk_rate(2_000 * 1_024), "2.0 MiB/s");
     }
 }

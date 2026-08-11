@@ -16,4 +16,5 @@
 pub enum InteractionMode {
     Normal,
     Copy,
+    Shutdown,
 }

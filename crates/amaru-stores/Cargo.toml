@@ -15,6 +15,11 @@ rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[[test]]
+name = "state_rollback"
+path = "tests/state_rollback.rs"
+required-features = ["rocksdb"]
+
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
@@ -37,10 +42,13 @@ amaru-deps.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 proptest.workspace = true
 tempfile.workspace = true
+thiserror.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
+amaru-ledger = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
+amaru-plutus.workspace = true
 
 [features]
 default = ["rocksdb"]

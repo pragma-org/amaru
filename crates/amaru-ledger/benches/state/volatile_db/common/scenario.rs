@@ -14,7 +14,9 @@
 
 use std::{borrow::Cow, fmt, sync::Arc};
 
-use amaru_kernel::{CertificatePointer, Epoch, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, ProposalPointer, StakeCredential};
+use amaru_kernel::{
+    CertificatePointer, Epoch, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Pots, ProposalPointer, StakeCredential,
+};
 use amaru_ledger::{
     context::PreparationContext,
     epoch_transition::GovernanceActivity,
@@ -130,6 +132,12 @@ impl Scenario {
                     | Scenario::Proposals
                     | Scenario::Votes => unimplemented!("ReadStore.account({credential:?}"),
                 }
+            }
+
+            // Every scenario reaches the stable store for the pots, since resolving the treasury at
+            // the tip folds the pending boundary delta on top of the stable value.
+            fn pots(&self) -> store::Result<Pots> {
+                Ok(Pots::default())
             }
         }
 

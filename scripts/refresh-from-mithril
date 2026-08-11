@@ -143,7 +143,7 @@ bootstrap_refresh() {
   prepare_latest_bootstrap_config
 
   echo "[mithril-refresh] bootstrapping $NETWORK into $root_dir"
-  AMARU_BOOTSTRAP_CONFIG_DIR="$BOOTSTRAP_CONFIG_DIR" cargo run --profile "$BUILD_PROFILE" -- bootstrap \
+  AMARU_BOOTSTRAP_CONFIG_DIR="$BOOTSTRAP_CONFIG_DIR" cargo run --profile "$BUILD_PROFILE" -- node bootstrap \
     --network "$NETWORK" \
     --chain-dir "$chain_dir" \
     --ledger-dir "$ledger_dir" \
@@ -161,7 +161,7 @@ prepare_latest_bootstrap_config() {
 
   echo "[mithril-refresh] ensuring latest bootstrap snapshots for $NETWORK epochs $BOOTSTRAP_START_EPOCH-$((BOOTSTRAP_START_EPOCH + 2))"
   if ! latest_bootstrap_metadata_available "$metadata_dir" "$BOOTSTRAP_START_EPOCH"; then
-    cargo run --profile "$BUILD_PROFILE" -- create-snapshots \
+    cargo run --profile "$BUILD_PROFILE" -- snapshot create \
       --network "$NETWORK" \
       --epoch "$((BOOTSTRAP_START_EPOCH + 3))"
   fi

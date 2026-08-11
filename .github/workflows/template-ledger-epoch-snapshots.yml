@@ -31,15 +31,16 @@ jobs:
     name: End-to-end snapshot tests
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         network:
           - name: preprod
             magic: 1
-            start_epoch: 273
+            start_epoch: 270
             target_epoch: 280
           - name: preview
             magic: 2
-            start_epoch: 1122
+            start_epoch: 1119
             target_epoch: 1180
         cardano_node_version: [11.0.1]
     env:
@@ -56,7 +57,6 @@ jobs:
       TRACE_COMPARE_LOG: trace-compare.log
       AMARU_WITH_OPEN_TELEMETRY: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "http://localhost:4318/v1/metrics"
       OTEL_METRIC_EXPORT_INTERVAL: 1000
       RUST_BACKTRACE: 1
 

@@ -18,12 +18,16 @@ use std::{
     error::Error,
     future::Future,
     io, process,
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
 
-use opentelemetry_sdk::metrics::SdkMeterProvider;
+use amaru_metrics::Meter;
 use parking_lot::Mutex;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
@@ -39,6 +43,8 @@ pub const FORCE_EXIT_CODE: i32 = 130;
 
 /// Grace period for draining the Tokio runtime after command and observability teardown.
 pub const RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+static SIGNAL_STDERR_ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// Which Tokio runtime configuration a subcommand should use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +67,10 @@ impl RuntimeKind {
     }
 }
 
+pub fn set_signal_stderr_enabled(enabled: bool) {
+    SIGNAL_STDERR_ENABLED.store(enabled, Ordering::SeqCst);
+}
+
 /// How the first termination signal is handled for a subcommand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FirstSignal {
@@ -71,14 +81,14 @@ pub enum FirstSignal {
 }
 
 type CmdFuture = std::pin::Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + 'static>>;
-type CmdWork = Box<dyn FnOnce(ShutdownHandle, Option<SdkMeterProvider>) -> CmdFuture + Send>;
+type CmdWork = Box<dyn FnOnce(ShutdownHandle, Meter) -> CmdFuture + Send>;
 
 /// A fully resolved leaf subcommand ready to run under the process lifecycle.
 ///
 /// Construct via [`Runnable::soft`] / [`Runnable::exit_on_signal`], then:
 /// 1. [`Self::build_runtime`] — create the Tokio runtime for this command
 /// 2. Set up observability while that runtime is current ([`Runtime::enter`])
-/// 3. [`Self::run_on`] — bind metrics and drive the command future on that runtime
+/// 3. [`Self::run_on`] — bind meter and drive the command future on that runtime
 pub struct Runnable {
     runtime: RuntimeKind,
     first_signal: FirstSignal,
@@ -91,13 +101,13 @@ impl Runnable {
     /// produced by observability setup (only used by long-running commands).
     pub fn soft<F, Fut>(runtime: RuntimeKind, work: F) -> Self
     where
-        F: FnOnce(ShutdownHandle, Option<SdkMeterProvider>) -> Fut + Send + 'static,
+        F: FnOnce(ShutdownHandle, Meter) -> Fut + Send + 'static,
         Fut: Future<Output = Result<(), Box<dyn Error>>> + 'static,
     {
         Self {
             runtime,
             first_signal: FirstSignal::SoftShutdown,
-            work: Box::new(move |shutdown, metrics| Box::pin(work(shutdown, metrics))),
+            work: Box::new(move |shutdown, meter| Box::pin(work(shutdown, meter))),
         }
     }
 
@@ -123,13 +133,8 @@ impl Runnable {
     /// Drive this command on an already-built runtime (observability must already be set up).
     ///
     /// Does **not** shut down `rt`; the caller tears down observability and then the runtime.
-    pub fn run_on(
-        self,
-        rt: &Runtime,
-        signals: &SignalState,
-        metrics: Option<SdkMeterProvider>,
-    ) -> Result<(), Box<dyn Error>> {
-        run_until_exit(rt, signals, self.first_signal, self.work, metrics)
+    pub fn run_on(self, rt: &Runtime, signals: &SignalState, meter: Meter) -> Result<(), Box<dyn Error>> {
+        run_until_exit(rt, signals, self.first_signal, self.work, meter)
     }
 
     /// Build a runtime, run the command with no meter provider, then shut the runtime down.
@@ -137,7 +142,7 @@ impl Runnable {
     /// Prefer the explicit build → observability → [`Self::run_on`] sequence in the binary.
     pub fn run(self, signals: &SignalState) -> Result<(), Box<dyn Error>> {
         let rt = self.build_runtime()?;
-        let result = self.run_on(&rt, signals, None);
+        let result = self.run_on(&rt, signals, Meter::default());
         rt.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
         result
     }
@@ -180,7 +185,7 @@ impl ShutdownHandle {
 
     fn request_graceful(&self) {
         if !self.cancel.is_cancelled() {
-            eprintln!("amaru: termination signal received — shutting down");
+            emit_signal_stderr("amaru: termination signal received — shutting down");
             warn!("termination signal received — shutting down");
             self.cancel.cancel();
         }
@@ -223,7 +228,7 @@ pub fn run_until_exit(
     signals: &SignalState,
     first_signal: FirstSignal,
     work: CmdWork,
-    metrics: Option<SdkMeterProvider>,
+    meter: Meter,
 ) -> Result<(), Box<dyn Error>> {
     let shutdown = ShutdownHandle::new();
     let shutdown_work = shutdown.clone();
@@ -233,7 +238,7 @@ pub fn run_until_exit(
     let worker = thread::Builder::new()
         .name("amaru-cmd".into())
         .spawn(move || {
-            let result = handle.block_on(work(shutdown_work, metrics));
+            let result = handle.block_on(work(shutdown_work, meter));
             let _ = result_tx.send(result.map_err(|err| err.to_string()));
         })
         .map_err(|e| format!("failed to spawn command worker thread: {e}"))?;
@@ -252,11 +257,11 @@ pub fn run_until_exit(
         if n >= 1 {
             match first_signal {
                 FirstSignal::ImmediateExit => {
-                    eprintln!("amaru: termination signal received — exiting");
+                    emit_signal_stderr("amaru: termination signal received — exiting");
                     process::exit(FORCE_EXIT_CODE);
                 }
                 FirstSignal::SoftShutdown if n >= 2 => {
-                    eprintln!("amaru: second termination signal — forcing exit");
+                    emit_signal_stderr("amaru: second termination signal — forcing exit");
                     process::exit(FORCE_EXIT_CODE);
                 }
                 FirstSignal::SoftShutdown if !graceful => {
@@ -281,6 +286,12 @@ pub fn run_until_exit(
     }
 
     result.map_err(|msg| msg.into())
+}
+
+fn emit_signal_stderr(message: &str) {
+    if SIGNAL_STDERR_ENABLED.load(Ordering::SeqCst) {
+        eprintln!("{message}");
+    }
 }
 
 #[cfg(test)]

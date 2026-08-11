@@ -16,17 +16,27 @@ use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
 pub(crate) mod create;
+pub(crate) mod publish;
+pub(crate) mod reindex;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SnapshotCommand {
     /// Create the three consecutive epoch snapshots needed for bootstrap.
     Create(create::Args),
+
+    /// Upload bootstrap snapshots to S3 and update the network index.
+    Publish(publish::Args),
+
+    /// Rebuild the snapshot index from archives stored in S3.
+    Reindex(reindex::Args),
 }
 
 impl SnapshotCommand {
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
             Self::Create(args) => create::runnable(args),
+            Self::Publish(args) => publish::runnable(args),
+            Self::Reindex(args) => reindex::runnable(args),
         }
     }
 }

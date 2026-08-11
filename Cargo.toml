@@ -26,6 +26,8 @@ assert_cmd = "2.2.2"
 assertables = "10.1.0"
 async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 async-trait = "0.1.91"
+aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
+aws-sdk-s3 = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
 axum = "0.8.9"
 base58 = "0.2.0"
 bech32 = "0.12.0"
@@ -42,11 +44,11 @@ clap_complete = "4.6.7"
 clap_mangen = "0.3.0"
 crc = "3.0.1"
 criterion = "0.8.2"
-cryptoxide = { version = "0.6.1", features = ["digest"]}
 crossterm = "0.29.0"
+cryptoxide = { version = "0.6.1", features = ["digest"]}
 ctor = "1.0.9"
-dashu-int = "0.4.1"
 dashu-base = "0.4.1"
+dashu-int = "0.4.1"
 diff_json = "0.1.1"
 divan = "0.1.21"
 ed25519-dalek = "3.0.0"
@@ -57,6 +59,7 @@ futures-util = "0.3.33"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 hamming = "0.1.3"
 hex = "0.4.3"
+http-body-util = "0.1.3"
 include_dir = "0.7.4"
 indexmap = { version = "2.14.0", features = ["serde"] }
 indicatif = "0.18.6"
@@ -67,7 +70,6 @@ itertools = "0.15.0"
 libc = "0.2"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] }
 mithril-client = { version = "0.14.5", default-features = false, features = ["fs", "num-integer-backend", "rustls-tls"] }
-mimalloc = { version = "0.1.52" }
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 num-bigint = "0.4.6"
 num-integer = "0.1.46"
@@ -75,10 +77,10 @@ once_cell = "1.21.4"
 opentelemetry = "0.32.0"
 opentelemetry-appender-tracing = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", features = [ "grpc-tonic", "http-proto", "logs", "reqwest-blocking-client", ] }
+opentelemetry-proto = { version = "0.32.0", default-features = false, features = [ "gen-tonic", "trace", "logs", "metrics" ] }
 opentelemetry-semantic-conventions = { version = "0.32.1", features = ["semconv_experimental"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["logs"] }
 ouroboros = "0.18.5"
-pallas-hardano = "0.34.0"
 pallas-network = "0.34.0"
 parking_lot = "0.12.3"
 pretty_assertions = "1.4.1"
@@ -106,9 +108,11 @@ tar = "0.4.46"
 tempfile = "3.27.0"
 test-case = "3.3.1"
 thiserror = "2.0.19"
+tikv-jemallocator = { version = "0.7.0" }
 tokio = { version = "1.53.0", features = ["sync"] }
 tokio-util = "0.7.18"
 toml = "1.1.3"
+tonic = "0.14.6"
 tracing = { version = "0.1.40", features = ["valuable"] }
 tracing-opentelemetry = "0.33.0"
 tracing-subscriber = { version = "0.3.23", features = [ "env-filter", "std", "json", ] }
@@ -154,12 +158,12 @@ amaru-tui = { path = "crates/amaru-tui", version = "0.1.2" }
 amaru-uplc = { path = "crates/amaru-uplc", version = "0.4.0" }
 
 [workspace.lints.rust]
-rust-2018-idioms = "warn"
-rust-2018-compatibility = "warn"
-rust-2021-compatibility = "warn"
-#rust-2024-compatibility = "warn"
-nonstandard-style = { level = "deny" }
-future-incompatible = { level = "deny" }
+rust_2018_idioms = "warn"
+rust_2018_compatibility = "warn"
+rust_2021_compatibility = "warn"
+#rust_2024_compatibility = "warn"
+nonstandard_style = { level = "deny" }
+future_incompatible = { level = "deny" }
 
 [workspace.lints.clippy]
 # Enable clippy lints for all members

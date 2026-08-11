@@ -13,32 +13,36 @@
 // limitations under the License.
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::{LazyLock, OnceLock};
+use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Gauge, METRICS_METER};
+use crate::{Counter, Gauge};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
 #[cfg(not(target_arch = "wasm32"))]
-static TXS_PROCESSED: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    METRICS_METER
-        .u64_counter("cardano_node_metrics_txsProcessedNum_int")
-        .with_description("total transactions moved out of the mempool after revalidation")
-        .with_unit("int")
-        .build()
-});
+static TXS_PROCESSED: OnceLock<Counter<u64>> = OnceLock::new();
 
 #[cfg(not(target_arch = "wasm32"))]
-fn txs_processed() -> &'static Counter<u64> {
-    &TXS_PROCESSED
+fn txs_processed(meter: &opentelemetry::metrics::Meter) -> &'static Counter<u64> {
+    TXS_PROCESSED.get_or_init(|| {
+        meter
+            .u64_counter("cardano_node_metrics_txsProcessedNum_int")
+            .with_description("total transactions moved out of the mempool after revalidation")
+            .with_unit("int")
+            .build()
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn initialize_metrics(_meter: &Meter) {
-    txs_processed().add(0, &[]);
+pub(crate) fn initialize_metrics(meter: &Meter) {
+    let Some(meter) = meter.get() else {
+        return;
+    };
+
+    txs_processed(meter).add(0, &[]);
 }
 
 // EVENTS
@@ -123,16 +127,14 @@ impl MetricRecorder for MempoolMetrics {
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for MempoolMetrics {
     fn record_to_meter(&self, meter: &Meter) {
+        let Some(meter) = meter.get() else {
+            return;
+        };
+
         static SIZE_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static TX_COUNT: OnceLock<Gauge<u64>> = OnceLock::new();
         static TXS_SYNC_DURATION: OnceLock<Gauge<u64>> = OnceLock::new();
-        static TXS_SYNC_DURATION_TOTAL_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
-            METRICS_METER
-                .u64_counter("cardano_node_metrics_txsSyncDurationTotal_counter")
-                .with_description("cumulative time spent syncing the mempool in ms after block adoption")
-                .with_unit("int")
-                .build()
-        });
+        static TXS_SYNC_DURATION_TOTAL_COUNTER: OnceLock<Counter<u64>> = OnceLock::new();
         static TX_INSERTIONS: OnceLock<Counter<u64>> = OnceLock::new();
 
         // Metrics common to amaru and cardano-node
@@ -153,12 +155,20 @@ impl MetricRecorder for MempoolMetrics {
                 .build()
         });
 
-        let txs_processed = txs_processed();
+        let txs_processed = txs_processed(meter);
 
         let txs_sync_duration = TXS_SYNC_DURATION.get_or_init(|| {
             meter
                 .u64_gauge("cardano_node_metrics_txsSyncDuration_int")
                 .with_description("latest time to sync the mempool in ms after block adoption")
+                .with_unit("int")
+                .build()
+        });
+
+        let txs_sync_duration_total = TXS_SYNC_DURATION_TOTAL_COUNTER.get_or_init(|| {
+            meter
+                .u64_counter("cardano_node_metrics_txsSyncDurationTotal_counter")
+                .with_description("cumulative time spent syncing the mempool in ms after block adoption")
                 .with_unit("int")
                 .build()
         });
@@ -190,7 +200,7 @@ impl MetricRecorder for MempoolMetrics {
             MempoolMetricEvent::Revalidated { duration_micros } => {
                 let duration_ms = (duration_micros + 500) / 1_000;
                 txs_sync_duration.record(duration_ms, &[]);
-                TXS_SYNC_DURATION_TOTAL_COUNTER.add(duration_ms, &[]);
+                txs_sync_duration_total.add(duration_ms, &[]);
             }
         }
     }

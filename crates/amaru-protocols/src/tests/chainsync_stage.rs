@@ -113,7 +113,13 @@ async fn start_next_fetch(state: &mut StoreFetchedBlocks, eff: &Effects<StoreFet
     state.current = Some(PendingFetch { id, remaining_points: batch.expected_points, handler: batch.handler });
     eff.send(
         &state.manager,
-        ManagerMessage::FetchBlocks { from: batch.from, through: batch.through, cr: state.blocks.clone(), id },
+        ManagerMessage::FetchBlocks {
+            from: batch.from,
+            through: batch.through,
+            cr: state.blocks.clone(),
+            id,
+            peers: None,
+        },
     )
     .await;
 }
@@ -143,7 +149,7 @@ pub(super) async fn store_fetched_blocks(
             state.queue.push_back(batch);
             start_next_fetch(&mut state, &eff).await;
         }
-        StoreFetchedBlocksMessage::Blocks(Blocks::NoBlocks(id)) => {
+        StoreFetchedBlocksMessage::Blocks(Blocks::NoBlocks(id, _peer)) => {
             if !matches!(state.current.as_ref(), Some(current) if current.id == id) {
                 return state;
             }
@@ -151,6 +157,7 @@ pub(super) async fn store_fetched_blocks(
             assert!(current.remaining_points.is_empty(), "expected blocks for request {id}, got no blocks");
             advance_after_fetch(&mut state, current.handler, &eff).await;
         }
+        StoreFetchedBlocksMessage::Blocks(Blocks::PeersAsked(..)) => {}
         StoreFetchedBlocksMessage::Blocks(Blocks::NoPeersAvailable(id)) => {
             panic!("unexpected NoPeersAvailable for request {id}: test expects connected peers");
         }

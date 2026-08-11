@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: ["main"]
+    branches: ["main", "release/*"]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -23,6 +23,10 @@ permissions:
   packages: write
   attestations: write
   id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-metadata:

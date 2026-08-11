@@ -23,6 +23,7 @@ use amaru_consensus::{
     stages::test_utils::start_in_era,
 };
 use amaru_kernel::{BlockHeight, ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Tip, Transaction};
+use amaru_metrics::Meter;
 use amaru_ouroboros::{
     BaseReadChainStore, ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateTxs, Nonces,
     PoolSummaries, ResourceMempool, has_stake_pools::MockHasStakePools,
@@ -92,7 +93,7 @@ pub fn create_node(node_config: &NodeTestConfig, stage_graph: &mut impl StageGra
     // in order to simulate what happens when new tips are added and trigger a move of the best
     // chain anchor.
     global_parameters.consensus_security_param = node_config.chain_length as u64;
-    let node_stages = build_node(&config, &global_parameters, None, stage_graph)
+    let node_stages = build_node(&config, &global_parameters, Arc::new(Meter::default()), stage_graph)
         .map_err(|e| anyhow!("Cannot build node.\nThe node config is\n{:?}\n\nThe error is {e:?}", node_config))?;
 
     // The actions stage allows us to send NewTip messages to the manager so that chainsync

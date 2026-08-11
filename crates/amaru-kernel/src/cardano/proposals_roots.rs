@@ -14,7 +14,7 @@
 
 use std::rc::Rc;
 
-use crate::{ProposalId, cbor};
+use crate::{ProposalId, ProposalKind, cbor};
 
 pub type ProposalsRoots = GenericProposalsRoots<ProposalId>;
 
@@ -31,6 +31,20 @@ pub struct GenericProposalsRoots<T> {
 impl<T> Default for GenericProposalsRoots<T> {
     fn default() -> Self {
         Self { protocol_parameters: None, hard_fork: None, constitutional_committee: None, constitution: None }
+    }
+}
+
+impl<T> GenericProposalsRoots<T> {
+    /// The enacted root for the given proposal's purpose, or `None` for orphan proposals (treasury
+    /// withdrawals, info actions) that never chain.
+    pub fn root_of(&self, kind: impl Into<ProposalKind>) -> Option<&T> {
+        match kind.into() {
+            ProposalKind::ProtocolParameters => self.protocol_parameters.as_ref(),
+            ProposalKind::HardFork => self.hard_fork.as_ref(),
+            ProposalKind::ConstitutionalCommittee => self.constitutional_committee.as_ref(),
+            ProposalKind::Constitution => self.constitution.as_ref(),
+            ProposalKind::Orphan => None,
+        }
     }
 }
 

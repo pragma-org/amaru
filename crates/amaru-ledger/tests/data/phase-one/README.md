@@ -45,10 +45,12 @@ UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 
 ### Initial state
 
-Initial state represents the state on which the transaction is validated. Currently,
-it is made up of five fields:
+Initial state represents the state on which the transaction is validated. Every
+field below is required and must be present in each fixture, even when its value
+is empty:
 
-
+- `utxo`: array of `{ input, output }` entries, each hex-encoded CBOR. Empty when
+  no UTxO state is seeded.
 - `pools`: array of hex-encoded pool key hashes, does not contain pool's parameters.
 - `accounts`: `[{ credential, deposit, rewards?, pool?, drep? }]`. `credential`
   is hex-encoded CBOR of a `StakeCredential`; `deposit`/`rewards` are lovelace
@@ -58,6 +60,18 @@ it is made up of five fields:
 - `dreps`: `[{ credential, deposit, registeredAt, validUntil }]`, with the same
   `credential` encoding, a `registeredAt` certificate pointer, and a `validUntil`
   epoch.
+- `proposals`: `[{ id, govAction }]`, the in-flight governance proposals seeding
+  the block-start proposal set. `id` is a governance action id (see below) and
+  `govAction` is hex-encoded CBOR of a `GovAction`. Use `[]` when none are seeded.
+- `proposalsRoots`: `{ protocolParameters?, hardFork?, constitutionalCommittee?, constitution? }`,
+  the latest enacted governance action id per purpose, each a governance action id
+  (see below). Use `{}` when none are enacted; absent purposes default to none.
+
+A governance action id is `{ transactionId, proposalIndex }`, mirroring
+`CertificatePointer`: `transactionId` is the hex-encoded 32-byte hash of the
+transaction that submitted the action, and `proposalIndex` is the action's index
+within that transaction.
+- `governanceActivity`: `{ consecutiveDormantEpochs }`.
 
 `protocolParameters` is loosely inspired by [Ogmios](https://github.com/CardanoSolutions/ogmios)
 but intentionally diverges:

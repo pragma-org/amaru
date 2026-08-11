@@ -131,15 +131,7 @@ mod test {
     /// there is no conformance predicate for it and it stays a unit test.
     #[test]
     fn rejects_a_reward_account_that_is_not_a_credential() {
-        let mut context = DefaultValidationContext::new(
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        );
+        let mut context = DefaultValidationContext::default();
 
         let withdrawals = vec![(RewardAccount::from(vec![0x00, 0x00]), 1_000_000)];
 

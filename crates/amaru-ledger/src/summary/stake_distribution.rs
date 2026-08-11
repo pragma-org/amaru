@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    DRep, Epoch, HasLovelace, Hash, Lovelace, NetworkName, PoolId, StakeCredential, expect_stake_credential,
+    DRep, Epoch, HasLovelace, Hash, Lovelace, NetworkName, PoolId, StakeCredential, expect_stake_credential, safe_ratio,
 };
 use amaru_observability::info;
 use serde::ser::SerializeStruct;
@@ -26,7 +26,6 @@ use crate::{
     summary::{
         AccountState, PoolState,
         governance::{DRepState, GovernanceSummary},
-        safe_ratio,
         serde::serialize_map,
     },
 };
@@ -334,12 +333,12 @@ pub mod tests {
 
     use amaru_kernel::{
         Epoch, Lovelace, any_anchor, any_certificate_pointer, any_drep, any_hash28, any_pool_params,
-        any_stake_credential, expect_stake_credential,
+        any_stake_credential, expect_stake_credential, safe_ratio,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
 
     use super::StakeDistribution;
-    use crate::summary::{AccountState, PoolState, safe_ratio, stake_distribution::DRepState};
+    use crate::summary::{AccountState, PoolState, stake_distribution::DRepState};
 
     prop_compose! {
         pub fn any_stake_distribution_no_pools(

@@ -23,8 +23,8 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::NetworkName;
+use amaru_observability::info;
 use clap::Parser;
-use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -71,11 +71,10 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = chain_dir.unwrap_or_else(|| default_chain_dir(network).into());
 
     info!(
-        _command = "node rm",
+        cli::node::RM,
         chain_dir = %chain_dir.display(),
         ledger_dir = %ledger_dir.display(),
-        network = %network,
-        "running",
+        network = network,
     );
 
     remove_database(&ledger_dir)?;

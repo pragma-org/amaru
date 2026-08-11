@@ -30,18 +30,14 @@ Do not make the TUI:
 
 The normal data sources are:
 
-- tracing events captured by `TracingLayer`
-- shared metrics received through the metrics subscription
+- embedded mode: in-process tracing capture plus a single callback for local
+  `MetricsEvent`s
 - immutable startup data passed through `StartupContext`
 
 ## Architectural boundaries
 
 Keep this separation sharp:
 
-- `capture.rs`
-  - converts tracing records into TUI messages
-- `metrics.rs`
-  - subscribes to `amaru-metrics`
 - `session.rs`
   - owns the thread, terminal loop, and lifecycle
 - `startup.rs`
@@ -88,11 +84,13 @@ generates a typed accessor.
 Update:
 
 1. the producer-side metric event shape
-2. `src/metrics.rs`
-3. the metric reducer paths in the model
-4. tests that assert the derived UI state
+2. the metric reducer paths in the model
+3. tests that assert the derived UI state
 
-Do not add a second metrics transport just for the TUI.
+Embedded mode may reuse the single local metrics callback already wired through
+observability, but avoid adding broader bespoke metric channels. Process memory
+footprint should come from Amaru's exported system metrics, not from a TUI-local
+sampler.
 
 ### When changing layout only
 

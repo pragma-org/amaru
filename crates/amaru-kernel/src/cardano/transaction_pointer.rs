@@ -25,7 +25,7 @@ pub struct TransactionPointer {
 
 impl fmt::Display for TransactionPointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "slot={},transaction={}", &self.slot, &self.transaction_index)
+        write!(f, "slot={},transaction={}", self.slot, self.transaction_index)
     }
 }
 

@@ -17,6 +17,8 @@ use std::sync::OnceLock;
 
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
+#[cfg(not(target_arch = "wasm32"))]
+use opentelemetry::metrics::Meter as OpenTelemetryMeter;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{Counter, Histogram};
@@ -61,6 +63,10 @@ impl MetricRecorder for ConsensusMetrics {
         static BLOCK_FETCH_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static FORK_SWITCH_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static FORK_SWITCH_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+
+        let Some(meter) = meter.get() else {
+            return;
+        };
 
         match self {
             ConsensusMetrics::HeaderLifecycle {
@@ -133,7 +139,7 @@ impl MetricRecorder for ConsensusMetrics {
 /// Record a duration to its histogram, if present, without touching any counter.
 #[cfg(not(target_arch = "wasm32"))]
 fn record_optional_duration(
-    meter: &Meter,
+    meter: &OpenTelemetryMeter,
     duration: &'static OnceLock<Histogram<u64>>,
     duration_name: &'static str,
     duration_description: &'static str,
@@ -153,7 +159,7 @@ fn record_optional_duration(
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::too_many_arguments)]
 fn record_duration(
-    meter: &Meter,
+    meter: &OpenTelemetryMeter,
     duration: &'static OnceLock<Histogram<u64>>,
     total: &'static OnceLock<Counter<u64>>,
     duration_name: &'static str,

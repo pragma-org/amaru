@@ -15,196 +15,146 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
-    io,
-    path::{Path, PathBuf},
+    fs,
+    io::{self, Cursor, Read},
+    path::{Component, Path, PathBuf},
     time::Duration,
 };
 
 use amaru_kernel::{
-    BlockHeader, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point,
-    StakeCredential, from_cbor, num::CheckedSub, utils::path::relative_path,
+    BlockHeader, Epoch, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, RawBlock, Slot,
+    StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
 };
-use amaru_ledger::{
-    bootstrap::import_initial_snapshot,
-    store::{EpochTransitionProgress, Store, TransactionalContext},
-};
-use amaru_observability::{error, info, warn};
+use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
+use amaru_observability::{error, info};
 use amaru_ouroboros::{ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
-use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+use amaru_progress_bar::TerminalProgressBar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
-use async_compression::tokio::bufread::GzipDecoder as AsyncGzipDecoder;
-use flate2::read::GzDecoder;
-use futures_util::TryStreamExt;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use tar::Archive;
-use tokio::{
-    fs::{self, File},
-    io::{AsyncWriteExt, BufReader},
-    time::timeout,
-};
-use tokio_util::io::StreamReader;
+use tokio::{fs as async_fs, time::timeout};
+use zstd::Decoder as ZstdDecoder;
 
 mod chain_sync_client;
 use chain_sync_client::ChainSyncClient;
 
 use crate::{
-    cardano_node::{ParsedStateSnapshot, parse_state_snapshot_with_chain_state, tvar::import_snapshot_from_tvar},
-    default_data_dir, default_snapshots_dir, get_bootstrap_file,
+    aws::{AnonymousS3Client, S3Config},
+    cardano_node::tvar::import_snapshot_from_tvar,
+    default_snapshots_dir,
 };
 
-/// Configuration for a single ledger state's snapshot to be imported.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+/// S3-backed snapshot descriptor used during bootstrap.
+#[derive(Debug, Clone)]
 struct Snapshot {
-    /// The snapshot's epoch.
     epoch: Epoch,
-
-    /// The snapshot's point, typically the last point of an epoch.
-    point: Point,
-
-    /// The parent point of the snapshot's point.
-    parent_point: Point,
-
-    /// The URL to retrieve snapshot from.
-    url: String,
+    point: String,
+    /// Full S3 object key: `<network>/<point>.tar.zst`.
+    key: String,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapError {
-    #[error("Missing configuration file {0}")]
-    MissingConfigFile(PathBuf),
-
-    #[error("Failed to parse snapshots JSON file {}: {source}", path.display())]
-    MalformedSnapshotsFile {
-        path: PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
-
     #[error("Can not create snapshots directory {0}: {1}")]
     CreateSnapshotsDir(PathBuf, io::Error),
 
     #[error("Unable to store snapshots on disk: {0}")]
     Io(#[from] io::Error),
 
-    #[error("Failed to download snapshot at url {0}: {1}")]
-    DownloadError(String, reqwest::Error),
+    #[error("Failed to download snapshot {0}: {1}")]
+    DownloadError(String, String),
 
-    #[error("Failed to download snapshot from {0}: HTTP status code {1}")]
-    DownloadInvalidStatusCode(String, StatusCode),
+    #[error("Missing bootstrap snapshot {0}")]
+    MissingSnapshot(PathBuf),
 
-    #[error("Missing cardano-node snapshot directory {0}")]
-    MissingSnapshotDirectory(PathBuf),
+    #[error("Invalid snapshot archive {0}: {1}")]
+    InvalidSnapshotArchive(PathBuf, String),
 
-    #[error("Missing bootstrap parent point for snapshot {0}")]
-    MissingParentPoint(Point),
-
-    #[error("No bootstrap snapshots are configured in snapshots.json")]
+    #[error("No bootstrap snapshots found in S3 bucket for this network")]
     NoBootstrapSnapshots,
 
     #[error(
-        "bootstrap target epoch {target_epoch}, but snapshots.json must contain epochs {required_epochs}. Available epochs: {available_epochs}"
+        "requested {target_epoch}, but {} available for bootstrap on this network.",
+        format_available_epochs(available_epochs)
     )]
-    SnapshotSelectionRequestedEpoch { target_epoch: Epoch, required_epochs: String, available_epochs: String },
+    SnapshotSelectionRequestedEpoch { target_epoch: Epoch, available_epochs: Vec<Epoch> },
 
     #[error(
-        "bootstrap needs the latest 3 consecutive snapshot epochs ending at {latest_epoch}, but snapshots.json only provides epochs {available_epochs}. Required epochs: {required_epochs}"
+        "bootstrap needs the latest 3 consecutive snapshot epochs ending at {latest_epoch}, but S3 bucket {} available. Required epochs: [{}]",
+        format_available_epochs(available_epochs),
+        display_collection(required_epochs)
     )]
-    SnapshotSelectionLatestEpoch { latest_epoch: Epoch, required_epochs: String, available_epochs: String },
+    SnapshotSelectionLatestEpoch { latest_epoch: Epoch, required_epochs: [Epoch; 3], available_epochs: Vec<Epoch> },
 }
 
 pub const BOOTSTRAP_HEADERS_PER_POINT: usize = 2;
-const PACKAGED_HEADERS_FILE_NAME: &str = "bootstrap.headers.json";
+const PACKAGED_BLOCKS_FILE_NAME: &str = "bootstrap.blocks.json";
+const SNAPSHOT_STATE_FILE_NAME: &str = "state";
+const SNAPSHOT_UTXO_FILE_NAME: &str = "tables/tvar";
 
-fn snapshot_directory_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
-    snapshots_dir.join(snapshot.point.to_string())
-}
-
-fn snapshot_file_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
-    snapshots_dir.join(format!("{}.cbor", snapshot.point))
+fn snapshot_archive_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
+    snapshots_dir.join(format!("{}.tar.zst", snapshot.point))
 }
 
 fn resolve_snapshot_path(snapshots_dir: &Path, snapshot: &Snapshot) -> Option<PathBuf> {
-    let directory = snapshot_directory_path(snapshots_dir, snapshot);
-    if node_snapshot_paths(&directory).is_some() {
-        return Some(directory);
-    }
-
-    let file = snapshot_file_path(snapshots_dir, snapshot);
-    is_cbor_snapshot_file(&file).then_some(file)
+    let archive = snapshot_archive_path(snapshots_dir, snapshot);
+    is_snapshot_archive_file(&archive).then_some(archive)
 }
 
-fn load_local_epoch_snapshots(network: NetworkName) -> Vec<Snapshot> {
-    let metadata_dir = PathBuf::from(default_data_dir(network)).join("epoch-snapshots").join("epochs");
-    if !metadata_dir.is_dir() {
-        return Vec::new();
+fn snapshot_hash(snapshot: &Snapshot) -> Result<HeaderHash, Box<dyn Error>> {
+    match Point::try_from(snapshot.point.as_str())? {
+        Point::Specific(_, hash) => Ok(hash),
+        Point::Origin => Err("bootstrap snapshots must not use origin".into()),
     }
-
-    let Ok(entries) = std::fs::read_dir(&metadata_dir) else {
-        return Vec::new();
-    };
-
-    entries
-        .flatten()
-        .filter(|entry| entry.path().extension().and_then(|e| e.to_str()) == Some("json"))
-        .filter_map(|entry| {
-            let bytes = std::fs::read(entry.path()).map_err(|e| anyhow!("failed to read file: {e}"));
-            let json = bytes.and_then(|bytes| {
-                serde_json::from_slice::<Snapshot>(&bytes).map_err(|e| anyhow!("failed to decode from JSON: {e}"))
-            });
-            match json {
-                Err(hint) => {
-                    warn!(
-                        bootstrap::local_snapshots::FAIL_TO_READ,
-                        file = relative_path(&entry.path())
-                            .map(|path| path.display().to_string())
-                            .unwrap_or_else(|_| entry.path().display().to_string()),
-                        hint,
-                    );
-                    None
-                }
-                Ok(snapshot) => Some(snapshot),
-            }
-        })
-        .collect()
 }
 
-fn bootstrap_snapshots(network: NetworkName) -> Result<(PathBuf, Vec<Snapshot>), Box<dyn Error>> {
-    let snapshot_file_name = "snapshots.json";
+/// List S3 objects under `<network>/`, derive epoch from slot via era history, return `Vec<Snapshot>`.
+async fn bootstrap_snapshots(
+    network: NetworkName,
+    s3: &AnonymousS3Client,
+) -> Result<(PathBuf, Vec<Snapshot>), Box<dyn Error>> {
     let snapshots_dir: PathBuf = default_snapshots_dir(network).into();
-    let snapshots_file = get_bootstrap_file(network, snapshot_file_name)?
-        .ok_or(BootstrapError::MissingConfigFile(snapshot_file_name.into()))?;
-    let mut snapshots: Vec<Snapshot> = serde_json::from_slice(&snapshots_file)
-        .map_err(|source| BootstrapError::MalformedSnapshotsFile { path: snapshot_file_name.into(), source })?;
 
-    let local_snapshots = load_local_epoch_snapshots(network);
-    if !local_snapshots.is_empty() {
-        info!(bootstrap::local_snapshots::DETECT, count = local_snapshots.len());
-        for local_snapshot in local_snapshots {
-            if !snapshots.iter().any(|s| s.epoch == local_snapshot.epoch) {
-                snapshots.push(local_snapshot);
-            }
-        }
+    let era_history = network
+        .as_era_history()
+        .ok_or_else(|| format!("no era history available for network {network}; S3 bootstrap is only supported for mainnet, preprod, and preview"))?;
+
+    let s3_snapshots = s3.list_snapshots(network).await?;
+
+    let mut snapshots = Vec::with_capacity(s3_snapshots.len());
+    for s3_snap in s3_snapshots {
+        let slot = parse_slot_from_point(&s3_snap.point)?;
+        let epoch = era_history.slot_to_epoch_unchecked_horizon(Slot::from(slot))?;
+        snapshots.push(Snapshot { epoch, point: s3_snap.point, key: s3_snap.key });
     }
 
     Ok((snapshots_dir, snapshots))
 }
 
-fn format_epoch_list(epochs: &[Epoch]) -> String {
-    if epochs.is_empty() {
-        return "none".to_string();
-    }
+/// Parse the slot number from a `<slot>.<hash>` point string.
+fn parse_slot_from_point(point: &str) -> Result<u64, Box<dyn Error>> {
+    point
+        .split('.')
+        .next()
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or_else(|| format!("invalid snapshot point format: {point}").into())
+}
 
-    epochs.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+fn format_available_epochs(epochs: &[Epoch]) -> String {
+    if epochs.is_empty() {
+        "none are".to_string()
+    } else {
+        format!("only {} {}", display_collection(epochs), if epochs.len() > 1 { "are" } else { "is" },)
+    }
 }
 
 fn select_bootstrap_snapshots(
     snapshots: &[Snapshot],
     target_epoch: Option<Epoch>,
 ) -> Result<[&Snapshot; 3], Box<dyn Error>> {
-    let snapshots_by_epoch = snapshots.iter().map(|snapshot| (snapshot.epoch, snapshot)).collect::<BTreeMap<_, _>>();
+    let snapshots_by_epoch: BTreeMap<Epoch, &Snapshot> = snapshots.iter().map(|s| (s.epoch, s)).collect();
     let latest_epoch = snapshots_by_epoch.keys().next_back().copied().ok_or(BootstrapError::NoBootstrapSnapshots)?;
     let first_epoch = target_epoch
         .map(|target| {
@@ -221,17 +171,29 @@ fn select_bootstrap_snapshots(
             Ok([first_snapshot, second_snapshot, third_snapshot])
         }
         _ => {
-            let available_epochs = snapshots_by_epoch.keys().copied().collect::<Vec<_>>();
-            let available_epochs = format_epoch_list(&available_epochs);
-            let required_epochs = format_epoch_list(&required_epochs);
+            let mut available_epochs = Vec::new();
+
+            let mut count = 0;
+            let mut prev_epoch = Epoch::from(u64::MAX - 1);
+            for epoch in snapshots_by_epoch.keys().copied() {
+                if epoch == prev_epoch + 1 {
+                    prev_epoch = epoch;
+                    count += 1;
+                } else {
+                    prev_epoch = epoch;
+                    count = 1;
+                    continue;
+                }
+
+                if count >= 3 {
+                    available_epochs.push(epoch + 1)
+                }
+            }
 
             match target_epoch {
-                Some(target_epoch) => Err(BootstrapError::SnapshotSelectionRequestedEpoch {
-                    target_epoch,
-                    required_epochs,
-                    available_epochs,
+                Some(target_epoch) => {
+                    Err(BootstrapError::SnapshotSelectionRequestedEpoch { target_epoch, available_epochs }.into())
                 }
-                .into()),
                 None => Err(BootstrapError::SnapshotSelectionLatestEpoch {
                     latest_epoch,
                     required_epochs,
@@ -241,58 +203,6 @@ fn select_bootstrap_snapshots(
             }
         }
     }
-}
-
-fn initial_chain_state_from_snapshot(
-    snapshot_path: &Path,
-    global_parameters: &GlobalParameters,
-    tail: HeaderHash,
-) -> Result<(Epoch, ChainState), Box<dyn Error>> {
-    let bytes = if let Some(snapshot_paths) = node_snapshot_paths(snapshot_path) {
-        std::fs::read(snapshot_paths.state)?
-    } else if is_cbor_snapshot_file(snapshot_path) {
-        std::fs::read(snapshot_path)?
-    } else {
-        return Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot_path.to_path_buf())));
-    };
-
-    let (parsed_snapshot, initial_nonces) =
-        parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&bytes), global_parameters, tail)?;
-    let epoch = snapshot_epoch(&parsed_snapshot)?;
-
-    Ok((epoch, initial_nonces))
-}
-
-fn default_bootstrap_chain_state_from_snapshots(
-    snapshots_dir: &Path,
-    snapshots: &[Snapshot],
-    global_parameters: &GlobalParameters,
-) -> Result<(Epoch, ChainState), Box<dyn Error>> {
-    let [_, second_snapshot, third_snapshot] = select_bootstrap_snapshots(snapshots, None)?;
-    let third_snapshot_path = resolve_snapshot_path(snapshots_dir, third_snapshot).ok_or_else(|| {
-        BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(snapshots_dir, third_snapshot))
-    })?;
-    let (epoch, chain_state) =
-        initial_chain_state_from_snapshot(&third_snapshot_path, global_parameters, second_snapshot.point.hash())?;
-
-    Ok((epoch, chain_state))
-}
-
-pub fn default_bootstrap_chain_state(
-    network: NetworkName,
-    global_parameters: &GlobalParameters,
-) -> Result<(Epoch, ChainState), Box<dyn Error>> {
-    let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
-    default_bootstrap_chain_state_from_snapshots(&snapshots_dir, &snapshots, global_parameters)
-}
-
-fn bootstrap_parent_points(snapshots: [&Snapshot; 3]) -> Vec<Point> {
-    vec![snapshots[1].parent_point, snapshots[2].parent_point]
-}
-
-pub fn default_bootstrap_parent_points(network: NetworkName) -> Result<Vec<Point>, Box<dyn Error>> {
-    let (_, snapshots) = bootstrap_snapshots(network)?;
-    Ok(bootstrap_parent_points(select_bootstrap_snapshots(&snapshots, None)?))
 }
 
 pub async fn fetch_headers_from_points(
@@ -351,7 +261,7 @@ async fn fetch_headers_from_point(
                 }
             }
             NextResponse::RollBackward(point, tip) => {
-                error!(bootstrap::fetch::ROLLBACK, ?point, ?tip);
+                info!(bootstrap::fetch::ROLLBACK, ?point, ?tip);
             }
             NextResponse::Await => continue,
         }
@@ -360,166 +270,136 @@ async fn fetch_headers_from_point(
     Ok(headers)
 }
 
-async fn download_snapshots(snapshots: &[&Snapshot], snapshots_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir_all(snapshots_dir)
+fn should_download_snapshot(snapshots_dir: &Path, snapshot: &Snapshot) -> bool {
+    resolve_snapshot_path(snapshots_dir, snapshot).is_none()
+}
+
+async fn download_snapshots(
+    snapshots: &[&Snapshot],
+    snapshots_dir: &Path,
+    s3: &AnonymousS3Client,
+) -> Result<(), BootstrapError> {
+    async_fs::create_dir_all(snapshots_dir)
         .await
         .map_err(|err| BootstrapError::CreateSnapshotsDir(snapshots_dir.to_path_buf(), err))?;
 
-    let client = reqwest::Client::new();
-
     for snapshot in snapshots {
-        let snapshot_dir = snapshot_directory_path(snapshots_dir, snapshot);
-        let snapshot_file = snapshot_file_path(snapshots_dir, snapshot);
-        if let Some(snapshot_path) = resolve_snapshot_path(snapshots_dir, snapshot) {
-            info!(bootstrap::snapshot::SKIP_DOWNLOAD, snapshot = %relative_path(&snapshot_path)?.display());
+        let archive_path = snapshot_archive_path(snapshots_dir, snapshot);
+
+        if !should_download_snapshot(snapshots_dir, snapshot) {
+            validate_snapshot_archive(&archive_path)
+                .map_err(|err| BootstrapError::InvalidSnapshotArchive(archive_path.clone(), err.to_string()))?;
+            let snapshot_path = resolve_snapshot_path(snapshots_dir, snapshot).unwrap_or_else(|| archive_path.clone());
+            info!(bootstrap::snapshot::SKIP_DOWNLOAD, snapshot = %snapshot_path.display());
             continue;
         }
 
-        if snapshot_dir.exists() {
-            error!(bootstrap::snapshot::INVALID, snapshot = %relative_path(&snapshot_dir)?.display());
-            return Err(anyhow!("snapshot directory exists but is not a valid tvar snapshot; try removing it"))?;
+        if archive_path.exists() {
+            return Err(BootstrapError::InvalidSnapshotArchive(
+                archive_path.clone(),
+                "snapshot archive path exists but is not a regular `.tar.zst` file".to_owned(),
+            ));
         }
 
-        if snapshot_file.exists() && !is_cbor_snapshot_file(&snapshot_file) {
-            error!(bootstrap::snapshot::INVALID, snapshot = %relative_path(&snapshot_file)?.display());
-            return Err(anyhow!("snapshot file exists but is not a valid cbor snapshot; try removing it"))?;
-        }
+        let partial_archive_path = snapshots_dir.join(format!(".{}.download.partial", snapshot.point));
 
         info!(bootstrap::snapshot::DOWNLOAD, epoch = %snapshot.epoch, point = %snapshot.point);
 
-        if snapshot.url.ends_with(".cbor.gz") {
-            let (tmp_path, mut file) = create_partial_file(&snapshot_file).await?;
-            download_gzip_to_file(&mut file, response_from_snapshot(&client, snapshot).await?).await?;
-            file.sync_all().await?;
-            drop(file);
-            fs::rename(&tmp_path, &snapshot_file).await?;
-            continue;
+        s3.download_object(&snapshot.key, &partial_archive_path)
+            .await
+            .map_err(|e| BootstrapError::DownloadError(snapshot.key.clone(), e.to_string()))?;
+
+        validate_snapshot_archive(&partial_archive_path)
+            .map_err(|err| BootstrapError::InvalidSnapshotArchive(partial_archive_path.clone(), err.to_string()))?;
+
+        async_fs::rename(partial_archive_path, archive_path).await?;
+    }
+
+    Ok(())
+}
+
+fn snapshot_archive_root(archive_path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let archive_file = fs::File::open(archive_path)?;
+    let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
+    let mut state_root = None;
+    let mut utxo_root = None;
+
+    for entry in archive.entries()? {
+        let entry = entry?;
+        let path = entry.path()?;
+        state_root = state_root.or_else(|| snapshot_archive_entry_root(&path, Path::new(SNAPSHOT_STATE_FILE_NAME)));
+        utxo_root = utxo_root.or_else(|| snapshot_archive_entry_root(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)));
+    }
+
+    match (state_root, utxo_root) {
+        (Some(state_root), Some(utxo_root)) if state_root == utxo_root => Ok(state_root),
+        (Some(_), Some(_)) => Err("snapshot archive state and tables/tvar must share the same root directory".into()),
+        _ => Err(format!("archive must contain {SNAPSHOT_STATE_FILE_NAME} and {SNAPSHOT_UTXO_FILE_NAME}").into()),
+    }
+}
+
+fn validate_snapshot_archive(archive_path: &Path) -> Result<(), Box<dyn Error>> {
+    snapshot_archive_root(archive_path).map(|_| ())
+}
+
+pub fn validate_publishable_snapshot_archive(archive_path: &Path, expected_point: &str) -> Result<(), Box<dyn Error>> {
+    let root = snapshot_archive_root(archive_path)?;
+    if root != Path::new(expected_point) {
+        return Err(format!("snapshot archive root is {}, expected {expected_point}", root.display()).into());
+    }
+
+    load_packaged_block_from_snapshot(archive_path, expected_point).map(|_| ())
+}
+
+fn read_snapshot_archive_entry(archive_path: &Path, expected: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
+    let archive_file = fs::File::open(archive_path)?;
+    let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        if snapshot_archive_entry_matches(&entry.path()?, expected) {
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes)?;
+            return Ok(bytes);
         }
-
-        let archive_path = snapshots_dir.join(format!("{}.download.partial", snapshot.point));
-        let extract_path = snapshots_dir.join(format!(".{}.extract.partial", snapshot.point));
-
-        let response = response_from_snapshot(&client, snapshot).await?;
-
-        let mut file = File::create(&archive_path).await?;
-        download_to_file(&mut file, response).await?;
-        file.sync_all().await?;
-        drop(file);
-
-        info!(bootstrap::snapshot::EXTRACT, snapshot = %relative_path(&snapshot_dir)?.display());
-
-        if let Err(err) = extract_snapshot_archive(&archive_path, &extract_path, &snapshot_dir) {
-            let _ = fs::remove_file(&archive_path).await;
-            let _ = fs::remove_dir_all(&extract_path).await;
-            return Err(Box::new(err));
-        }
-
-        fs::remove_file(&archive_path).await?;
     }
 
-    Ok(())
+    Err(format!("snapshot archive {} does not contain {}", archive_path.display(), expected.display()).into())
 }
 
-async fn response_from_snapshot(
-    client: &reqwest::Client,
-    snapshot: &Snapshot,
-) -> Result<reqwest::Response, BootstrapError> {
-    let response = client
-        .get(&snapshot.url)
-        .send()
-        .await
-        .map_err(|err| BootstrapError::DownloadError(snapshot.url.clone(), err))?;
+fn is_snapshot_archive_file(path: &Path) -> bool {
+    path.is_file() && has_snapshot_archive_extension(path)
+}
 
-    if !response.status().is_success() {
-        return Err(BootstrapError::DownloadInvalidStatusCode(snapshot.url.clone(), response.status()));
+fn has_snapshot_archive_extension(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.ends_with(".tar.zst"))
+}
+
+fn snapshot_archive_entry_matches(path: &Path, expected: &Path) -> bool {
+    snapshot_archive_entry_root(path, expected).is_some()
+}
+
+fn snapshot_archive_entry_root(path: &Path, expected: &Path) -> Option<PathBuf> {
+    fn relative_components(path: &Path) -> Option<Vec<&std::ffi::OsStr>> {
+        path.components().try_fold(Vec::new(), |mut components, component| match component {
+            Component::Normal(segment) => {
+                components.push(segment);
+                Some(components)
+            }
+            Component::CurDir => Some(components),
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => None,
+        })
     }
 
-    Ok(response)
-}
+    let path_components = relative_components(path)?;
+    let expected_components = relative_components(expected)?;
 
-async fn create_partial_file(target_path: &Path) -> Result<(PathBuf, File), BootstrapError> {
-    let tmp_path = target_path.with_extension("partial");
-    let file = File::create(&tmp_path).await?;
-    Ok((tmp_path, file))
-}
-
-async fn download_to_file(file: &mut File, response: reqwest::Response) -> Result<(), BootstrapError> {
-    let progress = new_download_progress_bar(response.content_length());
-    let mut stream = response.bytes_stream();
-
-    while let Some(chunk) = stream.try_next().await.map_err(io::Error::other)? {
-        progress.tick(chunk.len());
-        file.write_all(&chunk).await?;
-    }
-
-    progress.clear();
-
-    Ok(())
-}
-
-async fn download_gzip_to_file(file: &mut File, response: reqwest::Response) -> Result<(), BootstrapError> {
-    let progress = new_download_progress_bar(response.content_length());
-    let raw_stream_reader = StreamReader::new(
-        response.bytes_stream().inspect_ok(|chunk| progress.tick(chunk.len())).map_err(io::Error::other),
-    );
-    let buffered_reader = BufReader::new(raw_stream_reader);
-    let mut decoded_stream = AsyncGzipDecoder::new(buffered_reader);
-    tokio::io::copy(&mut decoded_stream, file).await?;
-    progress.clear();
-    Ok(())
-}
-
-#[allow(clippy::expect_used)]
-fn new_download_progress_bar(content_length: Option<u64>) -> impl ProgressBar {
-    TerminalProgressBar::new(
-        content_length.unwrap_or(0),
-        "Downloading [{bytes:>10}/{total_bytes:<10}] {bar:40.green} {bytes_per_sec:>12} ({eta} remaining)",
-    )
-}
-
-fn extract_snapshot_archive(
-    archive_path: &Path,
-    extract_path: &Path,
-    snapshot_dir: &Path,
-) -> Result<(), BootstrapError> {
-    if extract_path.exists() {
-        std::fs::remove_dir_all(extract_path)?;
-    }
-
-    std::fs::create_dir_all(extract_path)?;
-
-    let archive_file = std::fs::File::open(archive_path)?;
-    let mut archive = Archive::new(GzDecoder::new(archive_file));
-    archive.unpack(extract_path)?;
-
-    let extracted_dir = find_extracted_snapshot_dir(extract_path)?
-        .ok_or_else(|| BootstrapError::MissingSnapshotDirectory(snapshot_dir.to_path_buf()))?;
-
-    if extracted_dir == extract_path {
-        std::fs::rename(extract_path, snapshot_dir)?;
-        return Ok(());
-    }
-
-    std::fs::rename(&extracted_dir, snapshot_dir)?;
-    std::fs::remove_dir_all(extract_path)?;
-
-    Ok(())
-}
-
-fn find_extracted_snapshot_dir(path: &Path) -> Result<Option<PathBuf>, io::Error> {
-    if node_snapshot_paths(path).is_some() {
-        return Ok(Some(path.to_path_buf()));
-    }
-
-    let snapshot_dirs = std::fs::read_dir(path)?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|child| node_snapshot_paths(child).is_some())
-        .collect::<Vec<_>>();
-
-    match snapshot_dirs.as_slice() {
-        [] => Ok(None),
-        [snapshot_dir] => Ok(Some(snapshot_dir.clone())),
-        _ => Err(io::Error::other(format!("multiple snapshot directories extracted from {}", path.display()))),
+    if path_components == expected_components {
+        Some(PathBuf::new())
+    } else if path_components.len() == expected_components.len() + 1 && path_components[1..] == expected_components {
+        Some(PathBuf::from(path_components[0]))
+    } else {
+        None
     }
 }
 
@@ -530,21 +410,20 @@ pub async fn bootstrap(
     ledger_dir: PathBuf,
     chain_dir: PathBuf,
     target_epoch: Option<Epoch>,
+    s3_config: S3Config,
 ) -> Result<(), Box<dyn Error>> {
-    let (snapshots_dir, snapshots) = bootstrap_snapshots(network)?;
+    let s3 = AnonymousS3Client::new(s3_config);
+    let (snapshots_dir, snapshots) = bootstrap_snapshots(network, &s3).await?;
     let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, target_epoch)?;
 
-    download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir).await?;
+    download_snapshots(&[first_snapshot, second_snapshot, third_snapshot], &snapshots_dir, &s3).await?;
 
-    let first_snapshot_path = resolve_snapshot_path(&snapshots_dir, first_snapshot).ok_or_else(|| {
-        BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(&snapshots_dir, first_snapshot))
-    })?;
-    let second_snapshot_path = resolve_snapshot_path(&snapshots_dir, second_snapshot).ok_or_else(|| {
-        BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(&snapshots_dir, second_snapshot))
-    })?;
-    let third_snapshot_path = resolve_snapshot_path(&snapshots_dir, third_snapshot).ok_or_else(|| {
-        BootstrapError::MissingSnapshotDirectory(snapshot_directory_path(&snapshots_dir, third_snapshot))
-    })?;
+    let first_snapshot_path = resolve_snapshot_path(&snapshots_dir, first_snapshot)
+        .ok_or_else(|| BootstrapError::MissingSnapshot(snapshot_archive_path(&snapshots_dir, first_snapshot)))?;
+    let second_snapshot_path = resolve_snapshot_path(&snapshots_dir, second_snapshot)
+        .ok_or_else(|| BootstrapError::MissingSnapshot(snapshot_archive_path(&snapshots_dir, second_snapshot)))?;
+    let third_snapshot_path = resolve_snapshot_path(&snapshots_dir, third_snapshot)
+        .ok_or_else(|| BootstrapError::MissingSnapshot(snapshot_archive_path(&snapshots_dir, third_snapshot)))?;
 
     let mut recently_unregistered_accounts = BTreeSet::new();
 
@@ -565,7 +444,7 @@ pub async fn bootstrap(
         global_parameters,
         &third_snapshot_path,
         &ledger_dir,
-        Some(second_snapshot.point.hash()),
+        Some(snapshot_hash(second_snapshot)?),
         &mut recently_unregistered_accounts,
     )
     .await?;
@@ -575,48 +454,76 @@ pub async fn bootstrap(
         .chain_state
         .ok_or("bootstrap import must produce the chain state for the latest snapshot")?;
     store_chain_state(imported_third_snapshot.epoch, &chain_db, chain_state)?;
-    let headers = load_packaged_headers_for_bootstrap(&second_snapshot_path, &third_snapshot_path)?;
-    import_headers(&chain_db, headers).await?;
+    let blocks = load_packaged_blocks_for_bootstrap(
+        &second_snapshot_path,
+        second_snapshot,
+        &third_snapshot_path,
+        third_snapshot,
+    )?;
+    import_packaged_blocks(&chain_db, blocks).await?;
 
     Ok(())
 }
 
-fn load_packaged_headers_for_bootstrap(
-    second_snapshot_path: &Path,
-    third_snapshot_path: &Path,
-) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-    let mut headers = load_packaged_headers_from_snapshot(second_snapshot_path)?;
-    headers.extend(load_packaged_headers_from_snapshot(third_snapshot_path)?);
-    Ok(headers)
+pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
+    for block in blocks {
+        let header_cbor = extract_block_header_cbor(&block)?;
+        let block_header: BlockHeader =
+            from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+        let hash = block_header.hash();
+
+        info!(bootstrap::header::IMPORT, header = %hash);
+
+        db.store_header(&block_header)?;
+        db.store_block(&hash, &RawBlock::from(block.as_slice()))?;
+    }
+
+    Ok(())
 }
 
-fn load_packaged_headers_from_snapshot(snapshot_path: &Path) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-    let headers_file = snapshot_path.join(PACKAGED_HEADERS_FILE_NAME);
-    if !headers_file.is_file() {
+fn load_packaged_blocks_for_bootstrap(
+    second_snapshot_path: &Path,
+    second_snapshot: &Snapshot,
+    third_snapshot_path: &Path,
+    third_snapshot: &Snapshot,
+) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    Ok(vec![
+        load_packaged_block_from_snapshot(second_snapshot_path, &second_snapshot.point)?,
+        load_packaged_block_from_snapshot(third_snapshot_path, &third_snapshot.point)?,
+    ])
+}
+
+fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    if !is_snapshot_archive_file(snapshot_path) {
+        return Err(format!("snapshot does not contain packaged bootstrap blocks: {}", snapshot_path.display()).into());
+    }
+
+    let bytes = read_snapshot_archive_entry(snapshot_path, Path::new(PACKAGED_BLOCKS_FILE_NAME))?;
+    let hex_blocks: Vec<String> = serde_json::from_slice(&bytes)?;
+    let hex_block = require_single_packaged_block(hex_blocks, snapshot_path)?;
+
+    let block = hex::decode(hex_block)?;
+    let header_cbor = extract_block_header_cbor(&block)?;
+    let header: BlockHeader = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+    let expected_point = Point::try_from(expected_point)?;
+    if header.point() != expected_point {
+        return Err(format!("packaged bootstrap block is {}, expected {expected_point}", header.point()).into());
+    }
+
+    Ok(block)
+}
+
+fn require_single_packaged_block(mut hex_blocks: Vec<String>, snapshot_path: &Path) -> Result<String, Box<dyn Error>> {
+    if hex_blocks.len() != 1 {
         return Err(format!(
-            "missing packaged bootstrap headers at {}. Re-generate snapshots with `amaru create-snapshots`.",
-            headers_file.display()
+            "packaged bootstrap blocks at {} contain {} blocks; expected exactly 1",
+            snapshot_path.display(),
+            hex_blocks.len()
         )
         .into());
     }
 
-    let hex_headers: Vec<String> = serde_json::from_slice(&std::fs::read(&headers_file)?)?;
-    if hex_headers.len() < BOOTSTRAP_HEADERS_PER_POINT {
-        return Err(format!(
-            "packaged bootstrap headers at {} contain {} headers; expected at least {}.",
-            headers_file.display(),
-            hex_headers.len(),
-            BOOTSTRAP_HEADERS_PER_POINT
-        )
-        .into());
-    }
-
-    let mut headers = Vec::with_capacity(hex_headers.len());
-    for hex_header in hex_headers {
-        headers.push(hex::decode(hex_header)?);
-    }
-
-    Ok(headers)
+    Ok(hex_blocks.remove(0))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -632,10 +539,6 @@ pub struct InitialNonces {
     pub evolving: Nonce,
     pub candidate: Nonce,
     pub tail: HeaderHash,
-}
-
-fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dyn Error>> {
-    Ok(parsed_snapshot.era_history.slot_to_epoch_unchecked_horizon(parsed_snapshot.slot.into())?)
 }
 
 pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainState) -> Result<(), Box<dyn Error>> {
@@ -664,7 +567,9 @@ pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<
     for header in headers {
         let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
         let hash = block_header.hash();
+
         info!(bootstrap::header::IMPORT, header = %hash);
+
         db.store_header(&block_header)?;
     }
 
@@ -677,14 +582,9 @@ pub async fn import_snapshots_from_directory(
     ledger_dir: &Path,
     snapshot_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if node_snapshot_paths(snapshot_dir).is_some() {
-        let snapshots = [snapshot_dir.to_path_buf()];
-        return import_snapshots(network, global_parameters, &snapshots, ledger_dir).await;
-    }
-
-    let mut snapshots = std::fs::read_dir(snapshot_dir)?
+    let mut snapshots = fs::read_dir(snapshot_dir)?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|path| node_snapshot_paths(path).is_some())
+        .filter(|path| path.is_file() && has_snapshot_archive_extension(path))
         .collect::<Vec<_>>();
 
     sort_snapshots_by_slot(&mut snapshots);
@@ -719,13 +619,7 @@ pub async fn import_snapshots(
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("malformed snapshot point in file name: {0}")]
-    MalformedDate(String),
-    #[error("invalid snapshot file: {0}")]
-    InvalidSnapshotFile(PathBuf),
-    #[error(
-        "expected cardano-node InMem snapshot directory with `state` and `tables/tvar`, or a `.cbor` snapshot file: {0}"
-    )]
+    #[error("expected a snapshot archive in `.tar.zst` format: {0}")]
     UnsupportedSnapshotPath(PathBuf),
 }
 
@@ -761,21 +655,8 @@ async fn import_snapshot_with_optional_nonces(
     nonce_tail: Option<HeaderHash>,
     recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
-    if let Some(paths) = node_snapshot_paths(snapshot) {
-        return import_node_snapshot_dir(
-            network,
-            global_parameters,
-            snapshot,
-            &paths,
-            ledger_dir,
-            nonce_tail,
-            recently_unregistered_accounts,
-        )
-        .await;
-    }
-
-    if is_cbor_snapshot_file(snapshot) {
-        return import_cbor_snapshot_file(
+    if snapshot.is_file() && has_snapshot_archive_extension(snapshot) {
+        return import_node_snapshot_archive(
             network,
             global_parameters,
             snapshot,
@@ -789,99 +670,57 @@ async fn import_snapshot_with_optional_nonces(
     Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf())))
 }
 
-#[expect(clippy::unwrap_used)]
-async fn import_cbor_snapshot_file(
+async fn import_node_snapshot_archive(
     network: NetworkName,
     global_parameters: &GlobalParameters,
-    snapshot: &Path,
+    snapshot_archive: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
     recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
-    info!(bootstrap::snapshot::IMPORT_FILE, path = %relative_path(snapshot)?.display());
+    info!(bootstrap::snapshot::IMPORT_ARCHIVE, path = %snapshot_archive.display());
 
-    let point =
-        Point::try_from(snapshot.file_stem().and_then(|s| s.to_str()).unwrap()).map_err(ImportError::MalformedDate)?;
-    let dir = snapshot.parent().ok_or_else(|| ImportError::InvalidSnapshotFile(snapshot.to_path_buf()))?;
-    let era_history = make_era_history(dir, &point, network)?;
-    let chain_state = if let Some(tail) = nonce_tail {
-        let bytes = std::fs::read(snapshot)?;
-        Some(parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&bytes), global_parameters, tail)?.1)
-    } else {
-        None
-    };
-
-    std::fs::create_dir_all(ledger_dir)?;
-
-    if std::fs::exists(ledger_dir.join("live"))? {
-        std::fs::remove_dir_all(ledger_dir.join("live"))?;
-    }
-
-    let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
-    let mut file = std::fs::File::open(snapshot)?;
-
-    let builder = std::thread::Builder::new().stack_size(10_000_000);
-
-    let mut accounts = recently_unregistered_accounts.clone();
-
-    let (db, epoch, accounts) = builder
-        .spawn(move || {
-            import_initial_snapshot(&db, &mut file, &mut accounts, &point, &era_history, network, |size, template| {
-                TerminalProgressBar::new(size as u64, template).boxed()
-            })
-            .map_err(|e| e.to_string())
-            .map(|epoch| (db, epoch, accounts))
-        })
-        .unwrap()
-        .join()
-        .unwrap()?;
-
-    *recently_unregistered_accounts = accounts;
-
-    db.next_snapshot(epoch)?;
-
-    db.with_transaction(|batch| batch.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken)))?;
-
-    Ok(ImportedSnapshot { epoch, chain_state })
+    import_node_snapshot_source(
+        network,
+        global_parameters,
+        snapshot_archive,
+        ledger_dir,
+        nonce_tail,
+        recently_unregistered_accounts,
+    )
+    .await
 }
 
 #[expect(clippy::unwrap_used)]
-async fn import_node_snapshot_dir(
+async fn import_node_snapshot_source(
     network: NetworkName,
     global_parameters: &GlobalParameters,
-    snapshot_dir: &Path,
-    paths: &NodeSnapshotPaths,
+    archive_path: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
     recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
-    info!(bootstrap::snapshot::IMPORT_DIR, path = %relative_path(snapshot_dir)?.display());
+    fs::create_dir_all(ledger_dir)?;
 
-    std::fs::create_dir_all(ledger_dir)?;
-
-    if std::fs::exists(ledger_dir.join("live"))? {
-        std::fs::remove_dir_all(ledger_dir.join("live"))?;
+    if fs::exists(ledger_dir.join("live"))? {
+        fs::remove_dir_all(ledger_dir.join("live"))?;
     }
 
     let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
-    let mut state_file = std::fs::File::open(&paths.state)?;
-    let mut utxo_file = std::fs::File::open(&paths.utxo)?;
-
     let global_parameters = global_parameters.clone();
+    let archive_path = archive_path.to_path_buf();
     let builder = std::thread::Builder::new().stack_size(10_000_000);
     let mut accounts = recently_unregistered_accounts.clone();
 
     let (db, epoch, chain_state, accounts) = builder
         .spawn(move || {
-            import_snapshot_from_tvar(
+            import_node_snapshot_archive_data(
+                &archive_path,
                 &db,
-                &mut state_file,
-                &mut utxo_file,
                 network,
                 &global_parameters,
                 nonce_tail,
                 &mut accounts,
-                |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
             )
             .map_err(|e| e.to_string())
             .map(|(epoch, _point, chain_state)| (db, epoch, chain_state, accounts))
@@ -899,52 +738,81 @@ async fn import_node_snapshot_dir(
     Ok(ImportedSnapshot { epoch, chain_state })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct NodeSnapshotPaths {
-    state: PathBuf,
-    utxo: PathBuf,
-}
+fn import_node_snapshot_archive_data(
+    archive_path: &Path,
+    db: &RocksDB,
+    network: NetworkName,
+    global_parameters: &GlobalParameters,
+    nonce_tail: Option<HeaderHash>,
+    accounts: &mut BTreeSet<StakeCredential>,
+) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn Error>> {
+    let mut state = Cursor::new(read_snapshot_archive_entry(archive_path, Path::new(SNAPSHOT_STATE_FILE_NAME))?);
+    let archive_file = fs::File::open(archive_path)?;
+    let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
 
-fn node_snapshot_paths(path: &Path) -> Option<NodeSnapshotPaths> {
-    if !path.is_dir() {
-        return None;
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        if snapshot_archive_entry_matches(&entry.path()?, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
+            return import_snapshot_from_tvar(
+                db,
+                &mut state,
+                &mut entry,
+                network,
+                global_parameters,
+                nonce_tail,
+                accounts,
+                |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
+            );
+        }
     }
 
-    let state = path.join("state");
-    let utxo = path.join("tables").join("tvar");
-
-    if state.is_file() && utxo.is_file() { Some(NodeSnapshotPaths { state, utxo }) } else { None }
-}
-
-fn is_cbor_snapshot_file(path: &Path) -> bool {
-    path.is_file() && path.extension().and_then(|extension| extension.to_str()) == Some("cbor")
-}
-
-// TODO: See if this cannot be determined from the snapshot?
-fn make_era_history(dir: &Path, point: &Point, network: NetworkName) -> Result<EraHistory, Box<dyn std::error::Error>> {
-    network.as_era_history().cloned().map(Ok).unwrap_or_else(|| {
-        let filename = format!("history.{}.{}.json", point.slot_or_default(), point.hash());
-        let history_file = dir.join(filename);
-        if !history_file.is_file() {
-            return Err(format!("cannot import testnet era history from {}", history_file.display()).into());
-        }
-
-        Ok(serde_json::from_slice(&std::fs::read(&history_file)?)?)
-    })
+    Err(format!("snapshot archive {} does not contain {SNAPSHOT_UTXO_FILE_NAME}", archive_path.display()).into())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, time::Duration};
+    use std::{
+        fs,
+        io::Cursor,
+        path::{Path, PathBuf},
+        time::Duration,
+    };
 
-    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, Hasher, HeaderHash, Point, Slot};
+    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Slot};
+    use tar::{Builder, Header};
     use tempfile::tempdir;
 
     use super::{
-        Snapshot, bootstrap_parent_points, node_snapshot_paths, select_bootstrap_snapshots, snapshot_epoch,
-        sort_snapshots_by_slot,
+        Snapshot, read_snapshot_archive_entry, select_bootstrap_snapshots, should_download_snapshot,
+        snapshot_archive_entry_matches, sort_snapshots_by_slot, validate_publishable_snapshot_archive,
+        validate_snapshot_archive,
     };
     use crate::cardano_node::ParsedStateSnapshot;
+
+    fn test_snapshot(epoch: u64, point: &str, network: &str) -> Snapshot {
+        Snapshot { epoch: Epoch::from(epoch), point: point.to_string(), key: format!("{network}/{point}.tar.zst") }
+    }
+
+    fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dyn std::error::Error>> {
+        Ok(parsed_snapshot.era_history.slot_to_epoch_unchecked_horizon(parsed_snapshot.slot.into())?)
+    }
+
+    fn write_snapshot_archive(path: &Path, entries: &[(&str, &[u8])]) {
+        let file = fs::File::create(path).unwrap();
+        let encoder = zstd::Encoder::new(file, 0).unwrap();
+        let mut archive = Builder::new(encoder);
+
+        for (entry_path, bytes) in entries {
+            let mut header = Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_mode(0o644);
+            header.set_size(bytes.len() as u64);
+            header.set_cksum();
+            archive.append_data(&mut header, entry_path, Cursor::new(bytes)).unwrap();
+        }
+
+        archive.into_inner().unwrap().finish().unwrap();
+    }
 
     #[test]
     fn sort_snapshot_paths_by_slot_number() {
@@ -985,68 +853,121 @@ mod tests {
     }
 
     #[test]
-    fn node_snapshot_paths_requires_nested_tvar() {
+    fn should_not_download_existing_snapshot_archive() {
         let temp_dir = tempdir().unwrap();
-        let snapshot_dir = temp_dir.path().join("69206375.hash");
-        std::fs::create_dir_all(&snapshot_dir).unwrap();
-        std::fs::write(snapshot_dir.join("state"), b"state").unwrap();
-        std::fs::write(snapshot_dir.join("tables"), b"utxo").unwrap();
+        let snapshot = test_snapshot(163, "69206375.hash", "preprod");
+        let archive_path = temp_dir.path().join("69206375.hash.tar.zst");
+        write_snapshot_archive(
+            &archive_path,
+            &[("69206375.hash/state", b"state"), ("69206375.hash/tables/tvar", b"utxo")],
+        );
 
-        assert!(node_snapshot_paths(&snapshot_dir).is_none());
+        validate_snapshot_archive(&archive_path).unwrap();
+        assert_eq!(read_snapshot_archive_entry(&archive_path, Path::new("state")).unwrap(), b"state");
+        assert!(!should_download_snapshot(temp_dir.path(), &snapshot));
     }
 
-    fn snap(epoch: u64) -> Snapshot {
-        let slot = 100 * epoch;
-        let hash = Hasher::<256>::hash(&slot.to_be_bytes());
+    #[test]
+    fn rejects_snapshot_archive_without_tvar() {
+        let temp_dir = tempdir().unwrap();
+        let archive_path = temp_dir.path().join("69206375.hash.tar.zst");
+        write_snapshot_archive(&archive_path, &[("69206375.hash/state", b"state")]);
 
-        let parent_slot = slot - 1;
-        let parent_hash = Hasher::<256>::hash(&parent_slot.to_be_bytes());
+        assert!(validate_snapshot_archive(&archive_path).is_err());
+    }
 
-        Snapshot {
-            epoch: Epoch::from(epoch),
-            point: Point::Specific(Slot::from(slot), hash),
-            parent_point: Point::Specific(Slot::from(parent_slot), parent_hash),
-            url: format!("https://example.com/{slot}.{hash}.tar.gz"),
-        }
+    #[test]
+    fn rejects_snapshot_archive_with_multiple_roots() {
+        let temp_dir = tempdir().unwrap();
+        let archive_path = temp_dir.path().join("69206375.hash.tar.zst");
+        write_snapshot_archive(&archive_path, &[("first/state", b"state"), ("second/tables/tvar", b"utxo")]);
+
+        assert!(validate_snapshot_archive(&archive_path).is_err());
+    }
+
+    #[test]
+    fn publish_validation_rejects_archive_root_that_does_not_match_point() {
+        let temp_dir = tempdir().unwrap();
+        let archive_path = temp_dir.path().join("69206375.hash.tar.zst");
+        write_snapshot_archive(
+            &archive_path,
+            &[("wrong/state", b"state"), ("wrong/tables/tvar", b"utxo"), ("wrong/bootstrap.blocks.json", br#"["00"]"#)],
+        );
+
+        assert!(validate_publishable_snapshot_archive(&archive_path, "69206375.hash").is_err());
+    }
+
+    #[test]
+    fn snapshot_archive_entries_allow_one_root_directory_only() {
+        assert!(snapshot_archive_entry_matches(Path::new("snapshot/tables/tvar"), Path::new("tables/tvar")));
+        assert!(snapshot_archive_entry_matches(Path::new("tables/tvar"), Path::new("tables/tvar")));
+        assert!(!snapshot_archive_entry_matches(Path::new("outer/snapshot/tables/tvar"), Path::new("tables/tvar")));
+        assert!(!snapshot_archive_entry_matches(Path::new("../tables/tvar"), Path::new("tables/tvar")));
     }
 
     #[test]
     fn select_bootstrap_snapshots_defaults_to_latest_epoch_window() {
-        assert_eq!(
-            select_bootstrap_snapshots(&[snap(165), snap(163), snap(164)], None).unwrap(),
-            [&snap(163), &snap(164), &snap(165)]
-        )
+        let snapshots = vec![
+            test_snapshot(165, "70070379.hash3", "preprod"),
+            test_snapshot(163, "69206375.hash1", "preprod"),
+            test_snapshot(164, "69638382.hash2", "preprod"),
+        ];
+
+        let [first_snapshot, second_snapshot, third_snapshot] = select_bootstrap_snapshots(&snapshots, None).unwrap();
+
+        assert_eq!(first_snapshot.epoch, Epoch::from(163_u64));
+        assert_eq!(second_snapshot.epoch, Epoch::from(164_u64));
+        assert_eq!(third_snapshot.epoch, Epoch::from(165_u64));
     }
 
     #[test]
     fn select_bootstrap_snapshots_honors_requested_start_epoch() {
-        assert_eq!(
-            select_bootstrap_snapshots(&[snap(165), snap(163), snap(164), snap(166)], Some(Epoch::from(167_u64)))
-                .unwrap(),
-            [&snap(164), &snap(165), &snap(166)],
-        );
+        let snapshots = vec![
+            test_snapshot(163, "69206375.hash1", "preprod"),
+            test_snapshot(164, "69638382.hash2", "preprod"),
+            test_snapshot(165, "70070379.hash3", "preprod"),
+            test_snapshot(166, "70502379.hash4", "preprod"),
+        ];
+
+        let [first_snapshot, second_snapshot, third_snapshot] =
+            select_bootstrap_snapshots(&snapshots, Some(Epoch::from(167_u64))).unwrap();
+
+        assert_eq!(first_snapshot.epoch, Epoch::from(164_u64));
+        assert_eq!(second_snapshot.epoch, Epoch::from(165_u64));
+        assert_eq!(third_snapshot.epoch, Epoch::from(166_u64));
+    }
+
+    #[test]
+    fn select_bootstrap_snapshots_reports_incomplete_epochs() {
+        let snapshots =
+            vec![test_snapshot(163, "69206375.hash1", "preprod"), test_snapshot(165, "70070379.hash3", "preprod")];
+
+        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(166_u64))).unwrap_err();
+        let err = err.to_string();
+
+        assert!(err.contains("requested 166"));
+        assert!(err.contains("none are available"));
     }
 
     #[test]
     fn select_bootstrap_snapshots_reports_missing_requested_epochs() {
-        let err = select_bootstrap_snapshots(&[snap(163), snap(165)], Some(Epoch::from(166_u64))).unwrap_err();
+        let snapshots = vec![
+            test_snapshot(163, "69206375.hash1", "preprod"),
+            test_snapshot(164, "69861372.hash2", "preprod"),
+            test_snapshot(165, "70070379.hash3", "preprod"),
+        ];
+
+        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(167_u64))).unwrap_err();
         let err = err.to_string();
-        assert!(err.contains("target epoch 166"));
-        assert!(err.contains("must contain epochs 163, 164, 165"));
-        assert!(err.contains("Available epochs: 163, 165"));
+
+        assert!(err.contains("requested 167"));
+        assert!(err.contains("only 166 is available"));
     }
 
     #[test]
     fn select_bootstrap_snapshots_reports_too_young_epoch() {
-        let err = select_bootstrap_snapshots(&[snap(1)], Some(Epoch::from(2_u64))).unwrap_err();
+        let snapshots = vec![test_snapshot(1, "69206375.hash1", "preprod")];
+        let err = select_bootstrap_snapshots(&snapshots, Some(Epoch::from(2_u64))).unwrap_err();
         assert!(dbg!(err.to_string()).contains("target epoch is too young"));
-    }
-
-    #[test]
-    fn bootstrap_parent_points_use_selected_snapshot_parent_points() {
-        assert_eq!(
-            bootstrap_parent_points([&snap(163), &snap(164), &snap(165)]),
-            vec![snap(164).parent_point, snap(165).parent_point,]
-        );
     }
 }

@@ -31,6 +31,7 @@ use crate::{
     keepalive::register_keepalive,
     manager::{ManagerConfig, ManagerMessage},
     mux::{self, HandlerMessage, MuxMessage},
+    peer_sharing::{PeerSharingMessage, ShareResult, register_peer_sharing_initiator, register_peer_sharing_responder},
     protocol::{Inputs, PROTO_HANDSHAKE, Role},
     protocol_messages::{
         handshake::HandshakeResult, version_data::VersionData, version_number::VersionNumber,
@@ -91,6 +92,7 @@ enum State {
 struct StateInitiator {
     chainsync_initiator: StageRef<chainsync::InitiatorMessage>,
     blockfetch_initiator: StageRef<blockfetch::BlockFetchMessage>,
+    peer_sharing_initiator: StageRef<PeerSharingMessage>,
     version_number: VersionNumber,
     version_data: VersionData,
     muxer: StageRef<MuxMessage>,
@@ -107,6 +109,7 @@ struct StateResponder {
     keepalive: StageRef<HandlerMessage>,
     tx_submission: StageRef<HandlerMessage>,
     blockfetch_responder: StageRef<StreamBlocks>,
+    peer_sharing_responder: StageRef<crate::peer_sharing::ResponderMessage>,
 }
 
 /// Identity of a supervised child stage of a connection.
@@ -118,6 +121,7 @@ pub enum ChildId {
     TxSubmission,
     ChainSync,
     BlockFetch,
+    PeerSharing,
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -131,6 +135,13 @@ pub enum ConnectionMessage {
         id: u64,
         cr: StageRef<Blocks>,
     },
+    /// Start periodic peer-sharing requests on this connection's initiator.
+    RequestSharePeers {
+        amount: u8,
+        initial_delay: std::time::Duration,
+        interval: std::time::Duration,
+        reply_to: StageRef<ShareResult>,
+    },
     NewTip(Tip, TraceContext),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
@@ -143,6 +154,7 @@ impl ConnectionMessage {
             ConnectionMessage::Disconnect => "Disconnect",
             ConnectionMessage::Handshake(_) => "Handshake",
             ConnectionMessage::FetchBlocks { .. } => "FetchBlocks",
+            ConnectionMessage::RequestSharePeers { .. } => "RequestSharePeers",
             ConnectionMessage::NewTip(_, _) => "NewTip",
             ConnectionMessage::ChildDied(_) => "ChildDied",
         }
@@ -180,6 +192,17 @@ pub async fn stage(
                 eff.send(&s.blockfetch_initiator, BlockFetchMessage::RequestRange { from, through, id, cr }).await;
                 State::Initiator(s)
             }
+            (
+                State::Initiator(s),
+                ConnectionMessage::RequestSharePeers { amount, initial_delay, interval, reply_to },
+            ) => {
+                eff.send(
+                    &s.peer_sharing_initiator,
+                    PeerSharingMessage::Start { amount, initial_delay, interval, reply_to },
+                )
+                .await;
+                State::Initiator(s)
+            }
             (State::Responder(s), ConnectionMessage::NewTip(tip, trace_context)) => {
                 eff.send(&s.chainsync_responder, chainsync::ResponderMessage::NewTip(tip, trace_context)).await;
                 State::Responder(s)
@@ -193,6 +216,10 @@ pub async fn stage(
                 // If the peer eventually can't be fully initialized, the caller timeout will trigger.
                 // We schedule after the reconnect delay (2s by default) which is shorter than the call
                 // timeout (5s) (whereas a full connection timeout is 10s).
+                eff.schedule_after(msg, params.config.reconnect_delay).await;
+                state
+            }
+            (state @ (State::Initial | State::Handshake { .. }), msg @ ConnectionMessage::RequestSharePeers { .. }) => {
                 eff.schedule_after(msg, params.config.reconnect_delay).await;
                 state
             }
@@ -258,7 +285,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
                 handshake::HandshakeInitiator::new(
                     muxer.clone(),
                     handshake_result,
-                    VersionTable::v11_and_above(*magic, true),
+                    VersionTable::v11_and_above(*magic, true, true),
                 ),
             )
             .await
@@ -273,7 +300,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
                     handshake_result,
                     // Use initiator_only_diffusion_mode = false so downstream peers
                     // know we can serve as chainsync/blockfetch server
-                    VersionTable::v11_and_above(*magic, false),
+                    VersionTable::v11_and_above(*magic, false, true),
                 ),
             )
             .await
@@ -315,6 +342,7 @@ async fn do_handshake(
     let full_duplex_capable = version_data.is_full_duplex_capable();
     // TODO: this needs to change once we actually start supporting full duplex mode
     let full_duplex = false;
+    let advertisable = version_data.is_advertisable();
 
     eff.send(
         manager,
@@ -325,6 +353,7 @@ async fn do_handshake(
             role: *role,
             full_duplex_capable,
             full_duplex,
+            advertisable,
         },
     )
     .await;
@@ -368,9 +397,18 @@ async fn do_handshake(
             ConnectionMessage::ChildDied(ChildId::BlockFetch),
         )
         .await;
+        let peer_sharing_initiator = register_peer_sharing_initiator(
+            &muxer,
+            peer.clone(),
+            *conn_id,
+            &eff,
+            ConnectionMessage::ChildDied(ChildId::PeerSharing),
+        )
+        .await;
         State::Initiator(StateInitiator {
             chainsync_initiator,
             blockfetch_initiator,
+            peer_sharing_initiator,
             version_number,
             version_data,
             muxer,
@@ -392,10 +430,19 @@ async fn do_handshake(
         .await;
         let blockfetch_responder =
             register_blockfetch_responder(&muxer, &eff, ConnectionMessage::ChildDied(ChildId::BlockFetch)).await;
+        let peer_sharing_responder = register_peer_sharing_responder(
+            &muxer,
+            peer.clone(),
+            manager.clone(),
+            &eff,
+            ConnectionMessage::ChildDied(ChildId::PeerSharing),
+        )
+        .await;
 
         State::Responder(StateResponder {
             chainsync_responder,
             blockfetch_responder,
+            peer_sharing_responder,
             muxer,
             handshake,
             keepalive,
