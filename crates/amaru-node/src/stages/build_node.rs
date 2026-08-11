@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_consensus::{
     block_validator::BlockValidator,
@@ -20,9 +20,10 @@ use amaru_consensus::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools, ResourceMeter,
         ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
     },
+    performance::{Performance, ResourcePerformance},
     stages::track_peers::TrackPeersMsg,
 };
-use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, Point, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, GlobalParameters, Peer, Point, Transaction};
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
     state::State,
@@ -161,6 +162,7 @@ pub fn build_node(
         config.era_history().clone(),
         meter,
         config.mempool.clone(),
+        config,
     );
     let resources = stage_builder.resources().clone();
 
@@ -219,6 +221,7 @@ fn register_resources(
     era_history: EraHistory,
     meter: Arc<Meter>,
     mempool_config: MempoolConfig,
+    config: &Config,
 ) {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
@@ -235,9 +238,13 @@ fn register_resources(
 
     stage_graph.resources().put::<ResourceMeter>(meter);
 
-    stage_graph.resources().put::<amaru_consensus::performance::ResourcePerformance>(Arc::new(
-        amaru_consensus::performance::Performance::new(),
-    ));
+    let static_peers: BTreeSet<Peer> = config.upstream_peers.iter().map(|s| Peer::new(s)).collect();
+    stage_graph.resources().put::<ResourcePerformance>(Arc::new(Performance::with_peer_sources(
+        static_peers,
+        config.peer_snapshot_peers.clone(),
+        Default::default(),
+        config.peer_mix.clone(),
+    )));
 }
 
 /// This function migrates the database if necessary

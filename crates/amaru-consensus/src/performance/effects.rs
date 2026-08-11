@@ -32,8 +32,9 @@ use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Instant, Re
 use tokio::sync::oneshot;
 
 use super::{
-    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerSnapshot,
-    Performance, PerformanceOp, ResourcePerformance, SelectPeersParams,
+    ClaimKind, FetchPeerSet, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry, PeerScores, PeerShareFlags,
+    PeerSnapshot, Performance, PerformanceOp, ResourcePerformance, SelectOutboundParams, SelectPeersParams,
+    SharedIngestResult,
 };
 
 fn require_perf(resources: &Resources) -> ResourcePerformance {
@@ -121,12 +122,24 @@ impl Performance {
         RecordKeepaliveRttEffect { peer, rtt, at }
     }
 
+    /// Record latest handshake peer-sharing willingness (`peer_sharing == 1` ⇒ advertisable).
+    pub fn record_advertisability(peer: Peer, advertisable: bool, at: Instant) -> RecordAdvertisabilityEffect {
+        RecordAdvertisabilityEffect { peer, advertisable, at }
+    }
+
+    /// Record a connection/protocol failure (increments `failure_count`).
+    pub fn record_connection_failure(peer: Peer, at: Instant) -> RecordConnectionFailureEffect {
+        RecordConnectionFailureEffect { peer, at }
+    }
+
     pub fn clear_peer_availability(peer: Peer) -> ClearPeerAvailabilityEffect {
         ClearPeerAvailabilityEffect { peer }
     }
 
-    pub fn forget_peer(peer: Peer) -> ForgetPeerEffect {
-        ForgetPeerEffect { peer }
+    /// Mark a peer as adversarial: clear claims/scores, keep a reputation stub with `adversarial = true`,
+    /// and apply an adversarial malus impulse at `at`.
+    pub fn peer_adversarial(peer: Peer, at: Instant) -> PeerAdversarialEffect {
+        PeerAdversarialEffect { peer, at }
     }
 
     pub fn prune_below(min_height: BlockHeight, now: Instant) -> PruneBelowEffect {
@@ -157,8 +170,48 @@ impl Performance {
         ScoresEffect { peer }
     }
 
+    pub fn share_flags(peer: Peer) -> ShareFlagsEffect {
+        ShareFlagsEffect { peer }
+    }
+
     pub fn snapshot(peer: Peer) -> SnapshotEffect {
         SnapshotEffect { peer }
+    }
+
+    pub fn ok_for_sharing(peer: Peer, now: Instant) -> OkForSharingEffect {
+        OkForSharingEffect { peer, now }
+    }
+
+    pub fn set_ledger_candidates(candidates: std::collections::BTreeSet<Peer>) -> SetLedgerCandidatesEffect {
+        SetLedgerCandidatesEffect { candidates }
+    }
+
+    pub fn ingest_shared_peers(from: Peer, peers: Vec<std::net::SocketAddr>) -> IngestSharedPeersEffect {
+        IngestSharedPeersEffect { from, peers }
+    }
+
+    pub fn select_outbound(params: crate::performance::SelectOutboundParams) -> SelectOutboundEffect {
+        SelectOutboundEffect { params }
+    }
+
+    pub fn select_share_peers(requester: Peer, amount: u8, now: Instant) -> SelectSharePeersEffect {
+        SelectSharePeersEffect { requester, amount, now }
+    }
+
+    pub fn is_static_peer(peer: Peer) -> IsStaticPeerEffect {
+        IsStaticPeerEffect { peer }
+    }
+
+    pub fn static_peers() -> StaticPeersEffect {
+        StaticPeersEffect
+    }
+
+    pub fn shared_contains(peer: Peer) -> SharedContainsEffect {
+        SharedContainsEffect { peer }
+    }
+
+    pub fn source_counts() -> SourceCountsEffect {
+        SourceCountsEffect
     }
 
     pub fn record_rollback(peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) -> RecordRollbackEffect {
@@ -322,6 +375,45 @@ impl ExternalEffectAPI for RecordKeepaliveRttEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RecordAdvertisabilityEffect {
+    pub(crate) peer: Peer,
+    pub(crate) advertisable: bool,
+    pub(crate) at: Instant,
+}
+
+impl ExternalEffect for RecordAdvertisabilityEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordAdvertisability { effect: *self });
+        })
+    }
+}
+
+impl ExternalEffectAPI for RecordAdvertisabilityEffect {
+    type Response = ();
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RecordConnectionFailureEffect {
+    pub(crate) peer: Peer,
+    pub(crate) at: Instant,
+}
+
+impl ExternalEffect for RecordConnectionFailureEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::RecordConnectionFailure { effect: *self });
+        })
+    }
+}
+
+impl ExternalEffectAPI for RecordConnectionFailureEffect {
+    type Response = ();
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClearPeerAvailabilityEffect {
     pub(crate) peer: Peer,
 }
@@ -340,20 +432,21 @@ impl ExternalEffectAPI for ClearPeerAvailabilityEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ForgetPeerEffect {
+pub struct PeerAdversarialEffect {
     pub(crate) peer: Peer,
+    pub(crate) at: Instant,
 }
 
-impl ExternalEffect for ForgetPeerEffect {
+impl ExternalEffect for PeerAdversarialEffect {
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let perf = require_perf(&resources);
-            enqueue(&perf, PerformanceOp::ForgetPeer { effect: *self });
+            enqueue(&perf, PerformanceOp::PeerAdversarial { effect: *self });
         })
     }
 }
 
-impl ExternalEffectAPI for ForgetPeerEffect {
+impl ExternalEffectAPI for PeerAdversarialEffect {
     type Response = ();
 }
 
@@ -486,6 +579,24 @@ impl ExternalEffectAPI for ScoresEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ShareFlagsEffect {
+    pub(crate) peer: Peer,
+}
+
+impl ExternalEffect for ShareFlagsEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(
+            async move { enqueue_query(&perf, |reply| PerformanceOp::ShareFlags { effect: *self, reply }).await },
+        )
+    }
+}
+
+impl ExternalEffectAPI for ShareFlagsEffect {
+    type Response = Option<PeerShareFlags>;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SnapshotEffect {
     pub(crate) peer: Peer,
 }
@@ -499,6 +610,168 @@ impl ExternalEffect for SnapshotEffect {
 
 impl ExternalEffectAPI for SnapshotEffect {
     type Response = Option<PeerSnapshot>;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OkForSharingEffect {
+    pub(crate) peer: Peer,
+    pub(crate) now: Instant,
+}
+
+impl ExternalEffect for OkForSharingEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(
+            async move { enqueue_query(&perf, |reply| PerformanceOp::OkForSharing { effect: *self, reply }).await },
+        )
+    }
+}
+
+impl ExternalEffectAPI for OkForSharingEffect {
+    type Response = bool;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SetLedgerCandidatesEffect {
+    pub(crate) candidates: std::collections::BTreeSet<Peer>,
+}
+
+impl ExternalEffect for SetLedgerCandidatesEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        Self::wrap_sync({
+            let perf = require_perf(&resources);
+            enqueue(&perf, PerformanceOp::SetLedgerCandidates { effect: *self });
+        })
+    }
+}
+
+impl ExternalEffectAPI for SetLedgerCandidatesEffect {
+    type Response = ();
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IngestSharedPeersEffect {
+    pub(crate) from: Peer,
+    pub(crate) peers: Vec<std::net::SocketAddr>,
+}
+
+impl ExternalEffect for IngestSharedPeersEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::IngestSharedPeers { effect: *self, reply }).await
+        })
+    }
+}
+
+impl ExternalEffectAPI for IngestSharedPeersEffect {
+    type Response = SharedIngestResult;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SelectOutboundEffect {
+    pub(crate) params: SelectOutboundParams,
+}
+
+impl ExternalEffect for SelectOutboundEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(
+            async move { enqueue_query(&perf, |reply| PerformanceOp::SelectOutbound { effect: *self, reply }).await },
+        )
+    }
+}
+
+impl ExternalEffectAPI for SelectOutboundEffect {
+    type Response = Vec<Peer>;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SelectSharePeersEffect {
+    pub(crate) requester: Peer,
+    pub(crate) amount: u8,
+    pub(crate) now: Instant,
+}
+
+impl ExternalEffect for SelectSharePeersEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(async move {
+            enqueue_query(&perf, |reply| PerformanceOp::SelectSharePeers { effect: *self, reply }).await
+        })
+    }
+}
+
+impl ExternalEffectAPI for SelectSharePeersEffect {
+    type Response = Vec<std::net::SocketAddr>;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IsStaticPeerEffect {
+    pub(crate) peer: Peer,
+}
+
+impl ExternalEffect for IsStaticPeerEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(
+            async move { enqueue_query(&perf, |reply| PerformanceOp::IsStaticPeer { effect: *self, reply }).await },
+        )
+    }
+}
+
+impl ExternalEffectAPI for IsStaticPeerEffect {
+    type Response = bool;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StaticPeersEffect;
+
+impl ExternalEffect for StaticPeersEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(
+            async move { enqueue_query(&perf, |reply| PerformanceOp::StaticPeers { effect: *self, reply }).await },
+        )
+    }
+}
+
+impl ExternalEffectAPI for StaticPeersEffect {
+    type Response = std::collections::BTreeSet<Peer>;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SharedContainsEffect {
+    pub(crate) peer: Peer,
+}
+
+impl ExternalEffect for SharedContainsEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(
+            async move { enqueue_query(&perf, |reply| PerformanceOp::SharedContains { effect: *self, reply }).await },
+        )
+    }
+}
+
+impl ExternalEffectAPI for SharedContainsEffect {
+    type Response = bool;
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SourceCountsEffect;
+
+impl ExternalEffect for SourceCountsEffect {
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let perf = require_perf(&resources);
+        Self::wrap(
+            async move { enqueue_query(&perf, |reply| PerformanceOp::SourceCounts { effect: *self, reply }).await },
+        )
+    }
+}
+
+impl ExternalEffectAPI for SourceCountsEffect {
+    type Response = crate::performance::SourceCounts;
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

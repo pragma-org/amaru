@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 
 use amaru_consensus::stages::{
     adopt_chain::{self, AdoptChain},
@@ -24,7 +24,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Peer, Tip};
+use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Tip};
 use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
@@ -61,13 +61,12 @@ pub fn build_stage_graph(
     let peer_selection = stage_graph.stage("peer_selection", peer_selection::stage);
     let peer_selection_ref = peer_selection.sender();
 
-    let static_peers: BTreeSet<Peer> = config.upstream_peers.iter().map(|s| Peer::new(s)).collect();
+    // Candidate sources + peer-mix are installed only on Performance construction
+    // (`register_resources` → `with_peer_sources`).
     let peer_selection = stage_graph.wire_up(
         peer_selection,
         PeerSelection::new(
             manager.sender(),
-            static_peers,
-            config.peer_snapshot_peers.clone(),
             config.target_upstream_peers,
             config.target_downstream_peers,
             config.peer_removal_cooldown_secs,
@@ -76,17 +75,26 @@ pub fn build_stage_graph(
 
     let peer_selection_notify =
         stage_graph.contramap(&peer_selection_ref, "peer_selection_notify", |n: PeerSelectionNotify| match n {
-            PeerSelectionNotify::Connected { peer, conn_id, direction, full_duplex_capable, full_duplex } => {
-                PeerSelectionMsg::Connected(
-                    peer,
-                    peer_selection::Connection::new(conn_id, full_duplex_capable, full_duplex),
-                    direction,
-                )
-            }
+            PeerSelectionNotify::Connected {
+                peer,
+                conn_id,
+                direction,
+                full_duplex_capable,
+                full_duplex,
+                advertisable,
+            } => PeerSelectionMsg::Connected(
+                peer,
+                peer_selection::Connection::new(conn_id, full_duplex_capable, full_duplex),
+                direction,
+                advertisable,
+            ),
             PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry } => {
                 PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
             }
             PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
+            PeerSelectionNotify::ShareRequest { peer, amount, reply_to } => {
+                PeerSelectionMsg::ShareRequest { peer, amount, reply_to }
+            }
         });
 
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);

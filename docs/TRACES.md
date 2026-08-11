@@ -1846,6 +1846,35 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::protocols::peer_selection::sharing`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `received` | `TRACE` | public | Peer-sharing address list received from peer. | peer, peers, added, total |  |
+| `sent` | `TRACE` | public | Peer-sharing request served for peer. | peer, peers, requested, count |  |
+
+<details><summary>span: `received`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `peers` | `string` | ✓ |
+| `added` | `integer` | ✓ |
+| `total` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `sent`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `peers` | `string` | ✓ |
+| `requested` | `integer` | ✓ |
+| `count` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::setup::build`
 
 | name | level | public | description | required fields | optional fields |

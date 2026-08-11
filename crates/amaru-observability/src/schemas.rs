@@ -1425,6 +1425,30 @@ define_schemas! {
                         optional reason: String
                     }
                 }
+                sharing {
+                    /// Peer-sharing address list received from peer.
+                    public RECEIVED {
+                        /// Peer that answered (learn) or requested (advertise) the share.
+                        required peer: amaru_kernel::Peer
+                        /// Comma-separated list of shared listen addresses.
+                        required peers: String
+                        /// how many addresses were newly added to the shared pool.
+                        required added: usize
+                        /// size of the shared-peers pool after this reply.
+                        required total: usize
+                    }
+                    /// Peer-sharing request served for peer.
+                    public SENT {
+                        /// Peer that answered (learn) or requested (advertise) the share.
+                        required peer: amaru_kernel::Peer
+                        /// Comma-separated list of shared listen addresses.
+                        required peers: String
+                        /// number of addresses requested.
+                        required requested: u8
+                        /// number of addresses returned.
+                        required count: usize
+                    }
+                }
             }
             chainsync {
                 initiator {
@@ -1518,6 +1542,29 @@ define_schemas! {
                     }
                     /// Handle keepalive responder protocol messages
                     KEEPALIVE_RESPONDER_PROTOCOL {
+                        required message_type: String
+                    }
+                }
+            }
+            peer_sharing {
+                initiator {
+                    /// Handle peer-sharing initiator stage messages
+                    PEER_SHARING_INITIATOR_STAGE {
+                        required peer: String
+                        required conn_id: String
+                    }
+                    /// Handle peer-sharing initiator protocol messages
+                    PEER_SHARING_INITIATOR_PROTOCOL {
+                        required message_type: String
+                    }
+                }
+                responder {
+                    /// Handle peer-sharing responder stage messages
+                    PEER_SHARING_RESPONDER_STAGE {
+                        required amount: u8
+                    }
+                    /// Handle peer-sharing responder protocol messages
+                    PEER_SHARING_RESPONDER_PROTOCOL {
                         required message_type: String
                     }
                 }

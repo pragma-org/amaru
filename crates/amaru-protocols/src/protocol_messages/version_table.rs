@@ -21,7 +21,7 @@ use std::{
 use amaru_kernel::{NetworkMagic, cbor};
 
 use crate::protocol_messages::{
-    version_data::{PEER_SHARING_DISABLED, VersionData},
+    version_data::{PEER_SHARING_DISABLED, PEER_SHARING_ENABLED, VersionData},
     version_number::VersionNumber,
 };
 
@@ -51,24 +51,14 @@ impl VersionTable<VersionData> {
     pub fn v11_and_above(
         network_magic: NetworkMagic,
         initiator_only_diffusion_mode: bool,
+        advertisable: bool,
     ) -> VersionTable<VersionData> {
+        let adv = if advertisable { PEER_SHARING_ENABLED } else { PEER_SHARING_DISABLED };
         let values = vec![
-            (
-                VersionNumber::V11,
-                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
-            ),
-            (
-                VersionNumber::V12,
-                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
-            ),
-            (
-                VersionNumber::V13,
-                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
-            ),
-            (
-                VersionNumber::V14,
-                VersionData::new(network_magic, initiator_only_diffusion_mode, PEER_SHARING_DISABLED, false),
-            ),
+            (VersionNumber::V11, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
+            (VersionNumber::V12, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
+            (VersionNumber::V13, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
+            (VersionNumber::V14, VersionData::new(network_magic, initiator_only_diffusion_mode, adv, false)),
         ]
         .into_iter()
         .collect::<BTreeMap<VersionNumber, VersionData>>();
