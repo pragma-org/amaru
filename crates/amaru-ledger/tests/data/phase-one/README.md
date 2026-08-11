@@ -8,16 +8,16 @@ to increase confidence their phase-one implementation conforms.
 ## Layout
 
 ```text
-pass/<id>-<name>.json
-fail/<id>-<name>.json
 common/
   protocolParameters/<preset>.json
   eraHistory/<preset>.json
   test-credentials/<name>.skey, <name>.vkey
+scenarios/
+  <id>-<pass|fail>-<name>.json
 schema.json
 ```
 
-`pass/` holds transactions that must validate, `fail/` those that must be
+`pass` refer to scenarios that must validate, `fail` those that must be
 rejected.
 
 `<id>` is a 5-digit number, unique across *both* directories, that identifies the
@@ -25,9 +25,9 @@ fixture on its own; `00065` is one fixture, whichever directory it is in. It is
 a permanent handle: fixtures are never renumbered, and an id is not reused when a
 fixture is deleted, so an external reference to a fixture stays meaningful.
 
-`<name>` is a kebab-case description of the **scenario**
-(`00065-stake-delegation-to-unregistered-pool`), not of the expected failure. The
-predicate a `fail/` fixture must trip is stated once, in `expected.predicate`, so
+`<name>` is a kebab-case description of the **scenario**'s title
+(`00065-pass-stake-delegation-to-unregistered-pool`), not of the expected failure. The
+predicate a `fail` fixture must trip is stated once, in `expected.predicate`, so
 that a fixture's location can never contradict its expectation. To list the
 fixtures covering one predicate, grep for it:
 
@@ -161,10 +161,12 @@ The Amaru implementation lives in
 
 ## Adding a fixture
 
-1. Place the JSON in `pass/<id>-<name>.json` or `fail/<id>-<name>.json`, taking
-   the next unused id; one above the highest in either directory. A failing
-   fixture must exercise exactly one predicate failure; the transaction should
-   be valid in every other respect.
-2. If the predicate is new, add a variant to `Predicate` and a match arm in
+1. Place the JSON in `scenario` named `<id>-pass-<name>.json` or
+   `<id>-fail-<name>.json`, taking the next unused id; one above the highest in
+   either directory. A failing fixture must exercise exactly one predicate
+   failure; the transaction should be valid in every other respect.
+2. The `<name>` part of a scenario should correspond to a kebab-case version of
+   the scenario's title, to ease the identification of scenarios upon failures.
+3. If the predicate is new, add a variant to `Predicate` and a match arm in
    `From<PhaseOneError> for Predicate` in `fixture.rs`.
-3. Open a PR, proposing the new fixture(s).
+4. Open a PR, proposing the new fixture(s).

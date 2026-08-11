@@ -88,8 +88,7 @@ fn get_phase_test_cases(phase: &str) -> Result<()> {
 
     let fixtures_dir = env::current_dir()?.join("tests").join("data").join(phase);
     let mut files = Vec::new();
-    visit_dirs(&fixtures_dir.join("pass"), &mut files);
-    visit_dirs(&fixtures_dir.join("fail"), &mut files);
+    visit_dirs(&fixtures_dir.join("scenarios"), &mut files);
     files.sort();
 
     let mut output = fs::File::create(out_file).with_context(|| format!("could not write {out_file_name}"))?;
@@ -114,13 +113,13 @@ fn get_phase_test_cases(phase: &str) -> Result<()> {
         let Some(identifier) = fixture_id(&case) else {
             anyhow::bail!(
                 "fixture {case}.json does not follow the naming convention: it must sit directly under \
-                 pass/ or fail/ and be named <00000>-<kebab-case-name>.json. The next free id is {next_id:05}."
+                 'scenarios/' and be named <00000>-<pass|fail>-<kebab-case-name>.json. The next free id is {next_id:05}."
             );
         };
         if let Some(other) = identifiers.insert(identifier.to_string(), case.clone()) {
             anyhow::bail!(
                 "fixtures {other} and {case} share the id {identifier}, but an id must be unique across \
-                 pass/ and fail/. Renumber one of them to {next_id:05}, the next free id."
+                 'scenarios/'. Renumber one of them to {next_id:05}, the next free id."
             );
         }
 
@@ -149,12 +148,17 @@ fn get_phase_test_cases(phase: &str) -> Result<()> {
 /// in which a fixture cannot be referred to.
 fn fixture_id(case: &str) -> Option<&str> {
     let (directory, stem) = case.split_once('/')?;
-    if !matches!(directory, "pass" | "fail") || stem.contains('/') {
+    if directory != "scenarios" || stem.contains('/') {
         return None;
     }
 
-    let (id, name) = stem.split_once('-')?;
+    let (id, tail) = stem.split_once('-')?;
     if id.len() != 5 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+
+    let (kind, name) = tail.split_once('-')?;
+    if !matches!(kind, "pass" | "fail") {
         return None;
     }
 
