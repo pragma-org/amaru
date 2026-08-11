@@ -102,6 +102,7 @@ jobs:
       AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
       AMARU_WITH_OPEN_TELEMETRY: ${{ matrix.tool.metrics || 'false' }}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
+      OTEL_METRIC_EXPORT_INTERVAL: 2000
       TOOL_TEST_TIMEOUT: ${{ matrix.tool.timeout || 120 }}
     strategy:
       fail-fast: false
@@ -217,8 +218,8 @@ jobs:
         shell: bash
         run: |
           timeout 120 bash -c \
-            'until curl -sf http://localhost:8889/metrics >/dev/null; do sleep 2; done' || {
-            echo "Amaru OTLP metrics endpoint did not become ready within 120s."
+            'until curl -sf http://localhost:8889/metrics | grep -q "^cardano_node_metrics_slotNum_int"; do sleep 2; done' || {
+            echo "Amaru metrics did not become ready within 120s."
             tail -50 amaru.log
             docker logs otlp-collector 2>&1 | tail -20 || true
             exit 1
