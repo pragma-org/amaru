@@ -694,10 +694,7 @@ mod test {
         }
     }
 
-    fn stake_summary(
-        pool: &PoolState,
-        accounts: BTreeMap<StakeCredential, AccountState>,
-    ) -> StakeSummary {
+    fn stake_summary(pool: &PoolState, accounts: BTreeMap<StakeCredential, AccountState>) -> StakeSummary {
         StakeSummary {
             stake_distribution: StakeDistribution {
                 epoch: Epoch::from(0),

@@ -15,8 +15,8 @@
 use std::fmt;
 
 use crate::{
-    Address, HasOwnership, Hash, Network, StakePayload, cbor,
-    size::{KEY, SCRIPT},
+    Address, HasOwnership, Hash, Network, ShelleyDelegationPart, ShelleyPaymentPart, StakePayload, cbor,
+    size::{CREDENTIAL, KEY, SCRIPT},
 };
 
 // NOTE: Stake Credential variant order
@@ -34,6 +34,16 @@ use crate::{
 pub enum StakeCredential {
     ScriptHash(Hash<{ SCRIPT }>),
     AddrKeyhash(Hash<{ KEY }>),
+}
+
+impl StakeCredential {
+    pub fn from_raw_address(bytes: &[u8]) -> Option<Self> {
+        match (bytes.first()? & 0b1111_0000) >> 4 {
+            0 | 1 if bytes.len() == 2 * CREDENTIAL + 1 => Some(Self::AddrKeyhash(Hash::from(&bytes[KEY + 1..]))),
+            2 | 3 if bytes.len() == 2 * CREDENTIAL + 1 => Some(Self::ScriptHash(Hash::from(&bytes[SCRIPT + 1..]))),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for StakeCredential {
@@ -101,6 +111,26 @@ impl From<StakePayload> for StakeCredential {
         match payload {
             StakePayload::Key(hash) => Self::AddrKeyhash(hash),
             StakePayload::Script(hash) => Self::ScriptHash(hash),
+        }
+    }
+}
+
+impl From<ShelleyPaymentPart> for StakeCredential {
+    fn from(part: ShelleyPaymentPart) -> Self {
+        match part {
+            ShelleyPaymentPart::Key(hash) => Self::AddrKeyhash(hash),
+            ShelleyPaymentPart::Script(hash) => Self::ScriptHash(hash),
+        }
+    }
+}
+
+impl TryFrom<ShelleyDelegationPart> for StakeCredential {
+    type Error = ();
+    fn try_from(part: ShelleyDelegationPart) -> Result<Self, Self::Error> {
+        match part {
+            ShelleyDelegationPart::Key(hash) => Ok(Self::AddrKeyhash(hash)),
+            ShelleyDelegationPart::Script(hash) => Ok(Self::ScriptHash(hash)),
+            ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => Err(()),
         }
     }
 }

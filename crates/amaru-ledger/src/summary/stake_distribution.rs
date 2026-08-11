@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, ops::Deref};
 
 use amaru_kernel::{
-    DRep, Epoch, HasLovelace, Hash, Lovelace, NetworkName, PoolId, StakeCredential, expect_stake_credential, safe_ratio,
+    DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, StakeCredential, expect_stake_credential, safe_ratio,
 };
 use amaru_observability::info;
 use serde::ser::SerializeStruct;
@@ -181,18 +181,19 @@ impl StakeSummary {
             notify(progress);
         };
 
-        db.iter_utxos()?.for_each(|(_, output)| {
-            if let Some(credential) = output.delegate() {
-                let balance = output.lovelace();
-                accounts.entry(credential).and_modify(|account| account.balance += balance);
+        db.iter_stake_distribution()?.for_each(|stake| {
+            if let Some(credential) = stake.credential {
+                accounts.entry(credential).and_modify(|account| account.balance += stake.lovelace);
             }
 
             processed_utxos += 1;
+
             if processed_utxos.saturating_sub(last_reported_utxos) >= PROGRESS_BATCH_SIZE {
                 last_reported_utxos = processed_utxos;
                 notify_progress(processed_utxos);
             }
         });
+
         if processed_utxos != last_reported_utxos {
             notify_progress(processed_utxos);
         }
@@ -230,7 +231,7 @@ impl StakeSummary {
 
         for pool in pools.values_mut() {
             let reward_account = expect_stake_credential(&pool.parameters.reward_account);
-            pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep.clone());
+            pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
         }
 
         db.iter_block_issuers()?.for_each(|(_, issuer)| {
@@ -419,7 +420,7 @@ pub mod tests {
 
             for pool in pools.values_mut() {
                 let reward_account = expect_stake_credential(&pool.parameters.reward_account);
-                pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep.clone());
+                pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
             }
 
             StakeDistribution {

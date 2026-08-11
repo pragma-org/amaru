@@ -176,6 +176,7 @@ pub use cardano::{
     stake_address::{self, PlutusStakeAddress, StakeAddress},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
+    stake_entry::{self, StakeEntry},
     time_range::TimeRange,
     tip::Tip,
     transaction::Transaction,

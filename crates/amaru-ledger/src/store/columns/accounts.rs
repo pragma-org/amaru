@@ -35,7 +35,7 @@ pub enum Value {
 
 pub type Key = StakeCredential;
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Row {
     pub pool: Option<(PoolId, CertificatePointer)>,
     pub deposit: Lovelace,

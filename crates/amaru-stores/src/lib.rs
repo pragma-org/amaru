@@ -105,7 +105,7 @@ pub mod tests {
         };
 
         let drep = match &account_row.drep {
-            Some(drep_pair) => Resettable::Set(drep_pair.clone()),
+            Some(drep_pair) => Resettable::Set(*drep_pair),
             None => Resettable::Reset,
         };
 
@@ -219,7 +219,7 @@ pub mod tests {
             let context = store.create_transaction();
             let mut result = None;
             context.with_accounts(|mut accounts| {
-                result = accounts.find(|(key, _)| *key == account_key).and_then(|(_, row)| row.borrow().clone());
+                result = accounts.find(|(key, _)| *key == account_key).and_then(|(_, row)| *row.borrow());
             })?;
             let value =
                 result.ok_or_else(|| StoreError::Internal("Failed to retrieve account after seeding".into()))?;

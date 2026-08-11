@@ -24,7 +24,7 @@ use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
     MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
-    StakeCredential, TransactionInput, cbor,
+    StakeCredential, StakeEntry, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -464,6 +464,13 @@ macro_rules! impl_ReadStore_body {
             ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
             {
                 iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    utxo::PREFIX,
+                )
+            }
+
+            fn iter_stake_distribution(&self) -> Result<impl Iterator<Item = StakeEntry>, StoreError> {
+                iter_value::<scolumns::utxo::Key, StakeEntry, _, _>(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     utxo::PREFIX,
                 )
@@ -968,6 +975,40 @@ where
             });
             it.next();
             Some((k, v))
+        } else {
+            None
+        }
+    }))
+}
+
+#[expect(clippy::panic)]
+pub fn iter_value<'a, 'b, K, V, DB, F>(
+    db_iter_opt: F,
+    prefix: [u8; PREFIX_LEN],
+) -> Result<impl Iterator<Item = V> + 'a, StoreError>
+where
+    DB: 'a + 'b + DBAccess,
+    F: Fn(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
+    'b: 'a,
+    V: for<'d> cbor::Decode<'d, ()> + 'a,
+{
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    let mut it: rocksdb::DBRawIteratorWithThreadMode<'_, _> =
+        (db_iter_opt)(IteratorMode::From(prefix.as_ref(), Direction::Forward), opts).into();
+    Ok(std::iter::from_fn(move || {
+        if let Some((key, value)) = it.item() {
+            let v = cbor::decode(value).unwrap_or_else(|e| {
+                panic!(
+                    "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
+                    hex::encode(value),
+                    std::any::type_name::<V>(),
+                    hex::encode(key),
+                    std::any::type_name::<K>(),
+                )
+            });
+            it.next();
+            Some(v)
         } else {
             None
         }

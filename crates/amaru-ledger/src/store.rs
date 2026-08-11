@@ -19,6 +19,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use amaru_kernel::StakeEntry;
 use amaru_kernel::{
     CertificatePointer,
     Constitution,
@@ -367,6 +368,16 @@ pub trait ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>> {
         Err::<std::iter::Empty<(utxo::Key, utxo::Value)>, _>(default_read_store_error("ReadStore.iter_utxos()"))
+    }
+
+    /// A non-allocating and specialized version of iter_utxos bespoke to the stake distribution
+    /// calculations.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn iter_stake_distribution(&self) -> Result<impl Iterator<Item = StakeEntry>>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn iter_stake_distribution(&self) -> Result<impl Iterator<Item = StakeEntry>> {
+        Err::<std::iter::Empty<StakeEntry>, _>(default_read_store_error("ReadStore.iter_stake_distribution()"))
     }
 
     /// Get details about all slot leaders
