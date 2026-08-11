@@ -129,3 +129,17 @@ macro_rules! info_record {
         $crate::trace_record!(INFO, $($rest)*)
     };
 }
+
+#[macro_export]
+macro_rules! error_record {
+    ($($rest:tt)*) => {
+        $crate::trace_record!(ERROR, $($rest)*)
+    };
+}
+
+#[macro_export]
+macro_rules! warn_record {
+    ($($rest:tt)*) => {
+        $crate::trace_record!(WARN, $($rest)*)
+    };
+}
