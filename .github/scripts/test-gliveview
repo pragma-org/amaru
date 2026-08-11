@@ -4,6 +4,7 @@ set -euo pipefail
 
 test_timeout=${TOOL_TEST_TIMEOUT:-300}
 gliveview_home=${GLIVEVIEW_HOME:-/opt/cardano/amaru}
+amaru_binary=${AMARU_BIN:-$PWD/target/release/amaru}
 screen_output=$(mktemp)
 gliveview_pid=
 trap '
@@ -20,7 +21,7 @@ render_screen_output() {
 }
 
 cp amaru.pid "$gliveview_home/runtime/amaru.pid"
-timeout "$test_timeout" script --quiet --flush \
+AMARU_BIN="$amaru_binary" timeout "$test_timeout" script --quiet --flush \
   --command "stty rows 60 cols 120 && TERM=xterm $gliveview_home/scripts/gLiveView.sh -u" \
   "$screen_output" >/dev/null 2>&1 &
 gliveview_pid=$!
@@ -34,6 +35,11 @@ while (( SECONDS < deadline )); do
   if [[ "$slot" =~ ^[0-9]+$ ]] && (( slot > 0 )); then
     echo "GLiveView displayed a non-zero slot: $slot"
     exit 0
+  fi
+  if render_screen_output | grep -Fq "Node version mismatch"; then
+    echo "GLiveView found a different binary than the running Amaru process."
+    render_screen_output | tail -50
+    exit 1
   fi
   if ! kill -0 "$gliveview_pid" 2>/dev/null; then
     wait "$gliveview_pid" || true
