@@ -88,13 +88,14 @@ fn get_phase_test_cases(phase: &str) -> Result<()> {
 
     let fixtures_dir = env::current_dir()?.join("tests").join("data").join(phase);
     let mut files = Vec::new();
-    visit_dirs(&fixtures_dir.join("pass"), &mut files);
-    visit_dirs(&fixtures_dir.join("fail"), &mut files);
+    visit_dirs(&fixtures_dir.join("scenarios"), &mut files);
     files.sort();
 
     let mut output = fs::File::create(out_file).with_context(|| format!("could not write {out_file_name}"))?;
 
+    let next_id = next_fixture_id(&files);
     let mut names = BTreeMap::new();
+    let mut identifiers = BTreeMap::new();
     for path in files {
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
@@ -108,6 +109,19 @@ fn get_phase_test_cases(phase: &str) -> Result<()> {
         else {
             continue;
         };
+
+        let Some(identifier) = fixture_id(&case) else {
+            anyhow::bail!(
+                "fixture {case}.json does not follow the naming convention: it must sit directly under \
+                 'scenarios/' and be named <00000>-<pass|fail>-<kebab-case-name>.json. The next free id is {next_id:05}."
+            );
+        };
+        if let Some(other) = identifiers.insert(identifier.to_string(), case.clone()) {
+            anyhow::bail!(
+                "fixtures {other} and {case} share the id {identifier}, but an id must be unique across \
+                 'scenarios/'. Renumber one of them to {next_id:05}, the next free id."
+            );
+        }
 
         let fixture: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)
             .with_context(|| format!("invalid json fixture: {}", path.display()))?;
@@ -126,6 +140,42 @@ fn get_phase_test_cases(phase: &str) -> Result<()> {
     )?;
 
     Ok(())
+}
+
+/// The id in a `{pass,fail}/<00000>-<kebab-case-name>` fixture path, or `None` when the path does
+/// not follow the convention. An id is a permanent, corpus-wide-unique handle for a fixture, so a
+/// malformed name or a reused id has to fail loudly here rather than silently produce a test list
+/// in which a fixture cannot be referred to.
+fn fixture_id(case: &str) -> Option<&str> {
+    let (directory, stem) = case.split_once('/')?;
+    if directory != "scenarios" || stem.contains('/') {
+        return None;
+    }
+
+    let (id, tail) = stem.split_once('-')?;
+    if id.len() != 5 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+
+    let (kind, name) = tail.split_once('-')?;
+    if !matches!(kind, "pass" | "fail") {
+        return None;
+    }
+
+    let is_kebab_case = name
+        .split('-')
+        .all(|word| !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()));
+
+    is_kebab_case.then_some(id)
+}
+
+/// One above the highest id, so a rejected fixture can be told what to use instead.
+fn next_fixture_id(files: &[PathBuf]) -> u32 {
+    files
+        .iter()
+        .filter_map(|path| path.file_stem()?.to_str()?.split_once('-')?.0.parse::<u32>().ok())
+        .max()
+        .map_or(1, |highest| highest + 1)
 }
 
 fn visit_dirs(dir: &Path, files: &mut Vec<PathBuf>) {
