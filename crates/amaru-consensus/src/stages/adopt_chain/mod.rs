@@ -15,6 +15,7 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
+use amaru_metrics::{ConsensusMetrics, GsmState};
 use amaru_observability::{TraceContext, debug, debug_span, info};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
@@ -23,6 +24,7 @@ use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 use tracing::Instrument;
 
 use crate::{
+    effects::{Metrics, MetricsOps},
     performance::Performance,
     stages::{block_source::BlockSourceMsg, select_chain::cmp_tip},
 };
@@ -238,6 +240,13 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             );
             state.suppressed += 1;
         }
+
+        // Amaru does not implement cardano-node's Honest Availability Assumption. Approximate its
+        // GSM using the applied height and the best height observed by the block-fetch pipeline:
+        // https://github.com/IntersectMBO/ouroboros-consensus/blob/main/ouroboros-consensus-diffusion/src/ouroboros-consensus-diffusion/Ouroboros/Consensus/Node/GSM.hs
+        let gsm_state = GsmState::from_chain_progress(msg.block_height(), state.max_block_height, None);
+        Metrics::new(&eff).record(ConsensusMetrics::GsmState(gsm_state).into()).await;
+
         eff.send(&state.mempool, MempoolMsg::NewTip(msg)).await;
         eff.send(&state.downstream, ManagerMessage::NewTip(msg, root_trace_context)).await;
         eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;

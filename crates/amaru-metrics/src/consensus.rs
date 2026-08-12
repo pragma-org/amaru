@@ -15,18 +15,82 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 
+use amaru_kernel::BlockHeight;
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
 #[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::metrics::Meter as OpenTelemetryMeter;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Histogram};
+use crate::{Counter, Gauge, Histogram};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
-/// Performance measurements emitted by the select_chain stage, computed from `perf.*` events
-/// but aggregatable as OpenTelemetry metrics (a duration histogram plus an outcome-labelled
-/// counter per measurement kind).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum GsmState {
+    /// No chain has been adopted since startup.
+    PreSyncing,
+    /// The adopted chain trails the best observed block height.
+    Syncing,
+    /// The adopted chain has reached the best observed block height.
+    CaughtUp,
+}
+
+impl GsmState {
+    /// Derive Amaru's sync state from its applied and observed chain progress.
+    ///
+    /// `near_wall_clock_tip` is optional because core consensus currently knows only heights,
+    /// while UI consumers can also compare the applied slot with the wall-clock target slot.
+    pub fn from_chain_progress(
+        applied_block_height: BlockHeight,
+        observed_block_height: BlockHeight,
+        near_wall_clock_tip: Option<bool>,
+    ) -> Self {
+        if applied_block_height < observed_block_height || near_wall_clock_tip == Some(false) {
+            Self::Syncing
+        } else {
+            Self::CaughtUp
+        }
+    }
+
+    pub fn is_caught_up(self) -> bool {
+        self == Self::CaughtUp
+    }
+
+    fn metric_value(self) -> u64 {
+        match self {
+            Self::PreSyncing => 0,
+            Self::Syncing => 1,
+            Self::CaughtUp => 2,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+static GSM_STATE: OnceLock<Gauge<u64>> = OnceLock::new();
+
+#[cfg(not(target_arch = "wasm32"))]
+fn gsm_state(meter: &OpenTelemetryMeter) -> &'static Gauge<u64> {
+    GSM_STATE.get_or_init(|| {
+        // Keep the name and value mapping compatible with cardano-node:
+        // https://github.com/IntersectMBO/cardano-node/blob/master/cardano-node/src/Cardano/Node/Tracing/Tracers/Consensus.hs
+        meter
+            .u64_gauge("cardano_node_metrics_GSM_state_int")
+            .with_description("sync state: 0 = PreSyncing, 1 = Syncing, 2 = CaughtUp")
+            .with_unit("int")
+            .build()
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn initialize_metrics(meter: &Meter) {
+    let Some(meter) = meter.get() else {
+        return;
+    };
+
+    gsm_state(meter).record(GsmState::PreSyncing.metric_value(), &[]);
+}
+
+/// Consensus measurements emitted by the chain-processing stages.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConsensusMetrics {
     /// A header reached a terminal state. The optional durations are the intervals between the
@@ -46,6 +110,8 @@ pub enum ConsensusMetrics {
     },
     /// Time from the detection of a fork to its application/abandonment.
     ForkSwitch { outcome: String, duration_micros: u64 },
+    /// Amaru's approximation of the cardano-node Genesis State Machine state.
+    GsmState(GsmState),
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -132,6 +198,7 @@ impl MetricRecorder for ConsensusMetrics {
                 outcome,
                 *duration_micros,
             ),
+            ConsensusMetrics::GsmState(state) => gsm_state(meter).record(state.metric_value(), &[]),
         }
     }
 }

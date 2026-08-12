@@ -14,6 +14,7 @@
 
 use std::time::Instant;
 
+use amaru_kernel::BlockHeight;
 use amaru_observability::{
     RecordFields,
     amaru::{bootstrap, consensus, ledger, mempool, protocols},
@@ -121,13 +122,12 @@ impl Model {
     }
 
     fn update_catch_up(&mut self, record: &TelemetryRecord) {
-        let catching_up_by_height =
-            consensus::tip::ADOPT::max_block_height(record) > consensus::tip::ADOPT::block_height(record);
-        let catching_up_by_slot = self
-            .startup
-            .is_near_target_slot_at(consensus::tip::ADOPT::slot(record), record.wall_time)
-            .is_some_and(|is_near_tip| !is_near_tip);
-        let catching_up = catching_up_by_height || catching_up_by_slot;
+        let gsm_state = amaru_metrics::GsmState::from_chain_progress(
+            BlockHeight::new(consensus::tip::ADOPT::block_height(record)),
+            BlockHeight::new(consensus::tip::ADOPT::max_block_height(record)),
+            self.startup.is_near_target_slot_at(consensus::tip::ADOPT::slot(record), record.wall_time),
+        );
+        let catching_up = !gsm_state.is_caught_up();
 
         if catching_up {
             for peer in self.peers.values_mut() {

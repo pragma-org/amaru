@@ -29,7 +29,7 @@ use crate::stages::{
         te_clock, te_find_anchor_at_height, te_prune_below, te_roll_forward_chain, te_send, te_set_anchor_hash,
         te_switch_to_fork,
     },
-    test_utils::{te_input, te_state},
+    test_utils::{te_input, te_record_consensus_metrics, te_state},
 };
 
 fn sim_clock() -> Instant {
@@ -126,11 +126,12 @@ fn test_extension_adopts_and_sends() {
     prep.set_best_chain(prep.headers.h2.clone());
 
     let tip = prep.headers.h3.tip();
-    let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
+    let msg = AdoptChainMsg::new(tip, BlockHeight::new(5));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
     let mut expected = prep.state.clone();
     expected.current_best_tip = tip;
+    expected.max_block_height = BlockHeight::new(5);
     expected.suppressed = 1;
     assert_trace(
         &running,
@@ -144,6 +145,7 @@ fn test_extension_adopts_and_sends() {
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
+            te_record_consensus_metrics("ac-1", ConsensusMetrics::GsmState(GsmState::Syncing)),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
@@ -196,6 +198,7 @@ fn test_fork_switch_adopts_and_sends() {
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
+            te_record_consensus_metrics("ac-1", ConsensusMetrics::GsmState(GsmState::CaughtUp)),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),
@@ -241,6 +244,7 @@ fn test_fork_switch_opcert_hacked() {
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
+            te_record_consensus_metrics("ac-1", ConsensusMetrics::GsmState(GsmState::CaughtUp)),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
             te_send("ac-1", "downstream", ManagerMessage::new_tip(tip)),
             te_send("ac-1", "block_source", BlockSourceMsg::AdoptedTip(tip)),

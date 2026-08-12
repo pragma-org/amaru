@@ -13,7 +13,7 @@
 // limitations under the License.
 
 pub use crate::{
-    consensus::ConsensusMetrics,
+    consensus::{ConsensusMetrics, GsmState},
     ledger::LedgerMetrics,
     mempool::MempoolMetrics,
     metrics::{Counter, Gauge, Histogram, Meter},
@@ -45,6 +45,7 @@ pub trait MetricRecorder {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn initialize_metrics(meter: &Meter) {
+    consensus::initialize_metrics(meter);
     mempool::initialize_metrics(meter);
     protocol::initialize_metrics(meter);
 }
