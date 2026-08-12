@@ -99,7 +99,7 @@ pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
 }
 
 /// Like [`build_store`] but also persists nonces for each header, mimicking a header that has
-/// already been fully validated (as opposed to one merely imported during bootstrap).
+/// already been fully validated (as opposed to a legacy import without nonces).
 pub fn build_store_with_nonces(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
     let store = build_store(headers);
     for header in headers {

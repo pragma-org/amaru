@@ -55,10 +55,14 @@ use crate::{effects::FindBestCandidate, performance::Performance};
 ///   - Always returns the (mutated) state. Preloaded at startup for non-empty stores.
 ///
 /// - **TipFromUpstream(tip: Tip, parent: Point)**:
-///   - Loads the header+validity via store (terminates with error log if missing or already validated).
-///   - Inserts/extends a `tips` entry: special-cases `parent == Origin`; extends an existing pending chain;
-///     or (for new forks) queries store ancestors (only if the prefix is valid) and inserts the fragment.
-///     Ignores (with info log) tips depending on invalid blocks.
+///   - Loads the header+validity via store (terminates with error log if the header is missing).
+///   - Already-validated or already-invalid tips are dropped (debug/info); this stage must not
+///     terminate on a pre-existing validity flag, because startup recovery may set block validity
+///     after `track_peers` sent `NewTip` and before this message is processed. Already-tracked tips
+///     (same hash already in `tips` or equal to `best_tip`) are a pure no-op.
+///   - Otherwise inserts/extends a `tips` entry: special-cases `parent == Origin`; extends an existing
+///     pending chain; or (for new forks) queries store ancestors (only if the prefix is valid) and
+///     inserts the fragment. Ignores (with info log) tips depending on invalid blocks.
 ///   - If the new tip is now tracked in `tips` *and* is strictly better than `best_tip` per `cmp_tip`:
 ///     logs "new best tip candidate"; **if** `may_fetch_blocks` then sets it `false` and `eff.send(&downstream, (tip, parent))`;
 ///     unconditionally updates `best_tip`.
@@ -185,18 +189,36 @@ impl SelectChain {
     ) {
         let store = Store::new(eff.clone()).with_trace_context(&stage_context);
 
-        let Some((header, valid)) = store.load_header_with_validity(&tip.hash()).await else {
+        let Some((header, validity)) = store.load_header_with_validity(&tip.hash()).await else {
             tracing::error!(tip = %tip.point(), "tip not found");
             return eff.terminate().await;
         };
 
-        if let Some(valid) = valid {
-            // track_peers only sends a tip if the header was just validated,
-            // so its block cannot be already validated.
-            tracing::error!(tip = %tip.point(), %valid, "got tip from upstream that was already validated");
-            return eff.terminate().await;
-        } else {
-            tracing::debug!(tip = %tip.point(), "got new tip from upstream");
+        // Block-body validity is independent of header validation. During startup,
+        // `fetch_blocks` recovery can set a validity flag after `track_peers` checked the
+        // header and before this message is processed. Already-decided blocks are dropped:
+        // recovery/`Initialize` already own that chain; re-adopting here would grow `tips`
+        // and disturb best-tip bookkeeping for no gain.
+        match validity {
+            Some(true) => {
+                tracing::debug!(tip = %tip.point(), "ignoring tip from upstream that was already validated");
+                return;
+            }
+            Some(false) => {
+                tracing::info!(tip = %tip.point(), "ignoring tip from upstream whose block is already invalid");
+                let now = eff.clock().await;
+                eff.external(Performance::record_header_abandoned(tip.hash(), now)).await;
+                return;
+            }
+            None => {
+                tracing::debug!(tip = %tip.point(), "got new tip from upstream");
+            }
+        }
+
+        // Redundant NewTip (e.g. concurrent peers announcing the same header) must be a no-op.
+        if self.tips.contains_key(&tip.hash()) || self.best_tip.as_ref().is_some_and(|h| h.hash() == tip.hash()) {
+            tracing::debug!(tip = %tip.point(), "ignoring tip from upstream that is already tracked");
+            return;
         }
 
         if parent == Point::Origin {
@@ -209,9 +231,8 @@ impl SelectChain {
             chain.push(tip.hash());
             self.tips.insert(tip.hash(), chain);
         } else {
-            // since track_peers will only send newly stored tips, this is the case where
-            // a new fork is detected; while the new fork can only be one header long, it
-            // may still require multiple block validations to reach a valid chain
+            // New fork (or first tip on a path not yet tracked): the new branch can only be one
+            // header long, but it may still require multiple block validations to reach a valid chain.
             let (mut ancestors, valid) = store.unvalidated_ancestor_hashes(parent.hash()).await;
             if valid {
                 tracing::debug!(%parent, tip = %tip.point(), "new chain");

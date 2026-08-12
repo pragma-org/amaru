@@ -381,8 +381,9 @@ impl TrackPeers {
     /// and `None` is returned. Otherwise the header is validated and the point of its parent is
     /// returned, together with the nonces to store alongside it.
     ///
-    /// Note: a header can already sit in the chain store without carrying any nonces, as is the
-    /// case for headers imported during bootstrap. Those still need to be validated.
+    /// Note: a header can already sit in the chain store without carrying any nonces (legacy
+    /// imports or incomplete migrations). Those still need to be validated so descendants can
+    /// evolve nonces. Proper bootstrap stores nonces with every packaged header.
     #[expect(clippy::too_many_arguments)]
     async fn validate_header(
         &mut self,

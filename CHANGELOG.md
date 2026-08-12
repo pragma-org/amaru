@@ -47,6 +47,8 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-consensus**: make `select_chain` handle already-validated tips idempotently so concurrent startup recovery cannot terminate the stage. ([#1124](https://github.com/pragma-org/amaru/pull/1124))
+- **amaru**: store nonces with both packaged bootstrap headers so the "nonces present ⇔ header validated" invariant holds after bootstrap. ([#1124](https://github.com/pragma-org/amaru/pull/1124))
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
 
 ## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)

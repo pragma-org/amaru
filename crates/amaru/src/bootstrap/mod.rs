@@ -27,7 +27,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
 use amaru_observability::{error, info};
-use amaru_ouroboros::{ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
+use amaru_ouroboros::{BaseReadChainStore, ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
 use amaru_progress_bar::TerminalProgressBar;
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
@@ -430,11 +430,15 @@ pub async fn bootstrap(
     import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir, &mut recently_unregistered_accounts)
         .await?;
 
-    import_snapshot(
+    // Extract nonces for the second snapshot tip as well: packaged bootstrap headers must enter
+    // the chain store already carrying nonces so that "nonces present ⇔ header validated" holds
+    // with no bootstrap exception.
+    let imported_second_snapshot = import_snapshot_with_optional_nonces(
         network,
         global_parameters,
         &second_snapshot_path,
         &ledger_dir,
+        Some(snapshot_hash(first_snapshot)?),
         &mut recently_unregistered_accounts,
     )
     .await?;
@@ -450,10 +454,16 @@ pub async fn bootstrap(
     .await?;
 
     let chain_db = RocksDBStore::create(RocksDbConfig::new(chain_dir.clone()))?;
-    let chain_state = imported_third_snapshot
+    let second_chain_state = imported_second_snapshot
+        .chain_state
+        .ok_or("bootstrap import must produce the chain state for the second snapshot")?;
+    let third_chain_state = imported_third_snapshot
         .chain_state
         .ok_or("bootstrap import must produce the chain state for the latest snapshot")?;
-    store_chain_state(imported_third_snapshot.epoch, &chain_db, chain_state)?;
+    // Nonces for both packaged tips are stored before the headers so
+    // `import_packaged_blocks` can attach each header via `store_validated_header`.
+    store_chain_state(imported_second_snapshot.epoch, &chain_db, second_chain_state)?;
+    store_chain_state(imported_third_snapshot.epoch, &chain_db, third_chain_state)?;
     let blocks = load_packaged_blocks_for_bootstrap(
         &second_snapshot_path,
         second_snapshot,
@@ -474,7 +484,13 @@ pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> 
 
         info!(bootstrap::header::IMPORT, header = %hash);
 
-        db.store_header(&block_header)?;
+        // Packaged bootstrap headers are trusted as fully validated; nonces must already have
+        // been imported for each tip so the durable "nonces present ⇔ header validated" invariant
+        // holds with no special case for bootstrap.
+        let nonces = db.get_nonces(&hash).ok_or_else(|| {
+            format!("bootstrap packaged header {hash} is missing nonces; refuse to store incomplete tip")
+        })?;
+        db.store_validated_header(&block_header, &nonces)?;
         db.store_block(&hash, &RawBlock::from(block.as_slice()))?;
     }
 
