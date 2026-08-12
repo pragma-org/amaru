@@ -334,6 +334,9 @@ fn step_fragment_pools(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng
     if ix.is_multiple_of(2) {
         let params = fixture::pool_params(rng);
         let deposit = rng.random();
+        // Bench pool ids are random, so every registration is a brand-new pool establishing its
+        // current VRF key; hydration then resolves it without reaching for the (mock) store.
+        fragment.pools_current_vrf.produce(pool_id, params.vrf);
         fragment.pools.register(pool_id, Arc::new((params, CertificatePointer::default(), deposit)));
     } else {
         fragment.pools.unregister(pool_id, Epoch::default() + 1);

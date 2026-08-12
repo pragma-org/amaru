@@ -29,7 +29,10 @@ use amaru_kernel::{
 use thiserror::Error;
 
 pub use crate::store::columns::cc_members::Row as CCMember;
-use crate::{state::volatile, store::StoreError};
+use crate::{
+    state::volatile,
+    store::{StoreError, columns::pools_vrf},
+};
 
 mod default;
 pub use default::*;
@@ -84,6 +87,9 @@ pub enum ContextHydratationError {
 
     #[error("failed to hydrate pools")]
     ResolvePools(#[source] StoreError),
+
+    #[error("failed to hydrate vrf key hashes")]
+    ResolveVrfKeyHashes(#[source] StoreError),
 
     #[error("failed to hydrate accounts")]
     ResolveAccounts(#[source] StoreError),
@@ -187,6 +193,17 @@ pub trait PrepareUtxoSlice<'a> {
 // Pools
 // ------------------------------------------------------------------------------------------------
 
+/// A pool's VRF key hashes as of this point in the chain
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolVrfs {
+    /// The active parameters' key; the only key exempt from the uniqueness check
+    /// when the pool itself re-registers.
+    pub current: pools_vrf::Key,
+    /// A pending re-registration's not-yet-activated key, which a
+    /// further re-registration with a different key releases.
+    pub pending: Option<pools_vrf::Key>,
+}
+
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
     fn exists(&self, pool: PoolId) -> bool;
@@ -199,6 +216,10 @@ pub trait PoolsSlice {
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
 pub trait PreparePoolsSlice<'a> {
     fn require_pool(&'_ mut self, pool: &'a PoolId);
+
+    /// Require the VRF key hash claimed by a pool registration, so that its occupancy can be
+    /// resolved ahead of the pv11 uniqueness check.
+    fn require_vrf_key_hash(&'_ mut self, vrf: &'a pools_vrf::Key);
 }
 
 // Accounts

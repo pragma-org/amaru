@@ -368,6 +368,16 @@ impl StateOverlay {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(&pool_id))
     }
 
+    /// The pool's post-boundary current VRF key, when the pending epoch-boundary transition
+    /// activated a re-registration for it. Like pool reaping, this must shadow the stale stable
+    /// row until the overlay is flushed.
+    pub fn activated_pool_vrf(&self, pool_id: PoolId) -> Option<pools_vrf::Key> {
+        self.pools_updates
+            .as_ref()
+            .and_then(|updates| updates.updated().get(&pool_id))
+            .map(|row| row.current_params.vrf)
+    }
+
     /// Whether the VRF key hash is freed entirely by the pending epoch-boundary transition: its
     /// pool's differing future parameters activated, leaving the key dangling. Like pool reaping,
     /// this must shadow the stale stable entry until the overlay is flushed.

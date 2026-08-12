@@ -56,6 +56,14 @@ pub use tests::*;
 pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
+    /// Newly-registered pools' current VRF keys: only a brand-new pool's registration establishes
+    /// current parameters in-block; a re-registration's key goes to [`Self::pools_pending_vrf`] instead.
+    /// Never consumed, since current parameters only ever change at an epoch boundary.
+    pub pools_current_vrf: DiffSet<PoolId, pools_vrf::Key>,
+    /// Re-registered pools' not-yet-activated VRF keys: a later re-registration overwrites the entry
+    /// and activation happens at the epoch boundary. Never consumed either;
+    /// a scheduled retirement leaves the pending parameters in place.
+    pub pools_pending_vrf: DiffSet<PoolId, pools_vrf::Key>,
     pub pools_vrf: DiffSet<pools_vrf::Key, ()>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
@@ -126,7 +134,10 @@ impl AnchoredVolatileFragment {
                     utxo,
                     pools,
                     // Never flushed from here: the stable claims and releases are derived inside
-                    // the pools column as the registrations themselves land.
+                    // the pools column as the registrations themselves land, and the stable row
+                    // itself already carries the current and pending parameters.
+                    pools_current_vrf: _,
+                    pools_pending_vrf: _,
                     pools_vrf: _,
                     accounts,
                     dreps,

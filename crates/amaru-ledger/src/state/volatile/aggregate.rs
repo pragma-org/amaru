@@ -24,7 +24,9 @@ use amaru_kernel::{
 
 use crate::{
     context::{ProposalState, ProposalStateSlim},
-    state::volatile::{AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, VolatileFragment},
+    state::volatile::{
+        AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, VolatileFragment, VolatilePoolVrfs,
+    },
     store::columns::pools_vrf,
 };
 
@@ -60,6 +62,17 @@ type Committee = IndexedBind<StakeCredential, ConstitutionalCommitteeMemberStatu
 /// When cleaning up fragments, we can simply decrement and remove once we reach 0.
 type Pools = IndexedEpochReg<PoolId>;
 
+/// The window's per-pool *current* VRF keys, projecting Haskell's `psStakePools`: an entry exists
+/// only for pools whose current parameters were established in-window, i.e. brand-new
+/// registrations. See [`IndexedSet`].
+type PoolsCurrentVrf = IndexedSet<PoolId, pools_vrf::Key>;
+
+/// The window's per-pool *pending* VRF keys, projecting Haskell's `psFutureStakePoolParams`: an
+/// entry exists for pools re-registered in-window, whose new parameters only activate at the next
+/// epoch boundary. A pool may re-register repeatedly, so the per-key history in [`IndexedSet`] is
+/// what keeps stabilization exact.
+type PoolsPendingVrf = IndexedSet<PoolId, pools_vrf::Key>;
+
 /// The window's VRF key hash occupancy, indexed per key so each one's per-fragment history is
 /// retracted exactly on stabilization. Within a single epoch every change is a set-to-1 claim or a
 /// release. But, unlike pool existence, occupancy is not monotonic-additive:
@@ -74,6 +87,8 @@ type VrfKeyHashes = IndexedSet<pools_vrf::Key, ()>;
 pub struct VolatileAggregate {
     utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pools: Pools,
+    pools_current_vrf: PoolsCurrentVrf,
+    pools_pending_vrf: PoolsPendingVrf,
     pools_vrf: VrfKeyHashes,
     accounts: Accounts,
     dreps: DReps,
@@ -106,6 +121,16 @@ impl VolatileAggregate {
     /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
     pub fn resolve_pool(&self, pool_id: PoolId) -> bool {
         self.pools.get(&pool_id)
+    }
+
+    /// This aggregate's verdict on a pool's VRF keys, each per the newest fragment that touched
+    /// it: `current` is established by a brand-new registration, `pending` by a re-registration;
+    /// `Unknown` defers to the stable row.
+    pub fn resolve_pool_vrfs(&self, pool_id: PoolId) -> VolatilePoolVrfs {
+        VolatilePoolVrfs {
+            current: self.pools_current_vrf.get(&pool_id).copied(),
+            pending: self.pools_pending_vrf.get(&pool_id).copied(),
+        }
     }
 
     /// This aggregate's verdict on a VRF key hash's occupancy: claimed (`Exists`), released
@@ -152,6 +177,8 @@ impl VolatileAggregate {
         let VolatileFragment {
             utxo,
             pools,
+            pools_current_vrf,
+            pools_pending_vrf,
             pools_vrf,
             withdrawals,
             proposals,
@@ -166,6 +193,8 @@ impl VolatileAggregate {
 
         self.utxo.extend(utxo);
         self.pools.extend(pools);
+        self.pools_current_vrf.extend(pools_current_vrf);
+        self.pools_pending_vrf.extend(pools_pending_vrf);
         self.pools_vrf.extend(pools_vrf);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.clone());
@@ -190,6 +219,9 @@ impl VolatileAggregate {
     /// - `utxo`: utxos, by definition, are unique, so cleaning up specific UTxOs can never overwrite older state.
     /// - `pools`: existence is monotonic-additive, a registration counts up and retirement is
     ///   deferred to the epoch boundary, so retracting just decrements the count this fragment added.
+    /// - `pools_current_vrf`, `pools_pending_vrf`: per-key history like `committee`. A pool may
+    ///   re-register repeatedly within the window, each time overwriting its pending key, and only
+    ///   its ordered verdicts make retracting the front exact.
     /// - `pools_vrf`: per-key history like `committee`. Occupancy is *not* monotonic-additive the
     ///   way pool existence is so a key may be claimed and released repeatedly within the window, and only its ordered
     ///   verdicts make retracting the front exact.
@@ -218,6 +250,8 @@ impl VolatileAggregate {
             dreps,
             dreps_deregistrations: _,
             pools,
+            pools_current_vrf,
+            pools_pending_vrf,
             pools_vrf,
             votes: _,
         } = fragment;
@@ -227,6 +261,16 @@ impl VolatileAggregate {
         assert!(
             self.pools.remove(pools),
             "removed a fragment touching onr or more key(s) abstent from the pool aggregate ?!"
+        );
+
+        assert!(
+            self.pools_current_vrf.remove(pools_current_vrf),
+            "removed a fragment touching one or more key(s) absent from the pool current vrf aggregate ?!"
+        );
+
+        assert!(
+            self.pools_pending_vrf.remove(pools_pending_vrf),
+            "removed a fragment touching one or more key(s) absent from the pool pending vrf aggregate ?!"
         );
 
         assert!(

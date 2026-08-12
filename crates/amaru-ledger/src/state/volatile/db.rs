@@ -31,8 +31,8 @@ use crate::{
     state::{
         AnchoredVolatileFragment, StateError,
         volatile::{
-            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatileSequence,
-            VolatileSeries, VolatileState, overlay::StateOverlay,
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, RollbackGuard, VolatileDBRecovery, VolatilePoolVrfs,
+            VolatileSequence, VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
     store::{HistoricalStores, Store, columns::pools_vrf},
@@ -105,6 +105,42 @@ impl VolatileState for VolatileDB {
         } else {
             Existence::Unknown
         }
+    }
+
+    type PoolVrfs = VolatilePoolVrfs;
+    fn resolve_pool_vrfs(&self, pool_id: PoolId) -> Self::PoolVrfs {
+        let opening = self.current.resolve_pool_vrfs(pool_id);
+
+        // The pool's effective current VRF key, precedence `current -> overlay -> draining`. The
+        // opening epoch establishes one only for a brand-new pool; below it, a boundary
+        // retirement discards the key entirely (`Gone`) while a boundary-activated
+        // re-registration replaces it. A key established in the closing epoch necessarily belongs
+        // to a pool the boundary did not touch (the transition folds the whole window), so it
+        // flows through untouched.
+        let current = opening.current.or_else(|| {
+            if self.overlay.is_pool_retired(pool_id) {
+                Existence::Gone
+            } else if let Some(vrf) = self.overlay.activated_pool_vrf(pool_id) {
+                Existence::Exists(vrf)
+            } else {
+                self.draining.resolve_pool_vrfs(pool_id).current
+            }
+        });
+
+        // The pool's pending (not-yet-activated) VRF key. Only the opening epoch can hold one: a
+        // boundary the pool went through either activated or discarded whatever was pending, and
+        // a key still pending from the closing epoch is impossible (the transition folds the
+        // whole window, so it would have been activated or discarded too). `Unknown` therefore
+        // defers to the stable row, whose pending registrations are all from the open epoch.
+        let pending = opening.pending.or_else(|| {
+            if self.overlay.is_pool_retired(pool_id) || self.overlay.activated_pool_vrf(pool_id).is_some() {
+                Existence::Gone
+            } else {
+                Existence::Unknown
+            }
+        });
+
+        VolatilePoolVrfs { current, pending }
     }
 
     // ------------------------------------------------------------------------------ VRF key hashes
@@ -1443,6 +1479,35 @@ mod tests {
         assert_eq!(right, &Resettable::Set(&Epoch::from(99)));
     }
 
+    #[test_case(None, None, None => vrfs(Existence::Unknown, Existence::Unknown); "untouched everywhere defers to the stable row")]
+    #[test_case(None, None, Some(PoolAct::New(7)) => vrfs(Existence::Exists(key(7)), Existence::Unknown); "a new pool in current establishes its current key")]
+    #[test_case(None, None, Some(PoolAct::ReReg(8)) => vrfs(Existence::Unknown, Existence::Exists(key(8))); "a re-registration in current only pends its key")]
+    #[test_case(Some(PoolAct::New(7)), None, None => vrfs(Existence::Exists(key(7)), Existence::Unknown); "a new pool in draining, untouched since")]
+    #[test_case(None, Some(Purge::Dangling), None => vrfs(Existence::Exists(key(8)), Existence::Gone); "a boundary activation replaces the current key and settles the pending one")]
+    #[test_case(None, Some(Purge::Retired), None => vrfs(Existence::Gone, Existence::Gone); "a boundary retirement discards both keys")]
+    #[test_case(None, Some(Purge::Retired), Some(PoolAct::New(9)) => vrfs(Existence::Exists(key(9)), Existence::Gone); "re-registering a boundary-retired pool starts fresh")]
+    #[test_case(Some(PoolAct::New(7)), Some(Purge::Dangling), None => vrfs(Existence::Exists(key(8)), Existence::Gone); "the boundary shadows the closing epoch")]
+    #[test_case(None, Some(Purge::Dangling), Some(PoolAct::ReReg(9)) => vrfs(Existence::Exists(key(8)), Existence::Exists(key(9))); "a current re-registration pends over a boundary activation")]
+    fn resolve_pool_vrfs_precedence(
+        draining: Option<PoolAct>,
+        boundary: Option<Purge>,
+        current: Option<PoolAct>,
+    ) -> VolatilePoolVrfs {
+        let mut db = VolatileDB::default();
+        if let Some(act) = draining {
+            db.push_back(pool_vrf_block(10, act));
+        }
+        match boundary {
+            Some(purge) => db.simple_transition(vrf_boundary(purge)),
+            None => db.simple_transition(()),
+        }
+        if let Some(act) = current {
+            db.push_back(pool_vrf_block(20, act));
+        }
+
+        db.resolve_pool_vrfs(pool_id())
+    }
+
     #[test_case(None, None, None => VrfOccupancy::Deferred(0); "untouched everywhere defers to the stable store")]
     #[test_case(None, None, Some(VrfAct::Claim) => VrfOccupancy::Claimed; "claimed in current")]
     #[test_case(None, None, Some(VrfAct::Release) => VrfOccupancy::Released; "released in current")]
@@ -1499,6 +1564,14 @@ mod tests {
         Release,
     }
 
+    /// What a block did to `pool_id()`: registered it as a brand-new pool (establishing its
+    /// current key) or re-registered it (pending its key), each with the tagged VRF key.
+    #[derive(Clone, Copy)]
+    enum PoolAct {
+        New(u8),
+        ReReg(u8),
+    }
+
     #[derive(Clone, Copy)]
     enum Purge {
         Dangling,
@@ -1548,6 +1621,27 @@ mod tests {
         Hash::new([7; 32])
     }
 
+    fn key(tag: u8) -> pools_vrf::Key {
+        Hash::new([tag; 32])
+    }
+
+    fn pool_id() -> PoolId {
+        Hash::new([9; 28])
+    }
+
+    fn vrfs(current: Existence<pools_vrf::Key>, pending: Existence<pools_vrf::Key>) -> VolatilePoolVrfs {
+        VolatilePoolVrfs { current, pending }
+    }
+
+    fn pool_vrf_block(slot: u64, act: PoolAct) -> AnchoredVolatileFragment {
+        let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
+        match act {
+            PoolAct::New(tag) => block.fragment.pools_current_vrf.produce(pool_id(), key(tag)),
+            PoolAct::ReReg(tag) => block.fragment.pools_pending_vrf.produce(pool_id(), key(tag)),
+        }
+        block
+    }
+
     fn vrf_block(slot: u64, act: VrfAct) -> AnchoredVolatileFragment {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         match act {
@@ -1559,7 +1653,7 @@ mod tests {
 
     fn vrf_boundary(purge: Purge) -> PoolsEpochTransitionUpdates {
         let boundary = Epoch::from(1);
-        let params = PoolParams { vrf: vrf_key(), ..run_strategy(any_pool_params()) };
+        let params = PoolParams { id: pool_id(), vrf: vrf_key(), ..run_strategy(any_pool_params()) };
         let mut pool = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), 500_000_000, params.clone());
 
         match purge {

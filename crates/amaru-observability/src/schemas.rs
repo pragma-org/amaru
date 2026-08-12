@@ -468,6 +468,13 @@ define_schemas! {
                         optional from_db: u64
                     }
                 }
+                vrf_key_hashes {
+                    /// Resolve VRF key hash occupancy from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
                 accounts {
                     /// Resolve accounts from the volatile db or the stable one
                     public HYDRATE {

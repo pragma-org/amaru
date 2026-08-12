@@ -71,6 +71,17 @@ pub type CommitteeMemberBind<'a> = Bind<&'a ConstitutionalCommitteeMemberStatus,
 /// update is a bind-only (`value: None`) change that composes onto the registration from below.
 pub type DRepBind<'a> = Bind<&'a Empty, &'a Empty, &'a DRepRegistration>;
 
+/// The volatile layers' verdict on a pool's VRF keys `current` projects the active parameters'
+/// key, the only one exempt when the pool itself re-registers, and `pending` projects
+/// a not-yet-activated re-registration's key. For either, `Unknown`
+/// defers to the stable row, while `Gone` settles the answer as "none": a boundary event
+/// invalidated whatever the stale stable row still shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolatilePoolVrfs {
+    pub current: Existence<pools_vrf::Key>,
+    pub pending: Existence<pools_vrf::Key>,
+}
+
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {
     // --------------------------------------------------------------------------------------- UTxOs
@@ -87,6 +98,12 @@ pub trait VolatileState {
     #[expect(clippy::panic)]
     fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
         panic!("VolatileState.resolve_pool({pool_id})")
+    }
+
+    type PoolVrfs;
+    #[expect(clippy::panic)]
+    fn resolve_pool_vrfs(&self, pool_id: PoolId) -> Self::PoolVrfs {
+        panic!("VolatileState.resolve_pool_vrfs({pool_id})")
     }
 
     // ------------------------------------------------------------------------------ VRF key hashes
