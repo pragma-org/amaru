@@ -251,6 +251,7 @@ mod tests {
         )
         .expect("start system metrics")
         .expect("poller handle");
+        record_block_replay_ready(&meter);
 
         // Wait for process poll + periodic export.
         tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -268,6 +269,7 @@ mod tests {
             "cardano_node_metrics_cardano_version_major_int",
             "cardano_node_metrics_cardano_version_minor_int",
             "cardano_node_metrics_cardano_version_patch_int",
+            "cardano_node_metrics_blockReplayProgress_real",
             "process_cpu_live",
             "process_disk_live_read",
             "process_disk_live_write",
@@ -280,5 +282,18 @@ mod tests {
         ] {
             assert!(names.iter().any(|n| n == expected), "missing metric {expected}; have {names:?}");
         }
+
+        let replay_progress = exported
+            .iter()
+            .flat_map(|rm| rm.scope_metrics().flat_map(|scope| scope.metrics()))
+            .find(|metric| metric.name() == "cardano_node_metrics_blockReplayProgress_real")
+            .expect("block replay progress metric");
+        let opentelemetry_sdk::metrics::data::AggregatedMetrics::F64(
+            opentelemetry_sdk::metrics::data::MetricData::Gauge(replay_progress),
+        ) = replay_progress.data()
+        else {
+            panic!("block replay progress should be an f64 gauge");
+        };
+        assert_eq!(replay_progress.data_points().next().expect("replay progress data point").value(), 100.0);
     }
 }

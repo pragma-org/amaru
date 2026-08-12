@@ -53,6 +53,7 @@ use crate::{
         build_stage_graph::{NodeStages, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
     },
+    system_metrics::record_block_replay_ready,
 };
 
 /// Build a node given the provided configuration and run it on `runtime`.
@@ -69,9 +70,10 @@ pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<No
         .with_trace_buffer(trace_buffer)
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
-    let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
+    let node_stages = build_node(&config, config.global_parameters(), Arc::clone(&meter), &mut stage_builder)?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(runtime.clone());
+    record_block_replay_ready(&meter);
     Ok(NodeRunning { tokio_running, mempool_sender })
 }
 

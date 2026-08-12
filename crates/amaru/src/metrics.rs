@@ -20,10 +20,7 @@
 use std::sync::Arc;
 
 use amaru_metrics::Meter;
-use amaru_node::{
-    BuildIdentity, record_block_replay_ready as record_block_replay_ready_node,
-    track_system_metrics as track_system_metrics_node,
-};
+use amaru_node::{BuildIdentity, track_system_metrics as track_system_metrics_node};
 use tokio::task::JoinHandle;
 
 use crate::version;
@@ -40,9 +37,4 @@ pub fn track_system_metrics(meter: Arc<Meter>) -> Result<Option<JoinHandle<()>>,
             arch: version::target_arch(),
         },
     )
-}
-
-/// Expose cardano-node's replay-progress metric once Amaru's stage graph is running.
-pub fn record_block_replay_ready(meter: &Meter) {
-    record_block_replay_ready_node(meter);
 }
