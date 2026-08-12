@@ -34,8 +34,7 @@ pub struct GovernanceSummary {
     pub pools_deposits: BTreeMap<StakeCredential, Lovelace>,
 }
 
-#[derive(Debug, serde::Serialize)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct DRepState {
     pub metadata: Option<Box<Anchor>>,
     pub valid_until: Option<Epoch>,

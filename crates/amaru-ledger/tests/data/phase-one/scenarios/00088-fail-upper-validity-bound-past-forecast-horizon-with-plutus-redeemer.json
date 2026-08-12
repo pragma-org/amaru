@@ -1,0 +1,37 @@
+{
+  "title": "upper validity bound past forecast horizon with plutus redeemer",
+  "description": "A Plutus V3 spend whose validity interval upper bound (slot 500000) is past the era history's forecast horizon (slot 432000 from tip 0). Building the script context requires translating the upper bound to time, which fails past the horizon; phase-one must reject with OutsideForecast before the script is executed.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820111111111111111111111111111111111111111111111111111111111111111100",
+        "output": "bf00581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a00989680ff"
+      },
+      {
+        "input": "825820222222222222222222222222222222222222222222222222222222222222222200",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d90102818258201111111111111111111111111111111111111111111111111111111111111111000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940ff021a00030d40031a0007a1200b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820222222222222222222222222222222222222222222222222222222222222222200ffa300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840f2702a3015e6f65352819a0017599550b7471b153b0fd46a1b8685fc164b1e2a82892a000e5443eb0bfb97d3ef0a8b950f8a72f905427ec254a6333a85e0020907d901028145440101006105a18200008200821907d01a000f4240f5f6",
+  "expected": {
+    "predicate": "OutsideForecast"
+  }
+}

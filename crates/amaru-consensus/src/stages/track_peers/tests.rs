@@ -402,11 +402,11 @@ fn test_roll_forward_known_peer_header_already_stored() {
     ]);
 }
 
-/// A header imported during bootstrap is present in the chain store but has no evolved nonces.
-/// When re-received from a peer, its nonces must still be computed (via `validate_header`) so
-/// that descendant headers can be validated. Nonce absence means the header was never fully
-/// validated, so it is treated like a new header: stored with its nonces and propagated
-/// downstream.
+/// A header may already sit in the chain store without nonces (legacy import / incomplete
+/// migration). When re-received from a peer, its nonces must still be computed so descendant
+/// headers can be validated. Nonce absence means the header was never fully validated, so it is
+/// treated like a new header: stored with its nonces and propagated downstream. `select_chain`
+/// accepts the resulting tip even if concurrent recovery already validated the block body.
 #[test]
 fn test_roll_forward_stored_header_missing_nonces_revalidates() {
     let prep = test_prep();

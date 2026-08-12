@@ -52,6 +52,8 @@ ignored = [
   "num-bigint",
   "num-integer",
   "num-traits",
+  "opentelemetry",
+  "opentelemetry_sdk",
   "percent-encoding",
   "ppv-lite86",
   "proc-macro2",
@@ -120,8 +122,6 @@ futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
-hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "http1", "server", "service"] }
 insta = { version = "1", features = ["yaml"] }
 itertools = { version = "0.13" }
 libc = { version = "0.2" }
@@ -129,6 +129,8 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 percent-encoding = { version = "2" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1" }
@@ -155,12 +157,8 @@ subtle = { version = "2", default-features = false, features = ["const-generics"
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "full", "visit-mut"] }
 thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
-tokio-util = { version = "0.7", features = ["codec", "io"] }
-tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
@@ -180,6 +178,7 @@ log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
+opentelemetry = { version = "0.32", features = ["testing"] }
 percent-encoding = { version = "2" }
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
@@ -198,15 +197,14 @@ thiserror = { version = "2" }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }
-tracing-log = { version = "0.2", default-features = false, features = ["log-tracer", "std"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-unknown-linux-musl.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -219,7 +217,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 
 [target.x86_64-unknown-linux-musl.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -236,7 +234,8 @@ stable_deref_trait = { version = "1" }
 [target.aarch64-unknown-linux-musl.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -249,7 +248,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 
 [target.aarch64-unknown-linux-musl.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -266,7 +265,8 @@ stable_deref_trait = { version = "1" }
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -279,7 +279,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -296,7 +296,8 @@ stable_deref_trait = { version = "1" }
 [target.aarch64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -309,7 +310,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -327,7 +328,8 @@ stable_deref_trait = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -341,7 +343,7 @@ rustls-webpki = { version = "0.103", default-features = false, features = ["aws-
 security-framework-sys = { version = "2" }
 spin = { version = "0.10" }
 stable_deref_trait = { version = "1" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -357,14 +359,15 @@ stable_deref_trait = { version = "1" }
 
 [target.x86_64-pc-windows-msvc.dependencies]
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 winapi = { version = "0.3", default-features = false, features = ["cfg", "consoleapi", "evntrace", "handleapi", "impl-default", "in6addr", "inaddr", "minwinbase", "ntsecapi", "processenv", "synchapi", "sysinfoapi", "winbase", "windef", "winerror", "winioctl", "winuser"] }
 windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
@@ -381,7 +384,6 @@ windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_Fil
 
 [target.wasm32-unknown-unknown.dependencies]
 bumpalo = { version = "3", features = ["collections"] }
-futures-sink = { version = "0.3" }
 js-sys = { version = "0.3" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }
@@ -395,7 +397,6 @@ web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "Blob
 [target.wasm32-unknown-unknown.build-dependencies]
 bumpalo = { version = "3", features = ["collections"] }
 futures-channel = { version = "0.3", features = ["sink"] }
-futures-sink = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 js-sys = { version = "0.3" }
@@ -411,7 +412,8 @@ wasm-bindgen = { version = "0.2" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system", "http2"] }
+hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
 libc = { version = "0.2", default-features = false, features = ["extra_traits"] }
 miniz_oxide = { version = "0.8", default-features = false, features = ["simd", "with-alloc"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -419,11 +421,12 @@ num = { version = "0.4", default-features = false, features = ["alloc", "libm"] 
 num-bigint = { version = "0.4" }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
+portable-atomic = { version = "1" }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 stable_deref_trait = { version = "1" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
+tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
 
 [target.riscv32gc-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }

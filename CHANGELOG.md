@@ -45,12 +45,27 @@ Other guiding principles:
 - **amaru-protocols**: add peer-sharing mini-protocol (client and server) and wire it into the connection manager. ([#1168](https://github.com/pragma-org/amaru/issues/1168))
 - **amaru-consensus**: use shared peers to populate the peer candidate pool and serve share requests. ([#1169](https://github.com/pragma-org/amaru/issues/1169))
 - **amaru-consensus**: allow configuration of peer mixture from static, shared, snapshot, and ledger peers. ([#1180](https://github.com/pragma-org/amaru/issues/1180))
+- **amaru-node / embedding**: first-class embedding surface for running Amaru in-process without the product CLI or TUI (EDR 031). `NodeBuilder` for network-aware setup; `build_and_run_node(config, runtime_handle)` takes an explicit Tokio handle (never ambient context); metrics are optional on the config. Ledger observers for adopted blocks and opt-in stake-summary views (by reference; field-level clone); stop policy remains with the outer app. Examples: `run_until`, `address_watch`.
+- **amaru-bootstrap**: new crate owning cold-start snapshot download/import (S3/CDN, archives, chain-store seeding). Product CLI re-exports it for compatibility.
+- **amaru-observability**: shared `TelemetryCaptureLayer` / `subscribe_telemetry` for schema-oriented in-process event subscription (used by the TUI and embedders).
+- **amaru-ledger**: `LedgerObservers` with `on_block` / `LedgerBlockEvent` (adopt + tip-first undo on successful fork switch) and opt-in `on_ledger_snapshot` (full `StakeSummary` by reference before slim in-memory retention).
+- **amaru-observability**: schema field transport now preserves JSON primitives (`bool`/`number`/`string`) and encodes other values as CBOR (`record_bytes`); console/JSON layers decode CBOR for structured output (including real JSON arrays/objects). OTEL logs use a project-owned bridge that maps CBOR fields to nested `AnyValue` maps/lists rather than opaque bytes.
+
+### Changed
+
+- **amaru / amaru-tui**: product observability setup no longer types against TUI-specific capture types; the TUI installs the shared observability capture layer.
+- **scripts/run-until**: drives the `amaru-node` `run_until` example (observer-based stop). The example installs OTLP via `amaru_node::Telemetry` when `AMARU_WITH_OPEN_TELEMETRY` is set, so e2e metrics still flow to the collector.
+- **amaru-node**: `Telemetry::install` embedder helper for fmt / JSON / OTLP (metrics + traces + logs) using the same env knobs as the product binary.
+- **amaru-observability**: structured logging for complex values: schema transport preserves JSON primitives and encodes other values as CBOR (`record_bytes`); JSON traces get nested objects/arrays, OTEL logs get nested `AnyValue` maps/lists, OTEL spans upgrade homogeneous CBOR arrays to `Value::Array` (with CBOR diagnostic fallback otherwise), and console logs use CBOR diagnostic notation. ([#1182](https://github.com/pragma-org/amaru/pull/1182))
 
 ### Fixed
 
+- **amaru-node**: when OTLP is enabled, `Telemetry` starts the same process/build gauges as the product binary (`process_*`, `cardano_node_metrics_cardano_*`) so embedders such as `run_until` satisfy the e2e metrics contract.
+- **amaru-consensus**: make `select_chain` handle already-validated tips idempotently so concurrent startup recovery cannot terminate the stage. ([#1124](https://github.com/pragma-org/amaru/pull/1124))
+- **amaru**: store nonces with both packaged bootstrap headers so the "nonces present ⇔ header validated" invariant holds after bootstrap. ([#1124](https://github.com/pragma-org/amaru/pull/1124))
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
 
-## [v10.11.20260806](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
+## [v10.11.20260807](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
 ### Added
 

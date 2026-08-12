@@ -302,28 +302,34 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         .into();
     }
 
-    // Generate record calls and event fields for each field
-    let mut field_records = Vec::new();
-    let mut event_fields = Vec::new();
-
-    for (field_name, value_expr) in &args.field_assignments {
-        let field_name_str = field_name.to_string();
-        let field_name_literal = syn::LitStr::new(&field_name_str, proc_macro2::Span::call_site());
-        let record_call = quote! {
-            tracing::Span::current().record(#field_name_literal, tracing::field::display(&#value_expr));
-        };
-        field_records.push(record_call);
-
-        // Store field for event emission
-        let event_field = quote! { #field_name = %#value_expr };
-        event_fields.push(event_field);
-    }
-
     let schema_const_tokens = &args.schema_path;
     let full_path_tokens = quote! { #schema_const_tokens };
     let path_str: String = full_path_tokens.to_string().chars().filter(|c| !c.is_whitespace()).collect();
     let (schema_name, module_path, macro_module) = parse_full_schema_path(&path_str);
     let meta = SchemaMeta { schema_name: schema_name.to_owned(), module_path, macro_module: macro_module.to_owned() };
+
+    let record_macro_ident = make_ident(&make_record_macro_name(&meta.categories(), &meta.schema_name));
+
+    let mut field_prep = Vec::new();
+    let mut span_records = Vec::new();
+    let mut event_fields = Vec::new();
+
+    for (index, (field_name, value_expr)) in args.field_assignments.iter().enumerate() {
+        let field_name_str = field_name.to_string();
+        let field_name_literal = syn::LitStr::new(&field_name_str, proc_macro2::Span::call_site());
+        let value_ident = make_ident(&format!("__amaru_record_value_{index}"));
+        let formatted_ident = make_ident(&format!("__amaru_record_formatted_{index}"));
+        let format_call =
+            meta.macro_call_expr(&record_macro_ident, quote! { #field_name_str, #value_ident, format_typed });
+        field_prep.push(quote! {
+            let #value_ident = &(#value_expr);
+            let #formatted_ident = #format_call;
+        });
+        span_records.push(quote! {
+            tracing::Span::current().record(#field_name_literal, &#formatted_ident);
+        });
+        event_fields.push(quote! { #field_name = #formatted_ident });
+    }
 
     let public_const_path = build_schema_associated_const_path(&meta, &args.schema_path, "PUBLIC");
     let schema_name_path = build_schema_associated_const_path(&meta, &args.schema_path, "NAME");
@@ -353,7 +359,8 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 
                 if #public_const_path || __amaru_emit_private {
                     let _schema = #schema_name_path;
-                    #(#field_records)*
+                    #(#field_prep)*
+                    #(#span_records)*
                     tracing::#level_macro!(#(#event_fields),*);
                 }
             }
@@ -366,9 +373,8 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 
                 if #public_const_path || __amaru_emit_private {
                     let _schema = #schema_name_path;
-
-                    // Runtime recording of all fields
-                    #(#field_records)*
+                    #(#field_prep)*
+                    #(#span_records)*
                 }
             }
         }
@@ -387,14 +393,14 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
 ///
 /// Fields are validated against the schema like span fields: required fields
 /// must be present, unknown fields are rejected, and plain `field = value`
-/// assignments are type-checked against the declared field type. Values are
-/// rendered with `Display` by default (`Debug` for `?value`), so field values
-/// do not need to implement `tracing::Value`.
+/// assignments are type-checked against the declared field type. Transport is
+/// type-driven: primitives use typed `tracing::Value`; other types are CBOR-encoded
+/// via `Serialize`. Explicit `%` / `?` still use Display/Debug.
 ///
 /// # Syntax
 ///
 /// ```text
-/// trace_event!(LEVEL, SCHEMA, field = value, ...);   // type-checked, Display-rendered
+/// trace_event!(LEVEL, SCHEMA, field = value, ...);   // type-checked, typed or CBOR
 /// trace_event!(LEVEL, SCHEMA, field = %value, ...);  // pre-formatted, Display-rendered
 /// trace_event!(LEVEL, SCHEMA, field = ?value, ...);  // pre-formatted, Debug-rendered
 /// trace_event!(LEVEL, SCHEMA, value, %value, ?value) // shorthands for the above
@@ -546,29 +552,49 @@ pub fn expand_trace_event(input: TokenStream) -> TokenStream {
             let expr = &field.value;
             let value_ident = make_ident(&format!("__amaru_trace_value_{index}"));
             let formatted_ident = make_ident(&format!("__amaru_trace_formatted_{index}"));
-            let (validation_mode, formatter_binding) = match field.formatter {
-                TraceEventFormatter::Typed => (
-                    quote! { validate_value },
-                    quote! { let #formatted_ident = tracing::field::display(&#value_ident); },
-                ),
-                TraceEventFormatter::Display => (
-                    quote! { validate_event_display },
-                    quote! { let #formatted_ident = tracing::field::display(&#value_ident); },
-                ),
-                TraceEventFormatter::Debug => (
-                    quote! { validate_event_debug },
-                    quote! { let #formatted_ident = tracing::field::debug(&#value_ident); },
-                ),
-                TraceEventFormatter::Value => {
-                    (quote! { validate_event_value }, quote! { let #formatted_ident = #value_ident; })
+            match field.formatter {
+                TraceEventFormatter::Typed => {
+                    // Type-check + emit typed primitive or CBOR bytes (`format_typed`).
+                    let format_call =
+                        meta.macro_call_expr(&record_macro_ident, quote! { #field_name, #value_ident, format_typed });
+                    quote! {
+                        let #value_ident = &(#expr);
+                        let #formatted_ident = #format_call;
+                    }
                 }
-            };
-            let validate_value_call =
-                meta.macro_call_stmt(&record_macro_ident, quote! { #field_name, &#value_ident, #validation_mode });
-            quote! {
-                let #value_ident = &(#expr);
-                #validate_value_call
-                #formatter_binding
+                TraceEventFormatter::Display => {
+                    let validate_call = meta.macro_call_stmt(
+                        &record_macro_ident,
+                        quote! { #field_name, &#value_ident, validate_event_display },
+                    );
+                    quote! {
+                        let #value_ident = &(#expr);
+                        #validate_call
+                        let #formatted_ident = tracing::field::display(#value_ident);
+                    }
+                }
+                TraceEventFormatter::Debug => {
+                    let validate_call = meta.macro_call_stmt(
+                        &record_macro_ident,
+                        quote! { #field_name, &#value_ident, validate_event_debug },
+                    );
+                    quote! {
+                        let #value_ident = &(#expr);
+                        #validate_call
+                        let #formatted_ident = tracing::field::debug(#value_ident);
+                    }
+                }
+                TraceEventFormatter::Value => {
+                    let validate_call = meta.macro_call_stmt(
+                        &record_macro_ident,
+                        quote! { #field_name, &#value_ident, validate_event_value },
+                    );
+                    quote! {
+                        let #value_ident = &(#expr);
+                        #validate_call
+                        let #formatted_ident = #value_ident;
+                    }
+                }
             }
         })
         .collect();
@@ -646,7 +672,11 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
     }
 
     enum TraceSpanFormatter {
+        /// Bare `field = expr`: type-driven transport (primitive or CBOR).
+        Typed,
+        /// Explicit `field = %expr`: Display-rendered.
         Display,
+        /// Explicit `field = ?expr`: Debug-rendered.
         Debug,
     }
 
@@ -738,9 +768,9 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
                     let field_ref: syn::Ident = input.parse()?;
                     (quote! { #field_ref }, TraceSpanFormatter::Debug)
                 } else {
-                    // Regular expression
+                    // Regular expression: typed primitive or CBOR
                     let value_expr: syn::Expr = input.parse()?;
-                    (quote! { #value_expr }, TraceSpanFormatter::Display)
+                    (quote! { #value_expr }, TraceSpanFormatter::Typed)
                 };
 
                 fields.push(TraceSpanField { name: field_name_str, validation_expr, formatter });
@@ -802,20 +832,38 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
             let expr = &field.validation_expr;
             let value_ident = make_ident(&format!("__amaru_trace_value_{index}"));
             let formatted_ident = make_ident(&format!("__amaru_trace_formatted_{index}"));
-            let validate_value_call =
-                meta.macro_call_stmt(&record_macro_ident, quote! { #field_name, &#value_ident, validate_value });
-            let formatter_binding = match field.formatter {
+            match field.formatter {
+                TraceSpanFormatter::Typed => {
+                    // Own the expression value, then pass a reference into format_typed.
+                    let format_call =
+                        meta.macro_call_expr(&record_macro_ident, quote! { #field_name, &#value_ident, format_typed });
+                    quote! {
+                        let #value_ident = #expr;
+                        let #formatted_ident = #format_call;
+                    }
+                }
                 TraceSpanFormatter::Display => {
-                    quote! { let #formatted_ident = tracing::field::display(&#value_ident); }
+                    let validate_call = meta.macro_call_stmt(
+                        &record_macro_ident,
+                        quote! { #field_name, &#value_ident, validate_event_display },
+                    );
+                    quote! {
+                        let #value_ident = #expr;
+                        #validate_call
+                        let #formatted_ident = tracing::field::display(&#value_ident);
+                    }
                 }
                 TraceSpanFormatter::Debug => {
-                    quote! { let #formatted_ident = tracing::field::debug(&#value_ident); }
+                    let validate_call = meta.macro_call_stmt(
+                        &record_macro_ident,
+                        quote! { #field_name, &#value_ident, validate_event_debug },
+                    );
+                    quote! {
+                        let #value_ident = #expr;
+                        #validate_call
+                        let #formatted_ident = tracing::field::debug(&#value_ident);
+                    }
                 }
-            };
-            quote! {
-                let #value_ident = #expr;
-                #validate_value_call
-                #formatter_binding
             }
         })
         .collect();

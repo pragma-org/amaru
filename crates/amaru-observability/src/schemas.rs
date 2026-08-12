@@ -12,12 +12,82 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Tracing schemas for compile-time validation of observability instrumentation.
+//! Amaru tracing schemas declared with the `define_schemas!` embedded DSL.
 //!
-//! This module defines schemas that can be used with the `debug_span!` macro to enable
-//! compile-time validation of tracing fields. The schemas are organized by module
-//! hierarchy matching the crate structure.
+//! Each schema is a compile-time contract for a tracing span or event: its path, required
+//! and optional fields, types, visibility, and functional tags. Call sites use
+//! [`trace_span!`](crate::trace_span), [`trace_event!`](crate::trace_event), and
+//! [`trace_record!`](crate::trace_record) against these schemas; missing required fields,
+//! unknown fields, and type mismatches fail at compile time.
 //!
+//! # Embedded DSL
+//!
+//! Schemas are written inside [`define_schemas!`](amaru_observability_macros::define_schemas)
+//! as a nested category tree. Category names become Rust modules; schema names become unit
+//! structs with associated constants and typed field accessors. Identifiers and types in
+//! this file are re-emitted by the proc macro with their original source spans, so
+//! go-to-definition from a generated item navigates back to the definition here.
+//!
+//! ```text
+//! define_schemas! {
+//!     <category> {
+//!         tags: <tag>, <tag>, ...          // optional; inherited by nested schemas
+//!         <category> { ... }               // nested category
+//!         /// Description of the event     // required on every schema
+//!         [public] <SCHEMA> {
+//!             tags: <tag>, ...             // optional; overrides inherited tags
+//!             required <field>: <Type> [,]
+//!             optional <field>: <Type> [,]
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! ## Categories and paths
+//!
+//! Categories are lowercase identifiers; they nest arbitrarily. Schema names start with an
+//! uppercase letter (conventionally `SCREAMING_SNAKE_CASE`). The category path determines:
+//!
+//! - the Rust path of the generated marker type (`amaru::ledger::state::ROLL_FORWARD`);
+//! - the tracing `target` (first two segments, e.g. `amaru::ledger`);
+//! - the span/event `name` (remaining segments plus the schema name, lowercased and joined
+//!   with `.`, e.g. `state.roll_forward`).
+//!
+//! ## Schemas
+//!
+//! Every schema **must** have a `///` doc comment (multi-line docs are joined for the
+//! runtime registry). Schemas are **private by default**; mark with `public` to always emit
+//! and to include the schema in the runtime dump used by documentation tooling. Private
+//! schemas emit only when `AMARU_TRACE_EMIT_PRIVATE` is set. Empty field lists are valid.
+//!
+//! ## Fields
+//!
+//! Fields use a prefix keyword and a Rust type:
+//!
+//! - `required name: Type` — must be present at every `trace_span!` / `trace_event!` site;
+//! - `optional name: Type` — may be omitted; may be filled later with `trace_record!`.
+//!
+//! Trailing commas after types are allowed. Field names must be Rust identifiers; `name`,
+//! `schema`, and `message` are reserved. Types may be paths or generics
+//! (`amaru_kernel::Hash<28>`). `String` accepts any `AsRef<str>`; primitives use typed
+//! `tracing::Value` transport; other types must implement `Serialize` (CBOR via `record_bytes`)
+//! when recorded without an explicit `%` / `?` formatter.
+//!
+//! ## Tags
+//!
+//! `tags: cpu, io` (module-level or schema-level) attaches boolean span attributes
+//! `amaru.tag.<name>`. Module tags are inherited; a schema-level `tags:` replaces them.
+//! Select tagged spans with e.g. `AMARU_LOG='[{amaru.tag.cpu=true}]=trace'`.
+//!
+//! ## Generated API (per schema)
+//!
+//! For each schema the expansion provides a unit struct with `NAME`, `TARGET`, `PATH`,
+//! `VALIDATION`, `PUBLIC`, `FIELD_*` constants, `matches()`, and typed `field(record)`
+//! accessors (for use with [`RecordFields`](crate::RecordFields)). Hidden declarative
+//! macros implement the compile-time checks invoked by the instrumentation macros.
+//!
+//! See also the language reference on
+//! [`define_schemas!`](amaru_observability_macros).
 
 use amaru_observability_macros::define_schemas;
 

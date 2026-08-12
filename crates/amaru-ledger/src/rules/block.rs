@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, Transaction,
-    TransactionId, TransactionPointer, size::BLOCK_BODY,
+    Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot,
+    TransactionId, TransactionPointer, cardano::transaction_ref::TransactionRef, size::BLOCK_BODY,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -189,7 +189,7 @@ pub fn execute<C, S: From<C>>(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     governance_activity: GovernanceActivity,
-    block: Block,
+    block: &Block,
 ) -> BlockValidation<(), anyhow::Error>
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
@@ -211,9 +211,9 @@ where
 
     with_block_context(header_size::block_header_size_valid(block.header_len(), protocol_params))?;
 
-    with_block_context(body_size::block_body_size_valid(&block))?;
+    with_block_context(body_size::block_body_size_valid(block))?;
 
-    with_block_context(body_hash::block_body_hash_valid(&block))?;
+    with_block_context(body_hash::block_body_hash_valid(block))?;
 
     // NOTE: No protocol major version in block header
     //
@@ -223,7 +223,7 @@ where
     // with_block_context(header_version::block_header_version_valid(&block, protocol_params))?;
     // ```
 
-    with_block_context(ex_units::block_ex_units_valid(&block, protocol_params))?;
+    with_block_context(ex_units::block_ex_units_valid(block, protocol_params))?;
 
     with_block_context(ref_scripts_size::block_ref_scripts_size_valid(
         block.transaction_bodies.iter().flat_map(|tx| tx.reference_inputs.as_deref().unwrap_or(&[])),
@@ -247,7 +247,7 @@ where
                     global_parameters,
                     governance_activity,
                     TransactionPointer { slot, transaction_index: i as usize },
-                    &transaction,
+                    transaction,
                     tx_size,
                 )
             })
@@ -282,7 +282,7 @@ pub fn validate_transaction<C>(
     global_parameters: &GlobalParameters,
     governance_activity: GovernanceActivity,
     pointer: TransactionPointer,
-    transaction: &Transaction,
+    transaction: TransactionRef<'_>,
     tx_size: u64,
 ) -> Result<(), TransactionInvalid>
 where
@@ -298,8 +298,8 @@ where
         pointer,
         transaction.is_expected_valid,
         transaction.body.clone(),
-        &transaction.witnesses,
-        transaction.auxiliary_data.as_ref(),
+        transaction.witnesses,
+        transaction.auxiliary_data,
         tx_size,
     )?;
 
@@ -311,8 +311,8 @@ where
         global_parameters,
         pointer,
         transaction.is_expected_valid,
-        &transaction.body,
-        &transaction.witnesses,
+        transaction.body,
+        transaction.witnesses,
     )?;
 
     consumed_inputs.into_iter().for_each(|input| context.consume(input));

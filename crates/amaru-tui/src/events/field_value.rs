@@ -14,8 +14,6 @@
 
 use std::fmt;
 
-use tracing::Level;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldValue {
     Bool(bool),
@@ -58,17 +56,6 @@ impl FieldValue {
         match self {
             Self::String(value) => Some(value),
             Self::Bool(_) | Self::I64(_) | Self::U64(_) | Self::F64(_) => None,
-        }
-    }
-
-    pub fn as_level(&self) -> Option<Level> {
-        match self.as_str()? {
-            "TRACE" => Some(Level::TRACE),
-            "DEBUG" => Some(Level::DEBUG),
-            "INFO" => Some(Level::INFO),
-            "WARN" => Some(Level::WARN),
-            "ERROR" => Some(Level::ERROR),
-            _ => None,
         }
     }
 }

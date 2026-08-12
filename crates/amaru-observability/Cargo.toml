@@ -15,16 +15,19 @@ categories.workspace = true
 
 [dependencies]
 amaru-observability-macros.workspace = true
+cbor-data.workspace = true
+cbor4ii.workspace = true
+hex.workspace = true
 inventory.workspace = true
 opentelemetry.workspace = true
 quote.workspace = true
 serde = { workspace = true, features = ["derive"] }
-syn.workspace = true
-tracing-opentelemetry.workspace = true
-tracing.workspace = true
-
-[dev-dependencies]
 serde_json = { workspace = true, features = ["std"] }
+syn.workspace = true
+thiserror.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

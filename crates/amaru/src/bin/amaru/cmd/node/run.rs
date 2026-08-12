@@ -408,14 +408,16 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> Result<(), Box<dyn std::error::Error>> {
     let _pid_file = optional_pid_file(args.pid_file.clone());
 
-    let config = parse_args(args)?;
+    let mut config = parse_args(args)?;
     let trace_dump_path = config.trace_dump_path.clone();
     let submit_api_address = config.submit_api_address()?;
     pre_flight_checks()?;
 
     let meter = Arc::new(meter);
     let metrics = track_system_metrics(meter.clone())?;
-    let running = build_and_run_node(config, meter.clone())?;
+    config.meter = Some(meter.clone());
+    // Explicit handle: node stages must run on this process's Tokio runtime.
+    let running = build_and_run_node(config, &tokio::runtime::Handle::current())?;
     record_block_replay_ready(&meter);
 
     // Main-thread signal path can abort stages without scheduling this future.

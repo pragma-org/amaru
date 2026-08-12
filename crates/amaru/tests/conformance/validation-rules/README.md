@@ -44,7 +44,7 @@ To validate a single phase-one fixture:
 
 ```console
 cabal run -v0 exe:conformance -- validate-phase-one \
-  --test-case ../../../../amaru-ledger/tests/data/phase-one/fail/bad-inputs-utxo.json
+  --test-case ../../../../amaru-ledger/tests/data/phase-one/fail/00050-unknown-spent-input.json
 ```
 
 The command prints the test case label and either the expected outcome (`PASS` or the expected predicate failure), or a validation mismatch error.

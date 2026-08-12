@@ -25,8 +25,7 @@ pub mod stake_distribution;
 
 // ---------------------------------------------------------------- AccountState
 
-#[derive(Debug, Default)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Default, Clone)]
 pub struct AccountState {
     pub balance: Lovelace,
     pub pool: Option<PoolId>,
@@ -45,8 +44,7 @@ impl ::serde::Serialize for AccountState {
 
 // ------------------------------------------------------------------- PoolState
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Clone)]
 pub struct PoolState {
     /// Date since the pool last registered. Pool updates do not influence this pointer; but pool
     /// de-registration would cause it to reset on the next registration.

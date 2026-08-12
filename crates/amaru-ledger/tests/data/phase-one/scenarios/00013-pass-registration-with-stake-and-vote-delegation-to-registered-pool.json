@@ -1,0 +1,31 @@
+{
+  "title": "registration with stake and vote delegation to registered pool",
+  "description": "StakeVoteRegDeleg registers a new credential, delegates to a registered pool, and vote-delegates to Abstain.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "pools": ["dddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002ab980ff021a00030d4004d9010281850d8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581cdddddddddddddddddddddddddddddddddddddddddddddddddddddddd81021a001e84800800ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840db3a4128ba92b428da9c14d030badb9a04a7bae06feb4229d687a5b77dfa79cdd71b0647552165b41eb59f21c8287fe11cf83b6ba0c79f37af6ab61bdbec7100f5f6",
+  "expected": "Pass"
+}

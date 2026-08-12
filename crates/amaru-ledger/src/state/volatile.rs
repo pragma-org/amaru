@@ -123,8 +123,8 @@ pub trait VolatileSequence {
     fn view_front(&self) -> Option<&Self::Item>;
     fn has_point(&self, point: &Point) -> bool;
 
-    fn iter(&self) -> impl Iterator<Item = &Self::Item>;
-    fn into_iter(self) -> impl Iterator<Item = Self::Item>;
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Self::Item>;
+    fn into_iter(self) -> impl DoubleEndedIterator<Item = Self::Item>;
 
     fn pop_front(&mut self) -> Option<Self::Item>;
     fn push_back(&mut self, item: Self::Item);
@@ -139,6 +139,16 @@ pub struct RollbackGuard<'a> {
 impl RollbackGuard<'_> {
     pub fn rollback_length(&self) -> usize {
         self.recovery.rollback_length()
+    }
+
+    /// Discarded fragments in **tip-first** order (newest undone block first).
+    pub fn discarded_tip_first(&self) -> Box<dyn Iterator<Item = &AnchoredVolatileFragment> + '_> {
+        match &self.recovery {
+            VolatileDBRecovery::RecoverInEpoch { discarded, .. } => Box::new(discarded.iter().rev()),
+            VolatileDBRecovery::RecoverAcrossEpoch { old_current, drained, .. } => {
+                Box::new(drained.iter().chain(old_current.iter()).rev())
+            }
+        }
     }
 }
 

@@ -55,8 +55,15 @@ use crate::{
     },
 };
 
-/// Build a node given the provided configuration and run it using Tokio.
-pub fn build_and_run_node(config: Config, meter: Arc<Meter>) -> anyhow::Result<NodeRunning> {
+/// Build a node given the provided configuration and run it on `runtime`.
+///
+/// The Tokio [`Handle`] must be passed explicitly; this never uses ambient
+/// `Handle::current()`. Metrics come from [`Config::meter`], or a default empty
+/// [`Meter`] when unset.
+///
+/// For the common embedding path prefer [`crate::NodeBuilder`].
+pub fn build_and_run_node(config: Config, runtime: &Handle) -> anyhow::Result<NodeRunning> {
+    let meter = config.meter.clone().unwrap_or_else(|| Arc::new(Meter::default()));
     let trace_buffer = TraceBuffer::new_shared(config.trace_buffer_min_entries, config.trace_buffer_max_size);
     let mut stage_builder = TokioBuilder::default()
         .with_trace_buffer(trace_buffer)
@@ -64,7 +71,7 @@ pub fn build_and_run_node(config: Config, meter: Arc<Meter>) -> anyhow::Result<N
 
     let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
-    let tokio_running = stage_builder.run(Handle::current().clone());
+    let tokio_running = stage_builder.run(runtime.clone());
     Ok(NodeRunning { tokio_running, mempool_sender })
 }
 
@@ -123,7 +130,8 @@ pub fn build_node(
     let chain_store = make_chain_store(config)?;
 
     // Make the ledger state and get its tip
-    let state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
+    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
+    state.set_observers(config.observers.clone());
     let ledger_tip = state.tip().into_owned();
     tracing::info!(
         tip.hash = %ledger_tip.hash(),

@@ -22,9 +22,12 @@ mod startup;
 mod terminal_guard;
 mod ui;
 
-pub use capture::TracingLayer;
+pub use amaru_observability::TelemetryCaptureLayer;
 pub use config::Config;
 pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
 pub use session::{Session, should_enable};
 pub use settings::Settings;
 pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};
+
+/// Back-compat alias: the TUI now installs the shared observability capture layer.
+pub type TracingLayer = TelemetryCaptureLayer;

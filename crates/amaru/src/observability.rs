@@ -23,10 +23,11 @@ use std::{
 };
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
-use amaru_observability::{info, warn};
-use amaru_tui::TracingLayer as TuiTracingLayer;
+use amaru_observability::{
+    CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge, CborTraceArrayLayer,
+    TelemetryCaptureLayer, console_field_formatter, info, warn,
+};
 use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{
     Resource,
     logs::SdkLoggerProvider,
@@ -46,12 +47,11 @@ use tracing_subscriber::{
     field::{MakeVisitor, VisitFmt, VisitOutput},
     filter::Filtered,
     fmt::{
-        FmtContext, FormatEvent, FormatFields, FormattedFields, Layer,
-        format::{DefaultFields, FmtSpan, Format, Json, JsonFields, Writer},
+        Layer,
+        format::{FmtSpan, Writer},
     },
     layer::{Context, Filter, Layered, SubscriberExt},
     prelude::*,
-    registry::LookupSpan,
     util::SubscriberInitExt,
 };
 
@@ -69,26 +69,37 @@ const OTEL_ERROR_THROTTLE_MS: u64 = 5_000;
 // TracingSubscriber
 // -----------------------------------------------------------------------------
 
-type InnerOtelStack<S> = Layered<OpenTelemetryFilter<S>, S>;
+/// Registry → OTEL trace layer.
+type AfterTrace<S> = Layered<OpenTelemetryFilter<S>, S>;
 
-type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, InnerOtelStack<S>>;
+/// After trace: upgrade CBOR homogeneous arrays on spans to `Value::Array`.
+type AfterTraceArrays<S> = Layered<CborTraceArrayLayer, AfterTrace<S>>;
+
+type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, AfterTraceArrays<S>>;
 
 type LogBridgeFilter<S> = Filtered<
-    OpenTelemetryTracingBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
+    CborOtelLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
     ThrottledEnvFilter,
-    InnerOtelStack<S>,
+    AfterTraceArrays<S>,
 >;
 
 type OpenTelemetryFilter<S> =
     Filtered<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, ThrottledEnvFilter, S>;
 
-type JsonLayer<S> = Layered<JsonFilter<S>, S>;
+/// Registry (or OTEL stack) with structured JSON span-field bag.
+type WithJsonSpanFields<S> = Layered<CborJsonSpanLayer, S>;
 
-type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
+type JsonLayer<S> = Layered<JsonFilter<S>, WithJsonSpanFields<S>>;
 
-type TuiFilter<S> = Filtered<TuiTracingLayer, ThrottledEnvFilter, S>;
+type JsonFilter<S> = Filtered<
+    Layer<WithJsonSpanFields<S>, CborJsonFields, CborJsonEventFormat>,
+    ThrottledEnvFilter,
+    WithJsonSpanFields<S>,
+>;
 
-type TuiLayer<S> = Layered<TuiFilter<S>, S>;
+type LocalTelemetryFilter<S> = Filtered<TelemetryCaptureLayer, ThrottledEnvFilter, S>;
+
+type LocalTelemetryLayer<S> = Layered<LocalTelemetryFilter<S>, S>;
 
 type DelayedWarning = Option<Box<dyn FnOnce()>>;
 
@@ -202,67 +213,8 @@ impl<V: VisitFmt> VisitFmt for HideTagVisitor<V> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// SpanJsonFormat
-//
-// Wraps the standard JSON formatter to inject `id` and `parent_id` top-level
-// fields into span lifecycle events (enter/exit). Regular log events are left
-// untouched.
-// -----------------------------------------------------------------------------
-
-pub struct SpanJsonFormat(Format<Json>);
-
-impl<S, N> FormatEvent<S, N> for SpanJsonFormat
-where
-    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
-    N: for<'a> FormatFields<'a> + 'static,
-{
-    fn format_event(
-        &self,
-        ctx: &FmtContext<'_, S, N>,
-        mut writer: Writer<'_>,
-        event: &tracing::Event<'_>,
-    ) -> fmt::Result {
-        // Render the event with the inner JSON formatter into a buffer
-        let mut buf = String::new();
-        self.0.format_event(ctx, Writer::new(&mut buf), event)?;
-
-        // Inject span-related fields before the closing '}'.
-        //  - Span lifecycle events (enter/exit): get `id`, `parent_id`, and recorded fields.
-        //  - Log events emitted inside a span: get `parent_id` only.
-        if let Some(current) = ctx.lookup_current()
-            && let Some(pos) = buf.rfind('}')
-        {
-            let mut extra = String::new();
-
-            // Inject recorded span fields (stored by the fmt layer as FormattedFields).
-            let extensions = current.extensions();
-            if let Some(fields) = extensions.get::<FormattedFields<JsonFields>>() {
-                let s = fields.as_str().trim();
-                // Strip outer braces from JSON object: {"k":v,...} -> "k":v,...
-                let inner = s.strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(s);
-                if !inner.is_empty() {
-                    extra.push(',');
-                    extra.push_str(inner);
-                }
-            }
-
-            if event.metadata().is_span() {
-                let id = current.id().into_u64();
-                extra.push_str(&format!(",\"id\":{id}"));
-            }
-            if let Some(parent) = current.parent() {
-                let parent_id = parent.id().into_u64();
-                extra.push_str(&format!(",\"parent_id\":{parent_id}"));
-            }
-            if !extra.is_empty() {
-                buf.insert_str(pos, &extra);
-            }
-        }
-
-        writer.write_str(&buf)
-    }
-}
+// JSON event formatting (single-pass CBOR-aware NDJSON) lives in
+// `amaru_observability::json_format`.
 
 #[derive(Default)]
 pub enum TracingSubscriber<S> {
@@ -270,8 +222,8 @@ pub enum TracingSubscriber<S> {
     Empty,
     Registry(Registry),
     WithOpenTelemetry(OpenTelemetryLayer<S>),
-    WithTui(TuiLayer<S>),
-    WithTuiAndOpenTelemetry(TuiLayer<OpenTelemetryLayer<S>>),
+    WithLocalTelemetry(LocalTelemetryLayer<S>),
+    WithLocalTelemetryAndOpenTelemetry(LocalTelemetryLayer<OpenTelemetryLayer<S>>),
     WithJson(JsonLayer<S>),
     WithJsonAndOpenTelemetry(JsonLayer<OpenTelemetryLayer<S>>),
 }
@@ -286,25 +238,33 @@ impl TracingSubscriber<Registry> {
     pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>, log_bridge: LogBridgeFilter<Registry>) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer).with(log_bridge));
+                *self = TracingSubscriber::WithOpenTelemetry(
+                    registry.with(layer).with(CborTraceArrayLayer::new()).with(log_bridge),
+                );
             }
             _ => panic!("'with_open_telemetry' called after 'with_json' or another terminal layer"),
         }
     }
 
+    /// Install a local in-process telemetry capture layer (TUI or embedder subscription).
+    ///
+    /// Accepts the shared [`TelemetryCaptureLayer`] from `amaru-observability` so product setup
+    /// does not depend on TUI types.
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_tui(&mut self, layer: TuiTracingLayer) -> DelayedWarning {
+    pub fn with_local_telemetry(&mut self, layer: TelemetryCaptureLayer) -> DelayedWarning {
         let (default_filter, warning) = new_trace_filter();
 
         match std::mem::take(self) {
             Self::Registry(registry) => {
-                *self = TracingSubscriber::WithTui(registry.with(layer.with_filter(default_filter)));
+                *self = TracingSubscriber::WithLocalTelemetry(registry.with(layer.with_filter(default_filter)));
             }
             Self::WithOpenTelemetry(layered) => {
-                *self = TracingSubscriber::WithTuiAndOpenTelemetry(layered.with(layer.with_filter(default_filter)));
+                *self = TracingSubscriber::WithLocalTelemetryAndOpenTelemetry(
+                    layered.with(layer.with_filter(default_filter)),
+                );
             }
-            _ => panic!("'with_tui' called after as third layer"),
+            _ => panic!("'with_local_telemetry' called after as third layer"),
         }
 
         warning
@@ -320,12 +280,12 @@ impl TracingSubscriber<Registry> {
         match std::mem::take(self) {
             Self::Registry(registry) => {
                 let (layer, warning) = registry_layer();
-                *self = TracingSubscriber::WithJson(registry.with(layer));
+                *self = TracingSubscriber::WithJson(registry.with(CborJsonSpanLayer::new()).with(layer));
                 warning
             }
             Self::WithOpenTelemetry(layered) => {
                 let (layer, warning) = otel_layer();
-                *self = TracingSubscriber::WithJsonAndOpenTelemetry(layered.with(layer));
+                *self = TracingSubscriber::WithJsonAndOpenTelemetry(layered.with(CborJsonSpanLayer::new()).with(layer));
                 warning
             }
             _ => panic!("'with_json' called after as third layer"),
@@ -341,7 +301,7 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(DefaultFields::new()))
+                            .fmt_fields(HideTagFields(console_field_formatter()))
                             .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
                             .with_span_events(FmtSpan::CLOSE)
                             .with_filter(default_filter),
@@ -355,7 +315,7 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(DefaultFields::new()))
+                            .fmt_fields(HideTagFields(console_field_formatter()))
                             .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
                             .with_span_events(FmtSpan::CLOSE)
                             .with_filter(default_filter),
@@ -363,10 +323,10 @@ impl TracingSubscriber<Registry> {
                     .init();
                 return warning;
             }
-            TracingSubscriber::WithTui(layered) => {
+            TracingSubscriber::WithLocalTelemetry(layered) => {
                 layered.init();
             }
-            TracingSubscriber::WithTuiAndOpenTelemetry(layered) => {
+            TracingSubscriber::WithLocalTelemetryAndOpenTelemetry(layered) => {
                 layered.init();
             }
             TracingSubscriber::WithJson(layered) => {
@@ -386,7 +346,6 @@ impl TracingSubscriber<Registry> {
 // ---------------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
-    let format = || SpanJsonFormat(tracing_subscriber::fmt::format().json().with_span_list(false));
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
     let filter = || new_trace_filter();
 
@@ -396,8 +355,8 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
-                    .event_format(format())
-                    .fmt_fields(JsonFields::new())
+                    .event_format(CborJsonEventFormat::new())
+                    .fmt_fields(CborJsonFields::new())
                     .with_filter(default_filter),
                 warning,
             )
@@ -407,8 +366,8 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
-                    .event_format(format())
-                    .fmt_fields(JsonFields::new())
+                    .event_format(CborJsonEventFormat::new())
+                    .fmt_fields(CborJsonFields::new())
                     .with_filter(default_filter),
                 warning,
             )
@@ -522,8 +481,8 @@ pub fn setup_open_telemetry(
         .with_target(true)
         .with_filter(default_filter);
 
-    // Logs
-    let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider).with_filter(new_trace_filter().0);
+    // Logs: project-owned bridge so CBOR field payloads become nested AnyValue maps/lists.
+    let log_bridge = CborOtelLogBridge::new(&logs_provider).with_filter(new_trace_filter().0);
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
 
@@ -676,10 +635,17 @@ fn new_trace_filter() -> (ThrottledEnvFilter, DelayedWarning) {
     new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER)
 }
 
+/// Optional in-process telemetry sinks supplied by the product binary or an embedder
+/// (TUI, custom dashboards, test harnesses). Types intentionally avoid naming `amaru-tui`.
+pub struct LocalTelemetry {
+    pub metrics_observer: Option<Box<dyn Fn(&amaru_metrics::MetricsEvent) + Send + Sync>>,
+    pub capture_layer: Option<TelemetryCaptureLayer>,
+}
+
 pub fn setup_observability(
     with_open_telemetry: bool,
     with_json_traces: bool,
-    with_tui: Option<&amaru_tui::Session>,
+    local: Option<LocalTelemetry>,
     color: bool,
     hints: &impl ObservabilityHints,
 ) -> OpenTelemetryHandle {
@@ -691,9 +657,11 @@ pub fn setup_observability(
         (OpenTelemetryHandle::default(), None)
     };
 
-    let warning_tui = if let Some(tui) = with_tui {
-        meter.set_local_observer(tui.metrics_observer());
-        subscriber.with_tui(tui.tracing_layer())
+    let warning_local = if let Some(local) = local {
+        if let Some(observer) = local.metrics_observer {
+            meter.set_local_observer(observer);
+        }
+        if let Some(layer) = local.capture_layer { subscriber.with_local_telemetry(layer) } else { None }
     } else {
         None
     };
@@ -702,7 +670,7 @@ pub fn setup_observability(
 
     let warning_log = subscriber.init(color);
 
-    for notify in [warning_otlp, warning_tui, warning_json, warning_log].into_iter().flatten() {
+    for notify in [warning_otlp, warning_local, warning_json, warning_log].into_iter().flatten() {
         notify();
     }
 
@@ -750,6 +718,8 @@ mod tests {
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
     };
+
+    use tracing_subscriber::fmt::format::DefaultFields;
 
     use super::*;
 

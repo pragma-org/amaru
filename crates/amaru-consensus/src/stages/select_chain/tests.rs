@@ -60,7 +60,9 @@ fn test_tip_not_found() {
 }
 
 #[test]
-fn test_tip_already_validated() {
+fn test_tip_already_validated_is_ignored() {
+    // Concurrent startup recovery can mark a block valid after track_peers sent NewTip and
+    // before select_chain processes it. Drop the tip; do not re-adopt or terminate.
     let prep = test_prep();
     prep.store_headers(&prep.headers.main());
     prep.set_validity(prep.headers.h2.hash(), true);
@@ -75,12 +77,73 @@ fn test_tip_already_validated() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", tip.hash(), true),
-            te_terminate("sc-1"),
-            te_terminated("sc-1", TerminationReason::Voluntary),
+            te_state("sc-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["got tip from upstream that was already validated"])
-        .assert_and_remove(Level::INFO, &["terminated"])
+    logs.assert_and_remove(Level::DEBUG, &["already validated"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_tip_already_invalid_is_abandoned() {
+    let prep = test_prep();
+    prep.store_headers(&prep.headers.main());
+    prep.set_validity(prep.headers.h2.hash(), false);
+    let tip = prep.headers.h2.tip();
+    let parent = prep.headers.h1.point();
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &msg),
+            te_load_header("sc-1", tip.hash(), true),
+            te_clock_read("sc-1"),
+            te_record_header_abandoned(
+                "sc-1",
+                tip.hash(),
+                Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
+            ),
+            te_state("sc-1", &prep.state),
+        ],
+    );
+    logs.assert_and_remove(Level::INFO, &["already invalid"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+}
+
+#[test]
+fn test_tip_already_tracked_is_noop() {
+    let mut prep = test_prep();
+    prep.store_headers(&prep.headers.main());
+    let tip = prep.headers.h2.tip();
+    let parent = prep.headers.h1.point();
+    prep.state.best_tip = Some(prep.headers.h2.clone());
+    prep.state.tips = BTreeMap::from_iter([(
+        tip.hash(),
+        vec![prep.headers.h0.hash(), prep.headers.h1.hash(), prep.headers.h2.hash()],
+    )]);
+    let msg = SelectChainMsg::tip_from_upstream(tip, parent);
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &msg),
+            te_load_header("sc-1", tip.hash(), true),
+            te_state("sc-1", &prep.state),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
+        .assert_and_remove(Level::DEBUG, &["already tracked"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 

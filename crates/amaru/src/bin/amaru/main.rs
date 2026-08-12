@@ -17,7 +17,7 @@ use std::{error::Error, process::ExitCode, time::Duration};
 use amaru::{
     exit::install_termination_signals,
     lifecycle::{RUNTIME_SHUTDOWN_TIMEOUT, set_signal_stderr_enabled},
-    observability::{Color, ObservabilityHints, OpenTelemetryHandle, setup_observability},
+    observability::{Color, LocalTelemetry, ObservabilityHints, OpenTelemetryHandle, setup_observability},
     panic::panic_handler,
     version,
 };
@@ -87,10 +87,14 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     } else {
         // OpenTelemetry batch exporters require a current Tokio runtime.
         let _enter = rt.enter();
+        let local = with_tui.as_ref().map(|tui| LocalTelemetry {
+            metrics_observer: Some(tui.metrics_observer()),
+            capture_layer: Some(tui.tracing_layer()),
+        });
         let handle = setup_observability(
             with_open_telemetry,
             with_json_traces,
-            with_tui.as_ref(),
+            local,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
         );

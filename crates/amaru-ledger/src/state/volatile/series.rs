@@ -105,11 +105,11 @@ impl VolatileSequence for VolatileSeries {
         self.sequence.binary_search_by_key(point, |anchored| anchored.point()).is_ok()
     }
 
-    fn iter(&self) -> impl Iterator<Item = &Self::Item> {
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Self::Item> {
         self.sequence.iter()
     }
 
-    fn into_iter(self) -> impl Iterator<Item = Self::Item> {
+    fn into_iter(self) -> impl DoubleEndedIterator<Item = Self::Item> {
         self.sequence.into_iter()
     }
 

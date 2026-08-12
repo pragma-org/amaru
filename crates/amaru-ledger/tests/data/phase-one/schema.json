@@ -547,6 +547,14 @@
           "properties": {
             "predicate": { "type": "string" }
           }
+        },
+        {
+          "type": "object",
+          "description": "The transaction must fail to decode; no validation is run.",
+          "required": ["decodingFailure"],
+          "properties": {
+            "decodingFailure": { "const": true }
+          }
         }
       ]
     }

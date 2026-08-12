@@ -1,0 +1,50 @@
+lints.workspace = true
+
+[package]
+name = "amaru-bootstrap"
+version = "0.1.0"
+edition.workspace = true
+description = "Bootstrap Amaru ledger and chain stores from published epoch snapshots"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# External dependencies ───────────────────────────────────────────────────────┐
+anyhow.workspace = true
+aws-credential-types.workspace = true
+aws-sdk-s3.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+http-body-util.workspace = true
+minicbor.workspace = true
+pallas-network.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["std"] }
+tar.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "rt", "rt-multi-thread", "time"] }
+tracing.workspace = true
+zstd.workspace = true
+
+# Internal dependencies ───────────────────────────────────────────────────────┐
+amaru-kernel = { workspace = true, features = ["tracing"] }
+amaru-ledger.workspace = true
+amaru-observability.workspace = true
+amaru-ouroboros.workspace = true
+amaru-progress-bar = { workspace = true, features = ["terminal"] }
+amaru-stores.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["-D", "warnings"]
