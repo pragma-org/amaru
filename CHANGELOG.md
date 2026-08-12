@@ -48,6 +48,7 @@ Other guiding principles:
 - **amaru-bootstrap**: new crate owning cold-start snapshot download/import (S3/CDN, archives, chain-store seeding). Product CLI re-exports it for compatibility.
 - **amaru-observability**: shared `TelemetryCaptureLayer` / `subscribe_telemetry` for schema-oriented in-process event subscription (used by the TUI and embedders).
 - **amaru-ledger**: `LedgerObservers` with `on_block` / `LedgerBlockEvent` (adopt + tip-first undo on successful fork switch) and opt-in `on_ledger_snapshot` (full `StakeSummary` by reference before slim in-memory retention).
+- **amaru-observability**: schema field transport now preserves JSON primitives (`bool`/`number`/`string`) and encodes other values as CBOR (`record_bytes`); console/JSON layers decode CBOR for structured output (including real JSON arrays/objects). OTEL logs use a project-owned bridge that maps CBOR fields to nested `AnyValue` maps/lists rather than opaque bytes.
 
 ### Changed
 

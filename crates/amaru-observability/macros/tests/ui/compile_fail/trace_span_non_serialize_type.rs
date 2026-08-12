@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Test that trace_span field values must implement Display.
+//! Test that complex (non-primitive) trace_span field values must implement Serialize.
 
 use amaru_observability_macros::{define_local_schemas, trace_span};
 
-struct NoDisplay;
+struct NoSerialize;
 
 define_local_schemas! {
     test {
         example {
-            /// Test schema for values that are typed correctly but not Display
-            NON_DISPLAY {
-                required value: NoDisplay
+            /// Test schema for values that are typed correctly but not Serialize
+            NON_SERIALIZE {
+                required value: NoSerialize
             }
         }
     }
 }
 
 fn main() {
-    let _span = trace_span!(crate::test::example::NON_DISPLAY, value = NoDisplay);
+    let _span = trace_span!(crate::test::example::NON_SERIALIZE, value = NoSerialize);
 }

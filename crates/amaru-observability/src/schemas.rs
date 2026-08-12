@@ -69,8 +69,9 @@
 //!
 //! Trailing commas after types are allowed. Field names must be Rust identifiers; `name`,
 //! `schema`, and `message` are reserved. Types may be paths or generics
-//! (`amaru_kernel::Hash<28>`). `String` accepts any `AsRef<str>`; other types are checked
-//! by reference and must implement `Display` when recorded without an explicit formatter.
+//! (`amaru_kernel::Hash<28>`). `String` accepts any `AsRef<str>`; primitives use typed
+//! `tracing::Value` transport; other types must implement `Serialize` (CBOR via `record_bytes`)
+//! when recorded without an explicit `%` / `?` formatter.
 //!
 //! ## Tags
 //!

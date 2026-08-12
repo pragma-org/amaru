@@ -96,6 +96,18 @@ pub fn default_peer_for_network(network: NetworkName) -> &'static str {
     }
 }
 
+/// Re-export CBOR-aware tracing layers for embedders that wire their own subscribers.
+///
+/// Prefer these over stock `tracing-subscriber` JSON/console formatters so structured
+/// fields (primitives + CBOR-encoded complex values) render correctly.
+pub mod observability {
+    pub use amaru_observability::{
+        CborAwareMakeVisitor, CborDiagVisitor, CborJsonEventFormat, CborJsonFields, CborOtelLogBridge,
+        CborToStringVisit, as_str_value, cbor_to_any_value, console_field_formatter, encode_cbor, field, layers,
+        otel_log_bridge,
+    };
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests;
 

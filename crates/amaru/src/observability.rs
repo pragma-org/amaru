@@ -23,9 +23,10 @@ use std::{
 };
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
-use amaru_observability::{TelemetryCaptureLayer, info, warn};
+use amaru_observability::{
+    CborAwareMakeVisitor, CborJsonEventFormat, CborJsonFields, CborOtelLogBridge, TelemetryCaptureLayer, info, warn,
+};
 use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::{
     Resource,
     logs::SdkLoggerProvider,
@@ -45,12 +46,11 @@ use tracing_subscriber::{
     field::{MakeVisitor, VisitFmt, VisitOutput},
     filter::Filtered,
     fmt::{
-        FmtContext, FormatEvent, FormatFields, FormattedFields, Layer,
-        format::{DefaultFields, FmtSpan, Format, Json, JsonFields, Writer},
+        Layer,
+        format::{DefaultFields, FmtSpan, Writer},
     },
     layer::{Context, Filter, Layered, SubscriberExt},
     prelude::*,
-    registry::LookupSpan,
     util::SubscriberInitExt,
 };
 
@@ -73,7 +73,7 @@ type InnerOtelStack<S> = Layered<OpenTelemetryFilter<S>, S>;
 type OpenTelemetryLayer<S> = Layered<LogBridgeFilter<S>, InnerOtelStack<S>>;
 
 type LogBridgeFilter<S> = Filtered<
-    OpenTelemetryTracingBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
+    CborOtelLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>,
     ThrottledEnvFilter,
     InnerOtelStack<S>,
 >;
@@ -83,7 +83,7 @@ type OpenTelemetryFilter<S> =
 
 type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
-type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
+type JsonFilter<S> = Filtered<Layer<S, CborJsonFields, CborJsonEventFormat>, ThrottledEnvFilter, S>;
 
 type LocalTelemetryFilter<S> = Filtered<TelemetryCaptureLayer, ThrottledEnvFilter, S>;
 
@@ -201,67 +201,8 @@ impl<V: VisitFmt> VisitFmt for HideTagVisitor<V> {
     }
 }
 
-// -----------------------------------------------------------------------------
-// SpanJsonFormat
-//
-// Wraps the standard JSON formatter to inject `id` and `parent_id` top-level
-// fields into span lifecycle events (enter/exit). Regular log events are left
-// untouched.
-// -----------------------------------------------------------------------------
-
-pub struct SpanJsonFormat(Format<Json>);
-
-impl<S, N> FormatEvent<S, N> for SpanJsonFormat
-where
-    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
-    N: for<'a> FormatFields<'a> + 'static,
-{
-    fn format_event(
-        &self,
-        ctx: &FmtContext<'_, S, N>,
-        mut writer: Writer<'_>,
-        event: &tracing::Event<'_>,
-    ) -> fmt::Result {
-        // Render the event with the inner JSON formatter into a buffer
-        let mut buf = String::new();
-        self.0.format_event(ctx, Writer::new(&mut buf), event)?;
-
-        // Inject span-related fields before the closing '}'.
-        //  - Span lifecycle events (enter/exit): get `id`, `parent_id`, and recorded fields.
-        //  - Log events emitted inside a span: get `parent_id` only.
-        if let Some(current) = ctx.lookup_current()
-            && let Some(pos) = buf.rfind('}')
-        {
-            let mut extra = String::new();
-
-            // Inject recorded span fields (stored by the fmt layer as FormattedFields).
-            let extensions = current.extensions();
-            if let Some(fields) = extensions.get::<FormattedFields<JsonFields>>() {
-                let s = fields.as_str().trim();
-                // Strip outer braces from JSON object: {"k":v,...} -> "k":v,...
-                let inner = s.strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(s);
-                if !inner.is_empty() {
-                    extra.push(',');
-                    extra.push_str(inner);
-                }
-            }
-
-            if event.metadata().is_span() {
-                let id = current.id().into_u64();
-                extra.push_str(&format!(",\"id\":{id}"));
-            }
-            if let Some(parent) = current.parent() {
-                let parent_id = parent.id().into_u64();
-                extra.push_str(&format!(",\"parent_id\":{parent_id}"));
-            }
-            if !extra.is_empty() {
-                buf.insert_str(pos, &extra);
-            }
-        }
-
-        writer.write_str(&buf)
-    }
-}
+// JSON event formatting (including CBOR-aware fields and span id injection)
+// lives in `amaru_observability::layers::CborJsonEventFormat`.
 
 #[derive(Default)]
 pub enum TracingSubscriber<S> {
@@ -346,7 +287,7 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(DefaultFields::new()))
+                            .fmt_fields(HideTagFields(CborAwareMakeVisitor(DefaultFields::new())))
                             .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
                             .with_span_events(FmtSpan::CLOSE)
                             .with_filter(default_filter),
@@ -360,7 +301,7 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(DefaultFields::new()))
+                            .fmt_fields(HideTagFields(CborAwareMakeVisitor(DefaultFields::new())))
                             .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
                             .with_span_events(FmtSpan::CLOSE)
                             .with_filter(default_filter),
@@ -391,7 +332,6 @@ impl TracingSubscriber<Registry> {
 // ---------------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
-    let format = || SpanJsonFormat(tracing_subscriber::fmt::format().json().with_span_list(false));
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
     let filter = || new_trace_filter();
 
@@ -401,8 +341,8 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
-                    .event_format(format())
-                    .fmt_fields(JsonFields::new())
+                    .event_format(CborJsonEventFormat::new())
+                    .fmt_fields(CborJsonFields::new())
                     .with_filter(default_filter),
                 warning,
             )
@@ -412,8 +352,8 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
-                    .event_format(format())
-                    .fmt_fields(JsonFields::new())
+                    .event_format(CborJsonEventFormat::new())
+                    .fmt_fields(CborJsonFields::new())
                     .with_filter(default_filter),
                 warning,
             )
@@ -527,8 +467,8 @@ pub fn setup_open_telemetry(
         .with_target(true)
         .with_filter(default_filter);
 
-    // Logs
-    let log_bridge = OpenTelemetryTracingBridge::new(&logs_provider).with_filter(new_trace_filter().0);
+    // Logs: project-owned bridge so CBOR field payloads become nested AnyValue maps/lists.
+    let log_bridge = CborOtelLogBridge::new(&logs_provider).with_filter(new_trace_filter().0);
 
     subscriber.with_open_telemetry(opentelemetry_layer, log_bridge);
 
