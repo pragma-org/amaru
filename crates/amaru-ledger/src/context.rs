@@ -22,7 +22,8 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
     MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    ProposalSlim, ProposalsRoots, ProtocolVersion, RequiredScript, StakeCredential, TransactionInput, Value, Vote,
+    Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -204,11 +205,28 @@ pub struct PoolVrfs {
     pub pending: Option<pools_vrf::Key>,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum PoolRegisterError {
+    /// From protocol version 11 onwards, a registration claiming a VRF key hash already in use is
+    /// rejected; only the registering pool's own *current* key is exempt, its still-pending one
+    /// is not.
+    #[error("vrf key hash {vrf} already registered; rejecting registration of pool {pool}")]
+    VrfKeyHashAlreadyRegistered { pool: PoolId, vrf: pools_vrf::Key },
+}
+
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
     fn exists(&self, pool: PoolId) -> bool;
 
-    fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
+    /// Register (or re-register) a pool, enforcing the VRF key hash uniqueness rule from protocol
+    /// version 11 onwards. Returns whether the pool was new.
+    fn register(
+        &mut self,
+        params: PoolParams,
+        pointer: CertificatePointer,
+        deposit: Lovelace,
+        protocol_version: ProtocolVersion,
+    ) -> Result<bool, PoolRegisterError>;
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
 }

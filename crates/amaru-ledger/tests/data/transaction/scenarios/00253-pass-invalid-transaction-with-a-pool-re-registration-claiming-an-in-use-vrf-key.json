@@ -1,0 +1,45 @@
+{
+  "title": "invalid transaction with a pool re-registration claiming an in-use vrf key",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, carrying a re-registration certificate for a registered pool that claims the current VRF key hash of another registered pool, under protocol version 11.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": { "version": { "major": 11, "minor": 0 } }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258205c0f3a6d9b2e5c8f1b4e7a0d3c6f9b2e5a8d1c4f7b0e3a6d9c2f5b8e1a4d7c0400",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820e1b4d7a0c3f6b9e2d5a8c1f4b7e0d3a6c9f2b5e8a1d4c7f0b3e6a9d2c5f8b1e400",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "pools": [
+      {
+        "id": "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "vrf": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      {
+        "id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "vrf": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a700d90102818258205c0f3a6d9b2e5c8f1b4e7a0d3c6f9b2e5a8d1c4f7b0e3a6d9c2f5b8e1a4d7c04000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a003d0900021a000f424004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa001a1443fd00d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820e1b4d7a0c3f6b9e2d5a8c1f4b7e0d3a6c9f2b5e8a1d4c7f0b3e6a9d2c5f8b1e4000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840dfa8b26093d2fa974f724d9123504d5f8a13f456118003ce4d5e2e1871bd92e00db0c01dd55c72bb2f20082b5031109c077c8e98afc915ff14e42ebd68e71e0705a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}

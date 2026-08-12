@@ -23,8 +23,8 @@ use thiserror::Error;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        RegisterError, UnregisterError, UpdateError, WitnessSlice,
+        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
+        PoolRegisterError, PoolsSlice, RegisterError, UnregisterError, UpdateError, WitnessSlice,
     },
     epoch_transition::GovernanceActivity,
 };
@@ -66,6 +66,9 @@ pub enum InvalidCertificates {
 
     #[error("pool retirement epoch out of range: epoch {epoch}, must satisfy {current_epoch} < epoch <= {max_epoch}")]
     PoolRetirementWrongEpoch { epoch: Epoch, current_epoch: Epoch, max_epoch: Epoch },
+
+    #[error("pool vrf key hash already registered: {0}")]
+    VRFKeyHashAlreadyRegistered(#[from] PoolRegisterError),
 
     #[error("unknown pool: {0}")]
     StakePoolUnknown(#[from] UnregisterError<PoolId, PoolId>),
@@ -188,10 +191,13 @@ where
                 });
             }
 
-            // TODO: Have `register` return this information
-            let is_new_pool = !context.exists(*id);
-
-            PoolsSlice::register(context, *params, pointer, protocol_parameters.stake_pool_deposit);
+            let is_new_pool = PoolsSlice::register(
+                context,
+                *params,
+                pointer,
+                protocol_parameters.stake_pool_deposit,
+                protocol_parameters.protocol_version,
+            )?;
 
             if is_new_pool {
                 context.produce_lovelace(protocol_parameters.stake_pool_deposit);
