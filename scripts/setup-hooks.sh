@@ -7,7 +7,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOOKS_DIR="$SCRIPT_DIR/hooks"
-GIT_HOOKS_DIR="$(git rev-parse --git-dir)/hooks"
+# Use --git-path so hooks install into the shared .git/hooks even when run from a
+# linked worktree (where --git-dir points at .git/worktrees/<name>).
+GIT_HOOKS_DIR="$(git rev-parse --git-path hooks)"
 
 echo "Setting up git hooks..."
 
@@ -22,6 +24,8 @@ if [ ! -d "$HOOKS_DIR" ]; then
     exit 1
 fi
 
+mkdir -p "$GIT_HOOKS_DIR"
+
 for hook in "$HOOKS_DIR"/*; do
     if [ -f "$hook" ]; then
         hook_name=$(basename "$hook")
@@ -33,7 +37,7 @@ for hook in "$HOOKS_DIR"/*; do
 done
 
 echo ""
-echo "Git hooks setup complete!"
+echo "Git hooks setup complete (installed to $GIT_HOOKS_DIR)!"
 echo ""
 echo "The following hooks are now active:"
 for hook in "$GIT_HOOKS_DIR"/*; do

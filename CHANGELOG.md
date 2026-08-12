@@ -56,6 +56,7 @@ Other guiding principles:
 - **scripts/run-until**: drives the `amaru-node` `run_until` example (observer-based stop). The example installs OTLP via `amaru_node::Telemetry` when `AMARU_WITH_OPEN_TELEMETRY` is set, so e2e metrics still flow to the collector.
 - **amaru-node**: `Telemetry::install` embedder helper for fmt / JSON / OTLP (metrics + traces + logs) using the same env knobs as the product binary.
 - **amaru-observability**: structured logging for complex values: schema transport preserves JSON primitives and encodes other values as CBOR (`record_bytes`); JSON traces get nested objects/arrays, OTEL logs get nested `AnyValue` maps/lists, OTEL spans upgrade homogeneous CBOR arrays to `Value::Array` (with CBOR diagnostic fallback otherwise), and console logs use CBOR diagnostic notation. ([#1182](https://github.com/pragma-org/amaru/pull/1182))
+- **amaru**: stake-distribution conformance tests no longer partition `#[ignore]` vs active cases from `ledger.<network>.db` at build time (watching that live DB rebuilt `amaru` on every node write). Fixture directories are still watched so tests regenerate when snapshots change; each test soft-skips with a warning when the matching local ledger snapshot is missing.
 
 ### Fixed
 

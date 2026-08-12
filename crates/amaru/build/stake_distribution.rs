@@ -24,47 +24,25 @@ use crate::{emit_rerun_if_changed, write_if_changed};
 
 /// Generate `stake_distribution_<network>_test_cases.rs` in `OUT_DIR`, containing one test
 /// case per stake distribution fixture.
+///
+/// Availability of the local `ledger.<network>.db` snapshot is **not** checked here: that path is
+/// a live RocksDB for node runs, so watching it would rebuild `amaru` on every SST/LOG write.
+/// The generated tests check snapshot presence at runtime and soft-skip when missing.
 pub(crate) fn write_stake_distribution_test_cases_file(network: &str) -> Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let workspace_dir = manifest_dir.join("../..");
     let fixtures_root = manifest_dir.join("tests").join("conformance").join("stake-distributions");
     let network_dir = fixtures_root.join(network);
-    let ledger_dir = default_ledger_dir(&workspace_dir, network);
 
+    // Fixture JSON/ZST files are pure inputs; regenerate when they change.
     emit_rerun_if_changed(&network_dir);
-    ensure_ledger_dir(&ledger_dir, &workspace_dir);
 
     let epochs = stake_distribution_epochs(&network_dir)?;
-    let available_epochs = available_ledger_snapshot_epochs(&ledger_dir)?;
-    let contents = stake_distribution_test_cases_source(network, &epochs, &available_epochs)?;
+    let contents = stake_distribution_test_cases_source(network, &epochs)?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     write_if_changed(&out_dir.join(format!("stake_distribution_{network}_test_cases.rs")), &contents)?;
 
     Ok(())
-}
-
-/// Return the local ledger database directory for `network`, at the workspace root.
-fn default_ledger_dir(workspace_dir: &Path, network: &str) -> PathBuf {
-    workspace_dir.join(format!("ledger.{network}.db"))
-}
-
-/// Create `ledger_dir` when it is missing, so that cargo has an existing path to watch.
-///
-/// Cargo treats a `rerun-if-changed` on a missing path as permanently stale, which would rebuild
-/// this crate on every build; but dropping the watch altogether would leave the generated test
-/// cases partitioned against the snapshots available when the directory did not exist yet, and
-/// silently skip the conformance tests once it appears. An empty placeholder gives cargo something
-/// stable to watch, whose modification time changes as soon as snapshots are imported into it.
-///
-/// Only done inside the amaru workspace: when this crate is built from a registry checkout, the
-/// workspace root is not ours to write to.
-fn ensure_ledger_dir(ledger_dir: &Path, workspace_dir: &Path) {
-    if !workspace_dir.join("Cargo.toml").is_file() {
-        return;
-    }
-
-    let _ = fs::create_dir_all(ledger_dir);
 }
 
 /// List the epochs having a fixture file in `network_dir`, most recent first.
@@ -102,48 +80,11 @@ fn stake_distribution_epoch(path: &Path) -> Option<u64> {
     epoch.parse().ok()
 }
 
-/// List the epochs for which a ledger snapshot is available locally in `ledger_dir`.
-fn available_ledger_snapshot_epochs(ledger_dir: &Path) -> Result<BTreeSet<u64>> {
-    emit_rerun_if_changed(ledger_dir);
-
-    if !ledger_dir.is_dir() {
-        return Ok(BTreeSet::new());
-    }
-
-    let mut epochs = BTreeSet::new();
-    for entry in fs::read_dir(ledger_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if !path.is_dir() {
-            continue;
-        }
-
-        if let Some(epoch) = ledger_snapshot_epoch(&path) {
-            epochs.insert(epoch);
-        }
-    }
-
-    Ok(epochs)
-}
-
-/// Extract the epoch number from a ledger snapshot directory name.
-fn ledger_snapshot_epoch(path: &Path) -> Option<u64> {
-    path.file_name()?.to_str()?.parse().ok()
-}
-
-/// Split the fixture epochs into those with a local ledger snapshot and those without.
-fn partition_fixture_epochs(epochs: &[u64], available_epochs: &BTreeSet<u64>) -> (Vec<u64>, Vec<u64>) {
-    epochs.iter().copied().partition(|epoch| available_epochs.contains(epoch))
-}
-
-/// Render the test functions comparing stake distributions for `network`: an active test for the
-/// epochs with a local ledger snapshot, and an `#[ignore]`d one for the epochs without.
-fn stake_distribution_test_cases_source(
-    network: &str,
-    epochs: &[u64],
-    available_epochs: &BTreeSet<u64>,
-) -> Result<String> {
+/// Render one active test function comparing stake distributions for every fixture epoch.
+///
+/// Missing local ledger snapshots are handled at test runtime (warn + soft success), not via
+/// build-time `#[ignore]`.
+fn stake_distribution_test_cases_source(network: &str, epochs: &[u64]) -> Result<String> {
     if epochs.is_empty() {
         return Ok(format!(
             r#"// No stake distribution fixtures found for network={network}.
@@ -156,59 +97,24 @@ const _: fn(
     }
 
     let network_variant = network_name_to_rust_variant(network)?;
-    let (active_epochs, ignored_epochs) = partition_fixture_epochs(epochs, available_epochs);
     let mut contents = String::new();
 
-    contents.push_str(&format!(
-        "// Generated from {} fixture epoch(s): {} active, {} ignored.\n",
-        epochs.len(),
-        active_epochs.len(),
-        ignored_epochs.len(),
-    ));
-
-    if !active_epochs.is_empty() {
-        contents.push_str(&render_stake_distribution_test_function(
-            network,
-            network_variant,
-            "compare",
-            &active_epochs,
-            false,
-        ));
-    }
-
-    if !ignored_epochs.is_empty() {
-        contents.push_str(&render_stake_distribution_test_function(
-            network,
-            network_variant,
-            "compare_missing_local_snapshot",
-            &ignored_epochs,
-            true,
-        ));
-    }
+    contents.push_str(&format!("// Generated from {} fixture epoch(s).\n", epochs.len()));
+    contents.push_str(&render_stake_distribution_test_function(network, network_variant, epochs));
 
     Ok(contents)
 }
 
 /// Render one test function with a `#[test_case]` attribute per epoch.
-fn render_stake_distribution_test_function(
-    network: &str,
-    network_variant: &str,
-    prefix: &str,
-    epochs: &[u64],
-    ignored: bool,
-) -> String {
+fn render_stake_distribution_test_function(network: &str, network_variant: &str, epochs: &[u64]) -> String {
     let mut contents = String::new();
 
     for epoch in epochs {
         contents.push_str(&format!("#[test_case::test_case({epoch})]\n"));
     }
 
-    if ignored {
-        contents.push_str("#[ignore]\n");
-    }
-
     contents.push_str(&format!(
-        r#"pub fn {prefix}_{network}_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {{
+        r#"pub fn compare_{network}_stake_distribution_with_haskell_node(epoch: u64) -> Result<(), Box<dyn std::error::Error>> {{
     compare_stake_distribution_with_haskell_node(
         amaru_kernel::NetworkName::{network_variant},
         amaru_kernel::Epoch::from(epoch),

@@ -30,7 +30,7 @@ crates/amaru/tests/**/stake-distributions/**/*.json.zst
 !crates/amaru/tests/**/haskell-node-extractor/**/schemas/*.json
 
 # Files downloaded for the demo
-/snapshots/
+/snapshots
 
 # Files downloaded by mithril
 /mithril-snapshots/

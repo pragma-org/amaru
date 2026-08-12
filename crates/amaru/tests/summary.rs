@@ -19,7 +19,7 @@ use std::{
     fmt::Write,
     fs::File,
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex},
 };
 
@@ -43,8 +43,14 @@ static GLOBAL_ALLOCATOR: memory::CountingAllocator<System> = memory::CountingAll
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
-fn default_ledger_dir(network: NetworkName) -> String {
-    format!("./ledger.{}.db", network.to_string().to_lowercase())
+/// Path to the workspace-root ledger DB for `network`, from the summary test binary cwd.
+fn ledger_dir_from_tests(network: NetworkName) -> PathBuf {
+    PathBuf::from(format!("../../ledger.{}.db", network.to_string().to_lowercase()))
+}
+
+/// Whether `ledger_dir` contains a RocksDB snapshot directory for `epoch`.
+fn has_ledger_snapshot(ledger_dir: &Path, epoch: Epoch) -> bool {
+    ledger_dir.join(epoch.to_string()).is_dir()
 }
 
 #[expect(clippy::panic)]
@@ -62,11 +68,8 @@ fn load_snapshot(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send
         .entry(epoch)
         .or_insert_with(|| {
             Arc::new(
-                RocksDBHistoricalStores::for_epoch_with(
-                    &RocksDbConfig::new(PathBuf::from(format!("../../{}", default_ledger_dir(network)))),
-                    epoch,
-                )
-                .unwrap_or_else(|err| panic!("Failed to open ledger snapshot for epoch {}: {}", epoch, err)),
+                RocksDBHistoricalStores::for_epoch_with(&RocksDbConfig::new(ledger_dir_from_tests(network)), epoch)
+                    .unwrap_or_else(|err| panic!("Failed to open ledger snapshot for epoch {}: {}", epoch, err)),
             )
         })
         .clone();
@@ -80,6 +83,18 @@ fn compare_stake_distribution_with_haskell_node(
     network: NetworkName,
     epoch: Epoch,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let ledger_dir = ledger_dir_from_tests(network);
+    if !has_ledger_snapshot(&ledger_dir, epoch) {
+        // Soft-skip: missing snapshots used to be `#[ignore]`d at build time. Print a warning so
+        // `--nocapture` (or harness failure logs) still surfaces the gap.
+        eprintln!(
+            "warning: skipping stake distribution comparison for {network} epoch {epoch}; \
+             local ledger snapshot missing at {}",
+            ledger_dir.join(epoch.to_string()).display()
+        );
+        return Ok(());
+    }
+
     let snapshot = load_snapshot(network, epoch);
 
     let era_history = network.as_era_history().ok_or("no era history for network={network:?}?!")?;
@@ -102,7 +117,7 @@ fn measure_new_snapshot_summary_memory() -> Result<(), Box<dyn std::error::Error
 
     let era_history = network.as_era_history().unwrap_or(&PREPROD_ERA_HISTORY);
 
-    let ledger_dir = PathBuf::from(format!("../../{}", default_ledger_dir(network)));
+    let ledger_dir = ledger_dir_from_tests(network);
     if !ledger_dir.is_dir() {
         eprintln!("skipping summary memory measurement; ledger directory {} does not exist", ledger_dir.display());
         return Ok(());

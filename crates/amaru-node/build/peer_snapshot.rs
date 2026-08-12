@@ -15,26 +15,34 @@
 //! Best-effort download of Cardano peer snapshots for networks listed in
 //! [`amaru_kernel::PEER_SNAPSHOT_NETWORKS`] (for example mainnet, preprod, preview).
 //!
-//! Snapshots are staged under `config/peer-snapshots/{network}/peer-snapshot.json`
-//! (not committed). When GitHub is reachable, files are refreshed from
-//! `cardano-foundation/cardano-configurations` at the youngest commit at or
-//! before the Amaru HEAD committer timestamp.
+//! ## Cargo rebuild hygiene
 //!
-//! Commit metadata is cached in `CONFIGS_COMMIT_CACHE`, including the Amaru HEAD
-//! committer time (`until`, unix seconds) used to resolve the configs-repo SHA.
-//! A successful resolve rewrites that file so its mtime is current; the commits
-//! API is not contacted again while the file is younger than
-//! [`COMMIT_CACHE_TTL`] (12 hours) **and** the currently required HEAD time is
-//! within [`UNTIL_CACHE_TOLERANCE`] (1 hour) of the cached value. When a request
-//! is made, it is conditional on any stored `ETag` / `Last-Modified` only if the
-//! cached `until` is still compatible. A `304 Not Modified` reuses the cached
-//! SHA. Snapshot files are only re-downloaded when missing or not strictly
-//! newer than the cache file.
+//! The only package-tree inputs this script tells Cargo to watch are the optional
+//! staged offline files:
 //!
-//! Every network in [`PEER_SNAPSHOT_NETWORKS`] must have a staged file after the
-//! fetch attempt (empty placeholders are allowed offline; see
-//! `config/peer-snapshots/README.md`). Optional `GITHUB_TOKEN` / `GH_TOKEN`
-//! raises GitHub API rate limits.
+//! ```text
+//! config/peer-snapshots/<network>/peer-snapshot.json
+//! ```
+//!
+//! Fetch metadata (`CONFIGS_COMMIT_CACHE`) and downloaded snapshot bytes live under
+//! `OUT_DIR` only. Writing them must never dirty a `rerun-if-changed` path, or every
+//! successful fetch / token env flip would recompile `amaru-node`.
+//!
+//! Credentials and `AMARU_SKIP_PEER_SNAPSHOT_FETCH` are read when the script runs but
+//! are **not** listed as `rerun-if-env-changed`: they only affect best-effort network
+//! access, not the embedded bytes once `OUT_DIR` / staged inputs are stable.
+//!
+//! ## Fetch behaviour
+//!
+//! When GitHub is reachable, snapshots are downloaded from
+//! `cardano-foundation/cardano-configurations` at the youngest commit at or before the
+//! Amaru HEAD committer timestamp into `OUT_DIR`. Commit metadata is cached in
+//! `OUT_DIR/CONFIGS_COMMIT_CACHE` for [`COMMIT_CACHE_TTL`] so frequent local rebuilds
+//! do not spam the commits API.
+//!
+//! Every network in [`PEER_SNAPSHOT_NETWORKS`] must end up with bytes in `OUT_DIR`
+//! (from download and/or staged offline files). See
+//! `config/peer-snapshots/README.md`.
 
 use std::{
     env, fs,
@@ -48,7 +56,7 @@ use amaru_kernel::PEER_SNAPSHOT_NETWORKS;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use crate::{emit_rerun_if_exists, write_if_changed};
+use crate::{emit_rerun_if_exists, write_if_changed, write_if_changed_bytes};
 
 const CONFIGS_REPO: &str = "cardano-foundation/cardano-configurations";
 const USER_AGENT: &str = "amaru-build (https://github.com/pragma-org/amaru)";
@@ -63,27 +71,24 @@ fn peer_snapshot_network_names() -> impl Iterator<Item = &'static str> {
 
 /// Stage peer snapshots and embed them into `OUT_DIR`.
 ///
-/// Fails if any network in [`PEER_SNAPSHOT_NETWORKS`] still lacks a staged file
-/// after the fetch attempt.
+/// Fails if any network in [`PEER_SNAPSHOT_NETWORKS`] still lacks embeddable bytes
+/// after the fetch attempt and staged-file fallback.
 pub fn prepare_peer_snapshots() -> Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").context("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env::var("OUT_DIR").context("OUT_DIR")?);
     let staging_root = manifest_dir.join("config").join("peer-snapshots");
 
-    println!("cargo:rerun-if-env-changed=AMARU_SKIP_PEER_SNAPSHOT_FETCH");
-    println!("cargo:rerun-if-env-changed=GITHUB_TOKEN");
-    println!("cargo:rerun-if-env-changed=GH_TOKEN");
-
+    // Content inputs only: optional offline/CI staged snapshots. Never watch fetch
+    // caches or anything this script writes under OUT_DIR.
     for network in peer_snapshot_network_names() {
         emit_rerun_if_exists(&staging_path(&staging_root, network));
     }
-    emit_rerun_if_exists(&configs_commit_cache_path(&staging_root));
 
     let skip_fetch = env_flag("AMARU_SKIP_PEER_SNAPSHOT_FETCH");
 
-    let mut configs_sha: Option<String> = read_configs_commit_cache(&staging_root).map(|c| c.sha);
+    let mut configs_sha: Option<String> = read_configs_commit_cache(&out_dir).map(|c| c.sha);
     if !skip_fetch {
-        match fetch_all(&staging_root) {
+        match fetch_all(&out_dir) {
             Ok(sha) => {
                 configs_sha = Some(sha);
             }
@@ -98,10 +103,18 @@ pub fn prepare_peer_snapshots() -> Result<()> {
     let mut present = Vec::new();
     let mut missing = Vec::new();
     for network in peer_snapshot_network_names() {
-        let path = staging_path(&staging_root, network);
-        if path.is_file() {
-            let dest = out_dir.join(format!("peer_snapshot_{network}.json"));
-            fs::copy(&path, &dest).with_context(|| format!("copy {} -> {}", path.display(), dest.display()))?;
+        let dest = out_dir_snapshot_path(&out_dir, network);
+        if dest.is_file() {
+            present.push(network);
+            continue;
+        }
+
+        // Offline / CI fallback: copy staged package inputs into OUT_DIR.
+        let staged = staging_path(&staging_root, network);
+        if staged.is_file() {
+            let bytes = fs::read(&staged).with_context(|| format!("read staged {}", staged.display()))?;
+            write_if_changed_bytes(&dest, &bytes)
+                .with_context(|| format!("copy staged {} -> {}", staged.display(), dest.display()))?;
             present.push(network);
         } else {
             missing.push(network);
@@ -112,7 +125,7 @@ pub fn prepare_peer_snapshots() -> Result<()> {
         bail!(
             "no embeddable peer snapshot(s) for network(s): {}. \
              Stage files under config/peer-snapshots/<network>/peer-snapshot.json \
-             (empty placeholders work offline). \
+             (empty placeholders work offline), or allow the build script to fetch. \
              See crates/amaru-node/config/peer-snapshots/README.md",
             missing.join(", ")
         );
@@ -122,15 +135,15 @@ pub fn prepare_peer_snapshots() -> Result<()> {
     Ok(())
 }
 
-fn fetch_all(staging_root: &Path) -> Result<String> {
+/// Download snapshots into `out_dir`, using an OUT_DIR-local API cache.
+fn fetch_all(out_dir: &Path) -> Result<String> {
     let amaru_time = amaru_head_committer_time().context("determine Amaru HEAD committer date")?;
-    let existing = read_configs_commit_cache(staging_root);
+    let existing = read_configs_commit_cache(out_dir);
 
-    // Skip the commits API while the cache file is younger than COMMIT_CACHE_TTL
+    // Skip the commits API while the OUT_DIR cache is younger than COMMIT_CACHE_TTL
     // and was resolved for a sufficiently close Amaru HEAD committer time.
-    // A successful resolve always rewrites the cache so its mtime starts a new window.
-    let sha = match existing.as_ref() {
-        Some(cache) if commit_cache_is_reusable(staging_root, cache, &amaru_time) => cache.sha.clone(),
+    let (sha, cache_for_write) = match existing.as_ref() {
+        Some(cache) if commit_cache_is_reusable(out_dir, cache, &amaru_time) => (cache.sha.clone(), None),
         _ => {
             let agent = http_agent()?;
             // Conditional headers are only valid for the same logical `until` query.
@@ -149,29 +162,24 @@ fn fetch_all(staging_root: &Path) -> Result<String> {
                     cache
                 }
             };
-            // Write (or rewrite) before downloads so the TTL and snapshot mtime
-            // comparisons use a fresh cache timestamp.
-            write_configs_commit_cache(staging_root, &cache)?;
-            cache.sha
+            let sha = cache.sha.clone();
+            (sha, Some(cache))
         }
     };
 
-    let agent = http_agent()?;
-    let cache_mtime = fs::metadata(configs_commit_cache_path(staging_root)).and_then(|m| m.modified()).ok();
+    let previous_sha = existing.as_ref().map(|c| c.sha.as_str());
+    let sha_changed = previous_sha != Some(sha.as_str());
 
+    let agent = http_agent()?;
     for network in peer_snapshot_network_names() {
-        if !snapshot_needs_download(staging_root, network, cache_mtime) {
+        let dest = out_dir_snapshot_path(out_dir, network);
+        if !sha_changed && dest.is_file() {
             continue;
         }
         match download_snapshot(&agent, &sha, network) {
             Ok(bytes) => {
-                let path = staging_path(staging_root, network);
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                let tmp = path.with_extension("json.tmp");
-                fs::write(&tmp, &bytes)?;
-                fs::rename(&tmp, &path)?;
+                write_if_changed_bytes(&dest, &bytes)
+                    .with_context(|| format!("write downloaded snapshot for {network}"))?;
             }
             Err(err) => {
                 println!(
@@ -181,17 +189,21 @@ fn fetch_all(staging_root: &Path) -> Result<String> {
         }
     }
 
+    if let Some(cache) = cache_for_write {
+        write_configs_commit_cache(out_dir, &cache)?;
+    }
+
     Ok(sha)
 }
 
 /// True when the cache may be reused without contacting the commits API.
-fn commit_cache_is_reusable(staging_root: &Path, cache: &ConfigsCommitCache, amaru_time: &AmaruHeadTime) -> bool {
-    commit_cache_mtime_is_fresh(staging_root) && until_is_compatible(cache, amaru_time)
+fn commit_cache_is_reusable(out_dir: &Path, cache: &ConfigsCommitCache, amaru_time: &AmaruHeadTime) -> bool {
+    commit_cache_mtime_is_fresh(out_dir) && until_is_compatible(cache, amaru_time)
 }
 
-/// True when `CONFIGS_COMMIT_CACHE` exists and was modified within [`COMMIT_CACHE_TTL`].
-fn commit_cache_mtime_is_fresh(staging_root: &Path) -> bool {
-    let path = configs_commit_cache_path(staging_root);
+/// True when the OUT_DIR `CONFIGS_COMMIT_CACHE` exists and was modified within [`COMMIT_CACHE_TTL`].
+fn commit_cache_mtime_is_fresh(out_dir: &Path) -> bool {
+    let path = configs_commit_cache_path(out_dir);
     let Ok(meta) = fs::metadata(path) else {
         return false;
     };
@@ -213,26 +225,6 @@ fn until_is_compatible(cache: &ConfigsCommitCache, amaru_time: &AmaruHeadTime) -
         return false;
     };
     amaru_time.unix.abs_diff(cached_unix) <= UNTIL_CACHE_TOLERANCE.as_secs()
-}
-
-/// True when the staged snapshot is missing or not strictly newer than the cache file.
-fn snapshot_needs_download(staging_root: &Path, network: &str, cache_mtime: Option<SystemTime>) -> bool {
-    let path = staging_path(staging_root, network);
-    let Ok(meta) = fs::metadata(&path) else {
-        return true;
-    };
-    #[expect(clippy::panic)]
-    if !meta.is_file() {
-        panic!("peer snapshot file path `{}` exists but is not a file", path.display());
-    }
-    let Some(cache_mtime) = cache_mtime else {
-        // No cache mtime to compare against; treat existing files as usable.
-        return false;
-    };
-    match meta.modified() {
-        Ok(mtime) => mtime <= cache_mtime,
-        Err(_) => true,
-    }
 }
 
 /// Amaru HEAD committer time: ISO-8601 for the GitHub `until` query, unix for comparisons.
@@ -385,12 +377,16 @@ fn staging_path(staging_root: &Path, network: &str) -> PathBuf {
     staging_root.join(network).join("peer-snapshot.json")
 }
 
-fn configs_commit_cache_path(staging_root: &Path) -> PathBuf {
-    staging_root.join(CACHE_FILE_NAME)
+fn out_dir_snapshot_path(out_dir: &Path, network: &str) -> PathBuf {
+    out_dir.join(format!("peer_snapshot_{network}.json"))
 }
 
-fn read_configs_commit_cache(staging_root: &Path) -> Option<ConfigsCommitCache> {
-    let content = fs::read_to_string(configs_commit_cache_path(staging_root)).ok()?;
+fn configs_commit_cache_path(out_dir: &Path) -> PathBuf {
+    out_dir.join(CACHE_FILE_NAME)
+}
+
+fn read_configs_commit_cache(out_dir: &Path) -> Option<ConfigsCommitCache> {
+    let content = fs::read_to_string(configs_commit_cache_path(out_dir)).ok()?;
     parse_configs_commit_cache(&content)
 }
 
@@ -428,8 +424,8 @@ fn parse_configs_commit_cache(content: &str) -> Option<ConfigsCommitCache> {
     Some(ConfigsCommitCache { sha: sha?, until, etag, last_modified })
 }
 
-fn write_configs_commit_cache(staging_root: &Path, cache: &ConfigsCommitCache) -> Result<()> {
-    fs::create_dir_all(staging_root)?;
+fn write_configs_commit_cache(out_dir: &Path, cache: &ConfigsCommitCache) -> Result<()> {
+    fs::create_dir_all(out_dir)?;
     let mut body = format!("sha: {}\n", cache.sha);
     if let Some(until) = cache.until {
         body.push_str(&format!("until: {until}\n"));
@@ -440,7 +436,8 @@ fn write_configs_commit_cache(staging_root: &Path, cache: &ConfigsCommitCache) -
     if let Some(last_modified) = &cache.last_modified {
         body.push_str(&format!("last-modified: {last_modified}\n"));
     }
-    fs::write(configs_commit_cache_path(staging_root), body)?;
+    // OUT_DIR is not cargo-watched; unconditional write is fine and refreshes the API TTL.
+    fs::write(configs_commit_cache_path(out_dir), body)?;
     Ok(())
 }
 

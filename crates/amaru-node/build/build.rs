@@ -46,3 +46,15 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
     fs::write(path, contents)?;
     Ok(())
 }
+
+/// Byte-oriented variant of [`write_if_changed`].
+fn write_if_changed_bytes(path: &Path, contents: &[u8]) -> Result<()> {
+    if fs::read(path).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, contents)?;
+    Ok(())
+}
