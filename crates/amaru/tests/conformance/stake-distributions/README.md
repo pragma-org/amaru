@@ -30,13 +30,15 @@ The extractor README documents the exact command-line usage and validation flow.
 
 ## Generated Rust tests
 
-[build.rs](../../../build/build.rs) scans `tests/stake-distributions/$AMARU_NETWORK/` for `epoch_*.json` and `epoch_*.json.zst` files and generates the matching `test_case` entries automatically. There is no manually-maintained test list anymore.
+[build.rs](../../../build/build.rs) scans `tests/conformance/stake-distributions/<network>/` for `epoch_*.json` and `epoch_*.json.zst` files and generates the matching `test_case` entries automatically. There is no manually-maintained test list anymore. The fixture directory is watched by cargo so tests regenerate when snapshots are added, removed, or replaced.
+
+Availability of the matching epoch in the local `ledger.<network>.db` is **not** decided at build time (watching that live RocksDB would rebuild `amaru` on every node write). Each generated test checks for the snapshot at runtime: if it is missing, the test succeeds after printing a warning (visible with `--nocapture`).
 
 To list or run the generated comparison tests for a given network:
 
 ```console
-AMARU_NETWORK=preview cargo test -p amaru --test summary -- --list
-AMARU_NETWORK=preview cargo test -p amaru --test summary
+cargo test -p amaru --test summary -- --list
+cargo test -p amaru --test summary --nocapture
 ```
 
 Those tests compare the extracted JSON fixtures against stake distributions computed by Amaru from the local `ledger.<network>.db` store at the repository root, for example `ledger.preview.db`.
