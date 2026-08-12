@@ -75,7 +75,7 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut state = self.state.lock().unwrap();
-        match state.roll_forward(point, block, &self.vm_eval_pool) {
+        match state.roll_forward(point, &block, &self.vm_eval_pool) {
             BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
             BlockValidation::Invalid(_, _, details) => {
                 Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))))

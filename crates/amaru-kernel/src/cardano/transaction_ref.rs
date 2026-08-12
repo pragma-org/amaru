@@ -12,22 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod capture;
-mod config;
-mod events;
-mod model;
-mod session;
-mod settings;
-mod startup;
-mod terminal_guard;
-mod ui;
+use crate::{AuxiliaryData, TransactionBody, TransactionId, WitnessSet};
 
-pub use amaru_observability::TelemetryCaptureLayer;
-pub use config::Config;
-pub use model::{InteractionMode, LevelFilter, Page, PaneMode, ScrollFocus, TargetFilter};
-pub use session::{Session, should_enable};
-pub use settings::Settings;
-pub use startup::{ConfigEntry, ConfigSection, ProcessInfo, RuntimeSettingsSource, StartupContext};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct TransactionRef<'a> {
+    pub body: &'a TransactionBody,
+    pub witnesses: &'a WitnessSet,
+    pub is_expected_valid: bool,
+    pub auxiliary_data: Option<&'a AuxiliaryData>,
+}
 
-/// Back-compat alias: the TUI now installs the shared observability capture layer.
-pub type TracingLayer = TelemetryCaptureLayer;
+impl<'a> TransactionRef<'a> {
+    pub fn tx_id(&self) -> TransactionId {
+        TransactionId::new(self.body.id())
+    }
+}

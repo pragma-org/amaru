@@ -182,6 +182,7 @@ pub use cardano::{
     transaction_id::TransactionId,
     transaction_input::{self, TransactionInput},
     transaction_pointer::TransactionPointer,
+    transaction_ref::TransactionRef,
     treasury_delta::TreasuryDelta,
     tx_info::{TxInfo, TxInfoTranslationError},
     utxos::Utxos,

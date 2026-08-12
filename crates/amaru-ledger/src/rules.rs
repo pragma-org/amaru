@@ -221,7 +221,7 @@ pub(crate) mod tests {
             &PREPROD_ERA_HISTORY,
             &PREPROD_GLOBAL_PARAMETERS,
             GovernanceActivity { consecutive_dormant_epochs: 0 },
-            block,
+            &block,
         );
 
         assert!(matches!(results, BlockValidation::Invalid(_, _, InvalidBlockDetails::HeaderSizeTooBig { .. })))

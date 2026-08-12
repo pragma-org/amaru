@@ -37,6 +37,10 @@ use crate::{
 ///
 /// Note that the `accounts` field only contains _active_ accounts; that is, accounts
 /// delegated to a registered stake pool.
+///
+/// Fields are public and individually clonable (`AccountState`, `PoolState`,
+/// `DRepState`, scalars, map entries). The aggregate intentionally does **not**
+/// implement [`Clone`] so large copies require explicit field-level intent.
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone))]
 pub struct StakeSummary {
@@ -60,6 +64,9 @@ impl Deref for StakeSummary {
 ///
 /// Unlike [`StakeSummary`], this deliberately omits the full accounts mapping. The only
 /// account-derived information needed on the hot path is captured in `PoolState::fallback_drep`.
+///
+/// Does not implement [`Clone`] in non-test builds: clone pools/dreps/scalars individually
+/// when an embedder needs independent ownership.
 #[derive(Debug, Default)]
 #[cfg_attr(test, derive(Clone))]
 pub struct StakeDistribution {

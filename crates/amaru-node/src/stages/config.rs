@@ -27,6 +27,7 @@ use amaru_kernel::{
     PREPROD_GLOBAL_PARAMETERS, Peer,
 };
 use amaru_mempool::MempoolConfig;
+use amaru_metrics::Meter;
 use amaru_ouroboros::ChainStore;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::Instant;
@@ -36,6 +37,9 @@ use anyhow::Context;
 use crate::{DEFAULT_DOWNSTREAM_PEERS, DEFAULT_PEER_REMOVAL_COOLDOWN_SECS, DEFAULT_UPSTREAM_PEERS};
 
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
+///
+/// Prefer [`crate::NodeBuilder`] for embedding; this struct remains the full explicit surface
+/// used by the CLI, tests, and advanced callers.
 pub struct Config {
     pub ledger_config: LedgerConfig,
     pub chain_store: StoreType<Arc<dyn ChainStore>>,
@@ -71,6 +75,13 @@ pub struct Config {
 
     /// Tx-submission responder parameters (max outstanding tx-id window, fetch batch size, etc...).
     pub tx_submission_responder_params: ResponderParams,
+
+    /// Optional embedder observers (adopted blocks, full stake summaries).
+    pub observers: amaru_ledger::LedgerObservers,
+
+    /// Metrics sink. When `None`, [`build_and_run_node`](crate::build_and_run_node) uses
+    /// [`Meter::default`] (no OpenTelemetry export, no local observer).
+    pub meter: Option<Arc<Meter>>,
 }
 
 impl Config {
@@ -137,6 +148,8 @@ impl Default for Config {
             trace_dump_path: None,
             mempool: MempoolConfig::default(),
             tx_submission_responder_params: ResponderParams::default(),
+            observers: amaru_ledger::LedgerObservers::default(),
+            meter: None,
         }
     }
 }

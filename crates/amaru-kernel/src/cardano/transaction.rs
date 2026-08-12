@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{AuxiliaryData, Bytes, TransactionBody, TransactionId, WitnessSet, cbor, ed25519};
+use crate::{
+    AuxiliaryData, Bytes, TransactionBody, TransactionId, WitnessSet, cardano::transaction_ref::TransactionRef, cbor,
+    ed25519,
+};
 
 const CHAIN_CODE_SIZE: usize = 32;
 
@@ -102,5 +105,14 @@ fn assert_bytes_len(field: &str, bytes: &Bytes, expected: usize) -> Result<(), c
 impl Transaction {
     pub fn tx_id(&self) -> TransactionId {
         TransactionId::new(self.body.id())
+    }
+
+    pub fn tx_ref(&self) -> TransactionRef<'_> {
+        TransactionRef {
+            body: &self.body,
+            witnesses: &self.witnesses,
+            is_expected_valid: self.is_expected_valid,
+            auxiliary_data: self.auxiliary_data.as_ref(),
+        }
     }
 }
