@@ -921,6 +921,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         with_prefix_iterator(&self.db, utxo::PREFIX, "utxo", with)
     }
 
+    fn update_or_retire_pools(
+        &self,
+        updates: &BTreeMap<scolumns::pools::Key, scolumns::pools::Row>,
+        retirements: &BTreeSet<scolumns::pools::Key>,
+        vrf_released: &BTreeSet<scolumns::pools_vrf::Key>,
+        vrf_retired: &[scolumns::pools_vrf::Key],
+    ) -> Result<(), StoreError> {
+        pools::update_or_retire(&self.db, updates, retirements, vrf_released, vrf_retired)
+    }
+
     fn with_pools(&self, with: impl FnMut(scolumns::pools::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, pools::PREFIX, "pools", with)
     }

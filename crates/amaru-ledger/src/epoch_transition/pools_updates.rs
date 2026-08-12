@@ -20,7 +20,7 @@ use amaru_kernel::{
 };
 use amaru_observability::{debug, info_span};
 
-use crate::store::columns::pools::Row as Pool;
+use crate::store::columns::{pools::Row as Pool, pools_vrf};
 
 mod pool_certificates;
 pub use pool_certificates::{PendingPoolCertificates, PoolCertificate, PoolCertificates};
@@ -40,6 +40,16 @@ pub struct PoolsEpochTransitionUpdates {
 
     /// Pool owners refunds, corresponding to the return of their deposit upon de-registration.
     refunds: BTreeMap<StakeCredential, Lovelace>,
+
+    /// VRF key hashes whose occupancy is deleted at the epoch transition: the previous
+    /// keys of pools whose activating re-registration changed VRF
+    vrf_released: BTreeSet<pools_vrf::Key>,
+
+    /// VRF key hashes of retired pools (post-activation of any pending re-registration), each
+    /// decrementing its occupancy count at the epoch transition. A `Vec` rather than a set:
+    /// occupancy counts can exceed one, so two retiring pools sharing a grandfathered key must
+    /// decrement it twice.
+    vrf_retired: Vec<pools_vrf::Key>,
 }
 
 impl PoolsEpochTransitionUpdates {
@@ -67,6 +77,16 @@ impl PoolsEpochTransitionUpdates {
 
     pub fn refunds(&self) -> impl Iterator<Item = (&StakeCredential, &Lovelace)> {
         self.refunds.iter()
+    }
+
+    /// VRF key hashes whose occupancy the transition deletes entirely.
+    pub fn vrf_released(&self) -> &BTreeSet<pools_vrf::Key> {
+        &self.vrf_released
+    }
+
+    /// VRF key hashes whose occupancy the transition decrements, one entry per retiring pool.
+    pub fn vrf_retired(&self) -> &[pools_vrf::Key] {
+        &self.vrf_retired
     }
 
     /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
@@ -117,6 +137,8 @@ impl PoolsEpochTransitionUpdates {
             // PoolParams.
             let PoolParams { id: _, vrf, pledge, cost, margin, reward_account, owners, relays, metadata } = new_params;
 
+            let previous_vrf = pool.current_params.vrf;
+
             let current_params = &mut pool.current_params;
 
             // NOTE: /!\ IMPORTANT /!\ DO NOT INLINE
@@ -147,6 +169,12 @@ impl PoolsEpochTransitionUpdates {
                 @relays,
                 @metadata,
             );
+
+            // A re-registration that changes VRF leaves the previous key "dangling"
+            // which must be deleted at the boundary
+            if previous_vrf != current_params.vrf {
+                self.vrf_released.insert(previous_vrf);
+            }
 
             true
         } else {
@@ -192,6 +220,21 @@ impl PoolsEpochTransitionUpdates {
             pool.id(),
             pool.pending_certificates,
         );
+
+        // To clean up a retiring pool's VRF occunpancy, we take two steps:
+        // 1) First activate any pending re-registration (remove the current key)
+        // 2) Then Decrement the key of the *now-activated* paramters.
+        //
+        // That pending registration is unreachable through the fold (an effective retirement discards it)
+        // so we have to recover it from the raw certificate list instead.
+        let current_vrf = pool.current_params.vrf;
+        match pool.pending_certificates.last_registration() {
+            Some(params) if params.vrf != current_vrf => {
+                self.vrf_released.insert(current_vrf);
+                self.vrf_retired.push(params.vrf);
+            }
+            _ => self.vrf_retired.push(current_vrf),
+        }
     }
 }
 

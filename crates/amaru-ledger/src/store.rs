@@ -762,6 +762,31 @@ pub trait TransactionalContext<'a>: ReadStore {
         unimplemented!("TransactionalContext.with_pots()");
     }
 
+    /// Apply the pool updates and retirements computed at an epoch boundary, together with the
+    /// VRF key hash occupancy bookkeeping they imply: released keys are deleted first,
+    /// then retired pools' keys are decremented.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn update_or_retire_pools(
+        &self,
+        updates: &BTreeMap<pools::Key, pools::Row>,
+        retirements: &BTreeSet<pools::Key>,
+        vrf_released: &BTreeSet<pools_vrf::Key>,
+        vrf_retired: &[pools_vrf::Key],
+    ) -> Result<()>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn update_or_retire_pools(
+        &self,
+        updates: &BTreeMap<pools::Key, pools::Row>,
+        retirements: &BTreeSet<pools::Key>,
+        vrf_released: &BTreeSet<pools_vrf::Key>,
+        vrf_retired: &[pools_vrf::Key],
+    ) -> Result<()> {
+        unimplemented!(
+            "TransactionalContext.update_or_retire_pools({updates:?}, {retirements:?}, {vrf_released:?}, {vrf_retired:?})"
+        );
+    }
+
     /// Provide an access to iterate over pools, in a way that enforces:
     ///
     /// 1. That mutations will be persisted on-disk

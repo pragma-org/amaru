@@ -1210,6 +1210,8 @@ define_schemas! {
                         optional pool: amaru_kernel::PoolId
                         optional reason: String
                     }
+                    /// Apply epoch-boundary pool updates and retirements
+                    public UPDATE_OR_RETIRE {}
                 }
                 pools_vrf {
                     /// Point-read a VRF key hash occupancy entry

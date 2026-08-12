@@ -296,7 +296,7 @@ impl StateOverlay {
                     reset_fees_and_donations(batch)?;
 
                     if let Some(pools_updates) = mem::take(&mut self.pools_updates) {
-                        update_or_retire_pools(batch, pools_updates.updated(), pools_updates.retired())?;
+                        update_or_retire_pools(batch, &pools_updates)?;
                         pay_or_refund_accounts(batch, pools_updates.refunds())?;
                     } else {
                         debug!(ledger::overlay::NO_POOLS_UPDATES);

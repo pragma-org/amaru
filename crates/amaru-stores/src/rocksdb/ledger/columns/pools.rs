@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use amaru_kernel::Epoch;
 use amaru_ledger::{
     epoch_transition::pools_updates::{PoolCertificate, PoolCertificates},
@@ -19,6 +21,7 @@ use amaru_ledger::{
         StoreError,
         columns::{
             pools::{Key, Row, Value},
+            pools_vrf::Key as VrfKey,
             unsafe_decode,
         },
     },
@@ -94,6 +97,37 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>, epoc
             };
 
             db.put(as_key(&PREFIX, pool), params).map_err(|err| StoreError::Internal(err.into()))?;
+        }
+
+        Ok(())
+    })
+}
+
+/// Apply the pool updates and retirements computed at an epoch boundary. VRF key hash occupancy
+/// follows the Haskell rule's order: superseded ("dangling") keys are deleted whole-key first,
+/// then each retiring pool's post-activation key is decremented.
+pub fn update_or_retire<DB>(
+    db: &Transaction<'_, DB>,
+    updates: &BTreeMap<Key, Row>,
+    retirements: &BTreeSet<Key>,
+    vrf_released: &BTreeSet<VrfKey>,
+    vrf_retired: &[VrfKey],
+) -> Result<(), StoreError> {
+    trace_span!(stores::ledger::pools::UPDATE_OR_RETIRE).in_scope(|| {
+        for (pool, row) in updates {
+            db.put(as_key(&PREFIX, pool), as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
+        }
+
+        for pool in retirements {
+            db.delete(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))?;
+        }
+
+        for vrf in vrf_released {
+            pools_vrf::release(db, vrf)?;
+        }
+
+        for vrf in vrf_retired {
+            pools_vrf::decrement(db, vrf)?;
         }
 
         Ok(())

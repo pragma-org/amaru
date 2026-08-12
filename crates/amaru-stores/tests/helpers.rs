@@ -32,7 +32,9 @@ use amaru_ledger::{
     state::{ForkSwitchOutcome, State, volatile::VolatileFragment},
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, ReadStore, Store, StoreError, TransactionalContext,
-        columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, utxo, votes},
+        columns::{
+            accounts, cc_members, dreps, pools, pools_vrf, pots, proposals, recently_unregistered_accounts, utxo, votes,
+        },
     },
 };
 use amaru_plutus::arena_pool::ArenaPool;
@@ -442,6 +444,16 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
     }
 
     fn with_accounts(&self, _with: impl FnMut(accounts::Iter<'_, '_>)) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn update_or_retire_pools(
+        &self,
+        _updates: &BTreeMap<pools::Key, pools::Row>,
+        _retirements: &BTreeSet<pools::Key>,
+        _vrf_released: &BTreeSet<pools_vrf::Key>,
+        _vrf_retired: &[pools_vrf::Key],
+    ) -> amaru_ledger::store::Result<()> {
         Ok(())
     }
 
