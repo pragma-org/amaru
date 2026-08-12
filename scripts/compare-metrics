@@ -127,12 +127,23 @@ comm -23 "$cardano_tmp" "$all_metrics_tmp" > "$unknown_cardano_tmp"
 missing_supported_tmp="$tmp_dir/missing-supported"
 comm -23 "$supported_metrics_tmp" "$amaru_tmp" > "$missing_supported_tmp"
 
+cardano_only_tmp="$tmp_dir/cardano-only"
+metrics_diff_tmp="$tmp_dir/metrics-diff"
+metrics_diff_status=0
+diff "$cardano_tmp" "$amaru_tmp" > "$metrics_diff_tmp" || metrics_diff_status=$?
+if [[ "$metrics_diff_status" -gt 1 ]]; then
+  printf 'error: could not compare cardano-node and Amaru metrics\n' >&2
+  exit "$metrics_diff_status"
+fi
+awk '/^< / { sub(/^< /, ""); print }' "$metrics_diff_tmp" > "$cardano_only_tmp"
+
 cardano_total=$(count_lines "$cardano_tmp")
 all_metrics_total=$(count_lines "$all_metrics_tmp")
 amaru_total=$(count_lines "$amaru_tmp")
 supported_metrics_total=$(count_lines "$supported_metrics_tmp")
 unknown_cardano_count=$(count_lines "$unknown_cardano_tmp")
 missing_supported_count=$(count_lines "$missing_supported_tmp")
+cardano_only_count=$(count_lines "$cardano_only_tmp")
 violation_count=$((unknown_cardano_count + missing_supported_count))
 
 # ── JSON report ───────────────────────────────────────────────────────────────
@@ -185,7 +196,17 @@ if $SUMMARY; then
     printf '| Amaru metrics (observed) | %s |\n' "$amaru_total"
     printf '| Amaru metrics (supported) | %s |\n' "$supported_metrics_total"
     printf '| **Unknown cardano-node metrics** | **%s** |\n' "$unknown_cardano_count"
-    printf '| **Missing supported Amaru metrics** | **%s** |\n\n' "$missing_supported_count"
+    printf '| **Missing supported Amaru metrics** | **%s** |\n' "$missing_supported_count"
+    printf '| Cardano-node metrics not exposed by Amaru | %s |\n\n' "$cardano_only_count"
+
+    if [[ "$cardano_only_count" -gt 0 ]]; then
+      printf '<details>\n'
+      printf '<summary>Cardano-node metrics not exposed by Amaru (%s)</summary>\n\n' "$cardano_only_count"
+      printf '| Metric |\n'
+      printf '|--------|\n'
+      awk '{ printf "| `%s` |\n", $0 }' "$cardano_only_tmp"
+      printf '\n</details>\n\n'
+    fi
 
     if [[ "$unknown_cardano_count" -gt 0 ]]; then
       printf '<details>\n'
