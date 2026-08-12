@@ -21,8 +21,8 @@ use anyhow::{Context, Result};
 
 /// Generate:
 ///  1. build-time information (via `built`)
-///  2. The stake distribution test cases for each supported network.
-///  3. Peer snapshots for known networks (best-effort fetch; embed if present).
+///  2. git commit identity for logging
+///  3. stake distribution conformance test cases for each supported network
 fn main() -> Result<()> {
     write_built_file().context("Failed to acquire build-time information")?;
     write_git_info_file().context("Failed to acquire git build information")?;

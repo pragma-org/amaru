@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# post-checkout: share the primary worktree's snapshots/ with linked worktrees.
+#
+# Fires on `git worktree add`, branch switches, and other checkouts. The script
+# it calls is idempotent and a no-op on the primary worktree.
+#
+# If this branch does not yet contain the setup script (e.g. not merged), exit
+# quietly so checkout is never blocked.
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+script="${repo_root}/scripts/setup-worktree-snapshots.sh"
+
+if [[ ! -f "${script}" ]]; then
+  exit 0
+fi
+
+exec "${script}"
