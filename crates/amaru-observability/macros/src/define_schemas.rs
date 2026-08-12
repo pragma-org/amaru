@@ -12,24 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! `define_schemas!` macro implementation
-//!
-//! This module parses schema definitions and generates:
-//! - Nested const module structures for schema access
-//! - Field validator macros for compile-time type checking
-//! - Required field checker macros
-//! - Module validator macros
-//! - Record helper macros for auto-recording schema fields
-//! - Inventory submissions for runtime registry
+use std::collections::BTreeMap;
 
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::Type;
+use quote::{ToTokens, quote};
+use syn::{
+    Attribute, Ident, Token, Type, braced,
+    parse::{Parse, ParseStream},
+    spanned::Spanned,
+};
 
 use crate::utils::{
-    format_field_spec, is_identifier_start, is_uppercase_identifier, is_valid_identifier, make_assign_macro_name,
-    make_ident, make_instrument_macro_name, make_module_validator_name, make_record_macro_name,
-    make_require_macro_name, make_required_field_check_macro_name,
+    format_field_spec, make_assign_macro_name, make_ident, make_instrument_macro_name, make_module_validator_name,
+    make_record_macro_name, make_require_macro_name, make_required_field_check_macro_name,
 };
 
 // =============================================================================
@@ -75,69 +70,74 @@ impl GenerationConfig {
 // =============================================================================
 
 /// A field within a schema definition.
-#[derive(Debug, Clone)]
-pub struct SchemaField {
-    /// Field name (e.g., "slot", "hash")
-    name: String,
-    /// Field type as string (e.g., "u64", "String")
-    ty: String,
+#[derive(Clone)]
+struct SchemaField {
+    /// Field name with the span from the schema definition.
+    name: Ident,
+    /// Field type AST with spans from the schema definition.
+    ty: Type,
+}
+
+impl SchemaField {
+    fn name_str(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn type_str(&self) -> String {
+        type_to_string(&self.ty)
+    }
+
+    fn is_string_type(&self) -> bool {
+        matches!(&self.ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident("String"))
+    }
 }
 
 /// A complete schema definition.
-#[derive(Debug, Clone)]
-pub struct Schema {
+#[derive(Clone)]
+struct Schema {
     /// Whether this schema is explicitly public.
-    /// Schemas are private by default unless marked `public` in define_schemas!.
-    #[allow(dead_code)]
+    /// Schemas are private by default unless marked `public`.
     public: bool,
-    /// Category path components (e.g., ["ledger", "state"] for ledger::state)
-    /// Can be arbitrary depth: ["a"], ["a", "b"], ["a", "b", "c"], etc.
-    categories: Vec<String>,
-    /// Schema name in SCREAMING_SNAKE_CASE (e.g., "VALIDATE_HEADER")
-    name: String,
-    /// Optional description from doc comment
+    /// Category path components (idents with original spans).
+    categories: Vec<Ident>,
+    /// Schema name in SCREAMING_SNAKE_CASE (ident with original span).
+    name: Ident,
+    /// Optional description from doc comment(s).
     description: Option<String>,
     /// Functional tags, each recorded as a boolean `amaru.tag.<name>` span attribute.
-    /// Declared with `tags: <name>, ...` at the module level (inherited) or per schema (override).
-    tags: Vec<String>,
-    /// Fields that must be present
+    tags: Vec<Ident>,
+    /// Fields that must be present.
     required_fields: Vec<SchemaField>,
-    /// Fields that may optionally be present
+    /// Fields that may optionally be present.
     optional_fields: Vec<SchemaField>,
 }
 
 impl Schema {
-    /// Create a new schema with the given path components.
-    fn new(name: &str, categories: Vec<String>) -> Self {
-        Schema {
-            public: false,
-            categories,
-            name: name.to_string(),
-            description: None,
-            tags: Vec::new(),
-            required_fields: Vec::new(),
-            optional_fields: Vec::new(),
-        }
+    fn name_str(&self) -> String {
+        self.name.to_string()
+    }
+
+    fn category_strings(&self) -> Vec<String> {
+        self.categories.iter().map(|c| c.to_string()).collect()
     }
 
     /// Get the target path by joining categories with "::"
     fn target_path(&self) -> String {
-        self.categories.join("::")
+        self.category_strings().join("::")
     }
 
     /// Get the full schema path including the name
     fn full_path(&self) -> String {
-        if self.categories.is_empty() { self.name.clone() } else { format!("{}::{}", self.target_path(), self.name) }
-    }
-
-    /// Set the description from a doc comment.
-    fn set_description(&mut self, description: String) {
-        self.description = Some(description);
+        if self.categories.is_empty() {
+            self.name_str()
+        } else {
+            format!("{}::{}", self.target_path(), self.name_str())
+        }
     }
 
     /// Get the names of all required fields.
     fn required_field_names(&self) -> Vec<String> {
-        self.required_fields.iter().map(|f| f.name.clone()).collect()
+        self.required_fields.iter().map(|f| f.name_str()).collect()
     }
 
     /// Generate the validation string format: "R|req_fields|O|opt_fields"
@@ -151,590 +151,406 @@ impl Schema {
         self.categories
             .iter()
             .skip(2)
-            .map(|part| part.to_lowercase())
-            .chain(std::iter::once(self.name.to_lowercase()))
+            .map(|part| part.to_string().to_lowercase())
+            .chain(std::iter::once(self.name_str().to_lowercase()))
             .collect::<Vec<_>>()
             .join(".")
     }
 
     fn event_target(&self) -> String {
-        self.categories.iter().take(2).map(|part| part.as_str()).collect::<Vec<_>>().join("::")
+        self.categories.iter().take(2).map(|part| part.to_string()).collect::<Vec<_>>().join("::")
     }
 }
 
+/// Render a type to a stable string without whitespace (matches the historical format).
+fn type_to_string(ty: &Type) -> String {
+    ty.to_token_stream().to_string().chars().filter(|c| !c.is_whitespace()).collect()
+}
+
 // =============================================================================
-// Tokenizer
+// Parser (syn-based)
 // =============================================================================
 
-/// Tokenize input string into meaningful tokens for parsing.
-///
-/// Splits on: `{`, `}`, `,`, `:`, and whitespace, while preserving doc comments.
-/// Rejects `[` and `]` as syntax errors (use `{}` for field lists instead).
-/// Returns a vector of tokens in parsing order, or an error if brackets are found.
-fn tokenize(input: &str) -> Result<Vec<String>, String> {
-    let mut tokens = Vec::new();
-    let mut chars: Box<dyn Iterator<Item = (usize, char)>> = Box::new(input.char_indices());
-    let mut current = String::new();
-    let mut line_number = 1;
+/// Top-level input: one or more category blocks.
+struct SchemaFile {
+    categories: Vec<CategoryNode>,
+}
 
-    while let Some((idx, ch)) = chars.next() {
-        match ch {
-            // Reject bracket syntax
-            '[' | ']' => {
-                let following = chars.take(300).map(|(_, c)| c).collect::<String>();
-                return Err(format!(
-                    "Unsupported syntax: brackets `[` and `]` are not allowed. Use curly braces `{{}}` for field lists instead. Found `{}` at line {} in input: {}",
-                    ch, line_number, following
+/// A nested category (`ident { ... }`).
+struct CategoryNode {
+    name: Ident,
+    items: Vec<CategoryItem>,
+}
+
+/// Items that may appear inside a category body.
+enum CategoryItem {
+    Tags(Vec<Ident>),
+    Category(CategoryNode),
+    Schema(SchemaNode),
+}
+
+/// A schema definition (`[public] NAME { ... }`).
+struct SchemaNode {
+    attrs: Vec<Attribute>,
+    public: bool,
+    name: Ident,
+    items: Vec<SchemaItem>,
+}
+
+/// Items that may appear inside a schema body.
+enum SchemaItem {
+    Tags(Vec<Ident>),
+    Field {
+        /// Field doc comments are accepted for source documentation; not emitted today.
+        #[allow(dead_code)]
+        attrs: Vec<Attribute>,
+        required: bool,
+        name: Ident,
+        ty: Type,
+    },
+}
+
+impl Parse for SchemaFile {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut categories = Vec::new();
+        while !input.is_empty() {
+            // Disallow bare tags / schemas / fields at the root.
+            let attrs = input.call(Attribute::parse_outer)?;
+            if !attrs.is_empty() {
+                return Err(syn::Error::new(
+                    attrs[0].span(),
+                    "doc comments at the root of define_schemas! are not allowed; place them on a schema",
                 ));
             }
-            // Check for doc comment start
-            '/' if input[idx + 1..].starts_with("//") => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-                grab_comment(input, idx, &mut tokens, &mut chars);
+            if input.peek(Token![pub]) || peek_keyword(input, "public") || peek_keyword(input, "tags") {
+                return Err(input.error("schema definitions and tags must appear inside a category block"));
             }
-            '/' if input[idx + 1..].starts_with("/") => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-                let end = input[idx..].find('\n').unwrap_or(input.len());
-                chars = Box::new(input[end..].char_indices().map(move |(i, c)| (i + end, c)));
-            }
-            // rust-analyzer delivers doc comments as # [doc = "..."], so we need to parse that and reformat it to ///...
-            '#' if input[idx + 1..].starts_with(" [") => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-                grab_comment(input, idx, &mut tokens, &mut chars);
-            }
-            '#' => {
-                return Err(format!("Found #: {:?}", &input[idx..]));
-            }
-            '{' | '}' | ',' | ':' => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-                tokens.push(ch.to_string());
-            }
-            c if c.is_whitespace() => {
-                if c == '\n' {
-                    line_number += 1;
-                }
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-            }
-            c => {
-                current.push(c);
-            }
+            categories.push(input.parse()?);
         }
-    }
-
-    // Add any remaining content
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-
-    Ok(tokens)
-}
-
-fn grab_comment<'a>(
-    input: &'a str,
-    idx: usize,
-    tokens: &mut Vec<String>,
-    chars: &mut Box<dyn Iterator<Item = (usize, char)> + 'a>,
-) {
-    let comment = if input[idx..].starts_with("///") {
-        let end = input[idx..].find('\n').map(|i| i + idx).unwrap_or(input.len());
-        *chars = Box::new(input[end..].char_indices().map(move |(i, c)| (i + end, c)));
-        input[idx..end].trim_start_matches("///").trim()
-    } else {
-        // need to parse #[doc = "..."] comment
-        let begin = input[idx..].find('"').expect("doc comment must be enclosed in quotes") + 1 + idx;
-        let end = input[begin..].find("\"]").expect("doc comment must be enclosed in quotes") + begin;
-        *chars = Box::new(input[end + 2..].char_indices().map(move |(i, c)| (i + end + 2, c)));
-        input[begin..end].trim()
-    };
-    if !comment.is_empty() {
-        tokens.push(format!("///{}", comment));
+        if categories.is_empty() {
+            return Err(input.error("expected at least one category block"));
+        }
+        Ok(SchemaFile { categories })
     }
 }
 
-// =============================================================================
-// Parser
-// =============================================================================
-
-/// Parser state for tracking nested structure during tokenization.
-struct ParserState {
-    /// Current brace nesting depth
-    depth: i32,
-    /// Category path stack (grows as we nest deeper)
-    category_stack: Vec<String>,
-    /// Module-level `tags: <name>, ...` declarations, tagged with the depth they were declared at.
-    /// The innermost declaration applies to schemas that do not declare their own tags.
-    module_tags: Vec<(i32, Vec<String>)>,
-    /// Schema being built (if any)
-    current_schema: Option<Schema>,
-    /// Depth at which the current schema was started
-    schema_depth: i32,
-    /// Pending description to be applied to the next schema
-    pending_description: Option<String>,
-}
-
-impl ParserState {
-    fn new() -> Self {
-        ParserState {
-            depth: 0,
-            category_stack: Vec::new(),
-            module_tags: Vec::new(),
-            current_schema: None,
-            schema_depth: -1,
-            pending_description: None,
-        }
-    }
-
-    /// Handle opening brace.
-    fn open_brace(&mut self) {
-        self.depth += 1;
-    }
-
-    /// Finalize a schema, applying the innermost module-level tags unless it has its own.
-    fn finalize_schema(&mut self, mut schema: Schema, schemas: &mut Vec<Schema>) {
-        if schema.tags.is_empty()
-            && let Some((_, tags)) = self.module_tags.last()
-        {
-            schema.tags = tags.clone();
-        }
-        schemas.push(schema);
-    }
-
-    /// Handle closing brace, potentially finalizing a schema.
-    fn close_brace(&mut self, schemas: &mut Vec<Schema>) {
-        // Check if we're closing a schema
-        if self.schema_depth >= 0 && self.depth == self.schema_depth + 1 {
-            if let Some(schema) = self.current_schema.take() {
-                self.finalize_schema(schema, schemas);
-            }
-            self.schema_depth = -1;
-        } else if self.depth > 0 && self.category_stack.len() >= self.depth as usize {
-            // Closing a category level - pop from stack, along with its tags declarations
-            self.category_stack.pop();
-            while self.module_tags.last().is_some_and(|(depth, _)| *depth >= self.depth) {
-                self.module_tags.pop();
-            }
-        }
-
-        self.depth = self.depth.saturating_sub(1);
-    }
-
-    /// Try to start a new scope (category or schema).
-    fn try_start_scope(&mut self, name: &str, public: bool, errors: &mut Vec<String>) {
-        if is_uppercase_identifier(name) {
-            // Uppercase identifier = schema definition
-            // Validate that schema name is a valid Rust identifier
-            if !is_valid_identifier(name) {
-                errors.push(format!(
-                    "Invalid schema name '{}'. Schema names must be valid Rust identifiers: \
-                     start with a letter or underscore, and contain only letters, digits, and underscores. \
-                     Schema names cannot contain special characters like '::' or '-'.",
+impl Parse for CategoryNode {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        if is_schema_name(&name) {
+            return Err(syn::Error::new(
+                name.span(),
+                format!(
+                    "expected a category name (lowercase identifier), found schema-like name '{}'. \
+                     Schema definitions must appear inside a category block.",
                     name
-                ));
-                return;
-            }
-
-            let mut schema = Schema::new(name, self.category_stack.clone());
-            schema.public = public;
-            if let Some(description) = self.pending_description.take() {
-                schema.set_description(description);
-            }
-            self.current_schema = Some(schema);
-            self.schema_depth = self.depth;
-        } else {
-            if public {
-                errors.push(format!(
-                    "Invalid use of `public` before category '{}'. Only schema definitions may be marked public.",
-                    name
-                ));
-                return;
-            }
-            // Lowercase identifier = category level
-            // Validate that category name is a valid Rust identifier
-            if !is_valid_identifier(name) {
-                errors.push(format!(
-                    "Invalid category name '{}'. Category names must be valid Rust identifiers: \
-                     start with a letter or underscore, and contain only letters, digits, and underscores. \
-                     Category names cannot contain special characters like '::' or '-'.",
-                    name
-                ));
-                return;
-            }
-            // Push onto the stack (will be popped on closing brace)
-            self.category_stack.push(name.to_string());
-        }
-    }
-
-    /// Check if we can add a field to the current schema.
-    fn can_add_field(&self) -> bool {
-        self.schema_depth >= 0 && self.current_schema.is_some()
-    }
-
-    /// Add a required field to the current schema, checking for duplicates.
-    fn add_required_field(&mut self, name: &str, ty: &str, errors: &mut Vec<String>) {
-        self.add_field_internal(name, ty, true, errors);
-    }
-
-    /// Add an optional field to the current schema, checking for duplicates.
-    fn add_optional_field(&mut self, name: &str, ty: &str, errors: &mut Vec<String>) {
-        self.add_field_internal(name, ty, false, errors);
-    }
-
-    /// Add a field to the current schema, checking for duplicates.
-    fn add_field_internal(&mut self, name: &str, ty: &str, is_required: bool, errors: &mut Vec<String>) {
-        let Some(schema) = self.current_schema.as_mut() else {
-            return;
-        };
-
-        if name == "name" || name == "schema" || name == "message" {
-            errors.push(format!(
-                "Reserved field '{}' in schema {}. The tracing macros manage this field internally.",
-                name, schema.name
+                ),
             ));
-            return;
         }
-
-        // Check for duplicate field names
-        let is_duplicate = schema.required_fields.iter().chain(schema.optional_fields.iter()).any(|f| f.name == name);
-
-        if is_duplicate {
-            errors.push(format!("Duplicate field '{}' in schema {}", name, schema.name));
-            return;
-        }
-
-        let field = SchemaField { name: name.to_string(), ty: ty.to_string() };
-
-        if is_required {
-            schema.required_fields.push(field);
-        } else {
-            schema.optional_fields.push(field);
-        }
+        let content;
+        braced!(content in input);
+        let items = parse_category_body(&content)?;
+        Ok(CategoryNode { name, items })
     }
 }
 
-/// Parse a single token and update state.
-///
-/// Returns the next index to process.
-fn parse_token(
-    token: &str,
-    tokens: &[String],
-    index: usize,
-    state: &mut ParserState,
-    schemas: &mut Vec<Schema>,
-    errors: &mut Vec<String>,
-) -> usize {
-    match token {
-        "{" => {
-            state.open_brace();
-            index + 1
-        }
-        "}" => {
-            state.close_brace(schemas);
-            index + 1
-        }
-        "required" => {
-            // Parse: required field_name: Type (prefix syntax only)
-            // Block syntax (required { ... }) is not supported
-            if tokens.get(index + 1).map(|s| s.as_str()) == Some("{") {
-                errors.push(
-                    "Block syntax for required fields is not supported. Use prefix syntax instead: \
-                     `required field_name: Type` (repeat for each field)"
-                        .to_string(),
-                );
-                return index + 1;
+fn parse_category_body(input: ParseStream) -> syn::Result<Vec<CategoryItem>> {
+    let mut items = Vec::new();
+    while !input.is_empty() {
+        let attrs = input.call(Attribute::parse_outer)?;
+
+        if peek_keyword(input, "tags") {
+            if !attrs.is_empty() {
+                return Err(syn::Error::new(attrs[0].span(), "`tags:` declarations cannot have attributes"));
             }
-
-            if state.can_add_field() {
-                match try_parse_prefixed_field(tokens, index) {
-                    Ok(Some((name, ty, next_index))) => {
-                        state.add_required_field(&name, &ty, errors);
-                        return next_index;
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        errors.push(error);
-                        return index + 1;
-                    }
-                }
-            }
-            index + 1
-        }
-        "optional" => {
-            // Parse: optional field_name: Type (prefix syntax only)
-            // Block syntax (optional { ... }) is not supported
-            if tokens.get(index + 1).map(|s| s.as_str()) == Some("{") {
-                errors.push(
-                    "Block syntax for optional fields is not supported. Use prefix syntax instead: \
-                     `optional field_name: Type` (repeat for each field)"
-                        .to_string(),
-                );
-                return index + 1;
-            }
-
-            if state.can_add_field() {
-                match try_parse_prefixed_field(tokens, index) {
-                    Ok(Some((name, ty, next_index))) => {
-                        state.add_optional_field(&name, &ty, errors);
-                        return next_index;
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        errors.push(error);
-                        return index + 1;
-                    }
-                }
-            }
-            index + 1
-        }
-        "tags" if tokens.get(index + 1).map(|s| s.as_str()) == Some(":") => {
-            // Parse: tags: <name>, <name>, ... (module level or inside a schema definition)
-            match try_parse_tags_list(tokens, index + 2) {
-                Ok((tags, next_index)) => {
-                    if let Some(schema) = state.current_schema.as_mut() {
-                        if !schema.tags.is_empty() {
-                            errors.push(format!("Duplicate tags declaration in schema {}", schema.name));
-                        } else {
-                            schema.tags = tags;
-                        }
-                    } else if state.depth > 0 {
-                        state.module_tags.push((state.depth, tags));
-                    } else {
-                        errors.push("`tags:` declarations must appear inside a module or schema".to_string());
-                    }
-                    next_index
-                }
-                Err(error) => {
-                    errors.push(error);
-                    index + 1
-                }
-            }
-        }
-        _ if is_identifier_start(token) => {
-            // Check for optional public keyword before schema/category
-            let (public, actual_name_idx) = if token == "public" && tokens.get(index + 1).map(|s| s.as_str()).is_some()
-            {
-                (true, index + 1)
-            } else {
-                (false, index)
-            };
-
-            // Check if this starts a new scope (followed by `{`)
-            let name_token = tokens.get(actual_name_idx).map(|s| s.as_str()).unwrap_or("");
-            if tokens.get(actual_name_idx + 1).map(|s| s.as_str()) == Some("{") {
-                state.try_start_scope(name_token, public, errors);
-                // Return adjusted index if we consumed the public keyword
-                if public {
-                    return actual_name_idx + 1;
-                }
-            }
-            index + 1
-        }
-        _ => index + 1,
-    }
-}
-
-/// Try to parse a comma-separated list of tag names starting at `start_index`.
-///
-/// Tags must be lowercase identifiers (e.g. `tags: cpu, io`).
-/// Returns the tags and the index of the first token after the list.
-fn try_parse_tags_list(tokens: &[String], start_index: usize) -> Result<(Vec<String>, usize), String> {
-    let is_tag_name = |token: &str| {
-        is_valid_identifier(token)
-            && !is_uppercase_identifier(token)
-            && !matches!(token, "required" | "optional" | "public" | "tags")
-    };
-
-    let mut tags = Vec::new();
-    let mut index = start_index;
-    loop {
-        match tokens.get(index).map(|s| s.as_str()) {
-            Some(token) if is_tag_name(token) => {
-                if tags.contains(&token.to_string()) {
-                    return Err(format!("Duplicate tag '{token}' in tags declaration"));
-                }
-                tags.push(token.to_string());
-                index += 1;
-            }
-            other => {
-                return Err(format!(
-                    "Invalid tag {:?}. Tags must be lowercase identifiers (e.g. `tags: cpu, io`).",
-                    other.unwrap_or("<missing>")
-                ));
-            }
-        }
-        if tokens.get(index).map(|s| s.as_str()) == Some(",") {
-            index += 1;
-        } else {
-            return Ok((tags, index));
-        }
-    }
-}
-
-/// Try to parse a prefixed field definition: `required/optional name: type`.
-///
-/// Returns `Some((name, type, next_index))` if the pattern matches.
-///
-/// Note: Field names MUST be valid Rust identifiers (alphanumeric + underscore).
-/// String literals like `"proposal.id"` are explicitly rejected to ensure schema
-/// field names can be used directly in macro code generation.
-fn try_parse_prefixed_field(tokens: &[String], index: usize) -> Result<Option<(String, String, usize)>, String> {
-    // tokens[index] is "required" or "optional"
-    // tokens[index+1] should be the field name
-    // tokens[index+2] should be ":"
-    let Some(name) = tokens.get(index + 1).map(|s| s.as_str()) else {
-        return Ok(None);
-    };
-
-    // Explicitly reject string literals as field names - they cannot be used as Rust identifiers
-    if name.starts_with('"') || name.starts_with('\'') {
-        return Ok(None);
-    }
-
-    if !is_identifier_start(name) {
-        return Ok(None);
-    }
-    if tokens.get(index + 2).map(|s| s.as_str()) != Some(":") {
-        return Ok(None);
-    }
-
-    let (ty, next_index) = collect_field_type(tokens, index + 3)?;
-    Ok(Some((name.to_string(), ty, next_index)))
-}
-
-fn collect_field_type(tokens: &[String], start_index: usize) -> Result<(String, usize), String> {
-    let mut index = start_index;
-    let mut type_tokens = Vec::new();
-
-    while let Some(token) = tokens.get(index).map(|s| s.as_str()) {
-        if is_type_boundary(tokens, index) {
-            break;
-        }
-
-        type_tokens.push(token.to_string());
-        index += 1;
-    }
-
-    if type_tokens.is_empty() {
-        return Err("Missing field type after ':' in schema definition".to_string());
-    }
-
-    let ty = render_type_tokens(&type_tokens);
-    syn::parse_str::<Type>(&ty).map_err(|error| format!("Invalid schema field type '{ty}': {error}"))?;
-
-    Ok((ty, index))
-}
-
-fn is_type_boundary(tokens: &[String], index: usize) -> bool {
-    match tokens.get(index).map(|s| s.as_str()) {
-        Some("}") | Some(",") => true,
-        Some("required") | Some("optional") => true,
-        Some(token) if token.starts_with("///") => true,
-        Some(_) | None => false,
-    }
-}
-
-fn render_type_tokens(tokens: &[String]) -> String {
-    let mut rendered = String::new();
-    let mut index = 0;
-
-    while index < tokens.len() {
-        if tokens[index] == ":" && index + 1 < tokens.len() && tokens[index + 1] == ":" {
-            rendered.push_str("::");
-            index += 2;
+            items.push(CategoryItem::Tags(parse_tags_decl(input)?));
             continue;
         }
 
-        rendered.push_str(&tokens[index]);
-        index += 1;
-    }
+        // Optional `public` keyword before a schema.
+        let public = if peek_keyword(input, "public") {
+            let public_ident: Ident = input.parse()?;
+            if public_ident != "public" {
+                return Err(syn::Error::new(public_ident.span(), "expected `public`"));
+            }
+            true
+        } else {
+            false
+        };
 
-    rendered
+        let name: Ident = input.parse()?;
+
+        if is_schema_name(&name) {
+            let content;
+            braced!(content in input);
+            let schema_items = parse_schema_body(&content)?;
+            items.push(CategoryItem::Schema(SchemaNode { attrs, public, name, items: schema_items }));
+        } else {
+            if public {
+                return Err(syn::Error::new(
+                    name.span(),
+                    format!(
+                        "Invalid use of `public` before category '{}'. Only schema definitions may be marked public.",
+                        name
+                    ),
+                ));
+            }
+            if !attrs.is_empty() {
+                return Err(syn::Error::new(
+                    attrs[0].span(),
+                    "doc comments on categories are not supported; place them on schema definitions",
+                ));
+            }
+            let content;
+            braced!(content in input);
+            let nested = parse_category_body(&content)?;
+            items.push(CategoryItem::Category(CategoryNode { name, items: nested }));
+        }
+    }
+    Ok(items)
 }
 
-/// Extract all schemas and errors from input using functional approach.
-fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
-    let tokens = match tokenize(input) {
-        Ok(t) => t,
-        Err(e) => {
-            return (Vec::new(), vec![e]);
-        }
-    };
+fn parse_schema_body(input: ParseStream) -> syn::Result<Vec<SchemaItem>> {
+    let mut items = Vec::new();
+    while !input.is_empty() {
+        let attrs = input.call(Attribute::parse_outer)?;
 
-    // Process tokens sequentially while maintaining state
-    let (_, mut state, mut schemas, errors) = tokens.iter().enumerate().fold(
-        (0usize, ParserState::new(), Vec::new(), Vec::new()),
-        |(mut skip_until, mut state, mut schemas, mut errors), (idx, token)| {
-            if idx >= skip_until {
-                // Check if we're about to start a schema and attach any preceding doc comment
-                // This needs to happen BEFORE parse_token creates the schema
-
-                // Check for schema pattern: [public] UPPERCASE_IDENTIFIER {
-                let is_public_keyword = token == "public";
-                let schema_idx = if is_public_keyword { idx + 1 } else { idx };
-
-                let schema_token = tokens.get(schema_idx).map(|s| s.as_str());
-                let next_brace = tokens.get(schema_idx + 1).map(|s| s.as_str());
-
-                if is_identifier_start(token)
-                    && schema_token.is_some()
-                    && next_brace == Some("{")
-                    && is_uppercase_identifier(schema_token.unwrap_or(""))
-                {
-                    // This will be a schema, collect all consecutive doc comments before it
-                    let mut doc_lines = Vec::new();
-                    let mut look_back = idx;
-                    while look_back > 0 {
-                        look_back -= 1;
-                        if tokens[look_back].starts_with("///") {
-                            let line = tokens[look_back].trim_start_matches("///").trim();
-                            if !line.is_empty() {
-                                doc_lines.push(line.to_string());
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                    if !doc_lines.is_empty() {
-                        doc_lines.reverse(); // They were collected in reverse order
-                        state.pending_description = Some(doc_lines.join(" "));
-                    }
-                }
-
-                skip_until = parse_token(token, &tokens, idx, &mut state, &mut schemas, &mut errors);
+        if peek_keyword(input, "tags") {
+            if !attrs.is_empty() {
+                return Err(syn::Error::new(attrs[0].span(), "`tags:` declarations cannot have attributes"));
             }
-            (skip_until, state, schemas, errors)
-        },
-    );
+            items.push(SchemaItem::Tags(parse_tags_decl(input)?));
+            continue;
+        }
 
-    // Finalize any pending schemas
-    if let Some(schema) = state.current_schema.take() {
-        state.finalize_schema(schema, &mut schemas);
+        let kind: Ident = input.parse()?;
+        let required = match kind.to_string().as_str() {
+            "required" => true,
+            "optional" => false,
+            other => {
+                return Err(syn::Error::new(
+                    kind.span(),
+                    format!("expected `required`, `optional`, or `tags:` inside schema body, found '{other}'"),
+                ));
+            }
+        };
+
+        // Reject block syntax: required { ... }
+        if input.peek(syn::token::Brace) {
+            return Err(syn::Error::new(
+                kind.span(),
+                "Block syntax for required/optional fields is not supported. Use prefix syntax instead: \
+                 `required field_name: Type` (repeat for each field)",
+            ));
+        }
+
+        let name: Ident = input.parse()?;
+        input.parse::<Token![:]>()?;
+        let ty: Type = input.parse()?;
+        // Optional trailing comma.
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+        }
+
+        items.push(SchemaItem::Field { attrs, required, name, ty });
+    }
+    Ok(items)
+}
+
+fn parse_tags_decl(input: ParseStream) -> syn::Result<Vec<Ident>> {
+    let tags_kw: Ident = input.parse()?;
+    if tags_kw != "tags" {
+        return Err(syn::Error::new(tags_kw.span(), "expected `tags`"));
+    }
+    input.parse::<Token![:]>()?;
+
+    let mut tags = Vec::new();
+    loop {
+        // Stop if the next token cannot start a tag name (next declaration / end of body).
+        if input.is_empty() || input.peek(Token![#]) || !input.peek(Ident) {
+            break;
+        }
+        // A following item looks like `ident {` (category/schema) or a keyword field prefix.
+        if input.peek2(syn::token::Brace)
+            || peek_keyword(input, "required")
+            || peek_keyword(input, "optional")
+            || peek_keyword(input, "public")
+            || peek_keyword(input, "tags")
+        {
+            break;
+        }
+
+        let tag: Ident = input.parse().map_err(|_| {
+            syn::Error::new(input.span(), "Invalid tag. Tags must be lowercase identifiers (e.g. `tags: cpu, io`).")
+        })?;
+
+        if is_schema_name(&tag) || matches!(tag.to_string().as_str(), "required" | "optional" | "public" | "tags") {
+            return Err(syn::Error::new(
+                tag.span(),
+                format!("Invalid tag '{}'. Tags must be lowercase identifiers (e.g. `tags: cpu, io`).", tag),
+            ));
+        }
+
+        if tags.iter().any(|existing| existing == &tag) {
+            return Err(syn::Error::new(tag.span(), format!("Duplicate tag '{tag}' in tags declaration")));
+        }
+        tags.push(tag);
+
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            // Trailing comma before the next declaration is allowed.
+            continue;
+        }
+        break;
     }
 
-    // Validate that all schemas have descriptions
-    let mut missing_descriptions = Vec::new();
+    if tags.is_empty() {
+        return Err(syn::Error::new(tags_kw.span(), "expected at least one tag after `tags:`"));
+    }
+    Ok(tags)
+}
+
+fn peek_keyword(input: ParseStream, name: &str) -> bool {
+    input.peek(Ident) && input.fork().parse::<Ident>().ok().is_some_and(|ident| ident == name)
+}
+
+fn is_schema_name(ident: &Ident) -> bool {
+    ident.to_string().chars().next().is_some_and(char::is_uppercase)
+}
+
+fn docs_from_attrs(attrs: &[Attribute]) -> Option<String> {
+    let mut lines = Vec::new();
+    for attr in attrs {
+        if attr.path().is_ident("doc")
+            && let syn::Meta::NameValue(meta) = &attr.meta
+            && let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &meta.value
+        {
+            let line = s.value();
+            // syn includes a leading space from `/// text`
+            let trimmed = line.strip_prefix(' ').unwrap_or(&line).trim();
+            if !trimmed.is_empty() {
+                lines.push(trimmed.to_string());
+            }
+        }
+    }
+    if lines.is_empty() { None } else { Some(lines.join(" ")) }
+}
+
+/// Flatten the parsed AST into a list of schemas with inherited tags, collecting errors.
+fn extract_schemas(file: SchemaFile) -> (Vec<Schema>, Vec<syn::Error>) {
+    let mut schemas = Vec::new();
+    let mut errors = Vec::new();
+
+    for category in file.categories {
+        flatten_category(category, Vec::new(), &[], &mut schemas, &mut errors);
+    }
+
     for schema in &schemas {
         if schema.description.is_none() {
-            missing_descriptions.push(format!(
-                "Schema '{}' is missing a description. Add a doc comment (///) above the schema definition.",
-                schema.name
+            errors.push(syn::Error::new(
+                schema.name.span(),
+                format!(
+                    "Schema '{}' is missing a description. Add a doc comment (///) above the schema definition.",
+                    schema.name
+                ),
             ));
         }
     }
 
-    let mut all_errors = errors;
-    all_errors.extend(missing_descriptions);
+    (schemas, errors)
+}
 
-    (schemas, all_errors)
+fn flatten_category(
+    category: CategoryNode,
+    mut path: Vec<Ident>,
+    inherited_tags: &[Ident],
+    schemas: &mut Vec<Schema>,
+    errors: &mut Vec<syn::Error>,
+) {
+    path.push(category.name);
+    let mut module_tags: Option<Vec<Ident>> = None;
+
+    for item in category.items {
+        match item {
+            CategoryItem::Tags(tags) => {
+                // Innermost tags declaration wins for subsequent schemas at this level.
+                module_tags = Some(tags);
+            }
+            CategoryItem::Category(nested) => {
+                let tags = module_tags.as_deref().unwrap_or(inherited_tags);
+                flatten_category(nested, path.clone(), tags, schemas, errors);
+            }
+            CategoryItem::Schema(node) => {
+                let effective_inherited = module_tags.as_deref().unwrap_or(inherited_tags);
+                match build_schema(node, path.clone(), effective_inherited) {
+                    Ok(schema) => schemas.push(schema),
+                    Err(errs) => errors.extend(errs),
+                }
+            }
+        }
+    }
+}
+
+fn build_schema(node: SchemaNode, categories: Vec<Ident>, inherited_tags: &[Ident]) -> Result<Schema, Vec<syn::Error>> {
+    let mut errors = Vec::new();
+    let description = docs_from_attrs(&node.attrs);
+
+    let mut tags: Option<Vec<Ident>> = None;
+    let mut required_fields = Vec::new();
+    let mut optional_fields = Vec::new();
+
+    for item in node.items {
+        match item {
+            SchemaItem::Tags(t) => {
+                if tags.is_some() {
+                    errors.push(syn::Error::new(
+                        t.first().map(|i| i.span()).unwrap_or_else(proc_macro2::Span::call_site),
+                        format!("Duplicate tags declaration in schema {}", node.name),
+                    ));
+                } else {
+                    tags = Some(t);
+                }
+            }
+            SchemaItem::Field { attrs: _field_docs, required, name, ty } => {
+                let name_str = name.to_string();
+                if matches!(name_str.as_str(), "name" | "schema" | "message") {
+                    errors.push(syn::Error::new(
+                        name.span(),
+                        format!(
+                            "Reserved field '{}' in schema {}. The tracing macros manage this field internally.",
+                            name, node.name
+                        ),
+                    ));
+                    continue;
+                }
+
+                let duplicate =
+                    required_fields.iter().chain(optional_fields.iter()).any(|f: &SchemaField| f.name == name);
+                if duplicate {
+                    errors.push(syn::Error::new(
+                        name.span(),
+                        format!("Duplicate field '{}' in schema {}", name, node.name),
+                    ));
+                    continue;
+                }
+
+                let field = SchemaField { name, ty };
+                if required {
+                    required_fields.push(field);
+                } else {
+                    optional_fields.push(field);
+                }
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    let tags = tags.unwrap_or_else(|| inherited_tags.to_vec());
+
+    Ok(Schema { public: node.public, categories, name: node.name, description, tags, required_fields, optional_fields })
 }
 
 // =============================================================================
@@ -743,7 +559,7 @@ fn extract_schemas(input: &str) -> (Vec<Schema>, Vec<String>) {
 
 /// Format field list as "name:type,name:type,...".
 fn format_field_list(fields: &[SchemaField]) -> String {
-    fields.iter().map(|f| format_field_spec(&f.name, &f.ty)).collect::<Vec<_>>().join(",")
+    fields.iter().map(|f| format_field_spec(&f.name_str(), &f.type_str())).collect::<Vec<_>>().join(",")
 }
 
 enum AccessorKind {
@@ -791,7 +607,8 @@ impl AccessorKind {
 }
 
 fn accessor_kind(field: &SchemaField) -> AccessorKind {
-    match field.ty.as_str() {
+    let ty = field.type_str();
+    match ty.as_str() {
         "bool" => AccessorKind::Bool,
         "f64" => AccessorKind::F64,
         "i64" => AccessorKind::I64,
@@ -811,11 +628,10 @@ fn accessor_kind(field: &SchemaField) -> AccessorKind {
 // =============================================================================
 
 /// Generate the required fields checker macro for a schema.
-///
-/// This generates a single recursive `{SCHEMA}_REQUIRE` macro that validates all required
-/// fields are present using tt-munching. No per-field helper macros needed.
 fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
-    let require_macro_name = make_require_macro_name(&schema.categories, &schema.name);
+    let categories = schema.category_strings();
+    let schema_name_str = schema.name_str();
+    let require_macro_name = make_require_macro_name(&categories, &schema_name_str);
     let require_ident = make_ident(&require_macro_name);
     let macro_export = config.macro_export_attr();
     let crate_prefix = config.crate_prefix();
@@ -823,7 +639,6 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
     let required_names = schema.required_field_names();
 
     if required_names.is_empty() {
-        // No required fields - accept anything
         return quote! {
             #macro_export
             #[doc(hidden)]
@@ -834,20 +649,17 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
     }
 
     let required_list = required_names.join(", ");
-    let schema_name = &schema.name;
+    let schema_name = &schema_name_str;
 
-    // Generate a helper macro for each required field that searches through the input list.
-    // This is simpler than trying to do complex recursion with variable field names.
+    // Use the original field idents so pattern arms carry definition spans.
+    let field_idents: Vec<&Ident> = schema.required_fields.iter().map(|f| &f.name).collect();
 
-    let field_idents: Vec<_> = required_names.iter().map(|n| make_ident(n)).collect();
-
-    // Build helper macro for each required field
     let mut helper_macros = Vec::new();
 
-    for (i, field_ident) in field_idents.iter().enumerate() {
-        let field_name_str = &required_names[i];
+    for field_ident in &field_idents {
+        let field_name_str = field_ident.to_string();
         let helper_name =
-            make_ident(&make_required_field_check_macro_name(&schema.categories, &schema.name, &required_names[i]));
+            make_ident(&make_required_field_check_macro_name(&categories, &schema_name_str, &field_name_str));
 
         helper_macros.push(quote! {
             #macro_export
@@ -874,12 +686,11 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
         });
     }
 
-    // Generate calls to each helper macro
     let helper_calls: Vec<_> = required_names
         .iter()
         .map(|field_name| {
             let helper_name =
-                make_ident(&make_required_field_check_macro_name(&schema.categories, &schema.name, field_name));
+                make_ident(&make_required_field_check_macro_name(&categories, &schema_name_str, field_name));
             quote! { #crate_prefix #helper_name!($($fields)*); }
         })
         .collect();
@@ -890,7 +701,6 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
         #macro_export
         #[doc(hidden)]
         macro_rules! #require_ident {
-            // Entry point - dispatch to check each required field
             ($($fields:ident),* $(,)?) => {
                 #(#helper_calls)*
             };
@@ -899,34 +709,33 @@ fn generate_required_fields_macro(schema: &Schema, config: &GenerationConfig) ->
 }
 
 /// Generate the span helper macro for a schema.
-///
-/// This macro returns a `tracing::Span` expression configured with:
-/// - `level = Level::TRACE` by default
-/// - `target = "module::path"`
-/// - field declarations initialized to `tracing::field::Empty`
-/// - optional initialization from a prepared value slice
 fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
-    let macro_name = make_instrument_macro_name(&schema.categories, &schema.name);
+    let categories = schema.category_strings();
+    let schema_name_str = schema.name_str();
+    let macro_name = make_instrument_macro_name(&categories, &schema_name_str);
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
     let crate_prefix = config.crate_prefix();
 
-    let full_path = schema.categories.iter().chain(std::iter::once(&schema.name)).collect::<Vec<_>>();
-    let target = full_path.iter().take(2).map(|part| part.as_str()).collect::<Vec<_>>().join("::");
+    let full_path: Vec<String> = categories.iter().cloned().chain(std::iter::once(schema_name_str.clone())).collect();
+    let target = full_path.iter().take(2).cloned().collect::<Vec<_>>().join("::");
     let name = full_path.iter().skip(2).map(|part| part.to_lowercase()).collect::<Vec<_>>().join(".");
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
-    let mut field_name_literals: Vec<_> =
-        all_fields.iter().map(|field| syn::LitStr::new(&field.name, proc_macro2::Span::call_site())).collect();
+    let mut field_name_literals: Vec<_> = all_fields
+        .iter()
+        .map(|field| {
+            let s = field.name_str();
+            syn::LitStr::new(&s, field.name.span())
+        })
+        .collect();
     let schema_field_count = field_name_literals.len();
     for tag in &schema.tags {
-        field_name_literals.push(syn::LitStr::new(&format!("amaru.tag.{tag}"), proc_macro2::Span::call_site()));
+        let tag_attr = format!("amaru.tag.{}", tag);
+        field_name_literals.push(syn::LitStr::new(&tag_attr, tag.span()));
     }
     let field_count = field_name_literals.len();
 
-    // Prepare the value slice paired positionally with the metadata fields. When the schema has
-    // tags, the caller-provided values only cover the schema fields; each `amaru.tag.<name>` value
-    // is recorded automatically as `true`.
     let values_setup = if schema.tags.is_empty() {
         quote! {
             let __amaru_default_values = [
@@ -1055,7 +864,9 @@ fn generate_instrument_macro(schema: &Schema, config: &GenerationConfig) -> proc
 }
 
 fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
-    let macro_name = make_assign_macro_name(&schema.categories, &schema.name);
+    let categories = schema.category_strings();
+    let schema_name_str = schema.name_str();
+    let macro_name = make_assign_macro_name(&categories, &schema_name_str);
     let macro_ident = make_ident(&macro_name);
     let macro_export = config.macro_export_attr();
 
@@ -1064,7 +875,8 @@ fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         .iter()
         .enumerate()
         .map(|(index, field)| {
-            let field_name = &field.name;
+            // Match on a string-literal field name at the call site.
+            let field_name = field.name_str();
             quote! {
                 ($values:ident, #field_name, $value:expr) => {
                     $values[#index] = ::tracing::__macro_support::Option::Some($value);
@@ -1084,16 +896,12 @@ fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
 }
 
 /// Generate the schema validation helper macro.
-///
-/// This macro currently handles only the validation modes used by the
-/// latest public macro syntax:
-/// - Validate mode: `_RECORD!("name", "type", validate)` validates field name/type pairs
-/// - Validate-value mode: `_RECORD!("name", expr, validate_value)` validates already-bound values
-///   and enforces that they can be rendered via `Display`
 fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
-    let macro_name = make_record_macro_name(&schema.categories, &schema.name);
+    let categories = schema.category_strings();
+    let schema_name_str = schema.name_str();
+    let macro_name = make_record_macro_name(&categories, &schema_name_str);
     let macro_ident = make_ident(&macro_name);
-    let schema_name = &schema.name;
+    let schema_name = &schema_name_str;
     let macro_export = config.macro_export_attr();
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
@@ -1101,8 +909,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let validate_value_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = &field.name;
-            if field.ty == "String" {
+            let field_name = field.name_str();
+            if field.is_string_type() {
                 quote! {
                     (#field_name, $expr:expr, validate_value) => {{
                         let __amaru_assert_type = |_: &dyn AsRef<str>| {};
@@ -1112,8 +920,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     }};
                 }
             } else {
-                let field_type = syn::parse_str::<Type>(&field.ty)
-                    .expect("schema field types should remain valid Rust types when generating record macros");
+                let field_type = &field.ty;
                 quote! {
                     (#field_name, $expr:expr, validate_value) => {{
                         let __amaru_assert_type = |_: &#field_type| {};
@@ -1129,8 +936,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let validate_exact_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = &field.name;
-            let field_type = &field.ty;
+            let field_name = field.name_str();
+            let field_type = field.type_str();
             quote! {
                 (#field_name, #field_type, validate) => {};
             }
@@ -1140,8 +947,8 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let validate_wrong_type_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = &field.name;
-            let expected_type = &field.ty;
+            let field_name = field.name_str();
+            let expected_type = field.type_str();
             quote! {
                 (#field_name, $actual_ty:literal, validate) => {
                     compile_error!(concat!(
@@ -1158,13 +965,10 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
-    // Validation for pre-formatted event fields (`%expr` / `?expr` / `@expr`): the caller
-    // explicitly chose the rendering, so only check that the field is declared on the schema
-    // and that the value can actually be recorded with the requested formatter.
     let validate_formatted_patterns: Vec<_> = all_fields
         .iter()
         .map(|field| {
-            let field_name = &field.name;
+            let field_name = field.name_str();
             quote! {
                 (#field_name, $expr:expr, validate_event_display) => {{
                     let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
@@ -1182,7 +986,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         })
         .collect();
 
-    let all_field_names: Vec<_> = all_fields.iter().map(|f| f.name.as_str()).collect();
+    let all_field_names: Vec<_> = all_fields.iter().map(|f| f.name_str()).collect();
     let fields_list = all_field_names.join(", ");
 
     quote! {
@@ -1240,24 +1044,20 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
 }
 
 /// Generate a module-specific schema validator macro.
-///
-/// This ensures only valid schemas are used within a module path.
 fn generate_module_validator_macro(
     categories: &[String],
-    schema_names: &[String],
+    schema_names: &[Ident],
     config: &GenerationConfig,
 ) -> proc_macro2::TokenStream {
     let validator_name = make_module_validator_name(categories);
     let validator_ident = make_ident(&validator_name);
     let module_path = categories.join("::");
-    let schemas_list = schema_names.join(", ");
+    let schemas_list = schema_names.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
     let macro_export = config.macro_export_attr();
 
-    // For valid schemas, expand the body
     let valid_schema_patterns: Vec<_> = schema_names
         .iter()
-        .map(|name| {
-            let schema_ident = make_ident(name);
+        .map(|schema_ident| {
             quote! {
                 (#schema_ident => $body:block) => {
                     $body
@@ -1266,8 +1066,6 @@ fn generate_module_validator_macro(
         })
         .collect();
 
-    // For invalid schemas, emit compile_error and discard the body
-    // This prevents "cannot find macro" cascading errors
     quote! {
         #macro_export
         #[doc(hidden)]
@@ -1290,39 +1088,27 @@ fn generate_module_validator_macro(
 }
 
 /// Check whether the macro is expanding within the `amaru-observability` lib itself.
-///
-/// We check both CARGO_PKG_NAME and CARGO_CRATE_NAME because examples within the
-/// amaru-observability package have the package name but a different crate name.
 fn is_observability_lib() -> bool {
     std::env::var("CARGO_PKG_NAME").ok().as_deref() == Some("amaru-observability")
         && std::env::var("CARGO_CRATE_NAME").ok().as_deref() == Some("amaru_observability")
 }
 
 /// Generate inventory submission for runtime schema registry.
-///
-/// Note: When the macro is expanded within the `amaru-observability` crate itself,
-/// we use `crate::registry::SchemaEntry` instead of `amaru_observability::registry::SchemaEntry`.
-///
-/// Local schemas (`define_local_schemas!`) do not register with the global inventory —
-/// they are scoped to a single crate and their entries would never be queried at runtime.
 fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
-    // Local schemas are not exported and do not participate in the global runtime registry.
-    // Skipping the submission also avoids a dep on `amaru-observability` in crates that
-    // only use `define_local_schemas!` (e.g. amaru-observability-macros own tests).
     if !config.export_macros {
         return quote! {};
     }
 
     let schema_path = schema.full_path();
     let target_path = schema.target_path();
-    let schema_name = schema.name.clone();
+    let schema_name = schema.name_str();
 
     let required_fields_array: Vec<_> = schema
         .required_fields
         .iter()
         .map(|f| {
-            let name = &f.name;
-            let ty = &f.ty;
+            let name = f.name_str();
+            let ty = f.type_str();
             quote! { (#name, #ty) }
         })
         .collect();
@@ -1331,8 +1117,8 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
         .optional_fields
         .iter()
         .map(|f| {
-            let name = &f.name;
-            let ty = &f.ty;
+            let name = f.name_str();
+            let ty = f.type_str();
             quote! { (#name, #ty) }
         })
         .collect();
@@ -1343,9 +1129,7 @@ fn generate_inventory_submission(schema: &Schema, config: &GenerationConfig) -> 
         quote! { use amaru_observability::registry::SchemaEntry; }
     };
 
-    // Description should exist if validation passed, but use a fallback for error recovery
     let description = schema.description.as_deref().unwrap_or("Missing description");
-
     let public = schema.public;
 
     quote! {
@@ -1433,14 +1217,12 @@ fn generate_schema_help_macros(
 // Module Tree Generation
 // =============================================================================
 
-use std::collections::BTreeMap;
-
 /// A tree node representing either a category module or a schema.
 #[derive(Clone)]
 enum TreeNode {
     Category {
-        #[allow(dead_code)]
-        name: String,
+        /// Original category identifier (preserves span).
+        name: Ident,
         children: BTreeMap<String, TreeNode>,
     },
     Schema(Schema),
@@ -1453,17 +1235,16 @@ fn build_category_tree(schemas: &[Schema]) -> BTreeMap<String, TreeNode> {
     for schema in schemas {
         let mut current = &mut root;
 
-        // Navigate/create the category path
-        for category_name in &schema.categories {
+        for category in &schema.categories {
+            let key = category.to_string();
             current = current
-                .entry(category_name.clone())
-                .or_insert_with(|| TreeNode::Category { name: category_name.clone(), children: BTreeMap::new() })
+                .entry(key)
+                .or_insert_with(|| TreeNode::Category { name: category.clone(), children: BTreeMap::new() })
                 .as_category_mut()
                 .expect("Expected category node");
         }
 
-        // Insert the schema at the leaf
-        current.insert(schema.name.clone(), TreeNode::Schema(schema.clone()));
+        current.insert(schema.name_str(), TreeNode::Schema(schema.clone()));
     }
 
     root
@@ -1487,9 +1268,8 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
     let mut all_schema_names = Vec::new();
     let mut all_schema_paths = Vec::new();
 
-    // Generate all validation macros and collect schemas
     for schema in schemas {
-        all_schema_names.push(schema.name.clone());
+        all_schema_names.push(schema.name_str());
         all_schema_paths.push(schema.full_path());
 
         validation_macros.push(generate_required_fields_macro(schema, config));
@@ -1500,29 +1280,33 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
         inventory_submissions.push(generate_inventory_submission(schema, config));
     }
 
-    // Generate category module validator macros
     let mut category_validators = Vec::new();
     collect_category_validators(&tree, &mut vec![], &mut category_validators, config);
     validation_macros.extend(category_validators);
 
-    // Build the module tree recursively
     let modules = build_modules(&tree, config);
-
-    // Generate schema list helper macros
     let schema_help_macro = generate_schema_help_macros(&all_schema_paths, &all_schema_names, config);
+
+    let validation_macros = if validation_macros.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            // Validation macros at crate root (required for #[macro_export])
+            #[allow(unused_macros)]
+            #(#validation_macros)*
+        }
+    };
 
     quote! {
         // Submit schemas to inventory for runtime registry
         #(#inventory_submissions)*
 
-        // Validation macros at crate root (required for #[macro_export])
-        #[allow(unused_macros)]
-        #(#validation_macros)*
+        #validation_macros
 
         // Schema list helper macros
         #schema_help_macro
 
-        /// Module tree containing all schema definitions.
+        // Module tree containing all schema definitions.
         #(#modules)*
     }
 }
@@ -1531,14 +1315,12 @@ fn build_module_tree_with_metadata(schemas: &[Schema], config: &GenerationConfig
 fn build_modules_noop(tree: &BTreeMap<String, TreeNode>, config: &GenerationConfig) -> Vec<proc_macro2::TokenStream> {
     let mut modules = Vec::new();
 
-    for (name, node) in tree {
+    for node in tree.values() {
         match node {
-            TreeNode::Category { name: _, children } => {
-                let mod_ident = make_ident(name);
+            TreeNode::Category { name, children } => {
                 let child_modules = build_modules_noop(children, config);
-
                 modules.push(quote! {
-                    pub mod #mod_ident {
+                    pub mod #name {
                         #(#child_modules)*
                     }
                 });
@@ -1556,14 +1338,12 @@ fn build_modules_noop(tree: &BTreeMap<String, TreeNode>, config: &GenerationConf
 fn build_modules(tree: &BTreeMap<String, TreeNode>, config: &GenerationConfig) -> Vec<proc_macro2::TokenStream> {
     let mut modules = Vec::new();
 
-    for (name, node) in tree {
+    for node in tree.values() {
         match node {
-            TreeNode::Category { name: _, children } => {
-                let mod_ident = make_ident(name);
+            TreeNode::Category { name, children } => {
                 let child_modules = build_modules(children, config);
-
                 modules.push(quote! {
-                    pub mod #mod_ident {
+                    pub mod #name {
                         #(#child_modules)*
                     }
                 });
@@ -1578,7 +1358,8 @@ fn build_modules(tree: &BTreeMap<String, TreeNode>, config: &GenerationConfig) -
 }
 
 fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
-    let schema_ident = make_ident(&schema.name);
+    // Preserve the original schema ident span for go-to-definition.
+    let schema_ident = &schema.name;
     let schema_name = schema.event_name();
     let schema_target = schema.event_target();
     let schema_path = schema.full_path();
@@ -1586,22 +1367,26 @@ fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macr
     let field_count = schema.required_fields.len() + schema.optional_fields.len();
     let is_public = schema.public;
     let record_fields = record_fields_trait_path();
+
     let field_constants = schema.required_fields.iter().chain(schema.optional_fields.iter()).map(|field| {
-        let field_const_ident = make_ident(&format!("FIELD_{}", field.name.to_uppercase()));
-        let field_name = field.name.as_str();
+        let field_const_ident = make_ident(&format!("FIELD_{}", field.name_str().to_uppercase()));
+        let field_name = field.name_str();
+        // Attach the field's definition span to the string literal.
+        let field_name_lit = syn::LitStr::new(&field_name, field.name.span());
 
         quote! {
-            pub const #field_const_ident: &str = #field_name;
+            pub const #field_const_ident: &str = #field_name_lit;
         }
     });
 
     let accessors = if config.export_macros {
         let required_accessors = schema.required_fields.iter().map(|field| {
-            let accessor_ident = make_ident(&field.name);
-            let field_name = field.name.as_str();
+            // Accessor method name uses the field ident from the schema (with span).
+            let accessor_ident = &field.name;
+            let field_name = field.name_str();
             let accessor_kind = accessor_kind(field);
             let return_type = accessor_kind.return_type();
-            let field_access = accessor_kind.trait_call(field_name);
+            let field_access = accessor_kind.trait_call(&field_name);
             let message =
                 format!("missing or invalid required field '{}' for schema {}", field_name, schema.full_path());
 
@@ -1616,11 +1401,11 @@ fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macr
         });
 
         let optional_accessors = schema.optional_fields.iter().map(|field| {
-            let accessor_ident = make_ident(&field.name);
-            let field_name = field.name.as_str();
+            let accessor_ident = &field.name;
+            let field_name = field.name_str();
             let accessor_kind = accessor_kind(field);
             let return_type = accessor_kind.optional_return_type();
-            let field_access = accessor_kind.trait_call(field_name);
+            let field_access = accessor_kind.trait_call(&field_name);
 
             quote! {
                 pub fn #accessor_ident<'record, R>(record: &'record R) -> #return_type
@@ -1641,6 +1426,7 @@ fn generate_schema_item(schema: &Schema, config: &GenerationConfig) -> proc_macr
     };
 
     quote! {
+        #[allow(non_camel_case_types)]
         pub struct #schema_ident;
 
         impl #schema_ident {
@@ -1674,19 +1460,16 @@ fn collect_category_validators(
 ) {
     let mut schema_names_at_this_level = Vec::new();
 
-    // Collect schemas at this level
     for node in tree.values() {
         if let TreeNode::Schema(schema) = node {
             schema_names_at_this_level.push(schema.name.clone());
         }
     }
 
-    // Generate validator for this level if there are schemas
     if !schema_names_at_this_level.is_empty() && !path.is_empty() {
         validators.push(generate_module_validator_macro(path, &schema_names_at_this_level, config));
     }
 
-    // Recurse into categories
     for (name, node) in tree {
         if let TreeNode::Category { children, .. } = node {
             path.push(name.clone());
@@ -1696,47 +1479,40 @@ fn collect_category_validators(
     }
 }
 
+fn errors_to_tokens(errors: Vec<syn::Error>) -> proc_macro2::TokenStream {
+    let tokens = errors.into_iter().map(|e| e.to_compile_error());
+    quote! { #(#tokens)* }
+}
+
 /// Internal expansion with configurable export behavior.
 fn expand_with_config(input: TokenStream, export_macros: bool) -> TokenStream {
+    let input2: proc_macro2::TokenStream = input.into();
+
+    let file = match syn::parse2::<SchemaFile>(input2) {
+        Ok(file) => file,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let (schemas, errors) = extract_schemas(file);
+    let config = GenerationConfig { export_macros };
+
     if crate::is_trace_no_emit() {
-        let input2: proc_macro2::TokenStream = input.into();
-        let input_str = input2.to_string();
-        let (schemas, errors) = extract_schemas(&input_str);
-
-        // Report any parsing errors even in noop mode
         if !errors.is_empty() {
-            let error_msgs: Vec<_> = errors.iter().map(|e| quote! { compile_error!(#e); }).collect();
-            return quote! { #(#error_msgs)* }.into();
+            return errors_to_tokens(errors).into();
         }
-
-        // Generate only the module structure with constants (no validation macros)
         let tree = build_category_tree(&schemas);
-        let config = GenerationConfig { export_macros };
         let modules = build_modules_noop(&tree, &config);
         return quote! { #(#modules)* }.into();
     }
 
-    let config = GenerationConfig { export_macros };
-
-    // Convert TokenStream to proc_macro2::TokenStream for manipulation
-    let input2: proc_macro2::TokenStream = input.into();
-
-    // Convert to string - doc comments (/// ...) are preserved in the string representation
-    let input_str = input2.to_string();
-
-    let (schemas, errors) = extract_schemas(&input_str);
-
-    // Generate the module tree (includes all macros)
     let module_tree = build_module_tree_with_metadata(&schemas, &config);
 
-    // If there are errors, include them alongside the generated code
-    // This ensures macros are defined (preventing "cannot find macro" errors)
-    // while still reporting the actual errors
+    // If there are errors, include them alongside the generated code so that
+    // helper macros still exist (preventing cascading "cannot find macro" noise).
     if !errors.is_empty() {
-        let error_msgs: Vec<_> = errors.iter().map(|e| quote! { compile_error!(#e); }).collect();
-
+        let error_tokens = errors_to_tokens(errors);
         return quote! {
-            #(#error_msgs)*
+            #error_tokens
             #module_tree
         }
         .into();
@@ -1763,29 +1539,19 @@ pub fn expand_local(input: TokenStream) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
+    use quote::quote;
+
     use super::*;
 
-    #[test]
-    fn test_tokenize_simple() {
-        let tokens = tokenize("foo { bar: u64 }").unwrap();
-        assert_eq!(tokens, vec!["foo", "{", "bar", ":", "u64", "}"]);
-    }
-
-    #[test]
-    fn test_tokenize_nested() {
-        let tokens = tokenize("cat { sub { SCHEMA { required x: u32 } } }").unwrap();
-        assert_eq!(tokens, vec!["cat", "{", "sub", "{", "SCHEMA", "{", "required", "x", ":", "u32", "}", "}", "}"]);
-    }
-
-    #[test]
-    fn test_tokenize_with_commas() {
-        let tokens = tokenize("a: u32, b: String").unwrap();
-        assert_eq!(tokens, vec!["a", ":", "u32", ",", "b", ":", "String"]);
+    fn parse_input(tokens: proc_macro2::TokenStream) -> (Vec<Schema>, Vec<String>) {
+        let file = syn::parse2::<SchemaFile>(tokens).expect("parse SchemaFile");
+        let (schemas, errors) = extract_schemas(file);
+        (schemas, errors.into_iter().map(|e| e.to_string()).collect())
     }
 
     #[test]
     fn test_extract_simple_schema() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 consensus {
                     sync {
@@ -1796,21 +1562,21 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
         assert_eq!(schemas.len(), 1);
-        assert_eq!(schemas[0].name, "VALIDATE");
-        assert_eq!(schemas[0].categories, vec!["amaru", "consensus", "sync"]);
+        assert_eq!(schemas[0].name_str(), "VALIDATE");
+        assert_eq!(schemas[0].category_strings(), vec!["amaru", "consensus", "sync"]);
         assert_eq!(schemas[0].required_fields.len(), 1);
-        assert_eq!(schemas[0].required_fields[0].name, "slot");
-        assert_eq!(schemas[0].required_fields[0].ty, "u64");
+        assert_eq!(schemas[0].required_fields[0].name_str(), "slot");
+        assert_eq!(schemas[0].required_fields[0].type_str(), "u64");
         assert_eq!(schemas[0].description, Some("Validate the schema".to_string()));
     }
 
     #[test]
     fn test_extract_schema_with_optional() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 test {
                     sub {
@@ -1822,18 +1588,18 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty());
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0].required_fields.len(), 1);
         assert_eq!(schemas[0].optional_fields.len(), 1);
-        assert_eq!(schemas[0].optional_fields[0].name, "label");
+        assert_eq!(schemas[0].optional_fields[0].name_str(), "label");
     }
 
     #[test]
     fn test_extract_schema_with_qualified_type_path() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 test {
                     sub {
@@ -1844,16 +1610,15 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
-        assert_eq!(schemas.len(), 1);
-        assert_eq!(schemas[0].required_fields[0].ty, "amaru_kernel::StakeCredentialKind");
+        assert_eq!(schemas[0].required_fields[0].type_str(), "amaru_kernel::StakeCredentialKind");
     }
 
     #[test]
     fn test_extract_schema_with_qualified_generic_type() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 test {
                     sub {
@@ -1864,16 +1629,15 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
-        assert_eq!(schemas.len(), 1);
-        assert_eq!(schemas[0].required_fields[0].ty, "amaru_kernel::Hash<28>");
+        assert_eq!(schemas[0].required_fields[0].type_str(), "amaru_kernel::Hash<28>");
     }
 
     #[test]
     fn test_extract_multiple_schemas() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
                     sub {
@@ -1888,17 +1652,17 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty());
         assert_eq!(schemas.len(), 2);
-        assert_eq!(schemas[0].name, "SCHEMA_A");
-        assert_eq!(schemas[1].name, "SCHEMA_B");
+        assert_eq!(schemas[0].name_str(), "SCHEMA_A");
+        assert_eq!(schemas[1].name_str(), "SCHEMA_B");
     }
 
     #[test]
     fn test_duplicate_field_error() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
                     sub {
@@ -1910,22 +1674,38 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (_, errors) = extract_schemas(input);
+        };
+        let (_, errors) = parse_input(tokens);
         assert!(errors.iter().any(|e| e.contains("Duplicate field 'x'")));
     }
 
     #[test]
     fn test_schema_validation_string() {
-        let mut schema = Schema::new("TEST", vec!["cat".to_string(), "sub".to_string()]);
-        schema.required_fields.push(SchemaField { name: "id".to_string(), ty: "u64".to_string() });
-        schema.optional_fields.push(SchemaField { name: "name".to_string(), ty: "String".to_string() });
+        let mut schema = Schema {
+            public: false,
+            categories: vec![
+                Ident::new("cat", proc_macro2::Span::call_site()),
+                Ident::new("sub", proc_macro2::Span::call_site()),
+            ],
+            name: Ident::new("TEST", proc_macro2::Span::call_site()),
+            description: None,
+            tags: Vec::new(),
+            required_fields: Vec::new(),
+            optional_fields: Vec::new(),
+        };
+        schema
+            .required_fields
+            .push(SchemaField { name: Ident::new("id", proc_macro2::Span::call_site()), ty: syn::parse_quote!(u64) });
+        schema.optional_fields.push(SchemaField {
+            name: Ident::new("name", proc_macro2::Span::call_site()),
+            ty: syn::parse_quote!(String),
+        });
         assert_eq!(schema.validation_string(), "R|id:u64|O|name:String");
     }
 
     #[test]
     fn test_tags_inheritance_and_override() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
                     tags: cpu, io
@@ -1950,21 +1730,24 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
         assert_eq!(schemas.len(), 3);
-        assert_eq!(schemas[0].tags, vec!["cpu".to_string(), "io".to_string()]);
-        assert_eq!(schemas[1].tags, vec!["setup".to_string()]);
+        assert_eq!(
+            schemas[0].tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+            vec!["cpu".to_string(), "io".to_string()]
+        );
+        assert_eq!(schemas[1].tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(), vec!["setup".to_string()]);
         assert!(schemas[2].tags.is_empty());
     }
 
     #[test]
     fn test_invalid_tag_error() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
-                    tags: {
+                    tags: CPU
                     sub {
                         /// Schema
                         SCHEMA {
@@ -1973,14 +1756,20 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (_, errors) = extract_schemas(input);
-        assert!(errors.iter().any(|e| e.contains("Invalid tag")), "got: {:?}", errors);
+        };
+        // Uppercase tag should fail at parse time.
+        match syn::parse2::<SchemaFile>(tokens) {
+            Ok(_) => panic!("expected parse error for uppercase tag"),
+            Err(err) => {
+                let msg = err.to_string();
+                assert!(msg.contains("Invalid tag") || msg.contains("CPU"), "got: {msg}");
+            }
+        }
     }
 
     #[test]
     fn test_duplicate_tag_error() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
                     sub {
@@ -1992,14 +1781,19 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (_, errors) = extract_schemas(input);
-        assert!(errors.iter().any(|e| e.contains("Duplicate tag 'cpu'")), "got: {:?}", errors);
+        };
+        match syn::parse2::<SchemaFile>(tokens) {
+            Ok(_) => panic!("expected parse error for duplicate tag"),
+            Err(err) => {
+                let msg = err.to_string();
+                assert!(msg.contains("Duplicate tag 'cpu'"), "got: {msg}");
+            }
+        }
     }
 
     #[test]
     fn test_missing_description_error() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
                     sub {
@@ -2009,8 +1803,8 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert_eq!(schemas.len(), 1);
         assert_eq!(errors.len(), 1);
         assert!(
@@ -2022,7 +1816,7 @@ mod tests {
 
     #[test]
     fn test_with_description() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
                     sub {
@@ -2033,8 +1827,8 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
         assert_eq!(schemas.len(), 1);
         assert_eq!(schemas[0].description, Some("This is a test schema".to_string()));
@@ -2042,7 +1836,7 @@ mod tests {
 
     #[test]
     fn test_multiline_description() {
-        let input = r#"
+        let tokens = quote! {
             amaru {
                 cat {
                     sub {
@@ -2055,13 +1849,76 @@ mod tests {
                     }
                 }
             }
-        "#;
-        let (schemas, errors) = extract_schemas(input);
+        };
+        let (schemas, errors) = parse_input(tokens);
         assert!(errors.is_empty());
         assert_eq!(schemas.len(), 1);
         assert_eq!(
             schemas[0].description,
             Some("This is a test schema with multiple lines of documentation".to_string())
         );
+    }
+
+    #[test]
+    fn test_trailing_comma_on_field() {
+        let tokens = quote! {
+            amaru {
+                cat {
+                    sub {
+                        /// Schema with trailing commas
+                        SCHEMA {
+                            required id: u64,
+                            optional label: String,
+                        }
+                    }
+                }
+            }
+        };
+        let (schemas, errors) = parse_input(tokens);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert_eq!(schemas[0].required_fields.len(), 1);
+        assert_eq!(schemas[0].optional_fields.len(), 1);
+    }
+
+    #[test]
+    fn test_public_schema() {
+        let tokens = quote! {
+            amaru {
+                cat {
+                    sub {
+                        /// Public schema
+                        public PUBLIC_EVENT {
+                            required x: u32
+                        }
+                        /// Private schema
+                        PRIVATE_EVENT {}
+                    }
+                }
+            }
+        };
+        let (schemas, errors) = parse_input(tokens);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert!(schemas[0].public);
+        assert!(!schemas[1].public);
+    }
+
+    #[test]
+    fn test_field_doc_comments_accepted() {
+        let tokens = quote! {
+            amaru {
+                cat {
+                    sub {
+                        /// Schema with field docs
+                        SCHEMA {
+                            /// docs on a field
+                            required count: u64
+                        }
+                    }
+                }
+            }
+        };
+        let (schemas, errors) = parse_input(tokens);
+        assert!(errors.is_empty(), "Unexpected errors: {:?}", errors);
+        assert_eq!(schemas[0].required_fields[0].name_str(), "count");
     }
 }
