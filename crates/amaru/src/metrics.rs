@@ -17,8 +17,9 @@ use std::{
     time::Duration,
 };
 
+use amaru_kernel::utils::process::sample_process_block_io_ticks;
 #[cfg(unix)]
-use amaru_kernel::utils::process::{sample_process_block_io_ticks, sample_process_memory};
+use amaru_kernel::utils::process::sample_process_memory;
 use amaru_metrics::{Meter, MetricRecorder, MetricsEvent, SystemMetrics, initialize_metrics};
 use anyhow::anyhow;
 use opentelemetry::KeyValue;
@@ -123,7 +124,7 @@ pub fn track_system_metrics(meter: Arc<Meter>) -> Result<Option<JoinHandle<()>>,
 /// Expose cardano-node's replay-progress metric once Amaru's stage graph is running.
 ///
 /// This deliberately reports only the ready state rather than cardano-node's per-slot progress:
-/// https://github.com/IntersectMBO/cardano-node/blob/master/cardano-node/src/Cardano/Node/Tracing/Tracers/BlockReplayProgress.hs
+/// <https://github.com/IntersectMBO/cardano-node/blob/master/cardano-node/src/Cardano/Node/Tracing/Tracers/BlockReplayProgress.hs>
 pub fn record_block_replay_ready(meter: &Meter) {
     let Some(meter) = meter.get() else {
         return;

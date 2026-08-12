@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg(unix)]
-
+#[cfg(unix)]
 use std::process::Command;
 
 /// Read the current process's cumulative block-I/O delay in centiseconds.
@@ -51,6 +50,7 @@ fn parse_process_block_io_ticks(stat: &str) -> Option<u64> {
         .and_then(|value| value.parse().ok())
 }
 
+#[cfg(unix)]
 pub fn sample_process_memory(pid: u32) -> Option<u64> {
     let output = if cfg!(target_os = "macos") {
         Command::new("top").args(["-l", "1", "-pid", &pid.to_string(), "-stats", "pid,mem"]).output().ok()?
@@ -65,6 +65,7 @@ pub fn sample_process_memory(pid: u32) -> Option<u64> {
     parse_top_mem(&String::from_utf8_lossy(&output.stdout), pid)
 }
 
+#[cfg(unix)]
 fn parse_top_mem(output: &str, pid: u32) -> Option<u64> {
     output.lines().rev().find_map(|line| {
         let mut fields = line.split_whitespace();
@@ -84,6 +85,7 @@ fn parse_top_mem(output: &str, pid: u32) -> Option<u64> {
     })
 }
 
+#[cfg(unix)]
 fn parse_value_with_unit(value: &str, plain_multiplier: u64) -> Option<u64> {
     let value = value.trim_end_matches('+');
     let suffix = value.chars().last()?;
