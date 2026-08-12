@@ -19,8 +19,10 @@ use amaru_kernel::{
     Pots, ProposalId, StakeCredential, TransactionInput,
 };
 
+use crate::store::columns::pools_vrf;
+
 mod db;
-pub use db::{RewardsAtTip, VolatileDB};
+pub use db::{RewardsAtTip, VolatileDB, VrfOccupancy};
 
 mod overlay;
 use overlay::StateOverlay;
@@ -85,6 +87,13 @@ pub trait VolatileState {
     #[expect(clippy::panic)]
     fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
         panic!("VolatileState.resolve_pool({pool_id})")
+    }
+
+    // ------------------------------------------------------------------------------ VRF key hashes
+    type VrfKeyHash;
+    #[expect(clippy::panic)]
+    fn resolve_vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Self::VrfKeyHash {
+        panic!("VolatileState.resolve_vrf_key_hash({vrf})")
     }
 
     // ------------------------------------------------------------------------------------ Accounts

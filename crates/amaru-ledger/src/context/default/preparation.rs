@@ -564,6 +564,7 @@ mod tests {
         impl VolatileState for Mock {
             type TransactionOutput<'a> = ();
             type Pool = ();
+            type VrfKeyHash = ();
             type Account<'a> = ();
             type DRep<'a> = ();
             type Proposal = ();

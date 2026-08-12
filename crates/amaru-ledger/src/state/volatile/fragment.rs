@@ -56,6 +56,7 @@ pub use tests::*;
 pub struct VolatileFragment {
     pub utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,
+    pub pools_vrf: DiffSet<pools_vrf::Key, ()>,
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
@@ -124,6 +125,9 @@ impl AnchoredVolatileFragment {
                 VolatileFragment {
                     utxo,
                     pools,
+                    // Never flushed from here: the stable claims and releases are derived inside
+                    // the pools column as the registrations themselves land.
+                    pools_vrf: _,
                     accounts,
                     dreps,
                     dreps_deregistrations,

@@ -35,7 +35,7 @@ use crate::{
             VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
-    store::{HistoricalStores, Store},
+    store::{HistoricalStores, Store, columns::pools_vrf},
 };
 
 #[derive(Debug)]
@@ -104,6 +104,32 @@ impl VolatileState for VolatileDB {
             Existence::Exists(())
         } else {
             Existence::Unknown
+        }
+    }
+
+    // ------------------------------------------------------------------------------ VRF key hashes
+    type VrfKeyHash = VrfOccupancy;
+    fn resolve_vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Self::VrfKeyHash {
+        // Whether a VRF key hash is in use per the volatile state. An epoch boundary may
+        // also *decrement* a key's occupancy (one decrement per retiring pool), and whether that
+        // frees the key depends on the stable count, which grandfathered pre-pv11 sharing can hold
+        // above 1. Such keys resolve as `Deferred` carrying the decrements, unless a claim within
+        // the closing epoch pinned the count to 1 and settles the verdict.
+        match self.current.resolve_vrf_key_hash(vrf) {
+            Existence::Exists(()) => VrfOccupancy::Claimed,
+            Existence::Gone => VrfOccupancy::Released,
+            Existence::Unknown => {
+                if self.overlay.is_vrf_released(vrf) {
+                    return VrfOccupancy::Released;
+                }
+
+                let decrements = self.overlay.vrf_decrements(vrf);
+                match self.draining.resolve_vrf_key_hash(vrf) {
+                    Existence::Exists(()) if decrements == 0 => VrfOccupancy::Claimed,
+                    Existence::Exists(()) | Existence::Gone => VrfOccupancy::Released,
+                    Existence::Unknown => VrfOccupancy::Deferred(decrements),
+                }
+            }
         }
     }
 
@@ -523,6 +549,19 @@ impl RewardsAtTip {
     }
 }
 
+/// The volatile layers' verdict on a VRF key hash's occupancy, as resolved by
+/// [`VolatileDB::resolve_vrf_key_hash`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VrfOccupancy {
+    /// A volatile claim settles it: the key is in use at the tip.
+    Claimed,
+    /// A volatile release, or the pending boundary purge, settles it: the key is free at the tip.
+    Released,
+    /// The volatile window does not settle it: the key is in use if and only if its stable
+    /// occupancy count exceeds this many pending boundary decrements (always `0` without a pending overlay).
+    Deferred(u64),
+}
+
 #[cfg(test)]
 impl VolatileDB {
     pub fn fixture() -> Self {
@@ -543,8 +582,9 @@ mod tests {
     };
 
     use amaru_kernel::{
-        BlockHeight, ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, SafeRatio,
-        Slot, SortedPairs, StakeCredential, any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        BlockHeight, ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point,
+        PoolParams, SafeRatio, Slot, SortedPairs, StakeCredential, any_certificate_pointer, any_modern_output,
+        any_pool_params, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -554,6 +594,7 @@ mod tests {
         AccountState,
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
         state::volatile::{Bind, Resettable},
+        store::columns::pools::Row as Pool,
     };
 
     /// Define a type with various `From` instance to ease the notations below and avoid repetition
@@ -1402,6 +1443,36 @@ mod tests {
         assert_eq!(right, &Resettable::Set(&Epoch::from(99)));
     }
 
+    #[test_case(None, None, None => VrfOccupancy::Deferred(0); "untouched everywhere defers to the stable store")]
+    #[test_case(None, None, Some(VrfAct::Claim) => VrfOccupancy::Claimed; "claimed in current")]
+    #[test_case(None, None, Some(VrfAct::Release) => VrfOccupancy::Released; "released in current")]
+    #[test_case(Some(VrfAct::Claim), None, None => VrfOccupancy::Claimed; "claimed in draining, untouched since")]
+    #[test_case(Some(VrfAct::Release), None, None => VrfOccupancy::Released; "released in draining shadows the stable store")]
+    #[test_case(None, Some(Purge::Dangling), None => VrfOccupancy::Released; "boundary dangling delete frees the key")]
+    #[test_case(None, Some(Purge::Retired), None => VrfOccupancy::Deferred(1); "boundary decrement defers to the stable count")]
+    #[test_case(Some(VrfAct::Claim), Some(Purge::Retired), None => VrfOccupancy::Released; "a draining claim is set-to-1 so one boundary decrement frees the key")]
+    #[test_case(Some(VrfAct::Claim), Some(Purge::Dangling), None => VrfOccupancy::Released; "boundary release overrides a draining claim")]
+    #[test_case(None, Some(Purge::Dangling), Some(VrfAct::Claim) => VrfOccupancy::Claimed; "a current claim re-claims a boundary-freed key")]
+    fn resolve_vrf_key_hash_precedence(
+        draining: Option<VrfAct>,
+        boundary: Option<Purge>,
+        current: Option<VrfAct>,
+    ) -> VrfOccupancy {
+        let mut db = VolatileDB::default();
+        if let Some(act) = draining {
+            db.push_back(vrf_block(10, act));
+        }
+        match boundary {
+            Some(purge) => db.simple_transition(vrf_boundary(purge)),
+            None => db.simple_transition(()),
+        }
+        if let Some(act) = current {
+            db.push_back(vrf_block(20, act));
+        }
+
+        db.resolve_vrf_key_hash(&vrf_key())
+    }
+
     // HELPERS
 
     #[derive(Clone, Copy)]
@@ -1420,6 +1491,18 @@ mod tests {
     enum Act {
         Reg,
         Unreg,
+    }
+
+    #[derive(Clone, Copy)]
+    enum VrfAct {
+        Claim,
+        Release,
+    }
+
+    #[derive(Clone, Copy)]
+    enum Purge {
+        Dangling,
+        Retired,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1459,6 +1542,34 @@ mod tests {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         block.fragment.withdrawals.insert(cred(1));
         block
+    }
+
+    fn vrf_key() -> pools_vrf::Key {
+        Hash::new([7; 32])
+    }
+
+    fn vrf_block(slot: u64, act: VrfAct) -> AnchoredVolatileFragment {
+        let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
+        match act {
+            VrfAct::Claim => block.fragment.pools_vrf.produce(vrf_key(), ()),
+            VrfAct::Release => block.fragment.pools_vrf.consume(vrf_key()),
+        }
+        block
+    }
+
+    fn vrf_boundary(purge: Purge) -> PoolsEpochTransitionUpdates {
+        let boundary = Epoch::from(1);
+        let params = PoolParams { vrf: vrf_key(), ..run_strategy(any_pool_params()) };
+        let mut pool = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), 500_000_000, params.clone());
+
+        match purge {
+            Purge::Dangling => pool.pending_certificates.append(PoolParams { vrf: Hash::new([8; 32]), ..params }),
+            Purge::Retired => pool.pending_certificates.append(boundary),
+        }
+
+        let mut updates = PoolsEpochTransitionUpdates::default();
+        updates.tick_pool(boundary, pool);
+        updates
     }
 
     fn committee_block(slot: u64, act: CommitteeAct) -> AnchoredVolatileFragment {

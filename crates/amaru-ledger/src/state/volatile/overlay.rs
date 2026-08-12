@@ -31,7 +31,7 @@ use crate::{
     },
     store::{
         EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
-        pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
+        columns::pools_vrf, pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
         reset_recently_pruned_proposals, update_or_retire_pools,
     },
 };
@@ -366,6 +366,23 @@ impl StateOverlay {
     /// pool as still-existing.
     pub fn is_pool_retired(&self, pool_id: PoolId) -> bool {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(&pool_id))
+    }
+
+    /// Whether the VRF key hash is freed entirely by the pending epoch-boundary transition: its
+    /// pool's differing future parameters activated, leaving the key dangling. Like pool reaping,
+    /// this must shadow the stale stable entry until the overlay is flushed.
+    pub fn is_vrf_released(&self, vrf: &pools_vrf::Key) -> bool {
+        self.pools_updates.as_ref().is_some_and(|updates| updates.vrf_released().contains(vrf))
+    }
+
+    /// How many pool retirements decrement the VRF key hash's occupancy at the pending
+    /// epoch-boundary transition; `0` outside the straddle window. Whether the decrements actually
+    /// free the key depends on the stable occupancy count.
+    pub fn vrf_decrements(&self, vrf: &pools_vrf::Key) -> u64 {
+        self.pools_updates
+            .as_ref()
+            .map(|updates| updates.vrf_retired().iter().filter(|retired| *retired == vrf).count() as u64)
+            .unwrap_or(0)
     }
 
     /// The cold credentials this pending boundary transition can resolve to a member for, that is,
