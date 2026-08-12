@@ -1211,6 +1211,24 @@ define_schemas! {
                         optional reason: String
                     }
                 }
+                pools_vrf {
+                    /// Point-read a VRF key hash occupancy entry
+                    public GET {}
+                    /// Mark a VRF key hash as in use (set occupancy to 1)
+                    public CLAIM {}
+                    /// Delete a superseded VRF key hash occupancy entry
+                    public RELEASE {
+                        optional vrf: amaru_kernel::Hash<32>
+                        optional reason: String
+                    }
+                    /// Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero
+                    public DECREMENT {
+                        optional vrf: amaru_kernel::Hash<32>
+                        optional reason: String
+                    }
+                    /// Import a VRF key hash occupancy entry from a snapshot at bootstrap
+                    public SEED {}
+                }
                 accounts {
                     /// Point-read an account entry
                     public GET {}

@@ -100,6 +100,7 @@ const DIR_LIVE_DB: &str = "live";
 // * '@constitutional'           * Constitution                                   *
 // * 'utxo:'TransactionInput     * TransactionOutput                              *
 // * 'pool:'PoolId               * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
+// * 'pvrf:'Hash<32>             * u64                                            *
 // * 'acct:'StakeCredential      * (Option<PoolId>, Lovelace, Lovelace)           *
 // * 'drep:'StakeCredential      * (                                              *
 // *                             *   Lovelace,                                    *
@@ -458,6 +459,13 @@ macro_rules! impl_ReadStore_body {
 
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
                 pools::get(|key| self.db.get_pinned(key), pool)
+            }
+
+            fn vrf_key_hash(
+                &self,
+                vrf: &scolumns::pools_vrf::Key,
+            ) -> Result<Option<scolumns::pools_vrf::Value>, StoreError> {
+                pools_vrf::get(|key| self.db.get_pinned(key), vrf)
             }
 
             fn account(

@@ -271,6 +271,15 @@ pub trait ReadStore {
         unimplemented!("ReadStore.pool({pool:?})");
     }
 
+    /// Get the occupancy count of a VRF key hash, when in use by a stake pool.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Result<Option<pools_vrf::Value>>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Result<Option<pools_vrf::Value>> {
+        unimplemented!("ReadStore.vrf_key_hash({vrf:?})");
+    }
+
     /// Get details about a specific Account
     #[cfg(not(any(test, feature = "test-utils")))]
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>>;

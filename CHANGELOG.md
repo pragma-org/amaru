@@ -64,6 +64,10 @@ Other guiding principles:
 
 ### Added
 
+- **amaru-stores**: track stake pool VRF key hash occupancy in a new ledger-store column (`pvrf`). ([#910][])
+
+  The column is only populated at bootstrap: existing ledger databases must be re-bootstrapped, as there is no migration and the occupancy map cannot be derived from an existing database. 
+
 - **amaru-consensus**: track peer-sharing reputation (handshake advertisability, connection failures, sticky adversarial flag, and whether a successful connection was ever established) so peer selection can filter share candidates. ([#1167](https://github.com/pragma-org/amaru/issues/1167))
 - **amaru-protocols**: add peer-sharing mini-protocol (client and server) and wire it into the connection manager. ([#1168](https://github.com/pragma-org/amaru/issues/1168))
 - **amaru-consensus**: use shared peers to populate the peer candidate pool and serve share requests. ([#1169](https://github.com/pragma-org/amaru/issues/1169))
@@ -325,6 +329,7 @@ Other guiding principles:
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
 [#909]: https://github.com/pragma-org/amaru/issues/909
+[#910]: https://github.com/pragma-org/amaru/issues/910
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#923]: https://github.com/pragma-org/amaru/issues/923
