@@ -16,6 +16,41 @@
 
 use std::process::Command;
 
+/// Read the current process's cumulative block-I/O delay in centiseconds.
+///
+/// Linux exposes this as field 42 (`delayacct_blkio_ticks`) in
+/// `/proc/self/stat`. Other Unix platforms do not provide the equivalent
+/// Linux process statistic and report zero, matching `cardano-node`.
+///
+/// `cardano-node` delegates resource collection to this Linux sampler:
+/// <https://github.com/IntersectMBO/hermod-tracing/blob/d322eb06fa2b351c0943ff2b80a94bf5ed954cd0/hermod-trace-resources/src/Hermod/Tracing/Resources/Linux.hs#L103-L120>
+pub fn sample_process_block_io_ticks() -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/stat")
+            .ok()
+            .and_then(|stat| parse_process_block_io_ticks(&stat))
+            .unwrap_or(0)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parse_process_block_io_ticks(stat: &str) -> Option<u64> {
+    const PROCESS_STATE_FIELD: usize = 3;
+    const BLOCK_IO_TICKS_FIELD: usize = 42;
+
+    let (_, fields_after_command) = stat.rsplit_once(") ")?;
+    fields_after_command
+        .split_whitespace()
+        .nth(BLOCK_IO_TICKS_FIELD - PROCESS_STATE_FIELD)
+        .and_then(|value| value.parse().ok())
+}
+
 pub fn sample_process_memory(pid: u32) -> Option<u64> {
     let output = if cfg!(target_os = "macos") {
         Command::new("top").args(["-l", "1", "-pid", &pid.to_string(), "-stats", "pid,mem"]).output().ok()?
@@ -76,6 +111,21 @@ mod tests {
     use test_case::test_case;
 
     use super::{parse_top_mem, parse_value_with_unit};
+
+    #[test]
+    fn parses_process_block_io_ticks() {
+        let mut fields = vec!["S".to_string()];
+        fields.extend((4..42).map(|field| field.to_string()));
+        fields.push("987".to_string());
+        let stat = format!("123 (amaru (worker)) {}", fields.join(" "));
+
+        assert_eq!(super::parse_process_block_io_ticks(&stat), Some(987));
+    }
+
+    #[test]
+    fn rejects_truncated_process_stat() {
+        assert_eq!(super::parse_process_block_io_ticks("123 (amaru) S 1 2 3"), None);
+    }
 
     #[test_case("1201K", 1 => Some(1_229_824))]
     #[test_case("1.5M", 1 => Some(1_572_864))]

@@ -41,6 +41,7 @@ pub const HOST_DISK_LIVE_WRITE: &str = "host_disk_live_write";
 pub struct SystemMetrics {
     pub node_start_time_seconds: u64,
     pub cpu_ticks: u64,
+    pub block_io_ticks: u64,
     pub network_read_bytes: u64,
     pub network_written_bytes: u64,
     pub runtime_seconds: u64,
@@ -70,6 +71,7 @@ impl MetricRecorder for SystemMetrics {
         static NODE_START_TIME: OnceLock<Gauge<u64>> = OnceLock::new();
         static BASIC_INFO: OnceLock<Gauge<u64>> = OnceLock::new();
         static CPU_TICKS: OnceLock<Gauge<u64>> = OnceLock::new();
+        static BLOCK_IO_TICKS: OnceLock<Gauge<u64>> = OnceLock::new();
         static NETWORK_READ_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static NETWORK_WRITTEN_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
         static FILESYSTEM_READ_BYTES: OnceLock<Gauge<u64>> = OnceLock::new();
@@ -111,6 +113,13 @@ impl MetricRecorder for SystemMetrics {
             meter
                 .u64_gauge("cardano_node_metrics_Stat_cputicks_int")
                 .with_description("total CPU time used by the process in centiseconds")
+                .with_unit("centiseconds")
+                .build()
+        });
+        let block_io_ticks = BLOCK_IO_TICKS.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_Stat_blkIOticks_int")
+                .with_description("total time the process has waited for block I/O in centiseconds")
                 .with_unit("centiseconds")
                 .build()
         });
@@ -249,6 +258,7 @@ impl MetricRecorder for SystemMetrics {
         node_start_time.record(self.node_start_time_seconds, &[]);
         basic_info.record(1, &[KeyValue::new("nodeStartTime", self.node_start_time_seconds.to_string())]);
         cpu_ticks.record(self.cpu_ticks, &[]);
+        block_io_ticks.record(self.block_io_ticks, &[]);
         network_read_bytes.record(self.network_read_bytes, &[]);
         network_written_bytes.record(self.network_written_bytes, &[]);
         filesystem_read_bytes.record(self.disk_read_bytes, &[]);

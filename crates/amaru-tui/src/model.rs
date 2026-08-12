@@ -279,6 +279,7 @@ mod tests {
             MetricsEvent::SystemMetrics(SystemMetrics {
                 node_start_time_seconds: 0,
                 cpu_ticks: 0,
+                block_io_ticks: 0,
                 network_read_bytes: 0,
                 network_written_bytes: 0,
                 runtime_seconds: 1,

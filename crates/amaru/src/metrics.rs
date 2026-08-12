@@ -18,7 +18,7 @@ use std::{
 };
 
 #[cfg(unix)]
-use amaru_kernel::utils::process::sample_process_memory;
+use amaru_kernel::utils::process::{sample_process_block_io_ticks, sample_process_memory};
 use amaru_metrics::{Meter, MetricRecorder, MetricsEvent, SystemMetrics, initialize_metrics};
 use anyhow::anyhow;
 use opentelemetry::KeyValue;
@@ -94,6 +94,7 @@ pub fn track_system_metrics(meter: Arc<Meter>) -> Result<Option<JoinHandle<()>>,
                     let event = MetricsEvent::SystemMetrics(SystemMetrics {
                         node_start_time_seconds: process.start_time(),
                         cpu_ticks: process.accumulated_cpu_time() / 10,
+                        block_io_ticks: sample_process_block_io_ticks(),
                         network_read_bytes,
                         network_written_bytes,
                         runtime_seconds: process.run_time(),
