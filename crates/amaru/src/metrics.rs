@@ -120,6 +120,23 @@ pub fn track_system_metrics(meter: Arc<Meter>) -> Result<Option<JoinHandle<()>>,
     })))
 }
 
+/// Expose cardano-node's replay-progress metric once Amaru's stage graph is running.
+///
+/// This deliberately reports only the ready state rather than cardano-node's per-slot progress:
+/// https://github.com/IntersectMBO/cardano-node/blob/master/cardano-node/src/Cardano/Node/Tracing/Tracers/BlockReplayProgress.hs
+pub fn record_block_replay_ready(meter: &Meter) {
+    let Some(meter) = meter.get() else {
+        return;
+    };
+
+    meter
+        .f64_gauge("cardano_node_metrics_blockReplayProgress_real")
+        .with_description("whether the node has completed startup")
+        .with_unit("%")
+        .build()
+        .record(100.0, &[]);
+}
+
 fn record_build_info(meter: &Meter) {
     let Some(meter) = meter.get() else {
         return;

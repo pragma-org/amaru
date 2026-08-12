@@ -93,6 +93,7 @@
     "cardano_node_metrics_Stat_netRd_int",
     "cardano_node_metrics_Stat_netWr_int",
     "cardano_node_metrics_basicInfo",
+    "cardano_node_metrics_blockReplayProgress_real",
     "cardano_node_metrics_blockNum_int",
     "cardano_node_metrics_cardano_build_info",
     "cardano_node_metrics_cardano_version_major_int",

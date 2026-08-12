@@ -26,7 +26,7 @@ use std::{
 use amaru::{
     DEFAULT_LISTEN_ADDRESS, default_chain_dir, default_ledger_dir, default_peer_for_network,
     lifecycle::{Runnable, RuntimeKind, ShutdownHandle},
-    metrics::track_system_metrics,
+    metrics::{record_block_replay_ready, track_system_metrics},
     version,
 };
 use amaru_kernel::{EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS};
@@ -415,7 +415,8 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> Result<(), B
 
     let meter = Arc::new(meter);
     let metrics = track_system_metrics(meter.clone())?;
-    let running = build_and_run_node(config, meter)?;
+    let running = build_and_run_node(config, meter.clone())?;
+    record_block_replay_ready(&meter);
 
     // Main-thread signal path can abort stages without scheduling this future.
     let running_for_abort = running.clone();
