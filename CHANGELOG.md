@@ -35,6 +35,11 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20260820 _[unreleased; planned for 2026-08-20]_
+
+### Fixed
+
+- **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
@@ -53,7 +58,6 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru / amaru-tui**: product observability setup no longer types against TUI-specific capture types; the TUI installs the shared observability capture layer.
 - **scripts/run-until**: drives the `amaru-node` `run_until` example (observer-based stop). The example installs OTLP via `amaru_node::Telemetry` when `AMARU_WITH_OPEN_TELEMETRY` is set, so e2e metrics still flow to the collector.
 - **amaru-node**: `Telemetry::install` embedder helper for fmt / JSON / OTLP (metrics + traces + logs) using the same env knobs as the product binary.
 - **amaru-observability**: structured logging for complex values: schema transport preserves JSON primitives and encodes other values as CBOR (`record_bytes`); JSON traces get nested objects/arrays, OTEL logs get nested `AnyValue` maps/lists, OTEL spans upgrade homogeneous CBOR arrays to `Value::Array` (with CBOR diagnostic fallback otherwise), and console logs use CBOR diagnostic notation. ([#1182](https://github.com/pragma-org/amaru/pull/1182))
