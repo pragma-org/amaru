@@ -844,7 +844,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     - governance_activity.map_or(0, |ga| ga.consecutive_dormant_epochs) as u64;
 
                 utxo::add(&self.db, add.utxo)?;
-                pools::add(&self.db, add.pools)?;
+                pools::add(&self.db, add.pools, current_epoch)?;
                 dreps::add(&self.db, drep_validity, add.dreps)?;
                 cc_members::upsert(&self.db, add.cc_members)?;
                 accounts::add(&self.db, add.accounts)?;

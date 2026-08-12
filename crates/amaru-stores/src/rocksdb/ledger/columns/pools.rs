@@ -26,7 +26,10 @@ use amaru_ledger::{
 use amaru_observability::{error, trace_span};
 use rocksdb::{DBPinnableSlice, Transaction};
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use crate::rocksdb::{
+    common::{PREFIX_LEN, as_key, as_value},
+    pools_vrf,
+};
 
 /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
@@ -41,7 +44,7 @@ pub fn get<'a>(
     })
 }
 
-pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> Result<(), StoreError> {
+pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>, epoch: Epoch) -> Result<(), StoreError> {
     trace_span!(stores::ledger::pools::ADD).in_scope(|| {
         for (params, registered_at, deposit) in rows {
             let pool = params.id;
@@ -54,16 +57,40 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>) -> R
             // - If one already exists, then the parameters are stashed until the next
             //   epoch boundary.
             //
+            // Either way, the registration claims its VRF key hash occupancy, and a
+            // re-registration frees the key of any pending registration it supersedes
+            // when that key differed.
+            //
             // TODO: We might want to define a MERGE OPERATOR to speed this up if
             // necessary.
             let params = match db.get(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))? {
-                None => as_value(Row {
-                    registered_at,
-                    deposit,
-                    current_params: params,
-                    pending_certificates: PoolCertificates::default(),
-                }),
-                Some(existing_params) => Row::extend(existing_params, PoolCertificate::from(params)),
+                None => {
+                    pools_vrf::claim(db, &params.vrf)?;
+
+                    as_value(Row {
+                        registered_at,
+                        deposit,
+                        current_params: params,
+                        pending_certificates: PoolCertificates::default(),
+                    })
+                }
+                Some(existing_params) => {
+                    pools_vrf::claim(db, &params.vrf)?;
+
+                    // The row may still hold certificates whose epoch boundary has passed but
+                    // which have not been ticked yet; folding them at the current epoch applies
+                    // the boundary cancellation rules. In particular, a retirement that is
+                    // already effective discards the pending registration, whose VRF is then
+                    // netted out by the epoch-boundary purge rather than released here.
+                    let row = unsafe_decode::<Row>(&existing_params);
+                    if let Some(pending) = row.pending_certificates.pending_after(epoch).registration()
+                        && pending.vrf != params.vrf
+                    {
+                        pools_vrf::release(db, &pending.vrf)?;
+                    }
+
+                    Row::extend(existing_params, PoolCertificate::from(params))
+                }
             };
 
             db.put(as_key(&PREFIX, pool), params).map_err(|err| StoreError::Internal(err.into()))?;
