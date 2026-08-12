@@ -204,11 +204,11 @@ impl VolatileSequence for VolatileDB {
         self.current.has_point(point) || self.draining.has_point(point)
     }
 
-    fn iter(&self) -> impl Iterator<Item = &Self::Item> {
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Self::Item> {
         self.draining.iter().chain(self.current.iter())
     }
 
-    fn into_iter(self) -> impl Iterator<Item = Self::Item> {
+    fn into_iter(self) -> impl DoubleEndedIterator<Item = Self::Item> {
         self.draining.into_iter().chain(self.current.into_iter())
     }
 

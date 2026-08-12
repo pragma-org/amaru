@@ -41,9 +41,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{
-    AuxiliaryData, Block, Epoch, MemoizedTransactionOutput, Point, Tip, TransactionBody, TransactionInput, WitnessSet,
-};
+use amaru_kernel::{Block, Epoch, MemoizedTransactionOutput, Point, Tip, TransactionInput, TransactionRef};
 
 use crate::{
     state::volatile::{AnchoredVolatileFragment, DiffSet, VolatileFragment},
@@ -52,15 +50,6 @@ use crate::{
 
 /// UTxO delta carried by a tip block event (produced + consumed).
 pub type UtxoDiff = DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>;
-
-/// One transaction as laid out in an adopted block, without cloning its parts.
-#[derive(Debug, Clone, Copy)]
-pub struct AdoptedTransaction<'a> {
-    pub body: &'a TransactionBody,
-    pub witnesses: &'a WitnessSet,
-    pub is_expected_valid: bool,
-    pub auxiliary_data: Option<&'a AuxiliaryData>,
-}
 
 /// A block that was successfully applied to the ledger tip.
 ///
@@ -85,10 +74,10 @@ impl<'a> AdoptedBlock<'a> {
     }
 
     /// Transactions in block order (bodies, witnesses, validity, aux data) — all borrowed.
-    pub fn transactions(&self) -> impl Iterator<Item = AdoptedTransaction<'a>> + '_ {
+    pub fn transactions(&self) -> impl Iterator<Item = TransactionRef<'a>> + '_ {
         let invalid = self.block.invalid_transactions.as_ref();
         self.block.transaction_bodies.iter().zip(self.block.transaction_witnesses.iter()).enumerate().map(
-            move |(ix, (body, witnesses))| AdoptedTransaction {
+            move |(ix, (body, witnesses))| TransactionRef {
                 body,
                 witnesses: witnesses.as_ref(),
                 is_expected_valid: invalid.is_none_or(|set| !set.contains(&(ix as u32))),

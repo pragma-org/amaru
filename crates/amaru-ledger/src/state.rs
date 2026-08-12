@@ -43,6 +43,7 @@ use crate::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards,
     },
     governance::ratification::RatificationContext,
+    observers::LedgerObservers,
     rules::{
         self,
         block::{BlockValidation, TransactionInvalid},
@@ -119,7 +120,7 @@ where
     on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
 
     /// Optional embedder observers (adopted blocks, full ledger stake summaries).
-    observers: crate::observers::LedgerObservers,
+    observers: LedgerObservers,
 
     /// Background computation calculating rewards and stake distributions
     rewards_join_handle: Option<JoinHandle<Result<RewardsSummary, StateError>>>,
@@ -245,7 +246,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
             on_stake_dist_updated: None,
 
-            observers: crate::observers::LedgerObservers::default(),
+            observers: LedgerObservers::default(),
 
             rewards_join_handle: None,
 
@@ -260,7 +261,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     }
 
     /// Install embedder observers (adopted blocks and optional full stake summaries).
-    pub fn set_observers(&mut self, observers: crate::observers::LedgerObservers) {
+    pub fn set_observers(&mut self, observers: LedgerObservers) {
         self.observers = observers;
     }
 
@@ -710,7 +711,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             self.global_parameters(),
             self.governance_activity(),
             TransactionPointer { slot, transaction_index: 0 },
-            transaction,
+            transaction.tx_ref(),
             tx_size,
         )
         .map_err(|violation| TransactionValidationError::Validation { transaction_id, violation: Box::new(violation) })
@@ -755,13 +756,13 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     pub fn roll_forward(
         &mut self,
         point: &Point,
-        block: Block,
+        block: &Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         debug_span!(ledger::state::ROLL_FORWARD).in_scope(|| {
             let block_height = block.header.header_body.block_number;
 
-            trace_block_transactions(point, block_height, &block);
+            trace_block_transactions(point, block_height, block);
 
             // 1. Rewards calculation
             BlockValidation::from(self.try_compute_rewards())?;
@@ -771,14 +772,10 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
             let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
-            let metrics = self.new_metrics(point, &block, issuer);
-
-            // Keep a block copy only for observer transaction material; UTxO is borrowed from the
-            // live volatile fragment after a successful commit (no output cloning).
-            let block_for_observer = self.observers.wants_block_events().then(|| block.clone());
+            let metrics = self.new_metrics(point, block, issuer);
 
             // 3. Validation context
-            let mut context = BlockValidation::from(self.create_block_validation_context(&block))?;
+            let mut context = BlockValidation::from(self.create_block_validation_context(block))?;
 
             // 4. Ledger rules execution
             rules::validate_block(
@@ -803,14 +800,14 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // 7. Flush the epoch transition
             BlockValidation::from(self.apply_transition())?;
 
-            if let Some(block) = block_for_observer {
+            if self.observers.wants_block_events() {
                 // Borrow UTxO DiffSet from the fragment we just pushed (still at the tip).
                 #[expect(clippy::expect_used)]
                 let anchored =
                     self.volatile.view_back().expect("roll_forward pushed a fragment before notifying observers");
                 debug_assert_eq!(anchored.point(), *point);
                 let epoch = unsafe_slot_to_epoch(&self.era_history, point.slot_or_default());
-                let adopted = crate::observers::AdoptedBlock::from_block(*point, epoch, &block, &anchored.fragment);
+                let adopted = crate::observers::AdoptedBlock::from_block(*point, epoch, block, &anchored.fragment);
                 self.observers.notify_adopted(adopted);
             }
 
@@ -915,7 +912,9 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // Silence observers during replay; emit undos then adopts only after full success.
             // Keep blocks for transaction material; UTxO is borrowed from live fragments at emit time.
             let real_on_block = self.observers.on_block.take();
-            let mut deferred_blocks: Vec<(Point, Block)> = Vec::new();
+            let keep_blocks = real_on_block.is_some();
+            let mut deferred_blocks: Vec<(Point, Block)> =
+                Vec::with_capacity(if keep_blocks { blocks.size_hint().0 } else { 0 });
 
             let mut metrics = LedgerMetrics::default();
             for block in blocks {
@@ -927,10 +926,9 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                         return BlockValidation::Err(error);
                     }
                 };
-                let block_for_observer = real_on_block.is_some().then(|| block.clone());
-                match self.roll_forward(&point, block, arena_pool) {
+                match self.roll_forward(&point, &block, arena_pool) {
                     BlockValidation::Valid(new_metrics) => {
-                        if let Some(block) = block_for_observer {
+                        if keep_blocks {
                             deferred_blocks.push((point, block));
                         }
                         metrics = new_metrics;
@@ -1333,7 +1331,7 @@ impl RollbackGuard<'_> {
     }
 
     /// Discarded volatile fragments in tip-first order for observer undo notifications.
-    fn discarded_tip_first(&self) -> Vec<&AnchoredVolatileFragment> {
+    fn discarded_tip_first(&self) -> Box<dyn Iterator<Item = &AnchoredVolatileFragment> + '_> {
         self.kind.discarded_tip_first()
     }
 }
@@ -1355,13 +1353,9 @@ impl StateRecovery<'_> {
         }
     }
 
-    fn discarded_tip_first(&self) -> Vec<&AnchoredVolatileFragment> {
+    fn discarded_tip_first(&self) -> Box<dyn Iterator<Item = &AnchoredVolatileFragment> + '_> {
         match self {
-            Self::RecoverWholeVolatileDB { volatile } => {
-                let mut out: Vec<&AnchoredVolatileFragment> = volatile.iter().collect();
-                out.reverse();
-                out
-            }
+            Self::RecoverWholeVolatileDB { volatile } => Box::new(volatile.iter().rev()),
             Self::RecoverVolatileDBPart { recovery } => recovery.discarded_tip_first(),
         }
     }

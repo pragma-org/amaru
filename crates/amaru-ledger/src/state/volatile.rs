@@ -123,8 +123,8 @@ pub trait VolatileSequence {
     fn view_front(&self) -> Option<&Self::Item>;
     fn has_point(&self, point: &Point) -> bool;
 
-    fn iter(&self) -> impl Iterator<Item = &Self::Item>;
-    fn into_iter(self) -> impl Iterator<Item = Self::Item>;
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Self::Item>;
+    fn into_iter(self) -> impl DoubleEndedIterator<Item = Self::Item>;
 
     fn pop_front(&mut self) -> Option<Self::Item>;
     fn push_back(&mut self, item: Self::Item);
@@ -142,16 +142,11 @@ impl RollbackGuard<'_> {
     }
 
     /// Discarded fragments in **tip-first** order (newest undone block first).
-    pub fn discarded_tip_first(&self) -> Vec<&AnchoredVolatileFragment> {
+    pub fn discarded_tip_first(&self) -> Box<dyn Iterator<Item = &AnchoredVolatileFragment> + '_> {
         match &self.recovery {
-            VolatileDBRecovery::RecoverInEpoch { discarded, .. } => discarded.iter().rev().collect(),
+            VolatileDBRecovery::RecoverInEpoch { discarded, .. } => Box::new(discarded.iter().rev()),
             VolatileDBRecovery::RecoverAcrossEpoch { old_current, drained, .. } => {
-                // Chronological discard: drained (suffix of closing epoch) then full opening epoch.
-                // Tip-first reverses that: opening epoch newest→oldest, then drained newest→oldest.
-                let mut out: Vec<&AnchoredVolatileFragment> = old_current.iter().collect();
-                out.reverse();
-                out.extend(drained.iter().rev());
-                out
+                Box::new(drained.iter().chain(old_current.iter()).rev())
             }
         }
     }
