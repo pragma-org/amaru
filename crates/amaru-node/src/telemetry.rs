@@ -15,10 +15,11 @@
 //! Embedder-facing observability install helpers.
 //!
 //! Used by thin programs such as the `run_until` example so OTLP metrics/traces
-//! can be enabled without the product CLI. The product binary still uses its own
-//! richer stack in `amaru::observability` (TUI capture layer, local metrics
-//! observer, ANSI colour, throttled OTEL filters, service instance id, dual
-//! `AMARU_LOG` / `AMARU_TRACE` filters, delayed filter warnings).
+//! can be enabled without the product CLI. When OTLP is on, also starts
+//! process/build gauges via [`crate::system_metrics`]. The product binary still
+//! uses its own richer stack in `amaru::observability` (TUI capture layer, local
+//! metrics observer, ANSI colour, throttled OTEL filters, service instance id,
+//! dual `AMARU_LOG` / `AMARU_TRACE` filters, delayed filter warnings).
 //!
 //! [`Telemetry::install`] and [`Telemetry::shutdown`] are `async` so they must
 //! be driven on a Tokio runtime (`rt.block_on(...)` or `.await` inside an async
@@ -37,7 +38,10 @@ use opentelemetry_sdk::{
     trace::SdkTracerProvider,
 };
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
+use tokio::task::JoinHandle;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
+
+use crate::system_metrics::{BuildIdentity, track_system_metrics};
 
 const DEFAULT_SERVICE_NAME: &str = "amaru";
 const DEFAULT_AMARU_TRACE: &str = "info";
@@ -45,6 +49,7 @@ const DEFAULT_AMARU_TRACE: &str = "info";
 /// Active telemetry pipeline for an embedder process.
 pub struct Telemetry {
     pub meter: Arc<Meter>,
+    system_metrics: Option<JoinHandle<()>>,
     teardown: Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>,
 }
 
@@ -77,7 +82,7 @@ impl Telemetry {
 
     fn install_local(with_json: bool) -> anyhow::Result<Self> {
         init_fmt_subscriber(with_json)?;
-        Ok(Self { meter: Arc::new(Meter::default()), teardown: None })
+        Ok(Self { meter: Arc::new(Meter::default()), system_metrics: None, teardown: None })
     }
 
     fn install_otlp(with_json: bool) -> anyhow::Result<Self> {
@@ -149,6 +154,10 @@ impl Telemetry {
         }
 
         let meter = Arc::new(Meter::from(meter_provider.meter(METRICS_METER_NAME)));
+        // Same process/build gauges as the product binary so e2e compare-metrics
+        // sees the full supported set when OTLP is enabled.
+        let system_metrics = track_system_metrics(Arc::clone(&meter), BuildIdentity::default())
+            .map_err(|e| anyhow!("start system metrics: {e}"))?;
 
         let teardown = Box::new(move || {
             traces_provider.shutdown().map_err(|e| anyhow!("trace provider shutdown: {e}"))?;
@@ -157,7 +166,7 @@ impl Telemetry {
             Ok(())
         });
 
-        Ok(Self { meter, teardown: Some(teardown) })
+        Ok(Self { meter, system_metrics, teardown: Some(teardown) })
     }
 
     /// Flush exporters. Safe to call once at process exit.
@@ -166,6 +175,9 @@ impl Telemetry {
     /// exporter work that was scheduled on that runtime.
     pub async fn shutdown(mut self) -> anyhow::Result<()> {
         tokio::task::yield_now().await;
+        if let Some(handle) = self.system_metrics.take() {
+            handle.abort();
+        }
         if let Some(teardown) = self.teardown.take() {
             teardown()?;
         }
@@ -175,6 +187,9 @@ impl Telemetry {
 
 impl Drop for Telemetry {
     fn drop(&mut self) {
+        if let Some(handle) = self.system_metrics.take() {
+            handle.abort();
+        }
         if let Some(teardown) = self.teardown.take()
             && let Err(err) = teardown()
         {

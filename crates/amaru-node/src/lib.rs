@@ -39,6 +39,7 @@ pub mod ledger_reset;
 pub mod peer_snapshot;
 pub mod stages;
 pub mod submit_api;
+pub mod system_metrics;
 pub mod telemetry;
 
 pub use amaru_kernel::{
@@ -57,6 +58,7 @@ pub use stages::{
     build_node::{NodeRunning, build_and_run_node, build_node, make_state},
     config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
 };
+pub use system_metrics::{BuildIdentity, track_system_metrics};
 pub use telemetry::Telemetry;
 
 /// Default relative path for ledger storage for a known network.
