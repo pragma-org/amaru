@@ -42,11 +42,11 @@ use tracing::{
 };
 use tracing_subscriber::{
     EnvFilter, Registry,
-    field::{MakeVisitor, VisitFmt, VisitOutput},
+    field::{MakeVisitor, RecordFields, VisitOutput},
     filter::Filtered,
     fmt::{
         FmtContext, FormatEvent, FormatFields, FormattedFields, Layer,
-        format::{DefaultFields, FmtSpan, Format, Json, JsonFields, Writer},
+        format::{DefaultFields, FmtSpan, Format, Json, JsonFields, JsonVisitor, Writer},
     },
     layer::{Context, Filter, Layered, SubscriberExt},
     prelude::*,
@@ -83,7 +83,7 @@ type OpenTelemetryFilter<S> =
 
 type JsonLayer<S> = Layered<JsonFilter<S>, S>;
 
-type JsonFilter<S> = Filtered<Layer<S, JsonFields, SpanJsonFormat>, ThrottledEnvFilter, S>;
+type JsonFilter<S> = Filtered<Layer<S, HideTagFields<JsonFields>, SpanJsonFormat>, ThrottledEnvFilter, S>;
 
 type LocalTelemetryFilter<S> = Filtered<TelemetryCaptureLayer, ThrottledEnvFilter, S>;
 
@@ -95,30 +95,28 @@ type DelayedWarning = Option<Box<dyn FnOnce()>>;
 // HideTagFields
 //
 // The `amaru.tag.<name>` boolean attributes categorize spans (cpu/io/setup) for
-// OpenTelemetry backends. They carry no value in the human-readable console log,
-// and because the compact formatter appends the fields of every span in scope,
-// an inherited tag would otherwise repeat once per nested span. This field
-// formatter drops them from the console output while leaving OpenTelemetry spans
-// and JSON traces untouched.
+// OpenTelemetry backends. They carry no value in serialized logs, and because
+// formatters append the fields of spans in scope, an inherited tag would otherwise
+// repeat once per nested span. This field formatter drops them from console and
+// JSON output while leaving OpenTelemetry spans untouched.
 // -----------------------------------------------------------------------------
 
 const TAG_FIELD_PREFIX: &str = "amaru.tag.";
 
 fn is_tag_field(field: &Field) -> bool {
-    field.name().starts_with(TAG_FIELD_PREFIX)
+    is_tag_field_name(field.name())
+}
+
+fn is_tag_field_name(name: &str) -> bool {
+    name.starts_with(TAG_FIELD_PREFIX)
 }
 
 /// Wraps a field formatter so that `amaru.tag.*` fields are skipped.
-struct HideTagFields<N>(N);
+pub struct HideTagFields<N>(N);
 
-impl<'writer, N> MakeVisitor<Writer<'writer>> for HideTagFields<N>
-where
-    N: MakeVisitor<Writer<'writer>>,
-{
-    type Visitor = HideTagVisitor<N::Visitor>;
-
-    fn make_visitor(&self, target: Writer<'writer>) -> Self::Visitor {
-        HideTagVisitor(self.0.make_visitor(target))
+impl<'writer> FormatFields<'writer> for HideTagFields<DefaultFields> {
+    fn format_fields<R: RecordFields>(&self, writer: Writer<'writer>, fields: R) -> fmt::Result {
+        format_without_tag_fields(fields, self.0.make_visitor(writer))
     }
 }
 
@@ -195,10 +193,39 @@ impl<Out, V: VisitOutput<Out>> VisitOutput<Out> for HideTagVisitor<V> {
     }
 }
 
-impl<V: VisitFmt> VisitFmt for HideTagVisitor<V> {
-    fn writer(&mut self) -> &mut dyn fmt::Write {
-        self.0.writer()
+impl<'writer> FormatFields<'writer> for HideTagFields<JsonFields> {
+    fn format_fields<R: RecordFields>(&self, mut writer: Writer<'writer>, fields: R) -> fmt::Result {
+        // JsonFields does not expose a visitor factory, so apply the shared
+        // filtering visitor to the same JsonVisitor it uses internally.
+        format_without_tag_fields(fields, JsonVisitor::new(&mut writer))
     }
+
+    fn add_fields(&self, current: &'writer mut FormattedFields<Self>, fields: &span::Record<'_>) -> fmt::Result {
+        // Preserve JsonFields' object-merging behavior instead of duplicating it.
+        let mut formatted = FormattedFields::<JsonFields>::new(std::mem::take(&mut current.fields));
+        let result =
+            self.0.add_fields(&mut formatted, fields).and_then(|_| remove_json_tag_fields(&mut formatted.fields));
+        current.fields = formatted.fields;
+        result
+    }
+}
+
+fn format_without_tag_fields(fields: impl RecordFields, visitor: impl VisitOutput<fmt::Result>) -> fmt::Result {
+    let mut visitor = HideTagVisitor(visitor);
+    fields.record(&mut visitor);
+    visitor.finish()
+}
+
+fn remove_json_tag_fields(formatted: &mut String) -> fmt::Result {
+    if !formatted.contains(TAG_FIELD_PREFIX) {
+        return Ok(());
+    }
+
+    let mut fields: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(formatted).map_err(|_| fmt::Error)?;
+    fields.retain(|name, _| !is_tag_field_name(name));
+    *formatted = serde_json::to_string(&fields).map_err(|_| fmt::Error)?;
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------
@@ -236,7 +263,7 @@ where
 
             // Inject recorded span fields (stored by the fmt layer as FormattedFields).
             let extensions = current.extensions();
-            if let Some(fields) = extensions.get::<FormattedFields<JsonFields>>() {
+            if let Some(fields) = extensions.get::<FormattedFields<N>>() {
                 let s = fields.as_str().trim();
                 // Strip outer braces from JSON object: {"k":v,...} -> "k":v,...
                 let inner = s.strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(s);
@@ -402,7 +429,7 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
                     .event_format(format())
-                    .fmt_fields(JsonFields::new())
+                    .fmt_fields(HideTagFields(JsonFields::new()))
                     .with_filter(default_filter),
                 warning,
             )
@@ -413,7 +440,7 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
                     .event_format(format())
-                    .fmt_fields(JsonFields::new())
+                    .fmt_fields(HideTagFields(JsonFields::new()))
                     .with_filter(default_filter),
                 warning,
             )
@@ -792,6 +819,41 @@ mod tests {
         let output = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
         assert!(!output.contains("amaru.tag.cpu"), "tag markers must be hidden from the console: {output}");
         assert!(output.contains("transaction_id=\"abc\""), "ordinary span fields must be kept: {output}");
+    }
+
+    #[test]
+    fn json_hides_tag_fields_from_spans() {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let layer = tracing_subscriber::fmt::layer()
+            .with_writer(BufferWriter(Arc::clone(&buffer)))
+            .with_span_events(FmtSpan::ENTER | FmtSpan::EXIT)
+            .event_format(SpanJsonFormat(tracing_subscriber::fmt::format().json().with_span_list(false)))
+            .fmt_fields(HideTagFields(JsonFields::new()));
+        let subscriber = tracing_subscriber::registry().with(layer);
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(
+                "operation",
+                "amaru.tag.cpu" = true,
+                "amaru.tag.io" = tracing::field::Empty,
+                transaction_id = "abc",
+                result = tracing::field::Empty,
+            );
+            span.record("amaru.tag.io", true);
+            span.record("result", "ok");
+            let _span = span.enter();
+            tracing::info!("hello");
+        });
+
+        let output = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
+        assert!(!output.is_empty());
+        assert!(
+            output.lines().all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok()),
+            "each output line must be valid JSON: {output}"
+        );
+        assert!(!output.contains(TAG_FIELD_PREFIX), "tag markers must be hidden from JSON: {output}");
+        assert!(output.contains(r#""transaction_id":"abc""#), "initial span fields must be kept: {output}");
+        assert!(output.contains(r#""result":"ok""#), "recorded span fields must be kept: {output}");
     }
 
     #[test]
