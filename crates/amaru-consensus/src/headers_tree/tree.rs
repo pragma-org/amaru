@@ -285,14 +285,14 @@ mod tests {
     fn test_pretty_print() {
         let tree = generate_headers_tree(45, 4);
         let expected = r#"
-BlockHeader { hash: "22f3ead4b122b6b36f2858f892be5e97ecddc3c52aaed5e461daa6646ac497bc", slot: 1, parent: None }
-    └── BlockHeader { hash: "bd49234b3e8e4988602bdf12ef80597a542ded037cd93202e7039ee243a230a1", slot: 2, parent: Some("22f3ead4b122b6b36f2858f892be5e97ecddc3c52aaed5e461daa6646ac497bc") }
-        ├── BlockHeader { hash: "c4adfbbbf57daefd0ab2a9ffeb6122ccb84b77d8a54b04d40fb4224935231a3d", slot: 3, parent: Some("bd49234b3e8e4988602bdf12ef80597a542ded037cd93202e7039ee243a230a1") }
-        │   ├── BlockHeader { hash: "da84505d04a2c6a29b3d15dac03668a074d5f31ea3e3b9d8af000d6e120ba0eb", slot: 4, parent: Some("c4adfbbbf57daefd0ab2a9ffeb6122ccb84b77d8a54b04d40fb4224935231a3d") }
-        │   └── BlockHeader { hash: "2ee27314ae0eca06db38c290130b6edcd0be50e7a23cd86e9318a7c968b4f380", slot: 4, parent: Some("c4adfbbbf57daefd0ab2a9ffeb6122ccb84b77d8a54b04d40fb4224935231a3d") }
-        └── BlockHeader { hash: "bb937185a1c39dec7769bb46d761c378f89dedaebd220d523124a6122563110d", slot: 3, parent: Some("bd49234b3e8e4988602bdf12ef80597a542ded037cd93202e7039ee243a230a1") }
-            ├── BlockHeader { hash: "861be94b4db3fc7d48933bd764b204cdcd4226ddb7df5e1157a6370cf43993da", slot: 4, parent: Some("bb937185a1c39dec7769bb46d761c378f89dedaebd220d523124a6122563110d") }
-            └── BlockHeader { hash: "2a9eb932275d8094d5520966c29640c124b18c63e24063fb5bfe8b2658a05949", slot: 4, parent: Some("bb937185a1c39dec7769bb46d761c378f89dedaebd220d523124a6122563110d") }
+Header { hash: "22f3ead4b122b6b36f2858f892be5e97ecddc3c52aaed5e461daa6646ac497bc", slot: 1, height: 1, parent: None }
+    └── Header { hash: "bd49234b3e8e4988602bdf12ef80597a542ded037cd93202e7039ee243a230a1", slot: 2, height: 2, parent: Some("22f3ead4b122b6b36f2858f892be5e97ecddc3c52aaed5e461daa6646ac497bc") }
+        ├── Header { hash: "c4adfbbbf57daefd0ab2a9ffeb6122ccb84b77d8a54b04d40fb4224935231a3d", slot: 3, height: 3, parent: Some("bd49234b3e8e4988602bdf12ef80597a542ded037cd93202e7039ee243a230a1") }
+        │   ├── Header { hash: "da84505d04a2c6a29b3d15dac03668a074d5f31ea3e3b9d8af000d6e120ba0eb", slot: 4, height: 4, parent: Some("c4adfbbbf57daefd0ab2a9ffeb6122ccb84b77d8a54b04d40fb4224935231a3d") }
+        │   └── Header { hash: "2ee27314ae0eca06db38c290130b6edcd0be50e7a23cd86e9318a7c968b4f380", slot: 4, height: 4, parent: Some("c4adfbbbf57daefd0ab2a9ffeb6122ccb84b77d8a54b04d40fb4224935231a3d") }
+        └── Header { hash: "bb937185a1c39dec7769bb46d761c378f89dedaebd220d523124a6122563110d", slot: 3, height: 3, parent: Some("bd49234b3e8e4988602bdf12ef80597a542ded037cd93202e7039ee243a230a1") }
+            ├── Header { hash: "861be94b4db3fc7d48933bd764b204cdcd4226ddb7df5e1157a6370cf43993da", slot: 4, height: 4, parent: Some("bb937185a1c39dec7769bb46d761c378f89dedaebd220d523124a6122563110d") }
+            └── Header { hash: "2a9eb932275d8094d5520966c29640c124b18c63e24063fb5bfe8b2658a05949", slot: 4, height: 4, parent: Some("bb937185a1c39dec7769bb46d761c378f89dedaebd220d523124a6122563110d") }
 "#;
         assert_eq!(format!("\n{tree:?}"), expected, "\n{}{}", &tree.pretty_print_debug(), expected);
     }

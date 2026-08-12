@@ -14,7 +14,7 @@
 
 use std::{collections::VecDeque, fmt::Display};
 
-use amaru_kernel::{BlockHeader, HeaderHash, NonEmptyVec, Point};
+use amaru_kernel::{Header, HeaderHash, NonEmptyVec, Point};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -130,5 +130,5 @@ pub enum NextBestChainHeader {
     NeedRollback,
     AtTip,
     MissingHeader { point: Point },
-    RollForward { point: Point, header: BlockHeader },
+    RollForward { point: Point, header: Header },
 }

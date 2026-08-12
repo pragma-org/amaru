@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
+use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, utils::string::ListToString};
 use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, FullChainStore};
 use itertools::Itertools;
 
@@ -39,8 +39,8 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fork {
     pub peer: Peer,
-    pub rollback_header: BlockHeader,
-    pub fork: Vec<BlockHeader>,
+    pub rollback_header: Header,
+    pub fork: Vec<Header>,
 }
 
 /// The outcome of the chain selection process in  case of
@@ -48,7 +48,7 @@ pub struct Fork {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ForwardChainSelection {
     /// The current best chain has been extended with a (single) new header.
-    NewTip { peer: Peer, tip: BlockHeader },
+    NewTip { peer: Peer, tip: Header },
 
     /// The current best chain is unchanged.
     NoChange,
@@ -203,13 +203,13 @@ impl Display for HeadersTree {
 /// Debugging and formatting methods.
 impl HeadersTree {
     /// Human-readable formatting of the headers tree.
-    fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&BlockHeader) -> String) -> std::fmt::Result {
+    fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&Header) -> String) -> std::fmt::Result {
         let tree_display = HeadersTreeDisplay::from(self.clone());
         tree_display.format(f, header_to_string)
     }
 
     /// Return the tree representation of the headers tree.
-    pub fn to_tree(&self) -> Option<Tree<BlockHeader>> {
+    pub fn to_tree(&self) -> Option<Tree<Header>> {
         let mut as_map = BTreeMap::new();
         for header in self.load_headers(&self.anchor()) {
             let _ = as_map.insert(header.hash(), header);
@@ -218,7 +218,7 @@ impl HeadersTree {
     }
 
     /// Load all the headers in the subtree rooted at the given hash
-    fn load_headers(&self, root: &HeaderHash) -> Vec<BlockHeader> {
+    fn load_headers(&self, root: &HeaderHash) -> Vec<Header> {
         let mut headers = vec![];
         if let Some(header) = self.chain_store.load_header(root) {
             headers.push(header);
@@ -259,11 +259,7 @@ impl HeadersTree {
     /// There will be errors if:
     ///   - The header's parent is unknown
     ///
-    pub fn select_roll_forward(
-        &mut self,
-        peer: &Peer,
-        tip: &BlockHeader,
-    ) -> Result<ForwardChainSelection, ConsensusError> {
+    pub fn select_roll_forward(&mut self, peer: &Peer, tip: &Header) -> Result<ForwardChainSelection, ConsensusError> {
         // The header must be a child of the peer's tip
         if !self.is_tip_child(peer, tip) {
             let e = ConsensusError::InvalidHeaderParent(Box::new(InvalidHeaderParentData {
@@ -303,7 +299,7 @@ impl HeadersTree {
         result
     }
 
-    fn extends_best_chains(&mut self, tip: &BlockHeader) -> bool {
+    fn extends_best_chains(&mut self, tip: &Header) -> bool {
         self.best_peers_chains().iter().any(|h| Some(*h) == tip.parent().as_ref())
     }
 
@@ -441,7 +437,7 @@ impl HeadersTree {
         let intersection_hash = self.find_intersection_hash(old_tip, new_tip);
 
         // get all the hashes between the new tip and the forking hash
-        let mut fork_fragment: Vec<BlockHeader> = vec![];
+        let mut fork_fragment: Vec<Header> = vec![];
         let mut current = self.unsafe_get_header(new_tip);
         while current.hash() != intersection_hash {
             if let Some(parent) = current.parent() {
@@ -461,7 +457,7 @@ impl HeadersTree {
     }
 
     /// Update the peer chain with the new tip
-    fn update_peer(&mut self, peer: &Peer, tip: &BlockHeader) {
+    fn update_peer(&mut self, peer: &Peer, tip: &Header) {
         let tracker = SomePeer(peer.clone());
         if let Some(chain) = self.tree_state.peers.get_mut(&tracker) {
             chain.push(tip.hash());
@@ -473,12 +469,12 @@ impl HeadersTree {
     /// Return the header for a given hash, panicking if it does not exist.
     /// This function should only with precaution, when we are sure the header exists.
     #[expect(clippy::panic)]
-    fn unsafe_get_header(&self, hash: &HeaderHash) -> BlockHeader {
+    fn unsafe_get_header(&self, hash: &HeaderHash) -> Header {
         self.get_header(hash).unwrap_or_else(|| panic!("A header must exist for hash {}", hash))
     }
 
     /// Return the header for a given hash, or None if it does not exist.
-    fn get_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn get_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.chain_store.load_header(hash)
     }
 
@@ -494,7 +490,7 @@ impl HeadersTree {
     ///  - A Header having no parent (i.e. the origin header) or a parent set to the ORIGIN_HASH.
     ///  - The ORIGIN_HASH being used as the default root hash value in the tree.
     ///
-    fn is_tip_child(&self, peer: &Peer, header: &BlockHeader) -> bool {
+    fn is_tip_child(&self, peer: &Peer, header: &Header) -> bool {
         match self.get_peer_tip(peer) {
             Some(peer_hash) => {
                 if let Some(parent_hash) = header.parent() {
@@ -631,13 +627,13 @@ impl HeadersTree {
     }
 
     /// Return the tip of the best chain that currently known as a header
-    pub fn best_chain_tip(&self) -> BlockHeader {
+    pub fn best_chain_tip(&self) -> Header {
         self.unsafe_get_header(&self.best_chain())
     }
 
     /// Return the best chain fragment currently known as a list of headers.
     /// The list starts from the root.
-    pub fn best_chain_fragment(&self) -> Vec<BlockHeader> {
+    pub fn best_chain_fragment(&self) -> Vec<Header> {
         let mut fragment: Vec<_> = self.chain_store.ancestors(self.unsafe_get_header(&self.best_chain())).collect();
         fragment.reverse();
         fragment
@@ -654,7 +650,7 @@ impl HeadersTree {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        BlockHeader, any_header_hash, any_header_with_parent,
+        Header, any_header_hash, any_header_with_parent,
         utils::{
             string::{ListDebug, ListsToString},
             tests::run_strategy,
@@ -832,7 +828,7 @@ mod tests {
         // Adding a new header must create a fork
         let bob_new_header3 = store_header_with_parent(store, new_bob_headers.last().unwrap());
         new_bob_headers.push(bob_new_header3.clone());
-        let fork: Vec<BlockHeader> = new_bob_headers;
+        let fork: Vec<Header> = new_bob_headers;
         let fork = Fork { peer: bob.clone(), rollback_header: middle, fork };
 
         let result = tree.select_roll_forward(&bob, &bob_new_header3).unwrap();
@@ -1331,7 +1327,7 @@ mod tests {
     ///  - A number of times
     ///
     /// And return the last created header
-    pub fn rollforward_from(tree: &mut HeadersTree, header: &BlockHeader, peer: &Peer, times: u32) -> Vec<BlockHeader> {
+    pub fn rollforward_from(tree: &mut HeadersTree, header: &Header, peer: &Peer, times: u32) -> Vec<Header> {
         let mut result = vec![];
         let mut parent = header.clone();
         for _ in 0..times {

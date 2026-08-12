@@ -17,7 +17,7 @@ use amaru_kernel::Block;
 use super::InvalidBlockDetails;
 
 pub fn block_body_hash_valid(block: &Block) -> Result<(), InvalidBlockDetails> {
-    let header = block.header.header_body.block_body_hash;
+    let header = block.header.body().block_body_hash;
     let actual = block.body_hash();
     if header != actual {
         return Err(InvalidBlockDetails::InvalidBodyHash { header, actual });

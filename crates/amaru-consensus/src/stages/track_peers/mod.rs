@@ -19,7 +19,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, Epoch, EraHistory, EraName, IsHeader, ORIGIN_HASH, Peer, Point, Slot, Tip,
+    BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, Tip,
     from_cbor_no_leftovers, num::CheckedSub,
 };
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
@@ -169,15 +169,15 @@ impl PerPeer {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum DeferReason {
     /// Wait until the ledger has reached at least this applied block height before asking the peer for more.
-    LedgerHeight { min_height: BlockHeight, header: BlockHeader, tip: Tip, variant: EraName },
+    LedgerHeight { min_height: BlockHeight, header: Header, tip: Tip, variant: EraName },
     /// The header's validation requires a stake distribution that is not yet available; hold the
     /// data needed to re-validate and store once it arrives (via StakeDistUpdated).
-    StakeDistribution { epoch: Epoch, header: BlockHeader, tip: Tip, variant: EraName, rn_sent: bool },
+    StakeDistribution { epoch: Epoch, header: Header, tip: Tip, variant: EraName, rn_sent: bool },
     /// Slot onset is in the near future (≤ 2s according to slot time); defer validation until
     /// local time reaches it. Carries data to re-process later.
-    ClockSkew { min_time: Instant, header: BlockHeader, tip: Tip, variant: EraName, rn_sent: bool },
+    ClockSkew { min_time: Instant, header: Header, tip: Tip, variant: EraName, rn_sent: bool },
     /// A follow-up header that was received after a previous header was deferred.
-    FollowUp { header: BlockHeader, tip: Tip, variant: EraName },
+    FollowUp { header: Header, tip: Tip, variant: EraName },
 }
 
 /// A header (or request) that was deferred. The reason indicates what is blocking and what data
@@ -212,7 +212,7 @@ struct RollForwardArgs {
     sent_request_next: bool,
     handler: StageRef<chainsync::InitiatorMessage>,
     variant: EraName,
-    header: BlockHeader,
+    header: Header,
     tip: Tip,
     trace_context: TraceContext,
     /// When the header was first received from upstream.
@@ -351,7 +351,7 @@ impl TrackPeers {
         peer: Peer,
         conn_id: ConnectionId,
         handler: StageRef<chainsync::InitiatorMessage>,
-        header: BlockHeader,
+        header: Header,
         tip: Tip,
     ) {
         self.deferred.push(DeferredHeader {
@@ -390,7 +390,7 @@ impl TrackPeers {
         peer: &Peer,
         conn_id: ConnectionId,
         variant: EraName,
-        header: &BlockHeader,
+        header: &Header,
         tip: Tip,
         ledger: &Ledger,
         store: &Store,
@@ -460,7 +460,7 @@ impl TrackPeers {
         Ok(Some((current.point(), nonces)))
     }
 
-    async fn roll_forward(&mut self, conn_id: ConnectionId, header: &BlockHeader, tip: Tip) {
+    async fn roll_forward(&mut self, conn_id: ConnectionId, header: &Header, tip: Tip) {
         let Some((current, highest)) = self.upstream.get_mut(&conn_id).and_then(PerPeer::established_mut) else {
             return;
         };
@@ -937,7 +937,7 @@ impl TrackPeers {
     }
 }
 
-pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<BlockHeader, ConsensusError> {
+pub fn decode_header(raw_header: HeaderContent, peer: &Peer) -> Result<Header, ConsensusError> {
     let span = debug_span!(consensus::header::DECODE, peer = peer);
     let _guard = span.enter();
     // need to list all the variants supported by the current Amaru implementation

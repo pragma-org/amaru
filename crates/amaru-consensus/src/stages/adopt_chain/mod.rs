@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, time::Duration};
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
+use amaru_kernel::{BlockHeight, Header, IsHeader, Point, Tip};
 use amaru_observability::{TraceContext, debug, debug_span, info};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
@@ -34,7 +34,7 @@ use crate::{
 /// It is a leaf stage in the consensus pipeline (receives `AdoptChainMsg`
 /// containing a `Tip` + `max_block_height` hint, typically produced by
 /// `validate_block`). It only adopts when the candidate is *strictly better*
-/// than the current best (height first, then `cmp_tip` on loaded `BlockHeader`s,
+/// than the current best (height first, then `cmp_tip` on loaded `Header`s,
 /// which breaks ties via op-cert sequence number among other factors).
 ///
 /// On adoption:
@@ -249,8 +249,8 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
 /// Adopt the tip: update the best chain fragment and best chain hash in a single store transaction.
 async fn adopt_tip(
     store: &Store,
-    incoming_header: &BlockHeader,
-    current_best: &BlockHeader,
+    incoming_header: &Header,
+    current_best: &Header,
 ) -> Result<AdoptTipResult, StoreError> {
     if incoming_header.parent() == Some(current_best.hash()) {
         store.roll_forward_chain(&incoming_header.point()).await?;

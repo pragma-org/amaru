@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
+    ConsensusParameters, Epoch, EraHistory, Header, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
     hash::Hash,
 };
 use amaru_ouroboros::{kes, praos, praos::header::AssertHeaderError};
@@ -49,7 +49,6 @@ fn validation_conforms_to_header_test_cases() {
     for case in cases.iter_mut() {
         let context = &case.context;
         let block_header = case.header.get_header().expect("cannot extract header from bytes");
-        let raw_header_body = cbor::to_cbor(block_header.header_body());
 
         let pool_id = block_header.pool_id();
         let era_history = NetworkName::Preprod.as_era_history().expect("era");
@@ -60,7 +59,7 @@ fn validation_conforms_to_header_test_cases() {
             .and_then(|e| e.checked_sub(Epoch::TWO))
             .expect("test vector epoch should be >= 2");
         let summaries = pool_summaries(context, &case.ledger_state, pool_id, target);
-        let result = validate_header(context, &block_header, &raw_header_body, &summaries, era_history, slot);
+        let result = validate_header(context, &block_header, &summaries, era_history, slot);
 
         match (&case.expected, result) {
             (Expected::Pass, Ok(())) => (),
@@ -133,15 +132,14 @@ fn pool_summaries(
 #[allow(clippy::result_large_err)]
 fn validate_header(
     context: &GeneratorContext,
-    block_header: &BlockHeader,
-    raw_header_body: &[u8],
+    header: &Header,
     summaries: &PoolSummaries,
     era_history: &EraHistory,
     slot: Slot,
 ) -> Result<(), ValidationError> {
     use rayon::prelude::*;
 
-    let pool_id = block_header.pool_id();
+    let pool_id = header.pool_id();
     let last_opcert_sequence_number = context.operational_certificate_counters.get(&pool_id).copied();
     let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
 
@@ -150,16 +148,9 @@ fn validate_header(
         .map_err(|e| ValidationError::Assert(Box::new(AssertHeaderError::PoolError(e))))?
         .ok_or(ValidationError::UnknownPool)?;
 
-    praos::header::assert_all(
-        consensus_parameters,
-        block_header.header(),
-        raw_header_body,
-        last_opcert_sequence_number,
-        &pool_summary,
-        &context.nonce,
-    )
-    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))
-    .map_err(|e| ValidationError::Assert(Box::new(e)))
+    praos::header::assert_all(consensus_parameters, header, last_opcert_sequence_number, &pool_summary, &context.nonce)
+        .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))
+        .map_err(|e| ValidationError::Assert(Box::new(e)))
 }
 
 fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
@@ -271,7 +262,7 @@ struct HeaderWrapper {
 }
 
 impl HeaderWrapper {
-    fn get_header(&mut self) -> Result<BlockHeader, ()> {
+    fn get_header(&mut self) -> Result<Header, ()> {
         cbor::decode(self.bytes.as_slice()).map_err(|_| ())
     }
 }

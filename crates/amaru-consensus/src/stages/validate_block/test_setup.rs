@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// TODO: duplicate module with stages::adopt_chain::test_setup?
+
 use std::sync::Arc;
 
-use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip,
-    cardano::block_header::{make_block_header, make_block_header_with_op_cert_seq},
-};
+use amaru_kernel::{EraHistory, Header, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{
     MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
 };
@@ -54,30 +53,30 @@ use crate::{
 ///       - h3a: block 4, slot 11, parent h2a (fork tip)
 #[derive(Clone)]
 pub struct HeaderTree {
-    pub h0: BlockHeader,
-    pub h1: BlockHeader,
-    pub h2: BlockHeader,
-    pub h3: BlockHeader,
-    pub h2a: BlockHeader,
-    pub h3a: BlockHeader,
+    pub h0: Header,
+    pub h1: Header,
+    pub h2: Header,
+    pub h3: Header,
+    pub h2a: Header,
+    pub h3a: Header,
 }
 
 impl HeaderTree {
     pub fn new() -> Self {
-        let h0 = make_block_header(1, 1, None);
-        let h1 = make_block_header(2, 2, Some(h0.hash()));
-        let h2 = make_block_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
-        let h3 = make_block_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
-        let h2a = make_block_header(3, 10, Some(h1.hash()));
-        let h3a = make_block_header(4, 11, Some(h2a.hash()));
+        let h0 = make_header(1, 1, None);
+        let h1 = make_header(2, 2, Some(h0.hash()));
+        let h2 = make_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
+        let h3 = make_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
+        let h2a = make_header(3, 10, Some(h1.hash()));
+        let h3a = make_header(4, 11, Some(h2a.hash()));
         Self { h0, h1, h2, h3, h2a, h3a }
     }
 
-    pub fn main(&self) -> [&BlockHeader; 4] {
+    pub fn main(&self) -> [&Header; 4] {
         [&self.h0, &self.h1, &self.h2, &self.h3]
     }
 
-    pub fn all(&self) -> [&BlockHeader; 6] {
+    pub fn all(&self) -> [&Header; 6] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h2a, &self.h3a]
     }
 }
@@ -103,20 +102,20 @@ impl TestPrep {
         self.block_validator.with_tip(current);
     }
 
-    pub fn store_headers(&self, headers: &[&BlockHeader]) {
+    pub fn store_headers(&self, headers: &[&Header]) {
         for h in headers {
             self.store.store_header(h).unwrap();
         }
     }
 
-    pub fn store_blocks(&self, headers: &[&BlockHeader]) {
+    pub fn store_blocks(&self, headers: &[&Header]) {
         for h in headers {
             let raw = amaru_kernel::cardano::network_block::make_encoded_block(h, &EraHistory::default());
             self.store.store_block(&h.hash(), &raw).unwrap();
         }
     }
 
-    pub fn store_block(&self, header: &BlockHeader) {
+    pub fn store_block(&self, header: &Header) {
         self.store_blocks(&[header]);
     }
 
@@ -142,7 +141,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Option<(BlockHeader, Option<bool>)>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<(Header, Option<bool>)>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),

@@ -15,7 +15,7 @@
 use std::{fs::create_dir_all, iter::once, path::Path, sync::Arc, time::SystemTime};
 
 use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
-use amaru_kernel::{BlockHeader, Peer};
+use amaru_kernel::{Header, Peer};
 use amaru_node::tests::{
     configuration::{
         NodeTestConfig,
@@ -178,7 +178,7 @@ fn get_peer_actions(actions: &GeneratedActions, peer: &Peer) -> Vec<Action> {
 }
 
 /// Extract all the block headers forwarded by a given peer
-fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<BlockHeader> {
+fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<Header> {
     get_peer_actions(actions, peer)
         .into_iter()
         .filter_map(|action| match action {

@@ -17,7 +17,7 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use amaru_kernel::{BlockHeader, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{Header, IsHeader, Peer, Point, Tip};
 use tracing::Span;
 
 /// Wrapper type to factor out caught-up messages from real events.
@@ -81,7 +81,7 @@ impl fmt::Debug for ChainSyncEvent {
 pub enum DecodedChainSyncEvent {
     RollForward {
         peer: Peer,
-        header: BlockHeader,
+        header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -128,7 +128,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
 pub enum ValidateHeaderEvent {
     Validated {
         peer: Peer,
-        header: BlockHeader,
+        header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -144,7 +144,7 @@ pub enum ValidateHeaderEvent {
 pub enum ValidateBlockEvent {
     Validated {
         peer: Peer,
-        header: BlockHeader,
+        header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -189,7 +189,7 @@ impl PartialEq for ValidateBlockEvent {
 pub enum BlockValidationResult {
     BlockValidated {
         peer: Peer,
-        header: BlockHeader,
+        header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
@@ -201,7 +201,7 @@ pub enum BlockValidationResult {
     },
     RolledBackTo {
         peer: Peer,
-        rollback_header: BlockHeader,
+        rollback_header: Header,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },

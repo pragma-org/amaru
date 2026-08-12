@@ -20,8 +20,10 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConsensusParameters, Hash, Hasher, Header, HeaderHash, Nonce, OperationalCert, Slot, VrfCert, ed25519,
+    ConsensusParameters, Hash, Hasher, Header, HeaderBody, HeaderHash, IsHeader, Nonce, OperationalCert, Slot, VrfCert,
+    ed25519,
     maths::{ExpOrdering, FixedDecimal},
+    to_cbor,
 };
 use amaru_ouroboros_traits::{PoolSummary, has_stake_distribution::GetPoolError};
 use thiserror::Error;
@@ -88,18 +90,17 @@ pub type Assertion<'a> = Box<dyn Fn() -> Result<(), AssertHeaderError> + Send + 
 pub fn assert_all<'a>(
     consensus_parameters: Arc<ConsensusParameters>,
     header: &'a Header,
-    raw_header_body: &'a [u8],
     last_opcert_sequence_number: Option<u64>,
     pool_summary: &'a PoolSummary,
     epoch_nonce: &'a Nonce,
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
-    let absolute_slot = Slot::from(header.header_body.slot);
-    let issuer = ed25519::VerifyingKey::try_from(&header.header_body.issuer_verification_key[..])
+    let absolute_slot = header.slot();
+    let issuer = ed25519::VerifyingKey::try_from(&header.body().issuer_verification_key[..])
         .map_err(|_| AssertHeaderError::InvalidEd25519PublicKey)?;
 
     // TODO: Pallas should hold sized slices
-    let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.header_body.vrf_verification_key[..].try_into()?;
+    let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.body().vrf_verification_key[..].try_into()?;
 
     let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) = {
         let leader_relative_stake = if pool_summary.active_stake == 0 {
@@ -124,7 +125,7 @@ pub fn assert_all<'a>(
                 absolute_slot,
                 epoch_nonce,
                 &vrf::PublicKey::from(declared_vrf_key),
-                &header.header_body.vrf_result,
+                &header.body().vrf_result,
             )?;
             Ok(())
         }),
@@ -138,20 +139,20 @@ pub fn assert_all<'a>(
         }),
         Box::new(move || {
             AssertOperationalCertificateError::new(
-                &header.header_body.operational_cert,
+                &header.body().operational_cert,
                 &issuer,
                 last_opcert_sequence_number,
             )?;
             Ok(())
         }),
         Box::new(move || {
-            let opcert = &header.header_body.operational_cert;
+            let opcert = &header.body().operational_cert;
             AssertKesSignatureError::new(
                 slot_to_kes_period,
                 opcert.operational_cert_kes_period,
-                raw_header_body,
+                header.body(),
                 &opcert.operational_cert_hot_verification_key[..].try_into()?, // TODO: Pallas should hold sized slices
-                &header.body_signature[..].try_into()?,                        // TODO: Pallas should hold sized slices
+                &header.signature()[..].try_into()?,                           // TODO: Pallas should hold sized slices
                 max_kes_evolutions,
             )?;
             Ok(())
@@ -322,7 +323,7 @@ impl AssertKesSignatureError {
     pub fn new(
         slot_kes_period: u64,
         opcert_kes_period: u64,
-        header_body: &[u8],
+        header_body: &HeaderBody,
         public_key: &kes::PublicKey,
         signature: &kes::Signature,
         max_kes_evolutions: u64,
@@ -338,7 +339,7 @@ impl AssertKesSignatureError {
         let kes_period = (slot_kes_period - opcert_kes_period) as u32;
 
         signature
-            .verify(kes_period, public_key, header_body)
+            .verify(kes_period, public_key, &to_cbor(header_body))
             .map_err(|error| Self::InvalidKesSignature { period: kes_period, reason: error.to_string() })
     }
 }

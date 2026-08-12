@@ -14,7 +14,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::{BlockHeader, HeaderHash, utils::string::ListToString};
+use amaru_kernel::{Header, HeaderHash, utils::string::ListToString};
 
 use crate::headers_tree::{HeadersTree, HeadersTreeState, tree::Tree};
 
@@ -23,7 +23,7 @@ use crate::headers_tree::{HeadersTree, HeadersTreeState, tree::Tree};
 /// its state in the database: anchor and best chain.
 #[derive(Clone)]
 pub struct HeadersTreeDisplay {
-    tree: Option<Tree<BlockHeader>>,
+    tree: Option<Tree<Header>>,
     tree_state: HeadersTreeState,
     anchor: HeaderHash,
     best_chain: HeaderHash,
@@ -59,7 +59,7 @@ impl Display for HeadersTreeDisplay {
 
 impl HeadersTreeDisplay {
     /// Common function to either format for Debug or Display
-    pub fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&BlockHeader) -> String) -> std::fmt::Result {
+    pub fn format(&self, f: &mut Formatter<'_>, header_to_string: fn(&Header) -> String) -> std::fmt::Result {
         f.write_str("HeadersTree {\n")?;
         if let Some(tree) = &self.tree {
             writeln!(f, "  headers:\n    {}", tree.pretty_print_with(header_to_string))?;

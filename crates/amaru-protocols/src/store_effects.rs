@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
+use amaru_kernel::{BlockHeight, GlobalParameters, Header, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
@@ -41,14 +41,11 @@ impl Store {
         self
     }
 
-    pub fn load_header(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<BlockHeader>> {
+    pub fn load_header(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Header>> {
         self.effects.external(LoadHeaderEffect::new(*hash))
     }
 
-    pub fn load_header_with_validity(
-        &self,
-        hash: &HeaderHash,
-    ) -> BoxFuture<'static, Option<(BlockHeader, Option<bool>)>> {
+    pub fn load_header_with_validity(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<(Header, Option<bool>)>> {
         self.effects.external(LoadHeaderWithValidityEffect::new(*hash))
     }
 
@@ -110,7 +107,7 @@ impl Store {
 
     pub fn store_validated_header(
         &self,
-        header: &BlockHeader,
+        header: &Header,
         nonces: &Nonces,
     ) -> BoxFuture<'static, Result<(), StoreError>> {
         self.effects.external(StoreValidatedHeaderEffect::new(header.clone(), nonces.clone()))
@@ -226,12 +223,12 @@ pub fn register_deserializers() -> DeserializerGuards {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StoreValidatedHeaderEffect {
-    header: BlockHeader,
+    header: Header,
     nonces: Nonces,
 }
 
 impl StoreValidatedHeaderEffect {
-    pub fn new(header: BlockHeader, nonces: Nonces) -> Self {
+    pub fn new(header: Header, nonces: Nonces) -> Self {
         Self { header, nonces }
     }
 }
@@ -486,7 +483,7 @@ impl ExternalEffect for LoadHeaderEffect {
 }
 
 impl ExternalEffectAPI for LoadHeaderEffect {
-    type Response = Option<BlockHeader>;
+    type Response = Option<Header>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -546,7 +543,7 @@ impl ExternalEffect for LoadHeaderWithValidityEffect {
 }
 
 impl ExternalEffectAPI for LoadHeaderWithValidityEffect {
-    type Response = Option<(BlockHeader, Option<bool>)>;
+    type Response = Option<(Header, Option<bool>)>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

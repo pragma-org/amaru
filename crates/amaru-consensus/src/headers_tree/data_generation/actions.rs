@@ -17,7 +17,7 @@
 //!
 //!  - `Action` represents roll forward or rollback actions.
 //!  - `SelectionResult` encapsulates the values returned by the `HeadersTree` on each roll forward or rollback.
-//!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<BlockHeader>` of a given depth.
+//!  - `random_walk` generates a random list of actions to perform on a `HeadersTree` given a `Tree<Header>` of a given depth.
 //!
 
 use std::{
@@ -27,7 +27,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
+    Hash, Header, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
     size::HEADER,
     utils::string::{ListToString, ListsToString},
 };
@@ -62,7 +62,7 @@ use crate::{
 /// lists of actions to JSON in order to create unit tests out of property test failures
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Action {
-    RollForward { peer: Peer, header: BlockHeader },
+    RollForward { peer: Peer, header: Header },
     Rollback { peer: Peer, rollback_point: Point },
 }
 
@@ -101,7 +101,7 @@ impl Action {
     }
 }
 
-struct SimplifiedHeader(BlockHeader);
+struct SimplifiedHeader(Header);
 
 impl serde::Serialize for SimplifiedHeader {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -109,7 +109,7 @@ impl serde::Serialize for SimplifiedHeader {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("BlockHeader", 4)?;
+        let mut state = serializer.serialize_struct("Header", 4)?;
         state.serialize_field("hash", &self.0.hash())?;
         state.serialize_field("block", &self.0.block_height())?;
         state.serialize_field("slot", &self.0.slot())?;
@@ -139,7 +139,7 @@ impl<'de> serde::Deserialize<'de> for SimplifiedHeader {
             None
         };
         let header = make_header(helper.block, helper.slot, parent_hash);
-        Ok(SimplifiedHeader(BlockHeader::new(header, decode_hash(&helper.hash).map_err(serde::de::Error::custom)?)))
+        Ok(SimplifiedHeader(header.with_hash(decode_hash(&helper.hash).map_err(serde::de::Error::custom)?)))
     }
 }
 
@@ -253,8 +253,8 @@ impl Display for SelectionResult {
 /// Generate a random list of Actions for a given peer on a given tree of headers.
 pub fn random_walk<R: Rng>(
     rng: &mut R,
-    parent_header: Option<BlockHeader>,
-    tree: &Tree<BlockHeader>,
+    parent_header: Option<Header>,
+    tree: &Tree<Header>,
     peer: &Peer,
     result: &mut BTreeMap<Peer, Vec<Action>>,
 ) {
@@ -338,7 +338,7 @@ impl GeneratedActions {
         self.actions_per_peer = actions_per_peer;
     }
 
-    pub fn get_anchor(&self) -> BlockHeader {
+    pub fn get_anchor(&self) -> Header {
         self.tree.tree().value.clone()
     }
 
@@ -637,7 +637,7 @@ pub fn actions_from_json(actions_as_list_of_strings: &[&str]) -> Vec<Action> {
 }
 
 /// Type alias for a chain of headers tracked by a peer
-pub type Chain = Vec<BlockHeader>;
+pub type Chain = Vec<Header>;
 
 /// This function computes the chains sent by each peer from a list of actions.
 /// Once all the actions have been executed it returns the chains that are the longest.

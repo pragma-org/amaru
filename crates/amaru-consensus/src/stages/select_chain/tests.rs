@@ -930,7 +930,7 @@ mod best_tip_from_store_tests {
     use std::sync::Arc;
 
     use amaru_kernel::{
-        BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, any_headers_chain, any_headers_chain_with_root, make_header,
+        Header, HeaderHash, IsHeader, ORIGIN_HASH, any_headers_chain, any_headers_chain_with_root, make_header,
         utils::tests::run_strategy,
     };
     use amaru_ouroboros::{ChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -988,7 +988,7 @@ mod best_tip_from_store_tests {
         let [a, b] = chain.try_into().unwrap();
         let invalid_branch = run_strategy(any_headers_chain_with_root(2, b.point()));
         let [c, d] = invalid_branch.try_into().unwrap();
-        let e = BlockHeader::from(make_header(3, c.slot().as_u64() + 10, Some(b.hash())));
+        let e = make_header(3, c.slot().as_u64() + 10, Some(b.hash()));
 
         for header in [&a, &b, &c, &d, &e] {
             store.store_header(header).unwrap();
@@ -1024,7 +1024,7 @@ mod best_tip_from_store_tests {
 
     // HELPERS
 
-    fn run_best_tip_from_store(store: &dyn ChainStore) -> Option<(BlockHeader, Vec<HeaderHash>)> {
+    fn run_best_tip_from_store(store: &dyn ChainStore) -> Option<(Header, Vec<HeaderHash>)> {
         let cand = find_best_candidate(store).unwrap();
         if cand == ORIGIN_HASH {
             None
@@ -1047,8 +1047,8 @@ mod cmp_tip_unit_tests {
     use std::cmp::Ordering;
 
     use amaru_kernel::{
-        BlockHeader, BoundedBytes, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, ProtocolVersion,
-        VerificationKey, VrfCert, cardano::fixed_bytes::FixedBytes, ed25519, size::BLOCK_BODY, to_cbor,
+        Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, ProtocolVersion, VrfCert,
+        cardano::fixed_bytes::FixedBytes, size::BLOCK_BODY, to_cbor,
     };
 
     fn make_test_header(
@@ -1057,34 +1057,31 @@ mod cmp_tip_unit_tests {
         prev_hash: Option<HeaderHash>,
         op_cert_seq: u64,
         vrf: &[u8],
-    ) -> BlockHeader {
+    ) -> Header {
         let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash(&to_cbor(&vec![block_number, slot]));
-
-        let header = Header {
-            header_body: HeaderBody {
+        Header::new(
+            HeaderBody {
                 block_number,
                 slot,
                 prev_hash,
-                issuer_verification_key: VerificationKey::try_from(vec![0u8; ed25519::PUBLIC_KEY_LENGTH]).unwrap(),
-                vrf_verification_key: VerificationKey::try_from(vec![0; 32]).unwrap(),
-                vrf_result: VrfCert { output: BoundedBytes::from(vrf), proof: FixedBytes::empty() },
+                issuer_verification_key: FixedBytes::zeroes(),
+                vrf_verification_key: FixedBytes::zeroes(),
+                vrf_result: VrfCert { output: Bytes::from(vrf.to_vec()), proof: FixedBytes::zeroes() },
                 block_body_size: 0,
                 block_body_hash: block_hash,
                 operational_cert: OperationalCert {
-                    operational_cert_hot_verification_key: VerificationKey::empty(),
+                    operational_cert_hot_verification_key: FixedBytes::zeroes(),
                     operational_cert_sequence_number: op_cert_seq,
                     operational_cert_kes_period: 0,
-                    operational_cert_sigma: Bytes::from(vec![]),
+                    operational_cert_sigma: Bytes::default(),
                 },
                 protocol_version: ProtocolVersion::new(1, 2),
             },
-            body_signature: Bytes::from(vec![]),
-        };
-
-        BlockHeader::from(header)
+            Bytes::default(),
+        )
     }
 
-    fn make_h(height: u64, slot: u64, opcert: u64, vrf: u8) -> BlockHeader {
+    fn make_h(height: u64, slot: u64, opcert: u64, vrf: u8) -> Header {
         make_test_header(height, slot, None, opcert, &[vrf; 64])
     }
 

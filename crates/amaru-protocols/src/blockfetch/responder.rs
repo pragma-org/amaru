@@ -286,8 +286,7 @@ pub mod tests {
     use std::sync::Arc;
 
     use amaru_kernel::{
-        BlockHeader, EraHistory, EraName, IsHeader, Slot, any_fake_header, any_headers_chain,
-        any_headers_chain_with_root,
+        EraHistory, EraName, Header, IsHeader, Slot, any_fake_header, any_headers_chain, any_headers_chain_with_root,
         cardano::network_block::{NetworkBlock, make_encoded_block},
         utils::tests::run_strategy,
     };
@@ -376,7 +375,7 @@ pub mod tests {
 
     #[test]
     fn test_request_range_missing_header_in_chain() {
-        let headers: Vec<BlockHeader> = run_strategy(any_headers_chain(5));
+        let headers: Vec<Header> = run_strategy(any_headers_chain(5));
         let store = Arc::new(InMemoryChainStore::new());
 
         // Set anchor to the first header
@@ -484,12 +483,12 @@ pub mod tests {
 
     // HELPERS
 
-    fn make_store_with_chain(n: usize) -> (Arc<InMemoryChainStore>, Vec<BlockHeader>) {
+    fn make_store_with_chain(n: usize) -> (Arc<InMemoryChainStore>, Vec<Header>) {
         make_store_with_chain_starting_from(n, Point::Origin)
     }
 
-    fn make_store_with_chain_starting_from(n: usize, point: Point) -> (Arc<InMemoryChainStore>, Vec<BlockHeader>) {
-        let headers: Vec<BlockHeader> = run_strategy(any_headers_chain_with_root(n, point));
+    fn make_store_with_chain_starting_from(n: usize, point: Point) -> (Arc<InMemoryChainStore>, Vec<Header>) {
+        let headers: Vec<Header> = run_strategy(any_headers_chain_with_root(n, point));
         let store = Arc::new(InMemoryChainStore::new());
         // Set anchor to the first header
         store.set_anchor_hash(&headers[0].hash()).unwrap();
@@ -500,7 +499,7 @@ pub mod tests {
         (store, headers)
     }
 
-    fn store_blocks(store: Arc<InMemoryChainStore>, headers: &[BlockHeader]) {
+    fn store_blocks(store: Arc<InMemoryChainStore>, headers: &[Header]) {
         for h in headers {
             let raw_block = make_encoded_block(h, &EraHistory::default());
             store.store_block(&h.hash(), &raw_block).unwrap();

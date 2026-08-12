@@ -14,9 +14,7 @@
 
 use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
-use amaru_kernel::{
-    BlockHeader, BlockHeight, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Tip,
-};
+use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Tip};
 
 use crate::{
     BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
@@ -349,9 +347,9 @@ pub trait ReadChainStore: BaseReadChainStore {
 /// Mirrors `ReadChainStore::ancestors` but takes the snapshot explicitly so it
 /// can be reused inside default impls that already hold one.
 fn ancestors_on_snapshot<'a>(
-    start: BlockHeader,
+    start: Header,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
-) -> Box<dyn Iterator<Item = BlockHeader> + 'a> {
+) -> Box<dyn Iterator<Item = Header> + 'a> {
     let anchor_point = snapshot.get_anchor_tip().point();
 
     Box::new(successors(Some(start), move |h| {
@@ -366,7 +364,7 @@ fn ancestors_on_snapshot<'a>(
 fn ancestors_with_validity_on_snapshot<'a>(
     start: HeaderHash,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
-) -> Box<dyn Iterator<Item = (BlockHeader, Option<bool>)> + 'a> {
+) -> Box<dyn Iterator<Item = (Header, Option<bool>)> + 'a> {
     let anchor_point = snapshot.get_anchor_tip().point();
 
     let header_opt = snapshot.load_header_with_validity(&start);
@@ -381,11 +379,11 @@ fn ancestors_with_validity_on_snapshot<'a>(
 }
 
 impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.as_ref().load_header(hash)
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
 
@@ -421,11 +419,7 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
         self.as_ref().get_nonces(header)
     }
 
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         self.as_ref().get_latest_opcert_sequence_number(pool_id, header)
     }
 

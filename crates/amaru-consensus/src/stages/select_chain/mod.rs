@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, collections::BTreeMap};
 
-use amaru_kernel::{BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tip};
+use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, Tip};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
@@ -38,7 +38,7 @@ use crate::{effects::FindBestCandidate, performance::Performance};
 ///
 /// Key internal state:
 /// - `tips`: maps known tip hashes to the (oldest-first) list of yet-to-be-validated ancestor hashes on that branch.
-/// - `best_tip`: the current best `BlockHeader` (or `None`); updated only on strictly better candidates per `cmp_tip`.
+/// - `best_tip`: the current best `Header` (or `None`); updated only on strictly better candidates per `cmp_tip`.
 /// - `may_fetch_blocks`: "Whether the downstream stage has sent a FetchNextFrom message that has not yet been responded to."
 ///   Starts `false` (see `new()`); controls whether a newly superior tip triggers an immediate send.
 ///
@@ -100,7 +100,7 @@ pub struct SelectChain {
     /// (oldest first)
     tips: BTreeMap<HeaderHash, Vec<HeaderHash>>,
     /// The best tip candidate, if any; is None for empty store.
-    best_tip: Option<BlockHeader>,
+    best_tip: Option<Header>,
     /// Whether the downstream stage has sent a FetchNextFrom message that has not yet been responded to.
     may_fetch_blocks: bool,
 }
@@ -420,11 +420,7 @@ impl NewBestTip {
 
 /// Return the point of the parent of `header`, or `Point::Origin` if it has no parent.
 /// The parent header must be present in the store otherwise the stage is terminated.
-pub async fn load_parent_point<T: Send + Sync + 'static>(
-    eff: &Effects<T>,
-    store: &Store,
-    header: &BlockHeader,
-) -> Point {
+pub async fn load_parent_point<T: Send + Sync + 'static>(eff: &Effects<T>, store: &Store, header: &Header) -> Point {
     if let Some(parent) = header.parent() {
         store
             .load_tip(&parent)
@@ -454,7 +450,7 @@ pub async fn load_parent_point<T: Send + Sync + 'static>(
 ///
 /// This is core to the logic of this file, so even if it matched the `Ord` instance for `Tip`, it is
 /// presented here for clarity.
-pub fn cmp_tip(a: Option<&BlockHeader>, b: Option<&BlockHeader>) -> Ordering {
+pub fn cmp_tip(a: Option<&Header>, b: Option<&Header>) -> Ordering {
     let (a, b) = match (a, b) {
         (None, None) => return Ordering::Equal,
         (None, Some(_)) => return Ordering::Less,

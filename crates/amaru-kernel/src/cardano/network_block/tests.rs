@@ -15,29 +15,29 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::{BlockHeader, EraHistory, any_header};
+use crate::{EraHistory, Header, any_header};
 
 /// Create a network block with the correct era tag based on the header's slot and era history.
 #[expect(clippy::expect_used)]
-pub fn make_network_block(header: &BlockHeader, era_history: &EraHistory) -> NetworkBlock {
+pub fn make_network_block(header: &Header, era_history: &EraHistory) -> NetworkBlock {
     let block = make_block_with_header(header);
     NetworkBlock::new(era_history, &block).expect("make network block")
 }
 
 /// Create an encoded block with the correct era tag based on the header's slot and era history.
-pub fn make_encoded_block(header: &BlockHeader, era_history: &EraHistory) -> RawBlock {
+pub fn make_encoded_block(header: &Header, era_history: &EraHistory) -> RawBlock {
     let network_block = make_network_block(header, era_history);
     RawBlock::from(to_cbor(&network_block).as_slice())
 }
 
 #[expect(clippy::expect_used)]
-pub fn make_block_with_header(header: &BlockHeader) -> Block {
+pub fn make_block_with_header(header: &Header) -> Block {
     let mut block = make_block();
-    block.header = header.header().clone();
+    block.header = header.clone();
     // Re-encode and decode to rebuild the cached metadata fields.
     let bytes = to_cbor(&block);
     let mut block = cbor::decode::<Block>(bytes.as_slice()).expect("block encoding should round-trip");
-    block.header.header_body.block_body_hash = block.body_hash();
+    block.header.body_mut().block_body_hash = block.body_hash();
     cbor::decode(&to_cbor(&block)).expect("block encoding should round-trip")
 }
 

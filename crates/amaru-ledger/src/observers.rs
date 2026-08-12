@@ -41,7 +41,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Block, Epoch, MemoizedTransactionOutput, Point, Tip, TransactionInput, TransactionRef};
+use amaru_kernel::{Block, Epoch, IsHeader, MemoizedTransactionOutput, Point, Tip, TransactionInput, TransactionRef};
 
 use crate::{
     state::volatile::{AnchoredVolatileFragment, DiffSet, VolatileFragment},
@@ -69,7 +69,7 @@ pub struct AdoptedBlock<'a> {
 
 impl<'a> AdoptedBlock<'a> {
     pub fn from_block(epoch: Epoch, block: &'a Block, fragment: &'a VolatileFragment) -> Self {
-        let block_height = block.header.header_body.block_number;
+        let block_height = block.header.block_height().into_u64();
         let point = block.point();
         Self { point, epoch, block_height, block, utxo: &fragment.utxo }
     }

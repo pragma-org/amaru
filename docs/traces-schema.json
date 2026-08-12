@@ -1319,7 +1319,7 @@
     "amaru::ledger::block_validation_context::CREATE": {
       "type": "object",
       "properties": {
-        "block_body_hash": {
+        "block_id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::HeaderHash"
         },
@@ -1334,7 +1334,7 @@
         }
       },
       "required": [
-        "block_body_hash",
+        "block_id",
         "block_number",
         "block_body_size"
       ],

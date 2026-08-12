@@ -15,8 +15,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, Tip, from_cbor, size,
-    size::HEADER,
+    Hash, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, Tip, from_cbor, size, size::HEADER,
 };
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
 use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
@@ -33,12 +32,12 @@ impl<T> BaseReadChainStore for RocksDBStore<T>
 where
     T: DbOps + Send + Sync,
 {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).ok().flatten().and_then(|bytes| from_cbor(bytes.as_ref()))
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
         let head_len = prefix.len() - 1;
         let mut results = self.db.multi_get(&[&prefix[..head_len], &prefix], ReadOptions::default()).into_iter();
@@ -83,7 +82,7 @@ where
             .get_pinned(&[&HEADER_PREFIX[..], &anchor_hash[..]].concat(), ReadOptions::default())
             .ok()
             .flatten()
-            .and_then(|bytes| from_cbor::<BlockHeader>(bytes.as_ref()))
+            .and_then(|bytes| from_cbor::<Header>(bytes.as_ref()))
             .map(|h| h.tip())
             .unwrap_or_else(Tip::origin)
     }
@@ -155,11 +154,7 @@ where
     }
 
     /// Return the latest opcert sequence number for the given pool id, and header we wish to validate.
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         let Some(parent) = header.parent() else {
             return Ok(None); // no previous header referencing an opcert sequence number
         };
@@ -249,7 +244,7 @@ pub(crate) fn decode_opcert_key(key: &[u8]) -> Result<(Slot, HeaderHash), StoreE
     Ok((Slot::from(u64::from_be_bytes(slot_bytes)), Hash::from(hash)))
 }
 
-pub(crate) fn opcert_key(header: &BlockHeader) -> Vec<u8> {
+pub(crate) fn opcert_key(header: &Header) -> Vec<u8> {
     let slot = u64::from(header.slot()).to_be_bytes();
     [&OPCERT_PREFIX[..], &header.pool_id()[..], &slot[..], &header.hash()[..]].concat()
 }

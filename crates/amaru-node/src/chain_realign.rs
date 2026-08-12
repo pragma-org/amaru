@@ -91,7 +91,7 @@ fn clear_validation_after_tip(chain_store: &dyn ChainStore, tip: Point, clear: C
 mod tests {
     use std::sync::Arc;
 
-    use amaru_kernel::{BlockHeader, IsHeader, make_header};
+    use amaru_kernel::{Header, IsHeader, make_header};
     use amaru_ouroboros::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 
     use super::*;
@@ -212,11 +212,11 @@ mod tests {
         }
     }
 
-    fn header(block_height: u64, slot: u64, parent: Option<&BlockHeader>) -> BlockHeader {
-        BlockHeader::from(make_header(block_height, slot, parent.map(BlockHeader::hash)))
+    fn header(block_height: u64, slot: u64, parent: Option<&Header>) -> Header {
+        make_header(block_height, slot, parent.map(Header::hash))
     }
 
-    fn validity(chain_store: &dyn ChainStore, header: &BlockHeader) -> Option<bool> {
+    fn validity(chain_store: &dyn ChainStore, header: &Header) -> Option<bool> {
         chain_store.load_header_with_validity(&header.hash()).and_then(|(_, validity)| validity)
     }
 }

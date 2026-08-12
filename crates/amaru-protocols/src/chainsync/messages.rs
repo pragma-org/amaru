@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, EraName, Point, Tip, cbor, to_cbor, utils::debug_bytes};
+use amaru_kernel::{EraName, Header, Point, Tip, cbor, to_cbor, utils::debug_bytes};
 use amaru_pure_stage::DeserializerGuards;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -65,7 +65,7 @@ impl std::fmt::Debug for HeaderContent {
 }
 
 impl HeaderContent {
-    pub fn new(header: &BlockHeader, era: EraName) -> Self {
+    pub fn new(header: &Header, era: EraName) -> Self {
         Self { variant: era, byron_prefix: None, cbor: to_cbor(header) }
     }
 
