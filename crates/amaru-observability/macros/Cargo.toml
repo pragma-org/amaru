@@ -25,7 +25,9 @@ syn.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+amaru-observability = { path = ".." }
 async-trait.workspace = true
+serde.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }

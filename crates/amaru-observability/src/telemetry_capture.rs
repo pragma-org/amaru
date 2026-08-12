@@ -32,6 +32,8 @@ use tracing::{
 };
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
+use crate::field::{DecodedField, cbor_to_decoded_field};
+
 const TAG_FIELD_PREFIX: &str = "amaru.tag.";
 
 /// A captured field value from a tracing event or span.
@@ -214,6 +216,22 @@ impl Visit for FieldVisitor {
         self.fields.insert(field.name().to_owned(), FieldValue::Str(value.to_owned()));
     }
 
+    fn record_bytes(&mut self, field: &Field, value: &[u8]) {
+        if field.name().starts_with(TAG_FIELD_PREFIX) {
+            return;
+        }
+        // Schema macros encode non-primitive fields as CBOR (`record_bytes`). Decode so the
+        // TUI keeps typed values (e.g. Slot → U64) instead of the stock Debug byte dump.
+        let decoded = match cbor_to_decoded_field(value) {
+            DecodedField::Bool(b) => FieldValue::Bool(b),
+            DecodedField::I64(i) => FieldValue::I64(i),
+            DecodedField::U64(u) => FieldValue::U64(u),
+            DecodedField::F64(f) => FieldValue::F64(f),
+            DecodedField::Text(s) => FieldValue::Str(s),
+        };
+        self.fields.insert(field.name().to_owned(), decoded);
+    }
+
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         if field.name().starts_with(TAG_FIELD_PREFIX) {
             return;
@@ -226,4 +244,57 @@ impl Visit for FieldVisitor {
 pub fn subscribe_telemetry(capacity: usize) -> (TelemetryCaptureLayer, std::sync::mpsc::Receiver<TelemetryRecord>) {
     let (tx, rx) = std::sync::mpsc::sync_channel(capacity);
     (TelemetryCaptureLayer::new(tx), rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::sync_channel;
+
+    use tracing_subscriber::prelude::*;
+
+    use super::*;
+    use crate::field::encode_cbor;
+
+    #[test]
+    fn record_bytes_decodes_cbor_scalars_not_raw_byte_debug() {
+        let (tx, rx) = sync_channel(1);
+        let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
+
+        tracing::subscriber::with_default(subscriber, || {
+            // Newtype-style u64 (same wire shape as Slot/Epoch) and a string via CBOR.
+            let slot = encode_cbor(&42u64);
+            let label = encode_cbor(&"tip");
+            tracing::info!(slot = slot.as_ref() as &[u8], label = label.as_ref() as &[u8], "update");
+        });
+
+        let record = rx.recv().expect("event");
+        assert_eq!(record.fields.get("slot"), Some(&FieldValue::U64(42)));
+        assert_eq!(record.fields.get("label"), Some(&FieldValue::Str("tip".into())));
+        // Must not look like Debug of raw bytes: `[1, 2, 3, …]`.
+        if let Some(FieldValue::Debug(s) | FieldValue::Str(s)) = record.fields.get("slot") {
+            panic!("slot should be typed U64, got string-like {s:?}");
+        }
+    }
+
+    #[test]
+    fn record_bytes_complex_values_use_diagnostic_text() {
+        let (tx, rx) = sync_channel(1);
+        let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
+
+        let peers = encode_cbor(&vec!["a:1".to_string(), "b:2".to_string()]);
+        let raw_debug = format!("{:?}", peers.as_ref());
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(peers = peers.as_ref() as &[u8], "hello");
+        });
+
+        let record = rx.recv().expect("event");
+        match record.fields.get("peers") {
+            Some(FieldValue::Str(s)) => {
+                assert!(s.contains("a:1"), "expected diagnostic with element text, got {s}");
+                assert_ne!(s, &raw_debug, "must not be stock Debug of raw CBOR bytes");
+            }
+            other => panic!("expected Str diagnostic for peers array, got {other:?}"),
+        }
+    }
 }

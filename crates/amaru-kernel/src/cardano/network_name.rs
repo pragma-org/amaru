@@ -18,7 +18,7 @@ use crate::{
     PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, PREVIEW_ERA_HISTORY, PREVIEW_GLOBAL_PARAMETERS, ProtocolParameters,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default, serde::Serialize)]
 pub enum NetworkName {
     Mainnet,
     #[default]

@@ -87,9 +87,29 @@ impl SchemaField {
         type_to_string(&self.ty)
     }
 
-    fn is_string_type(&self) -> bool {
-        matches!(&self.ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident("String"))
+    /// How this field is transported across the `tracing` boundary.
+    fn transport_kind(&self) -> FieldTransportKind {
+        match self.type_str().as_str() {
+            "bool" => FieldTransportKind::Bool,
+            "i64" | "i32" | "i16" | "i8" | "isize" => FieldTransportKind::I64,
+            "u64" | "u32" | "u16" | "u8" | "usize" => FieldTransportKind::U64,
+            "f64" | "f32" => FieldTransportKind::F64,
+            "String" => FieldTransportKind::Str,
+            _ => FieldTransportKind::Cbor,
+        }
     }
+}
+
+/// Wire representation for a schema field value.
+#[derive(Clone, Copy)]
+enum FieldTransportKind {
+    Bool,
+    I64,
+    U64,
+    F64,
+    Str,
+    /// Serialized with cbor4ii and recorded via `record_bytes`.
+    Cbor,
 }
 
 /// A complete schema definition.
@@ -895,6 +915,20 @@ fn generate_assign_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     }
 }
 
+fn encode_cbor_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
+    quote! { ::amaru_observability::field::encode_cbor }
+}
+
+fn as_str_value_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
+    quote! { ::amaru_observability::field::as_str_value }
+}
+
+fn serialize_trait_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
+    // Always use the absolute path: `$crate` inside `#[macro_export]` helpers is easy to
+    // mis-resolve when those helpers are invoked via `::amaru_observability::…!`.
+    quote! { ::amaru_observability::serde::Serialize }
+}
+
 /// Generate the schema validation helper macro.
 fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_macro2::TokenStream {
     let categories = schema.category_strings();
@@ -903,6 +937,9 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let macro_ident = make_ident(&macro_name);
     let schema_name = &schema_name_str;
     let macro_export = config.macro_export_attr();
+    let encode_cbor = encode_cbor_path(config);
+    let as_str_value = as_str_value_path(config);
+    let serialize_trait = serialize_trait_path(config);
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
 
@@ -910,24 +947,94 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         .iter()
         .map(|field| {
             let field_name = field.name_str();
-            if field.is_string_type() {
-                quote! {
+            match field.transport_kind() {
+                FieldTransportKind::Str => quote! {
                     (#field_name, $expr:expr, validate_value) => {{
-                        let __amaru_assert_type = |_: &dyn AsRef<str>| {};
-                        let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
+                        let __amaru_assert_type = |_: &dyn ::std::convert::AsRef<str>| {};
                         __amaru_assert_type($expr);
-                        __amaru_assert_display($expr);
                     }};
+                },
+                FieldTransportKind::Bool
+                | FieldTransportKind::I64
+                | FieldTransportKind::U64
+                | FieldTransportKind::F64 => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, validate_value) => {{
+                            let __amaru_assert_type = |_: &#field_type| {};
+                            __amaru_assert_type($expr);
+                        }};
+                    }
                 }
-            } else {
-                let field_type = &field.ty;
-                quote! {
-                    (#field_name, $expr:expr, validate_value) => {{
-                        let __amaru_assert_type = |_: &#field_type| {};
-                        let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
-                        __amaru_assert_type($expr);
-                        __amaru_assert_display($expr);
+                FieldTransportKind::Cbor => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, validate_value) => {{
+                            let __amaru_assert_type = |_: &#field_type| {};
+                            fn __amaru_assert_serialize<T: #serialize_trait>(_: &T) {}
+                            __amaru_assert_type($expr);
+                            __amaru_assert_serialize($expr);
+                        }};
+                    }
+                }
+            }
+        })
+        .collect();
+
+    // Expression-producing patterns: type-check and produce a `tracing::Value`.
+    let format_typed_patterns: Vec<_> = all_fields
+        .iter()
+        .map(|field| {
+            let field_name = field.name_str();
+            match field.transport_kind() {
+                FieldTransportKind::Bool => quote! {
+                    (#field_name, $expr:expr, format_typed) => {{
+                        let __amaru_v: &bool = $expr;
+                        *__amaru_v
                     }};
+                },
+                FieldTransportKind::I64 => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, format_typed) => {{
+                            let __amaru_v: &#field_type = $expr;
+                            *__amaru_v
+                        }};
+                    }
+                }
+                FieldTransportKind::U64 => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, format_typed) => {{
+                            let __amaru_v: &#field_type = $expr;
+                            *__amaru_v
+                        }};
+                    }
+                }
+                FieldTransportKind::F64 => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, format_typed) => {{
+                            let __amaru_v: &#field_type = $expr;
+                            *__amaru_v
+                        }};
+                    }
+                }
+                FieldTransportKind::Str => quote! {
+                    (#field_name, $expr:expr, format_typed) => {{
+                        #as_str_value($expr)
+                    }};
+                },
+                FieldTransportKind::Cbor => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, format_typed) => {{
+                            let __amaru_v: &#field_type = $expr;
+                            fn __amaru_assert_serialize<T: #serialize_trait>(_: &T) {}
+                            __amaru_assert_serialize(__amaru_v);
+                            #encode_cbor(__amaru_v)
+                        }};
+                    }
                 }
             }
         })
@@ -994,6 +1101,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
         #[doc(hidden)]
         macro_rules! #macro_ident {
             #(#validate_value_patterns)*
+            #(#format_typed_patterns)*
             #(#validate_formatted_patterns)*
             ($name:literal, $expr:expr, validate_value) => {
                 compile_error!(concat!(
@@ -1003,7 +1111,17 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
+            };
+            ($name:literal, $expr:expr, format_typed) => {
+                compile_error!(concat!(
+                    "Unknown field '",
+                    $name,
+                    "' for schema ",
+                    #schema_name,
+                    ". Available fields: ",
+                    #fields_list
+                ))
             };
             ($name:literal, $expr:expr, validate_event_display) => {
                 compile_error!(concat!(
@@ -1013,7 +1131,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
             ($name:literal, $expr:expr, validate_event_debug) => {
                 compile_error!(concat!(
@@ -1023,7 +1141,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
             ($name:literal, $expr:expr, validate_event_value) => {
                 compile_error!(concat!(
@@ -1033,7 +1151,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                     #schema_name,
                     ". Available fields: ",
                     #fields_list
-                ));
+                ))
             };
 
             #(#validate_exact_patterns)*

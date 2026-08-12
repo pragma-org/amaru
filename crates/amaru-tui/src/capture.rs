@@ -100,15 +100,14 @@ mod tests {
 
         let record = from_observability(rx.recv().expect("span close"));
         assert_eq!(record.target, ledger::tip::UPDATE::TARGET);
-        // Schema fields may be recorded as typed values or Display strings depending on the
-        // instrumentation path; accept either form.
-        let slot = record.fields.get(ledger::tip::UPDATE::FIELD_SLOT);
-        let ok = match slot {
-            Some(FieldValue::U64(42)) => true,
-            Some(FieldValue::String(s)) if s == "42" => true,
-            _ => false,
-        };
-        assert!(ok, "unexpected slot field: {slot:?}");
+        // Slot is a Serialize newtype → CBOR `record_bytes` → decoded back to U64
+        // (handled in TelemetryCaptureLayer, not in this thin converter).
+        assert_eq!(
+            record.fields.get(ledger::tip::UPDATE::FIELD_SLOT),
+            Some(&FieldValue::U64(42)),
+            "slot must be typed U64 after CBOR decode, not raw bytes Debug"
+        );
+        assert_eq!(record.fields.get(ledger::tip::UPDATE::FIELD_EPOCH), Some(&FieldValue::U64(1)));
         let _ = Message::Telemetry(record);
     }
 }

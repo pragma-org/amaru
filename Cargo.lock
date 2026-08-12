@@ -101,7 +101,6 @@ dependencies = [
  "hex",
  "indoc",
  "opentelemetry",
- "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
@@ -511,12 +510,16 @@ name = "amaru-observability"
 version = "0.1.2"
 dependencies = [
  "amaru-observability-macros",
+ "cbor-data",
+ "cbor4ii",
+ "hex",
  "inventory",
  "opentelemetry",
  "quote",
  "serde",
  "serde_json",
  "syn 3.0.3",
+ "thiserror 2.0.19",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -526,11 +529,13 @@ dependencies = [
 name = "amaru-observability-macros"
 version = "0.1.2"
 dependencies = [
+ "amaru-observability",
  "async-trait",
  "inventory",
  "opentelemetry",
  "proc-macro2",
  "quote",
+ "serde",
  "syn 3.0.3",
  "tokio",
  "tracing",
@@ -4781,7 +4786,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.43",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -4820,9 +4825,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

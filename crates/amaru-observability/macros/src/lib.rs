@@ -137,9 +137,11 @@
 //! `name`, `schema`, and `message` are reserved by the tracing macros.
 //!
 //! Field types drive compile-time type checks in the generated `_RECORD!` helpers and the
-//! typed accessors on the schema marker type. `String` is accepted for any `AsRef<str>`
-//! value; other types are checked by reference against the declared type and must implement
-//! [`Display`](std::fmt::Display) when recorded without an explicit formatter.
+//! typed accessors on the schema marker type. Transport across `tracing` is type-driven:
+//! - primitives (`bool`, integers, floats) and fields declared exactly as `String` use typed
+//!   `tracing::Value`; other string-like types (`&str`, `Cow<'_, str>`) take the CBOR path;
+//! - all other types must implement [`Serialize`](serde::Serialize) and are encoded as CBOR
+//!   (`record_bytes`). Explicit `%` / `?` formatters still require Display/Debug.
 //!
 //! Doc comments on individual fields are accepted and currently ignored by code generation
 //! (they document the schema source for readers).

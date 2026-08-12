@@ -21,7 +21,7 @@ use std::{
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
     thread::JoinHandle,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use amaru_kernel::{
@@ -1114,8 +1114,11 @@ where
         .into_par_iter()
         .map(|snapshot| {
             let epoch = snapshot.epoch();
-            compute_stake_summary(&snapshot, network, era_history, |progress| {
-                if emit_progress_ticks {
+            let mut printed = Instant::now();
+            compute_stake_summary(&snapshot, network, era_history, move |progress| {
+                let now = Instant::now();
+                if emit_progress_ticks && now.saturating_duration_since(printed) > Duration::from_millis(100) {
+                    printed = now;
                     info!(ledger::stake_distribution::INITIAL_PROGRESS, epoch = epoch, progress);
                 }
             })
