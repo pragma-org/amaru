@@ -82,6 +82,16 @@ fetch_metrics() {
 # Portable line count — macOS wc -l pads output with spaces.
 count_lines() { wc -l < "$1" | tr -d ' '; }
 
+# Remove exact metric names and prefix patterns ending in `*` from stdin.
+exclude_unimplemented() {
+  jq -Rr --slurpfile config "$CONFIG" '
+    def matches($metric; $pattern):
+      if ($pattern | endswith("*")) then $metric | startswith($pattern[0:-1]) else $metric == $pattern end;
+    . as $metric
+    | select(any($config[0].unimplemented_metrics[]; matches($metric; .)) | not)
+  '
+}
+
 if [[ ! -f "$CONFIG" ]]; then
   printf 'error: metrics config not found: %s\n' "$CONFIG" >&2
   exit 1
@@ -95,8 +105,10 @@ if ! jq -e '
   type == "object"
   and (.all_metrics | string_array)
   and (.supported_metrics | string_array)
+  and (.unimplemented_metrics | string_array)
+  and all(.unimplemented_metrics[]; test("^[^*]+\\*?$"))
 ' "$CONFIG" >/dev/null; then
-  printf 'error: %s must contain unique string arrays "all_metrics" and "supported_metrics"\n' "$CONFIG" >&2
+  printf 'error: %s must contain unique string arrays "all_metrics", "supported_metrics", and "unimplemented_metrics"; unimplemented patterns may only end in *\n' "$CONFIG" >&2
   exit 1
 fi
 
@@ -109,6 +121,9 @@ printf 'Fetching cardano-node metrics from %s…\n' "$CARDANO_URL" >&2
 cardano_tmp="$tmp_dir/cardano"
 fetch_metrics "$CARDANO_URL" > "$cardano_tmp"
 
+cardano_in_scope_tmp="$tmp_dir/cardano-in-scope"
+exclude_unimplemented < "$cardano_tmp" > "$cardano_in_scope_tmp"
+
 printf 'Fetching Amaru metrics from %s…\n' "$AMARU_URL" >&2
 amaru_tmp="$tmp_dir/amaru"
 fetch_metrics "$AMARU_URL" > "$amaru_tmp"
@@ -118,11 +133,14 @@ fetch_metrics "$AMARU_URL" > "$amaru_tmp"
 all_metrics_tmp="$tmp_dir/all-metrics"
 jq -r '.all_metrics[]' "$CONFIG" | sort -u > "$all_metrics_tmp"
 
+supported_metrics_config_tmp="$tmp_dir/supported-metrics-config"
+jq -r '.supported_metrics[]' "$CONFIG" | sort -u > "$supported_metrics_config_tmp"
+
 supported_metrics_tmp="$tmp_dir/supported-metrics"
-jq -r '.supported_metrics[]' "$CONFIG" | sort -u > "$supported_metrics_tmp"
+exclude_unimplemented < "$supported_metrics_config_tmp" > "$supported_metrics_tmp"
 
 unknown_cardano_tmp="$tmp_dir/unknown-cardano"
-comm -23 "$cardano_tmp" "$all_metrics_tmp" > "$unknown_cardano_tmp"
+comm -23 "$cardano_in_scope_tmp" "$all_metrics_tmp" > "$unknown_cardano_tmp"
 
 missing_supported_tmp="$tmp_dir/missing-supported"
 comm -23 "$supported_metrics_tmp" "$amaru_tmp" > "$missing_supported_tmp"
@@ -130,7 +148,7 @@ comm -23 "$supported_metrics_tmp" "$amaru_tmp" > "$missing_supported_tmp"
 cardano_only_tmp="$tmp_dir/cardano-only"
 metrics_diff_tmp="$tmp_dir/metrics-diff"
 metrics_diff_status=0
-diff "$cardano_tmp" "$amaru_tmp" > "$metrics_diff_tmp" || metrics_diff_status=$?
+diff "$cardano_in_scope_tmp" "$amaru_tmp" > "$metrics_diff_tmp" || metrics_diff_status=$?
 if [[ "$metrics_diff_status" -gt 1 ]]; then
   printf 'error: could not compare cardano-node and Amaru metrics\n' >&2
   exit "$metrics_diff_status"

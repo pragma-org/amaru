@@ -73,6 +73,11 @@
     "rts_gc_peak_megabytes_allocated",
     "rts_gc_wall_ms"
   ],
+  "unimplemented_metrics": [
+    "cardano_node_metrics_RTS_*",
+    "cardano_node_metrics_haskell_compiler_*",
+    "rts_gc_*"
+  ],
   "supported_metrics": [
     "amaru_consensus_block_fetch_duration_microseconds_bucket",
     "amaru_consensus_block_fetch_duration_microseconds_count",
