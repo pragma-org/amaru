@@ -16,6 +16,7 @@ extern crate self as amaru_observability;
 
 pub mod aliases;
 pub mod field;
+pub mod json_format;
 pub mod layers;
 pub mod otel_log_bridge;
 pub mod otel_trace_arrays;
@@ -32,10 +33,8 @@ pub use amaru_observability_macros::{define_schemas, trace_event as __trace_even
 pub use field::{
     DecodedField, as_str_value, cbor_to_any_value, cbor_to_decoded_field, cbor_to_trace_value, encode_cbor,
 };
-pub use layers::{
-    CborAwareMakeVisitor, CborDiagVisitor, CborJsonEventFormat, CborJsonFields, CborToStringVisit,
-    console_field_formatter,
-};
+pub use json_format::{CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, SpanJsonFields};
+pub use layers::{CborAwareMakeVisitor, CborDiagVisitor, CborToStringVisit, console_field_formatter};
 pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;
 pub use otel_trace_arrays::CborTraceArrayLayer;

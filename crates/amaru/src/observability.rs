@@ -24,8 +24,8 @@ use std::{
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
 use amaru_observability::{
-    CborJsonEventFormat, CborJsonFields, CborOtelLogBridge, CborTraceArrayLayer, TelemetryCaptureLayer,
-    console_field_formatter, info, warn,
+    CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge, CborTraceArrayLayer,
+    TelemetryCaptureLayer, console_field_formatter, info, warn,
 };
 use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_sdk::{
@@ -86,9 +86,16 @@ type LogBridgeFilter<S> = Filtered<
 type OpenTelemetryFilter<S> =
     Filtered<tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>, ThrottledEnvFilter, S>;
 
-type JsonLayer<S> = Layered<JsonFilter<S>, S>;
+/// Registry (or OTEL stack) with structured JSON span-field bag.
+type WithJsonSpanFields<S> = Layered<CborJsonSpanLayer, S>;
 
-type JsonFilter<S> = Filtered<Layer<S, CborJsonFields, CborJsonEventFormat>, ThrottledEnvFilter, S>;
+type JsonLayer<S> = Layered<JsonFilter<S>, WithJsonSpanFields<S>>;
+
+type JsonFilter<S> = Filtered<
+    Layer<WithJsonSpanFields<S>, CborJsonFields, CborJsonEventFormat>,
+    ThrottledEnvFilter,
+    WithJsonSpanFields<S>,
+>;
 
 type LocalTelemetryFilter<S> = Filtered<TelemetryCaptureLayer, ThrottledEnvFilter, S>;
 
@@ -206,8 +213,8 @@ impl<V: VisitFmt> VisitFmt for HideTagVisitor<V> {
     }
 }
 
-// JSON event formatting (including CBOR-aware fields and span id injection)
-// lives in `amaru_observability::layers::CborJsonEventFormat`.
+// JSON event formatting (single-pass CBOR-aware NDJSON) lives in
+// `amaru_observability::json_format`.
 
 #[derive(Default)]
 pub enum TracingSubscriber<S> {
@@ -273,12 +280,12 @@ impl TracingSubscriber<Registry> {
         match std::mem::take(self) {
             Self::Registry(registry) => {
                 let (layer, warning) = registry_layer();
-                *self = TracingSubscriber::WithJson(registry.with(layer));
+                *self = TracingSubscriber::WithJson(registry.with(CborJsonSpanLayer::new()).with(layer));
                 warning
             }
             Self::WithOpenTelemetry(layered) => {
                 let (layer, warning) = otel_layer();
-                *self = TracingSubscriber::WithJsonAndOpenTelemetry(layered.with(layer));
+                *self = TracingSubscriber::WithJsonAndOpenTelemetry(layered.with(CborJsonSpanLayer::new()).with(layer));
                 warning
             }
             _ => panic!("'with_json' called after as third layer"),
