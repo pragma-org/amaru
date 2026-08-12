@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProtocolVersion, RedeemerTag,
-    RequiredScript, StakeCredential, TransactionPointer, Voter, VotingProcedure,
+    EraHistory, HasMajorVersion, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, PROTOCOL_VERSION_10, ProposalId,
+    ProtocolVersion, RedeemerTag, RequiredScript, StakeCredential, TransactionPointer, Voter, VotingProcedure,
 };
 use thiserror::Error;
 
@@ -61,7 +61,7 @@ where
         let mut unknown_proposals = BTreeSet::new();
 
         for (voter, votes) in voting_procedures.iter() {
-            if protocol_version.0 > 10 && is_unelected_committee_voter(context, voter) {
+            if protocol_version.major() > PROTOCOL_VERSION_10.major() && is_unelected_committee_voter(context, voter) {
                 return Err(InvalidVotingProcedures::UnelectedCommitteeVoter(voter.clone()));
             }
 
