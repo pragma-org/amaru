@@ -127,34 +127,6 @@ run-until: ## &test Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPO
 	fi; \
 	./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
 
-compare-trace-contract: ## &test Compare $(TRACE_COMPARE_LOG) against $(TRACE_CONTRACT) including performance thresholds
-	@set -e; \
-	if [ ! -f "$(TRACE_CONTRACT)" ]; then \
-		echo "No trace contract found for $(AMARU_NETWORK), skipping trace contract check."; \
-	elif [ ! -f "$(TRACE_COMPARE_LOG)" ]; then \
-		echo "Missing trace log $(TRACE_COMPARE_LOG); run a traced run-until first." >&2; \
-		exit 1; \
-	else \
-		if ! node scripts/compare-traces --summary-file "$(TRACE_COMPARE_SUMMARY_FILE)" "$(TRACE_CONTRACT)" "$(TRACE_COMPARE_LOG)"; then \
-			echo "Warning: trace contract performance thresholds exceeded; see summary for details"; \
-		fi; \
-	fi
-
-update-trace-contract: ## &test Refresh $(TRACE_CONTRACT) from a traced run-until run
-	@mkdir -p "$(dir $(TRACE_CONTRACT))"
-	@tmp_log="$$(mktemp)"; \
-	AMARU_TRACE="$(TRACE_UPDATE_AMARU_TRACE)" AMARU_TRACE_EMIT_PRIVATE="$(TRACE_UPDATE_AMARU_TRACE_EMIT_PRIVATE)" $(MAKE) run-until > "$$tmp_log"; \
-	node scripts/compare-traces --export-contract "$(TRACE_CONTRACT)" "$$tmp_log"; \
-	if [ "$(TRACE_SUMMARY_OUTPUT_ENABLED)" = "1" ]; then \
-		echo ""; \
-		echo "Trace contract summary:"; \
-		node scripts/compare-traces --summary-file /dev/stdout "$(TRACE_CONTRACT)" "$$tmp_log"; \
-	else \
-		echo "Dry-run mode: skipping trace contract summary generation."; \
-	fi; \
-	rm -f "$$tmp_log"
-	@echo "Updated $(TRACE_CONTRACT)"
-
 check-rust-toolchain-version: ## &test Verify rust-toolchain.toml and Cargo.toml rust-version stay aligned
 	@./scripts/check-rust-toolchain-version
 

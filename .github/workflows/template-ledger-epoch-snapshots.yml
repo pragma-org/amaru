@@ -150,30 +150,18 @@ jobs:
               --config=/etc/otlp-collector.yml
 
       - name: Run until target epoch
-        if: ${{ (inputs.network == '' || inputs.network == matrix.network.name) && (matrix.network.name != 'preprod' || github.ref != 'refs/heads/main') }}
+        if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
         timeout-minutes: 30
         shell: bash
         env:
+          # running with DEBUG log level doesn’t work when github actions are collecting the logs because
+          # it takes many seconds to empty the log buffer after `run-until` exists, at which point the
+          # metrics are no longer retained within the collector.
           AMARU_TRACE: "amaru=info"
           AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS: "all"
           RUN_UNTIL_TARGET_EPOCH: ${{ matrix.network.target_epoch }}
         run: |
           make run-until
-
-      - name: Run traced contract check (preprod only)
-        if: ${{ (inputs.network == '' || inputs.network == matrix.network.name) && matrix.network.name == 'preprod' && github.ref == 'refs/heads/main' }}
-        shell: bash
-        env:
-          AMARU_TRACE: "amaru=debug"
-        run: |
-          rm -f "$TRACE_COMPARE_LOG"
-          make RUN_UNTIL_TARGET_EPOCH=$(( ${{ matrix.network.start_epoch  }} + 2 )) run-until > "$TRACE_COMPARE_LOG"
-
-      - name: Compare trace contract (preprod only)
-        if: ${{ (inputs.network == '' || inputs.network == matrix.network.name) && matrix.network.name == 'preprod' && github.ref == 'refs/heads/main' }}
-        shell: bash
-        run: |
-          make compare-trace-contract
 
       - name: Wait for metrics endpoints
         if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
