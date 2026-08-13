@@ -1,0 +1,38 @@
+{
+  "title": "transaction marked invalid whose plutus script succeeds",
+  "description": "A transaction marked invalid spending an input locked by a Plutus V3 script that evaluates to unit.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820a8c1f624dd2c9739b7695a5764df3b69ab69931ec1a9967cfcd61e3a6396ebcd00",
+        "output": "a200581d70186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4011a004c4b40"
+      },
+      {
+        "input": "825820849953a2def6e0bae56c3bc82da8efd4e4ab74eaf8f5e34bbed3b02368d95ba900",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a600d9010281825820a8c1f624dd2c9739b7695a5764df3b69ab69931ec1a9967cfcd61e3a6396ebcd000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0049b74f021a000293f10b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820849953a2def6e0bae56c3bc82da8efd4e4ab74eaf8f5e34bbed3b02368d95ba9000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258403c72b3a0012be559fea05b5af35ab863bc71389e0a59fa2c72f410130da945b84f3fbb3b63ca6b7887a486fd7f209ede9723de3ab7379c3bcb0e2f5e2ed5750805a18200008200821907d01a000f424007d901028146450101002499f4f6",
+  "expected": {
+    "predicate": "ValidationTagMismatch",
+    "description": "PassedUnexpectedly"
+  }
+}

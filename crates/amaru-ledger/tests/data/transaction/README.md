@@ -1,9 +1,14 @@
-# Phase-one validation fixtures
+# Transaction validation fixtures
 
-JSON test vectors for Cardano phase-one transaction validation. Each fixture
-declares an initial ledger state, a transaction, and an expected outcome. The
-format is implementation-generic; any Cardano implementation can consume these
-to increase confidence their phase-one implementation conforms.
+JSON test vectors for Cardano transaction validation. Each fixture declares an
+initial ledger state, a transaction, and an expected outcome. The format is
+implementation-generic; any Cardano implementation can consume these to increase
+confidence their ledger rules conform.
+
+Both validation phases are in scope: the phase-one rules, and phase-two Plutus
+script evaluation. A fixture whose transaction carries a redeemer therefore has
+its scripts executed, and the outcome of that execution is part of what the
+fixture asserts.
 
 ## Layout
 
@@ -59,7 +64,7 @@ required-field rules.
 | `initialState`       | See [Initial state](#initial-state).                   |
 | `point`              | `{ slot, transactionIndex }`.                          |
 | `transaction`        | Hex-encoded CBOR.                                      |
-| `expected`           | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decodingFailure": true }`. |
+| `expected`           | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decodingFailure": true }`. Some predicates carry extra fields; `ValidationTagMismatch` requires `description`, either `"PassedUnexpectedly"` or `"FailedUnexpectedly"`. |
 
 UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 `output` is the transaction output.
@@ -148,7 +153,9 @@ A harness should:
 3. Hex-decode and CBOR-decode the `transaction`. If `expected` is
    `{ "decodingFailure": true }`, that decode must itself fail and no validation
    is run.
-4. Run phase-one validation against that state and `point`.
+4. Run phase-one validation against that state and `point`, then, if phase one
+   succeeded, phase-two script evaluation. Both must succeed for the transaction
+   to be accepted.
 5. Compare the result to `expected`:
    - If `expected` is `"Pass"`, validation must succeed.
    - If `expected` carries a `predicate`, validation must fail with an error that
@@ -157,7 +164,8 @@ A harness should:
      predicate names.
 
 The Amaru implementation lives in
-`crates/amaru-ledger/src/rules/transaction/phase_one/mod.rs`.
+`crates/amaru-ledger/src/rules/transaction/`, with the two phases under
+`phase_one/mod.rs` and `phase_two/mod.rs` and the harness in `mod.rs`.
 
 ## Adding a fixture
 
@@ -167,6 +175,6 @@ The Amaru implementation lives in
    failure; the transaction should be valid in every other respect.
 2. The `<name>` part of a scenario should correspond to a kebab-case version of
    the scenario's title, to ease the identification of scenarios upon failures.
-3. If the predicate is new, add a variant to `Predicate` and a match arm in
-   `From<PhaseOneError> for Predicate` in `fixture.rs`.
+3. If the predicate is new, add a variant to `Predicate` and a match arm in the
+   relevant `From<..> for Predicate` impl in `fixture.rs`.
 4. Open a PR, proposing the new fixture(s).

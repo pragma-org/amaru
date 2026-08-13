@@ -50,5 +50,5 @@ commandParser =
             "validate-phase-one"
             ( info
                 (ValidatePhaseOne <$> ValidatePhaseOne.optionsParser)
-                (progDesc "Validate a phase-one conformance fixture with the Haskell ledger rules")
+                (progDesc "Validate a transaction conformance fixture with the Haskell ledger rules")
             )

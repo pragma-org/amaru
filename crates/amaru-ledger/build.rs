@@ -23,7 +23,7 @@ use anyhow::{Context, Result};
 
 fn main() -> Result<()> {
     get_conformance_test_vectors()?;
-    get_phase_test_cases("phase-one")
+    get_fixture_test_cases("transaction")
 }
 
 type FailuresTable = BTreeMap<String, String>;
@@ -79,14 +79,14 @@ fn get_conformance_test_vectors() -> Result<()> {
     Ok(())
 }
 
-fn get_phase_test_cases(phase: &str) -> Result<()> {
-    println!("cargo:rerun-if-changed=tests/data/{phase}");
+fn get_fixture_test_cases(corpus: &str) -> Result<()> {
+    println!("cargo:rerun-if-changed=tests/data/{corpus}");
 
     let out_dir = env::var("OUT_DIR").context("OUT_DIR not set")?;
-    let out_file_name = format!("{}_test_cases.rs", phase.replace('-', "_"));
+    let out_file_name = format!("{}_test_cases.rs", corpus.replace('-', "_"));
     let out_file = Path::new(&out_dir).join(&out_file_name);
 
-    let fixtures_dir = env::current_dir()?.join("tests").join("data").join(phase);
+    let fixtures_dir = env::current_dir()?.join("tests").join("data").join(corpus);
     let mut files = Vec::new();
     visit_dirs(&fixtures_dir.join("scenarios"), &mut files);
     files.sort();
