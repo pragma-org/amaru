@@ -179,6 +179,7 @@ jobs:
         shell: bash
         env:
           BUILT_OVERRIDE_amaru_PKG_VERSION_PATCH: ${{ needs.build-metadata.outputs.release_patch }}
+          JEMALLOC_SYS_WITH_MALLOC_CONF: 'background_thread:true,narenas:2,dirty_decay_ms:250,muzzy_decay_ms:0,tcache_max:512'
         run: |
           set -euo pipefail
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
