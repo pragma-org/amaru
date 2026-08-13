@@ -92,10 +92,6 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
                 to.point()
             )));
         };
-        if forward_tips.is_empty() {
-            // `to` sits on the ledger's own chain: there is nothing to switch to.
-            return Err(BlockValidationError::new(anyhow!("block already applied to the ledger: {}", to.point())));
-        }
 
         // Load the blocks corresponding to the headers to apply, in order, from the chain store.
         let forward_blocks = forward_tips
@@ -110,6 +106,11 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut state = self.state.lock().unwrap();
+
+        if forward_blocks.is_empty() {
+            // We are not supposed to switch to a fork that would be a no-op for the ledger.
+            return Err(BlockValidationError::new(anyhow!("block already applied to the ledger: {}", to.point())));
+        }
 
         // Now switch the fork in the ledger by rolling back to the fork point and then rolling forward the blocks to the new tip.
         state

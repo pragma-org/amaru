@@ -13,35 +13,12 @@
 // limitations under the License.
 
 //! Tests for ledger `State` rollback against the RocksDB store backend.
-//! Those are "unit tests" in the sense that they test the rollback functionality of the `State` struct,
-//! knowing that rollback is only ever called during a switch to fork.
+//! Those tests isolates the checks made on the rollback point.
 
-use amaru_kernel::{Hash, Point};
+use amaru_kernel::Hash;
 use amaru_ledger::state::BackwardError;
 
-use crate::{assert_no_rollback_to, forward_to, make_state, point, point_with_hash, rollback_to};
-
-#[test]
-fn rollback_to_a_volatile_common_ancestor_succeeds() {
-    let mut state = make_state();
-    let earlier = point(100);
-    let later = point(200);
-
-    assert_eq!(*state.tip(), Point::Origin);
-
-    forward_to(&mut state, earlier, 1);
-    forward_to(&mut state, later, 2);
-    assert_eq!(*state.tip(), later);
-
-    rollback_to(&mut state, &later).unwrap();
-    assert_eq!(*state.tip(), later);
-
-    rollback_to(&mut state, &earlier).unwrap();
-    assert_eq!(*state.tip(), earlier);
-
-    rollback_to(&mut state, &Point::Origin).unwrap();
-    assert_eq!(*state.tip(), Point::Origin);
-}
+use crate::{assert_no_rollback_to, forward_to, make_state, point, point_with_hash};
 
 #[test]
 fn rollback_before_volatile_front_is_rejected() {

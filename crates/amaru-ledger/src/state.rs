@@ -921,10 +921,9 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         );
 
         // The fork must replace the rolled-back chain at equal length or extend it by exactly one
-        // block (an empty fork is an explicit rollback).
-        // If this condition is violated, this means that there is an issue with chain selection.
+        // block. If this condition is violated, this means that there is an issue with chain selection.
         // We return an error to let the consensus layer deal with it.
-        if fork_length > 0 && (fork_length < rollback_length || fork_length > rollback_length + 1) {
+        if fork_length < rollback_length || fork_length > rollback_length + 1 {
             error_record!(ledger::state::SWITCH_TO_FORK, outcome = "invalid fork length");
             self.recover(state_recovery);
             return Err(StateError::InvalidForkLength { rollback_length, fork_length }.into());

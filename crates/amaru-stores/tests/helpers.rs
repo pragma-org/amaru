@@ -52,7 +52,7 @@ where
     S: Store,
     HS: HistoricalStores + Send + Sync + 'static,
 {
-    match state.switch_to_fork(point, std::iter::empty(), &ArenaPool::new(1024, 0))? {
+    match state.switch_to_fork(point, std::iter::once(empty_block_at(0)), &ArenaPool::new(1024, 0))? {
         ForkSwitchOutcome::Completed { .. } => Ok(()),
         outcome @ ForkSwitchOutcome::Partial { .. } | outcome @ ForkSwitchOutcome::Failed { .. } => {
             Err(anyhow!("unexpected fork switch outcome: {outcome:?}"))
@@ -67,7 +67,7 @@ where
     HS: HistoricalStores + Send + Sync + 'static,
     E: Display + Debug + Send + Sync + 'static,
 {
-    assert_invalid_switch_to_fork_from(state, point, std::iter::empty(), assert)
+    assert_invalid_switch_to_fork_from(state, point, std::iter::once(invalid_block_at(0)), assert)
 }
 
 #[allow(clippy::panic)]
