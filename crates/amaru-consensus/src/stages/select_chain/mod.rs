@@ -318,7 +318,7 @@ impl SelectChain {
                     let new_best_tip = store
                         .load_header(&new_best_tip)
                         .or_terminate_with(&eff, async move |_| {
-                            tracing::error!(hash = %new_best_tip, "best candidate does exist");
+                            tracing::error!(hash = %new_best_tip, "best candidate does not exist");
                         })
                         .await;
                     let parent = load_parent_point(&eff, &store, &new_best_tip).await;
@@ -327,8 +327,15 @@ impl SelectChain {
                         eff.send(&self.downstream, NewBestTip { tip: new_best_tip.tip(), parent, trace_context }).await;
                     }
                     let (to_validate, _) = store.unvalidated_ancestor_hashes(new_best_tip.hash()).await;
+                    // Only record a fork switch if there are blocks to validate on the new best tip.
+                    // Otherwise, there are no blocks to apply and no switch occurs.
+                    // This is typically the case when we have a tip that is invalid but one of its
+                    // ancestors was applied succesfully to the ledger. Here we just revert to knowing
+                    // that this ancestor is the best tip and we will continue to fetch blocks from it.
+                    if !to_validate.is_empty() {
+                        switched_to = Some(new_best_tip.tip());
+                    }
                     self.tips.insert(new_best_tip.hash(), to_validate);
-                    switched_to = Some(new_best_tip.tip());
                     self.best_tip = Some(new_best_tip);
                 }
                 Ok(_) => {
@@ -351,7 +358,7 @@ impl SelectChain {
             eff.external(Performance::record_block_pruned(*hash, hash == &tip_hash, now, syncing)).await;
         }
 
-        // switching away from the invalidated best tip to another candidate is a fork switch
+        // switching away from the invalidated best tip to a candidate with pending validations is a fork switch
         if let Some(new_tip) = switched_to {
             eff.external(Performance::record_fork_started(new_tip, now)).await;
         }
