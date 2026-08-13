@@ -35,6 +35,17 @@ use thiserror::Error;
 /// Maximum length of CBOR diagnostic / JSON fallback text printed to the console.
 pub const DIAG_TRUNCATION_LIMIT: usize = 512;
 
+/// Prefix for schema tag attributes (`amaru.tag.cpu`, `amaru.tag.db`, …).
+///
+/// Tags classify spans for filtering (see EDR-026 / EDR-033). Console and TUI
+/// hide them; JSON and OpenTelemetry keep them as ordinary attributes.
+pub const TAG_FIELD_PREFIX: &str = "amaru.tag.";
+
+/// Returns true when `name` is a schema tag attribute (`amaru.tag.*`).
+pub fn is_tag_field_name(name: &str) -> bool {
+    name.starts_with(TAG_FIELD_PREFIX)
+}
+
 /// Serialize `value` as CBOR for transport through `tracing` as `record_bytes`.
 ///
 /// Returns an owned `Box<[u8]>` so the result implements [`tracing::Value`] via

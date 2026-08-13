@@ -201,6 +201,10 @@ mod tests {
             at,
             wall_time: std::time::SystemTime::UNIX_EPOCH,
             fields: fields.into_iter().map(|(name, value)| (name.into(), value)).collect(),
+            parents: Vec::new(),
+            span_name: None,
+            id: None,
+            parent_id: None,
         }
     }
 
