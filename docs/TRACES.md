@@ -1502,6 +1502,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::ledger::validation_context::vrf_key_hashes`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `hydrate` | `TRACE` | public | Resolve VRF key hash occupancy from the volatile db or the stable one |  | from_volatile, from_db |
+
+<details><summary>span: `hydrate`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from_volatile` | `integer` |  |
+| `from_db` | `integer` |  |
+
+</details>
+
 ## target: `amaru::ledger::volatile`
 
 | name | level | public | description | required fields | optional fields |
@@ -2065,12 +2080,41 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `add` | `TRACE` | public | Batch-upsert pool entries |  |  |
 | `get` | `TRACE` | public | Point-read a pool entry |  |  |
 | `remove` | `TRACE` | public | Schedule pool retirement |  | pool, reason |
+| `update_or_retire` | `TRACE` | public | Apply epoch-boundary pool updates and retirements |  |  |
 
 <details><summary>span: `remove`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `pool` | `string` |  |
+| `reason` | `string` |  |
+
+</details>
+
+## target: `amaru::stores::ledger::pools_vrf`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `claim` | `TRACE` | public | Mark a VRF key hash as in use (set occupancy to 1) |  |  |
+| `decrement` | `TRACE` | public | Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero |  | vrf, reason |
+| `get` | `TRACE` | public | Point-read a VRF key hash occupancy entry |  |  |
+| `release` | `TRACE` | public | Delete a superseded VRF key hash occupancy entry |  | vrf, reason |
+| `seed` | `TRACE` | public | Import a VRF key hash occupancy entry from a snapshot at bootstrap |  |  |
+
+<details><summary>span: `decrement`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `vrf` | `string` |  |
+| `reason` | `string` |  |
+
+</details>
+
+<details><summary>span: `release`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `vrf` | `string` |  |
 | `reason` | `string` |  |
 
 </details>

@@ -3218,6 +3218,28 @@
       "description": "Resolve proposals from the volatile db or the stable one",
       "public": true
     },
+    "amaru::ledger::validation_context::vrf_key_hashes::HYDRATE": {
+      "type": "object",
+      "properties": {
+        "from_volatile": {
+          "type": "integer"
+        },
+        "from_db": {
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "optional": [
+        "from_volatile",
+        "from_db"
+      ],
+      "additionalProperties": false,
+      "name": "hydrate",
+      "level": "TRACE",
+      "target": "amaru::ledger::validation_context::vrf_key_hashes",
+      "description": "Resolve VRF key hash occupancy from the volatile db or the stable one",
+      "public": true
+    },
     "amaru::ledger::volatile::AGGREGATE": {
       "type": "object",
       "properties": {},
@@ -4428,6 +4450,100 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::pools",
       "description": "Schedule pool retirement",
+      "public": true
+    },
+    "amaru::stores::ledger::pools::UPDATE_OR_RETIRE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "update_or_retire",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::pools",
+      "description": "Apply epoch-boundary pool updates and retirements",
+      "public": true
+    },
+    "amaru::stores::ledger::pools_vrf::CLAIM": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "claim",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::pools_vrf",
+      "description": "Mark a VRF key hash as in use (set occupancy to 1)",
+      "public": true
+    },
+    "amaru::stores::ledger::pools_vrf::DECREMENT": {
+      "type": "object",
+      "properties": {
+        "vrf": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<32>"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "optional": [
+        "vrf",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "name": "decrement",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::pools_vrf",
+      "description": "Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero",
+      "public": true
+    },
+    "amaru::stores::ledger::pools_vrf::GET": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "get",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::pools_vrf",
+      "description": "Point-read a VRF key hash occupancy entry",
+      "public": true
+    },
+    "amaru::stores::ledger::pools_vrf::RELEASE": {
+      "type": "object",
+      "properties": {
+        "vrf": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<32>"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "optional": [
+        "vrf",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "name": "release",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::pools_vrf",
+      "description": "Delete a superseded VRF key hash occupancy entry",
+      "public": true
+    },
+    "amaru::stores::ledger::pools_vrf::SEED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "seed",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::pools_vrf",
+      "description": "Import a VRF key hash occupancy entry from a snapshot at bootstrap",
       "public": true
     },
     "amaru::stores::ledger::pots::GET": {
