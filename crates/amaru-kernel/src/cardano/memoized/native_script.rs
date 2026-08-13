@@ -111,7 +111,7 @@ mod tests {
         ScriptPubkey(Hash<KEY>),
         ScriptAll(CborArray<VariableEncodingNativeScript>),
         ScriptAny(CborArray<VariableEncodingNativeScript>),
-        ScriptNOfK(u32, CborArray<VariableEncodingNativeScript>),
+        ScriptNOfK(i64, CborArray<VariableEncodingNativeScript>),
         InvalidBefore(u64),
         InvalidHereafter(u64),
     }
@@ -133,7 +133,7 @@ mod tests {
                 );
 
                 let n_of_k =
-                    (any::<bool>(), any::<u32>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize))
+                    (any::<bool>(), any::<i64>(), prop::collection::vec(Self::any(depth - 1), 0..depth as usize))
                         .prop_map(|(is_def, n, sigs)| {
                             ScriptNOfK(n, if is_def { CborArray::Def(sigs) } else { CborArray::Indef(sigs) })
                         });

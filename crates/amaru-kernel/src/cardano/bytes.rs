@@ -14,25 +14,30 @@
 
 use std::{fmt, ops::Deref, str::FromStr};
 
+use amaru_minicbor_extra::decode_bytes;
+
 use crate::cbor;
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    std::hash::Hash,
-    serde::Serialize,
-    serde::Deserialize,
-    cbor::Encode,
-    cbor::Decode,
-)]
-#[cbor(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 #[serde(into = "String")]
 #[serde(try_from = "String")]
-pub struct Bytes(#[n(0)] cbor::bytes::ByteVec);
+pub struct Bytes(cbor::bytes::ByteVec);
+
+impl<C> cbor::Encode<C> for Bytes {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.bytes(self.0.as_slice())?.ok()
+    }
+}
+
+impl<'d, C> cbor::Decode<'d, C> for Bytes {
+    fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(Bytes(cbor::bytes::ByteVec::from(decode_bytes(d)?.into_owned())))
+    }
+}
 
 impl Default for Bytes {
     fn default() -> Self {

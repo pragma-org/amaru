@@ -29,7 +29,7 @@ use crate::{
         WithPosition,
         transaction::phase_one::{
             InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
-            InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
+            InvalidValidityInterval, InvalidVerificationKeyWitness, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
             proposals::InvalidProposals,
             voting_procedures::InvalidVotingProcedures,
@@ -261,7 +261,7 @@ pub(super) enum Predicate {
     MaxTxSizeUTxO,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
-    MissingVKeyWitnessesUTXOW,
+    MissingVerificationKeyWitnessesUTXOW,
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
@@ -290,12 +290,12 @@ pub(super) enum Predicate {
 impl From<PhaseOneError> for Predicate {
     fn from(err: PhaseOneError) -> Self {
         match err {
-            PhaseOneError::VKeyWitness(InvalidVKeyWitness::InvalidSignatures { .. }) => {
+            PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::InvalidSignatures { .. }) => {
                 Predicate::InvalidWitnessesUTXOW
             }
-            PhaseOneError::VKeyWitness(InvalidVKeyWitness::MissingRequiredKeysOrRoots { .. }) => {
-                Predicate::MissingVKeyWitnessesUTXOW
-            }
+            PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::MissingRequiredKeysOrRoots {
+                ..
+            }) => Predicate::MissingVerificationKeyWitnessesUTXOW,
             PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
             PhaseOneError::Withdrawals(InvalidWithdrawals::MissingAccountDRepDelegation(_)) => {
                 Predicate::ConwayWdrlNotDelegatedToDRep
@@ -390,7 +390,7 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::IncorrectTotalCollateralField
             }
             PhaseOneError::Metadata(_)
-            | PhaseOneError::VKeyWitness(_)
+            | PhaseOneError::VerificationKeyWitness(_)
             | PhaseOneError::Certificates(_)
             | PhaseOneError::Withdrawals(_)
             | PhaseOneError::Scripts(_)

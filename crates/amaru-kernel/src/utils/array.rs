@@ -20,8 +20,8 @@ use crate::Bytes;
 /// operands with specific bytes sizes. For example:
 ///
 /// # ```
-/// # let public_key: [u8; ed25519::PublicKey::SIZE] = into_sized_array(vkey, |error, expected| {
-/// #     InvalidVKeyWitness::InvalidKeySize { error, expected }
+/// # let public_key: [u8; ed25519::PublicKey::SIZE] = into_sized_array(verification_key, |error, expected| {
+/// #     InvalidVerificationKeyWitness::InvalidKeySize { error, expected }
 /// # })?;
 /// # ```
 pub fn into_sized_array<const SIZE: usize, E, T>(

@@ -78,7 +78,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::{Bytes, Hash, Multiasset, NonEmptyKeyValuePairs, PositiveCoin, size::CREDENTIAL, to_cbor};
+    use crate::{AssetName, Bytes, Hash, Multiasset, NonEmptyKeyValuePairs, PositiveCoin, size::CREDENTIAL, to_cbor};
 
     fn any_coin() -> impl Strategy<Value = u64> {
         any::<u64>()
@@ -88,8 +88,8 @@ mod tests {
         any::<[u8; 28]>().prop_map(Hash::from)
     }
 
-    fn any_asset_name() -> impl Strategy<Value = Bytes> {
-        prop::collection::vec(any::<u8>(), 0..32).prop_map(Bytes::from)
+    fn any_asset_name() -> impl Strategy<Value = AssetName> {
+        prop::collection::vec(any::<u8>(), 0..32).prop_map(|bytes| AssetName::try_from(bytes).unwrap())
     }
 
     fn any_positive_coin() -> impl Strategy<Value = PositiveCoin> {

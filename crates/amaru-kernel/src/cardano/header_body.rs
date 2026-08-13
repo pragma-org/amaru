@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Bytes, Hash, OperationalCert, ProtocolVersion, VrfCert, cbor};
+use crate::{Hash, OperationalCert, ProtocolVersion, VerificationKey, VrfCert, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
 pub struct HeaderBody {
@@ -26,10 +26,10 @@ pub struct HeaderBody {
     pub prev_hash: Option<Hash<32>>,
 
     #[n(3)]
-    pub issuer_vkey: Bytes,
+    pub issuer_verification_key: VerificationKey,
 
     #[n(4)]
-    pub vrf_vkey: Bytes,
+    pub vrf_verification_key: VerificationKey,
 
     #[n(5)]
     pub vrf_result: VrfCert,

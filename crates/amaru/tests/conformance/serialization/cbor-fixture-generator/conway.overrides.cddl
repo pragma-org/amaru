@@ -1,0 +1,44 @@
+; Local overrides applied on top of the upstream, auto-generated `conway.cddl`.
+;
+; The upstream file is produced by cardano-ledger's `generate-cddl` and must not be edited
+; directly. Each rule here replaces the upstream definition of the same name at generation
+; time; see `build_effective_cddl` in scripts/regenerate-cbor-fixtures.
+;
+; Every override exists for the same reason: the upstream grammar is looser than the node,
+; so cuddle generates samples the node would reject. Those are not valid positives, and
+; generating them only produces noise in the conformance report.
+
+; Upstream says `address = bytes`, which admits the empty byte string and arbitrary garbage.
+; The real structure is documented only in a prose comment upstream, because CDDL cannot
+; express `header byte selects among variants of differing payload length`. We therefore
+; enumerate one literal per documented header type, covering both network ids. Payload bytes
+; are opaque hashes, so fixed values cost no coverage.
+address =
+    h'001111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222'  ; type 0 testnet - base address: keyhash28, keyhash28
+  / h'011111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222'  ; type 0 mainnet - base address: keyhash28, keyhash28
+  / h'103333333333333333333333333333333333333333333333333333333344444444444444444444444444444444444444444444444444444444'  ; type 1 testnet - base address: scripthash28, keyhash28
+  / h'113333333333333333333333333333333333333333333333333333333344444444444444444444444444444444444444444444444444444444'  ; type 1 mainnet - base address: scripthash28, keyhash28
+  / h'205555555555555555555555555555555555555555555555555555555566666666666666666666666666666666666666666666666666666666'  ; type 2 testnet - base address: keyhash28, scripthash28
+  / h'215555555555555555555555555555555555555555555555555555555566666666666666666666666666666666666666666666666666666666'  ; type 2 mainnet - base address: keyhash28, scripthash28
+  / h'307777777777777777777777777777777777777777777777777777777788888888888888888888888888888888888888888888888888888888'  ; type 3 testnet - base address: scripthash28, scripthash28
+  / h'317777777777777777777777777777777777777777777777777777777788888888888888888888888888888888888888888888888888888888'  ; type 3 mainnet - base address: scripthash28, scripthash28
+  / h'4099999999999999999999999999999999999999999999999999999999010203'  ; type 4 testnet - pointer address: keyhash28, 3 varints
+  / h'4199999999999999999999999999999999999999999999999999999999010203'  ; type 4 mainnet - pointer address: keyhash28, 3 varints
+  / h'50aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa010203'  ; type 5 testnet - pointer address: scripthash28, 3 varints
+  / h'51aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa010203'  ; type 5 mainnet - pointer address: scripthash28, 3 varints
+  / h'60bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'  ; type 6 testnet - enterprise address: keyhash28
+  / h'61bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'  ; type 6 mainnet - enterprise address: keyhash28
+  / h'70cccccccccccccccccccccccccccccccccccccccccccccccccccccccc'  ; type 7 testnet - enterprise address: scripthash28
+  / h'71cccccccccccccccccccccccccccccccccccccccccccccccccccccccc'  ; type 7 mainnet - enterprise address: scripthash28
+  / h'e0dddddddddddddddddddddddddddddddddddddddddddddddddddddddd'  ; type e testnet - account address: keyhash28
+  / h'e1dddddddddddddddddddddddddddddddddddddddddddddddddddddddd'  ; type e mainnet - account address: keyhash28
+  / h'f0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'  ; type f testnet - account address: scripthash28
+  / h'f1eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'  ; type f mainnet - account address: scripthash28
+  / h'82d818584983581c7e9ee4a9527dea9091e2d580edd6716888c42f75d96276290f98fe0ba201581e581c0cdf39b531d1ac0963cbd183f63e43d895d16a9c567c95e1056e28bd02451a4170cb17001a53249b67'  ; type 8 - byron address (83 bytes)
+  / h'82d818584283581cd30392160a29d76ebc0a7e14fef145dde2ae2c983aaf5f632b67b815a101581e581cca3e553c9c63c534b988a9437ca105640410935a4e7380ca959381f0001a951a4859'  ; type 8 - byron address (76 bytes)
+  / h'82d818582183581cf11939f42338d59e21baa08645ac1f0038d5ee969f99fe98f402fe79a0001ac9d64e5b'  ; type 8 - byron address (43 bytes)
+
+; Upstream says `pool_metadata = [url, bytes]`, leaving the digest unbounded, so cuddle emits 0-, 1-
+; and 2-byte "hashes". The second element is a blake2b-256 of the metadata document; other eras'
+; CDDL spells this `metadata_hash = bytes .size 32`.
+pool_metadata = [url, bytes .size 32]

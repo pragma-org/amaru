@@ -20,8 +20,8 @@ pub fn block_header_version_valid(
     block: &Block,
     protocol_params: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails> {
-    let header_major = block.header.header_body.protocol_version.0;
-    let max_major = protocol_params.protocol_version.0 + 1;
+    let header_major = block.header.header_body.protocol_version.major();
+    let max_major = protocol_params.protocol_version.major() + 1;
     if header_major > max_major {
         return Err(InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major });
     }
@@ -30,7 +30,7 @@ pub fn block_header_version_valid(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Block, ProtocolParameters, include_cbor};
+    use amaru_kernel::{Block, ProtocolParameters, ProtocolVersion, include_cbor};
     use test_case::test_case;
 
     use crate::rules::block::InvalidBlockDetails;
@@ -49,7 +49,7 @@ mod tests {
 
     #[test_case(fixture!("2667657"); "valid")]
     #[test_case(fixture!("2667657", ProtocolParameters {
-        protocol_version: (0, 0),
+        protocol_version: ProtocolVersion::new(0, 0),
         ..amaru_kernel::PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()
     }) => matches Err(InvalidBlockDetails::HeaderProtVerTooHigh { header_major: 9, max_major: 1 }); "header version too high")]
     fn test_header_version((block, pp): (Block, ProtocolParameters)) -> Result<(), InvalidBlockDetails> {

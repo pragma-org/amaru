@@ -32,19 +32,20 @@ pub struct DRepVotingThresholds {
 
 impl<'b, C> cbor::Decode<'b, C> for DRepVotingThresholds {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-
-        Ok(Self {
-            motion_no_confidence: d.decode_with(ctx)?,
-            committee_normal: d.decode_with(ctx)?,
-            committee_no_confidence: d.decode_with(ctx)?,
-            update_constitution: d.decode_with(ctx)?,
-            hard_fork_initiation: d.decode_with(ctx)?,
-            pp_network_group: d.decode_with(ctx)?,
-            pp_economic_group: d.decode_with(ctx)?,
-            pp_technical_group: d.decode_with(ctx)?,
-            pp_governance_group: d.decode_with(ctx)?,
-            treasury_withdrawal: d.decode_with(ctx)?,
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(10)?;
+            Ok(Self {
+                motion_no_confidence: d.decode_with(ctx)?,
+                committee_normal: d.decode_with(ctx)?,
+                committee_no_confidence: d.decode_with(ctx)?,
+                update_constitution: d.decode_with(ctx)?,
+                hard_fork_initiation: d.decode_with(ctx)?,
+                pp_network_group: d.decode_with(ctx)?,
+                pp_economic_group: d.decode_with(ctx)?,
+                pp_technical_group: d.decode_with(ctx)?,
+                pp_governance_group: d.decode_with(ctx)?,
+                treasury_withdrawal: d.decode_with(ctx)?,
+            })
         })
     }
 }

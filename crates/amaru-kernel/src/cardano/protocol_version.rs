@@ -12,30 +12,90 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::HasMajorVersion;
+use std::{fmt, fmt::Debug};
 
-pub type ProtocolVersion = (u64, u64);
+use crate::cbor;
 
-pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
+pub const PROTOCOL_VERSION_10: ProtocolVersion = ProtocolVersion::new(10, 0);
 
-pub const PROTOCOL_VERSION_11: ProtocolVersion = (11, 0);
+pub const PROTOCOL_VERSION_11: ProtocolVersion = ProtocolVersion::new(11, 0);
 
 pub const DEFAULT: ProtocolVersion = PROTOCOL_VERSION_11;
 
 pub const MINIMUM_SUPPORTED: ProtocolVersion = PROTOCOL_VERSION_10;
 
-impl HasMajorVersion for ProtocolVersion {
-    fn major(&self) -> u32 {
-        self.0 as u32
+/// A Cardano protocol version, as committed in block headers and in protocol parameters.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ProtocolVersion {
+    major: u64,
+    minor: u64,
+}
+
+impl Debug for ProtocolVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.major, self.minor)
     }
 }
 
-pub fn fmt(version: &ProtocolVersion) -> String {
-    format!("{}.{}", version.0, version.1)
+impl ProtocolVersion {
+    /// Highest major version the ledger recognises.
+    ///
+    /// See <https://github.com/IntersectMBO/cardano-ledger/blob/693218df6cd90263da24e6c2118bac420ceea3a1/eras/conway/impl/cddl-files/conway.cddl#L126>
+    const MAX_MAJOR: u64 = 12;
+
+    pub const fn new(major: u64, minor: u64) -> Self {
+        Self { major, minor }
+    }
+
+    pub fn major(&self) -> u64 {
+        self.major
+    }
+
+    pub fn minor(&self) -> u64 {
+        self.minor
+    }
+
+    pub fn can_follow(&self, other: ProtocolVersion) -> bool {
+        (self.major == other.major() + 1 && self.minor == 0)
+            || (self.major == other.major() && self.minor == other.minor() + 1)
+    }
+}
+
+impl fmt::Display for ProtocolVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+impl<C> cbor::Encode<C> for ProtocolVersion {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.u64(self.major)?;
+        e.u64(self.minor)?;
+        Ok(())
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for ProtocolVersion {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            let major = d.u64()?;
+            if major > Self::MAX_MAJOR {
+                return Err(cbor::decode::Error::message("invalid protocol version's major: too high"));
+            }
+            let minor = d.u64()?;
+            Ok(Self::new(major, minor))
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.0, snapshot_version.1, minimum_version.0, minimum_version.1)]
+#[error("protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.major(), snapshot_version.minor(), minimum_version.major(), minimum_version.minor())]
 pub struct ProtocolVersionTooOld {
     pub snapshot_version: ProtocolVersion,
     pub minimum_version: ProtocolVersion,
@@ -48,30 +108,20 @@ pub fn validate(version: ProtocolVersion, minimum: ProtocolVersion) -> Result<()
     Ok(())
 }
 
-#[cfg(any(test, feature = "test-utils"))]
-pub use proxy::*;
-
-#[cfg(any(test, feature = "test-utils"))]
-mod proxy {
-    use serde::Deserialize;
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
 
     use super::ProtocolVersion;
-    use crate::utils::serde::HasProxy;
 
-    /// Fixture JSON shape `{ "major": <u64>, "minor": <u64> }`.
-    #[derive(Deserialize)]
-    pub struct ProtocolVersionProxy {
-        major: u64,
-        minor: u64,
-    }
-
-    impl From<ProtocolVersionProxy> for ProtocolVersion {
-        fn from(p: ProtocolVersionProxy) -> Self {
-            (p.major, p.minor)
-        }
-    }
-
-    impl HasProxy for ProtocolVersion {
-        type Proxy = ProtocolVersionProxy;
+    #[test_case(ProtocolVersion::new(10, 2), ProtocolVersion::new(11, 0) => true; "next major version")]
+    #[test_case(ProtocolVersion::new(10, 2), ProtocolVersion::new(10, 3) => true; "next minor version")]
+    #[test_case(ProtocolVersion::new(10, 2), ProtocolVersion::new(10, 2) => false; "same version")]
+    #[test_case(ProtocolVersion::new(10, 2), ProtocolVersion::new(11, 1) => false; "next major version with nonzero minor")]
+    #[test_case(ProtocolVersion::new(10, 2), ProtocolVersion::new(12, 0) => false; "skipped major version")]
+    #[test_case(ProtocolVersion::new(10, 2), ProtocolVersion::new(10, 4) => false; "skipped minor version")]
+    #[test_case(ProtocolVersion::new(10, 2), ProtocolVersion::new(9, 0) => false; "older version")]
+    fn can_follow(current: ProtocolVersion, new: ProtocolVersion) -> bool {
+        new.can_follow(current)
     }
 }

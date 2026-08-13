@@ -16,7 +16,7 @@ use std::{fmt, ops::Deref};
 
 use crate::cbor;
 
-// TODO: BoundedBytes should not exists
+// FIXME(cbor): BoundedBytes should not exists
 //
 // Move this as a serialisation/deserialisation helper rather than being a type that
 // transpires through the type system.
@@ -25,6 +25,12 @@ use crate::cbor;
 #[serde(into = "String")]
 #[serde(try_from = "String")]
 pub struct BoundedBytes(Vec<u8>);
+
+impl BoundedBytes {
+    pub fn empty() -> Self {
+        Self(Vec::new())
+    }
+}
 
 impl From<Vec<u8>> for BoundedBytes {
     fn from(xs: Vec<u8>) -> Self {
@@ -42,6 +48,12 @@ impl Deref for BoundedBytes {
     type Target = Vec<u8>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl From<&[u8]> for BoundedBytes {
+    fn from(xs: &[u8]) -> Self {
+        Self(xs.to_vec())
     }
 }
 

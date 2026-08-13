@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::ProtocolVersion;
 use amaru_uplc::{
     arena::Arena,
     binder::DeBruijn,
@@ -125,14 +126,14 @@ fn pairs_holding_empty_lists_of_bls_values_decode() {
 
 fn assert_decodes(flat: &[u8], description: &str) {
     let arena = Arena::new();
-    let (_, remainder) =
-        decode::<DeBruijn>(&arena, flat, (11, 0)).unwrap_or_else(|e| panic!("{description} must decode: {e}"));
+    let (_, remainder) = decode::<DeBruijn>(&arena, flat, ProtocolVersion::new(11, 0))
+        .unwrap_or_else(|e| panic!("{description} must decode: {e}"));
     assert_eq!(remainder, 0, "{description} must decode without trailing bytes");
 }
 
 fn assert_fails_on_bls_value(flat: &[u8], description: &str) {
     let arena = Arena::new();
-    let error = decode::<DeBruijn>(&arena, flat, (11, 0))
+    let error = decode::<DeBruijn>(&arena, flat, ProtocolVersion::new(11, 0))
         .expect_err(&format!("{description} contains a BLS value and must not decode"));
     assert!(matches!(error, FlatDecodeError::BlsValueNotSupported), "unexpected error for {description}: {error}");
 }

@@ -58,12 +58,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Value {
             cbor::data::Type::U8 | cbor::data::Type::U16 | cbor::data::Type::U32 | cbor::data::Type::U64 => {
                 Ok(Value::Coin(d.decode_with(ctx)?))
             }
-            cbor::data::Type::Array => {
-                d.array()?;
+            cbor::data::Type::Array | cbor::data::Type::ArrayIndef => cbor::heterogeneous_array(d, |d, assert_len| {
+                assert_len(2)?;
                 let coin = d.decode_with(ctx)?;
                 let multiasset = d.decode_with(ctx)?;
                 Ok(Value::Multiasset(coin, multiasset))
-            }
+            }),
             _ => Err(cbor::decode::Error::message("unknown cbor data type for Value enum")),
         }
     }
@@ -196,7 +196,7 @@ impl AddAssign<&Balance> for Balance {
     fn add_assign(&mut self, other: &Balance) {
         self.coin = self.coin.checked_add(other.coin).unwrap_or_else(|| unreachable!("Lovelace accumulator overflow"));
         for (key, qty) in &other.multiasset {
-            self.apply_delta(key.clone(), *qty);
+            self.apply_delta(*key, *qty);
         }
     }
 }
@@ -207,7 +207,7 @@ impl SubAssign<&Balance> for Balance {
         self.coin = self.coin.checked_sub(other.coin).unwrap_or_else(|| unreachable!("Lovelace accumulator underflow"));
         for (key, qty) in &other.multiasset {
             let neg = qty.checked_neg().unwrap_or_else(|| unreachable!("cannot negate i128::MIN"));
-            self.apply_delta(key.clone(), neg);
+            self.apply_delta(*key, neg);
         }
     }
 }
@@ -220,7 +220,7 @@ impl AddAssign<&Value> for Balance {
         if let Some(ma) = multiasset {
             for (policy, assets) in ma.iter() {
                 for (name, qty) in assets.iter() {
-                    self.apply_delta((*policy, name.clone()), positive_to_i128(qty));
+                    self.apply_delta((*policy, *name), positive_to_i128(qty));
                 }
             }
         }
@@ -237,7 +237,7 @@ impl SubAssign<&Value> for Balance {
                 for (name, qty) in assets.iter() {
                     let neg =
                         positive_to_i128(qty).checked_neg().unwrap_or_else(|| unreachable!("cannot negate i128::MIN"));
-                    self.apply_delta((*policy, name.clone()), neg);
+                    self.apply_delta((*policy, *name), neg);
                 }
             }
         }
@@ -250,7 +250,7 @@ impl AddAssign<&Mint> for Balance {
     fn add_assign(&mut self, mint: &Mint) {
         for (policy, assets) in mint.iter() {
             for (name, qty) in assets.iter() {
-                self.apply_delta((*policy, name.clone()), i128::from(i64::from(qty)));
+                self.apply_delta((*policy, *name), i128::from(i64::from(qty)));
             }
         }
     }

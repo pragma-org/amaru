@@ -20,7 +20,7 @@ use std::{
 
 use amaru_kernel::{
     Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot,
-    TransactionId, TransactionPointer, cardano::transaction_ref::TransactionRef, size::BLOCK_BODY,
+    TransactionId, TransactionIndex, TransactionPointer, cardano::transaction_ref::TransactionRef, size::BLOCK_BODY,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -48,13 +48,35 @@ pub enum TransactionInvalid {
 }
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
-    BlockSizeMismatch { supplied: u64, actual: u64 },
-    TooManyExUnits { provided: ExUnits, max: ExUnits },
-    HeaderSizeTooBig { supplied: u64, max: u64 },
-    InvalidBodyHash { header: Hash<BLOCK_BODY>, actual: Hash<BLOCK_BODY> },
-    HeaderProtVerTooHigh { header_major: u64, max_major: u64 },
-    RefScriptSizeTooBig { provided: u64, allowed: u64 },
-    Transaction { transaction_id: TransactionId, transaction_index: u32, violation: Box<TransactionInvalid> },
+    BlockSizeMismatch {
+        supplied: u64,
+        actual: u64,
+    },
+    TooManyExUnits {
+        provided: ExUnits,
+        max: ExUnits,
+    },
+    HeaderSizeTooBig {
+        supplied: u64,
+        max: u64,
+    },
+    InvalidBodyHash {
+        header: Hash<BLOCK_BODY>,
+        actual: Hash<BLOCK_BODY>,
+    },
+    HeaderProtVerTooHigh {
+        header_major: u64,
+        max_major: u64,
+    },
+    RefScriptSizeTooBig {
+        provided: u64,
+        allowed: u64,
+    },
+    Transaction {
+        transaction_id: TransactionId,
+        transaction_index: TransactionIndex,
+        violation: Box<TransactionInvalid>,
+    },
 }
 
 #[derive(Debug)]
@@ -268,7 +290,7 @@ where
 /// This runs:
 ///
 /// - Phase-one and phase-two ledger rules.
-/// - Records required vkey witnesses, and consumes the transaction inputs in the provided context after both
+/// - Records required verification key witnesses, and consumes the transaction inputs in the provided context after both
 ///   phases succeed.
 ///
 /// The caller is responsible for preparing the context with the UTxO and other ledger slices required by the transaction.

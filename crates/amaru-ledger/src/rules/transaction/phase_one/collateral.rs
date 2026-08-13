@@ -21,7 +21,7 @@ use thiserror::Error;
 use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
 enum CollateralWitness {
-    VKey(Hash<28>),
+    VerificationKey(Hash<28>),
     Bootstrap(Hash<28>),
 }
 
@@ -82,7 +82,7 @@ where
 
         let witness = match &collateral_input.address {
             Address::Shelley(addr) => match addr.owner() {
-                StakeCredential::AddrKeyhash(hash) => Some(CollateralWitness::VKey(hash)),
+                StakeCredential::AddrKeyhash(hash) => Some(CollateralWitness::VerificationKey(hash)),
                 StakeCredential::ScriptHash(_) => None,
             },
             Address::Byron(byron_address) => {
@@ -101,7 +101,7 @@ where
         effective_collateral += collateral_input.value.as_ref();
 
         match witness {
-            Some(CollateralWitness::VKey(hash)) => context.require_vkey_witness(hash),
+            Some(CollateralWitness::VerificationKey(hash)) => context.require_verification_key_witness(hash),
             Some(CollateralWitness::Bootstrap(root)) => context.require_bootstrap_witness(root),
             None => (),
         }

@@ -21,7 +21,7 @@ pub enum NativeScript {
     ScriptPubkey(Hash<{ KEY }>),
     ScriptAll(Vec<NativeScript>),
     ScriptAny(Vec<NativeScript>),
-    ScriptNOfK(u32, Vec<NativeScript>),
+    ScriptNOfK(i64, Vec<NativeScript>),
     InvalidBefore(u64),
     InvalidHereafter(u64),
 }
@@ -32,54 +32,37 @@ pub enum NativeScript {
 // MemoizedNativeScript. Ideally, there shouldn't even be two types.
 impl<'b, C> cbor::decode::Decode<'b, C> for NativeScript {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let size = d.array()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            let variant = d.u32()?;
 
-        let assert_size = |expected| {
-            // NOTE: unwrap_or allows for indefinite arrays.
-            if expected != size.unwrap_or(expected) {
-                return Err(cbor::decode::Error::message("unexpected array size in NativeScript"));
+            match variant {
+                0 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptPubkey(d.decode_with(ctx)?))
+                }
+                1 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptAll(d.decode_with(ctx)?))
+                }
+                2 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::ScriptAny(d.decode_with(ctx)?))
+                }
+                3 => {
+                    assert_len(3)?;
+                    Ok(NativeScript::ScriptNOfK(d.decode_with(ctx)?, d.decode_with(ctx)?))
+                }
+                4 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::InvalidBefore(d.decode_with(ctx)?))
+                }
+                5 => {
+                    assert_len(2)?;
+                    Ok(NativeScript::InvalidHereafter(d.decode_with(ctx)?))
+                }
+                _ => Err(cbor::decode::Error::message("unknown variant id for native script")),
             }
-            Ok(())
-        };
-
-        let variant = d.u32()?;
-
-        let script = match variant {
-            0 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptPubkey(d.decode_with(ctx)?))
-            }
-            1 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptAll(d.decode_with(ctx)?))
-            }
-            2 => {
-                assert_size(2)?;
-                Ok(NativeScript::ScriptAny(d.decode_with(ctx)?))
-            }
-            3 => {
-                assert_size(3)?;
-                Ok(NativeScript::ScriptNOfK(d.decode_with(ctx)?, d.decode_with(ctx)?))
-            }
-            4 => {
-                assert_size(2)?;
-                Ok(NativeScript::InvalidBefore(d.decode_with(ctx)?))
-            }
-            5 => {
-                assert_size(2)?;
-                Ok(NativeScript::InvalidHereafter(d.decode_with(ctx)?))
-            }
-            _ => Err(cbor::decode::Error::message("unknown variant id for native script")),
-        }?;
-
-        if size.is_none() {
-            let next = d.datatype()?;
-            if next != cbor::data::Type::Break {
-                return Err(cbor::decode::Error::type_mismatch(next));
-            }
-        }
-
-        Ok(script)
+        })
     }
 }
 
@@ -129,18 +112,19 @@ impl<C> cbor::encode::Encode<C> for NativeScript {
 
 impl NativeScript {
     /// Evaluate a native script against a set of required signer key hashes and a transaction validity interval.
-    pub fn eval(&self, vkey_hashes: &BTreeSet<Hash<KEY>>, validity_interval: ValidityInterval) -> bool {
+    pub fn eval(&self, verification_key_hashes: &BTreeSet<Hash<KEY>>, validity_interval: ValidityInterval) -> bool {
         match self {
-            Self::ScriptPubkey(key) => vkey_hashes.contains(key),
-            Self::ScriptAll(scripts) => scripts.iter().all(|s| s.eval(vkey_hashes, validity_interval)),
-            Self::ScriptAny(scripts) => scripts.iter().any(|s| s.eval(vkey_hashes, validity_interval)),
+            Self::ScriptPubkey(key) => verification_key_hashes.contains(key),
+            Self::ScriptAll(scripts) => scripts.iter().all(|s| s.eval(verification_key_hashes, validity_interval)),
+            Self::ScriptAny(scripts) => scripts.iter().any(|s| s.eval(verification_key_hashes, validity_interval)),
             // NOTE: Laziness of ScriptNOfK
             //
             // The NOfK scripts are evaluated lazily, stopping once we have n scripts that evaluate to
             // true. The test `iter_filter_take_evaluates_lazily` illustrates this behavior.
             Self::ScriptNOfK(n, scripts) => {
-                let n = *n as usize;
-                scripts.iter().filter(|s| s.eval(vkey_hashes, validity_interval)).take(n).count() == n
+                // A non-positive threshold is trivially satisfied, matching the ledger's `m <= satisfied`.
+                let n = (*n).max(0) as usize;
+                scripts.iter().filter(|s| s.eval(verification_key_hashes, validity_interval)).take(n).count() == n
             }
             // `lteNegInfty`: a lock requiring `lock_start <= ValidityInterval::lower_bound()` can only be satisfied when
             // `tx_start` is given. A missing lower bound is treated as -inf and always fails.
@@ -182,7 +166,7 @@ mod tests {
 
             let some = prop::collection::vec(any_native_script(depth - 1), 0..depth as usize).prop_map(ScriptAny);
 
-            let n_of_k = (any::<u32>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
+            let n_of_k = (any::<i64>(), prop::collection::vec(any_native_script(depth - 1), 0..depth as usize))
                 .prop_map(|(n, sigs)| ScriptNOfK(n, sigs));
 
             prop_oneof![sig, before, after, all, some, n_of_k,].boxed()
@@ -240,7 +224,7 @@ mod tests {
         "nested all any timelock all conditions pass"
     )]
         fn ok(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
-            assert!(script.eval(&context_vkey_hashes(context_keys), validity_interval));
+            assert!(script.eval(&context_verification_key_hashes(context_keys), validity_interval));
         }
 
         #[test_case(vk(3), &[vk(1), vk(2)], always(); "script pubkey absent")]
@@ -272,7 +256,7 @@ mod tests {
         "nested all any timelock key check fails"
     )]
         fn ko(script: NativeScript, context_keys: &[NativeScript], validity_interval: ValidityInterval) {
-            assert!(!script.eval(&context_vkey_hashes(context_keys), validity_interval));
+            assert!(!script.eval(&context_verification_key_hashes(context_keys), validity_interval));
         }
 
         // ------------------------------------------------------------------------ Helpers
@@ -289,7 +273,7 @@ mod tests {
             ScriptAny(scripts.into())
         }
 
-        fn at_least<const N: usize>(n: u32, scripts: [NativeScript; N]) -> NativeScript {
+        fn at_least<const N: usize>(n: i64, scripts: [NativeScript; N]) -> NativeScript {
             ScriptNOfK(n, scripts.into())
         }
 
@@ -310,7 +294,7 @@ mod tests {
         }
 
         #[allow(clippy::wildcard_enum_match_arm)]
-        fn context_vkey_hashes(context_keys: &[NativeScript]) -> BTreeSet<Hash<KEY>> {
+        fn context_verification_key_hashes(context_keys: &[NativeScript]) -> BTreeSet<Hash<KEY>> {
             context_keys
                 .iter()
                 .map(|script| match script {

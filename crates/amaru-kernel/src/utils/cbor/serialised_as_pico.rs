@@ -14,6 +14,7 @@
 
 use std::time::Duration;
 
+use amaru_minicbor_extra::decode_bytes;
 use num::BigUint;
 
 use crate::cbor;
@@ -85,7 +86,7 @@ impl<'b, C> cbor::Decode<'b, C> for SerialisedAsPico {
         match d.datatype()? {
             Tag => {
                 cbor::expect_tag(d, cbor::IanaTag::PosBignum)?;
-                let nanos = BigUint::from_bytes_be(d.bytes()?) / 1000u16;
+                let nanos = BigUint::from_bytes_be(&decode_bytes(d)?) / 1000u16;
                 match u128::try_from(nanos) {
                     Ok(nanos) => {
                         if nanos < (u64::MAX as u128) * 1_000_000_000 {

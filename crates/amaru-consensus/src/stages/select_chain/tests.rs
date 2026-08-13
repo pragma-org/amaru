@@ -934,7 +934,8 @@ mod cmp_tip_unit_tests {
     use std::cmp::Ordering;
 
     use amaru_kernel::{
-        BlockHeader, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, VrfCert, size::BLOCK_BODY, to_cbor,
+        BlockHeader, BoundedBytes, Bytes, Hasher, Header, HeaderBody, HeaderHash, OperationalCert, ProtocolVersion,
+        VerificationKey, VrfCert, cardano::fixed_bytes::FixedBytes, ed25519, size::BLOCK_BODY, to_cbor,
     };
 
     fn make_test_header(
@@ -951,18 +952,18 @@ mod cmp_tip_unit_tests {
                 block_number,
                 slot,
                 prev_hash,
-                issuer_vkey: Bytes::from(vec![]),
-                vrf_vkey: Bytes::from(vec![]),
-                vrf_result: VrfCert { output: Bytes::from(vrf.to_vec()), proof: Bytes::from(vec![]) },
+                issuer_verification_key: VerificationKey::try_from(vec![0u8; ed25519::PUBLIC_KEY_LENGTH]).unwrap(),
+                vrf_verification_key: VerificationKey::try_from(vec![0; 32]).unwrap(),
+                vrf_result: VrfCert { output: BoundedBytes::from(vrf), proof: FixedBytes::empty() },
                 block_body_size: 0,
                 block_body_hash: block_hash,
                 operational_cert: OperationalCert {
-                    operational_cert_hot_vkey: Bytes::from(vec![]),
+                    operational_cert_hot_verification_key: VerificationKey::empty(),
                     operational_cert_sequence_number: op_cert_seq,
                     operational_cert_kes_period: 0,
                     operational_cert_sigma: Bytes::from(vec![]),
                 },
-                protocol_version: (1, 2),
+                protocol_version: ProtocolVersion::new(1, 2),
             },
             body_signature: Bytes::from(vec![]),
         };
@@ -971,7 +972,7 @@ mod cmp_tip_unit_tests {
     }
 
     fn make_h(height: u64, slot: u64, opcert: u64, vrf: u8) -> BlockHeader {
-        make_test_header(height, slot, None, opcert, &[vrf; 32])
+        make_test_header(height, slot, None, opcert, &[vrf; 64])
     }
 
     #[test]
@@ -1012,8 +1013,8 @@ mod cmp_tip_unit_tests {
     #[test]
     fn test_same_height_different_vrf_slot_diff_4() {
         // slot distance = 4 <= 5 → VRF decides (lower VRF wins)
-        let a = make_h(5, 10, 0, 10); // higher VRF
-        let b = make_h(5, 14, 0, 5); // lower VRF, distance 4
+        let a = make_h(5, 10, 0, 5); // higher derived VRF
+        let b = make_h(5, 14, 0, 10); // lower derived VRF, distance 4
         assert_eq!(super::cmp_tip(Some(&a), Some(&b)), Ordering::Less);
         assert_eq!(super::cmp_tip(Some(&b), Some(&a)), Ordering::Greater);
     }
@@ -1021,8 +1022,8 @@ mod cmp_tip_unit_tests {
     #[test]
     fn test_same_height_different_vrf_slot_diff_5() {
         // slot distance = 5 <= 5 → VRF decides
-        let a = make_h(5, 10, 0, 10);
-        let b = make_h(5, 15, 0, 5);
+        let a = make_h(5, 10, 0, 5);
+        let b = make_h(5, 15, 0, 10);
         assert_eq!(super::cmp_tip(Some(&a), Some(&b)), Ordering::Less);
         assert_eq!(super::cmp_tip(Some(&b), Some(&a)), Ordering::Greater);
     }

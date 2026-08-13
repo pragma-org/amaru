@@ -599,7 +599,9 @@ impl fmt::Display for ProposalsForest {
                     if let ProposalEnum::HardFork(a, _) = &self.proposals.get(id)?.proposal { Some(a) } else { None }
                 },
             ),
-            Rc::new(|protocol_version, _| Ok(format!("version={}.{}", protocol_version.0, protocol_version.1))),
+            Rc::new(|protocol_version, _| {
+                Ok(format!("version={}.{}", protocol_version.major(), protocol_version.minor()))
+            }),
             &self.hard_fork,
         )?;
 
@@ -720,13 +722,14 @@ mod tests {
         cmp::Ordering,
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
+        str::FromStr,
         sync::LazyLock,
     };
 
     use amaru_kernel::{
         Anchor, Bytes, ConstitutionalCommitteeUpdate, Epoch, GovernanceAction, Hash, KeyValuePairs, Lovelace,
-        OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalEnum, ProposalId,
-        ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, Slot, TransactionPointer,
+        MaxString128, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10, Proposal, ProposalEnum,
+        ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParameters, RationalNumber, Slot, TransactionPointer,
         any_constitution, any_constitutional_committee_update, any_gov_action, any_proposal_enum, any_proposal_id,
         any_proposal_pointer, any_protocol_params_update, any_protocol_version, any_reward_account,
     };
@@ -1350,12 +1353,16 @@ mod tests {
     }
 
     /// Make a proposal with an optional parent
+    #[expect(clippy::unwrap_used)]
     fn make_proposal(parent: Option<ProposalId>) -> Proposal {
         Proposal {
             deposit: 0,
             reward_account: Bytes::default(),
             gov_action: GovernanceAction::HardForkInitiation(parent, PROTOCOL_VERSION_10),
-            anchor: Anchor { url: "https://example.com".to_string(), content_hash: Hash::new([0u8; 32]) },
+            anchor: Anchor {
+                url: MaxString128::from_str("https://example.com").unwrap(),
+                content_hash: Hash::new([0u8; 32]),
+            },
         }
     }
 

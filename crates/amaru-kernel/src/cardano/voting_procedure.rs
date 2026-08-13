@@ -24,10 +24,12 @@ pub struct VotingProcedure {
 
 impl<'b, C> cbor::Decode<'b, C> for VotingProcedure {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let vote = d.decode_with(ctx)?;
-        let anchor = d.decode_with(ctx)?;
-        Ok(Self { vote, anchor })
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            let vote = d.decode_with(ctx)?;
+            let anchor = d.decode_with(ctx)?;
+            Ok(Self { vote, anchor })
+        })
     }
 }
 

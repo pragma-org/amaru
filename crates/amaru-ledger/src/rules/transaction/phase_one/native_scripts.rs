@@ -46,11 +46,11 @@ pub(super) fn execute(
         return Ok(());
     }
 
-    let vkey_hashes = collect_vkey_hashes(witness_set);
+    let verification_key_hashes = collect_verification_key_hashes(witness_set);
 
     let failing: BTreeSet<Hash<SCRIPT>> = required_natives
         .into_iter()
-        .filter_map(|(hash, script)| (!script.eval(&vkey_hashes, validity_interval)).then_some(*hash))
+        .filter_map(|(hash, script)| (!script.eval(&verification_key_hashes, validity_interval)).then_some(*hash))
         .collect();
 
     if !failing.is_empty() {
@@ -60,14 +60,20 @@ pub(super) fn execute(
     Ok(())
 }
 
-// TODO: This duplicates the vkey hashing already done in
-// `vkey_witness::execute`, which builds a `provided_keys_or_roots` set from the same vkey
-// witnesses. However, that set is the UNION of vkey hashes and bootstrap-witness roots.
+// TODO: This duplicates the verification key hashing already done in
+// `verification_key_witness::execute`, which builds a `provided_keys_or_roots` set from the same verification_key
+// witnesses. However, that set is the UNION of verification_key hashes and bootstrap-witness roots.
 // Native script `RequireSignature` evaluation must NOT consider bootstrap roots.
 //
 // Updating the context to either split the provided_keys_or_roots into two different sets or
-// threading the vkey hashes throuhg phase one validation are both larger changes that could delay progress.
+// threading the verification key hashes throuhg phase one validation are both larger changes that could delay progress.
 // The hashing 32 bytes is not a significant increase in valdiation time, so we will leave this for later
-fn collect_vkey_hashes(witness_set: &WitnessSet) -> BTreeSet<Hash<KEY>> {
-    witness_set.vkeywitness.as_deref().unwrap_or(&[]).iter().map(|witness| Hasher::<224>::hash(&witness.vkey)).collect()
+fn collect_verification_key_hashes(witness_set: &WitnessSet) -> BTreeSet<Hash<KEY>> {
+    witness_set
+        .verification_key_witness
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|witness| Hasher::<224>::hash(&witness.verification_key))
+        .collect()
 }

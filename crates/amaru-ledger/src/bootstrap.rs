@@ -62,7 +62,7 @@ enum InitialSnapshotFormatError {
     #[error("invalid initial snapshot payload: expected a previous-blocks map immediately after the epoch")]
     MissingPreviousBlocksMap,
 
-    #[error("snapshot protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.0, snapshot_version.1, minimum_version.0, minimum_version.1
+    #[error("snapshot protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.major(), snapshot_version.minor(), minimum_version.major(), minimum_version.minor()
     )]
     ProtocolVersionTooOld {
         snapshot_version: amaru_kernel::ProtocolVersion,

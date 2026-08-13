@@ -95,11 +95,11 @@ pub fn assert_all<'a>(
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
     let absolute_slot = Slot::from(header.header_body.slot);
-    let issuer = ed25519::VerifyingKey::try_from(&header.header_body.issuer_vkey[..])
+    let issuer = ed25519::VerifyingKey::try_from(&header.header_body.issuer_verification_key[..])
         .map_err(|_| AssertHeaderError::InvalidEd25519PublicKey)?;
 
     // TODO: Pallas should hold sized slices
-    let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.header_body.vrf_vkey[..].try_into()?;
+    let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.header_body.vrf_verification_key[..].try_into()?;
 
     let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) = {
         let leader_relative_stake = if pool_summary.active_stake == 0 {
@@ -150,8 +150,8 @@ pub fn assert_all<'a>(
                 slot_to_kes_period,
                 opcert.operational_cert_kes_period,
                 raw_header_body,
-                &opcert.operational_cert_hot_vkey[..].try_into()?, // TODO: Pallas should hold sized slices
-                &header.body_signature[..].try_into()?,            // TODO: Pallas should hold sized slices
+                &opcert.operational_cert_hot_verification_key[..].try_into()?, // TODO: Pallas should hold sized slices
+                &header.body_signature[..].try_into()?,                        // TODO: Pallas should hold sized slices
                 max_kes_evolutions,
             )?;
             Ok(())
@@ -397,9 +397,9 @@ impl AssertOperationalCertificateError {
             return Err(Self::SequenceNumberTooFarAhead { declared_sequence_number, latest_sequence_number });
         }
 
-        // The opcert message is a concatenation of the KES vkey, the sequence number, and the kes period
+        // The opcert message is a concatenation of the KES verification key, the sequence number, and the kes period
         let mut message = Vec::new();
-        message.extend_from_slice(&certificate.operational_cert_hot_vkey[..]);
+        message.extend_from_slice(&certificate.operational_cert_hot_verification_key[..]);
         message.extend_from_slice(&certificate.operational_cert_sequence_number.to_be_bytes());
         message.extend_from_slice(&certificate.operational_cert_kes_period.to_be_bytes());
 

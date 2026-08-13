@@ -28,16 +28,18 @@ pub enum Voter {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for Voter {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let variant = d.u16()?;
-        match variant {
-            0 => Ok(Self::ConstitutionalCommitteeKey(d.decode_with(ctx)?)),
-            1 => Ok(Self::ConstitutionalCommitteeScript(d.decode_with(ctx)?)),
-            2 => Ok(Self::DRepKey(d.decode_with(ctx)?)),
-            3 => Ok(Self::DRepScript(d.decode_with(ctx)?)),
-            4 => Ok(Self::StakePoolKey(d.decode_with(ctx)?)),
-            _ => Err(cbor::decode::Error::message("invalid variant id for Voter")),
-        }
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            let variant = d.u16()?;
+            match variant {
+                0 => Ok(Self::ConstitutionalCommitteeKey(d.decode_with(ctx)?)),
+                1 => Ok(Self::ConstitutionalCommitteeScript(d.decode_with(ctx)?)),
+                2 => Ok(Self::DRepKey(d.decode_with(ctx)?)),
+                3 => Ok(Self::DRepScript(d.decode_with(ctx)?)),
+                4 => Ok(Self::StakePoolKey(d.decode_with(ctx)?)),
+                _ => Err(cbor::decode::Error::message("invalid variant id for Voter")),
+            }
+        })
     }
 }
 

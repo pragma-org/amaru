@@ -49,9 +49,9 @@ pub use data_structures::{
 pub mod cbor {
     pub use amaru_minicbor_extra::{
         TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
-        collect_map_value_bytes, decode_break, expect_tag, from_cbor, from_cbor_no_leftovers,
-        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy, missing_field, tee, to_cbor,
-        to_cbor_with, unexpected_field,
+        collect_map_value_bytes, decode_break, decode_bytes, decode_string, expect_tag, from_cbor,
+        from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy,
+        missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -71,11 +71,11 @@ pub use cardano::{
         StakePayload,
     },
     anchor::{self, Anchor},
-    asset_name::AssetName,
+    asset_name::{AssetName, EMPTY_ASSET_NAME},
     auxiliary_data::AuxiliaryData,
     ballot::Ballot,
     ballot_id::BallotId,
-    block::Block,
+    block::{Block, TransactionIndex},
     block_header::BlockHeader,
     block_height::BlockHeight,
     bootstrap_witness::BootstrapWitness,
@@ -94,6 +94,7 @@ pub use cardano::{
     drep_registration::DRepRegistration,
     drep_state::DRepState,
     drep_voting_thresholds::{self, DRepVotingThresholds},
+    ed25519_signature::Ed25519Signature,
     epoch::Epoch,
     era_bound::EraBound,
     era_history::{
@@ -114,6 +115,7 @@ pub use cardano::{
     int::Int,
     language_view::LanguageView,
     lovelace::Lovelace,
+    max_string::MaxString128,
     memoized::{
         self, BorrowedScript, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
         MemoizedTransactionOutput, MemoizedValue, deserialize_script, serialize_memoized_script, serialize_script,
@@ -130,7 +132,7 @@ pub use cardano::{
     orphan_proposal::{self, OrphanProposal},
     output_reference::OutputReference,
     peer::Peer,
-    plutus_data::{self, PlutusData, PlutusDataSet, PlutusDatums},
+    plutus_data::{self, BoundedBytes, PlutusData, PlutusDataSet, PlutusDatums},
     plutus_script::PlutusScript,
     plutus_version::{IsKnownPlutusVersion, KnownPlutusVersion, PlutusVersion, reify_plutus_version},
     point::Point,
@@ -188,7 +190,8 @@ pub use cardano::{
     utxos::Utxos,
     validity_interval::ValidityInterval,
     value::{self, CurrencySymbol, Mint, PlutusMint, Value},
-    vkey_witness::{InvalidEd25519Signature, VKeyWitness, verify_ed25519_signature},
+    verification_key::VerificationKey,
+    verification_key_witness::{InvalidEd25519Signature, VerificationKeyWitness, verify_ed25519_signature},
     vote::Vote,
     voter::Voter,
     voter_kind::VoterKind,

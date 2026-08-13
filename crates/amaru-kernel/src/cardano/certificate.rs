@@ -189,136 +189,154 @@ impl<C> cbor::encode::Encode<C> for Certificate {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        let variant = d.u16()?;
+        cbor::heterogeneous_array(d, |d, assert_len| {
+            let variant = d.u16()?;
 
-        match variant {
-            0 => {
-                let a = d.decode_with(ctx)?;
-                Ok(Self::StakeRegistration(a))
+            match variant {
+                0 => {
+                    assert_len(2)?;
+                    let a = d.decode_with(ctx)?;
+                    Ok(Self::StakeRegistration(a))
+                }
+
+                1 => {
+                    assert_len(2)?;
+                    let a = d.decode_with(ctx)?;
+                    Ok(Self::StakeDeregistration(a))
+                }
+
+                2 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::StakeDelegation(a, b))
+                }
+
+                3 => {
+                    assert_len(10)?;
+                    let id = d.decode_with(ctx)?;
+                    let vrf = d.decode_with(ctx)?;
+                    let pledge = d.decode_with(ctx)?;
+                    let cost = d.decode_with(ctx)?;
+                    let margin = d.decode_with(ctx)?;
+                    let reward_account = d.decode_with(ctx)?;
+                    let SerialisedAsSet(owners) = d.decode_with(ctx)?;
+                    let relays = d.decode_with(ctx)?;
+                    let metadata = d.decode_with(ctx)?;
+
+                    Ok(Self::PoolRegistration(Box::new(PoolParams {
+                        id,
+                        vrf,
+                        pledge,
+                        cost,
+                        margin,
+                        reward_account,
+                        owners,
+                        relays,
+                        metadata,
+                    })))
+                }
+
+                4 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::PoolRetirement(a, b))
+                }
+
+                // 5 and 6 removed since the Conway era
+                7 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::Reg(a, b))
+                }
+
+                8 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::UnReg(a, b))
+                }
+
+                9 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::VoteDeleg(a, b))
+                }
+
+                10 => {
+                    assert_len(4)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    let c = d.decode_with(ctx)?;
+                    Ok(Self::StakeVoteDeleg(a, b, c))
+                }
+
+                11 => {
+                    assert_len(4)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    let c = d.decode_with(ctx)?;
+                    Ok(Self::StakeRegDeleg(a, b, c))
+                }
+
+                12 => {
+                    assert_len(4)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    let c = d.decode_with(ctx)?;
+                    Ok(Self::VoteRegDeleg(a, b, c))
+                }
+
+                13 => {
+                    assert_len(5)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    let c = d.decode_with(ctx)?;
+                    let d = d.decode_with(ctx)?;
+                    Ok(Self::StakeVoteRegDeleg(a, b, c, d))
+                }
+
+                14 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::AuthCommitteeHot(a, b))
+                }
+
+                15 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::ResignCommitteeCold(a, b))
+                }
+
+                16 => {
+                    assert_len(4)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    let c = d.decode_with(ctx)?;
+                    Ok(Self::RegDRepCert(a, b, c))
+                }
+
+                17 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::UnRegDRepCert(a, b))
+                }
+
+                18 => {
+                    assert_len(3)?;
+                    let a = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
+                    Ok(Self::UpdateDRepCert(a, b))
+                }
+
+                _ => Err(cbor::decode::Error::message("unknown variant id for certificate")),
             }
-
-            1 => {
-                let a = d.decode_with(ctx)?;
-                Ok(Self::StakeDeregistration(a))
-            }
-
-            2 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::StakeDelegation(a, b))
-            }
-
-            3 => {
-                let id = d.decode_with(ctx)?;
-                let vrf = d.decode_with(ctx)?;
-                let pledge = d.decode_with(ctx)?;
-                let cost = d.decode_with(ctx)?;
-                let margin = d.decode_with(ctx)?;
-                let reward_account = d.decode_with(ctx)?;
-                let SerialisedAsSet(owners) = d.decode_with(ctx)?;
-                let relays = d.decode_with(ctx)?;
-                let metadata = d.decode_with(ctx)?;
-
-                Ok(Self::PoolRegistration(Box::new(PoolParams {
-                    id,
-                    vrf,
-                    pledge,
-                    cost,
-                    margin,
-                    reward_account,
-                    owners,
-                    relays,
-                    metadata,
-                })))
-            }
-
-            4 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::PoolRetirement(a, b))
-            }
-
-            // 5 and 6 removed since the Conway era
-            7 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::Reg(a, b))
-            }
-
-            8 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::UnReg(a, b))
-            }
-
-            9 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::VoteDeleg(a, b))
-            }
-
-            10 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                let c = d.decode_with(ctx)?;
-                Ok(Self::StakeVoteDeleg(a, b, c))
-            }
-
-            11 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                let c = d.decode_with(ctx)?;
-                Ok(Self::StakeRegDeleg(a, b, c))
-            }
-
-            12 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                let c = d.decode_with(ctx)?;
-                Ok(Self::VoteRegDeleg(a, b, c))
-            }
-
-            13 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                let c = d.decode_with(ctx)?;
-                let d = d.decode_with(ctx)?;
-                Ok(Self::StakeVoteRegDeleg(a, b, c, d))
-            }
-
-            14 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::AuthCommitteeHot(a, b))
-            }
-
-            15 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::ResignCommitteeCold(a, b))
-            }
-
-            16 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                let c = d.decode_with(ctx)?;
-                Ok(Self::RegDRepCert(a, b, c))
-            }
-
-            17 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::UnRegDRepCert(a, b))
-            }
-
-            18 => {
-                let a = d.decode_with(ctx)?;
-                let b = d.decode_with(ctx)?;
-                Ok(Self::UpdateDRepCert(a, b))
-            }
-
-            _ => Err(cbor::decode::Error::message("unknown variant id for certificate")),
-        }
+        })
     }
 }
