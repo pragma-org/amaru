@@ -42,7 +42,7 @@ pub fn get<'a>(
 /// Register a new CC Member.
 pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::cc_members::UPSERT).in_scope(|| {
-        for (cold_credential, (hot_credential, valid_until)) in rows {
+        for (cold_credential, (status, valid_until)) in rows {
             let key = as_key(&PREFIX, cold_credential);
 
             let mut row = db
@@ -54,12 +54,11 @@ pub fn upsert<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Val
                 // then we can initialize a default value.
                 //
                 // (2) unelected-but-potential (i.e. present in ongoing proposals) CC members are *allowed*
-                // to declare their hot/cold delegation. Unelected CC are conserved as being valid
-                // until epoch 0.
-                .unwrap_or_else(|| Row { hot_credential: None, valid_until: None });
+                // to declare their hot/cold delegation.
+                .unwrap_or_else(|| Row { status: None, valid_until: None });
 
             valid_until.set_or_reset(&mut row.valid_until);
-            hot_credential.set_or_reset(&mut row.hot_credential);
+            status.set_or_reset(&mut row.status);
 
             db.put(key, as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
         }

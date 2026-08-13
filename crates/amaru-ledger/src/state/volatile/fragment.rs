@@ -18,9 +18,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProtocolParameters, Slot, StakeCredential, Tip,
-    TransactionInput,
+    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProtocolParameters, Slot, StakeCredential, Tip, TransactionInput,
 };
 
 use crate::{
@@ -58,7 +58,7 @@ pub struct VolatileFragment {
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    pub committee: DiffBind<StakeCredential, StakeCredential, Epoch, Empty>,
+    pub committee: DiffBind<StakeCredential, ConstitutionalCommitteeMemberStatus, Epoch, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: BTreeMap<ProposalId, Arc<(Proposal, ProposalPointer)>>,
     pub votes: DiffSet<BallotId, Ballot>,
@@ -262,7 +262,7 @@ pub(crate) fn remove_dreps(
 // ------------------------------------------------------------------------ Constitutional Committee
 
 pub(crate) fn add_committee(
-    iterator: impl Iterator<Item = (StakeCredential, Bind<StakeCredential, Epoch, Empty>)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<ConstitutionalCommitteeMemberStatus, Epoch, Empty>)>,
 ) -> impl Iterator<Item = (cc_members::Key, cc_members::Value)> {
     iterator.map(|(credential, bind)| (credential, (bind.left, bind.right)))
 }

@@ -55,7 +55,7 @@ pub fn account_state(
 /// has no elected members.
 pub fn committee_members(
     cc: Option<ConstitutionalCommittee>,
-    hot_cold_delegations: &BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
+    statuses: &BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
 ) -> BTreeMap<StakeCredential, CCMember> {
     let members = match cc {
         Some(ConstitutionalCommittee { members, .. }) => members,
@@ -65,11 +65,10 @@ pub fn committee_members(
     members
         .into_iter()
         .map(|(cold_credential, valid_until)| {
-            let hot_credential = match hot_cold_delegations.get(&cold_credential) {
-                Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot)) => Some(*hot),
-                None | Some(ConstitutionalCommitteeMemberStatus::Resigned(..)) => None,
-            };
-            (cold_credential, CCMember { hot_credential, valid_until: Some(valid_until) })
+            (
+                cold_credential,
+                CCMember { status: statuses.get(&cold_credential).copied(), valid_until: Some(valid_until) },
+            )
         })
         .collect()
 }

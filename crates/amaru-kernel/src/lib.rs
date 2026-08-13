@@ -207,6 +207,7 @@ pub use cardano::{
     block_height::any_block_height,
     certificate_pointer::any_certificate_pointer,
     constitution::any_constitution,
+    constitutional_committee_member_status::any_constitutional_committee_member_status,
     constitutional_committee_status::any_constitutional_committee_status,
     constitutional_committee_update::any_constitutional_committee_update,
     drep::any_drep,

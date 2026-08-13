@@ -380,7 +380,7 @@ fn step_fragment_committee(fragment: &mut VolatileFragment, rng: &mut impl rand:
 
     if ix.is_multiple_of(2) {
         let hot_credential = fixture::stake_credential(rng);
-        fragment.committee.bind_left(cold_credential, Some(hot_credential)).unwrap();
+        fragment.committee.bind_left(cold_credential, Some(hot_credential.into())).unwrap();
     } else {
         fragment.committee.bind_left(cold_credential, None).unwrap();
     }

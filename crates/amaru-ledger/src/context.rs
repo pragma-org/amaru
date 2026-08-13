@@ -135,6 +135,9 @@ pub enum DelegateError<S, T> {
 
     #[error("unknown target entity: {0:?}")] // TODO: Use Display
     UnknownTarget(T),
+
+    #[error("member has already resigned")]
+    AlreadyResigned,
 }
 
 impl<S: fmt::Debug, T: fmt::Debug> From<volatile::BindError<S>> for DelegateError<S, T> {
@@ -298,7 +301,10 @@ pub trait CommitteeSlice {
     /// another hot key or resigned.
     ///
     /// Set-valued because a hot credential is not unique to a member.
-    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> impl Iterator<Item = CCMember>;
+    fn lookup_by_hot_credential<'iter>(
+        &'iter self,
+        hot_credential: &'iter StakeCredential,
+    ) -> impl Iterator<Item = CCMember> + 'iter;
 
     fn delegate_cold_key(
         &mut self,
@@ -308,9 +314,9 @@ pub trait CommitteeSlice {
 
     fn resign(
         &mut self,
-        cc_member: StakeCredential,
-        anchor: Option<Box<Anchor>>,
-    ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
+        cold_credential: StakeCredential,
+        _anchor: Option<Box<Anchor>>,
+    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>>;
 }
 
 /// An interface to help constructing the concrete CommitteeSlice ahead of time.

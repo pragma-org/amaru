@@ -18,7 +18,7 @@
     "committee": [
       {
         "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
-        "hotCredential": null,
+        "status": null,
         "validUntil": 200
       }
     ],

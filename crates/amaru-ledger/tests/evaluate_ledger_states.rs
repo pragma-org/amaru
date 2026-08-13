@@ -289,18 +289,23 @@ pub mod tests {
                 (credential, snapshot::account_state(account, 0, &point, &protocol_parameters))
             })
             .collect();
+
         let dreps: BTreeMap<StakeCredential, DRepRegistration> = decoded
             .dreps
             .into_iter()
             .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
             .collect();
+
         let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
+
         let proposals = decoded
             .proposals
             .into_iter()
             .map(|st| (st.id, ProposalKind::from(&st.procedure.gov_action)))
             .collect::<BTreeMap<_, _>>();
+
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
+
         let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
 
         let mut validation_context = DefaultValidationContext::new(
@@ -308,7 +313,7 @@ pub mod tests {
             decoded.pools,
             accounts,
             dreps,
-            dbg!(committee),
+            committee,
             proposals,
             proposals_roots,
             decoded.treasury,
@@ -343,6 +348,7 @@ pub mod tests {
             // While the exact bytes aren't the same (the header should be 0x83 instead of 0x84), the is_valid boolean is exactly one byte.
             // So, by subtracting one, we get the expected value.
             let tx_size = (tx_bytes.len() - 1) as u64;
+
             // Run the transaction against the imported ledger state
             let result = transaction::phase_one::execute(
                 &mut validation_context,
