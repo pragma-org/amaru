@@ -105,14 +105,7 @@ impl dyn SendData {
 
     /// Cast a message to a given concrete type.
     pub fn cast_ref<T: SendData>(&self) -> anyhow::Result<&T> {
-        (self as &dyn Any).downcast_ref::<T>().ok_or_else(|| {
-            anyhow::anyhow!(
-                "message type error: expected {}, got {:?} ({})",
-                type_name::<T>(),
-                self,
-                self.typetag_name()
-            )
-        })
+        (self as &dyn Any).downcast_ref::<T>().ok_or_else(|| CastError::anyhow::<T>(self))
     }
 
     pub fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
@@ -126,9 +119,7 @@ impl dyn SendData {
 
     /// Cast a message to a given concrete type, yielding an informative error otherwise
     pub fn cast<T: SendData>(self: Box<Self>) -> anyhow::Result<Box<T>> {
-        self.try_cast::<T>().map_err(|b| {
-            anyhow::anyhow!("message type error: expected {}, got {:?} ({})", type_name::<T>(), b, b.typetag_name())
-        })
+        self.try_cast::<T>().map_err(|b| CastError::anyhow::<T>(&b))
     }
 
     pub fn cast_deserialize<T>(self: Box<Self>) -> anyhow::Result<T>
@@ -179,6 +170,28 @@ where
 impl PartialEq for dyn SendData {
     fn eq(&self, other: &dyn SendData) -> bool {
         self.test_eq(other)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("message type error: expected {expected}, got {got}")]
+pub struct CastError {
+    expected: &'static str,
+    got: &'static str,
+}
+
+impl CastError {
+    pub fn anyhow<T>(source: &dyn SendData) -> anyhow::Error {
+        if tracing::enabled!(target: "amaru_pure_stage", tracing::Level::TRACE) {
+            anyhow::anyhow!(
+                "message type error: expected {}, got {:?} ({})",
+                type_name::<T>(),
+                source,
+                source.typetag_name()
+            )
+        } else {
+            anyhow::anyhow!(Self { expected: type_name::<T>(), got: source.typetag_name() })
+        }
     }
 }
 
@@ -470,7 +483,7 @@ mod test {
         assert_eq!(format!("{s:?}"), "\"hello\"");
         assert_eq!(
             s.cast::<OsString>().unwrap_err().to_string(),
-            "message type error: expected std::ffi::os_str::OsString, got \"hello\" (alloc::string::String)"
+            "message type error: expected std::ffi::os_str::OsString, got alloc::string::String"
         );
 
         let s = Box::new("hello".to_owned()) as Box<dyn SendData>;

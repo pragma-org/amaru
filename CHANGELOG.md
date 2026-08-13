@@ -69,6 +69,7 @@ Other guiding principles:
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
 - **amaru-kernel**: fix the decoding of data types that were not conforming to the specification ([#1172](https://github.com/pragma-org/amaru/issues/1172))
 - **amaru-ledger**: a transaction marked invalid that carries no Plutus script is no longer accepted. ([#894][])
+- **amaru-pure-stage**: avoid constructing short string errors when failing to cast types in pure-stage.
 
 ## [v10.11.20260807](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
