@@ -75,6 +75,7 @@ Other guiding principles:
 - **amaru-bootstrap**: speed up node bootstrap by avoiding unnecessary optimistic-transaction conflict tracking when importing UTxO batches into a fresh database.
 - **amaru-bootstrap**: speed up node bootstrap by decoding large snapshot maps incrementally and avoiding unnecessary optimistic-transaction conflict tracking when importing UTxO batches into a fresh database.
 - **amaru-bootstrap**: speed up node bootstrap by streaming state archives, decoding large snapshot maps incrementally, and avoiding unnecessary optimistic-transaction conflict tracking when importing UTxO batches into a fresh database.
+- **amaru-bootstrap**: speed up node bootstrap by streaming state archives and account imports, decoding large snapshot maps incrementally, and avoiding unnecessary optimistic-transaction conflict tracking when importing fresh database batches.
 - **amaru-node**: when OTLP is enabled, `Telemetry` starts the same process/build gauges as the product binary (`process_*`, `cardano_node_metrics_cardano_*`) so embedders such as `run_until` satisfy the e2e metrics contract.
 - **amaru-consensus**: make `select_chain` handle already-validated tips idempotently so concurrent startup recovery cannot terminate the stage. ([#1124](https://github.com/pragma-org/amaru/pull/1124))
 - **amaru**: store nonces with both packaged bootstrap headers so the "nonces present ⇔ header validated" invariant holds after bootstrap. ([#1124](https://github.com/pragma-org/amaru/pull/1124))

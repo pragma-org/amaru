@@ -333,6 +333,21 @@ impl Store for RocksDB {
 
         self.db.write(batch).map_err(|err| StoreError::Internal(err.into()))
     }
+
+    fn save_bootstrap_accounts(
+        &self,
+        accounts: impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>,
+    ) -> Result<(), StoreError> {
+        assert!(!self.ongoing_transaction.get(), "RocksDB already has an ongoing transaction");
+
+        let mut batch = WriteBatchWithTransaction::<true>::default();
+        for (credential, row) in accounts {
+            batch.put(as_key(&accounts::PREFIX, credential), as_value(row));
+            batch.delete(as_key(&recently_unregistered_accounts::PREFIX, credential));
+        }
+
+        self.db.write(batch).map_err(|err| StoreError::Internal(err.into()))
+    }
 }
 
 // HistoricalStores
