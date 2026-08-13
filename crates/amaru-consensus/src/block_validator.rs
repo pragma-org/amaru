@@ -98,18 +98,17 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
         }
 
         // Load the blocks corresponding to the headers to apply, in order, from the chain store.
-        let mut forward_blocks = Vec::with_capacity(forward_tips.len());
-        for forward_tip in forward_tips.iter() {
-            let block = self
-                .chain_store
-                .load_block(&forward_tip.hash())
-                .map_err(|e| BlockValidationError::new(anyhow!(e)))?
-                .ok_or_else(|| BlockValidationError::new(anyhow!("block not found")))?
-                .decode()
-                .map_err(|e| BlockValidationError::new(anyhow!(e)))?;
-            forward_blocks.push(block);
-        }
-
+        let forward_blocks = forward_tips
+            .iter()
+            .map(|forward_tip| {
+                self.chain_store
+                    .load_block(&forward_tip.hash())
+                    .map_err(|e| BlockValidationError::new(anyhow!(e)))?
+                    .ok_or_else(|| BlockValidationError::new(anyhow!("block not found")))?
+                    .decode()
+                    .map_err(|e| BlockValidationError::new(anyhow!(e)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let mut state = self.state.lock().unwrap();
 
         // Now switch the fork in the ledger by rolling back to the fork point and then rolling forward the blocks to the new tip.
