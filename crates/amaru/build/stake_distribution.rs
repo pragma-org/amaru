@@ -27,7 +27,8 @@ use crate::{emit_rerun_if_changed, write_if_changed};
 ///
 /// Availability of the local `ledger.<network>.db` snapshot is **not** checked here: that path is
 /// a live RocksDB for node runs, so watching it would rebuild `amaru` on every SST/LOG write.
-/// The generated tests check snapshot presence at runtime and soft-skip when missing.
+/// The generated tests validate snapshot presence at runtime and fail when the matching snapshot
+/// is missing.
 pub(crate) fn write_stake_distribution_test_cases_file(network: &str) -> Result<()> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let fixtures_root = manifest_dir.join("tests").join("conformance").join("stake-distributions");
@@ -82,7 +83,7 @@ fn stake_distribution_epoch(path: &Path) -> Option<u64> {
 
 /// Render one active test function comparing stake distributions for every fixture epoch.
 ///
-/// Missing local ledger snapshots are handled at test runtime (warn + soft success), not via
+/// Missing local ledger snapshots are reported as test failures at runtime, rather than encoded as
 /// build-time `#[ignore]`.
 fn stake_distribution_test_cases_source(network: &str, epochs: &[u64]) -> Result<String> {
     if epochs.is_empty() {
@@ -110,7 +111,7 @@ fn render_stake_distribution_test_function(network: &str, network_variant: &str,
     let mut contents = String::new();
 
     for epoch in epochs {
-        contents.push_str(&format!("#[test_case::test_case({epoch})]\n"));
+        contents.push_str(&format!("#[test_case::test_case({epoch}; \"epoch_{epoch}\")]\n"));
     }
 
     contents.push_str(&format!(

@@ -18,7 +18,7 @@ use std::{
     env,
     fmt::Write,
     fs::File,
-    io::Read,
+    io::{self, Read},
     path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex},
 };
@@ -48,9 +48,17 @@ fn ledger_dir_from_tests(network: NetworkName) -> PathBuf {
     PathBuf::from(format!("../../ledger.{}.db", network.to_string().to_lowercase()))
 }
 
-/// Whether `ledger_dir` contains a RocksDB snapshot directory for `epoch`.
-fn has_ledger_snapshot(ledger_dir: &Path, epoch: Epoch) -> bool {
-    ledger_dir.join(epoch.to_string()).is_dir()
+/// Require `ledger_dir` to contain a RocksDB snapshot directory for `epoch`.
+fn require_ledger_snapshot(ledger_dir: &Path, network: NetworkName, epoch: Epoch) -> io::Result<()> {
+    let snapshot_dir = ledger_dir.join(epoch.to_string());
+    if !snapshot_dir.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("missing local ledger snapshot for {network} epoch {epoch}: {}", snapshot_dir.display()),
+        ));
+    }
+
+    Ok(())
 }
 
 #[expect(clippy::panic)]
@@ -84,16 +92,7 @@ fn compare_stake_distribution_with_haskell_node(
     epoch: Epoch,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = ledger_dir_from_tests(network);
-    if !has_ledger_snapshot(&ledger_dir, epoch) {
-        // Soft-skip: missing snapshots used to be `#[ignore]`d at build time. Print a warning so
-        // `--nocapture` (or harness failure logs) still surfaces the gap.
-        eprintln!(
-            "warning: skipping stake distribution comparison for {network} epoch {epoch}; \
-             local ledger snapshot missing at {}",
-            ledger_dir.join(epoch.to_string()).display()
-        );
-        return Ok(());
-    }
+    require_ledger_snapshot(&ledger_dir, network, epoch)?;
 
     let snapshot = load_snapshot(network, epoch);
 
@@ -104,6 +103,22 @@ fn compare_stake_distribution_with_haskell_node(
     let stake_summary = StakeSummary::new(snapshot.as_ref(), dreps, network, |_| {})?;
 
     assert_json_snapshot(network, epoch, &stake_summary)
+}
+
+#[test]
+fn require_ledger_snapshot_fails_when_snapshot_is_missing() {
+    let ledger_dir = tempfile::tempdir().expect("temporary ledger directory");
+    let network = NetworkName::Mainnet;
+    let epoch = Epoch::from(602);
+    let snapshot_dir = ledger_dir.path().join(epoch.to_string());
+
+    let error = require_ledger_snapshot(ledger_dir.path(), network, epoch).expect_err("missing snapshot must fail");
+
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert_eq!(
+        error.to_string(),
+        format!("missing local ledger snapshot for {network} epoch {epoch}: {}", snapshot_dir.display())
+    );
 }
 
 #[test]
