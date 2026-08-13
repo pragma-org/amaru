@@ -62,7 +62,7 @@ pub type AccountBind<'a> = Bind<&'a (PoolId, CertificatePointer), &'a (DRep, Cer
 /// A CC member's accumulated binding: the authorized hot credential on the left, the term an election
 /// granted on the right. The empty `value` stops a layer superseding the one below it, since either
 /// half can be set without the other.
-pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Epoch, Empty>;
+pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Epoch, &'a Empty>;
 
 /// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
 /// is the queryable value; the anchor is updated independently of registration, so an anchor-only
@@ -95,14 +95,17 @@ pub trait VolatileState {
     fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a>;
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember<'a>
+    type CCMembers<'a>
     where
         Self: 'a;
-    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a>;
-
-    /// Every cold credential these layers can resolve to a member for. A hot key authorized or a seat
-    /// granted inside the window has no stable row yet, so iterating the store cannot enumerate these.
-    fn cc_members(&self) -> impl Iterator<Item = &StakeCredential>;
+    /// Every cold credential these layers can resolve to a member for.
+    ///
+    /// This is necessary because a hot key authorized or a seat granted at the epoch boundary has
+    /// no stable row yet until the end of the stability window, so iterating the store cannot
+    /// enumerate these.
+    ///
+    /// The same credential may come up multiple times.
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a>;
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;

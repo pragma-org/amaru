@@ -308,7 +308,7 @@ pub mod tests {
             decoded.pools,
             accounts,
             dreps,
-            committee,
+            dbg!(committee),
             proposals,
             proposals_roots,
             decoded.treasury,

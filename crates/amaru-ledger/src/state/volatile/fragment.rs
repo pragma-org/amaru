@@ -24,7 +24,7 @@ use amaru_kernel::{
 };
 
 use crate::{
-    state::volatile::{Bind, Empty, Resettable},
+    state::volatile::{Bind, Empty},
     store::{self, columns::*},
 };
 
@@ -58,7 +58,7 @@ pub struct VolatileFragment {
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    pub committee: DiffSet<StakeCredential, StakeCredential>,
+    pub committee: DiffBind<StakeCredential, StakeCredential, Epoch, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: BTreeMap<ProposalId, Arc<(Proposal, ProposalPointer)>>,
     pub votes: DiffSet<BallotId, Ballot>,
@@ -151,7 +151,7 @@ impl AnchoredVolatileFragment {
                 pools: add_pools(pools.registered.into_iter()),
                 accounts: add_accounts(accounts.registered.into_iter()),
                 dreps: add_dreps(dreps.registered.into_iter()),
-                cc_members: add_committee(committee.produced.into_iter()),
+                cc_members: add_committee(committee.registered.into_iter()),
                 proposals: add_proposals(proposals.into_iter(), epoch + gov_action_lifetime),
                 votes: votes.produced.into_iter(),
             },
@@ -160,7 +160,13 @@ impl AnchoredVolatileFragment {
                 pools: pools.unregistered.into_iter(),
                 accounts: accounts.unregistered.into_iter(),
                 dreps: remove_dreps(dreps.unregistered.into_iter(), dreps_deregistrations),
-                cc_members: committee.consumed.into_iter(),
+                cc_members: {
+                    debug_assert!(
+                        committee.unregistered.is_empty(),
+                        "committee can only ever produce bind left or right"
+                    );
+                    std::iter::empty()
+                },
                 proposals: std::iter::empty(),
                 votes: {
                     debug_assert!(votes.consumed.is_empty());
@@ -256,9 +262,9 @@ pub(crate) fn remove_dreps(
 // ------------------------------------------------------------------------ Constitutional Committee
 
 pub(crate) fn add_committee(
-    iterator: impl Iterator<Item = (StakeCredential, StakeCredential)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<StakeCredential, Epoch, Empty>)>,
 ) -> impl Iterator<Item = (cc_members::Key, cc_members::Value)> {
-    iterator.map(|(credential, hot_credential)| (credential, (Resettable::Set(hot_credential), Resettable::Unchanged)))
+    iterator.map(|(credential, bind)| (credential, (bind.left, bind.right)))
 }
 
 // --------------------------------------------------------------------------------------- Proposals

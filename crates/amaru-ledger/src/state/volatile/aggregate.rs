@@ -18,13 +18,11 @@ use std::{
 };
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, PoolId, Proposal, ProposalId,
-    ProposalKind, ProposalPointer, StakeCredential, TransactionInput,
+    CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput, PoolId, Proposal,
+    ProposalId, ProposalKind, ProposalPointer, StakeCredential, TransactionInput,
 };
 
-use crate::state::volatile::{
-    AccountBind, Bind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, Resettable, VolatileFragment,
-};
+use crate::state::volatile::{AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, VolatileFragment};
 
 mod indexed_bind;
 pub use indexed_bind::IndexedBind;
@@ -32,8 +30,8 @@ pub use indexed_bind::IndexedBind;
 mod indexed_epoch_reg;
 pub use indexed_epoch_reg::IndexedEpochReg;
 
-mod indexed_set;
-pub use indexed_set::IndexedSet;
+// mod indexed_set;
+// pub use indexed_set::IndexedSet;
 
 /// The window's accounts, indexed by credential so each one's per-fragment history is retracted
 /// exactly on stabilization and folded on read. See [`IndexedBind`].
@@ -46,8 +44,8 @@ type DReps = IndexedBind<StakeCredential, Empty, Empty, DRepRegistration>;
 /// The window's constitutional committee, indexed by cold credential so each member's hot-key
 /// history is retracted exactly on stabilization. A member may rotate their hot key (produce then
 /// produce), so a blind collapse would lose the newer key when the older fragment stabilizes. See
-/// [`IndexedSet`].
-type Committee = IndexedSet<StakeCredential, StakeCredential>;
+/// [`IndexedBind`].
+type Committee = IndexedBind<StakeCredential, StakeCredential, Epoch, Empty>;
 
 /// For Pools, it is sufficient to count registrations or de-registrations. This is because, we only
 /// need the aggregate to know whether a pool was registered or not. Since both registrations and
@@ -112,22 +110,11 @@ impl VolatileAggregate {
         self.dreps.get(credential)
     }
 
-    /// This aggregate's verdict on a CC member. A block only ever moves the hot credential, so the
-    /// term is left `Unchanged` for the layer below to supply.
-    pub fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
-        use Existence::*;
-        use Resettable::*;
-
-        match self.committee.get(credential) {
-            Unknown => Unknown,
-            Gone => Exists(Bind { left: Reset, ..Bind::default() }),
-            Exists(hot) => Exists(Bind { left: Set(hot), ..Bind::default() }),
-        }
-    }
-
-    /// The cold credentials whose hot key some folded fragment changed.
-    pub fn cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
-        self.committee.keys()
+    /// This aggregate's verdict on all CC members.
+    pub fn resolve_cc_members<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> {
+        self.committee.iter()
     }
 
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is
@@ -161,6 +148,7 @@ impl VolatileAggregate {
         self.utxo.extend(utxo);
         self.pools.extend(pools);
         self.withdrawals.extend(withdrawals.iter().cloned());
+        // FIXME: Add CC members present in proposal as Bind { None, None, Empty } to account for
         self.proposals.extend(proposals.clone());
         self.dreps.extend_with(dreps, |bind| bind.map_left(|_| Empty));
         self.committee.extend(committee);

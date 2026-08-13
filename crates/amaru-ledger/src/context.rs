@@ -28,6 +28,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
+pub use crate::store::columns::cc_members::Row as CCMember;
 use crate::{state::volatile, store::StoreError};
 
 mod default;
@@ -286,29 +287,18 @@ pub trait PrepareDRepsSlice<'a> {
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-/// What a cold credential currently holds. Existence is not membership: a credential named in an
-/// in-flight `UpdateCommittee` may authorize a hot credential before that proposal is enacted, and
-/// holds no term until it is.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct CCMember {
-    /// The authorized hot credential, if the member has declared one.
-    pub hot_credential: Option<StakeCredential>,
-    /// The term expiry; `None` for a credential holding no seat.
-    pub valid_until: Option<Epoch>,
-}
-
 /// An interface for interacting with a subset of the Constitutional Committee members state.
 pub trait CommitteeSlice {
     /// The committee member at this point in the block: the block-start record with the in-block
     /// hot-key change folded in, or `None` once it has resigned.
-    fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember>;
+    fn lookup_by_cold_credential(&self, cc_member: &StakeCredential) -> Option<CCMember>;
 
     /// Every member currently authorizing this hot credential, which is the identity a vote carries.
     /// Empty when none does, including when one authorized it earlier but has since rotated to
     /// another hot key or resigned.
     ///
     /// Set-valued because a hot credential is not unique to a member.
-    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> BTreeSet<CCMember>;
+    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> impl Iterator<Item = CCMember>;
 
     fn delegate_cold_key(
         &mut self,

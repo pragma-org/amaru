@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, mem};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    mem,
+};
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
@@ -142,21 +145,31 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
-    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
-        // Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
-        // draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
-        // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
-        Self::CCMember::fold(
-            iter::once(self.current.resolve_cc_member(credential))
-                .chain(iter::once_with(|| self.overlay.committee_verdict(credential)))
-                .chain(iter::once_with(|| self.draining.resolve_cc_member(credential))),
-        )
-    }
+    type CCMembers<'a> = BTreeMap<&'a StakeCredential, Existence<CommitteeMemberBind<'a>>>;
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
+        let mut cc_members: BTreeMap<&'a StakeCredential, Vec<Existence<CommitteeMemberBind<'a>>>> = BTreeMap::new();
 
-    /// The same credential may come up more than once; callers gather these into a set.
-    fn cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
-        self.current.cc_members().chain(self.overlay.cc_members()).chain(self.draining.cc_members())
+        let current = self.current.resolve_cc_members();
+        let overlay = self.overlay.cc_members();
+        let drainin = self.draining.resolve_cc_members();
+
+        // Re-aggregate the binds per cold-credential
+        for (cold_credential, cc_member) in current.chain(overlay).chain(drainin) {
+            match cc_members.entry(cold_credential) {
+                Entry::Vacant(entry) => {
+                    entry.insert(vec![cc_member]);
+                }
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().push(cc_member);
+                }
+            }
+        }
+
+        // Return the folded result for each member
+        cc_members
+            .into_iter()
+            .map(|(cold_credential, binds)| (cold_credential, Existence::fold(binds.into_iter())))
+            .collect()
     }
 
     // ----------------------------------------------------------------------------------- Proposals
@@ -1302,10 +1315,10 @@ mod tests {
             db.push_back(committee_block(20, act));
         }
 
-        match db.resolve_cc_member(&cred(1)) {
-            Existence::Exists(Bind { left, .. }) => Existence::Exists(matches!(left, Resettable::Set { .. })),
-            Existence::Gone => Existence::Gone,
-            Existence::Unknown => Existence::Unknown,
+        match db.resolve_cc_members().get(&cred(1)) {
+            Some(Existence::Exists(Bind { left, .. })) => Existence::Exists(matches!(left, Resettable::Set { .. })),
+            Some(Existence::Gone) => Existence::Gone,
+            Some(Existence::Unknown) | None => Existence::Unknown,
         }
     }
 
@@ -1322,8 +1335,8 @@ mod tests {
         })));
 
         assert!(matches!(
-            db.resolve_cc_member(&cred(1)),
-            Existence::Exists(Bind { right: Resettable::Set(term_limit), .. }) if *term_limit == expected_term_limit
+            db.resolve_cc_members().get(&cred(1)),
+            Some(Existence::Exists(Bind { right: Resettable::Set(term_limit), .. })) if **term_limit == expected_term_limit
         ));
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
@@ -1333,12 +1346,12 @@ mod tests {
             removed: BTreeSet::from([cred(1)]),
             threshold: SafeRatio::zero(),
         })));
-        assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Gone));
+        assert!(matches!(db.resolve_cc_members().get(&cred(1)), Some(Existence::Gone)));
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
         db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::NoConfidence)));
-        assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Unknown));
+        assert!(!db.resolve_cc_members().contains_key(&cred(1)));
     }
 
     /// A credential named in a pending `UpdateCommittee` may authorize a hot key before enactment.
@@ -1354,12 +1367,14 @@ mod tests {
             threshold: SafeRatio::zero(),
         })));
 
-        let Existence::Exists(Bind { left, right, .. }) = db.resolve_cc_member(&cred(1)) else {
+        let cc_members = db.resolve_cc_members();
+
+        let Some(Existence::Exists(Bind { left, right, .. })) = cc_members.get(&cred(1)) else {
             panic!("elected member resolved to nothing");
         };
 
-        assert_eq!(left, Resettable::Set(&cred(2)), "the hot key declared while the proposal was pending");
-        assert_eq!(right, Resettable::Set(&expected_term_limit), "the term the boundary granted");
+        assert_eq!(left, &Resettable::Set(&cred(2)), "the hot key declared while the proposal was pending");
+        assert_eq!(right, &Resettable::Set(&expected_term_limit), "the term the boundary granted");
     }
 
     #[test]
@@ -1374,12 +1389,14 @@ mod tests {
         })));
         db.push_back(committee_block(20, CommitteeAct::Resign));
 
-        let Existence::Exists(Bind { left, right, .. }) = db.resolve_cc_member(&cred(1)) else {
+        let cc_members = db.resolve_cc_members();
+
+        let Some(Existence::Exists(Bind { left, right, .. })) = cc_members.get(&cred(1)) else {
             panic!("resigned member resolved to nothing; the seat outlives the authorization");
         };
 
-        assert_eq!(left, Resettable::Reset);
-        assert_eq!(right, Resettable::Set(&Epoch::from(99)));
+        assert_eq!(left, &Resettable::Reset);
+        assert_eq!(right, &Resettable::Set(&Epoch::from(99)));
     }
 
     // HELPERS
@@ -1439,9 +1456,10 @@ mod tests {
     fn committee_block(slot: u64, act: CommitteeAct) -> AnchoredVolatileFragment {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         match act {
-            CommitteeAct::Auth => block.fragment.committee.produce(cred(1), cred(2)),
-            CommitteeAct::Resign => block.fragment.committee.consume(cred(1)),
+            CommitteeAct::Auth => block.fragment.committee.bind_left(cred(1), Some(cred(2))),
+            CommitteeAct::Resign => block.fragment.committee.bind_left(cred(1), None),
         }
+        .unwrap();
         block
     }
 

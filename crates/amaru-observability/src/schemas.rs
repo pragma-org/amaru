@@ -533,10 +533,7 @@ define_schemas! {
                 }
                 committee {
                     /// Resolve committee members from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+                    public HYDRATE {}
                 }
                 proposals {
                     /// Resolve proposals from the volatile db or the stable one

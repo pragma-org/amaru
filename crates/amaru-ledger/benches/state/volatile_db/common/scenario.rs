@@ -250,10 +250,7 @@ impl Scenario {
                 fragment.withdrawals.iter().for_each(|account| ctx.require_account(Cow::Borrowed(account)));
             }
             Self::Committee => {
-                std::iter::empty()
-                    .chain(fragment.committee.produced.keys())
-                    .chain(fragment.committee.consumed.iter())
-                    .for_each(|cc_member| ctx.require_committee_member(cc_member));
+                fragment.committee.registered.keys().for_each(|cc_member| ctx.require_committee_member(cc_member));
             }
             Self::DReps => {
                 std::iter::empty()
@@ -377,14 +374,15 @@ fn step_fragment_withdrawals(fragment: &mut VolatileFragment, rng: &mut impl ran
     Scenario::Withdrawals.per_item_size()
 }
 
+#[allow(clippy::unwrap_used)]
 fn step_fragment_committee(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng, ix: usize) -> usize {
     let cold_credential = fixture::stake_credential(rng);
 
     if ix.is_multiple_of(2) {
         let hot_credential = fixture::stake_credential(rng);
-        fragment.committee.produce(cold_credential, hot_credential);
+        fragment.committee.bind_left(cold_credential, Some(hot_credential)).unwrap();
     } else {
-        fragment.committee.consume(cold_credential);
+        fragment.committee.bind_left(cold_credential, None).unwrap();
     }
 
     Scenario::Committee.per_item_size()
