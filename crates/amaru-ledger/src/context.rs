@@ -328,10 +328,9 @@ pub struct ProposalState {
 }
 
 pub trait ProposalsSlice {
-    /// Whether an active proposal `id` exists AND shares `kind`'s governance purpose (same
-    /// [`ProposalKind`] discriminant). Folds block-start proposals together with ones acknowledged
-    /// earlier in the block.
-    fn exists(&self, id: &ProposalId, kind: &ProposalKind) -> bool;
+    /// Check whether a proposal exists. If the `kind` is specified, it must also match and be part
+    /// of the same lineage.
+    fn exists(&self, id: &ProposalId, kind: Option<ProposalKind>) -> bool;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;

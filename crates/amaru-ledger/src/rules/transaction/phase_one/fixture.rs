@@ -32,6 +32,7 @@ use crate::{
             InvalidVKeyWitness, InvalidValidityInterval, InvalidWithdrawals, PhaseOneError,
             outputs::{InvalidOutput, InvalidOutputs},
             proposals::InvalidProposals,
+            voting_procedures::InvalidVotingProcedures,
         },
     },
 };
@@ -248,6 +249,7 @@ pub(super) enum Predicate {
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
     FeeTooSmallUTxO,
+    GovActionsDoNotExist,
     IncorrectDepositDELEG,
     IncorrectTotalCollateralField,
     ConwayTreasuryValueMismatch,
@@ -346,6 +348,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::InvalidPrevGovActionId { .. }) => {
                 Predicate::InvalidPrevGovActionId
+            }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
+                Predicate::GovActionsDoNotExist
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {

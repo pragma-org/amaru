@@ -135,7 +135,7 @@ where
     if !matches!(kind, ProposalKind::Orphan) {
         let parent = proposal.parent();
         let follows_root = parent == context.roots().root_of(kind);
-        let follows_in_flight = matches!(parent, Some(id) if context.exists(id, &kind));
+        let follows_in_flight = matches!(parent, Some(id) if context.exists(id, Some(kind)));
         if !follows_root && !follows_in_flight {
             return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
         }
