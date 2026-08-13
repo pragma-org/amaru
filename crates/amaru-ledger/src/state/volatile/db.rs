@@ -15,9 +15,9 @@
 use std::{iter, mem};
 
 use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    Point, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots, ProtocolParameters, StakeCredential,
-    TransactionInput,
+    Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots,
+    ProtocolParameters, StakeCredential, TransactionInput, size::SCRIPT,
 };
 
 use crate::{
@@ -65,11 +65,17 @@ pub struct VolatileDB {
     /// at flush, never rolled back, and read through [`Self::governance_activity`] to fold in any
     /// pending dormant-epoch bump from the volatile overlay.
     governance_activity: GovernanceActivity,
+
+    /// Cached guardrails script of the enacted constitution; `None` when the constitution names
+    /// none. Same lifecycle as `protocol_parameters`, and read through [`Self::guardrail_script`]
+    /// so that a constitution enacted at a boundary is seen by the blocks validated before the
+    /// overlay is flushed.
+    guardrail_script: Option<Hash<SCRIPT>>,
 }
 
 impl Default for VolatileDB {
     fn default() -> Self {
-        Self::new(Epoch::default(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default())
+        Self::new(Epoch::default(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default(), None)
     }
 }
 
@@ -227,13 +233,19 @@ impl VolatileSequence for VolatileDB {
 
 impl VolatileDB {
     /// Construct an empty volatile DB whose overlay is anchored to the given epoch.
-    pub fn new(epoch: Epoch, protocol_parameters: ProtocolParameters, governance_activity: GovernanceActivity) -> Self {
+    pub fn new(
+        epoch: Epoch,
+        protocol_parameters: ProtocolParameters,
+        governance_activity: GovernanceActivity,
+        guardrail_script: Option<Hash<SCRIPT>>,
+    ) -> Self {
         Self {
             current: VolatileSeries::default(),
             draining: VolatileSeries::default(),
             overlay: StateOverlay::new(epoch),
             protocol_parameters,
             governance_activity,
+            guardrail_script,
         }
     }
 
@@ -296,6 +308,12 @@ impl VolatileDB {
         } else {
             None
         }
+    }
+
+    /// The guardrails script every proposal's policy must name, preferring the constitution
+    /// enacted by an in-flight epoch transition over the cached base.
+    pub fn guardrail_script(&self) -> Option<Hash<SCRIPT>> {
+        self.overlay.pending_constitution().map_or(self.guardrail_script, |constitution| constitution.guardrail_script)
     }
 
     /// The governance roots, overlaying the pending boundary roots over the stable `base`.
@@ -368,12 +386,13 @@ impl VolatileDB {
             })
     }
 
-    /// Flush the pending epoch transition to the stable store. Returns the freshly-enacted
-    /// `(protocol_parameters, governance_activity)` when a governance transition was applied.
+    /// Flush the pending epoch transition to the stable store, refreshing the cached globals from
+    /// whatever that transition enacted.
     pub fn apply_transition(&mut self, db: &impl Store) -> Result<(), StateError> {
-        if let Some((protocol_parameters, governance_activity)) = self.overlay.apply(db)? {
+        if let Some((protocol_parameters, governance_activity, guardrail_script)) = self.overlay.apply(db)? {
             self.protocol_parameters = protocol_parameters;
             self.governance_activity = governance_activity;
+            self.guardrail_script = guardrail_script;
         }
 
         Ok(())
@@ -398,6 +417,7 @@ impl VolatileDB {
             overlay,
             protocol_parameters: self.protocol_parameters.clone(),
             governance_activity: self.governance_activity,
+            guardrail_script: self.guardrail_script,
         }
     }
 
@@ -894,7 +914,8 @@ mod tests {
     #[test]
     fn clear_empties_the_window_but_keeps_the_epoch_anchor() {
         let epoch = Epoch::from(42);
-        let mut db = VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let mut db =
+            VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default(), None);
         let block1 = AnchoredVolatileFragment::fixture(10, 1);
         let block2 = AnchoredVolatileFragment::fixture(20, 2);
         db.push_back(block1);
@@ -915,7 +936,8 @@ mod tests {
     #[test]
     fn clear_rewinds_the_retained_window_across_an_epoch_boundary() {
         let epoch = Epoch::from(42);
-        let mut db = VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let mut db =
+            VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default(), None);
         let block1 = AnchoredVolatileFragment::fixture(10, 1);
         let block2 = AnchoredVolatileFragment::fixture(20, 2);
         db.push_back(block1);

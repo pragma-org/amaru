@@ -26,8 +26,8 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version, to_cbor,
-    utils::string::display_collection,
+    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version,
+    size::SCRIPT, to_cbor, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, info, info_span, trace, warn};
@@ -162,6 +162,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn governance_activity_for(&self, epoch: Epoch) -> Option<GovernanceActivity> {
         self.volatile.governance_activity_for(epoch)
     }
+
+    /// The guardrails script of the enacted constitution, folding in a constitution enacted by the
+    /// volatile overlay.
+    pub fn guardrail_script(&self) -> Option<Hash<SCRIPT>> {
+        self.volatile.guardrail_script()
+    }
 }
 
 impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
@@ -180,6 +186,8 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
         let governance_activity = stable.governance_activity()?;
+
+        let guardrail_script = stable.constitution()?.guardrail_script;
 
         let stake_distributions = initial_stake_distributions(
             network,
@@ -203,6 +211,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             global_parameters,
             protocol_parameters,
             governance_activity,
+            guardrail_script,
             stake_distributions,
         ))
     }
@@ -217,6 +226,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         global_parameters: GlobalParameters,
         protocol_parameters: ProtocolParameters,
         governance_activity: GovernanceActivity,
+        guardrail_script: Option<Hash<SCRIPT>>,
         stake_distributions: VecDeque<StakeDistribution>,
     ) -> Self {
         Self {
@@ -234,7 +244,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // (2) Re-applying GlobalParameters::consensus_security_param (already synchronized) blocks is _fast-enough_ that it can be
             //     done on restart easily. To be measured; if this turns out to be too slow, we
             //     views of the volatile DB on-disk to be able to restore them quickly.
-            volatile: VolatileDB::new(epoch, protocol_parameters, governance_activity),
+            volatile: VolatileDB::new(epoch, protocol_parameters, governance_activity, guardrail_script),
 
             global_parameters: Arc::new(global_parameters),
 
@@ -710,6 +720,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             self.era_history(),
             self.global_parameters(),
             self.governance_activity(),
+            self.guardrail_script(),
             TransactionPointer { slot, transaction_index: 0 },
             transaction.tx_ref(),
             tx_size,
@@ -786,6 +797,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 self.era_history(),
                 self.global_parameters(),
                 self.governance_activity(),
+                self.guardrail_script(),
                 block,
             )?;
 

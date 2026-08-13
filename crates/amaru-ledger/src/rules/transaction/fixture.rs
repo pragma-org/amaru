@@ -18,6 +18,7 @@ use amaru_kernel::{
     CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, GovernanceAction, Hash, Lovelace,
     MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots, ProtocolParameters,
     StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
@@ -73,6 +74,10 @@ pub(super) struct InitialState {
     pub(super) governance_activity: GovernanceActivity,
     #[serde(default)]
     pub(super) pots: Pots,
+    /// Guardrails script of the enacted constitution, if it has one. A proposal carrying a policy
+    /// must name exactly this script; absent or `null` requires proposals to carry no policy at all.
+    #[serde(default)]
+    pub(super) guardrail_script: Option<Hash<SCRIPT>>,
 }
 
 fn deserialize_cbor_hex<'de, T, D>(deserializer: D) -> Result<T, D::Error>
@@ -268,6 +273,7 @@ pub(super) enum Predicate {
     ConwayTreasuryValueMismatch,
     InputSetEmptyUTxO,
     InsufficientCollateral,
+    InvalidGuardrailsScriptHash,
     InvalidPrevGovActionId,
     InvalidWitnessesUTXOW,
     MalformedReferenceScripts,
@@ -394,6 +400,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Proposals(InvalidProposals::InvalidPrevGovActionId { .. }) => {
                 Predicate::InvalidPrevGovActionId
+            }
+            PhaseOneError::Proposals(InvalidProposals::InvalidGuardrailsScriptHash { .. }) => {
+                Predicate::InvalidGuardrailsScriptHash
             }
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist

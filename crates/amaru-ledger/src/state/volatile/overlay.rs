@@ -15,8 +15,8 @@
 use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    ConstitutionalCommitteeUpdate, Epoch, Lovelace, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
-    RatificationStatus, StakeCredential, TreasuryDelta,
+    Constitution, ConstitutionalCommitteeUpdate, Epoch, Hash, Lovelace, PoolId, ProposalId, ProposalsRoots,
+    ProtocolParameters, RatificationStatus, StakeCredential, TreasuryDelta, size::SCRIPT,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -194,10 +194,14 @@ impl StateOverlay {
 
     /// Flush an overlay to disk.
     ///
-    /// Returns the freshly-enacted `(protocol_parameters, governance_activity)` when a governance
-    /// transition was applied, so the caller can refresh its cached copy. Returns `None` when there
-    /// was no governance update to apply, in which case the cached values are left untouched.
-    pub fn apply(&mut self, db: &impl Store) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
+    /// Returns the freshly-enacted `(protocol_parameters, governance_activity, guardrail_script)`
+    /// when a governance transition was applied, so the caller can refresh its cached copies.
+    /// Returns `None` when there was no governance update to apply, in which case the cached values
+    /// are left untouched.
+    pub fn apply(
+        &mut self,
+        db: &impl Store,
+    ) -> Result<Option<(ProtocolParameters, GovernanceActivity, Option<Hash<SCRIPT>>)>, StateError> {
         let updated = info_span!(ledger::epoch_transition::APPLY, epoch = self.epoch).in_scope(|| {
             use EpochTransitionProgress::*;
 
@@ -342,6 +346,11 @@ impl StateOverlay {
     /// The pending protocol parameters carried by an in-flight governance transition, if any.
     pub fn pending_protocol_parameters(&self) -> Option<&ProtocolParameters> {
         self.governance_updates.as_ref().map(|update| &update.protocol_parameters)
+    }
+
+    /// The constitution enacted by an in-flight epoch transition, if that transition enacts one.
+    pub fn pending_constitution(&self) -> Option<&Constitution> {
+        self.governance_updates.as_ref().and_then(|update| update.new_constitution.as_ref())
     }
 
     /// Whether the in-flight governance transition (if any) corresponds to a dormant epoch; used to

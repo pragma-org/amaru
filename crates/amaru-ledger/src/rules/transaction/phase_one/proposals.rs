@@ -61,6 +61,9 @@ pub enum InvalidProposals {
     #[error("invalid previous governance action id: {parent:?}")]
     InvalidPrevGovActionId { parent: Option<ProposalId> },
 
+    #[error("invalid guardrails script hash: provided {provided:?}, expected {expected:?}")]
+    InvalidGuardrailsScriptHash { provided: Option<Hash<SCRIPT>>, expected: Option<Hash<SCRIPT>> },
+
     #[error("era history error: {0}")]
     EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
@@ -70,6 +73,7 @@ pub(crate) fn execute<C>(
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
+    guardrail_script: Option<Hash<SCRIPT>>,
     transaction: (TransactionId, TransactionPointer),
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
@@ -77,7 +81,15 @@ where
     C: ProposalsSlice + AccountsSlice + WitnessSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
-        validate_proposal(context, &proposal, network, protocol_parameters, era_history, transaction.1)?;
+        validate_proposal(
+            context,
+            &proposal,
+            network,
+            protocol_parameters,
+            era_history,
+            guardrail_script,
+            transaction.1,
+        )?;
 
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
@@ -119,6 +131,7 @@ fn validate_proposal<C>(
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
+    guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
 ) -> Result<(), InvalidProposals>
 where
@@ -159,7 +172,7 @@ where
     }
 
     match &proposal.gov_action {
-        GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
+        GovernanceAction::TreasuryWithdrawals(wdrls, policy) => {
             let mut any_positive = false;
             let mut missing = BTreeSet::new();
 
@@ -182,6 +195,8 @@ where
                     _ => return Err(InvalidProposals::MalformedReturnAddress),
                 }
             }
+
+            check_guardrails_script_hash(guardrail_script, *policy)?;
 
             if !any_positive {
                 return Err(InvalidProposals::TreasuryWithdrawalsAllZeros);
@@ -220,11 +235,25 @@ where
             }
         }
 
-        GovernanceAction::ParameterChange(_, ppu, _) => {
+        GovernanceAction::ParameterChange(_, ppu, policy) => {
             ppu_well_formed(ppu)?;
+            check_guardrails_script_hash(guardrail_script, *policy)?;
         }
 
         GovernanceAction::Information => {}
+    }
+
+    Ok(())
+}
+
+/// Only `TreasuryWithdrawals` and `ParameterChange` proposals require the guardrails script hash.
+/// They must match exactly, including in the case that the protocol hasn't enacted a constitution.
+fn check_guardrails_script_hash(
+    expected: Option<Hash<SCRIPT>>,
+    provided: Option<Hash<SCRIPT>>,
+) -> Result<(), InvalidProposals> {
+    if provided != expected {
+        return Err(InvalidProposals::InvalidGuardrailsScriptHash { provided, expected });
     }
 
     Ok(())
