@@ -32,10 +32,33 @@ pub struct ParsedStateSnapshot {
     pub ledger_data_end: usize,
 }
 
+pub(super) struct StateSnapshotPrefix {
+    pub slot: u64,
+    pub hash: HeaderHash,
+    pub era_history: EraHistory,
+    pub ledger_data_begin: usize,
+}
+
 pub fn parse_state_snapshot(
     d: &mut Decoder<'_>,
     global_parameters: &GlobalParameters,
 ) -> Result<ParsedStateSnapshot, Box<dyn std::error::Error>> {
+    let prefix = parse_state_snapshot_prefix(d, global_parameters)?;
+    d.skip()?;
+
+    Ok(ParsedStateSnapshot {
+        slot: prefix.slot,
+        hash: prefix.hash,
+        era_history: prefix.era_history,
+        ledger_data_begin: prefix.ledger_data_begin,
+        ledger_data_end: d.position(),
+    })
+}
+
+pub(super) fn parse_state_snapshot_prefix(
+    d: &mut Decoder<'_>,
+    global_parameters: &GlobalParameters,
+) -> Result<StateSnapshotPrefix, Box<dyn std::error::Error>> {
     d.array()?;
 
     // version
@@ -63,13 +86,11 @@ pub fn parse_state_snapshot(
     decode_current_era(d, past_eras, current_era, global_parameters)
 }
 
-fn extract_snapshot_chain_state_after_prefix(
+pub(super) fn extract_snapshot_chain_state_after_ledger(
     d: &mut Decoder<'_>,
-    parsed_snapshot: &ParsedStateSnapshot,
+    at: Point,
     tail: HeaderHash,
 ) -> Result<ChainState, Box<dyn std::error::Error>> {
-    let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
-
     d.skip().map_err(|err| format!("skip shelley transition: {err}"))?;
     d.skip().map_err(|err| format!("skip latest peras cert round: {err}"))?;
 
@@ -130,7 +151,8 @@ pub fn parse_state_snapshot_with_chain_state(
 ) -> Result<(ParsedStateSnapshot, ChainState), Box<dyn std::error::Error>> {
     let parsed_snapshot =
         parse_state_snapshot(&mut d, global_parameters).map_err(|err| format!("parse state snapshot prefix: {err}"))?;
-    let chain_state = extract_snapshot_chain_state_after_prefix(&mut d, &parsed_snapshot, tail)?;
+    let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
+    let chain_state = extract_snapshot_chain_state_after_ledger(&mut d, at, tail)?;
 
     Ok((parsed_snapshot, chain_state))
 }
@@ -140,7 +162,7 @@ fn decode_current_era(
     mut eras: Vec<EraSummary>,
     current_era: EraName,
     global_parameters: &GlobalParameters,
-) -> Result<ParsedStateSnapshot, Box<dyn std::error::Error>> {
+) -> Result<StateSnapshotPrefix, Box<dyn std::error::Error>> {
     d.array()?;
 
     eras.push(EraSummary {
@@ -174,12 +196,10 @@ fn decode_current_era(
     let hash: HeaderHash = d.decode()?;
 
     let ledger_data_begin = d.position();
-    d.skip()?;
-    let ledger_data_end = d.position();
 
     let era_history = EraHistory::new(&eras, global_parameters.stability_window());
 
-    Ok(ParsedStateSnapshot { slot, hash, era_history, ledger_data_begin, ledger_data_end })
+    Ok(StateSnapshotPrefix { slot, hash, era_history, ledger_data_begin })
 }
 
 fn decode_partial_era_summary(

@@ -298,12 +298,10 @@ fn decode_node_accounts_lazy(
 /// The payload is decoded in full before anything is written, so that a malformed or unsupported
 /// snapshot leaves the store untouched.
 fn decode_initial_snapshot(
-    reader: &mut dyn Read,
+    decoder: &mut LazyDecoder<'_>,
     expected_epoch: Epoch,
     network: NetworkName,
 ) -> Result<InitialSnapshot, Box<dyn std::error::Error>> {
-    let mut decoder = LazyDecoder::new(reader);
-
     let epoch: Epoch = decoder.with_decoder(|d| decode_initial_snapshot_prefix(d, expected_epoch))?;
 
     // NOTE(INITIAL_BOOTSTRAP):
@@ -355,9 +353,9 @@ fn decode_initial_snapshot(
     let (pools, pools_updates, pools_retirements) =
         decoder.with_decoder(|d| Ok(decode_node_pool_state(d, network)?)).map_err(format_pool_state_decode_error)?;
 
-    let accounts = decode_node_accounts_lazy(&mut decoder).map_err(|err| format!("decode accounts: {err}"))?;
+    let accounts = decode_node_accounts_lazy(decoder).map_err(|err| format!("decode accounts: {err}"))?;
 
-    skip_embedded_utxo(&mut decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
+    skip_embedded_utxo(decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
 
     let fees: i64 = decoder
         .with_decoder(|d| {
@@ -441,9 +439,9 @@ fn decode_initial_snapshot(
         d.array()?;
         Ok(())
     })?;
-    let mark_snapshot = decode_stake_snapshot_lazy(&mut decoder)?;
-    skip_stake_snapshot_lazy(&mut decoder)?; // Epoch State / Snapshots / Set
-    skip_stake_snapshot_lazy(&mut decoder)?; // Epoch State / Snapshots / Go
+    let mark_snapshot = decode_stake_snapshot_lazy(decoder)?;
+    skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Set
+    skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Go
     decoder.skip()?; // Epoch State / Snapshots / Fee
     decoder.skip()?; // Epoch State / NonMyopic
 
@@ -471,7 +469,7 @@ fn decode_initial_snapshot(
     let (delta_treasury, delta_reserves, rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
         let delta_reserves: i64 = decoder.decode()?;
-        let rewards: BTreeMap<StakeCredential, SerialisedAsSet<Vec<Reward>>> = decode_btree_map(&mut decoder)?;
+        let rewards: BTreeMap<StakeCredential, SerialisedAsSet<Vec<Reward>>> = decode_btree_map(decoder)?;
         let delta_fees: i64 = decoder.decode()?;
         decoder.skip()?;
         (
@@ -481,8 +479,12 @@ fn decode_initial_snapshot(
             delta_fees,
         )
     } else {
+        decoder.skip()?;
         (0_i64, 0_i64, BTreeMap::new(), 0_i64)
     };
+
+    decoder.skip()?; // Pool distribution
+    decoder.skip()?; // Stashed AVVM addresses
 
     Ok(InitialSnapshot {
         epoch,
@@ -524,6 +526,30 @@ pub fn import_initial_snapshot(
     network: NetworkName,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
+    let mut decoder = LazyDecoder::new(reader);
+    import_initial_snapshot_with_decoder(
+        db,
+        &mut decoder,
+        recently_unregistered_accounts,
+        point,
+        era_history,
+        network,
+        with_progress,
+    )
+}
+
+/// Bootstrap Amaru's initial state from a decoder positioned at a cardano-node
+/// `NewEpochState` payload.
+#[allow(clippy::too_many_arguments)]
+pub fn import_initial_snapshot_with_decoder(
+    db: &impl Store,
+    decoder: &mut LazyDecoder<'_>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    point: &Point,
+    era_history: &EraHistory,
+    network: NetworkName,
+    with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
+) -> Result<Epoch, Box<dyn std::error::Error>> {
     let tip = point.slot_or_default();
     let expected_epoch = era_history.slot_to_epoch(tip, tip)?;
 
@@ -553,7 +579,7 @@ pub fn import_initial_snapshot(
         delta_reserves,
         mut rewards,
         delta_fees,
-    } = decode_initial_snapshot(reader, expected_epoch, network)?;
+    } = decode_initial_snapshot(decoder, expected_epoch, network)?;
 
     import_protocol_parameters(db, &protocol_parameters)?;
 
