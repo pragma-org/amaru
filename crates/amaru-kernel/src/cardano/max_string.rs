@@ -49,11 +49,7 @@ impl<const MAX: usize> TryFrom<String> for MaxString<MAX> {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value.len() > MAX {
-            Err(format!("string exceeds {} bytes: got {}", MAX, value.len()))
-        } else {
-            Ok(Self(value))
-        }
+        Self::from_str(value.as_str())
     }
 }
 
@@ -61,7 +57,11 @@ impl<const MAX: usize> FromStr for MaxString<MAX> {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s.to_string())
+        if s.len() > MAX {
+            Err(format!("string exceeds {} bytes: got {}", MAX, s.len()))
+        } else {
+            Ok(Self(s.to_string()))
+        }
     }
 }
 

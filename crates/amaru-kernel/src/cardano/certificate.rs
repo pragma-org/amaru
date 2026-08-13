@@ -189,33 +189,31 @@ impl<C> cbor::encode::Encode<C> for Certificate {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        // NOTE: the array length is not asserted here.
-        //
-        // Each variant carries a different number of fields, so validating the length means
-        // asserting it per variant. That is worth doing, but it is a separate change; what matters
-        // here is going through `heterogeneous_array`, which accepts indefinite-length arrays and
-        // consumes their trailing break.
-        cbor::heterogeneous_array(d, |d, _assert_len| {
+        cbor::heterogeneous_array(d, |d, assert_len| {
             let variant = d.u16()?;
 
             match variant {
                 0 => {
+                    assert_len(2)?;
                     let a = d.decode_with(ctx)?;
                     Ok(Self::StakeRegistration(a))
                 }
 
                 1 => {
+                    assert_len(2)?;
                     let a = d.decode_with(ctx)?;
                     Ok(Self::StakeDeregistration(a))
                 }
 
                 2 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::StakeDelegation(a, b))
                 }
 
                 3 => {
+                    assert_len(10)?;
                     let id = d.decode_with(ctx)?;
                     let vrf = d.decode_with(ctx)?;
                     let pledge = d.decode_with(ctx)?;
@@ -240,6 +238,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
                 }
 
                 4 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::PoolRetirement(a, b))
@@ -247,24 +246,28 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
 
                 // 5 and 6 removed since the Conway era
                 7 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::Reg(a, b))
                 }
 
                 8 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::UnReg(a, b))
                 }
 
                 9 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::VoteDeleg(a, b))
                 }
 
                 10 => {
+                    assert_len(4)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
@@ -272,6 +275,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
                 }
 
                 11 => {
+                    assert_len(4)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
@@ -279,6 +283,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
                 }
 
                 12 => {
+                    assert_len(4)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
@@ -286,6 +291,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
                 }
 
                 13 => {
+                    assert_len(5)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
@@ -294,18 +300,21 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
                 }
 
                 14 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::AuthCommitteeHot(a, b))
                 }
 
                 15 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::ResignCommitteeCold(a, b))
                 }
 
                 16 => {
+                    assert_len(4)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
@@ -313,12 +322,14 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
                 }
 
                 17 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::UnRegDRepCert(a, b))
                 }
 
                 18 => {
+                    assert_len(3)?;
                     let a = d.decode_with(ctx)?;
                     let b = d.decode_with(ctx)?;
                     Ok(Self::UpdateDRepCert(a, b))

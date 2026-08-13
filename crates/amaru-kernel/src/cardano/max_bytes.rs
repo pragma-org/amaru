@@ -18,15 +18,36 @@ use crate::{Bytes, cbor};
 
 /// A list of bytes whose length is bounded by the given maximum.
 ///
-/// `Eq`, `Ord` and `Hash` are written by hand rather than derived, because the array is padded past
-/// `len` and a derived impl would compare the padding: `b"a"` and `b"a\0"` share the same backing
-/// array and would wrongly compare equal.
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[serde(into = "String")]
-#[serde(try_from = "String")]
+/// The backing array is always zero-padded past `len` (every constructor goes through `checked` or
+/// `empty`, and the fields are never mutated), so the derived `Eq`, `Ord` and `Hash` agree with
+/// comparisons on `as_slice()`: equal slices imply identical `(bytes, len)` pairs, and zero being
+/// the smallest byte keeps the derived lexicographic order consistent with slice order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MaxBytes<const MAX: usize> {
     bytes: [u8; MAX],
     len: usize,
+}
+
+impl<const MAX: usize> serde::Serialize for MaxBytes<MAX> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&hex::encode(self.as_slice()))
+        } else {
+            serializer.serialize_bytes(self.as_slice())
+        }
+    }
+}
+
+impl<'de, const MAX: usize> serde::Deserialize<'de> for MaxBytes<MAX> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            Self::from_str(&s).map_err(serde::de::Error::custom)
+        } else {
+            let bytes = <&[u8]>::deserialize(deserializer)?;
+            Self::checked(bytes).map_err(serde::de::Error::custom)
+        }
+    }
 }
 
 impl<const MAX: usize> MaxBytes<MAX> {
@@ -47,32 +68,6 @@ impl<const MAX: usize> MaxBytes<MAX> {
 
     pub const fn empty() -> Self {
         Self { bytes: [0u8; MAX], len: 0 }
-    }
-}
-
-impl<const MAX: usize> PartialEq for MaxBytes<MAX> {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_slice() == other.as_slice()
-    }
-}
-
-impl<const MAX: usize> Eq for MaxBytes<MAX> {}
-
-impl<const MAX: usize> PartialOrd for MaxBytes<MAX> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<const MAX: usize> Ord for MaxBytes<MAX> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.as_slice().cmp(other.as_slice())
-    }
-}
-
-impl<const MAX: usize> std::hash::Hash for MaxBytes<MAX> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_slice().hash(state)
     }
 }
 
@@ -112,31 +107,17 @@ impl<const N: usize> From<MaxBytes<N>> for Bytes {
     }
 }
 
-impl<const N: usize> From<MaxBytes<N>> for String {
-    fn from(bytes: MaxBytes<N>) -> Self {
-        hex::encode(bytes.to_vec())
-    }
-}
-
-impl<const N: usize> TryFrom<String> for MaxBytes<N> {
-    type Error = MaxBytesError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::checked(&hex::decode(value)?)
-    }
-}
-
 impl<const N: usize> FromStr for MaxBytes<N> {
     type Err = MaxBytesError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s.to_string())
+        Self::checked(&hex::decode(s)?)
     }
 }
 
 impl<const N: usize> fmt::Display for MaxBytes<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&hex::encode(self.to_vec()))
+        f.write_str(&hex::encode(self.as_slice()))
     }
 }
 
