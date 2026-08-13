@@ -21,7 +21,6 @@ use crate::{
     BoundedBytes, Bytes, Hash, Header, OperationalCert, ProtocolVersion, VrfCert, any_hash28,
     cardano::{fixed_bytes::FixedBytes, network_block::make_block},
     size::BLOCK_BODY,
-    to_cbor,
 };
 
 /// Body hash and size of a test block, so headers built here are consistent with the
@@ -50,9 +49,9 @@ pub fn make_header_with_op_cert_seq(
             block_number,
             slot,
             prev_hash,
-            issuer_verification_key: Bytes::from(vec![0u8; ed25519::PUBLIC_KEY_LENGTH]),
-            vrf_verification_key: Bytes::from(vec![]),
-            vrf_result: VrfCert { output: Bytes::from(vec![]), proof: Bytes::from(vec![]) },
+            issuer_verification_key: VerificationKey::empty(),
+            vrf_verification_key: VerificationKey::empty(),
+            vrf_result: VrfCert { output: BoundedBytes::empty(), proof: FixedBytes::empty() },
             block_body_size,
             block_body_hash,
             operational_cert: OperationalCert {
