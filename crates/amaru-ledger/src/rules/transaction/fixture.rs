@@ -27,12 +27,16 @@ use crate::{
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
-        transaction::phase_one::{
-            InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
-            InvalidValidityInterval, InvalidVerificationKeyWitness, InvalidWithdrawals, PhaseOneError,
-            outputs::{InvalidOutput, InvalidOutputs},
-            proposals::InvalidProposals,
-            voting_procedures::InvalidVotingProcedures,
+        block::TransactionInvalid,
+        transaction::{
+            phase_one::{
+                InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
+                InvalidValidityInterval, InvalidVerificationKeyWitness, InvalidWithdrawals, PhaseOneError,
+                outputs::{InvalidOutput, InvalidOutputs},
+                proposals::InvalidProposals,
+                voting_procedures::InvalidVotingProcedures,
+            },
+            phase_two::PhaseTwoError,
         },
     },
 };
@@ -240,6 +244,15 @@ impl<'de> Deserialize<'de> for Expected {
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
+pub(super) enum TagMismatchDescription {
+    /// The transaction claims to be invalid, yet every script it runs passes. A transaction
+    /// carrying no Plutus script at all lands here too: an empty script set trivially passes.
+    PassedUnexpectedly,
+    /// The transaction claims to be valid, yet at least one of its scripts fails.
+    FailedUnexpectedly,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "predicate")]
 pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,
@@ -280,11 +293,44 @@ pub(super) enum Predicate {
     StakePoolRetirementWrongEpochPOOL,
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
+    ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
     WrongNetworkWithdrawal,
+}
+
+impl From<TransactionInvalid> for Predicate {
+    fn from(err: TransactionInvalid) -> Self {
+        match err {
+            TransactionInvalid::PhaseOneError(err) => Predicate::from(err),
+            TransactionInvalid::PhaseTwoError(err) => Predicate::from(err),
+        }
+    }
+}
+
+impl From<PhaseTwoError> for Predicate {
+    fn from(err: PhaseTwoError) -> Self {
+        match err {
+            // Reaching the caller means `is_valid` was true, since a failing script is what an
+            // invalid transaction is expected to exhibit.
+            PhaseTwoError::UplcMachineError(_) => {
+                Predicate::ValidationTagMismatch { description: TagMismatchDescription::FailedUnexpectedly }
+            }
+            PhaseTwoError::ValidityStateError => {
+                Predicate::ValidationTagMismatch { description: TagMismatchDescription::PassedUnexpectedly }
+            }
+            // The Haskell ledger reports these as 'CollectErrors' rather than a tag mismatch: they
+            // are raised while assembling the script arguments, before any script runs.
+            PhaseTwoError::MissingInput(_)
+            | PhaseTwoError::TransactionTranslationError(_)
+            | PhaseTwoError::ScriptContextStateError(_)
+            | PhaseTwoError::ScriptDeserializationError(_)
+            | PhaseTwoError::FlatDecodingError(_)
+            | PhaseTwoError::MissingCostModel(_) => unreachable!("no predicate mapping yet for {err}"),
+        }
+    }
 }
 
 impl From<PhaseOneError> for Predicate {

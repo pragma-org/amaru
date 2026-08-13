@@ -312,7 +312,9 @@ pub mod tests {
             decoded.treasury,
         );
 
-        let arena_pool = ArenaPool::new(1, 1024);
+        let arena_pool = ArenaPool::new(1, 1_024_000);
+        let global_parameters =
+            NetworkName::Preprod.as_global_parameters().ok_or("missing global parameters for preprod")?;
 
         for (ix, event) in record.events.into_iter().enumerate() {
             let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {
@@ -348,12 +350,27 @@ pub mod tests {
                 era_history,
                 governance_activity,
                 pointer,
-                true,
-                tx.body,
+                tx.is_expected_valid,
+                tx.body.clone(),
                 &tx_witness_set,
                 tx_auxiliary_data,
                 tx_size,
-            );
+            )
+            .map_err(|e| e.to_string())
+            .and_then(|_consumed_inputs| {
+                transaction::phase_two::execute(
+                    &mut validation_context,
+                    &arena_pool,
+                    &protocol_parameters,
+                    era_history,
+                    global_parameters,
+                    pointer,
+                    tx.is_expected_valid,
+                    &tx.body,
+                    &tx_witness_set,
+                )
+                .map_err(|e| e.to_string())
+            });
 
             match result {
                 Ok(_) if !success => return Err("Expected failure, got success".into()),

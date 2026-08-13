@@ -1,0 +1,34 @@
+{
+  "title": "transaction marked invalid carrying no plutus script",
+  "description": "A transaction marked invalid spending a single vkey-locked input, with no redeemer and no Plutus script.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258200356f27908a57b5c3bbb0f3aa690cca11b2a3d4c0c864b17b142b39693ee364100",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a400d90102818258200356f27908a57b5c3bbb0f3aa690cca11b2a3d4c0c864b17b142b39693ee3641000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0049c9eb021a000281550f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840668f6dbae99b4a48b689a370b4ce0897cf8b846e5c40db32fdc4540568050d7366c3fccb4c74b37667364dcaf26f2bf93a05b41228ec6467176658333e01340cf4f6",
+  "expected": {
+    "predicate": "ValidationTagMismatch",
+    "description": "PassedUnexpectedly"
+  }
+}

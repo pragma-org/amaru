@@ -1,0 +1,35 @@
+{
+  "title": "collateral return carrying a datum hash",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, whose collateral return carries a datum hash. The collateral return is validated under SupplementalDatumPolicy::Disallow, so unlike a normal output its datum hash registers no supplemental datum and the absent datum is not an extraneous one.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258204f8b2d6a1c9e3f7b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "8258209c3e7f1b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b4d6a1c9e00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a700d90102818258204f8b2d6a1c9e3f7b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0049aa3f021a0002a1010b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258209c3e7f1b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b4d6a1c9e000f0010a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e848002820058209e1199a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88ba300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840d2cf5593a31f396966995513ca4c5bf0e2b35cfef75c2623ee71163089c33e65f6325f108194f19e5a8208bdd04d3f4aff5adaf470c3ca7925819d40bfbc3d0305a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}

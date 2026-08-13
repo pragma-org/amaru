@@ -94,7 +94,7 @@ where
     C: UtxoSlice + fmt::Debug,
 {
     if transaction_witness_set.redeemer.is_none() {
-        return Ok(());
+        return if is_valid { Ok(()) } else { Err(PhaseTwoError::ValidityStateError) };
     }
 
     let span_build_context = debug_span!(ledger::rules::phase_two::BUILD_SCRIPT_CONTEXT);

@@ -1,6 +1,6 @@
 # Test credentials
 
-The Ed25519 keys the phase-one fixtures sign with. They are committed so that any
+The Ed25519 keys the transaction fixtures sign with. They are committed so that any
 implementation can regenerate a fixture's witness set, or author a new fixture that stays
 consistent with the rest of the corpus.
 

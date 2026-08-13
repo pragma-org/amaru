@@ -341,15 +341,8 @@ normalizeApplyTxError emptyInputs expectedHint (ConwayApplyTxError failures) =
 -- Amaru's phase-one rules validate a transaction as part of a block, so failures 'applyTx' raises
 -- that block application would not are dropped.
 isBlockValidationFailure :: ConwayLedgerPredFailure ConwayEra -> Bool
-isBlockValidationFailure failure =
-    not (isScriptExecutionFailure failure) && not (isMempoolOnlyFailure failure)
-
--- Phase-one conformance validates structure only, not Plutus script *execution*. 'applyTx' runs
--- both phases, so we drop the phase-two script-result failure ('ValidationTagMismatch'). Context
--- collection failures such as 'OutsideForecast' happen before execution and are kept.
-isScriptExecutionFailure :: ConwayLedgerPredFailure ConwayEra -> Bool
-isScriptExecutionFailure failure =
-    "ValidationTagMismatch" `Text.isInfixOf` showText failure
+isBlockValidationFailure =
+    not . isMempoolOnlyFailure
 
 -- 'applyTx' additionally runs the MEMPOOL rule, which only gates mempool admission. Below
 -- protocol version 11 it stands in for the GOV rule's 'UnelectedCommitteeVoters' predicate, so a
@@ -442,6 +435,8 @@ normalizeUtxoFailure = \case
     UtxosFailure failure
         | "TimeTranslationPastHorizon" `Text.isInfixOf` showText failure ->
             "OutsideForecast"
+        | "ValidationTagMismatch" `Text.isInfixOf` showText failure ->
+            "ValidationTagMismatch"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
