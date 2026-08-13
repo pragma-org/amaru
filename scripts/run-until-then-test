@@ -4,14 +4,17 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $0 [--force] <bootstrap_epoch> <last_test_epoch>
+Usage: $0 [--force] <extra_epochs>
+       $0 [--force] <bootstrap_epoch> <last_test_epoch>
 
 Bootstrap Amaru, synchronize far enough to retain ledger snapshots through
-last_test_epoch, and compare snapshots from bootstrap_epoch through
-last_test_epoch with Haskell-node stake-distribution fixtures. Stable ledger
-snapshots trail epoch transitions by two epochs, so the node runs through
-last_test_epoch + 2. Use --force to delete existing ledger and chain databases
-for the selected network.
+last_test_epoch, and compare the snapshots with Haskell-node
+stake-distribution fixtures. With one argument, bootstrap from the latest
+available snapshots and test through extra_epochs after the resulting
+bootstrap epoch. With two arguments, bootstrap_epoch and last_test_epoch are
+absolute epochs. Stable ledger snapshots trail epoch transitions by two
+epochs, so the node runs through last_test_epoch + 2. Use --force to delete
+existing ledger and chain databases for the selected network.
 
 Environment:
   AMARU_NETWORK                Network to test (default: preprod)
@@ -44,23 +47,35 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "$#" -ne 2 ]; then
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
   usage >&2
   exit 1
 fi
 
-if ! [[ "$1" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]]; then
-  echo "Error: bootstrap_epoch and target_epoch must be non-negative integers." >&2
-  exit 1
-fi
+bootstrap_epoch=""
+target_epoch=""
+extra_epochs=""
 
-bootstrap_epoch=$((10#$1))
-target_epoch=$((10#$2))
-run_until_epoch=$((target_epoch + 2))
+if [ "$#" -eq 1 ]; then
+  if ! [[ "$1" =~ ^[0-9]+$ ]]; then
+    echo "Error: extra_epochs must be a non-negative integer." >&2
+    exit 1
+  fi
 
-if (( target_epoch <= bootstrap_epoch )); then
-  echo "Error: target_epoch must be greater than bootstrap_epoch." >&2
-  exit 1
+  extra_epochs=$((10#$1))
+else
+  if ! [[ "$1" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]]; then
+    echo "Error: bootstrap_epoch and last_test_epoch must be non-negative integers." >&2
+    exit 1
+  fi
+
+  bootstrap_epoch=$((10#$1))
+  target_epoch=$((10#$2))
+
+  if (( target_epoch <= bootstrap_epoch )); then
+    echo "Error: last_test_epoch must be greater than bootstrap_epoch." >&2
+    exit 1
+  fi
 fi
 
 network="${AMARU_NETWORK:-preprod}"
@@ -86,6 +101,30 @@ chain_dir="chain.${network}.db"
 fixtures_dir="crates/amaru/tests/conformance/stake-distributions/${network}"
 require_command curl
 
+infer_bootstrap_epoch() {
+  local latest_snapshot_epoch=""
+  local snapshot_dir
+  local snapshot_epoch
+
+  for snapshot_dir in "$ledger_dir"/*; do
+    [ -d "$snapshot_dir" ] || continue
+    snapshot_epoch="${snapshot_dir##*/}"
+    [[ "$snapshot_epoch" =~ ^[0-9]+$ ]] || continue
+    snapshot_epoch=$((10#$snapshot_epoch))
+
+    if [ -z "$latest_snapshot_epoch" ] || (( snapshot_epoch > latest_snapshot_epoch )); then
+      latest_snapshot_epoch="$snapshot_epoch"
+    fi
+  done
+
+  if [ -z "$latest_snapshot_epoch" ]; then
+    echo "Error: could not infer the bootstrap epoch from '$ledger_dir'." >&2
+    return 1
+  fi
+
+  echo $((latest_snapshot_epoch + 1))
+}
+
 download_fixtures() {
   local epoch="$bootstrap_epoch"
   local fixture
@@ -110,9 +149,22 @@ stop_fixture_download() {
   fi
 }
 
-download_fixtures &
-fixtures_pid=$!
-trap stop_fixture_download EXIT
+start_fixture_download() {
+  download_fixtures &
+  fixtures_pid=$!
+  trap stop_fixture_download EXIT
+}
+
+bootstrap_node() {
+  AMARU_NETWORK="$network" \
+  AMARU_LEDGER_DIR="$ledger_dir" \
+  AMARU_CHAIN_DIR="$chain_dir" \
+  cargo run --profile "$build_profile" --locked --bin amaru -- node bootstrap "$@"
+}
+
+if [ -n "$target_epoch" ]; then
+  start_fixture_download
+fi
 
 if [ "$force" = "true" ]; then
   echo "==> Removing existing $network node databases"
@@ -122,11 +174,22 @@ if [ "$force" = "true" ]; then
   cargo run --profile "$build_profile" --locked --bin amaru -- node rm --wipe-all-dbs
 fi
 
-echo "==> Bootstrapping $network at epoch $bootstrap_epoch"
-AMARU_NETWORK="$network" \
-AMARU_LEDGER_DIR="$ledger_dir" \
-AMARU_CHAIN_DIR="$chain_dir" \
-cargo run --profile "$build_profile" --locked --bin amaru -- node bootstrap --epoch "$bootstrap_epoch"
+if [ -n "$bootstrap_epoch" ]; then
+  echo "==> Bootstrapping $network at epoch $bootstrap_epoch"
+  bootstrap_node --epoch "$bootstrap_epoch"
+else
+  echo "==> Bootstrapping $network at the latest available epoch"
+  (unset AMARU_EPOCH; bootstrap_node)
+fi
+
+if [ -n "$extra_epochs" ]; then
+  bootstrap_epoch="$(infer_bootstrap_epoch)"
+  target_epoch=$((bootstrap_epoch + extra_epochs))
+  echo "==> Bootstrap starts at epoch $bootstrap_epoch; testing $extra_epochs extra epoch(s) through epoch $target_epoch"
+  start_fixture_download
+fi
+
+run_until_epoch=$((target_epoch + 2))
 
 echo "==> Running $network until epoch $run_until_epoch to retain snapshots through epoch $target_epoch"
 AMARU_NETWORK="$network" \
@@ -142,6 +205,13 @@ wait "$fixtures_pid"
 fixtures_pid=""
 trap - EXIT
 
-echo "==> Validating $network ledger snapshots with available E2E fixtures"
-test_filter="compare_${network}_stake_distribution_with_haskell_node"
-env AMARU_NETWORK="$network" cargo test --profile "$build_profile" --locked -p amaru --test summary "$test_filter"
+echo "==> Validating $network ledger snapshots for epochs $bootstrap_epoch through $target_epoch"
+test_filters=()
+test_epoch="$bootstrap_epoch"
+while (( test_epoch <= target_epoch )); do
+  test_filters+=("compare_${network}_stake_distribution_with_haskell_node::epoch_${test_epoch}")
+  test_epoch=$((test_epoch + 1))
+done
+
+env AMARU_NETWORK="$network" \
+cargo test --profile "$build_profile" --locked -p amaru --test summary -- --exact "${test_filters[@]}"
