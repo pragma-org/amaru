@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash, Lovelace, MemoizedTransactionOutput,
-    NetworkName, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots, ProtocolParameters, StakeCredential,
-    TransactionInput, TransactionPointer, cbor, json,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
+    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots,
+    ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
@@ -199,7 +199,7 @@ struct CommitteeMemberProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     cold_credential: StakeCredential,
     #[serde(default, deserialize_with = "deserialize_optional_cbor_hex")]
-    hot_credential: Option<StakeCredential>,
+    status: Option<ConstitutionalCommitteeMemberStatus>,
     #[serde(default)]
     valid_until: Option<Epoch>,
 }
@@ -212,7 +212,7 @@ where
     Ok(entries
         .into_iter()
         .map(|entry| {
-            let member = CCMember { hot_credential: entry.hot_credential, valid_until: entry.valid_until };
+            let member = CCMember { status: entry.status, valid_until: entry.valid_until };
             (entry.cold_credential, member)
         })
         .collect())
@@ -416,10 +416,12 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,
+                DelegateError::AlreadyResigned => unreachable!("only applicable to CC"),
             },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidVoteDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeDRepNotRegistered,
+                DelegateError::AlreadyResigned => unreachable!("only applicable to CC"),
             },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered

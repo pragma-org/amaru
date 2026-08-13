@@ -17,10 +17,16 @@ use std::{fmt, ops::Deref, str::FromStr};
 use crate::{Bytes, cbor};
 
 /// A list of bytes with a fixed size, known at compile time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(into = "String")]
 #[serde(try_from = "String")]
 pub struct FixedBytes<const N: usize>([u8; N]);
+
+impl<const N: usize> fmt::Debug for FixedBytes<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("FixedBytes").field(&hex::encode(self.0.as_slice())).finish()
+    }
+}
 
 impl<const N: usize> FixedBytes<N> {
     pub fn as_slice(&self) -> &[u8] {

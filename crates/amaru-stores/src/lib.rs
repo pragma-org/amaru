@@ -170,12 +170,11 @@ pub mod tests {
             amaru_ledger::store::columns::cc_members::tests::any_row().new_tree(runner).unwrap().current();
 
         // Ensure hot_credential is always Some
-        cc_member_row.hot_credential.get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current());
+        cc_member_row.status.get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current().into());
 
-        let hot_credential = cc_member_row.hot_credential.unwrap();
+        let member_status = cc_member_row.status.unwrap();
 
-        let cc_members_iter =
-            std::iter::once((cc_member_key, (Resettable::Set(hot_credential), Resettable::Unchanged)));
+        let cc_members_iter = std::iter::once((cc_member_key, (Resettable::Set(member_status), Resettable::Unchanged)));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot, Hash::from([0u8; 32]));
@@ -464,7 +463,7 @@ pub mod tests {
         let committee =
             ConstitutionalCommitteeStatus::Trusted { threshold: RationalNumber { numerator: 1, denominator: 2 } };
 
-        let hot_credential = fixture.cc_member_row.hot_credential.expect("fixture seeds a hot credential");
+        let status = fixture.cc_member_row.status.expect("fixture seeds a non empty status");
         let term = Epoch::from(100);
 
         let context = store.create_transaction();
@@ -477,7 +476,7 @@ pub mod tests {
 
         assert_eq!(
             store.cc_member(&fixture.cc_member_key)?,
-            Some(cc_members::Row { hot_credential: Some(hot_credential), valid_until: Some(term) }),
+            Some(cc_members::Row { status: Some(status), valid_until: Some(term) }),
             "an elected member holds both a term and its authorization"
         );
 

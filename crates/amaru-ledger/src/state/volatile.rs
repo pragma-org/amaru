@@ -15,8 +15,8 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId, Pots, ProposalId, StakeCredential,
-    TransactionInput,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId,
+    Pots, ProposalId, StakeCredential, TransactionInput,
 };
 
 mod db;
@@ -62,7 +62,7 @@ pub type AccountBind<'a> = Bind<&'a (PoolId, CertificatePointer), &'a (DRep, Cer
 /// A CC member's accumulated binding: the authorized hot credential on the left, the term an election
 /// granted on the right. The empty `value` stops a layer superseding the one below it, since either
 /// half can be set without the other.
-pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Epoch, &'a Empty>;
+pub type CommitteeMemberBind<'a> = Bind<&'a ConstitutionalCommitteeMemberStatus, &'a Epoch, &'a Empty>;
 
 /// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
 /// is the queryable value; the anchor is updated independently of registration, so an anchor-only

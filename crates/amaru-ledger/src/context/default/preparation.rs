@@ -391,19 +391,23 @@ fn resolve_committee<'block, 'volatile>(
 
         for (cold_credential, row) in db.iter_cc_members().map_err(ContextHydratationError::ResolveCommittee)? {
             let is_requested = cold_credentials.contains(&cold_credential);
-            let is_delegatee = row.hot_credential.as_ref().is_some_and(|hot| voters.contains(hot));
+            let is_delegatee = row
+                .status
+                .as_ref()
+                .and_then(|status| status.as_hot_credential())
+                .is_some_and(|hot| voters.contains(hot));
 
             if is_requested || is_delegatee {
                 match volatile_cc_members.remove(&cold_credential) {
                     Some(Existence::Unknown) | None => {
                         cc_members.insert(cold_credential, row);
                     }
-                    Some(Existence::Exists(Bind { left: hot_credential, right: valid_until, .. })) => {
+                    Some(Existence::Exists(Bind { left: status, right: valid_until, .. })) => {
                         cc_members.insert(
                             cold_credential,
                             CCMember {
-                                hot_credential: hot_credential.into_option(row.hot_credential.as_ref()).copied(),
-                                valid_until: valid_until.into_option(row.valid_until.as_ref()).copied(),
+                                status: status.to_option(row.status.as_ref()),
+                                valid_until: valid_until.to_option(row.valid_until.as_ref()),
                             },
                         );
                     }
@@ -423,7 +427,7 @@ fn resolve_committee<'block, 'volatile>(
             if let Existence::Exists(bind) = existence {
                 cc_members.insert(
                     *cold_credential,
-                    CCMember { hot_credential: bind.left.to_option(None), valid_until: bind.right.to_option(None) },
+                    CCMember { status: bind.left.to_option(None), valid_until: bind.right.to_option(None) },
                 );
             }
         }

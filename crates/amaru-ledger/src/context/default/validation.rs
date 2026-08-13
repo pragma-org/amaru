@@ -20,13 +20,13 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalKind,
-    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
+    GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalKind, ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential,
+    TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
-use amaru_observability::trace_span;
 
 use crate::{
     context::{
@@ -34,7 +34,7 @@ use crate::{
         PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
         WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
-    state::volatile::{BindError, Existence, Resettable, VolatileFragment},
+    state::volatile::{BindError, Existence, VolatileFragment},
 };
 
 #[derive(Debug, Default)]
@@ -128,22 +128,10 @@ impl PoolsSlice for DefaultValidationContext {
     /// A `PoolId` isn't going to be sufficient context; we'll also need a way to resolve and
     /// assert existence of VRF keys. Possibly in another BTreeSet of known VRF keys.
     fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace) {
-        let pool_id = params.id;
-        let _span = trace_span!(
-            ledger::transaction::CERTIFICATE_POOL_REGISTRATION,
-            pool_id = %pool_id
-        );
-        let _guard = _span.enter();
         self.state.pools.register(params.id, Arc::new((params, pointer, deposit)))
     }
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>> {
-        let _span = trace_span!(
-            ledger::transaction::CERTIFICATE_POOL_RETIREMENT,
-            pool_id = %pool,
-            epoch = epoch
-        );
-        let _guard = _span.enter();
         if !PoolsSlice::exists(self, pool) {
             return Err(UnregisterError::Unknown(PhantomData {}, pool));
         }
@@ -197,9 +185,6 @@ impl AccountsSlice for DefaultValidationContext {
         credential: StakeCredential,
         state: AccountState,
     ) -> Result<(), RegisterError<AccountState, StakeCredential>> {
-        let _span =
-            trace_span!(ledger::transaction::CERTIFICATE_STAKE_REGISTRATION, credential = format!("{credential:?}"));
-        let _guard = _span.enter();
         if AccountsSlice::lookup(self, &credential).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, credential));
         }
@@ -213,12 +198,6 @@ impl AccountsSlice for DefaultValidationContext {
         pool: PoolId,
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
-        let _span = trace_span!(
-            ledger::transaction::CERTIFICATE_STAKE_DELEGATION,
-            credential = format!("{credential:?}"),
-            pool_id = %pool
-        );
-        let _guard = _span.enter();
         if !PoolsSlice::exists(self, pool) {
             return Err(DelegateError::UnknownTarget(pool));
         }
@@ -237,12 +216,6 @@ impl AccountsSlice for DefaultValidationContext {
             DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
             DRep::Abstain | DRep::NoConfidence => None,
         };
-        let _span =
-            trace_span!(ledger::transaction::CERTIFICATE_VOTE_DELEGATION, credential = format!("{credential:?}"));
-        if let Some(d) = &drep_stake_credential {
-            _span.record("drep", format!("{d:?}"));
-        }
-        let _guard = _span.enter();
         if let Some(drep_credential) = &drep_stake_credential
             && DRepsSlice::lookup(self, drep_credential).is_none()
         {
@@ -253,9 +226,6 @@ impl AccountsSlice for DefaultValidationContext {
     }
 
     fn unregister(&mut self, credential: StakeCredential) {
-        let _span =
-            trace_span!(ledger::transaction::CERTIFICATE_STAKE_DEREGISTRATION, credential = format!("{credential:?}"));
-        let _guard = _span.enter();
         self.state.accounts.unregister(credential)
     }
 
@@ -283,15 +253,6 @@ impl DRepsSlice for DefaultValidationContext {
         registration: DRepRegistration,
         anchor: Option<Box<Anchor>>,
     ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
-        let _span = trace_span!(
-            ledger::transaction::CERTIFICATE_DREP_REGISTRATION,
-            drep = format!("{drep:?}"),
-            deposit = registration.deposit
-        );
-        if let Some(a) = &anchor {
-            _span.record("anchor_url", &*a.url);
-        }
-        let _guard = _span.enter();
         if DRepsSlice::lookup(self, &drep).is_some() {
             return Err(RegisterError::AlreadyRegistered(PhantomData, drep));
         }
@@ -304,19 +265,11 @@ impl DRepsSlice for DefaultValidationContext {
         drep: StakeCredential,
         anchor: Option<Box<Anchor>>,
     ) -> Result<(), UpdateError<StakeCredential>> {
-        let _span = trace_span!(ledger::transaction::CERTIFICATE_DREP_UPDATE, drep = format!("{drep:?}"));
-        if let Some(a) = &anchor {
-            _span.record("anchor_url", &*a.url);
-        }
-        let _guard = _span.enter();
         self.state.dreps.bind_left(drep, anchor)?;
         Ok(())
     }
 
-    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer) {
-        let _span =
-            trace_span!(ledger::transaction::CERTIFICATE_DREP_RETIREMENT, drep = format!("{drep:?}"), refund = refund);
-        let _guard = _span.enter();
+    fn unregister(&mut self, drep: StakeCredential, _refund: Lovelace, pointer: CertificatePointer) {
         self.state.dreps_deregistrations.insert(drep, pointer);
         self.state.dreps.unregister(drep)
     }
@@ -329,24 +282,14 @@ impl CommitteeSlice for DefaultValidationContext {
     /// proposals, but not yet elected.
     fn lookup_by_cold_credential(&self, cold_credential: &StakeCredential) -> Option<CCMember> {
         match self.state.committee.get(cold_credential) {
-            Existence::Exists(newer) => {
-                let base = self.committee.get(cold_credential);
+            Existence::Gone => None,
+            Existence::Exists(new) => {
+                let old = self.committee.get(cold_credential);
                 Some(CCMember {
-                    hot_credential: newer
-                        .left
-                        .into_option(base.and_then(|cc_member| cc_member.hot_credential.as_ref()))
-                        .copied(),
-                    valid_until: {
-                        assert!(
-                            matches!(newer.right, Resettable::Unchanged),
-                            "dynamic state of the constitutional committee: the state's bind cannot possibly contain a newer.right that is Some since\
-                             right-bind are only emitted by the epoch transition as a result of a ratification."
-                        );
-                        base.and_then(|cc_member| cc_member.valid_until)
-                    },
+                    status: new.left.to_option(old.and_then(|cc_member| cc_member.status.as_ref())),
+                    valid_until: new.right.to_option(old.and_then(|cc_member| cc_member.valid_until.as_ref())),
                 })
             }
-            Existence::Gone => None,
             Existence::Unknown => self.committee.get(cold_credential).copied(),
         }
     }
@@ -367,51 +310,64 @@ impl CommitteeSlice for DefaultValidationContext {
     /// and expiration collapse into one.
     ///
     /// [haskell]: https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/libs/cardano-ledger-core/src/Cardano/Ledger/State/CertState.hs#L335-L337
-    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> impl Iterator<Item = CCMember> {
+    fn lookup_by_hot_credential<'iter>(
+        &'iter self,
+        hot_credential: &'iter StakeCredential,
+    ) -> impl Iterator<Item = CCMember> + 'iter {
+        use ConstitutionalCommitteeMemberStatus::*;
+
         std::iter::empty()
             .chain(self.committee.keys())
             .chain(self.state.committee.registered.keys().filter(|k| !self.committee.contains_key(k)))
-            .filter_map(|cc_member| {
+            .filter_map(move |cc_member| {
                 let member = CommitteeSlice::lookup_by_cold_credential(self, cc_member)?;
-                (member.hot_credential.as_ref() == Some(hot_credential)).then_some(member)
+                match member.status.as_ref() {
+                    Some(DelegatedToHotCredential(candidate_credential)) => {
+                        (candidate_credential == hot_credential).then_some(member)
+                    }
+                    None | Some(Resigned) => None,
+                }
             })
     }
 
     fn delegate_cold_key(
         &mut self,
-        cc_member: StakeCredential,
+        cold_credential: StakeCredential,
         delegate: StakeCredential,
     ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
-        let _guard = trace_span!(
-            ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE,
-            cc_member = format!("{cc_member:?}"),
-            delegate = format!("{delegate:?}")
-        )
-        .entered();
-        if self.lookup_by_cold_credential(&cc_member).is_none() {
-            return Err(DelegateError::UnknownSource(cc_member));
+        let Some(cc_member) = self.lookup_by_cold_credential(&cold_credential) else {
+            return Err(DelegateError::UnknownSource(cold_credential));
+        };
+
+        if matches!(cc_member.status, Some(ConstitutionalCommitteeMemberStatus::Resigned)) {
+            return Err(DelegateError::AlreadyResigned);
         }
+
         self.state
             .committee
-            .bind_left(cc_member, Some(delegate))
-            .map_err(|BindError::AlreadyUnregistered(cc_member)| DelegateError::UnknownSource(cc_member))?;
+            .bind_left(cold_credential, Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(delegate)))
+            .map_err(|BindError::AlreadyUnregistered(k)| DelegateError::UnknownSource(k))?;
         Ok(())
     }
 
     fn resign(
         &mut self,
-        cc_member: StakeCredential,
-        anchor: Option<Box<Anchor>>,
-    ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
-        let span = trace_span!(ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));
-        let _guard = span.enter();
-        if let Some(a) = &anchor {
-            span.record("anchor_url", &*a.url);
+        cold_credential: StakeCredential,
+        _anchor: Option<Box<Anchor>>,
+    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
+        let Some(cc_member) = self.lookup_by_cold_credential(&cold_credential) else {
+            return Err(DelegateError::UnknownSource(cold_credential));
+        };
+
+        if matches!(cc_member.status, Some(ConstitutionalCommitteeMemberStatus::Resigned)) {
+            return Err(DelegateError::AlreadyResigned);
         }
+
         self.state
             .committee
-            .bind_left(cc_member, None)
-            .map_err(|BindError::AlreadyUnregistered(cc_member)| UnregisterError::Unknown(PhantomData, cc_member))?;
+            .bind_left(cold_credential, Some(ConstitutionalCommitteeMemberStatus::Resigned))
+            .map_err(|BindError::AlreadyUnregistered(k)| DelegateError::UnknownSource(k))?;
+
         Ok(())
     }
 }
@@ -440,6 +396,24 @@ impl ProposalsSlice for DefaultValidationContext {
     }
 
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
+        // NOTE: Candidate CC Members
+        //
+        // Members present in pending proposals are seen and accessible for various operations
+        // (delegation, resignation). We materialize this as empty binds for that member. They may
+        // be overridden by certificates also present in the transaction. And they are removed when
+        // the fragment (and proposals) go out of the volatile and the proposals become available to
+        // the store anyway.
+        if let GovernanceAction::UpdateCommittee(_, _, added, _) = &proposal.gov_action {
+            for (cold_credential, _) in added.iter() {
+                if !matches!(self.state.committee.get(cold_credential), Existence::Exists(..)) {
+                    self.state
+                        .committee
+                        .bind_left(*cold_credential, None)
+                        .unwrap_or_else(|_| unreachable!("committee members are never 'unregistered'"));
+                }
+            }
+        }
+
         self.state.proposals.insert(id, Arc::new((proposal, pointer)));
     }
 
@@ -596,11 +570,11 @@ mod tests {
     }
 
     fn cc_member(hot: Option<u8>) -> CCMember {
-        CCMember { hot_credential: hot.map(cred), valid_until: Some(Epoch::from(10)) }
+        cc_member_with(hot, Some(10))
     }
 
     fn cc_member_with(hot: Option<u8>, valid_until: Option<u64>) -> CCMember {
-        CCMember { hot_credential: hot.map(cred), valid_until: valid_until.map(Epoch::from) }
+        CCMember { status: hot.map(cred).map(Into::into), valid_until: valid_until.map(Epoch::from) }
     }
 
     fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
@@ -618,7 +592,9 @@ mod tests {
         let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
         ctx.delegate_cold_key(cred(1), cred(2)).unwrap();
         assert_eq!(
-            CommitteeSlice::lookup_by_cold_credential(&ctx, &cred(1)).and_then(|m| m.hot_credential),
+            CommitteeSlice::lookup_by_cold_credential(&ctx, &cred(1))
+                .and_then(|m| m.status)
+                .and_then(|s| s.as_hot_credential().copied()),
             Some(cred(2))
         );
     }
@@ -629,7 +605,7 @@ mod tests {
         ctx.delegate_cold_key(cred(1), cred(2)).unwrap();
         assert_eq!(
             CommitteeSlice::lookup_by_cold_credential(&ctx, &cred(1)),
-            Some(CCMember { hot_credential: Some(cred(2)), valid_until: None })
+            Some(CCMember { status: Some(cred(2).into()), valid_until: None })
         );
     }
 
@@ -714,8 +690,8 @@ mod tests {
     /// back to one of them, so both are returned.
     #[test]
     fn committee_lookup_by_hot_credential_returns_every_authorizing_member() {
-        let first = CCMember { hot_credential: Some(cred(9)), valid_until: Some(Epoch::from(10)) };
-        let second = CCMember { hot_credential: Some(cred(9)), valid_until: Some(Epoch::from(20)) };
+        let first = CCMember { status: Some(cred(9).into()), valid_until: Some(Epoch::from(10)) };
+        let second = CCMember { status: Some(cred(9).into()), valid_until: Some(Epoch::from(20)) };
         let ctx = ctx_with_committee(BTreeMap::from([(cred(1), first), (cred(2), second)]));
 
         assert_eq!(

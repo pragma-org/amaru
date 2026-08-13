@@ -1373,7 +1373,7 @@ mod tests {
             panic!("elected member resolved to nothing");
         };
 
-        assert_eq!(left, &Resettable::Set(&cred(2)), "the hot key declared while the proposal was pending");
+        assert_eq!(left, &Resettable::Set(&cred(2).into()), "the hot key declared while the proposal was pending");
         assert_eq!(right, &Resettable::Set(&expected_term_limit), "the term the boundary granted");
     }
 
@@ -1456,7 +1456,7 @@ mod tests {
     fn committee_block(slot: u64, act: CommitteeAct) -> AnchoredVolatileFragment {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         match act {
-            CommitteeAct::Auth => block.fragment.committee.bind_left(cred(1), Some(cred(2))),
+            CommitteeAct::Auth => block.fragment.committee.bind_left(cred(1), Some(cred(2).into())),
             CommitteeAct::Resign => block.fragment.committee.bind_left(cred(1), None),
         }
         .unwrap();
