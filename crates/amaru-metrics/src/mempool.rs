@@ -12,15 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 
-#[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Gauge};
-use crate::{Meter, MetricRecorder, MetricsEvent};
+use crate::{Counter, Gauge, Meter, MetricRecorder, MetricsEvent};
 
 // EVENTS
 
@@ -94,14 +90,6 @@ pub struct MempoolMetrics {
     pub event: MempoolMetricEvent,
 }
 
-#[cfg(target_arch = "wasm32")]
-impl MetricRecorder for MempoolMetrics {
-    fn record_to_meter(&self, _meter: &Meter) {
-        // no-op in wasm32 environment, because of `opentelemetry` dependency on `js-sys`
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for MempoolMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         let Some(meter) = meter.get() else {

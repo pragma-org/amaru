@@ -39,7 +39,6 @@ ignored = [
   "futures-executor",
   "futures-sink",
   "futures-util",
-  "getrandom-468e82937335b1c9",
   "getrandom-6f8ce4dd05d13bba",
   "hashbrown",
   "hyper",
@@ -119,7 +118,6 @@ futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-executor = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 insta = { version = "1", features = ["yaml"] }
@@ -381,32 +379,6 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 winapi = { version = "0.3", default-features = false, features = ["cfg", "consoleapi", "evntrace", "handleapi", "impl-default", "in6addr", "inaddr", "minwinbase", "ntsecapi", "processenv", "synchapi", "sysinfoapi", "winbase", "windef", "winerror", "winioctl", "winuser"] }
 windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
-
-[target.wasm32-unknown-unknown.dependencies]
-bumpalo = { version = "3", features = ["collections"] }
-js-sys = { version = "0.3" }
-num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
-num-complex = { version = "0.4", default-features = false, features = ["libm"] }
-num-rational = { version = "0.4" }
-once_cell = { version = "1" }
-uuid = { version = "1", default-features = false, features = ["js"] }
-wasm-bindgen = { version = "0.2" }
-web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
-
-[target.wasm32-unknown-unknown.build-dependencies]
-bumpalo = { version = "3", features = ["collections"] }
-futures-channel = { version = "0.3", features = ["sink"] }
-futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
-js-sys = { version = "0.3" }
-num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
-num-bigint = { version = "0.4" }
-num-complex = { version = "0.4", default-features = false, features = ["libm"] }
-num-rational = { version = "0.4" }
-once_cell = { version = "1" }
-slab = { version = "0.4" }
-wasm-bindgen = { version = "0.2" }
 
 [target.riscv32gc-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }

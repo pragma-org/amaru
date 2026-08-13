@@ -49,7 +49,7 @@ amaru-plutus.workspace = true
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
 
-[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+[target.'cfg(not(target_arch="riscv32"))'.dependencies]
 amaru-deps.workspace = true
 
 [dev-dependencies]

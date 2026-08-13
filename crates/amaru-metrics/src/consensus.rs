@@ -12,17 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 
-#[cfg(not(target_arch = "wasm32"))]
-use opentelemetry::KeyValue;
-#[cfg(not(target_arch = "wasm32"))]
-use opentelemetry::metrics::Meter as OpenTelemetryMeter;
+use opentelemetry::{KeyValue, metrics::Meter as OpenTelemetryMeter};
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Histogram};
-use crate::{Meter, MetricRecorder, MetricsEvent};
+use crate::{Counter, Histogram, Meter, MetricRecorder, MetricsEvent};
 
 /// Performance measurements emitted by the select_chain stage, computed from `perf.*` events
 /// but aggregatable as OpenTelemetry metrics (a duration histogram plus an outcome-labelled
@@ -48,12 +42,6 @@ pub enum ConsensusMetrics {
     ForkSwitch { outcome: String, duration_micros: u64 },
 }
 
-#[cfg(target_arch = "wasm32")]
-impl MetricRecorder for ConsensusMetrics {
-    fn record_to_meter(&self, _meter: &Meter) {}
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ConsensusMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static HEADER_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
@@ -137,7 +125,6 @@ impl MetricRecorder for ConsensusMetrics {
 }
 
 /// Record a duration to its histogram, if present, without touching any counter.
-#[cfg(not(target_arch = "wasm32"))]
 fn record_optional_duration(
     meter: &OpenTelemetryMeter,
     duration: &'static OnceLock<Histogram<u64>>,
@@ -156,7 +143,6 @@ fn record_optional_duration(
 }
 
 /// Record a duration measurement to its histogram and bump the matching outcome-labelled counter.
-#[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::too_many_arguments)]
 fn record_duration(
     meter: &OpenTelemetryMeter,

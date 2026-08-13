@@ -12,58 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::*;
+use opentelemetry::metrics::Meter as OpenTelemetryMeter;
+pub use opentelemetry::metrics::{Counter, Gauge, Histogram};
 
-#[cfg(not(target_arch = "wasm32"))]
-mod native {
-    use opentelemetry::metrics::Meter as OpenTelemetryMeter;
-    pub use opentelemetry::metrics::{Counter, Gauge, Histogram};
+use crate::MetricsEvent;
 
-    use crate::MetricsEvent;
+#[derive(Default)]
+pub struct Meter {
+    open_telemetry_meter: Option<OpenTelemetryMeter>,
+    local_observer: Option<Box<dyn Fn(&MetricsEvent) + Send + Sync>>,
+}
 
-    #[derive(Default)]
-    pub struct Meter {
-        open_telemetry_meter: Option<OpenTelemetryMeter>,
-        local_observer: Option<Box<dyn Fn(&MetricsEvent) + Send + Sync>>,
-    }
-
-    impl From<OpenTelemetryMeter> for Meter {
-        fn from(open_telemetry_meter: OpenTelemetryMeter) -> Self {
-            Self { open_telemetry_meter: Some(open_telemetry_meter), local_observer: None }
-        }
-    }
-
-    impl Meter {
-        pub fn get(&self) -> Option<&OpenTelemetryMeter> {
-            self.open_telemetry_meter.as_ref()
-        }
-
-        pub fn set_local_observer(&mut self, local_observer: Box<dyn Fn(&MetricsEvent) + Send + Sync>) {
-            self.local_observer = Some(local_observer);
-        }
-
-        pub fn notify_local_observer_if_any(&self, event: &MetricsEvent) {
-            if let Some(notify) = self.local_observer.as_ref() {
-                notify(event);
-            }
-        }
+impl From<OpenTelemetryMeter> for Meter {
+    fn from(open_telemetry_meter: OpenTelemetryMeter) -> Self {
+        Self { open_telemetry_meter: Some(open_telemetry_meter), local_observer: None }
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub use wasm::*;
+impl Meter {
+    pub fn get(&self) -> Option<&OpenTelemetryMeter> {
+        self.open_telemetry_meter.as_ref()
+    }
 
-#[cfg(target_arch = "wasm32")]
-mod wasm {
-    use crate::MetricsEvent;
+    pub fn set_local_observer(&mut self, local_observer: Box<dyn Fn(&MetricsEvent) + Send + Sync>) {
+        self.local_observer = Some(local_observer);
+    }
 
-    pub struct Meter;
-    pub type Gauge = ();
-    pub type Counter = ();
-    pub type Histogram = ();
-
-    impl Meter {
-        pub fn notify_local_observer_if_any(&self, _event: &MetricsEvent) {}
+    pub fn notify_local_observer_if_any(&self, event: &MetricsEvent) {
+        if let Some(notify) = self.local_observer.as_ref() {
+            notify(event);
+        }
     }
 }

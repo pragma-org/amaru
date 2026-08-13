@@ -60,6 +60,10 @@ Other guiding principles:
 - **amaru**: stake-distribution conformance tests no longer partition `#[ignore]` vs active cases from `ledger.<network>.db` at build time (watching that live DB rebuilt `amaru` on every node write). Fixture directories are still watched so tests regenerate when snapshots change; each test soft-skips with a warning when the matching local ledger snapshot is missing.
 - **amaru-ledger**: validate the governance actions a transaction votes on actually exist, counting proposals submitted earlier in the same block. ([#1139][], [#924][])
 
+### Removed
+
+- **workspace**: remove WebAssembly target support.
+
 ### Fixed
 
 - **amaru-node**: when OTLP is enabled, `Telemetry` starts the same process/build gauges as the product binary (`process_*`, `cardano_node_metrics_cardano_*`) so embedders such as `run_until` satisfy the e2e metrics contract.

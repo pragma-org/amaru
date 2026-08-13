@@ -7,7 +7,7 @@ status: proposed
 
 This document records strategies for handling errors throughout the Amaru stack.
 
-Rust notoriously let users free to deal with errors. We need a consistent strategy for how our project reports, wraps, and propagates errors. Particularly as it grows in complexity, is composed of multiple crates, includes external crates, and possibly compiles to WebAssembly.
+Rust notoriously let users free to deal with errors. We need a consistent strategy for how our project reports, wraps, and propagates errors. Particularly as it grows in complexity, is composed of multiple crates, and includes external crates.
 
 Defining precise errors and composing them without introducing too much overhead is not straightforward and requires following a consistent methodology.
 

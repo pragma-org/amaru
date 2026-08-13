@@ -61,17 +61,6 @@ jobs:
       command: test --tests --workspace --profile dev-debug
       cache-mode: ${{ github.ref == 'refs/heads/main' && 'WRITE' || 'READ' }}
 
-  build-wasm32:
-    name: Build wasm32
-    needs: [build-linux-x86_64]
-    uses: ./.github/workflows/template-cargo-test.yml
-    with:
-      runner: ubuntu-24.04
-      target: wasm32-unknown-unknown
-      command: build -p amaru-consensus -p amaru-ledger -p amaru-pure-stage
-      cache-mode: READ
-      setup: rustup target add wasm32-unknown-unknown
-
   build-riscv:
     name: Build riscv
     needs: [build-linux-x86_64]

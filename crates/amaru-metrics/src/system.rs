@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::OnceLock;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::Gauge;
-use crate::{Meter, MetricRecorder, MetricsEvent};
+use crate::{Gauge, Meter, MetricRecorder, MetricsEvent};
 
 pub const PROCESS_RUNTIME: &str = "process_runtime";
 pub const PROCESS_CPU_LIVE: &str = "process_cpu_live";
@@ -52,12 +49,6 @@ pub struct SystemMetrics {
     pub open_files: u64,
 }
 
-#[cfg(target_arch = "wasm32")]
-impl MetricRecorder for SystemMetrics {
-    fn record_to_meter(&self, _meter: &Meter) {}
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for SystemMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static RUNTIME_SECONDS: OnceLock<Gauge<u64>> = OnceLock::new();

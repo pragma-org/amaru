@@ -22,7 +22,6 @@ cbor4ii.workspace = true
 either.workspace = true
 erased-serde.workspace = true
 futures-util.workspace = true
-getrandom = { version = "0.3", features = ["wasm_js"] }
 hex.workspace = true
 parking_lot.workspace = true
 pretty_assertions.workspace = true
@@ -35,11 +34,11 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 typetag.workspace = true
 
-[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+[target.'cfg(not(target_arch="riscv32"))'.dependencies]
 amaru-deps.workspace = true
 
 [package.metadata.cargo-machete]
-ignored = ["getrandom", "amaru-deps"]
+ignored = ["amaru-deps"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "time", "rt-multi-thread"] }

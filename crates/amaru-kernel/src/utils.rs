@@ -15,7 +15,7 @@
 pub mod array;
 pub mod cbor;
 pub mod duration;
-#[cfg(all(any(test, feature = "test-utils"), not(target_family = "wasm"), not(target_arch = "riscv32")))]
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "riscv32")))]
 pub mod memory;
 pub mod path;
 pub mod process;

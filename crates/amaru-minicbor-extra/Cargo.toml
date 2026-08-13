@@ -28,7 +28,7 @@ tracing = { workspace = true, optional = true }
 [dev-dependencies]
 hex.workspace = true
 
-[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+[target.'cfg(not(target_arch="riscv32"))'.dependencies]
 amaru-deps.workspace = true
 
 [package.metadata.cargo-machete]

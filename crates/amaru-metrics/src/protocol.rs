@@ -12,15 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex, OnceLock};
 
-#[cfg(not(target_arch = "wasm32"))]
 use opentelemetry::KeyValue;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Gauge};
-use crate::{Meter, MetricRecorder, MetricsEvent};
+use crate::{Counter, Gauge, Meter, MetricRecorder, MetricsEvent};
 
 // Uses ObservableGauge rather than Gauge: the callback output replaces the previous
 // observation set each collection cycle, so only the current label set is ever exported.
@@ -28,7 +24,6 @@ use crate::{Meter, MetricRecorder, MetricsEvent};
 //
 // `state` and `gauge` must be `'static` at the call site: `state` is the shared cell
 // read by the callback; `gauge` keeps the handle alive (dropping it deregisters the callback).
-#[cfg(not(target_arch = "wasm32"))]
 fn update_observable_gauge<T>(
     state: &'static OnceLock<Arc<Mutex<Option<T>>>>,
     gauge: &'static OnceLock<opentelemetry::metrics::ObservableGauge<u64>>,
@@ -94,12 +89,6 @@ pub struct TipBlockMetrics {
     pub issuer_verification_key_hash: String,
 }
 
-#[cfg(target_arch = "wasm32")]
-impl MetricRecorder for ProtocolMetrics {
-    fn record_to_meter(&self, _meter: &Meter) {}
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ProtocolMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         match self {
@@ -110,12 +99,6 @@ impl MetricRecorder for ProtocolMetrics {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-impl MetricRecorder for ConnectionManagerMetrics {
-    fn record_to_meter(&self, _meter: &Meter) {}
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ConnectionManagerMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static INBOUND_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
@@ -154,12 +137,6 @@ impl MetricRecorder for ConnectionManagerMetrics {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-impl MetricRecorder for ServedBlockCountMetrics {
-    fn record_to_meter(&self, _meter: &Meter) {}
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for ServedBlockCountMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static SERVED_BLOCK_COUNT: OnceLock<Counter<u64>> = OnceLock::new();
@@ -180,12 +157,6 @@ impl MetricRecorder for ServedBlockCountMetrics {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-impl MetricRecorder for TipBlockMetrics {
-    fn record_to_meter(&self, _meter: &Meter) {}
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for TipBlockMetrics {
     fn record_to_meter(&self, meter: &Meter) {
         static CURRENT_TIP: OnceLock<Arc<Mutex<Option<TipBlockMetrics>>>> = OnceLock::new();
