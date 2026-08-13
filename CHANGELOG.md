@@ -59,6 +59,7 @@ Other guiding principles:
 - **amaru-observability**: structured logging for complex values: schema transport preserves JSON primitives and encodes other values as CBOR (`record_bytes`); JSON traces get nested objects/arrays, OTEL logs get nested `AnyValue` maps/lists, OTEL spans upgrade homogeneous CBOR arrays to `Value::Array` (with CBOR diagnostic fallback otherwise), and console logs use CBOR diagnostic notation. ([#1182](https://github.com/pragma-org/amaru/pull/1182))
 - **amaru**: stake-distribution conformance tests no longer partition `#[ignore]` vs active cases from `ledger.<network>.db` at build time (watching that live DB rebuilt `amaru` on every node write). Fixture directories are still watched so tests regenerate when snapshots change; each test soft-skips with a warning when the matching local ledger snapshot is missing.
 - **amaru-ledger**: validate the governance actions a transaction votes on actually exist, counting proposals submitted earlier in the same block. ([#1139][], [#924][])
+- **amaru-ledger**: reject a governance proposal whose policy is not the enacted constitution's guardrails script. ([#931][])
 
 ### Fixed
 
@@ -301,6 +302,7 @@ Other guiding principles:
 [#924]: https://github.com/pragma-org/amaru/issues/924
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
+[#931]: https://github.com/pragma-org/amaru/issues/931
 [#932]: https://github.com/pragma-org/amaru/issues/932
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951

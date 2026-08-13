@@ -20,7 +20,9 @@ use std::{
 
 use amaru_kernel::{
     Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot,
-    TransactionId, TransactionIndex, TransactionPointer, cardano::transaction_ref::TransactionRef, size::BLOCK_BODY,
+    TransactionId, TransactionIndex, TransactionPointer,
+    cardano::transaction_ref::TransactionRef,
+    size::{BLOCK_BODY, SCRIPT},
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -211,6 +213,7 @@ pub fn execute<C, S: From<C>>(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     governance_activity: GovernanceActivity,
+    guardrail_script: Option<Hash<SCRIPT>>,
     block: &Block,
 ) -> BlockValidation<(), anyhow::Error>
 where
@@ -268,6 +271,7 @@ where
                     era_history,
                     global_parameters,
                     governance_activity,
+                    guardrail_script,
                     TransactionPointer { slot, transaction_index: i as usize },
                     transaction,
                     tx_size,
@@ -303,6 +307,7 @@ pub fn validate_transaction<C>(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     governance_activity: GovernanceActivity,
+    guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
     transaction: TransactionRef<'_>,
     tx_size: u64,
@@ -317,6 +322,7 @@ where
         protocol_params,
         era_history,
         governance_activity,
+        guardrail_script,
         pointer,
         transaction.is_expected_valid,
         transaction.body.clone(),

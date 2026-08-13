@@ -92,6 +92,9 @@ it is made up of the following fields:
   (see below). Use `{}` when none are enacted; absent purposes default to none.
 - `governanceActivity`: `{ consecutiveDormantEpochs }`.
 - `pots`: `{ treasury, reserves }`, the protocol pots as of the initial state.
+- `guardrailScript`: hex-encoded script hash of the enacted constitution's
+  guardrails script. A proposal carrying a policy must name exactly this script;
+  absent or `null` requires proposals to carry no policy at all.
 
 A governance action id is `{ transactionId, proposalIndex }`, mirroring
 `CertificatePointer`: `transactionId` is the hex-encoded 32-byte hash of the

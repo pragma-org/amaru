@@ -275,8 +275,12 @@ impl Scenario {
 
     // Create a volatile database, pre-filled with data along the given dimension
     pub fn new_volatile_db(self, rng: &mut impl Rng, scale: &BenchScale) -> VolatileDB {
-        let mut db =
-            VolatileDB::new(Epoch::from(0), MAINNET_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let mut db = VolatileDB::new(
+            Epoch::from(0),
+            MAINNET_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            GovernanceActivity::default(),
+            None,
+        );
 
         (0..scale.volatile_size).for_each(|ix| {
             let mut fragment = VolatileFragment::default();

@@ -82,6 +82,7 @@ mod tests {
             &era_history,
             fixture.network.as_global_parameters().expect("missing global parameters for network"),
             fixture.initial_state.governance_activity,
+            fixture.initial_state.guardrail_script,
             fixture.point,
             tx.tx_ref(),
             tx_size,

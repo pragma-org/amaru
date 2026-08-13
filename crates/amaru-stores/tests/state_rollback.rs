@@ -214,6 +214,7 @@ fn make_state() -> State<MockStore, RocksDBHistoricalStores> {
         global_parameters,
         protocol_parameters,
         GovernanceActivity::default(),
+        None,
         VecDeque::new(),
     )
 }

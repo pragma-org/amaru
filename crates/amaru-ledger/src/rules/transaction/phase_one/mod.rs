@@ -15,8 +15,8 @@
 use std::{fmt, mem, ops::Deref};
 
 use amaru_kernel::{
-    AuxiliaryData, EraHistory, HasTransactionId, Lovelace, Network, NetworkName, ProtocolParameters, TransactionBody,
-    TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance,
+    AuxiliaryData, EraHistory, HasTransactionId, Hash, Lovelace, Network, NetworkName, ProtocolParameters,
+    TransactionBody, TransactionInput, TransactionPointer, WitnessSet, cardano::value::Balance, size::SCRIPT,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -125,6 +125,7 @@ pub fn execute<C>(
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
     governance_activity: GovernanceActivity,
+    guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
     is_valid: bool,
     mut transaction_body: TransactionBody,
@@ -278,6 +279,7 @@ where
                 network,
                 protocol_parameters,
                 era_history,
+                guardrail_script,
                 (transaction_id, pointer),
                 mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
             )

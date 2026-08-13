@@ -184,6 +184,11 @@
       "pattern": "^[0-9a-fA-F]{56}$",
       "description": "Hex-encoded stake pool key hash (28 bytes)."
     },
+    "ScriptHash": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{56}$",
+      "description": "Hex-encoded script hash (28 bytes)."
+    },
     "CertificatePointer": {
       "type": "object",
       "required": ["transaction", "certificateIndex"],
@@ -286,7 +291,11 @@
           "description": "The latest enacted governance action id per purpose. Absent purposes default to none."
         },
         "governanceActivity": { "$ref": "#/$defs/VotingState" },
-        "pots": { "$ref": "#/$defs/Pots" }
+        "pots": { "$ref": "#/$defs/Pots" },
+        "guardrailScript": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ScriptHash" }],
+          "description": "Guardrails script of the enacted constitution. A proposal carrying a policy must name exactly this script; absent or null requires proposals to carry no policy at all."
+        }
       }
     },
     "Pots": {
