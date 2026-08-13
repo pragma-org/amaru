@@ -134,6 +134,163 @@ struct InitialSnapshot {
     delta_fees: i64,
 }
 
+fn skip_map(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    decode_map_with_decoder(
+        decoder,
+        |d| {
+            d.skip()?;
+            d.skip()
+        },
+        (),
+        |state, _| state,
+    )
+}
+
+fn decode_stake_snapshot_lazy(
+    decoder: &mut LazyDecoder<'_>,
+) -> Result<BTreeSet<StakeCredential>, Box<dyn std::error::Error>> {
+    decoder.with_decoder(|d| {
+        d.array()?;
+        Ok(())
+    })?;
+
+    let accounts = decode_map_with_decoder(
+        decoder,
+        |d| {
+            let credential = d.decode()?;
+            d.skip()?;
+            Ok(credential)
+        },
+        BTreeSet::new(),
+        |mut accounts, credential| {
+            accounts.insert(credential);
+            accounts
+        },
+    )?;
+    skip_map(decoder)?;
+
+    Ok(accounts)
+}
+
+fn skip_stake_snapshot_lazy(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
+    decoder.with_decoder(|d| {
+        d.array()?;
+        Ok(())
+    })?;
+    skip_map(decoder)?;
+    skip_map(decoder)
+}
+
+fn decode_at_probe<T>(
+    decoder: &mut cbor::Decoder<'_>,
+    decode: &impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
+) -> Result<T, cbor::decode::Error> {
+    let (entry, position) = {
+        let mut probe = decoder.probe();
+        (decode(&mut probe)?, probe.position())
+    };
+
+    decoder.set_position(position);
+    Ok(entry)
+}
+
+fn decode_next_map_entry<T>(
+    decoder: &mut cbor::Decoder<'_>,
+    remaining: Option<u64>,
+    decode: &impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
+) -> Result<Option<T>, cbor::decode::Error> {
+    match remaining {
+        Some(0) => Ok(None),
+        None if cbor::decode_break(decoder, None)? => Ok(None),
+        _ => decode_at_probe(decoder, decode).map(Some),
+    }
+}
+
+fn decode_map_chunk<T>(
+    decoder: &mut cbor::Decoder<'_>,
+    remaining: Option<u64>,
+    decode: &impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
+) -> Result<(Vec<T>, bool), cbor::decode::Error> {
+    let mut entries = Vec::new();
+
+    loop {
+        match decode_next_map_entry(decoder, remaining.map(|count| count - entries.len() as u64), decode) {
+            Ok(Some(entry)) => entries.push(entry),
+            Ok(None) => return Ok((entries, true)),
+            Err(error) if error.is_end_of_input() && !entries.is_empty() => return Ok((entries, false)),
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Decode a CBOR map in chunks that fit in the [`LazyDecoder`]'s current buffer.
+///
+/// Decoding a large map with a single `with_decoder` call restarts the map from its first entry
+/// whenever more input is needed. Keeping completed entries outside the callback makes the work
+/// linear in the encoded map size while preserving bounded input buffering.
+///
+/// `decode_entry` may be retried after more input is read and must not have external side effects.
+/// Completed entries are passed to `fold_entry` exactly once.
+fn decode_map_with_decoder<T, A>(
+    decoder: &mut LazyDecoder<'_>,
+    decode_entry: impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
+    mut accumulator: A,
+    fold_entry: impl Fn(A, T) -> A,
+) -> Result<A, Box<dyn std::error::Error>> {
+    let mut remaining = decoder.with_decoder(|d| Ok(d.map()?))?;
+
+    loop {
+        let (entries, complete) =
+            decoder.with_decoder(|d| decode_map_chunk(d, remaining, &decode_entry).map_err(Into::into))?;
+
+        remaining = remaining.map(|count| count - entries.len() as u64);
+        accumulator = entries.into_iter().fold(accumulator, &fold_entry);
+
+        if complete {
+            return Ok(accumulator);
+        }
+    }
+}
+
+fn decode_btree_map<K, V>(decoder: &mut LazyDecoder<'_>) -> Result<BTreeMap<K, V>, Box<dyn std::error::Error>>
+where
+    K: Ord + for<'b> cbor::decode::Decode<'b, ()>,
+    V: for<'b> cbor::decode::Decode<'b, ()>,
+{
+    decode_map_with_decoder(
+        decoder,
+        |d| Ok((d.decode()?, d.decode()?)),
+        BTreeMap::new(),
+        |mut entries, (key, value)| {
+            entries.insert(key, value);
+            entries
+        },
+    )
+}
+
+fn decode_node_accounts_lazy(
+    decoder: &mut LazyDecoder<'_>,
+) -> Result<BTreeMap<StakeCredential, Account>, Box<dyn std::error::Error>> {
+    decoder.with_decoder(|d| {
+        d.array()?;
+        Ok(())
+    })?;
+
+    let accounts: BTreeMap<StakeCredential, NodeAccount> = decode_btree_map(decoder)?;
+    let mut pointers: BTreeMap<StakeCredential, SerialisedAsSet<BTreeSet<(u64, u64, u64)>>> =
+        decode_btree_map(decoder)?;
+    decoder.skip()?; // dsFutureGenDelegs
+    decoder.skip()?; // dsGenDelegs
+
+    Ok(accounts
+        .into_iter()
+        .map(|(credential, account)| {
+            let pointers = pointers.remove(&credential).map(|SerialisedAsSet(pointers)| pointers).unwrap_or_default();
+            (credential, account.into_account(pointers))
+        })
+        .collect())
+}
+
 /// (Partially) decode a cardano-node `NewEpochState` payload.
 ///
 /// -> <https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345>
@@ -198,8 +355,7 @@ fn decode_initial_snapshot(
     let (pools, pools_updates, pools_retirements) =
         decoder.with_decoder(|d| Ok(decode_node_pool_state(d, network)?)).map_err(format_pool_state_decode_error)?;
 
-    let accounts =
-        decoder.with_decoder(|d| Ok(decode_node_accounts(d)?)).map_err(|err| format!("decode accounts: {err}"))?;
+    let accounts = decode_node_accounts_lazy(&mut decoder).map_err(|err| format!("decode accounts: {err}"))?;
 
     skip_embedded_utxo(&mut decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
 
@@ -285,9 +441,9 @@ fn decode_initial_snapshot(
         d.array()?;
         Ok(())
     })?;
-    let mark_snapshot = decoder.with_decoder(|d| Ok(decode_stake_snapshot(d)?))?;
-    decoder.skip()?; // Epoch State / Snapshots / Set
-    decoder.skip()?; // Epoch State / Snapshots / Go
+    let mark_snapshot = decode_stake_snapshot_lazy(&mut decoder)?;
+    skip_stake_snapshot_lazy(&mut decoder)?; // Epoch State / Snapshots / Set
+    skip_stake_snapshot_lazy(&mut decoder)?; // Epoch State / Snapshots / Go
     decoder.skip()?; // Epoch State / Snapshots / Fee
     decoder.skip()?; // Epoch State / NonMyopic
 
@@ -315,7 +471,7 @@ fn decode_initial_snapshot(
     let (delta_treasury, delta_reserves, rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
         let delta_reserves: i64 = decoder.decode()?;
-        let rewards: BTreeMap<StakeCredential, SerialisedAsSet<Vec<Reward>>> = decoder.decode()?;
+        let rewards: BTreeMap<StakeCredential, SerialisedAsSet<Vec<Reward>>> = decode_btree_map(&mut decoder)?;
         let delta_fees: i64 = decoder.decode()?;
         decoder.skip()?;
         (
@@ -546,9 +702,9 @@ fn import_block_issuers(
 fn skip_embedded_utxo(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
     decoder.with_decoder(|d| {
         d.array()?;
-        d.skip()?;
         Ok(())
-    })
+    })?;
+    skip_map(decoder)
 }
 
 fn import_dreps(
