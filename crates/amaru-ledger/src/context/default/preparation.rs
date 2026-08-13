@@ -29,10 +29,8 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, UnresolvedInputPolicy,
     },
-    state::volatile::{
-        AccountBind, Bind, CommitteeMemberBind, DRepBind, Existence, Resettable, RewardsAtTip, VolatileState,
-    },
-    store::{ReadStore, columns::cc_members},
+    state::volatile::{Bind, Existence, VolatileDB, VolatileState},
+    store::ReadStore,
 };
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
@@ -124,12 +122,12 @@ impl<'block> DefaultPreparationContext<'block> {
         policy: UnresolvedInputPolicy,
         proposal_roots: ProposalsRoots,
         volatile: &'volatile impl VolatileState<
-            TransactionOutput<'volatile> = Existence<&'volatile MemoizedTransactionOutput>,
-            Pool = Existence<()>,
-            Account<'volatile> = (Existence<AccountBind<'volatile>>, RewardsAtTip),
-            DRep<'volatile> = Existence<DRepBind<'volatile>>,
-            CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>,
-            Proposal = Existence<ProposalKind>,
+            TransactionOutput<'volatile> = <VolatileDB as VolatileState>::TransactionOutput<'volatile>,
+            Pool = <VolatileDB as VolatileState>::Pool,
+            Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>,
+            DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>,
+            CCMembers<'volatile> = <VolatileDB as VolatileState>::CCMembers<'volatile>,
+            Proposal = <VolatileDB as VolatileState>::Proposal,
         >,
         db: &impl ReadStore,
     ) -> Result<DefaultValidationContext, ContextHydratationError> {
@@ -147,7 +145,7 @@ impl<'block> DefaultPreparationContext<'block> {
                     .map(Cow::into_owned)
                     .chain(self.drep_delegations.into_iter().filter_map(drep::to_stake_credential)),
             )?,
-            resolve_committee(volatile, db, self.committee.into_iter().cloned(), &self.committee_voters)?,
+            resolve_committee(volatile, db, self.committee, self.committee_voters)?,
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
             treasury,
@@ -164,7 +162,9 @@ impl<'block> DefaultPreparationContext<'block> {
 /// preparation. This search in the volatile first and reaches for the stable store if
 /// necessary.
 fn resolve_inputs<'block, 'volatile>(
-    volatile: &'volatile impl VolatileState<TransactionOutput<'volatile> = Existence<&'volatile MemoizedTransactionOutput>>,
+    volatile: &'volatile impl VolatileState<
+        TransactionOutput<'volatile> = <VolatileDB as VolatileState>::TransactionOutput<'volatile>,
+    >,
     db: &impl ReadStore,
     policy: UnresolvedInputPolicy,
     mut keys: impl Iterator<Item = &'block TransactionInput>,
@@ -211,7 +211,7 @@ fn resolve_inputs<'block, 'volatile>(
 /// Importantly, we only need existence, not the pool state. VRF-key uniqueness (pv11+) will be
 /// enforced globally via a `vrf -> pool_id` index.
 fn resolve_pools(
-    volatile: &impl VolatileState<Pool = Existence<()>>,
+    volatile: &impl VolatileState<Pool = <VolatileDB as VolatileState>::Pool>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
 ) -> Result<BTreeSet<PoolId>, ContextHydratationError> {
@@ -252,7 +252,7 @@ fn resolve_pools(
 /// entry); the reward balance folds in the overlay credit and volatile withdrawals via
 /// [`VolatileDB::resolve_reward_balance`].
 fn resolve_accounts<'block, 'volatile>(
-    volatile: &'volatile impl VolatileState<Account<'volatile> = (Existence<AccountBind<'volatile>>, RewardsAtTip)>,
+    volatile: &'volatile impl VolatileState<Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = Cow<'block, StakeCredential>>,
 ) -> Result<BTreeMap<StakeCredential, AccountState>, ContextHydratationError> {
@@ -327,7 +327,7 @@ fn resolve_accounts<'block, 'volatile>(
 /// DReps carry no balance, so there is no reward dimension; the anchor is metadata outside the
 /// registration record, so a bind-only (anchor) update reads the registration from below.
 fn resolve_dreps<'volatile>(
-    volatile: &'volatile impl VolatileState<DRep<'volatile> = Existence<DRepBind<'volatile>>>,
+    volatile: &'volatile impl VolatileState<DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, DRepRegistration>, ContextHydratationError> {
@@ -378,91 +378,58 @@ fn resolve_dreps<'volatile>(
 /// A certificate names its member by the store's own key, so `cold_credentials` are resolved
 /// directly. A vote names it by hot credential, which is indexed nowhere, so the whole committee has
 /// to be materialized and matched.
-fn resolve_committee<'volatile>(
-    volatile: &'volatile impl VolatileState<CCMember<'volatile> = Existence<CommitteeMemberBind<'volatile>>>,
+fn resolve_committee<'block, 'volatile>(
+    volatile: &'volatile impl VolatileState<CCMembers<'volatile> = <VolatileDB as VolatileState>::CCMembers<'volatile>>,
     db: &impl ReadStore,
-    cold_credentials: impl Iterator<Item = StakeCredential>,
-    voters: &BTreeSet<StakeCredential>,
+    cold_credentials: BTreeSet<&'block StakeCredential>,
+    voters: BTreeSet<StakeCredential>,
 ) -> Result<BTreeMap<StakeCredential, CCMember>, ContextHydratationError> {
     debug_span!(ledger::validation_context::committee::HYDRATE).in_scope(|| {
-        let required = cold_credentials.collect::<BTreeSet<_>>();
-
-        let mut voter_candidates = BTreeSet::new();
-        if !voters.is_empty() {
-            // A member changed inside the volatile window may have no store row yet, so the store's
-            // keys alone do not name the whole committee.
-            voter_candidates.extend(volatile.cc_members().copied());
-            voter_candidates.extend(
-                db.iter_cc_members()
-                    .map_err(ContextHydratationError::ResolveCommittee)?
-                    .map(|(credential, _)| credential),
-            );
-        }
-
-        let wanted = |credential: &StakeCredential, member: &CCMember| {
-            required.contains(credential) || member.hot_credential.as_ref().is_some_and(|hot| voters.contains(hot))
-        };
-
-        let mut from_volatile = 0;
-        let mut from_db = 0;
         let mut cc_members = BTreeMap::new();
 
-        for credential in required.iter().chain(voter_candidates.difference(&required)).copied() {
-            if let Some(member) = overlay_committee_member(
-                volatile.resolve_cc_member(&credential),
-                || db.cc_member(&credential).map_err(ContextHydratationError::ResolveCommittee),
-                &mut from_volatile,
-                &mut from_db,
-            )? && wanted(&credential, &member)
-            {
-                cc_members.insert(credential, member);
+        let mut volatile_cc_members = volatile.resolve_cc_members();
+
+        for (cold_credential, row) in db.iter_cc_members().map_err(ContextHydratationError::ResolveCommittee)? {
+            let is_requested = cold_credentials.contains(&cold_credential);
+            let is_delegatee = row.hot_credential.as_ref().is_some_and(|hot| voters.contains(hot));
+
+            if is_requested || is_delegatee {
+                match volatile_cc_members.remove(&cold_credential) {
+                    Some(Existence::Unknown) | None => {
+                        cc_members.insert(cold_credential, row);
+                    }
+                    Some(Existence::Exists(Bind { left: hot_credential, right: valid_until, .. })) => {
+                        cc_members.insert(
+                            cold_credential,
+                            CCMember {
+                                hot_credential: hot_credential.into_option(row.hot_credential.as_ref()).copied(),
+                                valid_until: valid_until.into_option(row.valid_until.as_ref()).copied(),
+                            },
+                        );
+                    }
+                    // FIXME: Check if the member is not present in any existing proposal!
+                    Some(Existence::Gone) => continue,
+                }
+            } else {
+                // Discard this member entirely if it's not relevant to the context
+                volatile_cc_members.remove(&cold_credential);
             }
         }
 
-        let span = tracing::Span::current();
-        span.record("from_volatile", from_volatile);
-        span.record("from_db", from_db);
+        // Resolve any remaining CC members. This can happen when new members are recently added
+        // following an epoch boundary, but not yet available in the stable store. In which case,
+        // the volatile contains all the information we know about those members.
+        for (cold_credential, existence) in volatile_cc_members.into_iter() {
+            if let Existence::Exists(bind) = existence {
+                cc_members.insert(
+                    *cold_credential,
+                    CCMember { hot_credential: bind.left.to_option(None), valid_until: bind.right.to_option(None) },
+                );
+            }
+        }
 
         Ok(cc_members)
     })
-}
-
-/// Apply the volatile layers' verdict to the stable row, the way
-/// [`crate::store::columns::cc_members`] applies the same change when the window is flushed. `row` is
-/// read only for the halves the layers leave `Unchanged`. `None` when neither half is set.
-fn overlay_committee_member(
-    verdict: Existence<CommitteeMemberBind<'_>>,
-    row: impl FnOnce() -> Result<Option<cc_members::Row>, ContextHydratationError>,
-    from_volatile: &mut usize,
-    from_db: &mut usize,
-) -> Result<Option<CCMember>, ContextHydratationError> {
-    let bind = match verdict {
-        // Removed at the pending boundary; the stale stable row must not resurface.
-        Existence::Gone => {
-            *from_volatile += 1;
-            return Ok(None);
-        }
-        Existence::Exists(bind) => {
-            *from_volatile += 1;
-            bind
-        }
-        Existence::Unknown => Bind::default(),
-    };
-
-    let Bind { left: hot_credential, right: valid_until, .. } = bind;
-
-    let mut member = if matches!(hot_credential, Resettable::Unchanged) || matches!(valid_until, Resettable::Unchanged)
-    {
-        row()?.inspect(|_| *from_db += 1).unwrap_or_default()
-    } else {
-        cc_members::Row::default()
-    };
-
-    hot_credential.owned().set_or_reset(&mut member.hot_credential);
-    valid_until.owned().set_or_reset(&mut member.valid_until);
-
-    Ok((member.hot_credential.is_some() || member.valid_until.is_some())
-        .then_some(CCMember { hot_credential: member.hot_credential, valid_until: member.valid_until }))
 }
 
 /// The materialized [`ProposalState`] for each existing id, layering the ongoing block over the
@@ -470,7 +437,7 @@ fn overlay_committee_member(
 /// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
 /// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
 pub fn resolve_proposals(
-    volatile: &impl VolatileState<Proposal = Existence<ProposalKind>>,
+    volatile: &impl VolatileState<Proposal = <VolatileDB as VolatileState>::Proposal>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ProposalId>,
 ) -> Result<BTreeMap<ProposalId, ProposalKind>, ContextHydratationError> {

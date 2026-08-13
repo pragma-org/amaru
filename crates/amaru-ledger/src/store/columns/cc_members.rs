@@ -24,7 +24,10 @@ pub type Value = (Resettable<StakeCredential>, Resettable<Epoch>);
 
 pub type Key = StakeCredential;
 
-#[derive(Debug, Default, Clone, PartialEq)]
+/// What a cold credential currently holds. Existence is not membership: a credential named in an
+/// in-flight `UpdateCommittee` may authorize a hot credential before that proposal is enacted, and
+/// holds no term until it is.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Row {
     pub hot_credential: Option<StakeCredential>,
     pub valid_until: Option<Epoch>,

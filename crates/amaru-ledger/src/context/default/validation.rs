@@ -34,7 +34,7 @@ use crate::{
         PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
         WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
-    state::volatile::VolatileFragment,
+    state::volatile::{BindError, Existence, Resettable, VolatileFragment},
 };
 
 #[derive(Debug, Default)]
@@ -323,43 +323,58 @@ impl DRepsSlice for DefaultValidationContext {
 }
 
 impl CommitteeSlice for DefaultValidationContext {
-    /// The block start state (`self.committee`) with this block's hot-key change folded in. An
-    /// authorization has no block-start row to layer over when its cold credential holds no seat,
-    /// which is a state a member can be in: the term is what election confers, not the ability to
-    /// authorize. Applying the certificate materializes exactly this, a row with no term.
-    fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember> {
-        let base = self.committee.get(cc_member);
-
-        match self.state.committee.produced.get(cc_member) {
-            Some(hot_credential) => {
-                Some(CCMember { hot_credential: Some(*hot_credential), valid_until: base.and_then(|b| b.valid_until) })
+    /// Lookup any known cold credential of a committee member.
+    ///
+    /// Interestingly, this function may return non-elected committee members that are pending in
+    /// proposals, but not yet elected.
+    fn lookup_by_cold_credential(&self, cold_credential: &StakeCredential) -> Option<CCMember> {
+        match self.state.committee.get(cold_credential) {
+            Existence::Exists(newer) => {
+                let base = self.committee.get(cold_credential);
+                Some(CCMember {
+                    hot_credential: newer
+                        .left
+                        .into_option(base.and_then(|cc_member| cc_member.hot_credential.as_ref()))
+                        .copied(),
+                    valid_until: {
+                        assert!(
+                            matches!(newer.right, Resettable::Unchanged),
+                            "dynamic state of the constitutional committee: the state's bind cannot possibly contain a newer.right that is Some since\
+                             right-bind are only emitted by the epoch transition as a result of a ratification."
+                        );
+                        base.and_then(|cc_member| cc_member.valid_until)
+                    },
+                })
             }
-            // resigned in-block; gone
-            None if self.state.committee.consumed.contains(cc_member) => None,
-            // untouched in-block; the block-start state
-            None => base.cloned(),
+            Existence::Gone => None,
+            Existence::Unknown => self.committee.get(cold_credential).copied(),
         }
     }
 
-    /// Lookup CC members, based on a hot key, inlcuding those introduced in the current block.
+    /// Lookup CC members, based on a hot credential, including those introduced in the current
+    /// block.
     ///
-    /// Notably, there is no restriction on the hot credentials,
-    /// so a single hot credential could be used by many cold credentials.
-    /// See also [`authorizedHotCommitteeCredentials`][haskell] from the Haskell.
+    /// Notably, there is no restriction on the hot credentials arity, so a single hot credential
+    /// could be used by many cold credentials. See also [`authorizedHotCommitteeCredentials`][haskell]
+    /// from the Haskell codebase.
+    ///
+    /// Also, the returned members may contain not-yet-elected members (valid_until is None). This
+    /// is because pending CC members are allowed to register credentials ahead of being elected;
+    /// although the binding is ultimately removed at the epoch boundary if the member is not
+    /// elected.
     ///
     /// The length of this set is *NOT* an authoritative count as CCMembers with the same hot key
     /// and expiration collapse into one.
     ///
     /// [haskell]: https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/libs/cardano-ledger-core/src/Cardano/Ledger/State/CertState.hs#L335-L337
-    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> BTreeSet<CCMember> {
-        self.committee
-            .keys()
-            .chain(self.state.committee.produced.keys())
+    fn lookup_by_hot_credential(&self, hot_credential: &StakeCredential) -> impl Iterator<Item = CCMember> {
+        std::iter::empty()
+            .chain(self.committee.keys())
+            .chain(self.state.committee.registered.keys().filter(|k| !self.committee.contains_key(k)))
             .filter_map(|cc_member| {
-                let member = CommitteeSlice::lookup(self, cc_member)?;
+                let member = CommitteeSlice::lookup_by_cold_credential(self, cc_member)?;
                 (member.hot_credential.as_ref() == Some(hot_credential)).then_some(member)
             })
-            .collect()
     }
 
     fn delegate_cold_key(
@@ -367,16 +382,19 @@ impl CommitteeSlice for DefaultValidationContext {
         cc_member: StakeCredential,
         delegate: StakeCredential,
     ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
-        let _span = trace_span!(
+        let _guard = trace_span!(
             ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE,
             cc_member = format!("{cc_member:?}"),
             delegate = format!("{delegate:?}")
-        );
-        let _guard = _span.enter();
-        if self.state.committee.consumed.contains(&cc_member) {
+        )
+        .entered();
+        if self.lookup_by_cold_credential(&cc_member).is_none() {
             return Err(DelegateError::UnknownSource(cc_member));
         }
-        self.state.committee.produce(cc_member, delegate);
+        self.state
+            .committee
+            .bind_left(cc_member, Some(delegate))
+            .map_err(|BindError::AlreadyUnregistered(cc_member)| DelegateError::UnknownSource(cc_member))?;
         Ok(())
     }
 
@@ -385,13 +403,15 @@ impl CommitteeSlice for DefaultValidationContext {
         cc_member: StakeCredential,
         anchor: Option<Box<Anchor>>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
-        let _span =
-            trace_span!(ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));
+        let span = trace_span!(ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN, cc_member = format!("{cc_member:?}"));
+        let _guard = span.enter();
         if let Some(a) = &anchor {
-            _span.record("anchor_url", &*a.url);
+            span.record("anchor_url", &*a.url);
         }
-        let _guard = _span.enter();
-        self.state.committee.consume(cc_member);
+        self.state
+            .committee
+            .bind_left(cc_member, None)
+            .map_err(|BindError::AlreadyUnregistered(cc_member)| UnregisterError::Unknown(PhantomData, cc_member))?;
         Ok(())
     }
 }
@@ -579,6 +599,10 @@ mod tests {
         CCMember { hot_credential: hot.map(cred), valid_until: Some(Epoch::from(10)) }
     }
 
+    fn cc_member_with(hot: Option<u8>, valid_until: Option<u64>) -> CCMember {
+        CCMember { hot_credential: hot.map(cred), valid_until: valid_until.map(Epoch::from) }
+    }
+
     fn ctx_with_committee(committee: BTreeMap<StakeCredential, CCMember>) -> DefaultValidationContext {
         DefaultValidationContext { committee, ..Default::default() }
     }
@@ -586,61 +610,104 @@ mod tests {
     #[test]
     fn committee_lookup_returns_the_block_start_state_when_untouched() {
         let ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
-        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)), Some(cc_member(None)));
+        assert_eq!(CommitteeSlice::lookup_by_cold_credential(&ctx, &cred(1)), Some(cc_member(None)));
     }
 
     #[test]
     fn committee_lookup_folds_in_an_in_block_hot_key_auth() {
         let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
         ctx.delegate_cold_key(cred(1), cred(2)).unwrap();
-        assert_eq!(CommitteeSlice::lookup(&ctx, &cred(1)).and_then(|m| m.hot_credential), Some(cred(2)));
+        assert_eq!(
+            CommitteeSlice::lookup_by_cold_credential(&ctx, &cred(1)).and_then(|m| m.hot_credential),
+            Some(cred(2))
+        );
     }
 
     #[test]
     fn committee_lookup_folds_in_an_auth_from_a_cold_credential_holding_no_seat() {
-        let mut ctx = ctx_with_committee(BTreeMap::new());
+        let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member_with(None, None))]));
         ctx.delegate_cold_key(cred(1), cred(2)).unwrap();
         assert_eq!(
-            CommitteeSlice::lookup(&ctx, &cred(1)),
+            CommitteeSlice::lookup_by_cold_credential(&ctx, &cred(1)),
             Some(CCMember { hot_credential: Some(cred(2)), valid_until: None })
         );
     }
 
     #[test]
-    fn committee_lookup_is_none_after_an_in_block_resignation() {
+    fn committee_lookup_is_some_even_after_an_in_block_resignation() {
         let mut ctx = ctx_with_committee(BTreeMap::from([(cred(1), cc_member(None))]));
         ctx.resign(cred(1), None).unwrap();
-        assert!(CommitteeSlice::lookup(&ctx, &cred(1)).is_none());
+        assert!(CommitteeSlice::lookup_by_cold_credential(&ctx, &cred(1)).is_some());
     }
 
     enum InBlock {
         Nothing,
-        Authorize(u8),
-        Resign,
+        Authorize(u8, u8),
+        Resign(u8),
     }
 
     /// A vote identifies its member by hot credential, so the reverse direction has to agree with
     /// `lookup` on everything the ongoing block changes. In particular, a rotation must retire the
     /// previous hot credential rather than leave both live, and an authorization is reachable whether
     /// or not its cold credential held a seat at block start.
-    #[test_case(Some(cc_member(Some(2))), InBlock::Nothing, 2 => 1 ; "authorized at block start")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Nothing, 3 => 0 ; "not authorized by anyone")]
-    #[test_case(Some(cc_member(None)), InBlock::Authorize(2), 2 => 1 ; "authorized by this block")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Authorize(3), 3 => 1 ; "rotated to in this block")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Authorize(3), 2 => 0 ; "rotated away from in this block")]
-    #[test_case(Some(cc_member(Some(2))), InBlock::Resign, 2 => 0 ; "resigned in this block")]
-    #[test_case(None, InBlock::Authorize(2), 2 => 1 ; "authorized by a cold credential holding no seat")]
-    #[test_case(None, InBlock::Nothing, 2 => 0 ; "no members at all")]
-    fn committee_lookup_by_hot_credential(member: Option<CCMember>, in_block: InBlock, queried: u8) -> usize {
-        let mut ctx = ctx_with_committee(member.into_iter().map(|member| (cred(1), member)).collect());
+    #[test_case(&[(cred(1), cc_member(Some(2)))], InBlock::Nothing, 2, &[cc_member(Some(2))]; "authorized at block start")]
+    #[test_case(&[(cred(1), cc_member(Some(2)))], InBlock::Nothing, 3, &[]; "not authorized by anyone")]
+    #[test_case(&[(cred(1), cc_member(None))], InBlock::Authorize(1, 2), 2, &[cc_member(Some(2))]; "authorized by this block")]
+    #[test_case(&[(cred(1), cc_member(Some(2)))], InBlock::Authorize(1, 3), 3, &[cc_member(Some(3))]; "rotated to in this block")]
+    #[test_case(&[(cred(1), cc_member(Some(2)))], InBlock::Authorize(1, 3), 2, &[]; "rotated away from in this block")]
+    #[test_case(&[(cred(1), cc_member(Some(2)))], InBlock::Resign(1), 2, &[]; "resigned in this block")]
+    #[test_case(
+        &[(cred(1), cc_member_with(None, None))],
+        InBlock::Authorize(1, 2),
+        2,
+        &[cc_member_with(Some(2), None)]
+        ; "authorized by a cold credential holding no seat"
+    )]
+    #[test_case(
+        &[
+            (cred(1), cc_member_with(Some(2), Some(10))),
+            (cred(2), cc_member_with(Some(2), Some(20))),
+        ],
+        InBlock::Nothing,
+        2,
+        &[
+            cc_member_with(Some(2), Some(10)),
+            cc_member_with(Some(2), Some(20)),
+        ]
+        ; "multiple same hot credentials at start"
+    )]
+    #[test_case(
+        &[
+            (cred(1), cc_member_with(Some(2), None)),
+            (cred(2), cc_member_with(Some(3), None)),
+        ],
+        InBlock::Authorize(2, 2),
+        2,
+        &[
+            cc_member_with(Some(2), None),
+            cc_member_with(Some(2), None),
+        ]
+        ; "rotate to other cc's hot credential"
+    )]
+    #[test_case(&[], InBlock::Nothing, 2, &[]; "no members at all")]
+    fn committee_lookup_by_hot_credential(
+        initial_members: &[(StakeCredential, CCMember)],
+        in_block: InBlock,
+        queried: u8,
+        expected_members: &[CCMember],
+    ) {
+        let mut ctx = ctx_with_committee(initial_members.iter().copied().collect());
 
         match in_block {
             InBlock::Nothing => {}
-            InBlock::Authorize(hot) => ctx.delegate_cold_key(cred(1), cred(hot)).unwrap(),
-            InBlock::Resign => ctx.resign(cred(1), None).unwrap(),
+            InBlock::Authorize(cold, hot) => ctx.delegate_cold_key(cred(cold), cred(hot)).unwrap(),
+            InBlock::Resign(cold) => ctx.resign(cred(cold), None).unwrap(),
         }
 
-        CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(queried)).len()
+        assert_eq!(
+            CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(queried)).collect::<Vec<_>>().as_slice(),
+            expected_members,
+        );
     }
 
     /// Nothing stops two seats from authorizing the same hot credential, and nothing resolves that
@@ -649,8 +716,11 @@ mod tests {
     fn committee_lookup_by_hot_credential_returns_every_authorizing_member() {
         let first = CCMember { hot_credential: Some(cred(9)), valid_until: Some(Epoch::from(10)) };
         let second = CCMember { hot_credential: Some(cred(9)), valid_until: Some(Epoch::from(20)) };
-        let ctx = ctx_with_committee(BTreeMap::from([(cred(1), first.clone()), (cred(2), second.clone())]));
+        let ctx = ctx_with_committee(BTreeMap::from([(cred(1), first), (cred(2), second)]));
 
-        assert_eq!(CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(9)), BTreeSet::from([first, second]));
+        assert_eq!(
+            CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(9)).collect::<BTreeSet<_>>(),
+            BTreeSet::from([first, second])
+        );
     }
 }

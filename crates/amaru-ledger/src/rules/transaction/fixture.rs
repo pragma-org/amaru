@@ -409,7 +409,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist
             }
-            PhaseOneError::VotingProcedures(InvalidVotingProcedures::VotersDoNotExist(_)) => {
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::UnauthorizedOrUnknownVoter(_)) => {
                 Predicate::VotersDoNotExist
             }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,

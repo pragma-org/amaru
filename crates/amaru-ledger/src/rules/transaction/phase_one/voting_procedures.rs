@@ -15,8 +15,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RedeemerTag, RequiredScript, StakeCredential,
-    Voter, VotingProcedure,
+    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProtocolVersion, RedeemerTag, RequiredScript,
+    StakeCredential, Voter, VotingProcedure, protocol_version::PROTOCOL_VERSION_11,
 };
 use itertools::Itertools;
 use thiserror::Error;
@@ -25,8 +25,8 @@ use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalsSlice, Wit
 
 #[derive(Debug, Error)]
 pub enum InvalidVotingProcedures {
-    #[error("voters do not exist: {0:?}")]
-    VotersDoNotExist(BTreeSet<Voter>),
+    #[error("unauthorized or unknown voters: {0:?}")]
+    UnauthorizedOrUnknownVoter(BTreeSet<Voter>),
 
     #[error("governance actions do not exist: {0:?}")]
     GovActionsDoNotExist(BTreeSet<ProposalId>),
@@ -34,18 +34,19 @@ pub enum InvalidVotingProcedures {
 
 pub(crate) fn execute<C>(
     context: &mut C,
+    protocol_version: ProtocolVersion,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 ) -> Result<(), InvalidVotingProcedures>
 where
     C: WitnessSlice + ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
-        let mut unknown_voters = BTreeSet::new();
+        let mut disallowed_voters = BTreeSet::new();
         let mut unknown_proposals = BTreeSet::new();
 
         voting_procedures.into_iter().sorted_by_key(|(k, _)| *k).enumerate().for_each(|(index, (voter, votes))| {
-            if !exists(context, &voter) {
-                unknown_voters.insert(voter);
+            if !is_allowed_voter(context, protocol_version, &voter) {
+                disallowed_voters.insert(voter);
                 return;
             }
 
@@ -55,7 +56,7 @@ where
                 }
             }
 
-            if !(unknown_voters.is_empty() && unknown_proposals.is_empty()) {
+            if !(disallowed_voters.is_empty() && unknown_proposals.is_empty()) {
                 return; // Skip validations after if any proposal or voter is invalid;
             }
 
@@ -76,8 +77,8 @@ where
             })
         });
 
-        if !unknown_voters.is_empty() {
-            return Err(InvalidVotingProcedures::VotersDoNotExist(unknown_voters));
+        if !disallowed_voters.is_empty() {
+            return Err(InvalidVotingProcedures::UnauthorizedOrUnknownVoter(disallowed_voters));
         }
 
         if !unknown_proposals.is_empty() {
@@ -89,7 +90,7 @@ where
 }
 
 /// Whether the entity a vote is cast by is known at this point in the block.
-fn exists<C>(context: &C, voter: &Voter) -> bool
+fn is_allowed_voter<C>(context: &C, protocol_version: ProtocolVersion, voter: &Voter) -> bool
 where
     C: CommitteeSlice + DRepsSlice + PoolsSlice,
 {
@@ -97,7 +98,13 @@ where
         // A vote identifies its member by the hot credential the member authorized, never by the cold
         // credential that identifies the seat.
         Voter::ConstitutionalCommitteeKey(_) | Voter::ConstitutionalCommitteeScript(_) => {
-            !CommitteeSlice::lookup_by_hot_credential(context, &voter.owner()).is_empty()
+            let owner = voter.owner();
+            let mut cc_members = CommitteeSlice::lookup_by_hot_credential(context, &owner);
+            if protocol_version >= PROTOCOL_VERSION_11 {
+                cc_members.any(|cc_member| cc_member.valid_until.is_some())
+            } else {
+                cc_members.count() > 0
+            }
         }
         Voter::DRepKey(_) | Voter::DRepScript(_) => DRepsSlice::lookup(context, &voter.owner()).is_some(),
         Voter::StakePoolKey(pool) => PoolsSlice::exists(context, *pool),

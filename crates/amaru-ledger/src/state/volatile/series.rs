@@ -65,13 +65,9 @@ impl VolatileState for VolatileSeries {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
-    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
-        self.aggregate.resolve_cc_member(credential)
-    }
-
-    fn cc_members(&self) -> impl Iterator<Item = &StakeCredential> {
-        self.aggregate.cc_members()
+    type CCMembers<'a> = Box<dyn Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> + 'a>;
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
+        Box::new(self.aggregate.resolve_cc_members())
     }
 
     // ----------------------------------------------------------------------------------- Proposals

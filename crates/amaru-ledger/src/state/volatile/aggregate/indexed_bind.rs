@@ -48,6 +48,11 @@ impl<K: Ord, L, R, V> Default for IndexedBind<K, L, R, V> {
 }
 
 impl<K: Ord, L, R, V> IndexedBind<K, L, R, V> {
+    /// Iter over all known records.
+    pub fn iter(&self) -> impl Iterator<Item = (&K, Existence<Bind<&L, &R, &V>>)> {
+        self.index.keys().map(|key| (key, self.get(key)))
+    }
+
     /// Append a fragment's bindings, treating them as applied *after* everything already recorded.
     /// Each registered key gains an `Exists` verdict at the back of its deque; each unregistered
     /// key gains a `Gone` tombstone.
