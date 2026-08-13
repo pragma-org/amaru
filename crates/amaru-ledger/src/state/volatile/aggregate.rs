@@ -62,15 +62,13 @@ type Committee = IndexedBind<StakeCredential, ConstitutionalCommitteeMemberStatu
 /// When cleaning up fragments, we can simply decrement and remove once we reach 0.
 type Pools = IndexedEpochReg<PoolId>;
 
-/// The window's per-pool *current* VRF keys, projecting Haskell's `psStakePools`: an entry exists
-/// only for pools whose current parameters were established in-window, i.e. brand-new
-/// registrations. See [`IndexedSet`].
+/// The window's per-pool *current* VRF keys: an entry exists only for pools whose current
+/// parameters were established in-window, i.e. brand-new registrations. See [`IndexedSet`].
 type PoolsCurrentVrf = IndexedSet<PoolId, pools_vrf::Key>;
 
-/// The window's per-pool *pending* VRF keys, projecting Haskell's `psFutureStakePoolParams`: an
-/// entry exists for pools re-registered in-window, whose new parameters only activate at the next
-/// epoch boundary. A pool may re-register repeatedly, so the per-key history in [`IndexedSet`] is
-/// what keeps stabilization exact.
+/// The window's per-pool *pending* VRF keys: an entry exists for pools re-registered in-window,
+/// whose new parameters only activate at the next epoch boundary. A pool may re-register
+/// repeatedly, so the per-key history in [`IndexedSet`] is what keeps stabilization exact.
 type PoolsPendingVrf = IndexedSet<PoolId, pools_vrf::Key>;
 
 /// The window's VRF key hash occupancy, indexed per key so each one's per-fragment history is

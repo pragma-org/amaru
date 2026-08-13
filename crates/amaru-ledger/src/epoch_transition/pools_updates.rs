@@ -252,8 +252,10 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeAddress, StakeCredential, StakePayload,
+        Epoch, Hash, Network, PoolId, PoolParams, RewardAccount, StakeAddress, StakeCredential, StakePayload,
         any_certificate_pointer, any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential,
         utils::tests::run_strategy,
     };
@@ -263,7 +265,7 @@ mod tests {
         PoolCertificate::{self, Registration, Retirement},
         PoolCertificates, PoolsEpochTransitionUpdates,
     };
-    use crate::store::columns::pools::Row as Pool;
+    use crate::store::columns::{pools::Row as Pool, pools_vrf};
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
     // epoch's update. So a caller is expected to tick a base Pool between each application.
@@ -384,6 +386,87 @@ mod tests {
                     );
                     pool = before_tick;
                 }
+            }
+        }
+    }
+
+    proptest! {
+        /// The occupancy map stays exactly what the pool set implies: composing registration-time
+        /// claims (a set-to-1 insert, releasing a superseded pending key) with the boundary's
+        /// released/retired outputs must leave a live pool's current key claimed exactly once, and
+        /// a retired pool's keys fully released.
+        #[test]
+        fn prop_vrf_occupancy_tracks_the_pool_set(
+            registered_at in any_certificate_pointer(u64::MAX),
+            deposit in any_lovelace(),
+            (initial_params, sequence) in any_pool_params().prop_flat_map(|params| {
+                any_row_seq_updates(params.id).prop_map(move |seq| (params.clone(), seq))
+            }),
+        ) {
+            // Confine VRF keys to a tiny alphabet, so that re-registrations regularly keep a key
+            // or reclaim one released earlier.
+            let narrow = |vrf: &pools_vrf::Key| -> pools_vrf::Key { Hash::new([vrf.as_ref()[0] % 3; 32]) };
+
+            let initial_params = PoolParams { vrf: narrow(&initial_params.vrf), ..initial_params };
+            let mut pool = Pool::new(registered_at, deposit, initial_params.clone());
+            let pool_id = pool.id();
+
+            let mut occupancy = BTreeMap::from([(initial_params.vrf, 1u64)]);
+            let mut pending: Option<pools_vrf::Key> = None;
+
+            for (submission_epoch, updates) in sequence.into_iter().enumerate() {
+                let boundary = Epoch::from(submission_epoch as u64) + 1;
+
+                for certificate in updates {
+                    let certificate = match certificate {
+                        Registration(params) => {
+                            let params = PoolParams { vrf: narrow(&params.vrf), ..(*params) };
+                            // claim as `pools::add` does: set the new key to 1 and release the
+                            // superseded pending key wholesale when it differed
+                            if let Some(previous) = pending.replace(params.vrf)
+                                && previous != params.vrf
+                            {
+                                occupancy.remove(&previous);
+                            }
+                            occupancy.insert(params.vrf, 1);
+                            PoolCertificate::from(params)
+                        }
+                        retirement => retirement,
+                    };
+                    pool.pending_certificates.append(certificate);
+                }
+
+                let before_tick = pool.clone();
+                let mut pools_updates = PoolsEpochTransitionUpdates::default();
+                pools_updates.tick_pool(boundary, pool);
+
+                for released in pools_updates.vrf_released() {
+                    occupancy.remove(released);
+                }
+                for retired in pools_updates.vrf_retired() {
+                    match occupancy.get_mut(retired) {
+                        Some(1) => {
+                            occupancy.remove(retired);
+                        }
+                        Some(count) => *count -= 1,
+                        None => prop_assert!(false, "decrement of an unclaimed key: {}", retired),
+                    }
+                }
+                // registrations never survive a boundary tick
+                pending = None;
+
+                if pools_updates.retired().contains(&pool_id) {
+                    prop_assert!(occupancy.is_empty(), "a retired pool left keys claimed: {:?}", occupancy);
+                    break;
+                }
+
+                pool = pools_updates.updated().get(&pool_id).cloned().unwrap_or(before_tick);
+                prop_assert_eq!(
+                    &occupancy,
+                    &BTreeMap::from([(pool.current_params.vrf, 1u64)]),
+                    "boundary = {:?}",
+                    boundary
+                );
             }
         }
     }

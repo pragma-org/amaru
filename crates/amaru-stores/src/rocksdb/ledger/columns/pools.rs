@@ -103,9 +103,9 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>, epoc
     })
 }
 
-/// Apply the pool updates and retirements computed at an epoch boundary. VRF key hash occupancy
-/// follows the Haskell rule's order: superseded ("dangling") keys are deleted whole-key first,
-/// then each retiring pool's post-activation key is decremented.
+/// Apply the pool updates and retirements computed at an epoch boundary, together with the VRF
+/// key hash occupancy changes they imply: whole-key deletes of superseded ("dangling") keys
+/// first, then a decrement per retiring pool's post-activation key.
 pub fn update_or_retire<DB>(
     db: &Transaction<'_, DB>,
     updates: &BTreeMap<Key, Row>,

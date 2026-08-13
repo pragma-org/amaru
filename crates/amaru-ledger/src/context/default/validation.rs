@@ -164,8 +164,7 @@ impl PoolsSlice for DefaultValidationContext {
         self.pools.contains_key(&pool) || self.state.pools.registered.contains_key(&pool)
     }
 
-    /// Register a pool, mirroring Haskell's split between `psStakePools` and
-    /// `psFutureStakePoolParams`: a brand-new pool's parameters (VRF key included) become current
+    /// Register a pool. A brand-new pool's parameters (VRF key included) become current
     /// immediately, while a re-registration's only activate at the next epoch boundary, its VRF
     /// key sitting in the pending projection until then.
     ///
@@ -190,8 +189,8 @@ impl PoolsSlice for DefaultValidationContext {
             return Err(PoolRegisterError::VrfKeyHashAlreadyRegistered { pool: pool_id, vrf });
         }
 
-        // Mirror Haskell's occupancy update: release a superseded pending key wholesale when it
-        // differed, then claim the new key with a set-to-1 (even when it was the exempt current
+        // We must release a superseded pending key wholesale when it differed
+        // then claim the new key with a set-to-1 (even when it was the exempt current
         // one, clobbering any higher count).
         if let Some(pending) = known_vrfs.and_then(|known| known.pending)
             && pending != vrf
