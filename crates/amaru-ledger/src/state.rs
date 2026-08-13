@@ -972,10 +972,11 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                     self.observers.on_block = real_on_block;
                     // Restore the pre-switch state while nothing has reached the stable store.
                     // If the error is a `RewardsSummaryNotReady` we might want to retry.
-                    if self.immutable_tip() == initial_immutable_tip {
+                    let stable_modified = self.immutable_tip() != initial_immutable_tip;
+                    if !stable_modified {
                         self.recover(state_recovery);
                     }
-                    error_record!(ledger::state::SWITCH_TO_FORK, outcome = "error");
+                    error_record!(ledger::state::SWITCH_TO_FORK, outcome = "error", stable_modified = stable_modified);
                     return Err(error);
                 }
             }

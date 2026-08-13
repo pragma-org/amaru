@@ -1332,7 +1332,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `push` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
 | `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
 | `roll_forward` | `TRACE` | public | Roll forward with a new block |  |  |
-| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length, rollback_length | outcome, is_longer |
+| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length, rollback_length | outcome, stable_modified |
 
 <details><summary>span: `switch_to_fork`</summary>
 
@@ -1342,7 +1342,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `fork_length` | `integer` | ✓ |
 | `rollback_length` | `integer` | ✓ |
 | `outcome` | `string` |  |
-| `is_longer` | `boolean` |  |
+| `stable_modified` | `boolean` |  |
 
 </details>
 

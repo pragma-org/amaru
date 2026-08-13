@@ -2936,7 +2936,7 @@
         "outcome": {
           "type": "string"
         },
-        "is_longer": {
+        "stable_modified": {
           "type": "boolean"
         }
       },
@@ -2947,7 +2947,7 @@
       ],
       "optional": [
         "outcome",
-        "is_longer"
+        "stable_modified"
       ],
       "additionalProperties": false,
       "name": "switch_to_fork",
