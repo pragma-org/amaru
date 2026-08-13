@@ -1,8 +1,8 @@
 schema-version = "1.12.0"
 
 [install]
-# Haskell toolchain. cardano-node 10.5.x (which the cabal.project pins)
-# tested against GHC 9.6.x
+# Haskell toolchain. cardano-node 11.0.1 (which the cabal.project pins)
+# is tested against GHC 9.8.x
 cabal-install.pkg-path = "cabal-install"
 
 # Build tools the Makefile relies on.

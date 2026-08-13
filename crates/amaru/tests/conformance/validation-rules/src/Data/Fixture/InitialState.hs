@@ -8,6 +8,8 @@ module Data.Fixture.InitialState
     , GovernanceActivity (..)
     , InitialState (..)
     , PoolDelegation (..)
+    , Pots (..)
+    , ProposalEntry (..)
     , RegisteredDRep (..)
     , VoteDelegation (..)
     , buildNewEpochState
@@ -16,13 +18,17 @@ module Data.Fixture.InitialState
 import Relude
 
 import Cardano.Ledger.Api.Governance
-    ( curPParamsGovStateL
+    ( cgsProposalsL
+    , curPParamsGovStateL
     , emptyGovState
     , prevPParamsGovStateL
     )
 import Cardano.Ledger.Api.PParams
     ( PParams
     , ppPoolDepositL
+    )
+import Cardano.Ledger.BaseTypes
+    ( addEpochInterval
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
@@ -33,6 +39,24 @@ import Cardano.Ledger.Compactible
     )
 import Cardano.Ledger.Conway
     ( ConwayEra
+    )
+import Cardano.Ledger.Conway.Governance
+    ( GovAction
+    , GovActionId (GovActionId)
+    , GovActionIx (GovActionIx)
+    , GovActionState (..)
+    , GovPurposeId (GovPurposeId)
+    , GovRelation (..)
+    , ProposalProcedure (..)
+    , Proposals
+    , fromPrevGovActionIds
+    , gasDeposit
+    , pRootsL
+    , proposalsAddAction
+    )
+import Cardano.Ledger.Conway.PParams
+    ( ppGovActionDepositL
+    , ppGovActionLifetimeL
     )
 import Cardano.Ledger.Conway.State
     ( ConwayAccountState (..)
@@ -73,17 +97,26 @@ import Cardano.Ledger.State
     , spsDepositL
     )
 import Cardano.Ledger.TxIn
-    ( TxIn
+    ( TxId
+    , TxIn
     )
 import Command.ValidatePhaseOne.Error
     ( Error (..)
     )
 import Data.Aeson
     ( FromJSON (parseJSON)
+    , Object
+    , Value
     , withObject
     , (.:)
     , (.:?)
     , (.!=)
+    )
+import Data.Aeson.Key
+    ( Key
+    )
+import Data.Aeson.Types
+    ( Parser
     )
 import Data.Default.Class
     ( Default (def)
@@ -93,6 +126,7 @@ import Data.Fixture.Common
     , compactCoinOrError
     , parseCborHex
     , parsePoolId
+    , showText
     )
 import Data.Fixture.EraHistory
     ( EraHistory
@@ -102,7 +136,7 @@ import Data.Fixture.Point
     ( Point
     )
 import Data.Maybe.Strict
-    ( StrictMaybe (SNothing)
+    ( StrictMaybe (SJust, SNothing)
     )
 import Lens.Micro
     ( (.~)
@@ -117,6 +151,9 @@ data InitialState = InitialState
     , pools :: ![KeyHash StakePool]
     , accounts :: ![Account]
     , dreps :: ![RegisteredDRep]
+    , proposals :: ![ProposalEntry]
+    , proposalsRoots :: !(GovRelation StrictMaybe)
+    , pots :: !Pots
     , governanceActivity :: !GovernanceActivity
     }
     deriving (Generic)
@@ -129,7 +166,10 @@ instance FromJSON InitialState where
                 <*> (objectValue .:? "pools" .!= [] >>= traverse parsePoolId)
                 <*> objectValue .:? "accounts" .!= []
                 <*> objectValue .:? "dreps" .!= []
-                <*> objectValue .: "governanceActivity"
+                <*> objectValue .:? "proposals" .!= []
+                <*> (objectValue .:? "proposalsRoots" >>= maybe (pure def) parseProposalsRoots)
+                <*> objectValue .:? "pots" .!= def
+                <*> objectValue .:? "governanceActivity" .!= def
 
 data UtxoEntry = UtxoEntry
     { input :: !TxIn
@@ -217,16 +257,72 @@ data GovernanceActivity = GovernanceActivity
 
 instance FromJSON GovernanceActivity
 
+instance Default GovernanceActivity where
+    def = GovernanceActivity 0
+
+data ProposalEntry = ProposalEntry
+    { proposalId :: !GovActionId
+    , govAction :: !(GovAction ConwayEra)
+    }
+
+instance FromJSON ProposalEntry where
+    parseJSON =
+        withObject "ProposalEntry" $ \objectValue ->
+            ProposalEntry
+                <$> (objectValue .: "id" >>= parseProposalId)
+                <*> (objectValue .: "govAction" >>= parseCborHex "GovAction")
+
+data Pots = Pots
+    { treasury :: !Integer
+    , reserves :: !Integer
+    }
+
+instance FromJSON Pots where
+    parseJSON =
+        withObject "Pots" $ \objectValue ->
+            Pots
+                <$> objectValue .:? "treasury" .!= 0
+                <*> objectValue .:? "reserves" .!= 0
+
+instance Default Pots where
+    def = Pots 0 0
+
+parseProposalId :: Value -> Parser GovActionId
+parseProposalId =
+    withObject "ProposalId" $ \objectValue -> do
+        transactionId <- objectValue .: "transactionId" :: Parser TxId
+        proposalIndex <- objectValue .: "proposalIndex"
+        pure (GovActionId transactionId (GovActionIx proposalIndex))
+
+-- | The latest enacted governance action id per purpose. An absent purpose has no root,
+-- so a proposal claiming it as parent must supply an empty parent to be accepted.
+parseProposalsRoots :: Value -> Parser (GovRelation StrictMaybe)
+parseProposalsRoots =
+    withObject "ProposalsRoots" $ \objectValue -> do
+        grPParamUpdate <- parseRoot objectValue "protocolParameters"
+        grHardFork <- parseRoot objectValue "hardFork"
+        grCommittee <- parseRoot objectValue "constitutionalCommittee"
+        grConstitution <- parseRoot objectValue "constitution"
+        pure GovRelation{grPParamUpdate, grHardFork, grCommittee, grConstitution}
+  where
+    parseRoot :: Object -> Key -> Parser (StrictMaybe (GovPurposeId purpose))
+    parseRoot objectValue key =
+        objectValue .:? key
+            >>= maybe (pure SNothing) (fmap (SJust . GovPurposeId) . parseProposalId)
+
 buildNewEpochState
     :: PParams ConwayEra
     -> EraHistory
     -> InitialState
     -> Point
     -> Either Error (NewEpochState ConwayEra)
-buildNewEpochState pparams eraHistory InitialState{utxo, pools, accounts, dreps, governanceActivity} point = do
+buildNewEpochState pparams eraHistory initialState point = do
+    let InitialState{utxo, pools, accounts, dreps, proposals, proposalsRoots, pots, governanceActivity} = initialState
     accountEntries <- traverse toLedgerAccountEntry accounts
     dRepEntries <- traverse toLedgerDRepEntry dreps
     currentEpoch <- pointEpochNo eraHistory point
+    let proposalStates = map (toGovActionState pparams currentEpoch) proposals
+    seededProposals <- buildProposals proposalsRoots proposalStates
 
     let accountsMap = Map.fromList accountEntries
     let dRepDelegators =
@@ -270,12 +366,19 @@ buildNewEpochState pparams eraHistory InitialState{utxo, pools, accounts, dreps,
                         , let Coin dRepDepositValue = fromCompact registeredDRepDeposit
                         ]
                     + (fromIntegral (length pools) * poolDepositAmount pparams)
+                    + sum
+                        [ proposalDepositValue
+                        | proposalState <- proposalStates
+                        , let Coin proposalDepositValue = gasDeposit proposalState
+                        ]
                 )
     let govState =
             emptyGovState
                 & curPParamsGovStateL .~ pparams
                 & prevPParamsGovStateL .~ pparams
-    let chainAccountState = ChainAccountState {casTreasury = Coin 0, casReserves = Coin 0}
+                & cgsProposalsL .~ seededProposals
+    let chainAccountState =
+            ChainAccountState {casTreasury = Coin (treasury pots), casReserves = Coin (reserves pots)}
     let utxoState =
             UTxOState
                 { utxosUtxo = UTxO (Map.fromList [(input entry, output entry) | entry <- utxo])
@@ -371,6 +474,44 @@ toLedgerDRepEntry RegisteredDRep{credential, deposit, validUntil} = do
             , registeredDRepDeposit = compactDeposit
             , registeredDRepValidUntil = validUntil
             }
+
+-- | A fixture describes a seeded proposal by its id and its governance action, which is
+-- all the GOV rule consults when it resolves a new proposal's parent. The deposit, return
+-- address and anchor are filler, and the expiry is derived from @govActionLifetime@ so that
+-- every seeded proposal counts as still in flight.
+toGovActionState :: PParams ConwayEra -> LedgerSlot.EpochNo -> ProposalEntry -> GovActionState ConwayEra
+toGovActionState pparams currentEpoch ProposalEntry{proposalId, govAction} =
+    GovActionState
+        { gasId = proposalId
+        , gasCommitteeVotes = mempty
+        , gasDRepVotes = mempty
+        , gasStakePoolVotes = mempty
+        , gasProposalProcedure =
+            ProposalProcedure
+                { pProcDeposit = pparams ^. ppGovActionDepositL
+                , pProcReturnAddr = def
+                , pProcGovAction = govAction
+                , pProcAnchor = def
+                }
+        , gasProposedIn = currentEpoch
+        , gasExpiresAfter = addEpochInterval currentEpoch (pparams ^. ppGovActionLifetimeL)
+        }
+
+buildProposals
+    :: GovRelation StrictMaybe
+    -> [GovActionState ConwayEra]
+    -> Either Error (Proposals ConwayEra)
+buildProposals roots =
+    foldlM addAction (def & pRootsL .~ fromPrevGovActionIds roots)
+  where
+    addAction acc proposalState =
+        maybe (Left (unplaceable proposalState)) Right (proposalsAddAction proposalState acc)
+    unplaceable proposalState =
+        UnsupportedFixture
+            ( "initial proposal "
+                <> showText (gasId proposalState)
+                <> " does not follow an enacted root or an earlier initial proposal"
+            )
 
 defaultStakePoolState :: Coin -> StakePoolState
 defaultStakePoolState depositCoin =

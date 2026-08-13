@@ -13,7 +13,7 @@ data Error
   | FixtureDecodeError !FilePath !Text
   | FixtureReferenceError !Text
   | UnsupportedFixture !Text
-  | ValidationMismatch !Text !Text
+  | ValidationMismatch !Text !Text -- The outcome the fixture declares, then the outcome the Haskell ledger produced.
   deriving (Eq, Show)
 
 renderError :: Error -> Text
