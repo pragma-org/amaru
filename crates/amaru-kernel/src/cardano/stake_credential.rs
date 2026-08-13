@@ -15,7 +15,7 @@
 use std::fmt;
 
 use crate::{
-    Address, HasOwnership, Hash, Network, ShelleyDelegationPart, ShelleyPaymentPart, StakePayload, cbor,
+    Address, AddressType, HasOwnership, Hash, Network, ShelleyDelegationPart, ShelleyPaymentPart, StakePayload, cbor,
     size::{CREDENTIAL, KEY, SCRIPT},
 };
 
@@ -38,10 +38,15 @@ pub enum StakeCredential {
 
 impl StakeCredential {
     pub fn from_raw_address(bytes: &[u8]) -> Option<Self> {
-        match (bytes.first()? & 0b1111_0000) >> 4 {
-            0 | 1 if bytes.len() == 2 * CREDENTIAL + 1 => Some(Self::AddrKeyhash(Hash::from(&bytes[KEY + 1..]))),
-            2 | 3 if bytes.len() == 2 * CREDENTIAL + 1 => Some(Self::ScriptHash(Hash::from(&bytes[SCRIPT + 1..]))),
-            _ => None,
+        use AddressType::*;
+        match AddressType::try_from_header_byte(*bytes.first()?)? {
+            Type0 | Type1 => {
+                (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::AddrKeyhash(Hash::from(&bytes[KEY + 1..])))
+            }
+            Type2 | Type3 => {
+                (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::ScriptHash(Hash::from(&bytes[SCRIPT + 1..])))
+            }
+            Type4 | Type5 | Type6 | Type7 | Type8 | Type14 | Type15 => None,
         }
     }
 }

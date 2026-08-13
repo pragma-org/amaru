@@ -67,8 +67,8 @@ pub mod cardano;
 pub use cardano::{
     account::Account,
     address::{
-        self, Address, AddressPointer, ByronAddress, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
-        StakePayload,
+        self, Address, AddressPointer, AddressType, ByronAddress, ShelleyAddress, ShelleyDelegationPart,
+        ShelleyPaymentPart, StakePayload,
     },
     anchor::{self, Anchor},
     asset_name::{AssetName, EMPTY_ASSET_NAME},

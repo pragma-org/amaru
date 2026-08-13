@@ -31,7 +31,7 @@ impl StakeAddress {
     }
 
     /// Gets a numeric id describing the type of the address
-    pub fn typeid(&self) -> u8 {
+    fn typeid(&self) -> u8 {
         match &self.1 {
             StakePayload::Key(_) => 0b1110,
             StakePayload::Script(_) => 0b1111,
@@ -39,7 +39,7 @@ impl StakeAddress {
     }
 
     /// Builds the header for this address
-    pub fn to_header(&self) -> u8 {
+    fn as_header(&self) -> u8 {
         let type_id = self.typeid();
         let type_id = type_id << 4;
         let network = u8::from(self.0);
@@ -53,7 +53,7 @@ impl StakeAddress {
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
-        let header = self.to_header();
+        let header = self.as_header();
         [&[header], self.1.as_ref()].concat()
     }
 

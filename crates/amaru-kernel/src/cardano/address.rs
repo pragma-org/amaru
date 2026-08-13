@@ -34,6 +34,9 @@ pub use delegation_part::ShelleyDelegationPart;
 mod payment_part;
 pub use payment_part::ShelleyPaymentPart;
 
+mod address_type;
+pub use address_type::AddressType;
+
 #[derive(Debug, Clone, PartialEq, Eq, std::hash::Hash)]
 pub enum Address {
     Byron(ByronAddress),
@@ -98,19 +101,18 @@ impl Address {
 
         let payload = &bytes[1..];
 
-        match (header & 0b1111_0000) >> 4 {
-            0 => parse_type_0(header, payload),
-            1 => parse_type_1(header, payload),
-            2 => parse_type_2(header, payload),
-            3 => parse_type_3(header, payload),
-            4 => parse_type_4(header, payload),
-            5 => parse_type_5(header, payload),
-            6 => parse_type_6(header, payload),
-            7 => parse_type_7(header, payload),
-            8 => parse_type_8(header, payload),
-            14 => parse_type_14(header, payload),
-            15 => parse_type_15(header, payload),
-            _ => None,
+        match AddressType::try_from_header_byte(header)? {
+            AddressType::Type0 => parse_type_0(header, payload),
+            AddressType::Type1 => parse_type_1(header, payload),
+            AddressType::Type2 => parse_type_2(header, payload),
+            AddressType::Type3 => parse_type_3(header, payload),
+            AddressType::Type4 => parse_type_4(header, payload),
+            AddressType::Type5 => parse_type_5(header, payload),
+            AddressType::Type6 => parse_type_6(header, payload),
+            AddressType::Type7 => parse_type_7(header, payload),
+            AddressType::Type8 => parse_type_8(header, payload),
+            AddressType::Type14 => parse_type_14(header, payload),
+            AddressType::Type15 => parse_type_15(header, payload),
         }
     }
 
@@ -126,15 +128,6 @@ impl Address {
             Address::Byron(x) => x.network(),
             Address::Shelley(x) => x.network(),
             Address::Stake(x) => x.network(),
-        }
-    }
-
-    /// Gets a numeric id describing the type of the address
-    pub fn typeid(&self) -> u8 {
-        match self {
-            Address::Byron(x) => x.typeid(),
-            Address::Shelley(x) => x.typeid(),
-            Address::Stake(x) => x.typeid(),
         }
     }
 

@@ -43,6 +43,7 @@ Other guiding principles:
 - **amaru-plutus**: encode `CostModels` as a map from language to cost model (#1219).
 - **amaru-ledger**: compute the size of a value using the same encoding as the Haskell node.
 - **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
+- **amaru-ledger**: reduce churn allocations during stake distribution and rewards calculations.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
@@ -79,7 +80,6 @@ Other guiding principles:
 - **amaru-ledger**: a transaction marked invalid that carries no Plutus script is no longer accepted. ([#894][])
 - **amaru-pure-stage**: avoid constructing short string errors when failing to cast types in pure-stage.
 - **amaru**: fix a switch to fork when fork length was than one block. (#1162, #1190).
-- **amaru-ledger**: reduce churn allocations during stake distribution and rewards calculations.
 
 ## [v10.11.20260807](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
