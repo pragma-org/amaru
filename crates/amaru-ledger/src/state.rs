@@ -819,7 +819,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                     self.volatile.view_back().expect("roll_forward pushed a fragment before notifying observers");
                 debug_assert_eq!(anchored.point(), point);
                 let epoch = unsafe_slot_to_epoch(&self.era_history, point.slot_or_default());
-                let adopted = crate::observers::AdoptedBlock::from_block(point, epoch, block, &anchored.fragment);
+                let adopted = crate::observers::AdoptedBlock::from_block(epoch, block, &anchored.fragment);
                 self.observers.notify_adopted(adopted);
             }
 
@@ -930,8 +930,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         // Keep blocks for transaction material; UTxO is borrowed from live fragments at emit time.
         let real_on_block = self.observers.on_block.take();
         let keep_blocks = real_on_block.is_some();
-        let mut deferred_blocks: Vec<(Point, Block)> =
-            Vec::with_capacity(if keep_blocks { blocks.size_hint().0 } else { 0 });
+        let mut deferred_blocks: Vec<Block> = Vec::with_capacity(if keep_blocks { blocks.size_hint().0 } else { 0 });
 
         let mut applied_tip = Tip::new(initial_immutable_tip, BlockHeight::new(0));
         let mut metrics = LedgerMetrics::default();
@@ -942,7 +941,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             match self.roll_forward(&block, arena_pool) {
                 BlockValidation::Valid(new_metrics) => {
                     if keep_blocks {
-                        deferred_blocks.push((block_tip.point(), block));
+                        deferred_blocks.push(block);
                     }
                     applied_tip = block_tip;
                     metrics = new_metrics;
@@ -991,15 +990,15 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         // Drop recovery without restoring — new tip is committed.
         drop(state_recovery);
         if self.observers.wants_block_events() {
-            for (point, block) in &deferred_blocks {
+            for block in &deferred_blocks {
                 #[expect(clippy::expect_used)]
                 let anchored = self
                     .volatile
                     .iter()
-                    .find(|fragment| fragment.point() == *point)
+                    .find(|fragment| fragment.point() == block.point())
                     .expect("fork-switch adopt block must still be in the volatile window");
-                let epoch = unsafe_slot_to_epoch(&self.era_history, point.slot_or_default());
-                let adopted = crate::observers::AdoptedBlock::from_block(*point, epoch, block, &anchored.fragment);
+                let epoch = unsafe_slot_to_epoch(&self.era_history, block.point().slot_or_default());
+                let adopted = crate::observers::AdoptedBlock::from_block(epoch, block, &anchored.fragment);
                 self.observers.notify_adopted(adopted);
             }
         }
