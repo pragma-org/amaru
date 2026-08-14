@@ -127,6 +127,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `fetch` | `TRACE` | public | Fetch bootstrap headers from a peer | requested_point, intersection, headers_per_point |  |
+| `next_failed` | `TRACE` | public | The chain-sync client failed while requesting or awaiting the next header. Operation ∈ {request_next, await_next}. | operation, error |  |
 
 <details><summary>span: `fetch`</summary>
 
@@ -135,6 +136,15 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `requested_point` | `string` | ✓ |
 | `intersection` | `string` | ✓ |
 | `headers_per_point` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `next_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `operation` | `string` | ✓ |
+| `error` | `string` | ✓ |
 
 </details>
 
@@ -266,6 +276,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `import_archive` | `TRACE` | public | Import a compressed snapshot archive | path |  |
 | `import_tvar` | `TRACE` | public | Import from the tvar data | point, new_epoch_state_offset |  |
 | `skip_download` | `TRACE` | public | Snapshot already downloaded; skipping download | snapshot |  |
+| `unexpected_era` | `TRACE` | public | The parsed snapshot's current era is not Conway; later decoding may fail | snapshot_era |  |
 
 <details><summary>span: `download`</summary>
 
@@ -298,6 +309,14 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `snapshot` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `unexpected_era`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `snapshot_era` | `string` | ✓ |
 
 </details>
 

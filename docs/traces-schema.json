@@ -208,6 +208,28 @@
       "description": "Fetch bootstrap headers from a peer",
       "public": true
     },
+    "amaru::bootstrap::headers::NEXT_FAILED": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "next_failed",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::headers",
+      "description": "The chain-sync client failed while requesting or awaiting the next header. Operation ∈ {request_next, await_next}.",
+      "public": true
+    },
     "amaru::bootstrap::import::UTXO": {
       "type": "object",
       "properties": {
@@ -476,6 +498,24 @@
       "level": "TRACE",
       "target": "amaru::bootstrap::snapshot",
       "description": "Snapshot already downloaded; skipping download",
+      "public": true
+    },
+    "amaru::bootstrap::snapshot::UNEXPECTED_ERA": {
+      "type": "object",
+      "properties": {
+        "snapshot_era": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_era"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unexpected_era",
+      "level": "TRACE",
+      "target": "amaru::bootstrap::snapshot",
+      "description": "The parsed snapshot's current era is not Conway; later decoding may fail",
       "public": true
     },
     "amaru::bootstrap::snapshots::IMPORT": {

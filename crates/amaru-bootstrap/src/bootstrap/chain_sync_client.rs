@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{NetworkPoint, Peer, Slot};
-use amaru_observability::debug_span;
+use amaru_observability::{debug_span, error};
 use pallas_network::miniprotocols::{
     Point as PallasPoint,
     chainsync::{Client, ClientError, HeaderContent, NextResponse},
@@ -73,7 +73,9 @@ impl ChainSyncClient {
         client
             .request_next()
             .await
-            .inspect_err(|err| tracing::error!(reason = %err, "request next failed"))
+            .inspect_err(|err| {
+                error!(bootstrap::headers::NEXT_FAILED, operation = "request_next", error = %err);
+            })
             .map_err(ChainSyncClientError::NetworkError)
     }
 
@@ -83,7 +85,7 @@ impl ChainSyncClient {
         match client.recv_while_must_reply().await {
             Ok(result) => Ok(result),
             Err(err) => {
-                tracing::error!(reason = %err, "failed while awaiting for next block");
+                error!(bootstrap::headers::NEXT_FAILED, operation = "await_next", error = %err);
                 Err(ChainSyncClientError::NetworkError(err))
             }
         }
