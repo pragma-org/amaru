@@ -1,0 +1,81 @@
+name: Nightly Non-Functional Tests
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTUP_LOG: error
+
+jobs:
+  bootstrap-memory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MEMORY_LIMIT_BYTES: "524288000"
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/stage-peer-snapshots
+
+      - uses: ./.github/actions/cache
+
+      - name: Build Amaru
+        shell: bash
+        run: cargo build --release --bin amaru --locked
+
+      - name: Bootstrap preprod with memory limit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f /sys/fs/cgroup/cgroup.controllers ]]; then
+            echo "::error::cgroup v2 is required to run the bootstrap memory test"
+            exit 1
+          fi
+
+          if ! grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
+            echo "::error::the cgroup v2 memory controller is unavailable"
+            exit 1
+          fi
+
+          if ! command -v systemd-run >/dev/null; then
+            echo "::error::systemd-run is required to create the constrained cgroup"
+            exit 1
+          fi
+
+          scratch_dir="$(mktemp -d "$RUNNER_TEMP/amaru-bootstrap.XXXXXX")"
+          trap 'rm -rf "$scratch_dir"' EXIT
+          unit="amaru-bootstrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+          sudo systemd-run \
+            --unit="$unit" \
+            --wait \
+            --pipe \
+            --collect \
+            --service-type=exec \
+            --uid="$(id -u)" \
+            --gid="$(id -g)" \
+            --working-directory="$scratch_dir" \
+            --setenv="HOME=$HOME" \
+            --setenv="PATH=$PATH" \
+            --property=MemoryAccounting=yes \
+            --property=MemoryMax="$MEMORY_LIMIT_BYTES" \
+            --property=MemorySwapMax=0 \
+            --property=OOMPolicy=kill \
+            "$GITHUB_WORKSPACE/target/release/amaru" node bootstrap \
+              --network preprod \
+              --ledger-dir "$scratch_dir/ledger.db" \
+              --chain-dir "$scratch_dir/chain.db" \
+            2>&1 | tee "$RUNNER_TEMP/amaru-bootstrap.log"
+
+          test -d "$scratch_dir/ledger.db"
+          test -d "$scratch_dir/chain.db"
