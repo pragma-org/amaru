@@ -476,7 +476,7 @@ impl TrackPeers {
         tip: Point,
         store: &Store,
     ) -> Result<Point, ConsensusError> {
-        let Some(current_tip) = store.load_tip(&current.hash()).await else {
+        let Some(current_tip) = store.load_point(&current.hash()).await else {
             return Err(ConsensusError::UnknownPoint(current.hash()));
         };
         let Some((current_ref, highest_ref)) = self.upstream.get_mut(&conn_id).and_then(PerPeer::established_mut)
@@ -747,7 +747,7 @@ impl TrackPeers {
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
             IntersectFound(current, tip) => {
-                let current_tip = Store::new(eff.clone()).load_tip(&current.hash()).await;
+                let current_tip = Store::new(eff.clone()).load_point(&current.hash()).await;
                 let Some(current_tip) = current_tip else {
                     tracing::warn!(%peer, %current, tip = %tip, reason = "peer sent unknown intersection point", "stopping chainsync");
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;

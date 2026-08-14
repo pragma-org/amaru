@@ -327,16 +327,7 @@ impl ExternalEffect for TipEffect {
                 .get::<ResourceBlockValidation>()
                 .expect("TipEffect requires a ResourceBlockValidation resource")
                 .clone();
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("TipEffect requires a ResourceHeaderStore resource")
-                .clone();
-            let point = ledger.tip();
-            #[expect(clippy::panic)]
-            store.load_tip(&point.hash()).unwrap_or_else(|| {
-                tracing::error!(?point, "ledger tip header not found in chain store, falling back to origin");
-                panic!("internal storage corruption, mismatch between ledger and chain store");
-            })
+            ledger.tip()
         })
     }
 }
@@ -356,18 +347,7 @@ impl ExternalEffect for VolatileTipEffect {
                 .get::<ResourceBlockValidation>()
                 .expect("VolatileTipPointEffect requires a ResourceBlockValidation resource")
                 .clone();
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("TipEffect requires a ResourceHeaderStore resource")
-                .clone();
-            ledger.volatile_tip().unwrap_or_else(|| {
-                let point = ledger.tip();
-                #[expect(clippy::panic)]
-                store.load_tip(&point.hash()).unwrap_or_else(|| {
-                    tracing::error!(%point, "ledger tip header not found in chain store, falling back to origin");
-                    panic!("internal storage corruption, mismatch between ledger and chain store");
-                })
-            })
+            ledger.volatile_tip().unwrap_or_else(|| ledger.tip())
         })
     }
 }

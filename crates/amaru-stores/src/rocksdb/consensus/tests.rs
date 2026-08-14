@@ -22,7 +22,7 @@ use std::{
 
 use amaru_kernel::{
     BlockHeight, Hash, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId,
-    RawBlock, Slot, any_hash28, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
+    RawBlock, Slot, any_hash28, any_header, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
     make_header_with_op_cert_seq,
     size::HEADER,
     utils::tests::{random_bytes, run_strategy},
@@ -101,11 +101,11 @@ fn best_chain_hash_when_store_is_empty() {
 }
 
 #[test]
-fn store_best_chain_hash() {
+fn store_best_chain_tip() {
     with_db(|db| {
-        let best_chain = run_strategy(any_header_hash());
-        db.set_best_chain_hash(&best_chain).unwrap();
-        assert_eq!(db.get_best_chain_hash(), best_chain);
+        let tip = run_strategy(any_header()).point();
+        db.set_best_chain_tip(&tip).unwrap();
+        assert_eq!(db.get_best_chain_tip(), tip);
     })
 }
 
@@ -117,27 +117,27 @@ fn anchor_hash_when_store_is_empty() {
 }
 
 #[test]
-fn store_anchor_hash() {
+fn store_anchor_point() {
     with_db(|db| {
-        let anchor = run_strategy(any_header_hash());
-        db.set_anchor_hash(&anchor).unwrap();
-        assert_eq!(db.get_anchor_hash(), anchor);
+        let anchor = run_strategy(any_header()).point();
+        db.set_anchor_point(&anchor).unwrap();
+        assert_eq!(db.get_anchor_point(), anchor);
     })
 }
 
 #[test]
 fn anchor_tip_when_store_is_empty() {
     with_db(|db| {
-        assert_eq!(db.get_anchor_tip(), Point::Origin);
+        assert_eq!(db.get_anchor_point(), Point::Origin);
     })
 }
 
 #[test]
-fn anchor_tip_returns_origin_when_anchor_header_is_not_stored() {
+fn anchor_tip_returns_stored_point_without_loading_header() {
     with_db(|db| {
-        let anchor = run_strategy(any_header_hash());
-        db.set_anchor_hash(&anchor).unwrap();
-        assert_eq!(db.get_anchor_tip(), Point::Origin);
+        let anchor = run_strategy(any_header()).point();
+        db.set_anchor_point(&anchor).unwrap();
+        assert_eq!(db.get_anchor_point(), anchor);
     })
 }
 
@@ -146,8 +146,8 @@ fn anchor_tip_returns_tip_of_stored_anchor_header() {
     with_db(|db| {
         let header = make_header(1, 0, None);
         db.store_header(&header).unwrap();
-        db.set_anchor_hash(&header.hash()).unwrap();
-        assert_eq!(db.get_anchor_tip(), header.point());
+        db.set_anchor_point(&header.point()).unwrap();
+        assert_eq!(db.get_anchor_point(), header.point());
     })
 }
 
@@ -295,22 +295,22 @@ fn test_retrieve_best_chain() {
 
         // set the chain anchor to the 5th header
         // and the tip to the last header
-        db.set_anchor_hash(&chain[4].hash()).unwrap();
-        db.set_best_chain_hash(&chain[14].hash()).unwrap();
+        db.set_anchor_point(&chain[4].point()).unwrap();
+        db.set_best_chain_tip(&chain[14].point()).unwrap();
         let result = db.retrieve_best_chain();
         assert_eq!(result, chain[4..].iter().map(|h| h.hash()).collect::<Vec<_>>());
     })
 }
 
 #[test]
-fn load_from_best_chain_root_header() {
+fn is_on_best_chain_root_header() {
     with_db(|store| {
         let chain = populate_db(store.clone());
         let root = run_strategy(any_header_with_parent(chain[0].hash()));
 
         store.roll_forward_chain(&root.point()).expect("should roll forward successfully");
 
-        assert_eq!(store.load_from_best_chain(&root.point()), Some(root.hash()));
+        assert!(store.is_on_best_chain((root.point()).into()));
         assert_eq!(store.get_best_chain_hash(), root.hash());
     });
 }
@@ -323,7 +323,7 @@ fn update_best_chain_to_block_slot_given_new_block_is_valid() {
 
         store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
 
-        assert_eq!(store.load_from_best_chain(&new_tip.point()), Some(new_tip.hash()));
+        assert!(store.is_on_best_chain((new_tip.point()).into()));
         assert_eq!(store.get_best_chain_hash(), new_tip.hash());
     });
 }
@@ -342,9 +342,9 @@ fn switch_to_fork_switches_to_fork_and_updates_tip() {
             .expect("should replace the best chain successfully");
 
         assert_eq!(store.get_best_chain_hash(), headers.h3a.hash());
-        assert_eq!(store.load_from_best_chain(&headers.h3.point()), None);
-        assert_eq!(store.load_from_best_chain(&headers.h2a.point()), Some(headers.h2a.hash()));
-        assert_eq!(store.load_from_best_chain(&headers.h3a.point()), Some(headers.h3a.hash()));
+        assert!(!store.is_on_best_chain((headers.h3.point()).into()));
+        assert!(store.is_on_best_chain((headers.h2a.point()).into()));
+        assert!(store.is_on_best_chain((headers.h3a.point()).into()));
     });
 }
 
@@ -384,8 +384,8 @@ fn switch_to_fork_preserves_state_when_fork_point_is_not_on_best_chain() {
 
         assert_eq!(store.get_best_chain_hash(), best_chain_before, "best tip must not move");
         assert_eq!(store.retrieve_best_chain(), chain_before, "chain index must be unchanged");
-        assert_eq!(store.load_from_best_chain(&headers.h3.point()), Some(headers.h3.hash()));
-        assert_eq!(store.load_from_best_chain(&headers.h3a.point()), None);
+        assert!(store.is_on_best_chain((headers.h3.point()).into()));
+        assert!(!store.is_on_best_chain((headers.h3a.point()).into()));
     });
 }
 
@@ -479,7 +479,7 @@ fn find_ancestor_on_best_chain_returns_none_when_start_header_is_not_in_store() 
     with_db(|store| {
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
 
         let absent = run_strategy(any_header_hash());
         assert_eq!(
@@ -497,7 +497,7 @@ fn find_ancestor_on_best_chain_handles_one_block_fork_off_non_tip() {
     with_db(|store| {
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
         store.store_header(&headers.h2a).unwrap();
 
         let result = store.find_ancestor_on_best_chain(headers.h2a.hash()).unwrap();
@@ -644,7 +644,7 @@ fn find_anchor_at_height_returns_first_header_at_or_above_target() {
         let chain = populate_db(store.clone());
 
         let result = store.find_anchor_at_height(BlockHeight::from(5));
-        assert_eq!(result, Some(chain[4].hash()));
+        assert_eq!(result, Some(chain[4].point()));
     });
 }
 
@@ -681,7 +681,7 @@ fn find_anchor_at_height_walks_from_origin_when_anchor_is_origin() {
         assert_eq!(store.get_anchor_hash(), ORIGIN_HASH);
 
         let result = store.find_anchor_at_height(BlockHeight::from(3));
-        assert_eq!(result, Some(chain[2].hash()));
+        assert_eq!(result, Some(chain[2].point()));
     });
 }
 
@@ -727,7 +727,7 @@ fn find_ancestor_on_best_chain_returns_best_chain_intersection_and_forward_path(
         // fork:              -> h2a -> h3a(start)
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
         for header in [&headers.h2a, &headers.h3a] {
             store.store_header(header).unwrap();
         }
@@ -748,7 +748,7 @@ fn find_ancestor_on_best_chain_returns_none_when_start_is_already_on_best_chain(
     with_db(|store| {
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
 
         let result = store.find_ancestor_on_best_chain(headers.h3.hash()).unwrap();
         assert_eq!(result, FindAncestorOnBestChainResult::NotFound);
@@ -882,7 +882,7 @@ fn read_snapshot_keeps_original_best_chain_view_after_store_changes() {
             store.store_header(&new_tip).expect("should store header successfully");
             store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
             assert_eq!(snapshot.get_best_chain_hash(), best_chain_hash);
-            assert_eq!(snapshot.load_from_best_chain(&new_tip.point()), None);
+            assert!(!snapshot.is_on_best_chain((new_tip.point()).into()));
             assert!(snapshot.next_best_chain(&tip.point()).is_none());
         },
     );
@@ -910,7 +910,7 @@ fn read_snapshot_exposes_direct_read_operations() {
                 for header in [&headers.h2a, &headers.h3a] {
                     store.store_header(header).unwrap();
                 }
-                store.set_anchor_hash(&headers.h0.hash()).unwrap();
+                store.set_anchor_point(&headers.h0.point()).unwrap();
                 store.put_nonces(&headers.h2.hash(), &nonces).unwrap();
                 store.store_block(&headers.h3.hash(), &block).unwrap();
                 store.set_block_valid(&headers.h2.hash(), true).unwrap();
@@ -951,7 +951,7 @@ fn read_snapshot_supports_best_chain_traversal() {
         {
             let chain = chain.clone();
             move |store| {
-                store.set_anchor_hash(&chain[0].hash()).unwrap();
+                store.set_anchor_point(&chain[0].point()).unwrap();
                 append_best_chain(store.clone(), &chain);
             }
         },
@@ -962,8 +962,8 @@ fn read_snapshot_supports_best_chain_traversal() {
                     Point::Specific(100.into(), run_strategy(any_header_hash()), BlockHeight::from(100));
 
                 assert_eq!(store.retrieve_best_chain(), chain.iter().map(Header::hash).collect::<Vec<_>>());
-                assert_eq!(snapshot.load_from_best_chain(&chain[0].point()), Some(chain[0].hash()));
-                assert_eq!(snapshot.load_from_best_chain(&invalid_point), None);
+                assert!(snapshot.is_on_best_chain((chain[0].point()).into()));
+                assert!(!snapshot.is_on_best_chain((invalid_point).into()));
                 assert_eq!(snapshot.next_best_chain(&Point::Origin), Some(chain[0].point()));
                 assert_eq!(snapshot.next_best_chain(&chain[5].point()), Some(chain[6].point()));
                 assert_eq!(snapshot.next_best_chain(&chain[9].point()), None);
@@ -1004,7 +1004,7 @@ fn read_snapshot_supports_find_intersect_point_queries() {
             let chain = chain.clone();
             move |store| {
                 append_best_chain(store.clone(), &chain);
-                store.set_anchor_hash(&chain[5].hash()).unwrap();
+                store.set_anchor_point(&chain[5].point()).unwrap();
             }
         },
         {
@@ -1062,7 +1062,7 @@ fn read_snapshot_supports_ancestor_fork_and_sampling_queries() {
                 for header in [&headers.h2a, &headers.h3a] {
                     store.store_header(header).unwrap();
                 }
-                store.set_anchor_hash(&headers.h0.hash()).unwrap();
+                store.set_anchor_point(&headers.h0.point()).unwrap();
                 store.set_block_valid(&headers.h1.hash(), true).unwrap();
 
                 append_best_chain(store.clone(), &chain[4..]);
@@ -1113,7 +1113,7 @@ fn read_snapshot_supports_missing_block_queries() {
             let chain = chain.clone();
             let block = block.clone();
             move |store| {
-                store.set_anchor_hash(&chain[0].hash()).unwrap();
+                store.set_anchor_point(&chain[0].point()).unwrap();
                 append_best_chain(store.clone(), &chain);
                 store.store_block(&chain[6].hash(), &block).unwrap();
             }
@@ -1203,7 +1203,7 @@ fn opcert_sequence_number_is_none_for_an_unknown_pool() {
         let header2 = make_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
         db.store_header(&header1).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
-        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.set_anchor_point(&header1.point()).unwrap();
         db.store_header(&header2).unwrap();
 
         let unknown_pool_id = run_strategy(any_hash28());
@@ -1219,7 +1219,7 @@ fn storing_a_header_records_its_opcert_sequence_number() {
         let header3 = make_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
         db.store_header(&header1).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
-        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.set_anchor_point(&header1.point()).unwrap();
         db.store_header(&header1).unwrap();
         db.store_header(&header2).unwrap();
         db.store_header(&header3).unwrap();
@@ -1247,7 +1247,7 @@ fn storing_a_validated_header_records_its_opcert_sequence_number() {
         let header3 = make_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
         db.store_validated_header(&header1, &Nonces::for_tests()).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
-        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.set_anchor_point(&header1.point()).unwrap();
         db.store_validated_header(&header2, &Nonces::for_tests()).unwrap();
         db.store_validated_header(&header3, &Nonces::for_tests()).unwrap();
         let pool_id = header1.pool_id();
@@ -1271,7 +1271,7 @@ fn pools_can_be_initialized_with_opcert_sequence_numbers() {
         // mirror bootstrap + first-start initialization (build_node.rs)
         let tip = make_header(1, 100, None);
         db.store_header(&tip).unwrap();
-        db.set_anchor_hash(&tip.hash()).unwrap();
+        db.set_anchor_point(&tip.point()).unwrap();
         db.roll_forward_chain(&tip.point()).unwrap();
 
         let pool_id: PoolId = run_strategy(any_hash28());
@@ -1294,7 +1294,7 @@ fn a_header_entry_supersedes_an_older_seed_entry() {
         let seed = OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)]));
         db.store_header(&seed_header).unwrap();
         db.roll_forward_chain(&seed_header.point()).unwrap();
-        db.set_anchor_hash(&seed_header.hash()).unwrap();
+        db.set_anchor_point(&seed_header.point()).unwrap();
         db.put_opcert_seed(&seed, &seed_header.point()).unwrap();
         db.store_header(&header).unwrap();
         db.store_header(&next).unwrap();
@@ -1316,7 +1316,7 @@ fn opcert_lookup_follows_forks() {
         let next_b = make_header(3, 35, Some(fork_b.hash()));
         db.store_header(&root).unwrap();
         db.roll_forward_chain(&root.point()).unwrap();
-        db.set_anchor_hash(&root.hash()).unwrap();
+        db.set_anchor_point(&root.point()).unwrap();
         for h in [&fork_a, &fork_b, &next_a, &next_b] {
             db.store_header(h).unwrap();
         }
@@ -1491,11 +1491,8 @@ fn can_convert_v1_sample_db_to_v4() {
     migrate_to_v4(&store).expect("Migration to v4 should succeed");
     assert_eq!(get_version(&store).unwrap(), 4, "sample DB should be v4");
 
-    let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore>::load_from_best_chain(
-        &store,
-        &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap(), BlockHeight::from(5)),
-    );
-    assert!(header.is_some(), "Sample data should be preserved");
+    let on_best_chain = store.is_on_best_chain(NetworkPoint::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()));
+    assert!(on_best_chain, "Sample data should be preserved");
 }
 
 #[test]
@@ -1688,7 +1685,7 @@ fn populate_db(store: Arc<dyn ChainStore>) -> Vec<Header> {
     let chain = run_strategy(any_headers_chain(10));
 
     // Set the anchor to the first header in the chain
-    store.set_anchor_hash(&chain[0].hash()).expect("should set anchor hash successfully");
+    store.set_anchor_point(&chain[0].point()).expect("should set anchor hash successfully");
 
     for header in chain.iter() {
         store.roll_forward_chain(&header.point()).expect("should roll forward successfully");

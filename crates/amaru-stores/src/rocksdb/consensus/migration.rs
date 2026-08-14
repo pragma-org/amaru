@@ -40,6 +40,15 @@ pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
 static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
     [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4, migrate_to_v5];
 
+// TODO: Add migrate_to_v6 and bump CHAIN_DB_VERSION once the on-disk rewrite is implemented.
+//
+// Version 6 should rewrite keys that the current code already writes as a `Point` but still
+// accepts in the previous 32-byte header-hash form:
+// - `BEST_CHAIN_PREFIX`: store the adopted tip as `[network_point, block_height]` CBOR
+// - `ANCHOR_PREFIX`: store the immutable-horizon point in the same form
+// - `CHAIN_PREFIX` values: store each best-chain entry as a `Point` (slot, hash, height)
+//   so `next_best_chain` / `is_on_best_chain` do not load the header just to recover height
+
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
 /// the current version if migration succeeds, otherwise returns a `StoreError`.
@@ -108,7 +117,7 @@ pub(crate) fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
     let anchor_point = load_stored_header_point(store, &anchor_hash)
         .map(|(point, _)| point)
         .unwrap_or_else(|| panic!("no header found for anchor hash {}", anchor_hash));
-    store.set_best_chain_hash(&anchor_point.hash())?;
+    store.set_best_chain_tip(&anchor_point)?;
     store.set_block_valid(&anchor_point.hash(), true)?;
 
     tracing::info!(prev_best_chain = %original_best_chain_point, new_best_chain = %anchor_point, "found back best chain to revalidate");

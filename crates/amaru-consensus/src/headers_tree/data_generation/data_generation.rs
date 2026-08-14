@@ -166,8 +166,8 @@ pub fn create_headers_tree_with_store(store: Arc<InMemoryChainStore>, size: usiz
     for header in &headers {
         store.store_header(header).unwrap();
     }
-    store.set_anchor_hash(&headers[0].hash()).unwrap();
-    store.set_best_chain_hash(&headers[headers.len() - 1].hash()).unwrap();
+    store.set_anchor_point(&headers[0].point()).unwrap();
+    store.set_best_chain_tip(&headers[headers.len() - 1].point()).unwrap();
     HeadersTree::new(store.clone(), 10)
 }
 

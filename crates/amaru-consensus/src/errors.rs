@@ -34,9 +34,9 @@ pub enum ConsensusError {
     #[error("Failed to remove header at {0}: {1}")]
     RemoveHeaderFailed(HeaderHash, StoreError),
     #[error("Failed to set a new anchor at {0}: {1}")]
-    SetAnchorHashFailed(HeaderHash, StoreError),
+    SetAnchorPointFailed(Point, StoreError),
     #[error("Failed to set a best chain at {0}: {1}")]
-    SetBestChainHashFailed(HeaderHash, StoreError),
+    SetBestChainTipFailed(Point, StoreError),
     #[error("Failed to update a best chain at {0}->{1}: {2}")]
     UpdateBestChainFailed(HeaderHash, HeaderHash, StoreError),
     #[error("Failed to store block body at {0}: {1}")]

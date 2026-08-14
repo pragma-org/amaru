@@ -14,9 +14,7 @@
 
 use std::{collections::BTreeSet, time::Duration};
 
-use amaru_kernel::{
-    BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock,
-};
+use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
@@ -112,7 +110,7 @@ const MAX_FETCH_PEERS: usize = 3;
 /// - **downstream** (typically validate_block_input via contramap in build): sends `(Point, parent_Point, block_height)` for each block (newly fetched or recovered stored).
 /// - **block_source** (via child only): `BlockReceived {peer, tip}` for every header seen in replies (even stragglers/old).
 /// - **peer_selection**: `Adversarial(peer)` on body-hash mismatch (main) or header decode failure (child).
-/// - **Store** (via effects): `find_missing_blocks`, `has_block`, `load_header`, `store_block`, `load_tip` etc. (many via `or_terminate`).
+/// - **Store** (via effects): `find_missing_blocks`, `has_block`, `load_header`, `store_block`, `load_point` etc. (many via `or_terminate`).
 /// - Time/schedule via Effects: `schedule_after` for `Timeout`, `cancel_schedule`.
 /// - No direct interaction with validate results (one-way downstream); no header validation performed here (assumes requested ranges; minimal structural checks only).
 ///

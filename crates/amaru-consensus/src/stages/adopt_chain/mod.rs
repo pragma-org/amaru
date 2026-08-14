@@ -85,7 +85,7 @@ use crate::{
 /// `test_setup.rs`): `HeaderTree` + `InMemConsensusStore` + `ResourceHeaderStore`,
 /// exhaustive `te_*` effect tracers for every `LoadHeaderEffect`,
 /// `RollForwardChainEffect`, `SwitchToForkEffect`, `FindAncestorOnBestChainEffect`,
-/// `FindAnchorAtHeightEffect`, `SetAnchorHashEffect`, `clock`, `send`, etc.,
+/// `FindAnchorAtHeightEffect`, `SetAnchorPointEffect`, `clock`, `send`, etc.,
 /// plus `assert_trace` + post-run store assertions + log scrubbing.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AdoptChain {
@@ -290,7 +290,7 @@ async fn drag_anchor_forward(
 ) -> Result<Instant, StoreError> {
     let target_height = tip.block_height() - consensus_security_param;
     if let Some(new_anchor) = store.find_anchor_at_height(target_height).await {
-        store.set_anchor_hash(&new_anchor).await?;
+        store.set_anchor_point(&new_anchor).await?;
     }
     let now = eff.clock().await;
     eff.external(Performance::prune_below(target_height, now)).await;

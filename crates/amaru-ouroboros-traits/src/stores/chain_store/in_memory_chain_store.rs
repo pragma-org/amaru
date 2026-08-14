@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
 
 use crate::{
     DiagnosticChainStore, FullChainStore, Nonces, OpcertSequenceNumbers, StoreError,
@@ -47,8 +47,8 @@ struct InMemoryChainStoreInner {
     opcert_sequence_numbers: BTreeMap<PoolId, BTreeMap<Slot, BTreeMap<HeaderHash, u64>>>,
     headers: BTreeMap<HeaderHash, Header>,
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
-    anchor: HeaderHash,
-    best_chain: HeaderHash,
+    anchor: Point,
+    best_chain: Point,
     blocks: BTreeMap<HeaderHash, RawBlock>,
     chain: Vec<Point>,
     /// Maps header hash to block validity. None = not yet validated, Some(true) = valid, Some(false) = invalid.
@@ -68,8 +68,8 @@ impl InMemoryChainStoreInner {
             opcert_sequence_numbers: BTreeMap::new(),
             headers: BTreeMap::new(),
             parent_child_relationship: BTreeMap::new(),
-            anchor: NULL_HASH32,
-            best_chain: NULL_HASH32,
+            anchor: Point::Origin,
+            best_chain: Point::Origin,
             blocks: BTreeMap::new(),
             chain: Vec::new(),
             block_validity: BTreeMap::new(),
@@ -142,21 +142,21 @@ impl BaseReadChainStore for InMemoryChainStore {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_point(&self) -> Point {
         let inner = self.inner.lock().unwrap();
         inner.anchor
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_tip(&self) -> Point {
         let inner = self.inner.lock().unwrap();
         inner.best_chain
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+    fn is_on_best_chain(&self, point: NetworkPoint) -> bool {
         let inner = self.inner.lock().unwrap();
-        inner.chain.iter().find(|p| same_chain_point(p, point)).map(|p| p.hash())
+        is_on_in_memory_best_chain(&inner.chain, point)
     }
 
     #[expect(clippy::unwrap_used)]
@@ -170,7 +170,7 @@ impl BaseReadChainStore for InMemoryChainStore {
         let inner = self.inner.lock().unwrap();
         latest_opcert_sequence_number(
             &inner.headers,
-            &inner.anchor,
+            inner.anchor,
             &inner.opcert_sequence_numbers,
             &inner.chain,
             pool_id,
@@ -243,16 +243,16 @@ impl WriteChainStore for InMemoryChainStore {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_anchor_point(&self, point: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.anchor = *hash;
+        inner.anchor = *point;
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_best_chain_tip(&self, tip: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        inner.best_chain = *hash;
+        inner.best_chain = *tip;
         Ok(())
     }
 
@@ -260,7 +260,7 @@ impl WriteChainStore for InMemoryChainStore {
     fn roll_forward_chain(&self, point: &Point) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.chain.push(*point);
-        inner.best_chain = point.hash();
+        inner.best_chain = *point;
         Ok(())
     }
 
@@ -284,7 +284,7 @@ impl WriteChainStore for InMemoryChainStore {
         if let Some(pos) = inner.chain.iter().rposition(|p| same_chain_point(p, fork_point)) {
             inner.chain.truncate(pos + 1);
             inner.chain.extend(forward_points.iter().copied());
-            inner.best_chain = forward_points.last().unwrap_or(fork_point).hash();
+            inner.best_chain = *forward_points.last().unwrap_or(fork_point);
             Ok(())
         } else {
             Err(StoreError::ReadError {
@@ -305,8 +305,8 @@ struct InMemConsensusSnapshot {
     opcert_sequence_numbers: BTreeMap<PoolId, BTreeMap<Slot, BTreeMap<HeaderHash, u64>>>,
     headers: BTreeMap<HeaderHash, Header>,
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
-    anchor: HeaderHash,
-    best_chain: HeaderHash,
+    anchor: Point,
+    best_chain: Point,
     blocks: BTreeMap<HeaderHash, RawBlock>,
     chain: Vec<Point>,
     block_validity: BTreeMap<HeaderHash, bool>,
@@ -343,16 +343,16 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
         self.parent_child_relationship.get(hash).cloned().unwrap_or_default()
     }
 
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_point(&self) -> Point {
         self.anchor
     }
 
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_tip(&self) -> Point {
         self.best_chain
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        self.chain.iter().find(|p| same_chain_point(p, point)).map(|p| p.hash())
+    fn is_on_best_chain(&self, point: NetworkPoint) -> bool {
+        is_on_in_memory_best_chain(&self.chain, point)
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
@@ -362,7 +362,7 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
     fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         latest_opcert_sequence_number(
             &self.headers,
-            &self.anchor,
+            self.anchor,
             &self.opcert_sequence_numbers,
             &self.chain,
             pool_id,
@@ -373,7 +373,7 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
 
 fn latest_opcert_sequence_number(
     headers: &BTreeMap<HeaderHash, Header>,
-    anchor: &HeaderHash,
+    anchor: Point,
     opcert_sequence_numbers: &BTreeMap<PoolId, BTreeMap<Slot, BTreeMap<HeaderHash, u64>>>,
     chain: &[Point],
     pool_id: &PoolId,
@@ -383,7 +383,7 @@ fn latest_opcert_sequence_number(
         return Ok(None);
     };
     let Some(as_of_slot) = headers.get(&parent).map(|h| h.slot()) else { return Ok(None) };
-    let anchor_slot = headers.get(anchor).map(|h| h.slot()).unwrap_or(Slot::from(0));
+    let anchor_slot = anchor.slot_or_default();
     let Some(entries) = opcert_sequence_numbers.get(pool_id) else {
         return Ok(None);
     };
@@ -430,6 +430,13 @@ fn latest_opcert_sequence_number(
 
 fn same_chain_point(stored: &Point, queried: &Point) -> bool {
     stored.hash() == queried.hash() && stored.slot_or_default() == queried.slot_or_default()
+}
+
+fn is_on_in_memory_best_chain(chain: &[Point], point: NetworkPoint) -> bool {
+    match point {
+        NetworkPoint::Origin => true,
+        NetworkPoint::Specific(slot, hash) => chain.iter().any(|p| p.slot_or_default() == slot && p.hash() == hash),
+    }
 }
 
 fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {

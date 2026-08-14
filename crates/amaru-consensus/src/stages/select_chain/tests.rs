@@ -25,7 +25,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        make_block_header, setup, setup_many, te_find_best_candidate, te_has_header, te_load_header, te_load_tip,
+        make_block_header, setup, setup_many, te_find_best_candidate, te_has_header, te_load_header, te_load_point,
         te_record_block_pruned, te_record_block_valid, te_record_fork_started, te_record_header_abandoned,
         te_set_block_valid, te_unvalidated_ancestor_hashes, test_prep,
     },
@@ -491,7 +491,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_set_block_valid("sc-1", tip.hash(), false),
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
-            te_load_tip("sc-1", prep.headers.h0.hash()),
+            te_load_point("sc-1", prep.headers.h0.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.point(), prep.headers.h0.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
             te_clock_read("sc-1"),
@@ -550,7 +550,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_set_block_valid("sc-1", tip.hash(), false),
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
-            te_load_tip("sc-1", prep.headers.h2a.hash()),
+            te_load_point("sc-1", prep.headers.h2a.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.point(), prep.headers.h2a.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
             te_clock_read("sc-1"),
@@ -706,7 +706,7 @@ fn test_startup_with_non_empty_store() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", prep.headers.h3.hash(), false),
-            te_load_tip("sc-1", prep.headers.h2.hash()),
+            te_load_point("sc-1", prep.headers.h2.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.point(), prep.headers.h2.point())),
             te_state("sc-1", &prep.state),
         ],
@@ -738,7 +738,7 @@ fn test_fetch_next_from_resumes_best_candidate() {
         &[
             te_input("sc-1", &msg).into(),
             te_load_header("sc-1", prep.headers.h3.hash(), false).into(),
-            te_load_tip("sc-1", prep.headers.h2.hash()).into(),
+            te_load_point("sc-1", prep.headers.h2.hash()).into(),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.point(), prep.headers.h2.point())).into(),
         ],
     );
@@ -912,7 +912,7 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
             te_set_block_valid("sc-1", tip.hash(), false),
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h2.hash(), false),
-            te_load_tip("sc-1", prep.headers.h1.hash()),
+            te_load_point("sc-1", prep.headers.h1.hash()),
             te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h2.point(), prep.headers.h1.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h2.hash()),
             te_clock_read("sc-1"),
@@ -946,7 +946,7 @@ mod best_tip_from_store_tests {
         for header in [&a, &b, &c, &d] {
             store.store_header(header).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         for header in [&a, &b] {
             store.roll_forward_chain(&header.point()).unwrap();
         }
@@ -966,7 +966,7 @@ mod best_tip_from_store_tests {
         for header in [&a, &b, &c, &d] {
             store.store_header(header).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         for header in [&a, &b] {
             store.roll_forward_chain(&header.point()).unwrap();
         }
@@ -993,7 +993,7 @@ mod best_tip_from_store_tests {
         for header in [&a, &b, &c, &d, &e] {
             store.store_header(header).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         for header in [&a, &b] {
             store.roll_forward_chain(&header.point()).unwrap();
         }
@@ -1014,7 +1014,7 @@ mod best_tip_from_store_tests {
             store.store_header(header).unwrap();
             store.roll_forward_chain(&header.point()).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         store.set_block_valid(&a.hash(), true).unwrap();
         store.set_block_valid(&b.hash(), true).unwrap();
 

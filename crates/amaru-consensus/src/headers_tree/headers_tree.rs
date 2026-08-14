@@ -515,7 +515,8 @@ impl HeadersTree {
 
     /// Store the best currently known tip and update our tracker to the new best chain fragment.
     fn set_best_chain(&mut self, hash: &HeaderHash) -> Result<(), ConsensusError> {
-        self.chain_store.set_best_chain_hash(hash).map_err(|e| ConsensusError::SetBestChainHashFailed(*hash, e))?;
+        let tip = self.chain_store.load_point(hash).unwrap_or(Point::Origin);
+        self.chain_store.set_best_chain_tip(&tip).map_err(|e| ConsensusError::SetBestChainTipFailed(tip, e))?;
         // update "Me" so that it points to the best chain, as given by the the best chain tip
         self.tree_state.peers.insert(Me, self.best_chain_fragment_hashes());
         Ok(())
@@ -523,7 +524,8 @@ impl HeadersTree {
 
     /// Store the current chain anchor if it has changed.
     fn set_anchor(&mut self, hash: &HeaderHash) -> Result<(), ConsensusError> {
-        self.chain_store.set_anchor_hash(hash).map_err(|e| ConsensusError::SetAnchorHashFailed(*hash, e))?;
+        let point = self.chain_store.load_point(hash).unwrap_or(Point::Origin);
+        self.chain_store.set_anchor_point(&point).map_err(|e| ConsensusError::SetAnchorPointFailed(point, e))?;
         Ok(())
     }
 
@@ -531,7 +533,7 @@ impl HeadersTree {
     /// and return an error if the peer is not known.
     fn get_point(&self, peer: &Peer) -> Result<Point, ConsensusError> {
         let tip = self.get_peer_tip(peer).ok_or(ConsensusError::UnknownPeer(peer.clone()))?;
-        Ok(self.chain_store.load_header(tip).map(|t| t.point()).unwrap_or(Point::Origin))
+        Ok(self.chain_store.load_point(tip).unwrap_or(Point::Origin))
     }
 
     /// Return the header hash that is the least common parent between 2 headers in the tree

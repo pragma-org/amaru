@@ -80,8 +80,8 @@ fn main() {
     for header in tree.nodes() {
         store.store_header(&header).unwrap();
     }
-    store.set_anchor_hash(&tree.value.hash()).unwrap();
-    store.set_best_chain_hash(&tree.value.hash()).unwrap();
+    store.set_anchor_point(&tree.value.point()).unwrap();
+    store.set_best_chain_tip(&tree.value.point()).unwrap();
 
     let guard = if profile { ProfilerGuardBuilder::default().frequency(1000).build().ok() } else { None };
 

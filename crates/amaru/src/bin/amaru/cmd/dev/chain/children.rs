@@ -74,7 +74,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     for child in &children {
         let (_header, valid) = db.load_header_with_validity(&child.hash()).unwrap();
         let has_block = db.has_block(&child.hash()).unwrap_or(false);
-        let on_best_chain = db.load_from_best_chain(child).is_some();
+        let on_best_chain = db.is_on_best_chain((*child).into());
 
         println!(
             "{} height={} block={} valid={} best-chain={}",

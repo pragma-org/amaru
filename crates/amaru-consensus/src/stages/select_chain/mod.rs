@@ -81,7 +81,7 @@ use crate::{effects::FindBestCandidate, performance::Performance};
 ///
 /// - **FetchNextFrom(point: Point)**:
 ///   - Computes current `best_tip.point()` (or Origin).
-///   - If a `best_tip` exists and differs from the requested `point`: loads its header + parent point (via `load_tip`/`load_parent_point` paths; terminates on failure),
+///   - If a `best_tip` exists and differs from the requested `point`: loads its header + parent point (via `load_point`/`load_parent_point` paths; terminates on failure),
 ///     logs "resuming block fetching", and **unconditionally** `eff.send(&downstream, (best_tip.point(), parent))`.
 ///     (Note: does **not** touch `may_fetch_blocks`.)
 ///   - Else (no best, or point matches current best): sets `may_fetch_blocks = true` (signals "we will push future superior tips").
@@ -388,7 +388,7 @@ impl SelectChain {
                 .await;
             let parent = if let Some(parent) = header.parent_hash() {
                 store
-                    .load_tip(&parent)
+                    .load_point(&parent)
                     .or_terminate_with(&eff, async |_| {
                         tracing::error!("failed to load parent of best candidate");
                     })
@@ -423,7 +423,7 @@ impl NewBestTip {
 pub async fn load_parent_point<T: Send + Sync + 'static>(eff: &Effects<T>, store: &Store, header: &Header) -> Point {
     if let Some(parent) = header.parent() {
         store
-            .load_tip(&parent)
+            .load_point(&parent)
             .or_terminate_with(eff, async |_| {
                 tracing::warn!("failed to load parent {:?} of {:?}", parent, header);
             })

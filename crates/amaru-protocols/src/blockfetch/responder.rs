@@ -99,11 +99,10 @@ impl PointsRange {
         };
 
         if from == through {
-            // FIXME RK: parse header from loaded block
-            return if store.load_block(&from.hash()).await?.is_some() {
-                match store.load_header(&from.hash()).await {
-                    Some(header) => Ok(Some(PointsRange::singleton(header.point()))),
-                    None => Ok(None),
+            return if let Some(block) = store.load_block(&from.hash()).await? {
+                match block.decode_header() {
+                    Ok(header) => Ok(Some(PointsRange::singleton(header.point()))),
+                    Err(_) => Ok(None),
                 }
             } else {
                 Ok(None)
@@ -122,13 +121,10 @@ impl PointsRange {
                 );
                 return Ok(None);
             }
-            // check that the block exists
-            if store.load_block(&current_hash).await?.is_none() {
+            let Some(block) = store.load_block(&current_hash).await? else {
                 return Ok(None);
-            }
-
-            // load the header for the current hash
-            if let Some(header) = store.load_header(&current_hash).await {
+            };
+            if let Ok(header) = block.decode_header() {
                 result.push(header.point());
                 // if we found the from point, we're done
                 if current_hash == from.hash() {
@@ -388,7 +384,7 @@ pub mod tests {
         let store = Arc::new(InMemoryChainStore::new());
 
         // Set anchor to the first header
-        store.set_anchor_hash(&headers[0].hash()).unwrap();
+        store.set_anchor_point(&headers[0].point()).unwrap();
 
         // Store only some headers (skip one in the middle)
         for (i, h) in headers.iter().enumerate() {
@@ -504,7 +500,7 @@ pub mod tests {
             run_strategy(any_headers_chain_with_root(n, Point::new(point.into(), BlockHeight::from(0))));
         let store = Arc::new(InMemoryChainStore::new());
         // Set anchor to the first header
-        store.set_anchor_hash(&headers[0].hash()).unwrap();
+        store.set_anchor_point(&headers[0].point()).unwrap();
         for h in &headers {
             store.store_header(h).unwrap();
             store.roll_forward_chain(&h.point()).unwrap();

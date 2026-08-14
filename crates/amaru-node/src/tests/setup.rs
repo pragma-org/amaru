@@ -195,7 +195,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
         }
     };
     store
-        .set_best_chain_hash(&msg.hash())
+        .set_best_chain_tip(&tip)
         .or_terminate_with(&eff, |e| async move {
             tracing::error!("Cannot set the best chain: {e:?}. The seed is {seed}");
         })

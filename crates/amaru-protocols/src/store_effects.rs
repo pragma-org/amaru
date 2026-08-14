@@ -14,9 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{
-    BlockHeight, GlobalParameters, Header, HeaderHash, NetworkPoint, NonEmptyVec, Point, RawBlock,
-};
+use amaru_kernel::{BlockHeight, GlobalParameters, Header, HeaderHash, NetworkPoint, NonEmptyVec, Point, RawBlock};
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
@@ -83,8 +81,8 @@ impl Store {
         self.effects.external(HasHeaderEffect::new(*hash))
     }
 
-    pub fn load_from_best_chain(&self, point: &Point) -> BoxFuture<'static, Option<HeaderHash>> {
-        self.effects.external(LoadFromBestChainEffect::new(*point))
+    pub fn is_on_best_chain(&self, point: impl Into<NetworkPoint>) -> BoxFuture<'static, bool> {
+        self.effects.external(IsOnBestChainEffect::new(point.into()))
     }
 
     pub fn next_best_chain(&self, point: &Point) -> BoxFuture<'static, Option<Point>> {
@@ -99,12 +97,12 @@ impl Store {
         self.effects.external(SetBlockValidEffect::new(*hash, valid))
     }
 
-    pub fn set_anchor_hash(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetAnchorHashEffect::new(*hash))
+    pub fn set_anchor_point(&self, point: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(SetAnchorPointEffect::new(*point))
     }
 
-    pub fn set_best_chain_hash(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetBestChainHashEffect::new(*hash))
+    pub fn set_best_chain_tip(&self, tip: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(SetBestChainTipEffect::new(*tip))
     }
 
     pub fn store_validated_header(
@@ -135,8 +133,8 @@ impl Store {
         self.effects.external(RollForwardChainEffect::new(*point))
     }
 
-    pub fn load_tip(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(LoadTipEffect::new(*hash).with_trace_context(&self.trace_context))
+    pub fn load_point(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Point>> {
+        self.effects.external(LoadPointEffect::new(*hash).with_trace_context(&self.trace_context))
     }
 
     pub fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> BoxFuture<'static, (Vec<HeaderHash>, bool)> {
@@ -170,7 +168,7 @@ impl Store {
         self.effects.external(SampleAncestorPointsEffect::new())
     }
 
-    pub fn find_anchor_at_height(&self, target_height: BlockHeight) -> BoxFuture<'static, Option<HeaderHash>> {
+    pub fn find_anchor_at_height(&self, target_height: BlockHeight) -> BoxFuture<'static, Option<Point>> {
         self.effects.external(FindAnchorAtHeightEffect::new(target_height))
     }
 
@@ -192,15 +190,15 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<SetBestChainHashEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SetAnchorPointEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SetBestChainTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<PutNoncesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<IsOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<NextBestChainHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SetBlockValidEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
@@ -280,54 +278,54 @@ impl ExternalEffectAPI for StoreBlockEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SetAnchorHashEffect {
-    hash: HeaderHash,
+pub struct SetAnchorPointEffect {
+    point: Point,
 }
 
-impl SetAnchorHashEffect {
-    pub fn new(hash: HeaderHash) -> Self {
-        Self { hash }
+impl SetAnchorPointEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
     }
 }
 
-impl ExternalEffect for SetAnchorHashEffect {
+impl ExternalEffect for SetAnchorPointEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let store =
-                resources.get::<ResourceHeaderStore>().expect("SetAnchorHashEffect requires a chain store").clone();
-            store.set_anchor_hash(&self.hash)
+                resources.get::<ResourceHeaderStore>().expect("SetAnchorPointEffect requires a chain store").clone();
+            store.set_anchor_point(&self.point)
         })
     }
 }
 
-impl ExternalEffectAPI for SetAnchorHashEffect {
+impl ExternalEffectAPI for SetAnchorPointEffect {
     type Response = Result<(), StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SetBestChainHashEffect {
-    hash: HeaderHash,
+pub struct SetBestChainTipEffect {
+    tip: Point,
 }
 
-impl SetBestChainHashEffect {
-    pub fn new(hash: HeaderHash) -> Self {
-        Self { hash }
+impl SetBestChainTipEffect {
+    pub fn new(tip: Point) -> Self {
+        Self { tip }
     }
 }
 
-impl ExternalEffect for SetBestChainHashEffect {
+impl ExternalEffect for SetBestChainTipEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let store =
-                resources.get::<ResourceHeaderStore>().expect("SetBestChainHashEffect requires a chain store").clone();
-            store.set_best_chain_hash(&self.hash)
+                resources.get::<ResourceHeaderStore>().expect("SetBestChainTipEffect requires a chain store").clone();
+            store.set_best_chain_tip(&self.tip)
         })
     }
 }
 
-impl ExternalEffectAPI for SetBestChainHashEffect {
+impl ExternalEffectAPI for SetBestChainTipEffect {
     type Response = Result<(), StoreError>;
 }
 
@@ -383,29 +381,29 @@ impl ExternalEffectAPI for HasHeaderEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LoadFromBestChainEffect {
-    point: Point,
+pub struct IsOnBestChainEffect {
+    point: NetworkPoint,
 }
 
-impl LoadFromBestChainEffect {
-    pub fn new(point: Point) -> Self {
+impl IsOnBestChainEffect {
+    pub fn new(point: NetworkPoint) -> Self {
         Self { point }
     }
 }
 
-impl ExternalEffect for LoadFromBestChainEffect {
+impl ExternalEffect for IsOnBestChainEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let store =
-                resources.get::<ResourceHeaderStore>().expect("LoadFromBestChainEffect requires a chain store").clone();
-            store.load_from_best_chain(&self.point)
+                resources.get::<ResourceHeaderStore>().expect("IsOnBestChainEffect requires a chain store").clone();
+            store.is_on_best_chain(self.point)
         })
     }
 }
 
-impl ExternalEffectAPI for LoadFromBestChainEffect {
-    type Response = Option<HeaderHash>;
+impl ExternalEffectAPI for IsOnBestChainEffect {
+    type Response = bool;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -489,12 +487,12 @@ impl ExternalEffectAPI for LoadHeaderEffect {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LoadTipEffect {
+pub struct LoadPointEffect {
     hash: HeaderHash,
     trace_context: TraceContext,
 }
 
-impl LoadTipEffect {
+impl LoadPointEffect {
     pub fn new(hash: HeaderHash) -> Self {
         Self { hash, trace_context: Default::default() }
     }
@@ -505,18 +503,18 @@ impl LoadTipEffect {
     }
 }
 
-impl ExternalEffect for LoadTipEffect {
+impl ExternalEffect for LoadPointEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Self::wrap_sync({
             let _guard = self.trace_context.attach();
-            let store = resources.get::<ResourceHeaderStore>().expect("LoadTipEffect requires a chain store").clone();
-            store.load_tip(&self.hash)
+            let store = resources.get::<ResourceHeaderStore>().expect("LoadPointEffect requires a chain store").clone();
+            store.load_point(&self.hash)
         })
     }
 }
 
-impl ExternalEffectAPI for LoadTipEffect {
+impl ExternalEffectAPI for LoadPointEffect {
     type Response = Option<Point>;
 }
 
@@ -919,7 +917,7 @@ impl ExternalEffect for FindAnchorAtHeightEffect {
 }
 
 impl ExternalEffectAPI for FindAnchorAtHeightEffect {
-    type Response = Option<HeaderHash>;
+    type Response = Option<Point>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

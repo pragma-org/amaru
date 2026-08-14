@@ -26,7 +26,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_find_anchor_at_height, te_prune_below, te_roll_forward_chain, te_send, te_set_anchor_hash,
+        te_clock, te_find_anchor_at_height, te_prune_below, te_roll_forward_chain, te_send, te_set_anchor_point,
         te_switch_to_fork,
     },
     test_utils::{te_input, te_state},
@@ -141,7 +141,7 @@ fn test_extension_adopts_and_sends() {
             te_load_header("ac-1", prep.headers.h2.hash()),
             te_roll_forward_chain("ac-1", tip),
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
-            te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
+            te_set_anchor_point("ac-1", prep.headers.h1.point()),
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),
@@ -193,7 +193,7 @@ fn test_fork_switch_adopts_and_sends() {
                 NonEmptyVec::try_from(vec![prep.headers.h2a.point(), prep.headers.h3a.point()]).unwrap(),
             ),
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
-            te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
+            te_set_anchor_point("ac-1", prep.headers.h1.point()),
             te_clock("ac-1"),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_send("ac-1", "mempool", MempoolMsg::NewTip(tip)),

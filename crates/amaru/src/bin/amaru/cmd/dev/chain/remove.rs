@@ -94,7 +94,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 tracing::error!("no parent found for {}", current.hash());
                 return Err("no parent found for best chain hash".into());
             };
-            if chain_store.load_from_best_chain(&parent.point()).is_some() {
+            if chain_store.is_on_best_chain(parent.point().into()) {
                 chain_store.switch_to_fork(&parent.point(), &[])?;
                 break;
             }

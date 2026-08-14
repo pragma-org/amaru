@@ -108,7 +108,7 @@ fn initialize_chain_store(chain_length: usize, chain_store: &dyn ChainStore) -> 
     let origin_hash: HeaderHash =
         amaru_kernel::Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")?;
     let root_header = make_header(100_000_000, 100_000_000, Some(origin_hash));
-    chain_store.set_anchor_hash(&root_header.hash())?;
+    chain_store.set_anchor_point(&root_header.point())?;
     let mut headers = run_strategy(any_headers_chain_with_root(
         chain_length - 1, // -1 since we already have the root header
         root_header.point(),

@@ -26,10 +26,9 @@ pub trait WriteChainStore: Send + Sync {
     /// this header was fully validated.
     fn store_validated_header(&self, header: &Header, nonces: &Nonces) -> Result<(), StoreError>;
 
-    /// TODO: use a set_anchor_tip function instead
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+    fn set_anchor_point(&self, point: &Point) -> Result<(), StoreError>;
 
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+    fn set_best_chain_tip(&self, tip: &Point) -> Result<(), StoreError>;
 
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
 
@@ -43,8 +42,8 @@ pub trait WriteChainStore: Send + Sync {
     fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError>;
 
     /// Replace the current best chain from the given fork point with the provided
-    /// forward path and set the best chain hash in one store operation.
-    /// The best chain hash is set to the hash of the last forward point.
+    /// forward path and set the best-chain tip in one store operation.
+    /// The best-chain tip is set to the last forward point.
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError>;
 
     /// Roll forward the best chain to the given point and set the best chain hash to that point.

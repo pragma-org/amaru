@@ -15,7 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Hash, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER,
+    Hash, Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, from_cbor, size,
+    size::HEADER,
 };
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
 use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
@@ -64,50 +65,37 @@ where
         result
     }
 
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_point(&self) -> Point {
         self.db
             .get_pinned(&ANCHOR_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
-            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
-            .unwrap_or(ORIGIN_HASH)
-    }
-
-    fn get_anchor_tip(&self) -> Point {
-        let anchor_hash = self.get_anchor_hash();
-        if anchor_hash == ORIGIN_HASH {
-            return Point::Origin;
-        }
-        self.db
-            .get_pinned(&[&HEADER_PREFIX[..], &anchor_hash[..]].concat(), ReadOptions::default())
-            .ok()
-            .flatten()
-            .and_then(|bytes| from_cbor::<Header>(bytes.as_ref()))
-            .map(|h| h.point())
+            .and_then(|bytes| decode_stored_point(bytes.as_ref(), |hash| self.load_header(hash)))
             .unwrap_or(Point::Origin)
     }
 
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_tip(&self) -> Point {
         self.db
             .get_pinned(&BEST_CHAIN_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
-            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
-            .unwrap_or(ORIGIN_HASH)
+            .and_then(|bytes| decode_stored_point(bytes.as_ref(), |hash| self.load_header(hash)))
+            .unwrap_or(Point::Origin)
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        let slot = u64::from(point.slot_or_default()).to_be_bytes();
-        self.db.get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), ReadOptions::default()).ok().flatten().and_then(
-            |bytes| {
-                if bytes.len() == HEADER {
-                    let hash = Hash::from(bytes.as_ref());
-                    if *hash == *point.hash() { Some(hash) } else { None }
-                } else {
-                    None
-                }
-            },
-        )
+    fn is_on_best_chain(&self, point: NetworkPoint) -> bool {
+        match point {
+            NetworkPoint::Origin => true,
+            NetworkPoint::Specific(slot, hash) => {
+                let slot = u64::from(slot).to_be_bytes();
+                self.db
+                    .get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), ReadOptions::default())
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| stored_point_hash(bytes.as_ref()))
+                    .is_some_and(|stored| stored == hash)
+            }
+        }
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
@@ -117,16 +105,8 @@ where
         let prefix = [&CHAIN_PREFIX[..], &slot.to_be_bytes()].concat();
         let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
 
-        if let Some(Ok((k, v))) = iter.next() {
-            #[expect(clippy::unwrap_used)]
-            let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
-            let _slot = u64::from_be_bytes(slot_bytes);
-            if v.len() == HEADER {
-                let hash = <HeaderHash>::from(v.as_ref());
-                self.load_header(&hash).map(|header| header.point())
-            } else {
-                None
-            }
+        if let Some(Ok((_k, v))) = iter.next() {
+            decode_stored_point(v.as_ref(), |hash| self.load_header(hash))
         } else {
             None
         }
@@ -161,7 +141,7 @@ where
         let Some(as_of_slot) = self.load_header(&parent).map(|h| h.slot()) else {
             return Ok(None);
         };
-        let anchor_slot = self.load_header(&self.get_anchor_hash()).map(|h| h.slot()).unwrap_or(Slot::from(0));
+        let anchor_slot = self.get_anchor_point().slot_or_default();
 
         let prefix = [&OPCERT_PREFIX[..], &pool_id[..]].concat();
 
@@ -217,7 +197,7 @@ where
             let (key, value) = item.map_err(|e| StoreError::ReadError { error: e.to_string() })?;
             let (_slot, hash) = decode_opcert_key(&key)?;
             if let Some(header) = self.load_header(&hash)
-                && self.load_from_best_chain(&header.point()).is_some()
+                && self.is_on_best_chain(header.point().into())
             {
                 return Ok(from_cbor(&value));
             }
@@ -229,6 +209,23 @@ where
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
     }
+}
+
+/// Decode a stored tip or best-chain entry.
+///
+/// A 32-byte value is the previous header-hash encoding; reconstruct the `Point` from the
+/// header until version 6 rewrites these keys.
+fn decode_stored_point(bytes: &[u8], load_header: impl FnOnce(&HeaderHash) -> Option<Header>) -> Option<Point> {
+    if bytes.len() == HEADER {
+        let hash = Hash::from(bytes);
+        if hash == ORIGIN_HASH { Some(Point::Origin) } else { load_header(&hash).map(|h| h.point()) }
+    } else {
+        from_cbor(bytes)
+    }
+}
+
+pub(crate) fn stored_point_hash(bytes: &[u8]) -> Option<HeaderHash> {
+    if bytes.len() == HEADER { Some(Hash::from(bytes)) } else { from_cbor::<Point>(bytes).map(|p| p.hash()) }
 }
 
 /// Decode a slot || header_hash key used to store the opcert sequence numbers

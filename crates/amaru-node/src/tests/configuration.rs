@@ -247,9 +247,9 @@ impl NodeTestConfig {
 
         if let Some(header) = headers.first() {
             tracing::info!("set the anchor to {}", header.point());
-            self.chain_store.set_anchor_hash(&header.hash()).unwrap();
+            self.chain_store.set_anchor_point(&header.point()).unwrap();
             tracing::info!("set the tip to {}", header.point());
-            self.chain_store.set_best_chain_hash(&header.hash()).unwrap();
+            self.chain_store.set_best_chain_tip(&header.point()).unwrap();
         }
         self
     }

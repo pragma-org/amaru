@@ -150,7 +150,7 @@ pub fn build_node(
     // This also makes sure that the chain store tip and anchors are exactly aligned to the
     // ledger tip.
     initialize_chain_store(chain_store.clone(), ledger_tip)?;
-    let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
+    let ledger_tip = chain_store.load_point(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.

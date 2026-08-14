@@ -73,7 +73,6 @@ impl Block {
         self.header.hash()
     }
 
-
     pub fn point(&self) -> Point {
         self.header.point()
     }

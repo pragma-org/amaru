@@ -18,10 +18,11 @@ use std::sync::Arc;
 
 use amaru_kernel::{EraHistory, Header, HeaderHash, IsHeader, Point, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{
-    MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
+    BaseReadChainStore, MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools,
+    in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, LoadBlockEffect, LoadFromBestChainEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
+    GetAnchorHashEffect, IsOnBestChainEffect, LoadBlockEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
     ResourceHeaderStore,
 };
 use amaru_pure_stage::{
@@ -120,7 +121,7 @@ impl TestPrep {
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {
-        self.store.set_anchor_hash(&hash).unwrap();
+        self.store.set_anchor_point(&self.store.load_point(&hash).unwrap_or(Point::Origin)).unwrap();
     }
 
     pub fn set_validity(&self, hash: HeaderHash, valid: bool) {
@@ -146,7 +147,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<IsOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),

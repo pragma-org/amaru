@@ -27,7 +27,7 @@ use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
     manager::ManagerMessage,
     store_effects::{
-        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore,
+        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadPointEffect, ResourceHeaderStore,
         StoreValidatedHeaderEffect,
     },
 };
@@ -160,8 +160,8 @@ pub fn te_validate_header(at_stage: &str, header: Header) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header))))
 }
 
-pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
+pub fn te_load_point(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadPointEffect::new(hash))))
 }
 
 pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
@@ -244,7 +244,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Point, Point)>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetNoncesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),

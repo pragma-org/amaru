@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
+use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, to_cbor};
 use amaru_observability::debug_span;
 use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions, WriteBatch};
@@ -45,12 +45,12 @@ impl WriteChainStore for RocksDBStore {
         })
     }
 
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.db.put(ANCHOR_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
+    fn set_anchor_point(&self, point: &Point) -> Result<(), StoreError> {
+        self.db.put(ANCHOR_PREFIX, to_cbor(point)).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
-        self.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).map_err(|e| StoreError::WriteError { error: e.to_string() })
+    fn set_best_chain_tip(&self, tip: &Point) -> Result<(), StoreError> {
+        self.db.put(BEST_CHAIN_PREFIX, to_cbor(tip)).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
@@ -105,8 +105,8 @@ impl WriteChainStore for RocksDBStore {
         let existing = self.db.get_pinned(&fork_key).map_err(|e| StoreError::ReadError { error: e.to_string() })?;
         let matches = existing
             .as_ref()
-            .map(|bytes| bytes.len() == HEADER && bytes.as_ref() == fork_point.hash().as_ref())
-            .unwrap_or(false);
+            .and_then(|bytes| super::base_read_chain_store::stored_point_hash(bytes.as_ref()))
+            .is_some_and(|hash| hash == fork_point.hash());
         if !matches {
             return Err(StoreError::ReadError {
                 error: format!(
@@ -135,10 +135,10 @@ impl WriteChainStore for RocksDBStore {
 
             for point in forward_points.iter() {
                 let slot = u64::from(point.slot_or_default()).to_be_bytes();
-                batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref());
+                batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), to_cbor(point));
             }
 
-            batch.put(BEST_CHAIN_PREFIX, forward_points.last().unwrap_or(fork_point).hash().as_ref());
+            batch.put(BEST_CHAIN_PREFIX, to_cbor(forward_points.last().unwrap_or(fork_point)));
 
             Ok(())
         })
@@ -151,8 +151,8 @@ impl WriteChainStore for RocksDBStore {
 
         self.with_batch(|batch| {
             let slot = u64::from(point.slot_or_default()).to_be_bytes();
-            batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), point.hash().as_ref());
-            batch.put(BEST_CHAIN_PREFIX, point.hash().as_ref());
+            batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), to_cbor(point));
+            batch.put(BEST_CHAIN_PREFIX, to_cbor(point));
             Ok(())
         })
     }

@@ -120,7 +120,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if new_anchor != anchor_hash {
-        chain_store.set_anchor_hash(&new_anchor)?;
+        let Some(point) = chain_store.load_point(&new_anchor) else {
+            return Err(format!("header {new_anchor} missing while updating prune anchor").into());
+        };
+        chain_store.set_anchor_point(&point)?;
         info!(%new_anchor, "updated anchor hash");
     }
 

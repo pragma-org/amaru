@@ -14,11 +14,11 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Header, HeaderHash, Point, make_header, make_header_with_op_cert_seq};
-use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
+use amaru_kernel::{Header, HeaderHash, IsHeader, Point, make_header, make_header_with_op_cert_seq};
+use amaru_ouroboros_traits::{BaseReadChainStore, ChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
-    LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, SetBlockValidEffect,
+    LoadHeaderWithValidityEffect, LoadPointEffect, ResourceHeaderStore, SetBlockValidEffect,
     UnvalidatedAncestorHashesEffect,
 };
 use amaru_pure_stage::{
@@ -100,11 +100,11 @@ impl TestPrep {
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {
-        self.store.set_anchor_hash(&hash).unwrap();
+        self.store.set_anchor_point(&self.store.load_point(&hash).unwrap_or(Point::Origin)).unwrap();
     }
 
     pub fn set_best_chain(&self, hash: HeaderHash) {
-        self.store.set_best_chain_hash(&hash).unwrap();
+        self.store.set_best_chain_tip(&self.header(hash).point()).unwrap();
     }
 
     pub fn header(&self, hash: HeaderHash) -> Header {
@@ -124,7 +124,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SetBlockValidEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
@@ -197,8 +197,8 @@ pub fn te_find_best_candidate(at_stage: &str) -> TraceEntry {
     TraceEntry::Suspend(Effect::external(at_stage, Box::new(FindBestCandidate)))
 }
 
-pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
+pub fn te_load_point(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadPointEffect::new(hash))))
 }
 
 pub fn te_set_block_valid(at_stage: &str, hash: HeaderHash, valid: bool) -> TraceEntry {
