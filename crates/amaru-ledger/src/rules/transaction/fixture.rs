@@ -264,6 +264,7 @@ pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
+    CommitteeIsUnknown,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
@@ -423,6 +424,9 @@ impl From<PhaseOneError> for Predicate {
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeDRepNotRegistered,
                 DelegateError::AlreadyResigned => unreachable!("only applicable to CC"),
             },
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
+                DelegateError::UnknownSource(_),
+            )) => Predicate::CommitteeIsUnknown,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
             }

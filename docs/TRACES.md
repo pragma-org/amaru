@@ -1535,16 +1535,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve committee members from the volatile db or the stable one |  | from_volatile, from_db |
-
-<details><summary>span: `hydrate`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `from_volatile` | `integer` |  |
-| `from_db` | `integer` |  |
-
-</details>
+| `hydrate` | `TRACE` | public | Resolve committee members from the volatile db or the stable one |  |  |
 
 ## target: `amaru::ledger::validation_context::dreps`
 

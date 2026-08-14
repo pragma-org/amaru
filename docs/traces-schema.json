@@ -3346,19 +3346,9 @@
     },
     "amaru::ledger::validation_context::committee::HYDRATE": {
       "type": "object",
-      "properties": {
-        "from_volatile": {
-          "type": "integer"
-        },
-        "from_db": {
-          "type": "integer"
-        }
-      },
+      "properties": {},
       "required": [],
-      "optional": [
-        "from_volatile",
-        "from_db"
-      ],
+      "optional": [],
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
