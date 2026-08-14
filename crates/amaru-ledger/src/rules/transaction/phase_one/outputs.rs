@@ -26,6 +26,7 @@ use crate::{
 };
 
 mod inherent_value;
+mod value_size;
 
 #[derive(Debug, Error)]
 #[error("invalid transaction outputs: [{}]", display_collection(invalid_outputs))]
