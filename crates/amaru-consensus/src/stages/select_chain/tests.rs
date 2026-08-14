@@ -808,62 +808,9 @@ fn test_last_best_tip_invalidated_falls_back_to_origin() {
 }
 
 #[test]
-fn test_invalid_block_validation_result_prunes_the_whole_branch() {
-    let mut prep = test_prep();
-    prep.state.best_tip = Some(prep.headers.h3.clone());
-    prep.state.tips = BTreeMap::from_iter([
-        (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
-        (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
-    ]);
-    prep.store_headers(&prep.headers.all());
-    prep.set_anchor(prep.headers.h0.hash());
-    // h3a is *not* the first pending element of its chain: h2a was replayed inside a fork switch
-    // and never got an individual validation result.
-    let tip = prep.headers.h3a.tip();
-    let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
-
-    let expected = SelectChain {
-        best_tip: Some(prep.headers.h3.clone()),
-        tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]),
-        ..prep.state.clone()
-    };
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
-        &running,
-        &[
-            te_state("sc-1", &prep.state),
-            te_input("sc-1", &msg),
-            te_has_header("sc-1", tip.hash()),
-            te_set_block_valid("sc-1", tip.hash(), false),
-            te_clock_read("sc-1"),
-            te_record_block_pruned(
-                "sc-1",
-                prep.headers.h2a.hash(),
-                false,
-                Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
-                false,
-            ),
-            te_record_block_pruned(
-                "sc-1",
-                prep.headers.h3a.hash(),
-                true,
-                Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
-                false,
-            ),
-            te_state("sc-1", &expected),
-        ],
-    );
-    logs.assert_and_remove(Level::WARN, &["chain fork(s) removed due to invalid block"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
-}
-
-#[test]
 fn test_new_tip_after_pruning_restores_pending_block_validations() {
     let mut prep = test_prep();
-    // Start with the same scenario as the test above: the invalid h3a first prunes the h2a/h3a branch.
+    // The invalid h3a first prunes the h2a/h3a branch.
     // Then a new header h3b with parent h2a re-tracks it, proving that pruning does not
     // leave any state behind that would prevent the branch from being adopted again.
     prep.state.best_tip = Some(prep.headers.h3.clone());
@@ -875,6 +822,7 @@ fn test_new_tip_after_pruning_restores_pending_block_validations() {
     prep.store_headers(&prep.headers.all());
     prep.store_headers(&[&h3b]);
     prep.set_anchor(prep.headers.h0.hash());
+    prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
 
     let invalid = SelectChainMsg::BlockValidationResult(prep.headers.h3a.tip(), false, BlockHeight::from(0));
