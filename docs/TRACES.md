@@ -1592,6 +1592,29 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::network::connection`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `accept_loop_stopped` | `TRACE` | public | The accept loop terminated because the listener or channel closed | local |  |
+| `listener_restart` | `TRACE` | public | Aborted an existing listener task so the address can be rebound on restart | address |  |
+
+<details><summary>span: `accept_loop_stopped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `local` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `listener_restart`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `address` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::keepalive::peer`
 
 | name | level | public | description | required fields | optional fields |

@@ -443,19 +443,14 @@ version = "0.1.2"
 dependencies = [
  "amaru-deps",
  "amaru-kernel",
- "amaru-mempool",
  "amaru-observability",
  "amaru-ouroboros",
  "amaru-pure-stage",
  "anyhow",
  "bytes",
- "hex",
  "parking_lot",
- "proptest",
  "socket2 0.6.5",
  "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
