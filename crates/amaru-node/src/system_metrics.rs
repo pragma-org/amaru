@@ -26,6 +26,7 @@ use std::{
 #[cfg(unix)]
 use amaru_kernel::utils::process::sample_process_memory;
 use amaru_metrics::{Meter, MetricRecorder, MetricsEvent, SystemMetrics};
+use amaru_observability::error;
 use anyhow::anyhow;
 use opentelemetry::KeyValue;
 use sysinfo::{
@@ -33,7 +34,6 @@ use sysinfo::{
     System,
 };
 use tokio::task::JoinHandle;
-use tracing::error;
 
 static METRICS_POLL_DELAY: LazyLock<Duration> = LazyLock::new(|| Duration::from_secs(1));
 
@@ -102,7 +102,9 @@ pub fn track_system_metrics(
             disks.refresh_specifics(false, DiskRefreshKind::nothing().with_io_usage());
 
             match sys.process(own_pid) {
-                None => error!("unable to find amaru's own process (pid={own_pid}) ?!"),
+                None => {
+                    error!(node::metrics::PROCESS_NOT_FOUND, pid = own_pid.as_u32());
+                }
                 Some(process) => {
                     let disk_usage = process.disk_usage();
                     let process_memory_live_resident = process.memory();

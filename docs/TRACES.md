@@ -1669,6 +1669,67 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::node::build`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `ledger_opened` | `TRACE` | public | Opened the ledger state; reports the ledger tip at startup | tip |  |
+| `stake_dist_notify_failed` | `TRACE` | public | Failed to notify the peer tracker of a stake distribution update |  |  |
+
+<details><summary>span: `ledger_opened`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::node::metrics`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `process_not_found` | `TRACE` | public | The metrics collector could not find Amaru's own process | pid |  |
+
+<details><summary>span: `process_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `pid` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::node::submit_api`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `mempool_unreachable` | `TRACE` | public | A submitted transaction could not reach the mempool. Reason ∈ {send_failed, response_dropped, deserialize_failed}. | reason |  |
+| `started` | `TRACE` | public | The transaction submission HTTP server is listening | local_addr |  |
+| `stopped` | `TRACE` | public | The transaction submission HTTP server stopped with an error | error |  |
+
+<details><summary>span: `mempool_unreachable`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `started`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `local_addr` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `stopped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::keepalive::peer`
 
 | name | level | public | description | required fields | optional fields |
