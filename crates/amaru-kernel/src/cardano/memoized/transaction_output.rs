@@ -17,9 +17,8 @@ use std::collections::BTreeMap;
 use amaru_minicbor_extra::decode_bytes;
 
 use crate::{
-    Address, AssetName, Hash, Legacy, MemoizedDatum, MemoizedScript, MemoizedValue, NonEmptyKeyValuePairs,
-    ShelleyDelegationPart, StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor,
-    utils::cbor::SerialisedAsCbor,
+    Address, AssetName, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, ShelleyDelegationPart,
+    StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -35,7 +34,7 @@ pub struct MemoizedTransactionOutput {
     pub address: Address,
 
     #[serde(serialize_with = "serialize_value")]
-    pub value: MemoizedValue,
+    pub value: Value,
 
     pub datum: MemoizedDatum,
 
@@ -49,7 +48,7 @@ struct MemoizedTransactionOutputDe {
     address: Address,
 
     #[serde(deserialize_with = "deserialize_value")]
-    value: MemoizedValue,
+    value: Value,
 
     datum: MemoizedDatum,
 
@@ -78,7 +77,7 @@ impl MemoizedTransactionOutput {
     pub fn new(
         is_legacy: bool,
         address: Address,
-        value: MemoizedValue,
+        value: Value,
         datum: MemoizedDatum,
         script: Option<MemoizedScript>,
     ) -> Self {
@@ -255,14 +254,14 @@ fn deserialize_address<'de, D: serde::de::Deserializer<'de>>(deserializer: D) ->
 }
 
 // TODO: Eventually allow serializing complete values, not just coins.
-fn serialize_value<S: serde::ser::Serializer>(value: &MemoizedValue, serializer: S) -> Result<S::Ok, S::Error> {
-    match value.as_ref() {
+fn serialize_value<S: serde::ser::Serializer>(value: &Value, serializer: S) -> Result<S::Ok, S::Error> {
+    match value {
         Value::Coin(coin) => serializer.serialize_u64(*coin),
         Value::Multiasset(coin, _) => serializer.serialize_u64(*coin),
     }
 }
 
-fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<MemoizedValue, D::Error> {
+fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Value, D::Error> {
     #[derive(serde::Deserialize)]
     enum ValueHelper {
         Coin(u64),
@@ -302,11 +301,11 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                 multiasset.insert(policy_id, pairs);
             }
 
-            Value::Multiasset(coin, multiasset)
+            Value::Multiasset(coin, multiasset.into())
         }
     };
 
-    MemoizedValue::new(value).map_err(serde::de::Error::custom)
+    Ok(value)
 }
 
 pub fn serialize_script<S: serde::ser::Serializer>(
@@ -345,9 +344,8 @@ pub mod tests {
     };
     use crate::{any_hash32, any_shelley_address};
 
-    #[expect(clippy::expect_used)]
-    fn any_value() -> impl Strategy<Value = MemoizedValue> {
-        any::<u64>().prop_map(|coin| MemoizedValue::new(Value::Coin(coin)).expect("Value encoding should never fail"))
+    fn any_value() -> impl Strategy<Value = Value> {
+        any::<u64>().prop_map(Value::Coin)
     }
 
     pub fn any_datum() -> impl Strategy<Value = MemoizedDatum> {
@@ -377,7 +375,7 @@ pub mod tests {
         let original = MemoizedTransactionOutput::new(
             false,
             Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            MemoizedValue::new(Value::Coin(1500000)).unwrap(),
+            Value::Coin(1500000),
             datum,
             None,
         );
@@ -403,7 +401,7 @@ pub mod tests {
         let original = MemoizedTransactionOutput::new(
             true,
             Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            MemoizedValue::new(Value::Coin(1500000)).unwrap(),
+            Value::Coin(1500000),
             datum,
             None,
         );
@@ -424,7 +422,7 @@ pub mod tests {
         let original = MemoizedTransactionOutput::new(
             false,
             Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap(),
-            MemoizedValue::new(Value::Coin(1500000)).unwrap(),
+            Value::Coin(1500000),
             MemoizedDatum::None,
             None,
         );

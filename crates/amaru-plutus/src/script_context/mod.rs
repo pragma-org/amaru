@@ -105,8 +105,8 @@ pub mod test_vectors {
     use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
-        Address, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedTransactionOutput, MemoizedValue, TransactionInput,
-        Value, include_json, size::DATUM, utils::serde::hex_to_bytes,
+        Address, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedTransactionOutput, TransactionInput, Value,
+        include_json, size::DATUM, utils::serde::hex_to_bytes,
     };
     use serde::Deserialize;
 
@@ -268,7 +268,6 @@ pub mod test_vectors {
                     }
 
                     let value = value.ok_or_else(|| serde::de::Error::missing_field("value"))?;
-                    let value = MemoizedValue::new(value).map_err(serde::de::Error::custom)?;
 
                     Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput::new(
                         false,
@@ -300,6 +299,8 @@ pub mod test_vectors {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{EMPTY_ASSET_NAME, Hash, NonEmptyKeyValuePairs, PositiveCoin, Value};
     use proptest::{
         prelude::{any, prop},
@@ -320,9 +321,9 @@ mod tests {
                         .unwrap();
                 (Hash::from(*policy), assets)
             })
-            .collect();
+            .collect::<BTreeMap<_, _>>();
 
-        Value::Multiasset(coin, multiasset)
+        Value::Multiasset(coin, multiasset.into())
     }
 
     #[test]

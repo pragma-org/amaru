@@ -40,6 +40,8 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.
+- **amaru-plutus**: encode `CostModels` as a map from language to cost model (#1219).
+- **amaru-ledger**: compute the size of a value using the same encoding as the Haskell node.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 

@@ -98,7 +98,7 @@ where
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         };
 
-        effective_collateral += collateral_input.value.as_ref();
+        effective_collateral += &collateral_input.value;
 
         match witness {
             Some(CollateralWitness::VerificationKey(hash)) => context.require_verification_key_witness(hash),
@@ -108,7 +108,7 @@ where
     }
 
     if let Some(collateral_return) = collateral_return {
-        effective_collateral -= collateral_return.value.as_ref();
+        effective_collateral -= &collateral_return.value;
     }
 
     if has_redeemers {

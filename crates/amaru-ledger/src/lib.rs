@@ -46,7 +46,7 @@ macro_rules! tracing_enabled {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, MemoizedValue, TransactionInput, Value};
+    use amaru_kernel::{Address, Hash, MemoizedTransactionOutput, TransactionInput, Value};
 
     #[expect(clippy::unwrap_used)]
     pub fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
@@ -58,7 +58,7 @@ pub mod tests {
         MemoizedTransactionOutput::new(
             false,
             Address::from_hex(address).expect("Invalid hex address"),
-            MemoizedValue::new(Value::Coin(0)).expect("Value encoding should never fail"),
+            Value::Coin(0),
             amaru_kernel::MemoizedDatum::None,
             None,
         )

@@ -109,7 +109,7 @@ where
 
         // Clone the value off the borrowed output so the immutable borrow of `context` can be
         // released before we make any mutable calls below.
-        let consumed_value = output.value.as_ref().clone();
+        let consumed_value = output.value.clone();
 
         match &output.address {
             Address::Byron(byron_address) => {
