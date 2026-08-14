@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, fmt::Debug};
+use std::{fmt, fmt::Debug, str::FromStr};
 
 use crate::cbor;
 
@@ -64,6 +64,20 @@ impl ProtocolVersion {
 impl fmt::Display for ProtocolVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+impl FromStr for ProtocolVersion {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match &s.split(".").collect::<Vec<_>>()[..] {
+            [major, minor] => {
+                let major = major.parse::<u64>().map_err(|e| e.to_string())?;
+                let minor = minor.parse::<u64>().map_err(|e| e.to_string())?;
+                Ok(Self::new(major, minor))
+            }
+            _ => Err(s.to_string()),
+        }
     }
 }
 

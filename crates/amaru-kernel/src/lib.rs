@@ -144,8 +144,8 @@ pub use cardano::{
     proposal::Proposal,
     proposal_enum::{self, ProposalEnum},
     proposal_id::{self, ProposalId},
-    proposal_kind::{self, ProposalKind},
     proposal_pointer::ProposalPointer,
+    proposal_slim::{self, ProposalSlim},
     proposal_state::ProposalState,
     proposals_roots::{self, ProposalsRoots, ProposalsRootsRc},
     protocol_parameters::{

@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 
 use amaru_kernel::{
     Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
-    ProposalKind, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
+    ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
     RequiredScript, StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
@@ -144,13 +144,13 @@ where
         });
     }
 
-    let kind = ProposalKind::from(&proposal.gov_action);
-    if !matches!(kind, ProposalKind::Orphan) {
+    let kind = ProposalSlim::from(&proposal.gov_action);
+    if !matches!(kind, ProposalSlim::Orphan) {
         let parent = proposal.parent();
         let follows_root = parent == context.roots().root_of(kind);
         let follows_in_flight = parent
             .and_then(|id| ProposalsSlice::lookup(context, id))
-            .is_some_and(|gov_action| ProposalKind::from(gov_action) == kind);
+            .is_some_and(|in_flight| in_flight.same_lineage(kind));
         if !follows_root && !follows_in_flight {
             return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
         }
@@ -263,7 +263,7 @@ fn preceding_hard_fork_version<C>(
 where
     C: ProposalsSlice,
 {
-    let follows_root = parent == context.roots().root_of(ProposalKind::HardFork);
+    let follows_root = parent == context.roots().hard_fork.as_ref();
     let skips_major = new_version.major() > current_version.major() + 1;
 
     if follows_root || skips_major {
@@ -271,7 +271,7 @@ where
     }
 
     match parent.and_then(|id| context.lookup(id)) {
-        Some(GovernanceAction::HardForkInitiation(_, previous_version)) => *previous_version,
+        Some(ProposalSlim::HardFork(previous_version)) => previous_version,
         // The lineage check in `validate_proposal` runs first, and rejects any parent that is
         // neither the hard fork root nor a hard fork proposal still in flight.
         parent => unreachable!("hardfork proposal follows neither its root nor an in-flight hardfork: {parent:?}"),

@@ -18,9 +18,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, GovernanceAction, Hash, Lovelace, MemoizedTransactionOutput,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
-    StakeCredential, TransactionInput, size::SCRIPT,
+    Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
+    ProtocolParameters, StakeCredential, TransactionInput, size::SCRIPT,
 };
 
 use crate::{
@@ -173,11 +173,11 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal<'a> = Existence<&'a GovernanceAction>;
+    type Proposal = Existence<ProposalSlim>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.
-    fn resolve_proposal<'a>(&'a self, id: &ProposalId) -> Self::Proposal<'a> {
+    fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {
         if let Existence::Exists(proposal) = self.current.resolve_proposal(id) {
             Existence::Exists(proposal)
         } else if self.overlay.has_pruned_proposal(id) {

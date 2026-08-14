@@ -126,11 +126,9 @@ pub trait VolatileState {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal<'a>
-    where
-        Self: 'a;
+    type Proposal;
     #[expect(clippy::panic)]
-    fn resolve_proposal<'a>(&'a self, proposal_id: &ProposalId) -> Self::Proposal<'a> {
+    fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal {
         panic!("VolatileState.resolve_proposal({proposal_id})")
     }
 

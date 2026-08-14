@@ -15,7 +15,6 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c64080ff"
       }
     ],
-    "pools": [],
     "accounts": [
       {
         "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
@@ -24,18 +23,8 @@
     ],
     "dreps": [],
     "proposals": [
-      {
-        "id": {
-          "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3",
-          "proposalIndex": 0
-        },
-        "govAction": "8301f6820a01"
-      }
-    ],
-    "proposalsRoots": {},
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
-    }
+      [{ "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3", "proposalIndex": 0 }, "HardFork(10.1)"]
+    ]
   },
   "point": {
     "slot": 100,

@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId, ProposalId, ProposalsRoots,
-    StakeCredential, TransactionInput, drep,
+    DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId, ProposalId, ProposalSlim,
+    ProposalsRoots, StakeCredential, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
 
@@ -127,7 +127,7 @@ impl<'block> DefaultPreparationContext<'block> {
             Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>,
             DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>,
             CCMembers<'volatile> = <VolatileDB as VolatileState>::CCMembers<'volatile>,
-            Proposal<'volatile> = <VolatileDB as VolatileState>::Proposal<'volatile>,
+            Proposal = <VolatileDB as VolatileState>::Proposal,
         >,
         db: &impl ReadStore,
     ) -> Result<DefaultValidationContext, ContextHydratationError> {
@@ -486,11 +486,11 @@ fn resolve_committee<'block, 'volatile>(
 /// volatile DB over the stable store; a `Gone` tombstone (boundary pruning) skips the stale
 /// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
 /// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
-pub fn resolve_proposals<'volatile>(
-    volatile: &'volatile impl VolatileState<Proposal<'volatile> = <VolatileDB as VolatileState>::Proposal<'volatile>>,
+pub fn resolve_proposals(
+    volatile: &impl VolatileState<Proposal = <VolatileDB as VolatileState>::Proposal>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ProposalId>,
-) -> Result<BTreeMap<ProposalId, GovernanceAction>, ContextHydratationError> {
+) -> Result<BTreeMap<ProposalId, ProposalSlim>, ContextHydratationError> {
     debug_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -501,9 +501,9 @@ pub fn resolve_proposals<'volatile>(
                 Existence::Gone => Ok(proposals),
 
                 // newly proposed in the volatile
-                Existence::Exists(gov_action) => {
+                Existence::Exists(proposal) => {
                     from_volatile += 1;
-                    proposals.insert(id, gov_action.clone());
+                    proposals.insert(id, proposal);
 
                     Ok(proposals)
                 }
@@ -512,7 +512,7 @@ pub fn resolve_proposals<'volatile>(
                 Existence::Unknown => {
                     if let Some(row) = db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)? {
                         from_db += 1;
-                        proposals.insert(id, row.proposal.gov_action);
+                        proposals.insert(id, ProposalSlim::from(&row.proposal.gov_action));
                     }
 
                     Ok(proposals)
@@ -558,7 +558,7 @@ mod tests {
             type Pool = ();
             type Account<'a> = ();
             type DRep<'a> = ();
-            type Proposal<'a> = ();
+            type Proposal = ();
             type CCMembers<'a> = BTreeMap<&'a StakeCredential, Existence<CommitteeMemberBind<'a>>>;
 
             fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {

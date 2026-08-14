@@ -22,7 +22,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
     GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential,
+    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential,
     TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
@@ -44,7 +44,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeMap<ProposalId, GovernanceAction>,
+    proposals: BTreeMap<ProposalId, ProposalSlim>,
     proposals_roots: ProposalsRoots,
     treasury: Lovelace,
     state: VolatileFragment,
@@ -65,7 +65,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeMap<ProposalId, GovernanceAction>,
+        proposals: BTreeMap<ProposalId, ProposalSlim>,
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
     ) -> Self {
@@ -373,9 +373,11 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn lookup(&self, id: &ProposalId) -> Option<&GovernanceAction> {
-        // block-start proposals, then those acknowledged earlier in this block
-        self.proposals.get(id).or_else(|| self.state.proposals.get(id).map(|entry| &entry.0.gov_action))
+    fn lookup(&self, id: &ProposalId) -> Option<ProposalSlim> {
+        self.proposals
+            .get(id)
+            .copied()
+            .or_else(|| self.state.proposals.get(id).map(|entry| ProposalSlim::from(&entry.0.gov_action)))
     }
 
     fn roots(&self) -> &ProposalsRoots {

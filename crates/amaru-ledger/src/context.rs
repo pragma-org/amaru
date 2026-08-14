@@ -20,9 +20,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, GovernanceAction, Hash, Lovelace, MemoizedDatum,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -342,9 +342,9 @@ pub struct ProposalState {
 }
 
 pub trait ProposalsSlice {
-    /// The governance action of a known proposal, whether it comes from the ledger state or was
-    /// acknowledged earlier in the block.
-    fn lookup(&self, id: &ProposalId) -> Option<&GovernanceAction>;
+    /// A slim view of a known proposal, whether it comes from the ledger state or was acknowledged
+    /// earlier in the block.
+    fn lookup(&self, id: &ProposalId) -> Option<ProposalSlim>;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;

@@ -15,8 +15,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy,
-    GovernanceAction, Hash, Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalsRoots,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
+    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
     ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
@@ -69,7 +69,7 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_committee", default)]
     pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals", default)]
-    pub(super) proposals: BTreeMap<ProposalId, GovernanceAction>,
+    pub(super) proposals: BTreeMap<ProposalId, ProposalSlim>,
     #[serde(default)]
     pub(super) proposals_roots: ProposalsRoots,
     #[serde(default)]
@@ -182,33 +182,12 @@ where
         .collect())
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProposalIdProxy {
-    transaction_id: Hash<32>,
-    proposal_index: u32,
-}
-
-impl From<ProposalIdProxy> for ProposalId {
-    fn from(proxy: ProposalIdProxy) -> Self {
-        ProposalId { transaction_id: proxy.transaction_id, proposal_index: proxy.proposal_index }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProposalProxy {
-    id: ProposalIdProxy,
-    #[serde(deserialize_with = "deserialize_cbor_hex")]
-    gov_action: GovernanceAction,
-}
-
-fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, GovernanceAction>, D::Error>
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalSlim>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<ProposalProxy>::deserialize(deserializer)?;
-    Ok(entries.into_iter().map(|entry| (ProposalId::from(entry.id), entry.gov_action)).collect())
+    let entries = Vec::<(ProposalId, ProposalSlim)>::deserialize(deserializer)?;
+    Ok(entries.into_iter().collect())
 }
 
 /// A row of the constitutional committee, keyed by cold credential. `hotCredential` is absent for a
