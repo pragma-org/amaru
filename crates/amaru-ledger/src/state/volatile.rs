@@ -75,24 +75,39 @@ pub trait VolatileState {
     type TransactionOutput<'a>
     where
         Self: 'a;
-    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a>;
+    #[expect(clippy::panic)]
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
+        panic!("VolatileState.resolve_input({input})")
+    }
 
     // --------------------------------------------------------------------------------------- Pools
     type Pool;
-    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool;
+    #[expect(clippy::panic)]
+    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
+        panic!("VolatileState.resolve_pool({pool_id})")
+    }
 
     // ------------------------------------------------------------------------------------ Accounts
     type Account<'a>
     where
         Self: 'a;
-    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a>;
-    fn has_withdrawal(&self, credential: &StakeCredential) -> bool;
+    #[expect(clippy::panic)]
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
+        panic!("VolatileState.resolve_account({credential})")
+    }
+    #[expect(clippy::panic)]
+    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+        panic!("VolatileState.has_withdrawal({credential})")
+    }
 
     // --------------------------------------------------------------------------------------- DReps
     type DRep<'a>
     where
         Self: 'a;
-    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a>;
+    #[expect(clippy::panic)]
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
+        panic!("VolatileState.resolve_drep({credential})")
+    }
 
     // ----------------------------------------------------------------------------------- CCMembers
     type CCMembers<'a>
@@ -105,20 +120,30 @@ pub trait VolatileState {
     /// enumerate these.
     ///
     /// The same credential may come up multiple times.
-    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a>;
+    #[expect(clippy::panic)]
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
+        panic!("VolatileState.resolve_cc_members()")
+    }
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;
-    fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal;
+    #[expect(clippy::panic)]
+    fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal {
+        panic!("VolatileState.resolve_proposal({proposal_id})")
+    }
 
     // ---------------------------------------------------------------------------------------- Pots
+    #[expect(clippy::panic)]
     fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
-        pots.treasury
+        panic!("VolatileState.resolve_treasury({pots:?})")
     }
 
     /// The donations collected by blocks that are still volatile, and thus not yet reflected in the
     /// stable pots. They are moved into the treasury at the epoch boundary.
-    fn resolve_donations(&self) -> Lovelace;
+    #[expect(clippy::panic)]
+    fn resolve_donations(&self) -> Lovelace {
+        panic!("VolatileState.resolve_donations()")
+    }
 }
 
 /// A sequence-like API used by the VolatileDB and VolatileSeries.

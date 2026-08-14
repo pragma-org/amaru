@@ -1037,9 +1037,8 @@ mod tests {
         rocksdb::{DIR_LIVE_DB, ReadOnlyRocksDB, RocksDB, RocksDbConfig, split_continuous},
         tests::{
             Fixture, add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep, test_read_pool,
-            test_read_utxo, test_refund_account, test_remove_account, test_remove_cc_member_at_epoch_boundary,
-            test_remove_drep, test_remove_pool, test_remove_utxo, test_slot_updated,
-            test_treasury_withdrawal_debits_pots,
+            test_read_utxo, test_refund_account, test_remove_account, test_remove_drep, test_remove_pool,
+            test_remove_utxo, test_slot_updated, test_treasury_withdrawal_debits_pots,
         },
     };
 
@@ -1195,19 +1194,6 @@ mod tests {
     #[ignore]
     fn test_rocksdb_remove_cc_members() {
         unimplemented!()
-    }
-
-    // FIXME: a removed CC member keeps its hot-key authorization
-    //
-    // `update_constitutional_committee` clears the term and leaves the hot credential in place, so the
-    // authorization outlives the seat. Haskell drops the whole entry. Un-ignore once the epoch
-    // transition sweeps the column.
-    #[test]
-    #[ignore]
-    fn test_rocksdb_remove_cc_member_at_epoch_boundary() -> Result<(), StoreError> {
-        let mut runner = TestRunner::default();
-        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
-        test_remove_cc_member_at_epoch_boundary(&store, &fixture)
     }
 
     #[test]

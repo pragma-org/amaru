@@ -15,7 +15,8 @@
 use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalKind, StakeCredential, TransactionInput,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, ProposalKind, StakeCredential,
+    TransactionInput,
 };
 use amaru_observability::debug_span;
 
@@ -77,6 +78,10 @@ impl VolatileState for VolatileSeries {
     }
 
     // ---------------------------------------------------------------------------------------- Pots
+    fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
+        pots.treasury
+    }
+
     fn resolve_donations(&self) -> Lovelace {
         self.aggregate.donations()
     }
