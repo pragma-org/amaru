@@ -54,8 +54,8 @@ impl Model {
             TelemetryEvent::BlockAdopt => {
                 self.update_catch_up(record);
             }
-            TelemetryEvent::RollForward => self.push_recent_block(record.at),
-            TelemetryEvent::TransactionValidate => self.push_recent_transaction_count(record.at, 1),
+            TelemetryEvent::RollForward => self.push_recent_block(),
+            TelemetryEvent::TransactionValidate => self.push_recent_transaction_count(1),
             TelemetryEvent::TipUpdate => self.update_tip(record),
             TelemetryEvent::StakeSnapshot => self.update_stake_snapshot(record),
             TelemetryEvent::MempoolStateUpdate => self.update_mempool(record),

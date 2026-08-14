@@ -16,34 +16,52 @@ use std::time::Instant;
 
 use super::exponential_moving_average::ExponentialMovingAverage;
 
+/// Tracks a monotonically increasing count and derives a smoothed per-second rate
+/// from explicit sampling ticks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RateCounter {
     smoothing: usize,
     total_count: u64,
-    last_at: Option<Instant>,
+    pending_count: u64,
+    last_sample_at: Option<Instant>,
     average_rate: ExponentialMovingAverage,
 }
 
 impl RateCounter {
     pub fn new(smoothing: usize) -> Self {
-        Self { smoothing, total_count: 0, last_at: None, average_rate: ExponentialMovingAverage::default() }
+        Self {
+            smoothing,
+            total_count: 0,
+            pending_count: 0,
+            last_sample_at: None,
+            average_rate: ExponentialMovingAverage::default(),
+        }
     }
 
-    pub fn record(&mut self, at: Instant, count: u64) {
+    pub fn record(&mut self, count: u64) {
         self.total_count = self.total_count.saturating_add(count);
-
-        if let Some(last_at) = self.last_at {
-            let elapsed = at.saturating_duration_since(last_at);
-            if !elapsed.is_zero() {
-                self.average_rate.record(count as f64 / elapsed.as_secs_f64(), self.smoothing);
-            }
-        }
-
-        self.last_at = Some(at);
+        self.pending_count = self.pending_count.saturating_add(count);
     }
 
     pub fn total_count(&self) -> u64 {
         self.total_count
+    }
+
+    pub fn sample(&mut self, at: Instant) {
+        let Some(last_sample_at) = self.last_sample_at else {
+            self.last_sample_at = Some(at);
+            self.pending_count = 0;
+            return;
+        };
+
+        let elapsed = at.saturating_duration_since(last_sample_at);
+        if elapsed.is_zero() {
+            return;
+        }
+
+        self.average_rate.record(self.pending_count as f64 / elapsed.as_secs_f64(), self.smoothing);
+        self.pending_count = 0;
+        self.last_sample_at = Some(at);
     }
 
     pub fn rate_per_second(&self) -> f64 {
