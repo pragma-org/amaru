@@ -382,7 +382,7 @@ normalizeUtxowFailure expectedHint = \case
     InvalidWitnessesUTXOW{} ->
         "InvalidWitnessesUTXOW"
     MissingVKeyWitnessesUTXOW{} ->
-        "MissingVKeyWitnessesUTXOW"
+        "MissingVerificationKeyWitnessesUTXOW"
     MissingTxBodyMetadataHash{} ->
         "MissingTxBodyMetadataHash"
     MissingTxMetadata{} ->
@@ -505,5 +505,13 @@ normalizeGovFailure = \case
         "TreasuryWithdrawalsAllZeros"
     VotersDoNotExist{} ->
         "VotersDoNotExist"
+    GovActionsDoNotExist{} ->
+        "GovActionsDoNotExist"
+    InvalidGuardrailsScriptHash{} ->
+        "InvalidGuardrailsScriptHash"
+    VotingOnExpiredGovAction{} ->
+        "VotingOnExpiredGovAction"
+    DisallowedVoters{} ->
+        "DisallowedVoters"
     otherFailure ->
         "unsupported:" <> showText otherFailure

@@ -25,7 +25,9 @@ import Cardano.Ledger.Api.Governance
     )
 import Cardano.Ledger.Api.PParams
     ( PParams
+    , emptyPParamsUpdate
     , ppPoolDepositL
+    , ppProtocolVersionL
     )
 import Cardano.Ledger.BaseTypes
     ( addEpochInterval
@@ -41,7 +43,7 @@ import Cardano.Ledger.Conway
     ( ConwayEra
     )
 import Cardano.Ledger.Conway.Governance
-    ( GovAction
+    ( GovAction (..)
     , GovActionId (GovActionId)
     , GovActionIx (GovActionIx)
     , GovActionState (..)
@@ -49,6 +51,8 @@ import Cardano.Ledger.Conway.Governance
     , GovRelation (..)
     , ProposalProcedure (..)
     , Proposals
+    , cgsConstitutionL
+    , constitutionGuardrailsScriptHashL
     , fromPrevGovActionIds
     , gasDeposit
     , pRootsL
@@ -77,6 +81,7 @@ import Cardano.Ledger.DRep
 import Cardano.Ledger.Hashes
     ( GenDelegs (GenDelegs)
     , KeyHash
+    , ScriptHash
     )
 import Cardano.Ledger.Keys
     ( KeyRole (DRepRole, StakePool, Staking)
@@ -106,8 +111,9 @@ import Command.ValidatePhaseOne.Error
 import Data.Aeson
     ( FromJSON (parseJSON)
     , Object
-    , Value
+    , Value (Array)
     , withObject
+    , withText
     , (.:)
     , (.:?)
     , (.!=)
@@ -126,6 +132,7 @@ import Data.Fixture.Common
     , compactCoinOrError
     , parseCborHex
     , parsePoolId
+    , parseScriptHash
     , showText
     )
 import Data.Fixture.EraHistory
@@ -137,6 +144,7 @@ import Data.Fixture.Point
     )
 import Data.Maybe.Strict
     ( StrictMaybe (SJust, SNothing)
+    , maybeToStrictMaybe
     )
 import Lens.Micro
     ( (.~)
@@ -155,6 +163,7 @@ data InitialState = InitialState
     , proposalsRoots :: !(GovRelation StrictMaybe)
     , pots :: !Pots
     , governanceActivity :: !GovernanceActivity
+    , guardrailScript :: !(Maybe ScriptHash)
     }
     deriving (Generic)
 
@@ -170,6 +179,7 @@ instance FromJSON InitialState where
                 <*> (objectValue .:? "proposalsRoots" >>= maybe (pure def) parseProposalsRoots)
                 <*> objectValue .:? "pots" .!= def
                 <*> objectValue .:? "governanceActivity" .!= def
+                <*> (objectValue .:? "guardrailScript" >>= traverse parseScriptHash)
 
 data UtxoEntry = UtxoEntry
     { input :: !TxIn
@@ -262,15 +272,59 @@ instance Default GovernanceActivity where
 
 data ProposalEntry = ProposalEntry
     { proposalId :: !GovActionId
-    , govAction :: !(GovAction ConwayEra)
+    , proposalAction :: !ProposalAction
+    , proposalValidUntil :: !(Maybe Word64)
     }
 
-instance FromJSON ProposalEntry where
+-- | What a fixture states about a seeded proposal's governance action: the action itself, or
+-- only the lineage it belongs to.
+data ProposalAction
+    = ExplicitAction !(GovAction ConwayEra)
+    | LineageOnly !ProposalLineage
+
+-- | The purposes proposals chain along. @Orphan@ covers the actions that chain to nothing.
+data ProposalLineage
+    = ProtocolParametersLineage
+    | HardForkLineage
+    | ConstitutionalCommitteeLineage
+    | ConstitutionLineage
+    | OrphanLineage
+
+instance FromJSON ProposalLineage where
     parseJSON =
-        withObject "ProposalEntry" $ \objectValue ->
-            ProposalEntry
-                <$> (objectValue .: "id" >>= parseProposalId)
-                <*> (objectValue .: "govAction" >>= parseCborHex "GovAction")
+        withText "ProposalLineage" $ \text ->
+            case text of
+                "ProtocolParameters" ->
+                    pure ProtocolParametersLineage
+                "HardFork" ->
+                    pure HardForkLineage
+                "ConstitutionalCommittee" ->
+                    pure ConstitutionalCommitteeLineage
+                "Constitution" ->
+                    pure ConstitutionLineage
+                "Orphan" ->
+                    pure OrphanLineage
+                other ->
+                    fail (toString ("Unknown proposal lineage: " <> other))
+
+instance FromJSON ProposalEntry where
+    parseJSON value =
+        case value of
+            Array _ ->
+                parseLineagePair value
+            _ ->
+                parseFullEntry value
+      where
+        parseLineagePair =
+            parseJSON >=> \(idValue, lineage) -> do
+                entryId <- parseProposalId idValue
+                pure ProposalEntry{proposalId = entryId, proposalAction = LineageOnly lineage, proposalValidUntil = Nothing}
+        parseFullEntry =
+            withObject "ProposalEntry" $ \objectValue ->
+                ProposalEntry
+                    <$> (objectValue .: "id" >>= parseProposalId)
+                    <*> (ExplicitAction <$> (objectValue .: "govAction" >>= parseCborHex "GovAction"))
+                    <*> objectValue .:? "validUntil"
 
 data Pots = Pots
     { treasury :: !Integer
@@ -317,7 +371,7 @@ buildNewEpochState
     -> Point
     -> Either Error (NewEpochState ConwayEra)
 buildNewEpochState pparams eraHistory initialState point = do
-    let InitialState{utxo, pools, accounts, dreps, proposals, proposalsRoots, pots, governanceActivity} = initialState
+    let InitialState{utxo, pools, accounts, dreps, proposals, proposalsRoots, pots, governanceActivity, guardrailScript} = initialState
     accountEntries <- traverse toLedgerAccountEntry accounts
     dRepEntries <- traverse toLedgerDRepEntry dreps
     currentEpoch <- pointEpochNo eraHistory point
@@ -377,6 +431,7 @@ buildNewEpochState pparams eraHistory initialState point = do
                 & curPParamsGovStateL .~ pparams
                 & prevPParamsGovStateL .~ pparams
                 & cgsProposalsL .~ seededProposals
+                & cgsConstitutionL . constitutionGuardrailsScriptHashL .~ maybeToStrictMaybe guardrailScript
     let chainAccountState =
             ChainAccountState {casTreasury = Coin (treasury pots), casReserves = Coin (reserves pots)}
     let utxoState =
@@ -477,10 +532,10 @@ toLedgerDRepEntry RegisteredDRep{credential, deposit, validUntil} = do
 
 -- | A fixture describes a seeded proposal by its id and its governance action, which is
 -- all the GOV rule consults when it resolves a new proposal's parent. The deposit, return
--- address and anchor are filler, and the expiry is derived from @govActionLifetime@ so that
--- every seeded proposal counts as still in flight.
+-- address and anchor are filler. A fixture that states no expiry gets one derived from
+-- @govActionLifetime@, so that the proposal counts as still in flight.
 toGovActionState :: PParams ConwayEra -> LedgerSlot.EpochNo -> ProposalEntry -> GovActionState ConwayEra
-toGovActionState pparams currentEpoch ProposalEntry{proposalId, govAction} =
+toGovActionState pparams currentEpoch ProposalEntry{proposalId, proposalAction, proposalValidUntil} =
     GovActionState
         { gasId = proposalId
         , gasCommitteeVotes = mempty
@@ -490,12 +545,34 @@ toGovActionState pparams currentEpoch ProposalEntry{proposalId, govAction} =
             ProposalProcedure
                 { pProcDeposit = pparams ^. ppGovActionDepositL
                 , pProcReturnAddr = def
-                , pProcGovAction = govAction
+                , pProcGovAction = toGovAction pparams proposalAction
                 , pProcAnchor = def
                 }
         , gasProposedIn = currentEpoch
-        , gasExpiresAfter = addEpochInterval currentEpoch (pparams ^. ppGovActionLifetimeL)
+        , gasExpiresAfter =
+            maybe
+                (addEpochInterval currentEpoch (pparams ^. ppGovActionLifetimeL))
+                phaseOneEpochNo
+                proposalValidUntil
         }
+
+-- | A fixture naming only a lineage constrains nothing beyond the purpose its proposal chains
+-- along, so a minimal action of that purpose stands in. The stand-in hard fork sits at the
+-- current protocol version, the weakest parent a chaining proposal can still follow.
+toGovAction :: PParams ConwayEra -> ProposalAction -> GovAction ConwayEra
+toGovAction pparams = \case
+    ExplicitAction govAction ->
+        govAction
+    LineageOnly ProtocolParametersLineage ->
+        ParameterChange SNothing emptyPParamsUpdate SNothing
+    LineageOnly HardForkLineage ->
+        HardForkInitiation SNothing (pparams ^. ppProtocolVersionL)
+    LineageOnly ConstitutionalCommitteeLineage ->
+        NoConfidence SNothing
+    LineageOnly ConstitutionLineage ->
+        NewConstitution SNothing def
+    LineageOnly OrphanLineage ->
+        InfoAction
 
 buildProposals
     :: GovRelation StrictMaybe
