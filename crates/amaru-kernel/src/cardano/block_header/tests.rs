@@ -12,15 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::LazyLock;
+
 use proptest::prelude::*;
 
 use super::*;
 use crate::{
     BoundedBytes, Bytes, Hash, Header, OperationalCert, ProtocolVersion, VrfCert, any_hash28,
-    cardano::{fixed_bytes::FixedBytes, network_block::make_block_with_header},
+    cardano::{fixed_bytes::FixedBytes, network_block::make_block},
     size::BLOCK_BODY,
-    to_cbor,
 };
+
+/// Body hash and size of a test block, so headers built here are consistent with the
+/// blocks `make_block_with_header` attaches to them.
+static TEST_BLOCK_BODY: LazyLock<(Hash<BLOCK_BODY>, u64)> = LazyLock::new(|| {
+    let block = make_block();
+    (block.body_hash(), block.body_len())
+});
 
 /// Make a mostly empty Header with the given block_number, slot and previous hash
 pub fn make_header(block_number: u64, slot: u64, prev_hash: Option<HeaderHash>) -> Header {
@@ -35,8 +43,7 @@ pub fn make_header_with_op_cert_seq(
     prev_hash: Option<HeaderHash>,
     op_cert_seq: u64,
 ) -> Header {
-    let block_hash = Hasher::<{ BLOCK_BODY * 8 }>::hash(&to_cbor(&vec![block_number, slot]));
-
+    let (block_body_hash, block_body_size) = *TEST_BLOCK_BODY;
     Header {
         header_body: HeaderBody {
             block_number,
@@ -45,8 +52,8 @@ pub fn make_header_with_op_cert_seq(
             issuer_verification_key: VerificationKey::empty(),
             vrf_verification_key: VerificationKey::empty(),
             vrf_result: VrfCert { output: BoundedBytes::empty(), proof: FixedBytes::empty() },
-            block_body_size: 0,
-            block_body_hash: block_hash,
+            block_body_size,
+            block_body_hash,
             operational_cert: OperationalCert {
                 operational_cert_hot_verification_key: VerificationKey::empty(),
                 operational_cert_sequence_number: op_cert_seq,
@@ -57,6 +64,10 @@ pub fn make_header_with_op_cert_seq(
         },
         body_signature: Bytes::from(vec![]),
     }
+}
+
+pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
+    BlockHeader::from(make_header(block_number, slot, parent))
 }
 
 pub fn make_block_header_with_op_cert_seq(
@@ -101,8 +112,6 @@ fn make_headers_with_root_point(point: Option<Point>) -> impl Fn(Vec<BlockHeader
                     header.header_body.block_number = header.header_body.slot;
                     header.header_body.prev_hash = Some(parent.hash());
                     let block_header = BlockHeader::from(header);
-                    // fix block_body_hash
-                    let block_header = BlockHeader::from(make_block_with_header(&block_header).header);
                     parent = block_header.point();
                     block_header
                 }

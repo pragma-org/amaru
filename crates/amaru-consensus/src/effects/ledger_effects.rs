@@ -18,11 +18,12 @@ use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, Point, Tip, Tra
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateTxs, HasStakePools, Nonces, PoolSummaries,
-    TransactionValidationError,
+    BlockValidationError, CanValidateBlocks, CanValidateTxs, FindCommonAncestorResult, ForkSwitchOutcome,
+    HasStakePools, Nonces, PoolSummaries, TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
+use anyhow::anyhow;
 use opentelemetry::trace::FutureExt;
 
 use crate::validate_header::ValidateHeaderError;
@@ -41,10 +42,7 @@ pub trait LedgerOps: Send + Sync {
         point: &Point,
     ) -> BoxFuture<'static, Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
 
-    fn switch_to_fork(
-        &self,
-        point: &Point,
-    ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>>;
+    fn switch_to_fork(&self, tip: &Tip) -> BoxFuture<'static, Result<ForkSwitchOutcome, BlockValidationError>>;
 
     fn immutable_tip(&self) -> BoxFuture<'static, Tip>;
 
@@ -92,11 +90,8 @@ impl LedgerOps for Ledger {
         self.effects.external(ValidateBlockEffect::new(point).with_trace_context(&self.trace_context))
     }
 
-    fn switch_to_fork(
-        &self,
-        point: &Point,
-    ) -> BoxFuture<'static, anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>> {
-        self.effects.external(SwitchToForkEffect::new(point).with_trace_context(&self.trace_context))
+    fn switch_to_fork(&self, tip: &Tip) -> BoxFuture<'static, Result<ForkSwitchOutcome, BlockValidationError>> {
+        self.effects.external(SwitchToForkEffect::new(tip).with_trace_context(&self.trace_context))
     }
 
     fn immutable_tip(&self) -> BoxFuture<'static, Tip> {
@@ -193,7 +188,7 @@ impl ExternalEffect for ValidateBlockEffect {
                     .get::<ResourceBlockValidation>()
                     .expect("ValidateBlockEffect requires a ResourceBlockValidation resource")
                     .clone();
-                validator.roll_forward_block(&point, block).await
+                validator.roll_forward_block(block).await
             }
             .with_context(trace_context.context()),
         )
@@ -261,13 +256,13 @@ impl ExternalEffectAPI for ValidateHeaderEffect {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SwitchToForkEffect {
-    point: Point,
+    tip: Tip,
     trace_context: TraceContext,
 }
 
 impl SwitchToForkEffect {
-    pub fn new(point: &Point) -> Self {
-        Self { point: *point, trace_context: Default::default() }
+    pub fn new(tip: &Tip) -> Self {
+        Self { tip: *tip, trace_context: Default::default() }
     }
 
     pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
@@ -279,19 +274,46 @@ impl SwitchToForkEffect {
 impl ExternalEffect for SwitchToForkEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let _guard = self.trace_context.attach();
-            let validator = resources
-                .get::<ResourceBlockValidation>()
-                .expect("SwitchToForkEffect requires a ResourceBlockValidation resource")
-                .clone();
-            validator.switch_to_fork(&self.point)
-        })
+        let Self { tip, trace_context } = *self;
+        Self::wrap(
+            async move {
+                let store = resources
+                    .get::<ResourceHeaderStore>()
+                    .expect("SwitchToForkEffect requires a ResourceHeaderStore resource")
+                    .clone();
+                let validator = resources
+                    .get::<ResourceBlockValidation>()
+                    .expect("SwitchToForkEffect requires a ResourceBlockValidation resource")
+                    .clone();
+
+                // Find the intersection with the current ledger tip
+                let ledger_tip = validator.tip();
+                let tip_hash = tip.hash();
+
+                let fork_point = match store
+                    .find_common_ancestor(tip.hash(), ledger_tip.hash())
+                    .map_err(|error| BlockValidationError::new(anyhow!(error)))?
+                {
+                    FindCommonAncestorResult::Found(point) => point,
+                    FindCommonAncestorResult::HeaderNotFound(hash) => {
+                        return Err(BlockValidationError::new(anyhow!("header missing for {hash}")));
+                    }
+                    FindCommonAncestorResult::NotFound => {
+                        return Err(BlockValidationError::new(anyhow!(
+                            "no common ancestor between the ledger tip {ledger_tip} and {tip_hash}"
+                        )));
+                    }
+                };
+
+                validator.switch_to_fork(&fork_point, &tip)
+            }
+            .with_context(trace_context.context()),
+        )
     }
 }
 
 impl ExternalEffectAPI for SwitchToForkEffect {
-    type Response = anyhow::Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
+    type Response = Result<ForkSwitchOutcome, BlockValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

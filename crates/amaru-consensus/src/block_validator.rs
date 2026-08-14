@@ -26,8 +26,8 @@ use amaru_ledger::{
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ChainStore, FindAncestorOnBestChainResult, HasStakePools,
-    PoolSummaries, ReadChainStore, TransactionValidationError, can_validate_blocks::BlockValidationError,
+    BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ChainStore, ForkSwitchOutcome, HasStakePools, PoolSummaries,
+    ReadChainStore, TransactionValidationError, can_validate_blocks::BlockValidationError,
 };
 use amaru_plutus::arena_pool::ArenaPool;
 use anyhow::anyhow;
@@ -71,13 +71,12 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
     #[expect(clippy::unwrap_used)]
     async fn roll_forward_block(
         &self,
-        point: &Point,
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
         let mut state = self.state.lock().unwrap();
-        match state.roll_forward(point, &block, &self.vm_eval_pool) {
+        match state.roll_forward(&block, &self.vm_eval_pool) {
             BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
-            BlockValidation::Invalid(_, _, details) => {
+            BlockValidation::Invalid(_, details) => {
                 Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))))
             }
             BlockValidation::Err(err) => Err(BlockValidationError::new(anyhow!(err))),
@@ -85,40 +84,38 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
     }
 
     #[expect(clippy::unwrap_used)]
-    fn switch_to_fork(&self, to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        match self
-            .chain_store
-            .find_ancestor_on_best_chain(to.hash())
-            .map_err(|error| BlockValidationError::new(anyhow!(error)))?
-        {
-            FindAncestorOnBestChainResult::StartHeaderNotFound => {
-                Err(BlockValidationError::new(anyhow!("header missing for {}", to.hash())))
-            }
-            FindAncestorOnBestChainResult::NotFound => {
-                Err(BlockValidationError::new(anyhow!("no ancestor on best chain chain {}", to.hash())))
-            }
-            FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
-                let forward_blocks = forward_points.iter().map(|point| {
-                    let block = self
-                        .chain_store
-                        .load_block(&point.hash())
-                        .map_err(|e| anyhow!(e))?
-                        .ok_or_else(|| anyhow!("block not found"))?
-                        .decode()
-                        .map_err(|e| anyhow!(e))?;
-                    Ok((*point, block))
-                });
+    fn switch_to_fork(&self, fork_point: &Point, to: &Tip) -> Result<ForkSwitchOutcome, BlockValidationError> {
+        // Get all the headers of the block to apply between the fork point and the expected new tip
+        let Some(forward_tips) = self.chain_store.ancestors_between(fork_point, to.hash()) else {
+            return Err(BlockValidationError::new(anyhow!(
+                "the stored headers do not form a chain from {fork_point} to {}",
+                to.point()
+            )));
+        };
 
-                let mut state = self.state.lock().unwrap();
-                match state.switch_to_fork(&fork_point, forward_blocks, &self.vm_eval_pool) {
-                    BlockValidation::Valid(metrics) => Ok(Ok(metrics)),
-                    BlockValidation::Invalid(_, _, details) => {
-                        Ok(Err(BlockValidationError::new(anyhow!("Invalid block: {details}"))))
-                    }
-                    BlockValidation::Err(err) => Err(BlockValidationError::new(anyhow!(err))),
-                }
-            }
+        // Load the blocks corresponding to the headers to apply, in order, from the chain store.
+        let forward_blocks = forward_tips
+            .iter()
+            .map(|forward_tip| {
+                self.chain_store
+                    .load_block(&forward_tip.hash())
+                    .map_err(|e| BlockValidationError::new(anyhow!(e)))?
+                    .ok_or_else(|| BlockValidationError::new(anyhow!("block not found")))?
+                    .decode()
+                    .map_err(|e| BlockValidationError::new(anyhow!(e)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut state = self.state.lock().unwrap();
+
+        if forward_blocks.is_empty() {
+            // We are not supposed to switch to a fork that would be a no-op for the ledger.
+            return Err(BlockValidationError::new(anyhow!("block already applied to the ledger: {}", to.point())));
         }
+
+        // Now switch the fork in the ledger by rolling back to the fork point and then rolling forward the blocks to the new tip.
+        state
+            .switch_to_fork(fork_point, forward_blocks, &self.vm_eval_pool)
+            .map_err(|err| BlockValidationError::from(anyhow!(err)))
     }
 
     #[expect(clippy::unwrap_used)]

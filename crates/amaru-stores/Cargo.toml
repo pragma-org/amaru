@@ -14,10 +14,11 @@ readme = "../../README.md"
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
+autotests = false
 
 [[test]]
-name = "state_rollback"
-path = "tests/state_rollback.rs"
+name = "state"
+path = "tests/lib.rs"
 required-features = ["rocksdb"]
 
 [dependencies]

@@ -133,6 +133,7 @@ pub fn build_stage_graph(
             adopt_chain.without_state(),
             select_chain.sender(),
             block_source_sender.clone(),
+            k,
             ledger_tip.point(),
         ),
     );

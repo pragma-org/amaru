@@ -25,9 +25,9 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        setup, te_find_best_candidate, te_has_header, te_load_header, te_load_tip, te_record_block_pruned,
-        te_record_block_valid, te_record_fork_started, te_record_header_abandoned, te_set_block_valid,
-        te_unvalidated_ancestor_hashes, test_prep,
+        make_block_header, setup, setup_many, te_find_best_candidate, te_has_header, te_load_header, te_load_tip,
+        te_record_block_pruned, te_record_block_valid, te_record_fork_started, te_record_header_abandoned,
+        te_set_block_valid, te_unvalidated_ancestor_hashes, test_prep,
     },
     test_utils::{assert_trace, start_in_era, te_clock_read, te_input, te_send, te_state, te_terminate, te_terminated},
 };
@@ -509,11 +509,6 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
                 Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
                 false,
             ),
-            te_record_fork_started(
-                "sc-1",
-                prep.headers.h1.tip(),
-                Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
-            ),
             te_state("sc-1", &expected),
         ],
     );
@@ -810,6 +805,124 @@ fn test_last_best_tip_invalidated_falls_back_to_origin() {
     );
 
     logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"]).assert_no_remaining_at([Level::ERROR]);
+}
+
+#[test]
+fn test_new_tip_after_pruning_restores_pending_block_validations() {
+    let mut prep = test_prep();
+    // The invalid h3a first prunes the h2a/h3a branch.
+    // Then a new header h3b with parent h2a re-tracks it, proving that pruning does not
+    // leave any state behind that would prevent the branch from being adopted again.
+    prep.state.best_tip = Some(prep.headers.h3.clone());
+    prep.state.tips = BTreeMap::from_iter([
+        (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
+        (prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()]),
+    ]);
+    let h3b = make_block_header(4, 12, Some(prep.headers.h2a.hash()));
+    prep.store_headers(&prep.headers.all());
+    prep.store_headers(&[&h3b]);
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_validity(prep.headers.h0.hash(), true);
+    prep.set_validity(prep.headers.h1.hash(), true);
+
+    let invalid = SelectChainMsg::BlockValidationResult(prep.headers.h3a.tip(), false, BlockHeight::from(0));
+    let new_tip = SelectChainMsg::tip_from_upstream(h3b.tip(), prep.headers.h2a.point());
+
+    let after_prune = SelectChain {
+        tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]),
+        ..prep.state.clone()
+    };
+    let expected = SelectChain {
+        tips: BTreeMap::from_iter([
+            (prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()]),
+            (h3b.hash(), vec![prep.headers.h2a.hash(), h3b.hash()]),
+        ]),
+        ..prep.state.clone()
+    };
+
+    let now = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let (running, _guards, mut logs) = setup_many(&prep, vec![invalid.clone(), new_tip.clone()]);
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &invalid),
+            te_has_header("sc-1", prep.headers.h3a.hash()),
+            te_set_block_valid("sc-1", prep.headers.h3a.hash(), false),
+            te_clock_read("sc-1"),
+            te_record_block_pruned("sc-1", prep.headers.h2a.hash(), false, now, false),
+            te_record_block_pruned("sc-1", prep.headers.h3a.hash(), true, now, false),
+            te_state("sc-1", &after_prune),
+            te_input("sc-1", &new_tip),
+            te_load_header("sc-1", h3b.hash(), true),
+            te_unvalidated_ancestor_hashes("sc-1", prep.headers.h2a.hash()),
+            te_state("sc-1", &expected),
+        ],
+    );
+    logs.assert_and_remove(Level::WARN, &["chain fork(s) removed due to invalid block"])
+        .assert_and_remove(Level::DEBUG, &["got new tip from upstream"])
+        .assert_and_remove(Level::DEBUG, &["new chain"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branch() {
+    let mut prep = test_prep();
+    prep.state.best_tip = Some(prep.headers.h3.clone());
+    prep.state.tips =
+        BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
+    prep.store_headers(&prep.headers.main());
+    prep.set_anchor(prep.headers.h0.parent_hash().unwrap_or(ORIGIN_HASH));
+    prep.set_validity(prep.headers.h0.hash(), true);
+    prep.set_validity(prep.headers.h1.hash(), true);
+    prep.set_best_chain(prep.headers.h1.hash());
+
+    // h2 is validated but not h3
+    let tip = prep.headers.h3.tip();
+    let msg1 = SelectChainMsg::BlockValidationResult(prep.headers.h2.tip(), true, BlockHeight::from(0));
+    let msg2 = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
+
+    // Validating h2 drains it from the pending list; h3 is still awaiting its result.
+    let after_h2_valid = SelectChain {
+        tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h3.hash()])]),
+        ..prep.state.clone()
+    };
+    // After the invalidation of h3, the best tip falls back to h2
+    let expected = SelectChain {
+        best_tip: Some(prep.headers.h2.clone()),
+        tips: BTreeMap::from_iter([(prep.headers.h2.hash(), vec![])]),
+        may_fetch_blocks: false,
+        ..prep.state.clone()
+    };
+
+    let now = Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time);
+    let (running, _guards, mut logs) = setup_many(&prep, vec![msg1.clone(), msg2.clone()]);
+    assert_trace(
+        &running,
+        &[
+            te_state("sc-1", &prep.state),
+            te_input("sc-1", &msg1),
+            te_has_header("sc-1", prep.headers.h2.hash()),
+            te_set_block_valid("sc-1", prep.headers.h2.hash(), true),
+            te_clock_read("sc-1"),
+            te_record_block_valid("sc-1", prep.headers.h2.hash(), now, false),
+            te_state("sc-1", &after_h2_valid),
+            te_input("sc-1", &msg2),
+            te_has_header("sc-1", tip.hash()),
+            te_set_block_valid("sc-1", tip.hash(), false),
+            te_find_best_candidate("sc-1"),
+            te_load_header("sc-1", prep.headers.h2.hash(), false),
+            te_load_tip("sc-1", prep.headers.h1.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h2.tip(), prep.headers.h1.point())),
+            te_unvalidated_ancestor_hashes("sc-1", prep.headers.h2.hash()),
+            te_clock_read("sc-1"),
+            te_record_block_pruned("sc-1", prep.headers.h3.hash(), true, now, false),
+            te_state("sc-1", &expected),
+        ],
+    );
+    logs.assert_and_remove(Level::INFO, &["best tip candidate invalidated"])
+        .assert_and_remove(Level::DEBUG, &["new best tip candidate"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[cfg(test)]

@@ -31,7 +31,9 @@ use amaru_ledger::{
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::Meter;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool};
+use amaru_ouroboros::{
+    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
+};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
     manager::ManagerMessage,

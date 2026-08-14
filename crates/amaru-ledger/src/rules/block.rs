@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot,
-    TransactionId, TransactionIndex, TransactionPointer,
+    Block, EraHistory, ExUnits, GlobalParameters, Hash, NetworkName, ProtocolParameters, Slot, Tip, TransactionId,
+    TransactionIndex, TransactionPointer,
     cardano::transaction_ref::TransactionRef,
     size::{BLOCK_BODY, SCRIPT},
 };
@@ -84,12 +84,12 @@ pub enum InvalidBlockDetails {
 #[derive(Debug)]
 pub enum BlockValidation<A, E> {
     Valid(A),
-    Invalid(Slot, HeaderHash, InvalidBlockDetails),
+    Invalid(Tip, InvalidBlockDetails),
     Err(E),
 }
 
 pub enum BlockValidationResidual<E> {
-    Invalid(Slot, HeaderHash, InvalidBlockDetails),
+    Invalid(Tip, InvalidBlockDetails),
     Err(E),
 }
 
@@ -183,9 +183,7 @@ impl<A, E> Try for BlockValidation<A, E> {
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             Self::Valid(result) => ControlFlow::Continue(result),
-            Self::Invalid(slot, id, violation) => {
-                ControlFlow::Break(BlockValidationResidual::Invalid(slot, id, violation))
-            }
+            Self::Invalid(tip, violation) => ControlFlow::Break(BlockValidationResidual::Invalid(tip, violation)),
             Self::Err(err) => ControlFlow::Break(BlockValidationResidual::Err(err)),
         }
     }
@@ -194,7 +192,7 @@ impl<A, E> Try for BlockValidation<A, E> {
 impl<A, E> FromResidual for BlockValidation<A, E> {
     fn from_residual(residual: BlockValidationResidual<E>) -> Self {
         match residual {
-            BlockValidationResidual::Invalid(slot, id, violation) => BlockValidation::Invalid(slot, id, violation),
+            BlockValidationResidual::Invalid(tip, violation) => BlockValidation::Invalid(tip, violation),
             BlockValidationResidual::Err(err) => BlockValidation::Err(err),
         }
     }
@@ -222,13 +220,11 @@ where
     let block_span = debug_span!(ledger::rules::EXECUTE);
     let _block_guard = block_span.enter();
 
-    let slot = Slot::from(block.header.header_body.slot);
-
-    let header_hash = block.header_hash();
+    let tip = block.tip();
 
     let with_block_context = |result| match result {
         Ok(out) => BlockValidation::Valid(out),
-        Err(err) => BlockValidation::Invalid(slot, header_hash, err),
+        Err(err) => BlockValidation::Invalid(tip, err),
     };
 
     let preflight_span = debug_span!(ledger::rules::phase_one::BLOCK);
@@ -258,6 +254,7 @@ where
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
+    let slot = Slot::from(block.header.header_body.slot);
     for (i, transaction, tx_size) in block {
         let transaction_id = transaction.tx_id();
 

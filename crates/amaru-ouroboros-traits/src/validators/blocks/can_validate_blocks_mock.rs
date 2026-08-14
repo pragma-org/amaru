@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{BlockHeight, Point, Tip};
 use amaru_metrics::ledger::LedgerMetrics;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use crate::{CanValidateBlocks, can_validate_blocks::BlockValidationError};
+use crate::{CanValidateBlocks, ForkSwitchOutcome, InvalidBlock, can_validate_blocks::BlockValidationError};
 
 /// Configurable mock ledger for testing rollback/roll-forward paths.
 pub struct MockBlockValidator {
@@ -37,6 +37,24 @@ struct MockBlockValidatorInner {
     validate_fails: BTreeSet<Point>,
     /// If set, roll_forward_block will return Err(...) for these points.
     ledger_fails: BTreeSet<Point>,
+    /// If set, switch_to_fork to this point reports a partial switch: (applied_tip, failing block).
+    partial_switches: BTreeMap<Point, (Tip, Tip)>,
+    /// If set, switch_to_fork to this point is rolled back, blaming the given block.
+    rolled_back_switches: BTreeMap<Point, Tip>,
+}
+
+impl MockBlockValidatorInner {
+    /// Drop every point past the fork point, as a real rollback would.
+    /// The mock tracks single points rather than chains, so slot order stands in for ancestry.
+    fn rollback_to(&mut self, fork_point: &Point) {
+        self.contains.retain(|p| p.slot_or_default() <= fork_point.slot_or_default());
+    }
+
+    /// Record a point as validated and make it the ledger tip.
+    fn apply(&mut self, point: Point) {
+        self.contains.insert(point);
+        self.tip = point;
+    }
 }
 
 impl Default for MockBlockValidator {
@@ -54,6 +72,8 @@ impl MockBlockValidator {
                 rollback_fails: false,
                 validate_fails: BTreeSet::default(),
                 ledger_fails: BTreeSet::default(),
+                partial_switches: BTreeMap::default(),
+                rolled_back_switches: BTreeMap::default(),
             }),
         }
     }
@@ -82,42 +102,69 @@ impl MockBlockValidator {
         self.inner.lock().tip = tip;
         self
     }
+
+    pub fn with_partial_switch(&self, to: Point, applied_tip: Tip, failed: Tip) -> &Self {
+        self.inner.lock().partial_switches.insert(to, (applied_tip, failed));
+        self
+    }
+
+    pub fn with_rolled_back_switch(&self, to: Point, failed: Tip) -> &Self {
+        self.inner.lock().rolled_back_switches.insert(to, failed);
+        self
+    }
 }
 
 #[async_trait]
 impl CanValidateBlocks for MockBlockValidator {
     async fn roll_forward_block(
         &self,
-        point: &Point,
-        _block: amaru_kernel::Block,
+        block: amaru_kernel::Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+        let point = block.point();
         let mut inner = self.inner.lock();
-        if inner.ledger_fails.contains(point) {
+        if inner.ledger_fails.contains(&point) {
             return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed")));
         }
-        if inner.validate_fails.contains(point) {
+        if inner.validate_fails.contains(&point) {
             return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed"))));
         }
-        inner.contains.insert(*point);
-        inner.tip = *point;
+        inner.contains.insert(point);
+        inner.tip = point;
         Ok(Ok(Default::default()))
     }
 
-    fn switch_to_fork(&self, to: &Point) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
+    fn switch_to_fork(&self, fork_point: &Point, to: &Tip) -> Result<ForkSwitchOutcome, BlockValidationError> {
         let mut inner = self.inner.lock();
         if inner.rollback_fails {
             return Err(BlockValidationError::new(anyhow::anyhow!("mock rollback failed")));
         }
-        if inner.ledger_fails.contains(to) {
+        if inner.ledger_fails.contains(&to.point()) {
             return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed")));
         }
-        if inner.validate_fails.contains(to) {
-            return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed"))));
+
+        // A rolled back switch restores the pre-switch state: nothing to mutate.
+        if let Some(failed) = inner.rolled_back_switches.get(&to.point()).copied() {
+            return Ok(ForkSwitchOutcome::Failed { failure: invalid_block(failed) });
         }
-        inner.tip = *to;
-        inner.contains.retain(|p| p.slot_or_default() <= to.slot_or_default());
-        inner.contains.insert(*to);
-        Ok(Ok(Default::default()))
+
+        // A partial switch stops at `applied_tip`: the prefix stays applied.
+        if let Some((applied_tip, failed)) = inner.partial_switches.get(&to.point()).copied() {
+            inner.rollback_to(fork_point);
+            inner.apply(applied_tip.point());
+            return Ok(ForkSwitchOutcome::Partial {
+                applied_tip,
+                metrics: Default::default(),
+                failure: invalid_block(failed),
+            });
+        }
+
+        if inner.validate_fails.contains(&to.point()) {
+            return Ok(ForkSwitchOutcome::Failed { failure: invalid_block(*to) });
+        }
+
+        inner.rollback_to(fork_point);
+        inner.apply(to.point());
+        Ok(ForkSwitchOutcome::Completed { metrics: Default::default() })
     }
 
     fn tip(&self) -> Point {
@@ -128,4 +175,8 @@ impl CanValidateBlocks for MockBlockValidator {
         let inner = self.inner.lock();
         inner.contains.last().map(|p| Tip::new(*p, BlockHeight::from(inner.contains.len() as u64) + 1))
     }
+}
+
+fn invalid_block(tip: Tip) -> InvalidBlock {
+    InvalidBlock { tip, reason: "mock validation failed".to_string() }
 }

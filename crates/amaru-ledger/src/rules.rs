@@ -225,7 +225,7 @@ pub(crate) mod tests {
             &block,
         );
 
-        assert!(matches!(results, BlockValidation::Invalid(_, _, InvalidBlockDetails::HeaderSizeTooBig { .. })))
+        assert!(matches!(results, BlockValidation::Invalid(_, InvalidBlockDetails::HeaderSizeTooBig { .. })))
     }
 
     /// A block walks every transaction body, so preparing it requires each spent input.

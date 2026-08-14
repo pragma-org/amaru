@@ -79,10 +79,11 @@ impl Block {
     }
 
     pub fn tip(&self) -> Tip {
-        Tip::new(
-            Point::Specific(self.header.header_body.slot.into(), self.header_hash),
-            self.header.header_body.block_number.into(),
-        )
+        Tip::new(self.point(), self.header.header_body.block_number.into())
+    }
+
+    pub fn point(&self) -> Point {
+        Point::Specific(self.header.header_body.slot.into(), self.header_hash)
     }
 
     /// Compare two `Block`s by their CBOR-encoded forms.

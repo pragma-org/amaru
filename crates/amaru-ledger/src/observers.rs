@@ -68,8 +68,9 @@ pub struct AdoptedBlock<'a> {
 }
 
 impl<'a> AdoptedBlock<'a> {
-    pub fn from_block(point: Point, epoch: Epoch, block: &'a Block, fragment: &'a VolatileFragment) -> Self {
+    pub fn from_block(epoch: Epoch, block: &'a Block, fragment: &'a VolatileFragment) -> Self {
         let block_height = block.header.header_body.block_number;
+        let point = block.point();
         Self { point, epoch, block_height, block, utxo: &fragment.utxo }
     }
 

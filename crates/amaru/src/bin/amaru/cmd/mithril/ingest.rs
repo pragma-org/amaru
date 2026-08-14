@@ -86,7 +86,7 @@ async fn process_block(
 
     // Verify block content
     block_validator
-        .roll_forward_block(&point, block)
+        .roll_forward_block(block)
         .await
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?
         .map_err(|err| anyhow!("Error processing block at point {:?}: {:?}", point, err))?;

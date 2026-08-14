@@ -2932,6 +2932,12 @@
         },
         "rollback_length": {
           "type": "integer"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "stable_modified": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -2939,7 +2945,10 @@
         "fork_length",
         "rollback_length"
       ],
-      "optional": [],
+      "optional": [
+        "outcome",
+        "stable_modified"
+      ],
       "additionalProperties": false,
       "name": "switch_to_fork",
       "level": "TRACE",

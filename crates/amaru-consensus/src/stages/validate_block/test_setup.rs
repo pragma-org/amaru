@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use amaru_kernel::{
     BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip,
-    cardano::block_header::make_block_header_with_op_cert_seq, make_header,
+    cardano::block_header::{make_block_header, make_block_header_with_op_cert_seq},
 };
 use amaru_ouroboros_traits::{
     MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
@@ -43,10 +43,6 @@ use crate::{
         test_utils::{Logs, TraceMatch, run_simulation, tm_external_effect},
     },
 };
-
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(make_header(block_number, slot, parent))
-}
 
 /// Header tree for testing validate_block2 control flow.
 /// Structure matches select_chain_new + adopt_chain for consistency:
@@ -166,7 +162,7 @@ pub fn test_prep() -> TestPrep {
     let block_source = StageRef::named_for_tests("block_source");
     let block_validator = Arc::new(MockBlockValidator::new(Point::Origin));
 
-    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), Point::Origin);
+    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), 10, Point::Origin);
 
     TestPrep {
         state,
@@ -178,6 +174,10 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_many(prep, vec![msg])
+}
+
+pub fn setup_many(prep: &TestPrep, msgs: Vec<ValidateBlockMsg>) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
     run_simulation(
@@ -186,7 +186,7 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
         |mut network| {
             let vb = network.stage("vb", stage);
             let vb = network.wire_up(vb, prep.state.clone());
-            network.preload(&vb, [msg]).unwrap();
+            network.preload(&vb, msgs).unwrap();
             network
         },
         |resources| {
@@ -205,8 +205,8 @@ pub fn te_validate_block(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(&point))))
 }
 
-pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(point))))
+pub fn te_rollback_ledger(at_stage: &str, tip: &Tip) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(tip))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {

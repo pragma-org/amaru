@@ -25,13 +25,13 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version,
-    size::SCRIPT, to_cbor, utils::string::display_collection,
+    Block, BlockHeight, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher,
+    NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer,
+    protocol_version, size::SCRIPT, to_cbor, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
-use amaru_observability::{debug_span, info, info_span, trace, warn};
-use amaru_ouroboros_traits::{PoolSummaries, PoolSummary};
+use amaru_observability::{debug_span, error_record, info, info_record, info_span, trace, warn, warn_record};
+pub use amaru_ouroboros_traits::{ForkSwitchOutcome, InvalidBlock, PoolSummaries, PoolSummary};
 use amaru_plutus::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
@@ -378,7 +378,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                     })
                     .map_err(StateError::Storage)?;
 
-               Ok(())
+                Ok(())
             },
         )
     }
@@ -415,7 +415,9 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                     handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: "rewards".to_string() })?;
                 Some(Rewards::<Computed>::from(task?))
             } else {
-                None
+                // A fork switch that re-crosses the epoch boundary rolled the overlay's rewards
+                // back from Effective to Computed; consume them for the re-transition.
+                self.volatile.take_computed_rewards()
             };
 
             #[allow(clippy::unwrap_used)]
@@ -531,7 +533,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         // boundary.
         if self.volatile.rewards_not_ready()
             && self.rewards_join_handle.is_none()
-            && self.most_recent_snapshot() == current_epoch - 1
+            && Some(self.most_recent_snapshot()) == current_epoch.checked_sub(Epoch::ONE)
             && is_previous_epoch_stable
         {
             let tasks = BackgroundTasks {
@@ -766,24 +768,23 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     ///    transition must be fully flushed and a snapshot taken.
     pub fn roll_forward(
         &mut self,
-        point: &Point,
         block: &Block,
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         debug_span!(ledger::state::ROLL_FORWARD).in_scope(|| {
-            let block_height = block.header.header_body.block_number;
-
-            trace_block_transactions(point, block_height, block);
+            let tip = block.tip();
+            let point = block.point();
+            trace_block_transactions(&point, tip.block_height().as_u64(), block);
 
             // 1. Rewards calculation
             BlockValidation::from(self.try_compute_rewards())?;
 
             // 2. Epoch transition
-            BlockValidation::from(self.try_epoch_transition(*point))?;
+            BlockValidation::from(self.try_epoch_transition(point))?;
 
             let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_verification_key[..]);
 
-            let metrics = self.new_metrics(point, block, issuer);
+            let metrics = self.new_metrics(&point, block, issuer);
 
             // 3. Validation context
             let mut context = BlockValidation::from(self.create_block_validation_context(block))?;
@@ -802,7 +803,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             )?;
 
             // 5. Record new volatile state
-            let tip = Tip::new(*point, block_height.into());
             let fragment = VolatileFragment::from(context).anchor(tip, issuer);
             if let Some(now_stable) = BlockValidation::from(self.push_fragment(fragment))? {
                 // 6. Apply now-stable block
@@ -817,14 +817,14 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
                 #[expect(clippy::expect_used)]
                 let anchored =
                     self.volatile.view_back().expect("roll_forward pushed a fragment before notifying observers");
-                debug_assert_eq!(anchored.point(), *point);
+                debug_assert_eq!(anchored.point(), point);
                 let epoch = unsafe_slot_to_epoch(&self.era_history, point.slot_or_default());
-                let adopted = crate::observers::AdoptedBlock::from_block(*point, epoch, block, &anchored.fragment);
+                let adopted = crate::observers::AdoptedBlock::from_block(epoch, block, &anchored.fragment);
                 self.observers.notify_adopted(adopted);
             }
 
             let era_history = Arc::clone(&self.era_history);
-            self.tip_update_emitter.notify(Instant::now(), point, &metrics, &era_history);
+            self.tip_update_emitter.notify(Instant::now(), &point, &metrics, &era_history);
 
             BlockValidation::Valid(metrics)
         })
@@ -868,149 +868,163 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         }
     }
 
-    /// Try to rollback the volatile state to a given point and roll forward a number of block by applying
-    /// them after the fork point. Recover the initial state in case of errors.
+    /// Try to rollback the volatile state to a given point and roll the ledger forward with the new blocks.
+    /// Blocks are applied with the regular [`Self::roll_forward`], so epoch
+    /// transitions, rewards and snapshots are processed exactly as during normal chain extension.
+    ///
+    /// A block failing to apply is reported in the returned [`ForkSwitchOutcome`] value:
+    ///
+    /// - If the applied prefix is shorter than the rolled-back chain and nothing was written
+    ///   to the stable store, the pre-switch state is fully restored
+    ///   ([`ForkSwitchOutcome::Failed`]).
+    /// - If the fork is strictly longer than the chain it replaces, i.e. if some blocks have been
+    ///   persisted into the stable store, the valid prefix is kept and reported as
+    ///   [`ForkSwitchOutcome::Partial`].
+    ///
+    /// Only infrastructure failures (missing blocks, storage errors) surface as `Err`.
     pub fn switch_to_fork<I>(
         &mut self,
         fork_point: &Point,
         blocks: I,
         arena_pool: &ArenaPool,
-    ) -> BlockValidation<LedgerMetrics, anyhow::Error>
+    ) -> anyhow::Result<ForkSwitchOutcome>
     where
-        I: IntoIterator<Item = anyhow::Result<(Point, Block)>>,
+        I: IntoIterator<Item = Block>,
         I::IntoIter: ExactSizeIterator,
     {
         let blocks = blocks.into_iter();
-        let count = blocks.len();
+        let fork_length = blocks.len();
 
-        info_span!(
+        let _span = info_span!(
             ledger::state::SWITCH_TO_FORK,
-            fork_point = *fork_point,
-            fork_length = count,
+            fork_point = fork_point,
+            fork_length = fork_length,
             rollback_length = 0usize
         )
-        .in_scope(|| {
-            // Keep recovery until the switch succeeds so undos can borrow discarded fragments;
-            // on failure we restore and emit nothing.
-            let state_recovery = match self.rollback_to(fork_point) {
-                Ok(state_recovery) => {
-                    Span::current().record("rollback_length", state_recovery.rollback_length());
-                    state_recovery
+        .entered();
+
+        let initial_immutable_tip = self.immutable_tip();
+
+        // Rollback to the fork point and snapshot the initial volatile state
+        // in case we need to recover it later.
+        let state_recovery = self.rollback_to(fork_point)?;
+
+        let rollback_length = state_recovery.rollback_length();
+        info!(
+            ledger::state::SWITCH_TO_FORK,
+            fork_point = fork_point,
+            fork_length = fork_length,
+            rollback_length = rollback_length
+        );
+
+        // The fork must replace the rolled-back chain at equal length or extend it by exactly one
+        // block. If this condition is violated, this means that there is an issue with chain selection.
+        // We return an error to let the consensus layer deal with it.
+        if fork_length < rollback_length || fork_length > rollback_length + 1 {
+            error_record!(ledger::state::SWITCH_TO_FORK, outcome = "invalid fork length");
+            self.recover(state_recovery);
+            return Err(StateError::InvalidForkLength { rollback_length, fork_length }.into());
+        }
+
+        // Silence observers during replay; emit undos then adopts only after full success.
+        // Keep blocks for transaction material; UTxO is borrowed from live fragments at emit time.
+        let real_on_block = self.observers.on_block.take();
+        let keep_blocks = real_on_block.is_some();
+        let mut deferred_blocks: Vec<Block> = Vec::with_capacity(if keep_blocks { blocks.size_hint().0 } else { 0 });
+
+        let mut applied_tip = Tip::new(initial_immutable_tip, BlockHeight::new(0));
+        let mut metrics = LedgerMetrics::default();
+
+        // Try to apply each block in the fork, and stop at the first failure.
+        for block in blocks {
+            let block_tip = block.tip();
+            match self.roll_forward(&block, arena_pool) {
+                BlockValidation::Valid(new_metrics) => {
+                    if keep_blocks {
+                        deferred_blocks.push(block);
+                    }
+                    applied_tip = block_tip;
+                    metrics = new_metrics;
                 }
-                Err(error) => return BlockValidation::Err(error.into()),
-            };
+                BlockValidation::Invalid(tip, details) => {
+                    self.observers.on_block = real_on_block;
+                    let failure = InvalidBlock { tip, reason: details.to_string() };
 
-            let restore = |st: &mut Self, recovery: RollbackGuard<'_>| {
-                let immutable_tip = st.immutable_tip();
-
-                assert_eq!(
-                    immutable_tip, recovery.immutable_tip,
-                    "cannot recover: immutable tip moved from {} to {} during the replay",
-                    recovery.immutable_tip, immutable_tip,
-                );
-
-                match recovery.kind {
-                    StateRecovery::RecoverWholeVolatileDB { volatile } => {
-                        st.volatile = *volatile;
+                    // The length precondition keeps every eviction behind the fork's last block,
+                    // so a failed replay is always recoverable — unless an epoch transition was
+                    // forced to the stable store mid-replay, which only happens when the chain
+                    // violates the Chain Growth property (see `apply_transition`).
+                    if self.immutable_tip() == initial_immutable_tip {
+                        info_record!(ledger::state::SWITCH_TO_FORK, outcome = "failed");
+                        self.recover(state_recovery);
+                        return Ok(ForkSwitchOutcome::Failed { failure });
                     }
-                    StateRecovery::RecoverVolatileDBPart { recovery } => {
-                        st.volatile.undo_rollback(*recovery);
-                    }
+
+                    warn_record!(ledger::state::SWITCH_TO_FORK, outcome = "partial");
+                    return Ok(ForkSwitchOutcome::Partial { applied_tip, metrics, failure });
                 }
-            };
-
-            self.assert_replay_stays_volatile(count);
-
-            // Silence observers during replay; emit undos then adopts only after full success.
-            // Keep blocks for transaction material; UTxO is borrowed from live fragments at emit time.
-            let real_on_block = self.observers.on_block.take();
-            let keep_blocks = real_on_block.is_some();
-            let mut deferred_blocks: Vec<(Point, Block)> =
-                Vec::with_capacity(if keep_blocks { blocks.size_hint().0 } else { 0 });
-
-            let mut metrics = LedgerMetrics::default();
-            for block in blocks {
-                let (point, block) = match block {
-                    Ok(block) => block,
-                    Err(error) => {
-                        self.observers.on_block = real_on_block;
-                        restore(self, state_recovery);
-                        return BlockValidation::Err(error);
+                BlockValidation::Err(error) => {
+                    self.observers.on_block = real_on_block;
+                    // Restore the pre-switch state while nothing has reached the stable store.
+                    // If the error is a `RewardsSummaryNotReady` we might want to retry.
+                    let stable_modified = self.immutable_tip() != initial_immutable_tip;
+                    if !stable_modified {
+                        self.recover(state_recovery);
                     }
-                };
-                match self.roll_forward(&point, &block, arena_pool) {
-                    BlockValidation::Valid(new_metrics) => {
-                        if keep_blocks {
-                            deferred_blocks.push((point, block));
-                        }
-                        metrics = new_metrics;
-                    }
-                    BlockValidation::Invalid(slot, hash, details) => {
-                        self.observers.on_block = real_on_block;
-                        restore(self, state_recovery);
-                        return BlockValidation::Invalid(slot, hash, details);
-                    }
-                    BlockValidation::Err(error) => {
-                        self.observers.on_block = real_on_block;
-                        restore(self, state_recovery);
-                        return BlockValidation::Err(error);
-                    }
-                }
-            }
-
-            // Success: restore the real handler, emit undos (tip-first, borrowed), then adopts.
-            self.observers.on_block = real_on_block;
-            if self.observers.wants_block_events() {
-                for fragment in state_recovery.discarded_tip_first() {
-                    let epoch = unsafe_slot_to_epoch(&self.era_history, fragment.slot());
-                    let undone = crate::observers::UndoneBlock::from_anchored(fragment, epoch);
-                    self.observers.notify_undone(undone);
+                    error_record!(ledger::state::SWITCH_TO_FORK, outcome = "error", stable_modified = stable_modified);
+                    return Err(error);
                 }
             }
-            // Drop recovery without restoring — new tip is committed.
-            drop(state_recovery);
+        }
 
-            if self.observers.wants_block_events() {
-                for (point, block) in &deferred_blocks {
-                    #[expect(clippy::expect_used)]
-                    let anchored = self
-                        .volatile
-                        .iter()
-                        .find(|fragment| fragment.point() == *point)
-                        .expect("fork-switch adopt block must still be in the volatile window");
-                    let epoch = unsafe_slot_to_epoch(&self.era_history, point.slot_or_default());
-                    let adopted = crate::observers::AdoptedBlock::from_block(*point, epoch, block, &anchored.fragment);
-                    self.observers.notify_adopted(adopted);
-                }
+        // Success: restore the real handler, emit undos (tip-first, borrowed), then adopts.
+        self.observers.on_block = real_on_block;
+        if self.observers.wants_block_events() {
+            for fragment in state_recovery.discarded_tip_first() {
+                let epoch = unsafe_slot_to_epoch(&self.era_history, fragment.slot());
+                let undone = crate::observers::UndoneBlock::from_anchored(fragment, epoch);
+                self.observers.notify_undone(undone);
             }
+        }
 
-            BlockValidation::Valid(metrics)
-        })
+        // Drop recovery without restoring — new tip is committed.
+        drop(state_recovery);
+        if self.observers.wants_block_events() {
+            for block in &deferred_blocks {
+                #[expect(clippy::expect_used)]
+                let anchored = self
+                    .volatile
+                    .iter()
+                    .find(|fragment| fragment.point() == block.point())
+                    .expect("fork-switch adopt block must still be in the volatile window");
+                let epoch = unsafe_slot_to_epoch(&self.era_history, block.point().slot_or_default());
+                let adopted = crate::observers::AdoptedBlock::from_block(epoch, block, &anchored.fragment);
+                self.observers.notify_adopted(adopted);
+            }
+        }
+
+        info_record!(ledger::state::SWITCH_TO_FORK, outcome = "completed");
+        Ok(ForkSwitchOutcome::Completed { metrics })
     }
 
-    /// Assert, before replaying a fork, that the replay cannot flush anything to the stable store.
-    ///
-    /// Called with the number of blocks about to be replayed, right after the rollback. Replaying
-    /// evicts a block to the stable store only once the volatile window is full (see
-    /// [`Self::push_fragment`]); with `blocks` blocks to apply, the earliest such eviction can only
-    /// land on the *last* block as long as `volatile.len() + blocks - 1 <= k`. That is exactly the
-    /// case where the new chain is at most one block longer than the one it replaces. The committing
-    /// block may then legitimately become stable, but every earlier block stays fully volatile. So
-    /// if a later block turns out to be invalid, [`Self::recover`] can always undo the switch without
-    /// having to un-persist immutable data.
-    fn assert_replay_stays_volatile(&self, blocks: usize) {
-        let capacity = self.global_parameters.consensus_security_param;
-        let non_committing = self.volatile.len() as u64 + blocks.saturating_sub(1) as u64;
-        assert!(
-            non_committing <= capacity,
-            "fork-switch replay would flush a still-rollback-able block to the stable store: after \
-             rollback the volatile holds {} block(s) and replaying {} would push {} past the \
-             security parameter k={} before reaching the committing block",
-            self.volatile.len(),
-            blocks,
-            non_committing,
-            capacity,
+    /// Rollback to a previous valid point and restore the state at that point
+    fn recover(&mut self, rollback_guard: RollbackGuard<'_>) {
+        let immutable_tip = self.immutable_tip();
+
+        assert_eq!(
+            immutable_tip, rollback_guard.immutable_tip,
+            "cannot recover: immutable tip moved from {} to {} during the replay",
+            rollback_guard.immutable_tip, immutable_tip,
         );
+
+        match rollback_guard.kind {
+            StateRecovery::RecoverWholeVolatileDB { volatile } => {
+                self.volatile = *volatile;
+            }
+            StateRecovery::RecoverVolatileDBPart { recovery } => {
+                self.volatile.undo_rollback(*recovery);
+            }
+        }
     }
 
     fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
@@ -1456,6 +1470,12 @@ pub enum StateError {
 
     #[error("rewards summary not ready")]
     RewardsSummaryNotReady,
+
+    #[error(
+        "cannot switch to a fork of {fork_length} block(s) replacing {rollback_length} block(s): the fork must \
+         match the replaced chain's length or exceed it by exactly one block"
+    )]
+    InvalidForkLength { rollback_length: usize, fork_length: usize },
 
     #[error("expected effective rewards to apply but found something else")]
     NoEffectiveRewards,

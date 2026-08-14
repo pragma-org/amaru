@@ -152,13 +152,17 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: SelectChainMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_many(prep, vec![msg])
+}
+
+pub fn setup_many(prep: &TestPrep, msgs: Vec<SelectChainMsg>) -> (SimulationRunning, DeserializerGuards, Logs) {
     run_simulation(
         prep.rt.handle(),
         register_guards(),
         |mut network| {
             let sc = network.stage("sc", stage);
             let sc = network.wire_up(sc, prep.state.clone());
-            network.preload(&sc, [msg]).unwrap();
+            network.preload(&sc, msgs).unwrap();
             network
         },
         |resources| {
