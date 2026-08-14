@@ -217,6 +217,7 @@ dependencies = [
  "clap_builder",
  "console",
  "criterion",
+ "crossbeam-utils",
  "digest 0.10.7",
  "digest 0.11.3",
  "ed25519 2.2.3",
@@ -648,6 +649,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "parking_lot",
+ "poolshark",
  "pretty_assertions",
  "rand 0.9.5",
  "serde",
@@ -2042,6 +2044,15 @@ name = "crossbeam-epoch"
 version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803d13fb3b09d88be9f4dbc29062c66b19bf7170867ceb746d2a8689bf6c7a26"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -4040,6 +4051,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nohash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0f889fb66f7acdf83442c35775764b51fed3c606ab9cee51500dbde2cf528ca"
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4594,6 +4611,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
 dependencies = [
  "plotters-backend",
+]
+
+[[package]]
+name = "poolshark"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76d7d4c131ef23790ea2b6f5cd3f7eee5f41b0ba98f52d8cb880aaa7ee56dfc0"
+dependencies = [
+ "ahash",
+ "crossbeam-queue",
+ "indexmap 2.14.0",
+ "nohash",
+ "poolshark_derive",
+ "serde",
+ "serde_derive",
+ "triomphe",
+]
+
+[[package]]
+name = "poolshark_derive"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e4b0a2610b718322d012c67426a17a7c21734cec3693ebc8e68f3e28119dba3"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -6551,6 +6594,16 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "triomphe"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b40688ea6389c8171614b25491f71d4a27946e0c7ce2da1c6de27e25abf1a0ae"
+dependencies = [
+ "serde",
+ "stable_deref_trait",
 ]
 
 [[package]]

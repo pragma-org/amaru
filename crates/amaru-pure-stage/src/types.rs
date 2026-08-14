@@ -24,6 +24,7 @@ use std::{
 
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
+use poolshark::local::LPooled;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -105,7 +106,7 @@ impl dyn SendData {
 
     /// Cast a message to a given concrete type.
     pub fn cast_ref<T: SendData>(&self) -> anyhow::Result<&T> {
-        (self as &dyn Any).downcast_ref::<T>().ok_or_else(|| CastError::anyhow::<T>(self))
+        (self as &dyn Any).downcast_ref::<T>().ok_or_else(|| CastError::new::<T>(self).into())
     }
 
     pub fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
@@ -119,7 +120,7 @@ impl dyn SendData {
 
     /// Cast a message to a given concrete type, yielding an informative error otherwise
     pub fn cast<T: SendData>(self: Box<Self>) -> anyhow::Result<Box<T>> {
-        self.try_cast::<T>().map_err(|b| CastError::anyhow::<T>(&b))
+        self.try_cast::<T>().map_err(|b| CastError::new::<T>(&b).into())
     }
 
     pub fn cast_deserialize<T>(self: Box<Self>) -> anyhow::Result<T>
@@ -174,23 +175,25 @@ impl PartialEq for dyn SendData {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("message type error: expected {expected}, got {got}")]
+#[error("message type error: expected {expected}, got {d} ({got})", d = debug.as_ref().map(|s| &***s).unwrap_or("_"))]
 pub struct CastError {
     expected: &'static str,
     got: &'static str,
+    debug: Option<LPooled<String>>,
 }
 
 impl CastError {
-    pub fn anyhow<T>(source: &dyn SendData) -> anyhow::Error {
-        if tracing::enabled!(target: "amaru_pure_stage", tracing::Level::TRACE) {
-            anyhow::anyhow!(
-                "message type error: expected {}, got {:?} ({})",
-                type_name::<T>(),
-                source,
-                source.typetag_name()
-            )
+    pub fn new<T>(source: &dyn SendData) -> Self {
+        if tracing::enabled!(target: "amaru_pure_stage", tracing::Level::DEBUG) {
+            let mut debug = LPooled::<String>::take();
+            #[expect(clippy::expect_used)]
+            {
+                use std::fmt::Write;
+                write!(&mut *debug, "{:?}", source).expect("writing to LPooled<String> should never fail");
+            }
+            Self { expected: type_name::<T>(), got: source.typetag_name(), debug: Some(debug) }
         } else {
-            anyhow::anyhow!(Self { expected: type_name::<T>(), got: source.typetag_name() })
+            Self { expected: type_name::<T>(), got: source.typetag_name(), debug: None }
         }
     }
 }
@@ -483,7 +486,7 @@ mod test {
         assert_eq!(format!("{s:?}"), "\"hello\"");
         assert_eq!(
             s.cast::<OsString>().unwrap_err().to_string(),
-            "message type error: expected std::ffi::os_str::OsString, got alloc::string::String"
+            "message type error: expected std::ffi::os_str::OsString, got _ (alloc::string::String)"
         );
 
         let s = Box::new("hello".to_owned()) as Box<dyn SendData>;

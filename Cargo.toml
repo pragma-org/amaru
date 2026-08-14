@@ -83,6 +83,7 @@ opentelemetry_sdk = { version = "0.32.1", features = ["logs"] }
 ouroboros = "0.18.5"
 pallas-network = "0.34.0"
 parking_lot = "0.12.3"
+poolshark = "0.2.9"
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0.107"
 proptest = { version = "1.11.0", default-features = false, features = ["std"] }
