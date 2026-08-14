@@ -14,9 +14,9 @@
 
 use std::path::Path;
 
-use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor, to_cbor};
-use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, StoreError, WriteChainStore};
-use rocksdb::DB;
+use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor, size::HEADER, to_cbor};
+use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, StoreError};
+use rocksdb::{DB, IteratorMode, PrefixRange, ReadOptions};
 use tracing::info;
 
 use crate::rocksdb::{
@@ -24,7 +24,7 @@ use crate::rocksdb::{
     consensus::{
         RocksDBStore,
         base_read_chain_store::opcert_key,
-        util::{CHAIN_DB_VERSION, CHAIN_PREFIX, HEADER_PREFIX, open_db},
+        util::{ANCHOR_PREFIX, BEST_CHAIN_PREFIX, CHAIN_DB_VERSION, CHAIN_PREFIX, HEADER_PREFIX, open_db},
     },
 };
 
@@ -37,17 +37,14 @@ pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
 /// migration from version `i` to version `i + 1`.  When modifying the
 /// DB schema, create migration function and add it to this array
 /// bumping its length.
-static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
-    [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4, migrate_to_v5];
-
-// TODO: Add migrate_to_v6 and bump CHAIN_DB_VERSION once the on-disk rewrite is implemented.
+// NOTE: Migrations write the on-disk format of their target version
 //
-// Version 6 should rewrite keys that the current code already writes as a `Point` but still
-// accepts in the previous 32-byte header-hash form:
-// - `BEST_CHAIN_PREFIX`: store the adopted tip as `[network_point, block_height]` CBOR
-// - `ANCHOR_PREFIX`: store the immutable-horizon point in the same form
-// - `CHAIN_PREFIX` values: store each best-chain entry as a `Point` (slot, hash, height)
-//   so `next_best_chain` / `is_on_best_chain` do not load the header just to recover height
+// Current `WriteChainStore` methods encode today's schema (for example a
+// CBOR `Point` under `BEST_CHAIN_PREFIX`). Each step must therefore issue
+// the RocksDB puts that were correct for the version it produces, not call
+// the high-level store API of the running binary.
+static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
+    [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4, migrate_to_v5, migrate_to_v6];
 
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
@@ -83,13 +80,13 @@ pub(crate) fn migrate_to_v1(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
 /// "Migrate" DB to version 2
 /// Walks the best chain backwards and re-inserts all points.
 pub(crate) fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
-    let mut hash = store.get_best_chain_hash();
+    let mut hash = read_legacy_hash(store, &BEST_CHAIN_PREFIX)?;
     if hash == ORIGIN_HASH {
         return Ok(());
     }
 
     while let Some((point, parent)) = load_stored_header_point(store, &hash) {
-        store_chain_point(store, &point)?;
+        store_v2_chain_entry(store, &point)?;
         match parent {
             Some(parent) => hash = parent,
             None => break,
@@ -99,7 +96,6 @@ pub(crate) fn migrate_to_v2(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
     set_version(store, 2)
 }
 
-#[expect(clippy::panic)]
 pub(crate) fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     // the reason is that v3 stores the block validation result, which cannot be derived from the v2 DB without
     // running the consensus algorithm and ledger validation. previously, blocks were stored before validation,
@@ -107,20 +103,21 @@ pub(crate) fn migrate_to_v3(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
         "migrating chain DB to version 3 makes possibly incorrect assumption of valid best chain, better set it to the anchor hash"
     );
 
-    let original_best_chain_hash = store.get_best_chain_hash();
-    let original_best_chain_point = load_stored_header_point(store, &original_best_chain_hash)
-        .map(|(point, _)| point)
-        .ok_or_else(|| StoreError::ReadError {
-            error: format!("best chain tip {original_best_chain_hash} was not found during migration"),
-        })?;
-    let anchor_hash = store.get_anchor_hash();
-    let anchor_point = load_stored_header_point(store, &anchor_hash)
-        .map(|(point, _)| point)
-        .unwrap_or_else(|| panic!("no header found for anchor hash {}", anchor_hash));
-    store.set_best_chain_tip(&anchor_point)?;
-    store.set_block_valid(&anchor_point.hash(), true)?;
+    let original_best_chain_hash = read_legacy_hash(store, &BEST_CHAIN_PREFIX)?;
+    let anchor_hash = read_legacy_hash(store, &ANCHOR_PREFIX)?;
+    // v3 stored BEST_CHAIN_PREFIX as a raw 32-byte header hash.
+    store
+        .db
+        .put(BEST_CHAIN_PREFIX, anchor_hash.as_ref())
+        .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+    if anchor_hash != ORIGIN_HASH {
+        store
+            .db
+            .put([&HEADER_PREFIX[..], &anchor_hash[..], &[0]].concat(), [1u8])
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+    }
 
-    tracing::info!(prev_best_chain = %original_best_chain_point, new_best_chain = %anchor_point, "found back best chain to revalidate");
+    tracing::info!(prev_best_chain = %original_best_chain_hash, new_best_chain = %anchor_hash, "found back best chain to revalidate");
 
     set_version(store, 3)
 }
@@ -164,6 +161,69 @@ Then start the node with `amaru node run --network=<NETWORK>`."
     })
 }
 
+/// Rewrite best-chain tip, anchor, and per-slot chain entries from a 32-byte header hash
+/// to the CBOR `Point` form (`[network_point, block_height]`).
+pub(crate) fn migrate_to_v6(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    rewrite_singleton_point(store, &BEST_CHAIN_PREFIX)?;
+    rewrite_singleton_point(store, &ANCHOR_PREFIX)?;
+    rewrite_chain_prefix_points(store)?;
+    set_version(store, 6)
+}
+
+fn rewrite_singleton_point(store: &RocksDBStore<DB>, key: &[u8]) -> Result<(), StoreError> {
+    let Some(bytes) = store.db.get(key).map_err(|e| StoreError::ReadError { error: e.to_string() })? else {
+        return Ok(());
+    };
+    if let Some(point) = point_from_legacy_hash(store, &bytes)? {
+        store.db.put(key, to_cbor(&point)).map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+    }
+    Ok(())
+}
+
+fn rewrite_chain_prefix_points(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    let mut opts = ReadOptions::default();
+    opts.set_iterate_range(PrefixRange(&CHAIN_PREFIX[..]));
+    let mut updates = Vec::new();
+    for item in store.db.iterator_opt(IteratorMode::Start, opts) {
+        let (key, value) = item.map_err(|e| StoreError::ReadError { error: e.to_string() })?;
+        if let Some(point) = point_from_legacy_hash(store, &value)? {
+            updates.push((key, to_cbor(&point)));
+        }
+    }
+    store.with_batch(|batch| {
+        for (key, value) in updates {
+            batch.put(key, value);
+        }
+        Ok(())
+    })
+}
+
+/// Convert a 32-byte header-hash encoding to a `Point`. Returns `Ok(None)` when `bytes` is
+/// already a Point (or any other non-hash value left for the reader to reject).
+fn point_from_legacy_hash(store: &RocksDBStore<DB>, bytes: &[u8]) -> Result<Option<Point>, StoreError> {
+    if bytes.len() != HEADER {
+        return Ok(None);
+    }
+    Ok(Some(point_from_hash(store, HeaderHash::from(bytes))?))
+}
+
+/// Read a pre-v6 singleton key: a 32-byte header hash, or missing (treated as origin).
+fn read_legacy_hash(store: &RocksDBStore<DB>, key: &[u8]) -> Result<HeaderHash, StoreError> {
+    match store.db.get(key).map_err(|e| StoreError::ReadError { error: e.to_string() })? {
+        None => Ok(ORIGIN_HASH),
+        Some(bytes) if bytes.len() == HEADER => Ok(HeaderHash::from(&bytes[..])),
+        Some(bytes) => {
+            Err(StoreError::ReadError { error: format!("expected a 32-byte header hash, got {} bytes", bytes.len()) })
+        }
+    }
+}
+
+fn point_from_hash(store: &RocksDBStore<DB>, hash: HeaderHash) -> Result<Point, StoreError> {
+    load_stored_header_point(store, &hash).map(|(point, _)| point).ok_or_else(|| StoreError::ReadError {
+        error: format!("cannot migrate header hash {hash} to Point: header not found"),
+    })
+}
+
 /// Check the version stored in the `store` matches `CHAIN_DB_VERSION`.
 pub fn check_db_version(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     get_version(store).and_then(|stored| {
@@ -196,7 +256,8 @@ pub fn set_version(store: &RocksDBStore<DB>, version: u16) -> Result<(), StoreEr
     store.db.put(VERSION_KEY, bytes).map_err(|e| StoreError::WriteError { error: e.to_string() })
 }
 
-fn store_chain_point(store: &RocksDBStore<DB>, point: &Point) -> Result<(), StoreError> {
+/// v2 indexed the best chain by slot and stored the 32-byte header hash.
+fn store_v2_chain_entry(store: &RocksDBStore<DB>, point: &Point) -> Result<(), StoreError> {
     let slot = u64::from(point.slot_or_default()).to_be_bytes();
     store
         .db

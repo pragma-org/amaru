@@ -1488,11 +1488,53 @@ fn can_convert_v1_sample_db_to_v4() {
     assert_eq!(get_version(&store).unwrap(), 2, "sample DB should be v2");
     migrate_to_v3(&store).expect("Migration to v3 should succeed");
     assert_eq!(get_version(&store).unwrap(), 3, "sample DB should be v3");
+    let best = store.db.get(BEST_CHAIN_PREFIX).unwrap().expect("v3 best chain");
+    let anchor = store.db.get(ANCHOR_PREFIX).unwrap().expect("v3 anchor");
+    assert_eq!(best.len(), HEADER, "v3 best chain is a 32-byte header hash");
+    assert_eq!(best, anchor, "v3 resets best chain to the anchor hash");
     migrate_to_v4(&store).expect("Migration to v4 should succeed");
     assert_eq!(get_version(&store).unwrap(), 4, "sample DB should be v4");
 
-    let on_best_chain = store.is_on_best_chain(NetworkPoint::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()));
-    assert!(on_best_chain, "Sample data should be preserved");
+    let chain_key = [&CHAIN_PREFIX[..], &5u64.to_be_bytes()[..]].concat();
+    let stored = store.db.get(chain_key).unwrap().expect("sample chain entry at slot 5");
+    let stored_hash = HeaderHash::from(&stored[..]);
+    assert_eq!(stored_hash, HeaderHash::from_str(SAMPLE_HASH).unwrap(), "Sample data should be preserved");
+}
+
+#[test]
+fn migrate_to_v3_writes_best_chain_as_header_hash() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+
+    let anchor = make_header(1, 10, None);
+    let tip = make_header(2, 20, Some(anchor.hash()));
+    store.store_header(&anchor).unwrap();
+    store.store_header(&tip).unwrap();
+
+    // Shape a v2 database: tip, anchor, and chain index are raw 32-byte hashes.
+    store.db.put(BEST_CHAIN_PREFIX, tip.hash().as_ref()).unwrap();
+    store.db.put(ANCHOR_PREFIX, anchor.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &10u64.to_be_bytes()[..]].concat(), anchor.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat(), tip.hash().as_ref()).unwrap();
+    set_version(&store, 2).unwrap();
+
+    migrate_to_v3(&store).unwrap();
+
+    assert_eq!(get_version(&store).unwrap(), 3);
+
+    let best = store.db.get(BEST_CHAIN_PREFIX).unwrap().unwrap();
+    assert_eq!(best.len(), HEADER, "v3 best chain must be a 32-byte header hash");
+    assert_eq!(HeaderHash::from(&best[..]), anchor.hash());
+
+    let stored_anchor = store.db.get(ANCHOR_PREFIX).unwrap().unwrap();
+    assert_eq!(stored_anchor.len(), HEADER);
+    assert_eq!(HeaderHash::from(&stored_anchor[..]), anchor.hash());
+
+    let validity = store.db.get([&HEADER_PREFIX[..], &anchor.hash()[..], &[0]].concat()).unwrap();
+    assert_eq!(validity.as_deref(), Some([1u8].as_slice()), "v3 marks the new tip valid");
+
+    let chain_tip = store.db.get([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat()).unwrap().unwrap();
+    assert_eq!(chain_tip.len(), HEADER, "v3 must not rewrite the chain index as a Point");
 }
 
 #[test]
@@ -1535,6 +1577,69 @@ fn migrate_to_v5_requires_rebootstrap_from_snapshot() {
     assert!(error.contains("amaru node rm --wipe-all-dbs"), "missing rm command: {error}");
     assert!(error.contains("amaru node bootstrap"), "missing bootstrap command: {error}");
     assert_eq!(get_version(&store).unwrap(), 4, "failed migration must not bump the version");
+}
+
+#[test]
+fn migrate_to_v6_rewrites_legacy_hash_encodings() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+
+    let h0 = make_header(1, 10, None);
+    let h1 = make_header(2, 20, Some(h0.hash()));
+    store.store_header(&h0).unwrap();
+    store.store_header(&h1).unwrap();
+
+    store.db.put(BEST_CHAIN_PREFIX, h1.hash().as_ref()).unwrap();
+    store.db.put(ANCHOR_PREFIX, h0.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &10u64.to_be_bytes()[..]].concat(), h0.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat(), h1.hash().as_ref()).unwrap();
+    set_version(&store, 5).unwrap();
+
+    migrate_to_v6(&store).unwrap();
+
+    assert_eq!(get_version(&store).unwrap(), 6);
+    assert_eq!(store.get_best_chain_tip(), h1.point());
+    assert_eq!(store.get_anchor_point(), h0.point());
+    assert!(store.is_on_best_chain(h0.point().into()));
+    assert!(store.is_on_best_chain(h1.point().into()));
+    assert_eq!(store.next_best_chain(&h0.point()), Some(h1.point()));
+
+    let best_raw = store.db.get(BEST_CHAIN_PREFIX).unwrap().unwrap();
+    assert_ne!(best_raw.len(), HEADER, "best tip must be stored as Point CBOR");
+    let chain_raw = store.db.get([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat()).unwrap().unwrap();
+    assert_ne!(chain_raw.len(), HEADER, "chain entries must be stored as Point CBOR");
+}
+
+#[test]
+fn migrate_to_v6_is_idempotent_for_point_encodings() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let header = make_header(1, 10, None);
+    store.store_header(&header).unwrap();
+    store.set_anchor_point(&header.point()).unwrap();
+    store.roll_forward_chain(&header.point()).unwrap();
+    set_version(&store, 5).unwrap();
+
+    migrate_to_v6(&store).unwrap();
+    migrate_to_v6(&store).unwrap();
+
+    assert_eq!(get_version(&store).unwrap(), 6);
+    assert_eq!(store.get_anchor_point(), header.point());
+    assert_eq!(store.get_best_chain_tip(), header.point());
+    assert!(store.is_on_best_chain(header.point().into()));
+}
+
+#[test]
+fn migrate_to_v6_fails_when_header_is_missing() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let hash = run_strategy(any_header_hash());
+    store.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).unwrap();
+    set_version(&store, 5).unwrap();
+
+    let err = migrate_to_v6(&store).expect_err("missing header must fail the rewrite");
+    assert!(matches!(err, StoreError::ReadError { .. }), "expected ReadError, got: {err:?}");
+    assert_eq!(get_version(&store).unwrap(), 5, "failed migration must not bump the version");
 }
 
 #[test]

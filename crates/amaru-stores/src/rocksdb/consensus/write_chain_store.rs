@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, to_cbor};
+use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, from_cbor, to_cbor};
 use amaru_observability::debug_span;
 use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions, WriteBatch};
@@ -105,8 +105,8 @@ impl WriteChainStore for RocksDBStore {
         let existing = self.db.get_pinned(&fork_key).map_err(|e| StoreError::ReadError { error: e.to_string() })?;
         let matches = existing
             .as_ref()
-            .and_then(|bytes| super::base_read_chain_store::stored_point_hash(bytes.as_ref()))
-            .is_some_and(|hash| hash == fork_point.hash());
+            .and_then(|bytes| from_cbor::<Point>(bytes.as_ref()))
+            .is_some_and(|stored| stored.hash() == fork_point.hash());
         if !matches {
             return Err(StoreError::ReadError {
                 error: format!(
