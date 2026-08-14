@@ -20,6 +20,7 @@ use std::{
 };
 
 use amaru_kernel::{PROTOCOL_VERSION_10, PlutusVersion};
+use amaru_minicbor_extra::decode_bytes;
 use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, machine::ExBudget};
 use bumpalo::Bump;
 use divan::Bencher;
@@ -44,8 +45,8 @@ struct CborWrapped(Vec<u8>);
 
 impl<'d, C> minicbor::Decode<'d, C> for CborWrapped {
     fn decode(d: &mut minicbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let bytes = d.bytes()?;
-        Ok(CborWrapped(bytes.to_vec()))
+        let bytes = decode_bytes(d)?;
+        Ok(CborWrapped(bytes.into_owned()))
     }
 }
 

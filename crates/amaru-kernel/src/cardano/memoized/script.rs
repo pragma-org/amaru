@@ -133,6 +133,10 @@ impl BorrowedScript<'_> {
     /// A `BorrowedScript::Native` is treated `unreachable` since there are no redeemers for NativeScript
     /// and they are not flat-encoded bytes.
     pub fn to_bytes(&self) -> Result<Vec<u8>, cbor::decode::Error> {
+        // Conformance: plutus-ledger-api extracts the flat payload with cborg's `decodeBytes`, which
+        // rejects indefinite-length byte strings; accepting them here would change phase-2 validation
+        // outcomes.
+        #[allow(clippy::disallowed_methods)]
         fn decode_cbor_bytes(cbor: &[u8]) -> Result<Vec<u8>, cbor::decode::Error> {
             cbor::decode::Decoder::new(cbor).bytes().map(|b| b.to_vec())
         }

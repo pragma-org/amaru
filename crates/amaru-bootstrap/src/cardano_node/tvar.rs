@@ -157,7 +157,9 @@ where
                 }
 
                 let mut probe = d.probe();
-                let io = probe.bytes().and_then(|input| probe.bytes().map(|output| (input.to_vec(), output.to_vec())));
+                let io = cbor::decode_bytes(&mut probe).and_then(|input| {
+                    cbor::decode_bytes(&mut probe).map(|output| (input.into_owned(), output.into_owned()))
+                });
 
                 if let Ok((input, output)) = io {
                     chunk_size += 1;

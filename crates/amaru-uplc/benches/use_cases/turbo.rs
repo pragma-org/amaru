@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_minicbor_extra::decode_bytes;
 use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, machine::PlutusVersion};
 use bumpalo::Bump;
 use criterion::{criterion_group, Criterion};
@@ -40,8 +41,8 @@ impl<'d, C> minicbor::Decode<'d, C> for CborWrapped {
         d: &mut minicbor::Decoder<'d>,
         _ctx: &mut C,
     ) -> Result<Self, minicbor::decode::Error> {
-        let bytes = d.bytes()?;
-        Ok(CborWrapped(bytes.to_vec()))
+        let bytes = decode_bytes(d)?;
+        Ok(CborWrapped(bytes.into_owned()))
     }
 }
 
