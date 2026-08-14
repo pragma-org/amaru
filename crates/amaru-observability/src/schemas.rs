@@ -849,6 +849,12 @@ define_schemas! {
                     required intersection: %amaru_kernel::NetworkPoint
                     required headers_per_point: usize
                 }
+                /// The chain-sync client failed while requesting or awaiting the next header.
+                /// Operation ∈ {request_next, await_next}.
+                public NEXT_FAILED {
+                    required operation: String
+                    required error: String
+                }
             }
             import {
                 /// Import UTxO entries from a snapshot
@@ -925,6 +931,10 @@ define_schemas! {
                 public IMPORT_TVAR {
                     required point: amaru_kernel::Point
                     required new_epoch_state_offset: usize
+                }
+                /// The parsed snapshot's current era is not Conway; later decoding may fail
+                public UNEXPECTED_ERA {
+                    required snapshot_era: %amaru_kernel::EraName
                 }
             }
             snapshots {
