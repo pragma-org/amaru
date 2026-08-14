@@ -32,6 +32,7 @@ pub use immutable::{
 #[derive(Debug)]
 pub struct ParsedHeader {
     pub slot: u64,
+    pub block_height: u64,
     pub header_hash: [u8; 32],
 }
 
@@ -43,27 +44,27 @@ pub fn parse_header_slot_and_hash(input: &[u8]) -> Result<ParsedHeader, cbor::de
 
     body.array()?;
     body.array()?;
-    body.u64()?;
+    let block_height = body.u64()?;
     let slot = body.u64()?;
-    Ok(ParsedHeader { slot, header_hash })
+    Ok(ParsedHeader { slot, block_height, header_hash })
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::Point;
+    use amaru_kernel::NetworkPoint;
 
     use crate::archive::{
         ArchiveMetadata, archive_name_for_blocks, latest_archive, parse_archive_metadata, sorted_archives,
     };
 
-    fn parse_archive_bounds(archive_name: &str) -> Option<(Point, Point)> {
+    fn parse_archive_bounds(archive_name: &str) -> Option<(NetworkPoint, NetworkPoint)> {
         let metadata = parse_archive_metadata(archive_name)?;
         Some((metadata.first_block, metadata.last_block))
     }
 
-    fn latest_archive_end_point<'a>(archives: impl IntoIterator<Item = &'a String>) -> Option<Point> {
+    fn latest_archive_end_point<'a>(archives: impl IntoIterator<Item = &'a String>) -> Option<NetworkPoint> {
         sorted_archives(archives).into_iter().last().map(|a| a.last_block)
     }
 
@@ -74,11 +75,11 @@ mod tests {
         let mut blocks = BTreeMap::new();
 
         blocks.insert(
-            Point::try_from("10.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
+            NetworkPoint::try_from("10.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
             &block_a,
         );
         blocks.insert(
-            Point::try_from("20.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap(),
+            NetworkPoint::try_from("20.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap(),
             &block_b,
         );
 
@@ -98,11 +99,11 @@ mod tests {
         let mut blocks = BTreeMap::new();
 
         blocks.insert(
-            Point::try_from("100000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
+            NetworkPoint::try_from("100000.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
             &block_a,
         );
         blocks.insert(
-            Point::try_from("99999.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap(),
+            NetworkPoint::try_from("99999.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap(),
             &block_b,
         );
 
@@ -117,7 +118,7 @@ mod tests {
 
     #[test]
     fn archive_name_is_absent_for_empty_batch() {
-        let blocks: BTreeMap<Point, &Vec<u8>> = BTreeMap::new();
+        let blocks: BTreeMap<NetworkPoint, &Vec<u8>> = BTreeMap::new();
 
         assert_eq!(archive_name_for_blocks(&blocks), None);
     }
@@ -131,8 +132,8 @@ mod tests {
         assert_eq!(
             bounds,
             Some((
-                Point::try_from("10.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
-                Point::try_from("20.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap(),
+                NetworkPoint::try_from("10.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
+                NetworkPoint::try_from("20.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap(),
             ))
         );
     }
@@ -146,7 +147,9 @@ mod tests {
 
         assert_eq!(
             latest_archive_end_point(&archives),
-            Some(Point::try_from("30.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd").unwrap())
+            Some(
+                NetworkPoint::try_from("30.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd").unwrap()
+            )
         );
     }
 
@@ -161,8 +164,8 @@ mod tests {
             latest_archive(&archives),
             Some(ArchiveMetadata {
                 file_name: "21.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc__25.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.tar.gz".to_string(),
-                first_block: Point::try_from("21.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc").unwrap(),
-                last_block: Point::try_from("25.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd").unwrap(),
+                first_block: NetworkPoint::try_from("21.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc").unwrap(),
+                last_block: NetworkPoint::try_from("25.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd").unwrap(),
             })
         );
     }

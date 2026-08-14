@@ -19,7 +19,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, Tip,
+    BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, NetworkPoint, ORIGIN_HASH, Peer, Point, Slot,
     from_cbor_no_leftovers, num::CheckedSub,
 };
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
@@ -147,18 +147,18 @@ enum PerPeer {
     /// Session started (`Initialize`); intersection not yet established.
     Connecting { peer: Peer },
     /// Intersection established; tips are tracked.
-    Established { peer: Peer, current: Tip, highest: Tip },
+    Established { peer: Peer, current: Point, highest: Point },
 }
 
 impl PerPeer {
-    fn established(&self) -> Option<(&Tip, &Tip)> {
+    fn established(&self) -> Option<(&Point, &Point)> {
         match self {
             PerPeer::Established { current, highest, .. } => Some((current, highest)),
             PerPeer::Connecting { .. } => None,
         }
     }
 
-    fn established_mut(&mut self) -> Option<(&mut Tip, &mut Tip)> {
+    fn established_mut(&mut self) -> Option<(&mut Point, &mut Point)> {
         match self {
             PerPeer::Established { current, highest, .. } => Some((current, highest)),
             PerPeer::Connecting { .. } => None,
@@ -169,15 +169,15 @@ impl PerPeer {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 enum DeferReason {
     /// Wait until the ledger has reached at least this applied block height before asking the peer for more.
-    LedgerHeight { min_height: BlockHeight, header: Header, tip: Tip, variant: EraName },
+    LedgerHeight { min_height: BlockHeight, header: Header, tip: Point, variant: EraName },
     /// The header's validation requires a stake distribution that is not yet available; hold the
     /// data needed to re-validate and store once it arrives (via StakeDistUpdated).
-    StakeDistribution { epoch: Epoch, header: Header, tip: Tip, variant: EraName, rn_sent: bool },
+    StakeDistribution { epoch: Epoch, header: Header, tip: Point, variant: EraName, rn_sent: bool },
     /// Slot onset is in the near future (≤ 2s according to slot time); defer validation until
     /// local time reaches it. Carries data to re-process later.
-    ClockSkew { min_time: Instant, header: Header, tip: Tip, variant: EraName, rn_sent: bool },
+    ClockSkew { min_time: Instant, header: Header, tip: Point, variant: EraName, rn_sent: bool },
     /// A follow-up header that was received after a previous header was deferred.
-    FollowUp { header: Header, tip: Tip, variant: EraName },
+    FollowUp { header: Header, tip: Point, variant: EraName },
 }
 
 /// A header (or request) that was deferred. The reason indicates what is blocking and what data
@@ -213,7 +213,7 @@ struct RollForwardArgs {
     handler: StageRef<chainsync::InitiatorMessage>,
     variant: EraName,
     header: Header,
-    tip: Tip,
+    tip: Point,
     trace_context: TraceContext,
     /// When the header was first received from upstream.
     received_at: Instant,
@@ -282,13 +282,13 @@ pub enum TrackPeersMsg {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct NewTip {
-    pub tip: Tip,
+    pub tip: Point,
     pub parent: Point,
     pub trace_context: TraceContext,
 }
 
 impl NewTip {
-    pub fn new(tip: Tip, parent: Point) -> Self {
+    pub fn new(tip: Point, parent: Point) -> Self {
         NewTip { tip, parent, trace_context: Default::default() }
     }
 }
@@ -334,7 +334,7 @@ impl TrackPeers {
 
     /// Insert or replace an established session's tips. For use in tests.
     #[cfg(test)]
-    pub fn insert_peer(&mut self, peer: Peer, conn_id: ConnectionId, current: Tip, highest: Tip) {
+    pub fn insert_peer(&mut self, peer: Peer, conn_id: ConnectionId, current: Point, highest: Point) {
         self.upstream.insert(conn_id, PerPeer::Established { peer, current, highest });
     }
 
@@ -352,7 +352,7 @@ impl TrackPeers {
         conn_id: ConnectionId,
         handler: StageRef<chainsync::InitiatorMessage>,
         header: Header,
-        tip: Tip,
+        tip: Point,
     ) {
         self.deferred.push(DeferredHeader {
             peer,
@@ -391,7 +391,7 @@ impl TrackPeers {
         conn_id: ConnectionId,
         variant: EraName,
         header: &Header,
-        tip: Tip,
+        tip: Point,
         ledger: &Ledger,
         store: &Store,
         current_time: Instant,
@@ -409,7 +409,7 @@ impl TrackPeers {
                 peer: peer.clone(),
                 forwarded: header.point(),
                 actual: header.parent_hash(),
-                expected: current.point(),
+                expected: *current,
             })));
         }
         if header.block_height() != current.block_height() + 1 {
@@ -421,13 +421,13 @@ impl TrackPeers {
 
         // this is the point up to which the upstream peer has validated its best chain, which
         // can be less advanced than the currently transmitted header
-        let highest = tip.point();
+        let highest = tip;
 
         // check that slot time progresses monotonically
         if header.slot() <= current.slot() {
             return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                 actual: header.point(),
-                parent: current.point(),
+                parent: *current,
                 highest,
             })));
         }
@@ -441,7 +441,7 @@ impl TrackPeers {
             if delta_slots > 2 {
                 return Err(ConsensusError::InvalidHeaderPoint(Box::new(InvalidHeaderPoint {
                     actual: header.point(),
-                    parent: current.point(),
+                    parent: *current,
                     highest,
                 })));
             }
@@ -457,14 +457,14 @@ impl TrackPeers {
             .validate_header(header)
             .await
             .map_err(|e| ConsensusError::InvalidHeader(header.point(), Box::new(e)))?;
-        Ok(Some((current.point(), nonces)))
+        Ok(Some((*current, nonces)))
     }
 
-    async fn roll_forward(&mut self, conn_id: ConnectionId, header: &Header, tip: Tip) {
+    async fn roll_forward(&mut self, conn_id: ConnectionId, header: &Header, tip: Point) {
         let Some((current, highest)) = self.upstream.get_mut(&conn_id).and_then(PerPeer::established_mut) else {
             return;
         };
-        *current = header.tip();
+        *current = header.point();
         *highest = tip;
     }
 
@@ -472,10 +472,10 @@ impl TrackPeers {
         &mut self,
         peer: &Peer,
         conn_id: ConnectionId,
-        current: Point,
-        tip: Tip,
+        current: NetworkPoint,
+        tip: Point,
         store: &Store,
-    ) -> Result<Tip, ConsensusError> {
+    ) -> Result<Point, ConsensusError> {
         let Some(current_tip) = store.load_tip(&current.hash()).await else {
             return Err(ConsensusError::UnknownPoint(current.hash()));
         };
@@ -657,12 +657,12 @@ impl TrackPeers {
 
         // now we can destructure to consume the pieces
         let RollForwardArgs { peer, header, tip, sent_request_next, handler, trace_context, received_at, .. } = args;
-        let header_tip = header.tip();
-        let current = header_tip.point();
+        let header_tip = header.point();
+        let current = header_tip;
         let header_parent = header.parent_hash();
         match validated {
             None => {
-                tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward, header already stored");
+                tracing::debug!(%peer, %current, highest = %tip, "roll forward, header already stored");
                 let slot_start_to_header_micros = self.slot_start_to_header_micros(header_tip.slot(), received_at);
                 eff.external(Performance::record_header_announcement(
                     peer.clone(),
@@ -706,7 +706,7 @@ impl TrackPeers {
                     slot_start_to_header_micros,
                 ))
                 .await;
-                tracing::debug!(%peer, %current, highest = %tip.point(), "roll forward with new header");
+                tracing::debug!(%peer, %current, highest = %tip, "roll forward with new header");
                 eff.send(&self.downstream, NewTip { tip: header_tip, parent, trace_context }).await;
             }
         }
@@ -749,17 +749,17 @@ impl TrackPeers {
             IntersectFound(current, tip) => {
                 let current_tip = Store::new(eff.clone()).load_tip(&current.hash()).await;
                 let Some(current_tip) = current_tip else {
-                    tracing::warn!(%peer, %current, tip = %tip.point(), reason = "peer sent unknown intersection point", "stopping chainsync");
+                    tracing::warn!(%peer, %current, tip = %tip, reason = "peer sent unknown intersection point", "stopping chainsync");
                     eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                     return;
                 };
-                tracing::info!(%peer, %conn_id, %current, highest = %tip.point(), "intersect found");
+                tracing::info!(%peer, %conn_id, %current, highest = %tip, "intersect found");
                 let now = eff.clock().await;
                 eff.external(Performance::record_intersection(peer.clone(), current_tip, None, now)).await;
                 self.upstream.insert(conn_id, PerPeer::Established { peer, current: current_tip, highest: tip });
             }
             IntersectNotFound(tip) => {
-                tracing::info!(%peer, highest = %tip.point(), reason = "intersect not found", "stopping chainsync");
+                tracing::info!(%peer, highest = %tip, reason = "intersect not found", "stopping chainsync");
                 eff.send(&handler, chainsync::InitiatorMessage::Done).await;
                 self.purge_connection(conn_id);
                 self.clear_availability_if_gone(&peer, &eff).await;
@@ -769,7 +769,7 @@ impl TrackPeers {
                 let span = debug_span!(root, consensus::roll_forward::PROCESS, tip = tip, peer = peer_clone,);
                 let trace_context: TraceContext = (&span).into();
                 async {
-                    tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip.point(), "roll forward");
+                    tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip, "roll forward");
 
                     let variant = header_content.variant;
                     let probe = decode_header(header_content, &peer);
@@ -860,7 +860,7 @@ impl TrackPeers {
                     .await
             }
             RollBackward(current, tip) => {
-                tracing::info!(%peer, %current, highest = %tip.point(), "roll backward");
+                tracing::info!(%peer, %current, highest = %tip, "roll backward");
                 let peer_clone = peer.clone();
                 let span = debug_span!(
                     root,

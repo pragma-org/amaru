@@ -936,14 +936,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `found` | `TRACE` | public | Found a non-empty block while applying it to the ledger | point, block_height, tx_count |  |
+| `found` | `TRACE` | public | Found a non-empty block while applying it to the ledger | point, tx_count |  |
 
 <details><summary>span: `found`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `point` | `string` | ✓ |
-| `block_height` | `integer` | ✓ |
 | `tx_count` | `integer` | ✓ |
 
 </details>
@@ -1372,7 +1371,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `found` | `TRACE` | public | Found a transaction while applying a block | point, block_height, index, id |  |
+| `found` | `TRACE` | public | Found a transaction while applying a block | point, index, id |  |
 | `validate` | `TRACE` | public | Validate a single transaction | id |  |
 
 <details><summary>span: `found`</summary>
@@ -1380,7 +1379,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `point` | `string` | ✓ |
-| `block_height` | `integer` | ✓ |
 | `index` | `integer` | ✓ |
 | `id` | `string` | ✓ |
 

@@ -17,31 +17,51 @@ use std::{
     str::FromStr,
 };
 
-use amaru_minicbor_extra::decode_bytes;
-
-use crate::{Hash, HeaderHash, ORIGIN_HASH, Slot, cbor, size::HEADER};
+use crate::{BlockHeight, HeaderHash, NetworkPoint, ORIGIN_HASH, Slot, cbor};
 
 #[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum Point {
     #[default]
     Origin,
-    Specific(Slot, HeaderHash),
+    Specific(Slot, HeaderHash, BlockHeight),
 }
 
 impl Point {
+    /// Construct a [`Point`] from a network point and a block height.
+    ///
+    /// [`NetworkPoint::Origin`] yields [`Point::Origin`]; the height is ignored.
+    pub fn new(point: NetworkPoint, block_height: BlockHeight) -> Self {
+        point.with_height(block_height)
+    }
+
     pub fn slot_or_default(&self) -> Slot {
         match self {
             Point::Origin => Slot::from(0),
-            Point::Specific(slot, _) => *slot,
+            Point::Specific(slot, _, _) => *slot,
         }
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.slot_or_default()
     }
 
     pub fn hash(&self) -> HeaderHash {
         match self {
             // By convention, the hash of `Genesis` is all 0s.
             Point::Origin => ORIGIN_HASH,
-            Point::Specific(_, header_hash) => *header_hash,
+            Point::Specific(_, header_hash, _) => *header_hash,
         }
+    }
+
+    pub fn block_height(&self) -> BlockHeight {
+        match self {
+            Point::Origin => BlockHeight::from(0),
+            Point::Specific(_, _, block_height) => *block_height,
+        }
+    }
+
+    pub fn to_network_point(&self) -> NetworkPoint {
+        NetworkPoint::from(self)
     }
 }
 
@@ -49,7 +69,7 @@ impl Debug for Point {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Point::Origin => write!(f, "Origin"),
-            Point::Specific(slot, _hash) => write!(f, "Specific({slot}, {})", self.hash()),
+            Point::Specific(slot, _hash, height) => write!(f, "Specific({slot}, {}, {height})", self.hash()),
         }
     }
 }
@@ -58,7 +78,7 @@ impl Display for Point {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Point::Origin => write!(f, "origin"),
-            Point::Specific(slot, hash) => write!(f, "{slot}.{hash}"),
+            Point::Specific(slot, hash, height) => write!(f, "{slot}.{hash}({height})"),
         }
     }
 }
@@ -69,12 +89,9 @@ impl From<&Point> for HeaderHash {
     }
 }
 
-/// Utility function to parse a point from a string.
+/// Parse a point from a string.
 ///
-/// Expects the input to be of the form `<point>.<hash>`, where `<point>` is a number and `<hash>`
-/// is a hex-encoded 32 bytes hash.
-/// The first argument is the string to parse, the `bail` function is user to
-/// produce the error type `E` in case of failure to parse.
+/// Expects `origin` or `<slot>.<hash>(<height>)`, with no space before the parentheses.
 impl TryFrom<&str> for Point {
     type Error = String;
 
@@ -83,19 +100,17 @@ impl TryFrom<&str> for Point {
             return Ok(Point::Origin);
         }
 
-        let mut split = raw_str.split('.');
+        let (prefix, height_part) = raw_str.split_once('(').ok_or("missing '(' for block height")?;
+        let height_str = height_part.strip_suffix(')').ok_or("missing ')' after block height")?;
+        let height =
+            height_str.parse::<u64>().map_err(|_| "failed to parse point's block height as a non-negative integer")?;
 
-        let slot = split
-            .next()
-            .ok_or("missing slot number before '.'")
-            .and_then(|s| s.parse::<u64>().map_err(|_| "failed to parse point's slot as a non-negative integer"))?;
+        let (slot_str, hash_str) = prefix.split_once('.').ok_or("missing slot number before '.'")?;
+        let slot = slot_str.parse::<u64>().map_err(|_| "failed to parse point's slot as a non-negative integer")?;
+        let block_header_hash =
+            hash_str.parse::<HeaderHash>().map_err(|e| format!("failed to parse block header hash: {}", e))?;
 
-        let block_header_hash = split
-            .next()
-            .ok_or("missing block header hash after '.'".to_string())
-            .and_then(|s| s.parse::<HeaderHash>().map_err(|e| format!("failed to parse block header hash: {}", e)))?;
-
-        Ok(Point::Specific(Slot::from(slot), block_header_hash))
+        Ok(Point::Specific(Slot::from(slot), block_header_hash, BlockHeight::from(height)))
     }
 }
 
@@ -107,37 +122,27 @@ impl FromStr for Point {
     }
 }
 
+/// CBOR encoding matches the Ouroboros tip wire form: `[network_point, block_height]`.
 impl cbor::encode::Encode<()> for Point {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::encode::Encoder<W>,
         _ctx: &mut (),
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self {
-            Point::Origin => e.array(0)?,
-            Point::Specific(slot, hash) => e.array(2)?.encode(slot)?.encode(hash)?,
-        };
-
+        e.array(2)?;
+        e.encode(self.to_network_point())?;
+        e.encode(self.block_height())?;
         Ok(())
     }
 }
 
 impl<'b> cbor::decode::Decode<'b, ()> for Point {
     fn decode(d: &mut cbor::decode::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
-        let size = d.array()?;
-
-        match size {
-            Some(0) => Ok(Point::Origin),
-            Some(2) => {
-                let slot = d.decode()?;
-                let hash = decode_bytes(d)?;
-                if hash.len() != HEADER {
-                    return Err(cbor::decode::Error::message("header hash must be 32 bytes"));
-                }
-                Ok(Point::Specific(slot, Hash::from(&hash[..])))
-            }
-            _ => Err(cbor::decode::Error::message("can't decode Point from array of size")),
-        }
+        let len = d.array()?;
+        cbor::check_tagged_array_length(0, len, 2)?;
+        let network_point = d.decode::<NetworkPoint>()?;
+        let block_height = d.decode::<BlockHeight>()?;
+        Ok(network_point.with_height(block_height))
     }
 }
 
@@ -166,7 +171,7 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{Point, Slot, any_header_hash, prop_cbor_roundtrip};
+    use crate::{Point, Slot, any_block_height, any_header_hash, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(Point, any_point());
 
@@ -177,8 +182,12 @@ mod tests {
     }
 
     prop_compose! {
-        pub fn any_specific_point()(slot in any_slot(), header_hash in any_header_hash()) -> Point {
-            Point::Specific(slot, header_hash)
+        pub fn any_specific_point()(
+            slot in any_slot(),
+            header_hash in any_header_hash(),
+            block_height in any_block_height(),
+        ) -> Point {
+            Point::Specific(slot, header_hash, block_height)
         }
     }
 
@@ -194,19 +203,20 @@ mod tests {
         use test_case::test_case;
 
         use super::*;
-        use crate::Hash;
+        use crate::{BlockHeight, Hash};
+
+        const SAMPLE_HASH: [u8; 32] = [
+            254, 252, 156, 3, 124, 63, 156, 139, 79, 183, 138, 155, 15, 19, 123, 94, 208, 128, 60, 61, 70, 189, 45, 14,
+            64, 197, 159, 169, 12, 160, 2, 193,
+        ];
+
+        fn sample_specific(height: u64) -> Point {
+            Point::Specific(Slot::from(42), Hash::new(SAMPLE_HASH), BlockHeight::from(height))
+        }
 
         #[test_case(Point::Origin => "Origin")]
         #[test_case(
-            Point::Specific(
-                Slot::from(42),
-                Hash::new([
-                  254, 252, 156,   3, 124,  63, 156, 139,
-                   79, 183, 138, 155,  15,  19, 123,  94,
-                  208, 128,  60,  61,  70, 189,  45,  14,
-                   64, 197, 159, 169,  12, 160,   2, 193
-                ])
-            ) => "Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1)";
+            sample_specific(7) => "Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1, 7)";
             "specific"
         )]
         fn better_debug_point(point: Point) -> String {
@@ -218,15 +228,7 @@ mod tests {
            "origin"
         )]
         #[test_case(
-            Point::Specific(
-                Slot::from(42),
-                Hash::new([
-                  254, 252, 156,   3, 124,  63, 156, 139,
-                   79, 183, 138, 155,  15,  19, 123,  94,
-                  208, 128,  60,  61,  70, 189,  45,  14,
-                   64, 197, 159, 169,  12, 160,   2, 193
-                ])
-            ) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
+            sample_specific(7) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
             "specific"
         )]
         fn better_display_point(point: Point) -> String {
@@ -236,12 +238,12 @@ mod tests {
         #[test]
         fn test_parse_point() {
             let error = Point::try_from("42.0123456789abcdef").unwrap_err();
-            assert_eq!(error, "failed to parse block header hash: Invalid string length");
+            assert_eq!(error, "missing '(' for block height");
         }
 
         #[test]
         fn json() {
-            let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
+            let point_str = "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1(7)";
             let point = Point::try_from(point_str).expect("failed to parse from string");
             let point_json = serde_json::to_string(&point).expect("failed to serialize");
             assert_eq!(format!("\"{point_str}\""), point_json);
@@ -251,13 +253,31 @@ mod tests {
         #[test]
         fn test_parse_real_point() {
             let point =
-                Point::try_from("70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d").unwrap();
+                Point::try_from("70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d(123)")
+                    .unwrap();
             match point {
-                Point::Specific(slot, _hash) => {
+                Point::Specific(slot, _hash, height) => {
                     assert_eq!(70070379, slot.as_u64());
+                    assert_eq!(123, height.as_u64());
                 }
                 _ => panic!("expected a specific point"),
             }
+        }
+
+        #[test]
+        fn ord_is_slot_then_hash_then_height() {
+            let hash_lo = Hash::new([1; 32]);
+            let hash_hi = Hash::new([2; 32]);
+            let origin = Point::Origin;
+            let slot1_lo_h10 = Point::Specific(Slot::from(1), hash_lo, BlockHeight::from(10));
+            let slot1_lo_h11 = Point::Specific(Slot::from(1), hash_lo, BlockHeight::from(11));
+            let slot1_hi_h1 = Point::Specific(Slot::from(1), hash_hi, BlockHeight::from(1));
+            let slot2_lo_h1 = Point::Specific(Slot::from(2), hash_lo, BlockHeight::from(1));
+
+            assert!(origin < slot1_lo_h10);
+            assert!(slot1_lo_h10 < slot1_hi_h1, "same slot: hash is the second key");
+            assert!(slot1_hi_h1 < slot2_lo_h1, "slot is the first key");
+            assert!(slot1_lo_h10 < slot1_lo_h11, "same slot and hash: height is the third key");
         }
     }
 }

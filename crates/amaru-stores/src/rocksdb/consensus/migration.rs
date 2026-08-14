@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor, to_cbor};
+use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor, to_cbor};
 use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, StoreError, WriteChainStore};
 use rocksdb::DB;
 use tracing::info;
@@ -207,8 +207,8 @@ fn load_stored_header_point(store: &RocksDBStore<DB>, hash: &HeaderHash) -> Opti
     let mut decoder = cbor::Decoder::new(&bytes);
     decoder.array().ok()?;
     decoder.array().ok()?;
-    decoder.skip().ok()?;
+    let height = decoder.u64().ok()?;
     let slot = decoder.u64().ok()?;
     let parent = decoder.decode().ok()?;
-    Some((Point::Specific(slot.into(), *hash), parent))
+    Some((Point::Specific(slot.into(), *hash, BlockHeight::from(height)), parent))
 }

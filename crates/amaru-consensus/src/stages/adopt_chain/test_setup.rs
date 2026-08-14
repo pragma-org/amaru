@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Header, HeaderHash, NonEmptyVec, Point, Tip, cardano::network_block::make_encoded_block,
+    BlockHeight, EraHistory, Header, HeaderHash, NonEmptyVec, Point, cardano::network_block::make_encoded_block,
     make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
@@ -107,7 +107,7 @@ impl TestPrep {
     }
 
     pub fn set_best_chain(&mut self, header: Header) {
-        self.state.current_best_tip = header.tip();
+        self.state.current_best_tip = header.point();
         let mut ancestors = self.store.ancestors(header).collect::<Vec<_>>();
         ancestors.reverse();
         for header in ancestors {
@@ -119,7 +119,7 @@ impl TestPrep {
 pub fn register_guards() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_data_deserializer::<AdoptChain>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<MempoolMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
@@ -155,7 +155,7 @@ pub fn test_prep(consensus_security_param: u64) -> TestPrep {
     let block_source = StageRef::named_for_tests("block_source");
     let mempool = StageRef::named_for_tests("mempool");
     let headers = HeaderTree::new();
-    let state = AdoptChain::new(downstream, block_source, mempool, consensus_security_param, Tip::origin());
+    let state = AdoptChain::new(downstream, block_source, mempool, consensus_security_param, Point::Origin);
     TestPrep {
         state,
         rt: Builder::new_current_thread().build().unwrap(),

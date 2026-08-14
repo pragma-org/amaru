@@ -19,7 +19,7 @@ use amaru_consensus::stages::{
     select_chain::SelectChainMsg, track_peers::TrackPeersMsg, validate_block::ValidateBlockMsg,
 };
 use amaru_kernel::{
-    BlockHeight, EraHistory, EraName, Peer, Point, Tip, any_header_hash,
+    BlockHeight, EraHistory, EraName, Peer, Point, any_header_hash,
     cardano::network_block::{NetworkBlock, make_block},
     make_header,
     utils::tests::run_strategy,
@@ -33,27 +33,26 @@ fn stage_msgs(c: &mut Criterion) {
     let mut group = c.benchmark_group("Stage Messages");
     group.measurement_time(Duration::from_secs(5));
 
-    let point = Point::Specific(1_234_567_890.into(), run_strategy(any_header_hash()));
     let bh = BlockHeight::from(123_456_789);
-    let tip = Tip::new(point, bh);
+    let point = Point::Specific(1_234_567_890.into(), run_strategy(any_header_hash()), bh);
 
-    let msg = ValidateBlockMsg::new(tip, point, bh);
+    let msg = ValidateBlockMsg::new(point, point, bh);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("ValidateBlockMsg", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = AdoptChainMsg::new(tip, bh);
+    let msg = AdoptChainMsg::new(point, bh);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("AdoptChainMsg", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = BlockSourceMsg::Validation { valid: true, point: tip.point() };
+    let msg = BlockSourceMsg::Validation { valid: true, point };
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("BlockSourceMsg::Validation", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = SelectChainMsg::tip_from_upstream(tip, point);
+    let msg = SelectChainMsg::tip_from_upstream(point, point);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::TipFromUpstream", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0));
+    let msg = SelectChainMsg::BlockValidationResult(point, true, BlockHeight::from(0));
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::BlockValidationResult", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
@@ -61,7 +60,7 @@ fn stage_msgs(c: &mut Criterion) {
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("SelectChainMsg::FetchNextFrom", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
-    let msg = FetchBlocksMsg::new_tip(tip, point);
+    let msg = FetchBlocksMsg::new_tip(point, point);
     let msg: Box<dyn SendData> = Box::new(msg);
     group.bench_function("FetchBlocksMsg::NewTip", |b| b.iter(|| black_box(to_cbor(black_box(&msg)))));
 
@@ -96,7 +95,7 @@ fn stage_msgs(c: &mut Criterion) {
         peer: amaru_kernel::Peer { name: "peer1".to_string() },
         conn_id: ConnectionId::initial(),
         handler: amaru_pure_stage::StageRef::<InitiatorMessage>::named_for_tests("test"),
-        msg: InitiatorResult::RollForward(header_content.clone(), tip),
+        msg: InitiatorResult::RollForward(header_content.clone(), point),
     });
     let msg: Box<dyn SendData> = Box::new(msg);
     group

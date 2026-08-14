@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Tip};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
 use amaru_pure_stage::Instant;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -460,11 +460,11 @@ struct OutboundWeight {
 }
 
 impl PeerPerformance {
-    pub fn apply_intersection(&mut self, peer: Peer, current: Tip, parent: Option<HeaderHash>, at: Instant) {
+    pub fn apply_intersection(&mut self, peer: Peer, current: Point, parent: Option<HeaderHash>, at: Instant) {
         self.insert_claim(peer, current.hash(), current.block_height(), parent, ClaimKind::Intersection, at);
     }
 
-    pub fn apply_header_announcement(&mut self, peer: Peer, header: Tip, parent: Option<HeaderHash>, at: Instant) {
+    pub fn apply_header_announcement(&mut self, peer: Peer, header: Point, parent: Option<HeaderHash>, at: Instant) {
         // First announcer records zero lag (bonus); later peers record delay vs first.
         let lag = self
             .first_announced_at_unlocked(&header.hash())
@@ -612,7 +612,7 @@ impl PeerPerformance {
     }
 
     /// Re-tip a peer after chainsync rollback to `point`.
-    pub fn apply_rollback(&mut self, peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) {
+    pub fn apply_rollback(&mut self, peer: Peer, point: Point, parent: Option<HeaderHash>, at: Instant) {
         self.record_rollback(peer, point, parent, at);
     }
 }
@@ -756,7 +756,7 @@ impl PeerPerformance {
         Some(PeerSnapshot { peer: peer.clone(), scores: state.scores.clone(), tips, share: state.share_flags() })
     }
 
-    fn record_rollback(&mut self, peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) {
+    fn record_rollback(&mut self, peer: Peer, point: Point, parent: Option<HeaderHash>, at: Instant) {
         let hash = point.hash();
         let height = point.block_height();
         self.parents.entry(hash).or_insert(ParentInfo { parent, height });

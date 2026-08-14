@@ -43,7 +43,7 @@ fn test_incoming_tip_not_in_store() {
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1]);
     prep.set_best_chain(prep.headers.h1.clone());
 
-    let tip = prep.headers.h3.tip(); // h3 not in store
+    let tip = prep.headers.h3.point(); // h3 not in store
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -66,10 +66,10 @@ fn test_incoming_tip_not_in_store() {
 fn test_current_best_not_loadable() {
     let mut prep = test_prep(2);
     prep.store_headers(&prep.headers.main_chain());
-    let missing_current_best = Tip::new(Point::Specific(4u64.into(), HeaderHash::from([0u8; 32])), BlockHeight::new(4));
+    let missing_current_best = Point::Specific(4u64.into(), HeaderHash::from([0u8; 32]), BlockHeight::new(4));
     prep.state.current_best_tip = missing_current_best;
 
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -96,7 +96,7 @@ fn test_incoming_not_better_than_current_best() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_best_chain(prep.headers.h3.clone());
 
-    let tip = prep.headers.h3a.tip(); // h3a has same height as h3 but lower op_cert_seq
+    let tip = prep.headers.h3a.point(); // h3a has same height as h3 but lower op_cert_seq
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace(
@@ -125,7 +125,7 @@ fn test_extension_adopts_and_sends() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_best_chain(prep.headers.h2.clone());
 
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -139,7 +139,7 @@ fn test_extension_adopts_and_sends() {
             te_input("ac-1", &msg),
             te_load_header("ac-1", tip.hash()),
             te_load_header("ac-1", prep.headers.h2.hash()),
-            te_roll_forward_chain("ac-1", tip.point()),
+            te_roll_forward_chain("ac-1", tip),
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_hash("ac-1", prep.headers.h1.hash()),
             te_clock("ac-1"),
@@ -172,7 +172,7 @@ fn test_fork_switch_adopts_and_sends() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_best_chain(prep.headers.h2.clone());
 
-    let tip = prep.headers.h3a.tip(); // h3a has height 4 > h2's 3, so it wins
+    let tip = prep.headers.h3a.point(); // h3a has height 4 > h2's 3, so it wins
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -222,7 +222,7 @@ fn test_fork_switch_opcert_hacked() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_best_chain(prep.headers.h2a.clone());
 
-    let tip = prep.headers.h2.tip(); // h2 is newer opcert seq no
+    let tip = prep.headers.h2.point(); // h2 is newer opcert seq no
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -266,7 +266,7 @@ fn test_fork_not_better_no_switch() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_best_chain(prep.headers.h2.clone());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let msg = AdoptChainMsg::new(tip, BlockHeight::new(0));
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 

@@ -38,7 +38,7 @@ pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
 pub use register::{register_chainsync_initiator, register_chainsync_responder};
 
 mod register {
-    use amaru_kernel::{Peer, Tip};
+    use amaru_kernel::{Peer, Point};
     use amaru_ouroboros::ConnectionId;
     use amaru_pure_stage::{Effects, StageRef};
 
@@ -75,7 +75,7 @@ mod register {
 
     pub async fn register_chainsync_responder(
         muxer: &StageRef<MuxMessage>,
-        upstream: Tip,
+        upstream: Point,
         peer: Peer,
         conn_id: ConnectionId,
         eff: &Effects<ConnectionMessage>,

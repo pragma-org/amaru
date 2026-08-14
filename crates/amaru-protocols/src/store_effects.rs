@@ -14,7 +14,9 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeight, GlobalParameters, Header, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
+use amaru_kernel::{
+    BlockHeight, GlobalParameters, Header, HeaderHash, NetworkPoint, NonEmptyVec, Point, RawBlock,
+};
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
@@ -61,7 +63,7 @@ impl Store {
         self.effects.external(GetBestChainHashEffect::new())
     }
 
-    pub fn get_best_chain_tip(&self) -> BoxFuture<'static, Tip> {
+    pub fn get_best_chain_tip(&self) -> BoxFuture<'static, Point> {
         self.effects.external(GetBestChainTipEffect::new())
     }
 
@@ -133,7 +135,7 @@ impl Store {
         self.effects.external(RollForwardChainEffect::new(*point))
     }
 
-    pub fn load_tip(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Tip>> {
+    pub fn load_tip(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Point>> {
         self.effects.external(LoadTipEffect::new(*hash).with_trace_context(&self.trace_context))
     }
 
@@ -141,7 +143,7 @@ impl Store {
         self.effects.external(UnvalidatedAncestorHashesEffect::new(start))
     }
 
-    pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Tip>>> {
+    pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Point>>> {
         self.effects.external(AncestorsBetweenEffect::new(from, to).with_trace_context(&self.trace_context))
     }
 
@@ -160,7 +162,7 @@ impl Store {
         self.effects.external(FindCommonAncestorEffect::new(hash_a, hash_b))
     }
 
-    pub fn find_intersect_point(&self, points: Vec<Point>) -> BoxFuture<'static, Option<Point>> {
+    pub fn find_intersect_point(&self, points: Vec<NetworkPoint>) -> BoxFuture<'static, Option<Point>> {
         self.effects.external(FindIntersectPointEffect::new(points))
     }
 
@@ -515,7 +517,7 @@ impl ExternalEffect for LoadTipEffect {
 }
 
 impl ExternalEffectAPI for LoadTipEffect {
-    type Response = Option<Tip>;
+    type Response = Option<Point>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -671,7 +673,7 @@ impl ExternalEffect for GetBestChainTipEffect {
 }
 
 impl ExternalEffectAPI for GetBestChainTipEffect {
-    type Response = Tip;
+    type Response = Point;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -861,7 +863,7 @@ impl ExternalEffect for AncestorsBetweenEffect {
 }
 
 impl ExternalEffectAPI for AncestorsBetweenEffect {
-    type Response = Option<Vec<Tip>>;
+    type Response = Option<Vec<Point>>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -951,11 +953,11 @@ impl ExternalEffectAPI for FindCommonAncestorEffect {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FindIntersectPointEffect {
-    points: Vec<Point>,
+    points: Vec<NetworkPoint>,
 }
 
 impl FindIntersectPointEffect {
-    pub fn new(points: Vec<Point>) -> Self {
+    pub fn new(points: Vec<NetworkPoint>) -> Self {
         Self { points }
     }
 }

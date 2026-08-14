@@ -17,7 +17,7 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use amaru_kernel::{Header, IsHeader, Peer, Point, Tip};
+use amaru_kernel::{Header, IsHeader, Peer, Point};
 use tracing::Span;
 
 /// Wrapper type to factor out caught-up messages from real events.
@@ -44,7 +44,7 @@ impl<T: Debug> fmt::Debug for Tracked<T> {
 pub enum ChainSyncEvent {
     RollForward {
         peer: Peer,
-        tip: Tip,
+        tip: Point,
         raw_header: Vec<u8>,
         #[serde(skip, default = "Span::none")]
         span: Span,
@@ -52,7 +52,7 @@ pub enum ChainSyncEvent {
     Rollback {
         peer: Peer,
         rollback_point: Point,
-        tip: Tip,
+        tip: Point,
         #[serde(skip, default = "Span::none")]
         span: Span,
     },

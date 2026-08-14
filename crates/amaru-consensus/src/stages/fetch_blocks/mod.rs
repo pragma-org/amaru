@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{
-    BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
+    BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock,
 };
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
@@ -93,7 +93,7 @@ const MAX_FETCH_PEERS: usize = 3;
 ///   - In prod starts as blackhole; replaced on first use. Tests inject named mock via `for_tests`.
 ///
 /// ## Key state (missing blocks, requests, timeouts)
-/// - `downstream: StageRef<(Tip, Point, BlockHeight)>`: where validated-ready blocks go (contramapped in wiring).
+/// - `downstream: StageRef<(Point, BlockHeight)>`: where validated-ready blocks go (contramapped in wiring).
 /// - `req_id: u64`: monotonic, incremented on each new FetchBlocks; used to pair timeouts and filter in child.
 /// - `missing: Option<MissingBlocks>`: cursor over current batch (from `find_missing_blocks`); supports
 ///   `from_to()`, `first()`, `boundary()`, `shift_one_block()`, `is_empty()`, `nb_missing_blocks()`.
@@ -109,7 +109,7 @@ const MAX_FETCH_PEERS: usize = 3;
 ///   (replies flow back via provided child ref). `peers` is `Some(selected)` from Performance when
 ///   selection is strong, or `None` (all initiating connections) when the performance map has no
 ///   covering peers (cold start / empty map fallback).
-/// - **downstream** (typically validate_block_input via contramap in build): sends `(Tip, parent_Point, block_height)` for each block (newly fetched or recovered stored).
+/// - **downstream** (typically validate_block_input via contramap in build): sends `(Point, parent_Point, block_height)` for each block (newly fetched or recovered stored).
 /// - **block_source** (via child only): `BlockReceived {peer, tip}` for every header seen in replies (even stragglers/old).
 /// - **peer_selection**: `Adversarial(peer)` on body-hash mismatch (main) or header decode failure (child).
 /// - **Store** (via effects): `find_missing_blocks`, `has_block`, `load_header`, `store_block`, `load_tip` etc. (many via `or_terminate`).
@@ -188,14 +188,14 @@ impl FetchBlocks {
 
     pub async fn new_tip(
         &mut self,
-        tip: Tip,
+        tip: Point,
         parent: Point,
         eff: Effects<FetchBlocksMsg>,
         parent_context: TraceContext,
     ) {
         self.block_height = tip.block_height().max(self.block_height);
 
-        tracing::debug!(tip = %tip.point(), parent = %parent, "fetching blocks");
+        tracing::debug!(tip = %tip, parent = %parent, "fetching blocks");
         assert!(
             self.missing.is_none(),
             "there shouldn't be any missing blocks when starting a new tip: {:?}",
@@ -264,7 +264,7 @@ impl FetchBlocks {
             let hash = block_tip.hash();
             match store.has_block(&hash).await {
                 Ok(true) => {
-                    tracing::debug!(point = %block_tip.point(), "validating stored block");
+                    tracing::debug!(point = %block_tip, "validating stored block");
                     let downloaded_block = DownloadedBlock {
                         tip: block_tip,
                         parent,
@@ -272,13 +272,13 @@ impl FetchBlocks {
                         trace_context: trace_context.clone(),
                     };
                     eff.send(&self.downstream, downloaded_block).await;
-                    parent = block_tip.point();
+                    parent = block_tip;
                 }
                 // Nothing beyond this point was ever downloaded, since blocks are only ever stored in
                 // ancestor order. The rest of the path is therefore exactly what remains to fetch.
                 Ok(false) => {
-                    to_fetch.push(block_tip.point());
-                    to_fetch.extend(path.by_ref().map(|block_tip| block_tip.point()));
+                    to_fetch.push(block_tip);
+                    to_fetch.extend(path.by_ref());
                     to_fetch.truncate(MAX_MISSING_BLOCKS_PER_BATCH);
                     break;
                 }
@@ -293,13 +293,13 @@ impl FetchBlocks {
         // blocks must chain onto. An empty batch means the replay covered the whole path, in which case
         // this just tells the upstream stage to carry on.
         let missing = MissingBlocks::new(parent, to_fetch);
-        self.request_blocks(missing, best_tip_header.tip(), parent, eff, trace_context).await;
+        self.request_blocks(missing, best_tip_header.point(), parent, eff, trace_context).await;
     }
 
     /// Find the oldest missing blocks in the chain ending with `tip` and fetch them.
     async fn request_missing_blocks(
         &mut self,
-        tip: Tip,
+        tip: Point,
         parent: Point,
         eff: Effects<FetchBlocksMsg>,
         parent_context: TraceContext,
@@ -331,15 +331,15 @@ impl FetchBlocks {
     async fn request_blocks(
         &mut self,
         missing: MissingBlocks,
-        tip: Tip,
+        tip: Point,
         parent: Point,
         eff: Effects<FetchBlocksMsg>,
         parent_context: TraceContext,
     ) {
         let Some((from, through)) = missing.from_to().map(|(from, through)| (*from, *through)) else {
             self.missing = None;
-            tracing::info!(tip = %tip.point(), parent = %parent, "no blocks to fetch");
-            return self.fetch_next_from(eff, tip.point()).await;
+            tracing::info!(tip = %tip, parent = %parent, "no blocks to fetch");
+            return self.fetch_next_from(eff, tip).await;
         };
 
         tracing::debug!(%from, %through, length = missing.nb_missing_blocks(), "requesting blocks");
@@ -449,8 +449,7 @@ impl FetchBlocks {
                 tracing::error!(%error, "failed to store block");
             })
             .await;
-
-        let tip = block.header.tip();
+        let tip = point;
 
         // retrieve the trace context that led to fetching that block to send downstream
         let trace_context = self.trace_context.clone().unwrap_or_default();
@@ -545,14 +544,14 @@ impl FetchBlocks {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DownloadedBlock {
-    pub tip: Tip,
+    pub tip: Point,
     pub parent: Point,
     pub max_block_height: BlockHeight,
     pub trace_context: TraceContext,
 }
 
 impl DownloadedBlock {
-    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight) -> Self {
+    pub fn new(tip: Point, parent: Point, max_block_height: BlockHeight) -> Self {
         Self { tip, parent, max_block_height, trace_context: Default::default() }
     }
 }
@@ -560,7 +559,7 @@ impl DownloadedBlock {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FetchBlocksMsg {
     NewTip {
-        tip: Tip,
+        tip: Point,
         parent: Point,
         trace_context: TraceContext,
     },
@@ -579,7 +578,7 @@ pub enum FetchBlocksMsg {
 }
 
 impl FetchBlocksMsg {
-    pub fn new_tip(tip: Tip, parent: Point) -> Self {
+    pub fn new_tip(tip: Point, parent: Point) -> Self {
         Self::NewTip { tip, parent, trace_context: Default::default() }
     }
 
@@ -653,7 +652,7 @@ async fn cleanup_replies(mut state: Cleanup, msg: Blocks, eff: Effects<Blocks>) 
                     return state;
                 }
             };
-            eff.send(&state.block_source, BlockSourceMsg::BlockReceived { peer: peer.clone(), tip: header.tip() })
+            eff.send(&state.block_source, BlockSourceMsg::BlockReceived { peer: peer.clone(), tip: header.point() })
                 .await;
             if id >= state.curr_id {
                 eff.send(&state.fetch, FetchBlocksMsg::Block(peer, network_block)).await;

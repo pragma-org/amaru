@@ -26,7 +26,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Tip};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
 use amaru_protocols::metrics_effects::ResourceMeter;
 use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Instant, Resources, SendData};
 use tokio::sync::oneshot;
@@ -81,7 +81,7 @@ async fn enqueue_and_emit_telemetry(
 impl Performance {
     pub fn record_intersection(
         peer: Peer,
-        current: Tip,
+        current: Point,
         parent: Option<HeaderHash>,
         at: Instant,
     ) -> RecordIntersectionEffect {
@@ -90,7 +90,7 @@ impl Performance {
 
     pub fn record_header_announcement(
         peer: Peer,
-        header: Tip,
+        header: Point,
         parent: Option<HeaderHash>,
         at: Instant,
         slot_start_to_header_micros: u64,
@@ -214,7 +214,7 @@ impl Performance {
         SourceCountsEffect
     }
 
-    pub fn record_rollback(peer: Peer, point: Tip, parent: Option<HeaderHash>, at: Instant) -> RecordRollbackEffect {
+    pub fn record_rollback(peer: Peer, point: Point, parent: Option<HeaderHash>, at: Instant) -> RecordRollbackEffect {
         RecordRollbackEffect { peer, point, parent, at }
     }
 
@@ -226,7 +226,7 @@ impl Performance {
         RecordHeaderAbandonedEffect { hash, now }
     }
 
-    pub fn record_fork_started(tip: Tip, started_at: Instant) -> RecordForkStartedEffect {
+    pub fn record_fork_started(tip: Point, started_at: Instant) -> RecordForkStartedEffect {
         RecordForkStartedEffect { tip, started_at }
     }
 
@@ -251,7 +251,7 @@ impl Performance {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordIntersectionEffect {
     pub(crate) peer: Peer,
-    pub(crate) current: Tip,
+    pub(crate) current: Point,
     pub(crate) parent: Option<HeaderHash>,
     pub(crate) at: Instant,
 }
@@ -272,7 +272,7 @@ impl ExternalEffectAPI for RecordIntersectionEffect {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordHeaderAnnouncementEffect {
     pub(crate) peer: Peer,
-    pub(crate) header: Tip,
+    pub(crate) header: Point,
     pub(crate) parent: Option<HeaderHash>,
     pub(crate) at: Instant,
     /// Stage-computed interval from virtual slot start to header reception.
@@ -777,7 +777,7 @@ impl ExternalEffectAPI for SourceCountsEffect {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordRollbackEffect {
     pub(crate) peer: Peer,
-    pub(crate) point: Tip,
+    pub(crate) point: Point,
     pub(crate) parent: Option<HeaderHash>,
     pub(crate) at: Instant,
 }
@@ -840,7 +840,7 @@ impl ExternalEffectAPI for RecordHeaderAbandonedEffect {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecordForkStartedEffect {
-    pub(crate) tip: Tip,
+    pub(crate) tip: Point,
     pub(crate) started_at: Instant,
 }
 

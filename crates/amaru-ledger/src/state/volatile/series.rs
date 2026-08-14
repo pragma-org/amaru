@@ -287,7 +287,11 @@ mod tests {
         ) {
             let mut series = series_from(&diffs);
 
-            let point = Point::Specific(Slot::from(rollback_ix as u64), Hash::new([0u8; 32]));
+            let point = Point::Specific(
+                Slot::from(rollback_ix as u64),
+                Hash::new([0u8; 32]),
+                amaru_kernel::BlockHeight::from(rollback_ix as u64),
+            );
             series.rollback_to(&point).unwrap();
 
             let remaining = &diffs[..=rollback_ix];

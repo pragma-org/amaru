@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{EraHistory, Header, HeaderHash, IsHeader, Point, Tip, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{EraHistory, Header, HeaderHash, IsHeader, Point, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{
     MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
 };
@@ -139,7 +139,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<(Header, Option<bool>)>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
@@ -204,7 +204,7 @@ pub fn te_validate_block(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(&point))))
 }
 
-pub fn te_rollback_ledger(at_stage: &str, tip: &Tip) -> TraceEntry {
+pub fn te_rollback_ledger(at_stage: &str, tip: &Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(tip))))
 }
 

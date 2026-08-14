@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     Ballot, BallotId, BlockHeight, DRep, DRepRegistration, GovernanceAction, Hash, MemoizedTransactionOutput, Point,
-    PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, StakeCredential, Tip, TransactionInput, any_anchor,
+    PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, StakeCredential, TransactionInput, any_anchor,
     any_ballot, any_ballot_id, any_drep, any_drep_registration, any_modern_output, any_pool_params, any_proposal_id,
     any_proposals_roots, any_reward_account, any_stake_credential,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
@@ -70,7 +70,7 @@ pub fn pool_params(rng: &mut impl Rng) -> PoolParams {
 pub fn point(rng: &mut impl Rng, ix: u64) -> Point {
     let slot = Slot::from(ix + 1);
     let hash = hash32(rng);
-    Point::Specific(slot, hash)
+    Point::Specific(slot, hash, BlockHeight::from(ix + 1))
 }
 
 pub fn proposal(rng: &mut impl Rng) -> Proposal {
@@ -90,9 +90,8 @@ pub fn stake_credential(rng: &mut impl Rng) -> StakeCredential {
     run_strategy_with_rng(rng, any_stake_credential())
 }
 
-pub fn tip(rng: &mut impl Rng, ix: u64) -> Tip {
-    let height = BlockHeight::from(ix + 1);
-    Tip::new(point(rng, ix), height)
+pub fn tip(rng: &mut impl Rng, ix: u64) -> Point {
+    point(rng, ix)
 }
 
 // ---------------------------------------------------------------------------------------- Defaults

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Peer, Point, Tip};
+use amaru_kernel::{NetworkPoint, Peer, Point};
 use amaru_observability::debug_span;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::SampleAncestorPointsResult;
@@ -85,7 +85,7 @@ impl ChainSyncInitiatorMsg {
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncInitiator {
-    upstream: Option<Tip>,
+    upstream: Option<Point>,
     peer: Peer,
     conn_id: ConnectionId,
     muxer: StageRef<MuxMessage>,
@@ -140,7 +140,9 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
                         SampleAncestorPointsResult::BestChainTipNotFound => {
                             return Err(anyhow::anyhow!("no best chain tip found"));
                         }
-                        SampleAncestorPointsResult::Found(points) => Some(Intersect(points)),
+                        SampleAncestorPointsResult::Found(points) => {
+                            Some(Intersect(points.into_iter().map(NetworkPoint::from).collect()))
+                        }
                     }
                 }
                 InitiatorResult::IntersectFound(_, tip)
@@ -185,7 +187,7 @@ async fn intersect_points(store: &Store) -> anyhow::Result<SampleAncestorPointsR
 
 #[derive(Debug)]
 pub enum InitiatorAction {
-    Intersect(Vec<Point>),
+    Intersect(Vec<NetworkPoint>),
     RequestNext,
     Done,
 }
@@ -193,10 +195,10 @@ pub enum InitiatorAction {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
     Initialize,
-    IntersectFound(Point, Tip),
-    IntersectNotFound(Tip),
-    RollForward(HeaderContent, Tip),
-    RollBackward(Point, Tip),
+    IntersectFound(NetworkPoint, Point),
+    IntersectNotFound(Point),
+    RollForward(HeaderContent, Point),
+    RollBackward(NetworkPoint, Point),
     /// Chainsync session ended (connection teardown or mini-protocol stage death).
     ///
     /// Emitted by the connection stage (not by the protocol state machine) so `track_peers`
@@ -302,11 +304,11 @@ pub mod tests {
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
         // canonical states and messages
-        let find_intersect = || FindIntersect(vec![Point::Origin]);
-        let intersect_found = || IntersectFound(Point::Origin, Tip::origin());
-        let intersect_not_found = || IntersectNotFound(Tip::origin());
-        let roll_forward = || RollForward(HeaderContent::with_bytes(vec![], EraName::Conway), Tip::origin());
-        let roll_backward = || RollBackward(Point::Origin, Tip::origin());
+        let find_intersect = || FindIntersect(vec![NetworkPoint::Origin]);
+        let intersect_found = || IntersectFound(NetworkPoint::Origin, Point::Origin);
+        let intersect_not_found = || IntersectNotFound(Point::Origin);
+        let roll_forward = || RollForward(HeaderContent::with_bytes(vec![], EraName::Conway), Point::Origin);
+        let roll_backward = || RollBackward(NetworkPoint::Origin, Point::Origin);
 
         let mut spec = ProtoSpec::default();
         spec.init(Idle, find_intersect(), Intersect);

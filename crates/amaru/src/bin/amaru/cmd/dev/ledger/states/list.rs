@@ -80,7 +80,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let tip = snapshot.tip()?;
 
         let timestamp = match (&tip, era_history, system_start) {
-            (Point::Specific(slot, _), Some(eh), Some(ss)) => eh
+            (Point::Specific(slot, _, _), Some(eh), Some(ss)) => eh
                 .slot_to_relative_time_unchecked_horizon(*slot)
                 .ok()
                 .map(|rel| ss + rel)

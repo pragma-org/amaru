@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    ConsensusParameters, Epoch, EraHistory, Header, HeaderHash, IsHeader, NetworkName, Peer, Point, Tip, make_header,
+    ConsensusParameters, Epoch, EraHistory, Header, HeaderHash, IsHeader, NetworkName, Peer, Point, make_header,
     num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
@@ -175,7 +175,7 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
 pub fn te_record_rollback(
     at_stage: &str,
     peer: Peer,
-    point: Tip,
+    point: Point,
     parent: Option<HeaderHash>,
     at: Instant,
 ) -> TraceEntry {
@@ -195,7 +195,7 @@ pub fn te_store_validated_header(at_stage: &str, header: Header) -> TraceEntry {
 pub fn te_record_header_announcement(
     at_stage: &str,
     peer: Peer,
-    header: Tip,
+    header: Point,
     parent: Option<HeaderHash>,
     at: Instant,
     slot_start_to_header_micros: u64,
@@ -213,7 +213,7 @@ pub fn te_record_header_announcement(
 }
 
 /// Slot-start → header reception interval matching [`TrackPeers`] test era history.
-pub fn slot_start_to_header_micros(header: &Tip, received_at: Instant) -> u64 {
+pub fn slot_start_to_header_micros(header: &Point, received_at: Instant) -> u64 {
     let slot_start = EraHistory::default().slot_to_relative_time_unchecked_horizon(header.slot()).unwrap_or_default();
     received_at.duration_since_global_epoch().saturating_sub(slot_start).as_micros() as u64
 }
@@ -226,7 +226,7 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
     tm_external_effect::<VolatileTipEffect>(at_stage)
 }
 
-pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
+pub fn new_tip(tip: Point, parent: Point) -> NewTip {
     NewTip { tip, parent, trace_context: Default::default() }
 }
 
@@ -241,8 +241,8 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<chainsync::HeaderContent>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<NewTip>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<(Point, Point)>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
@@ -289,7 +289,7 @@ pub fn setup_with_ledger_tip_until_sleeping(
     state: TrackPeers,
     msg: impl IntoIterator<Item = TrackPeersMsg>,
     store: Arc<InMemoryChainStore>,
-    ledger_tip: Tip,
+    ledger_tip: Point,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base_until_sleeping(rt, state, msg, store, |running| {
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
@@ -347,7 +347,7 @@ fn setup_inner(
                 crate::performance::Performance::new(),
             ));
             resources.put::<ResourceHeaderStore>(store.clone());
-            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
+            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());
             resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
             let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();

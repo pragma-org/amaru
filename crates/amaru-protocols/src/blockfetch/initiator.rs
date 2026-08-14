@@ -14,7 +14,7 @@
 
 use std::collections::VecDeque;
 
-use amaru_kernel::{Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes};
+use amaru_kernel::{NetworkPoint, Peer, Point, RawBlock, cardano::network_block::NetworkBlock, utils::debug_bytes};
 use amaru_observability::debug_span;
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -105,7 +105,10 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         match input {
             BlockFetchMessage::RequestRange { from, through, id, cr } => {
-                let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange { from, through });
+                let action = (*proto == State::Idle).then_some(InitiatorAction::RequestRange {
+                    from: from.to_network_point(),
+                    through: through.to_network_point(),
+                });
                 if self.queue.len() > 1 {
                     tracing::debug!(peer = %self.peer, "dropping request for slow peer");
                 }
@@ -164,8 +167,10 @@ impl StageState<State, Initiator> for BlockFetchInitiator {
                     self.queue.front()
                 }
             };
-            let action =
-                queued.map(|(from, through, _, _, _)| InitiatorAction::RequestRange { from: *from, through: *through });
+            let action = queued.map(|(from, through, _, _, _)| InitiatorAction::RequestRange {
+                from: from.to_network_point(),
+                through: through.to_network_point(),
+            });
             Ok((action, self))
         }
         .instrument(span)
@@ -242,7 +247,7 @@ impl InitiatorResult {
 /// Outcome action of the local stage, to be used by the initiator protocol stage.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorAction {
-    RequestRange { from: Point, through: Point },
+    RequestRange { from: NetworkPoint, through: NetworkPoint },
     ClientDone,
 }
 

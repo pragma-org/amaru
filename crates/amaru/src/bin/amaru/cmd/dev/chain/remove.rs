@@ -103,7 +103,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     for point in points {
-        tracing::info!(point = %point.point(), "removing point");
+        tracing::info!(point = %point, "removing point");
         if only_validation_results {
             rocks_db.remove_block_valid(&point.hash())?;
         } else if only_blocks {

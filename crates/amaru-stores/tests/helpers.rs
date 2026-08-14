@@ -23,7 +23,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Block, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory,
     GlobalParameters, Hash, Header, HeaderHash, MaxString128, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Pots, ProposalsRoots, ProtocolParameters, Slot, Tip,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Pots, ProposalsRoots, ProtocolParameters, Slot,
     cardano::network_block::make_block, cbor, make_header, to_cbor,
 };
 use amaru_ledger::{
@@ -196,7 +196,7 @@ pub fn make_state_across_epoch_boundary() -> StateAcrossEpochBoundary {
     //             epoch e            ╎         epoch e+1
     //     -------------------------- ╎ --------------------------
     //     fragment ── block1         ╎ block2
-    forward_to(&mut state, point(boundary_slot - 3), boundary_slot - 3);
+    forward_to(&mut state, point(boundary_slot - 3));
     let block1 = empty_block_at(boundary_slot - 2);
     let block2 = empty_block_at(boundary_slot);
     roll_forward(&mut state, &block1);
@@ -248,14 +248,9 @@ pub fn empty_block_at(slot: u64) -> Block {
 
 /// Forward the ledger to a given point
 #[expect(clippy::expect_used)]
-pub fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, point: Point, height: u64) {
+pub fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, point: Point) {
     let issuer = Hash::new([0u8; 28]);
-    let tip = Tip::new(point, BlockHeight::from(height));
-    state.push_fragment(VolatileFragment::default().anchor(tip, issuer)).expect("forward");
-}
-
-pub fn tip(slot: u64) -> Tip {
-    Tip::new(point(slot), BlockHeight::from(slot))
+    state.push_fragment(VolatileFragment::default().anchor(point, issuer)).expect("forward");
 }
 
 pub fn point(slot: u64) -> Point {
@@ -263,7 +258,7 @@ pub fn point(slot: u64) -> Point {
 }
 
 pub fn point_with_hash(slot: u64, hash: HeaderHash) -> Point {
-    Point::Specific(Slot::from(slot), hash)
+    Point::Specific(Slot::from(slot), hash, BlockHeight::from(slot))
 }
 
 #[expect(clippy::unwrap_used)]

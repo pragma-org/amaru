@@ -146,7 +146,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectPeersForFetchEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::performance::FetchPeerSet>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Point>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
     ]
 }

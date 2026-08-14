@@ -27,7 +27,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Hash, Header, HeaderHash, IsHeader, Peer, Point, Slot, make_header,
+    Hash, Header, HeaderHash, IsHeader, NetworkPoint, Peer, Slot, make_header,
     size::HEADER,
     utils::string::{ListToString, ListsToString},
 };
@@ -63,7 +63,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Action {
     RollForward { peer: Peer, header: Header },
-    Rollback { peer: Peer, rollback_point: Point },
+    Rollback { peer: Peer, rollback_point: NetworkPoint },
 }
 
 impl Action {
@@ -176,7 +176,7 @@ enum ActionHelper {
     Rollback {
         peer: String,
         #[serde(serialize_with = "serialize_point", deserialize_with = "deserialize_point")]
-        rollback_point: Point,
+        rollback_point: NetworkPoint,
     },
 }
 
@@ -224,14 +224,14 @@ impl Action {
 }
 
 /// Serialize a point with an hex string for the header hash
-fn serialize_point<S: serde::Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
+fn serialize_point<S: serde::Serializer>(point: &NetworkPoint, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&point.to_string())
 }
 
 /// Deserialize a point from the string format above
-fn deserialize_point<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Point, D::Error> {
+fn deserialize_point<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<NetworkPoint, D::Error> {
     let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
-    Point::try_from(bytes).map_err(serde::de::Error::custom)
+    NetworkPoint::try_from(bytes).map_err(serde::de::Error::custom)
 }
 
 /// This data type helps collecting the output of the execution of a list of actions
@@ -279,7 +279,7 @@ pub fn random_walk<R: Rng>(
     if let Some(parent) = parent_header
         && let Some(actions) = result.get_mut(peer)
     {
-        let rollback = Action::Rollback { peer: peer.clone(), rollback_point: parent.point() };
+        let rollback = Action::Rollback { peer: peer.clone(), rollback_point: parent.point().to_network_point() };
         if actions.last().map(|h| h.hash()) != Some(rollback.hash()) {
             actions.push(rollback)
         }

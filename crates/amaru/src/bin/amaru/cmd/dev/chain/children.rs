@@ -74,11 +74,11 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     for child in &children {
         let (_header, valid) = db.load_header_with_validity(&child.hash()).unwrap();
         let has_block = db.has_block(&child.hash()).unwrap_or(false);
-        let on_best_chain = db.load_from_best_chain(&child.point()).is_some();
+        let on_best_chain = db.load_from_best_chain(child).is_some();
 
         println!(
             "{} height={} block={} valid={} best-chain={}",
-            child.point(),
+            child,
             child.block_height(),
             if has_block { "yes" } else { "no" },
             valid_str(valid),

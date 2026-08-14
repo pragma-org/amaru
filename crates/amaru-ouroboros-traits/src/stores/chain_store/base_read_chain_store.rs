@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, HeaderHash, ORIGIN_HASH, Point, PoolId, RawBlock, Tip};
+use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock};
 
 use crate::{Nonces, StoreError};
 
@@ -26,8 +26,8 @@ pub trait BaseReadChainStore: Send + Sync {
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
-    fn get_anchor_tip(&self) -> Tip {
-        self.load_header(&self.get_anchor_hash()).map(|h| h.tip()).unwrap_or_else(Tip::origin)
+    fn get_anchor_tip(&self) -> Point {
+        self.load_header(&self.get_anchor_hash()).map(|h| h.point()).unwrap_or(Point::Origin)
     }
     fn get_best_chain_hash(&self) -> HeaderHash;
 
@@ -50,15 +50,15 @@ pub trait BaseReadChainStore: Send + Sync {
     fn has_header(&self, hash: &HeaderHash) -> bool;
 
     /// Retrieve the tip of a block header given its hash.
-    fn load_tip(&self, hash: &HeaderHash) -> Option<Tip> {
+    fn load_tip(&self, hash: &HeaderHash) -> Option<Point> {
         if hash == &ORIGIN_HASH {
-            return Some(Tip::origin());
+            return Some(Point::Origin);
         }
-        self.load_header(hash).map(|h| h.tip())
+        self.load_header(hash).map(|h| h.point())
     }
 
     #[expect(clippy::expect_used)]
-    fn get_best_chain_tip(&self) -> Tip {
+    fn get_best_chain_tip(&self) -> Point {
         // TODO: store the tip directly in the database
         self.load_tip(&self.get_best_chain_hash())
             .expect("best chain tip not found. There should always be a best chain tip")

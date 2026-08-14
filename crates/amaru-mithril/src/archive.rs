@@ -23,7 +23,7 @@ use std::{
     path::Path,
 };
 
-use amaru_kernel::Point;
+use amaru_kernel::NetworkPoint;
 use flate2::{Compression, GzBuilder};
 use tar::{Builder, Header};
 
@@ -32,15 +32,15 @@ pub const BLOCKS_PER_ARCHIVE: usize = 20000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveMetadata {
     pub file_name: String,
-    pub first_block: Point,
-    pub last_block: Point,
+    pub first_block: NetworkPoint,
+    pub last_block: NetworkPoint,
 }
 
-fn block_file_name(point: &Point) -> String {
+fn block_file_name(point: &NetworkPoint) -> String {
     format!("{point}.cbor")
 }
 
-fn build_archive_bytes(blocks: &BTreeMap<Point, &Vec<u8>>) -> io::Result<Vec<u8>> {
+fn build_archive_bytes(blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> io::Result<Vec<u8>> {
     let encoder = GzBuilder::new().mtime(0).write(Vec::new(), Compression::default());
     let mut tar = Builder::new(encoder);
 
@@ -61,7 +61,7 @@ fn build_archive_bytes(blocks: &BTreeMap<Point, &Vec<u8>>) -> io::Result<Vec<u8>
     encoder.finish()
 }
 
-pub fn archive_name_for_blocks(blocks: &BTreeMap<Point, &Vec<u8>>) -> Option<String> {
+pub fn archive_name_for_blocks(blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> Option<String> {
     let (first_block, _) = blocks.first_key_value()?;
     let (last_block, _) = blocks.last_key_value()?;
 
@@ -69,7 +69,7 @@ pub fn archive_name_for_blocks(blocks: &BTreeMap<Point, &Vec<u8>>) -> Option<Str
 }
 
 #[allow(clippy::expect_used)]
-pub fn package_blocks(blocks_dir: &Path, blocks: &BTreeMap<Point, &Vec<u8>>) -> io::Result<String> {
+pub fn package_blocks(blocks_dir: &Path, blocks: &BTreeMap<NetworkPoint, &Vec<u8>>) -> io::Result<String> {
     let compressed = build_archive_bytes(blocks)?;
 
     fs::create_dir_all(blocks_dir)?;
@@ -94,8 +94,8 @@ pub fn list_existing_archives(blocks_dir: &Path) -> Result<BTreeSet<String>, io:
         .collect())
 }
 
-fn parse_archive_point(name: &str) -> Option<Point> {
-    Point::try_from(name).ok()
+fn parse_archive_point(name: &str) -> Option<NetworkPoint> {
+    NetworkPoint::try_from(name).ok()
 }
 
 pub fn parse_archive_metadata(archive_name: &str) -> Option<ArchiveMetadata> {
@@ -120,8 +120,8 @@ pub fn latest_archive<'a>(archives: impl IntoIterator<Item = &'a String>) -> Opt
     sorted_archives(archives).into_iter().last()
 }
 
-pub fn resume_point_for_archives<'a>(archives: impl IntoIterator<Item = &'a String>) -> Point {
+pub fn resume_point_for_archives<'a>(archives: impl IntoIterator<Item = &'a String>) -> NetworkPoint {
     let parsed = sorted_archives(archives);
 
-    parsed.iter().rev().nth(1).map(|archive| archive.last_block).unwrap_or(Point::Origin)
+    parsed.iter().rev().nth(1).map(|archive| archive.last_block).unwrap_or(NetworkPoint::Origin)
 }

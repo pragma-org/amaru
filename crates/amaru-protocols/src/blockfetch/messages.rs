@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Point, cbor};
+use amaru_kernel::{NetworkPoint, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Message {
-    RequestRange { from: Point, through: Point },
+    RequestRange { from: NetworkPoint, through: NetworkPoint },
     ClientDone,
     StartBatch,
     NoBlocks,
@@ -129,7 +129,7 @@ impl<'b> cbor::Decode<'b, ()> for Message {
 /// Roundtrip property tests for blockfetch messages.
 #[cfg(test)]
 pub(crate) mod tests {
-    use amaru_kernel::{any_point, prop_cbor_roundtrip};
+    use amaru_kernel::{any_network_point, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
@@ -159,7 +159,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        fn request_range_message()(from in any_point(), through in any_point()) -> Message {
+        fn request_range_message()(from in any_network_point(), through in any_network_point()) -> Message {
             Message::RequestRange {from, through}
         }
     }

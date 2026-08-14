@@ -37,7 +37,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
         &'a self,
         start: HeaderHash,
     ) -> Box<dyn Iterator<Item = (Header, Option<bool>)> + 'a> {
-        let anchor_point = self.get_anchor_tip().point();
+        let anchor_point = self.get_anchor_tip();
 
         let header_opt = self.load_header_with_validity(&start);
 
@@ -53,7 +53,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
     /// Return the ancestors of the header, including the header itself.
     /// Stop if the followed chain reaches past the anchor.
     fn ancestors<'a>(&'a self, start: Header) -> Box<dyn Iterator<Item = Header> + 'a> {
-        let anchor_point = self.get_anchor_tip().point();
+        let anchor_point = self.get_anchor_tip();
 
         Box::new(successors(Some(start), move |h| {
             if h.slot() <= anchor_point.slot_or_default() {

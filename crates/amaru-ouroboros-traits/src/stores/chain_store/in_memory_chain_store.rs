@@ -156,7 +156,7 @@ impl BaseReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
         let inner = self.inner.lock().unwrap();
-        inner.chain.iter().find(|p| *p == point).map(|p| p.hash())
+        inner.chain.iter().find(|p| same_chain_point(p, point)).map(|p| p.hash())
     }
 
     #[expect(clippy::unwrap_used)]
@@ -281,7 +281,7 @@ impl WriteChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
-        if let Some(pos) = inner.chain.iter().rposition(|p| p == fork_point) {
+        if let Some(pos) = inner.chain.iter().rposition(|p| same_chain_point(p, fork_point)) {
             inner.chain.truncate(pos + 1);
             inner.chain.extend(forward_points.iter().copied());
             inner.best_chain = forward_points.last().unwrap_or(fork_point).hash();
@@ -352,7 +352,7 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
     }
 
     fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        self.chain.iter().find(|p| *p == point).map(|p| p.hash())
+        self.chain.iter().find(|p| same_chain_point(p, point)).map(|p| p.hash())
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
@@ -420,7 +420,7 @@ fn latest_opcert_sequence_number(
     // 3. immutable fallback: newest entry at slot <= min(anchor, parent) on the best chain
     for (slot, by_hash) in entries.range(..=anchor_slot.min(as_of_slot)).rev() {
         for (hash, sequence_number) in by_hash {
-            if chain.contains(&Point::Specific(*slot, *hash)) {
+            if chain.iter().any(|p| p.slot_or_default() == *slot && p.hash() == *hash) {
                 return Ok(Some(*sequence_number));
             }
         }
@@ -428,12 +428,16 @@ fn latest_opcert_sequence_number(
     Ok(None)
 }
 
+fn same_chain_point(stored: &Point, queried: &Point) -> bool {
+    stored.hash() == queried.hash() && stored.slot_or_default() == queried.slot_or_default()
+}
+
 fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {
     chain
         .iter()
         .find(|p| match point {
             Point::Origin => true,
-            Point::Specific(slot, _) => p.slot_or_default() > *slot,
+            Point::Specific(slot, _, _) => p.slot_or_default() > *slot,
         })
         .copied()
 }

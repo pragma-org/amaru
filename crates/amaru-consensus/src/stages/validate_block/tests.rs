@@ -35,7 +35,7 @@ fn test_genesis_block_skips_validation() {
     prep.store_block(&prep.headers.h0);
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h0.tip();
+    let tip = prep.headers.h0.point();
     let msg = ValidateBlockMsg::new(tip, Point::Origin, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -61,7 +61,7 @@ fn test_parent_equals_current_validates_tip_only() {
     prep.store_blocks(&prep.headers.main());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -70,11 +70,11 @@ fn test_parent_equals_current_validates_tip_only() {
         &running,
         &[
             te_input("vb-1", &msg).into(),
-            te_validate_block("vb-1", tip.point()).into(),
+            te_validate_block("vb-1", tip).into(),
             tm_record_metrics("vb-1"),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
                 .into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
@@ -97,7 +97,7 @@ fn test_parent_in_ledger_skips_roll_forward() {
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -108,7 +108,7 @@ fn test_parent_in_ledger_skips_roll_forward() {
             te_input("vb-1", &msg).into(),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
                 .into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
@@ -130,7 +130,7 @@ fn test_mock_rollback_fails_terminates() {
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -167,7 +167,7 @@ fn test_grand_parent_in_ledger() {
     prep.roll_forward_chain(prep.headers.h1.point());
     prep.set_validity(prep.headers.h1.hash(), true);
 
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let parent = prep.headers.h2.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -178,7 +178,7 @@ fn test_grand_parent_in_ledger() {
             te_input("vb-1", &msg).into(),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
                 .into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
@@ -198,7 +198,7 @@ fn test_rollback_fails_when_ancestor_invalid() {
     prep.set_anchor(prep.headers.h0.hash());
     prep.set_validity(prep.headers.h2.hash(), false);
 
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let parent = prep.headers.h2.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -209,7 +209,7 @@ fn test_rollback_fails_when_ancestor_invalid() {
             te_input("vb-1", &msg).into(),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
                 .into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip.point() }).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
@@ -236,7 +236,7 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
     prep.roll_forward_chain(prep.headers.h1.point());
     prep.roll_forward_chain(prep.headers.h2.point());
 
-    let tip = prep.headers.h3a.tip();
+    let tip = prep.headers.h3a.point();
     let parent = prep.headers.h2a.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::new(0));
 
@@ -268,7 +268,7 @@ fn test_ledger_failure_terminates() {
     prep.store_blocks(&prep.headers.main());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -278,7 +278,7 @@ fn test_ledger_failure_terminates() {
         &[
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg),
-            te_validate_block("vb-1", tip.point()),
+            te_validate_block("vb-1", tip),
             te_terminate("vb-1"),
             te_terminated("vb-1", TerminationReason::Voluntary),
         ],
@@ -299,7 +299,7 @@ fn test_validation_failure_sends_false() {
     prep.store_blocks(&prep.headers.main());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -311,9 +311,9 @@ fn test_validation_failure_sends_false() {
         &[
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg),
-            te_validate_block("vb-1", tip.point()),
+            te_validate_block("vb-1", tip),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0))),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip }),
             te_state("vb-1", &expected),
         ],
     );
@@ -326,18 +326,22 @@ fn test_validation_failure_sends_false() {
 fn test_partial_fork_switch_adopts_the_applied_prefix() {
     let mut prep = test_prep();
     prep.set_current(prep.headers.h1.point());
-    prep.block_validator.with_partial_switch(prep.headers.h3a.point(), prep.headers.h2a.tip(), prep.headers.h3a.tip());
+    prep.block_validator.with_partial_switch(
+        prep.headers.h3a.point(),
+        prep.headers.h2a.point(),
+        prep.headers.h3a.point(),
+    );
     prep.store_headers(&prep.headers.all());
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h3a.tip();
-    let applied_tip = prep.headers.h2a.tip();
+    let tip = prep.headers.h3a.point();
+    let applied_tip = prep.headers.h2a.point();
     let parent = prep.headers.h2a.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let expected = ValidateBlock {
-        current: applied_tip.point(),
+        current: applied_tip,
         invalid_blocks: BTreeMap::from([(tip.hash(), tip.block_height())]),
         ..prep.state.clone()
     };
@@ -354,12 +358,12 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
                 SelectChainMsg::BlockValidationResult(applied_tip, true, BlockHeight::from(0)),
             )
             .into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: applied_tip.point() })
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: applied_tip })
                 .into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(applied_tip, BlockHeight::from(0))).into(),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0)))
                 .into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }).into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip }).into(),
             te_state("vb-1", &expected).into(),
         ],
     );
@@ -373,13 +377,13 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
 fn test_rolled_back_fork_switch_reports_the_failing_block() {
     let mut prep = test_prep();
     prep.set_current(prep.headers.h1.point());
-    prep.block_validator.with_rolled_back_switch(prep.headers.h3a.point(), prep.headers.h2a.tip());
+    prep.block_validator.with_rolled_back_switch(prep.headers.h3a.point(), prep.headers.h2a.point());
     prep.store_headers(&prep.headers.all());
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h3a.tip();
-    let failed = prep.headers.h2a.tip();
+    let tip = prep.headers.h3a.point();
+    let failed = prep.headers.h2a.point();
     let parent = prep.headers.h2a.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
@@ -395,7 +399,7 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
             te_input("vb-1", &msg),
             te_rollback_ledger("vb-1", &tip),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(failed, false, BlockHeight::from(0))),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: failed.point() }),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: failed }),
             te_state("vb-1", &expected),
         ],
     );
@@ -414,9 +418,9 @@ fn test_invalid_block_condemns_in_flight_descendants() {
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip1 = prep.headers.h2a.tip();
+    let tip1 = prep.headers.h2a.point();
     let msg1 = ValidateBlockMsg::new(tip1, prep.headers.h1.point(), BlockHeight::from(0));
-    let tip2 = prep.headers.h3a.tip();
+    let tip2 = prep.headers.h3a.point();
     let msg2 = ValidateBlockMsg::new(tip2, prep.headers.h2a.point(), BlockHeight::from(0));
 
     let after_first =
@@ -432,14 +436,14 @@ fn test_invalid_block_condemns_in_flight_descendants() {
         &[
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg1),
-            te_validate_block("vb-1", tip1.point()),
+            te_validate_block("vb-1", tip1),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip1, false, BlockHeight::from(0))),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip1.point() }),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip1 }),
             te_state("vb-1", &after_first),
             te_input("vb-1", &msg2),
             // no ledger effect here: the parent is invalid
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip2, false, BlockHeight::from(0))),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip2.point() }),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip2 }),
             te_state("vb-1", &after_second),
         ],
     );
@@ -458,7 +462,7 @@ fn test_descendant_of_invalid_block_is_refused_without_validation() {
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h3a.tip();
+    let tip = prep.headers.h3a.point();
     let msg = ValidateBlockMsg::new(tip, prep.headers.h2a.point(), BlockHeight::from(0));
 
     let expected = ValidateBlock {
@@ -475,7 +479,7 @@ fn test_descendant_of_invalid_block_is_refused_without_validation() {
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0))),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip.point() }),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: tip }),
             te_state("vb-1", &expected),
         ],
     );
@@ -496,11 +500,11 @@ fn test_invalid_blocks_below_the_security_window_are_evicted() {
     prep.store_blocks(&prep.headers.main());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let msg = ValidateBlockMsg::new(tip, prep.headers.h1.point(), BlockHeight::from(0));
 
     let expected = ValidateBlock {
-        current: tip.point(),
+        current: tip,
         invalid_blocks: BTreeMap::from([kept]),
         consensus_security_param: 2,
         ..prep.state.clone()
@@ -510,7 +514,7 @@ fn test_invalid_blocks_below_the_security_window_are_evicted() {
         &running,
         &[
             te_input("vb-1", &msg).into(),
-            te_validate_block("vb-1", tip.point()).into(),
+            te_validate_block("vb-1", tip).into(),
             te_state("vb-1", &expected).into(),
         ],
     );

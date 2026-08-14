@@ -14,7 +14,9 @@
 
 use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Tip};
+use amaru_kernel::{
+    BlockHeight, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock,
+};
 
 use crate::{
     BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
@@ -99,7 +101,7 @@ pub trait ReadChainStore: BaseReadChainStore {
     ///
     /// Returns `None` when a header along the way is missing from the store, or when `to` is not a
     /// descendant of `from`.
-    fn ancestors_between(&self, from: &Point, to: HeaderHash) -> Option<Vec<Tip>> {
+    fn ancestors_between(&self, from: &Point, to: HeaderHash) -> Option<Vec<Point>> {
         let snapshot = self.snapshot();
         let from_slot = from.slot_or_default();
         let from_hash = from.hash();
@@ -116,7 +118,7 @@ pub trait ReadChainStore: BaseReadChainStore {
                 return None;
             }
 
-            tips.push(header.tip());
+            tips.push(header.point());
             current = header.parent()?;
         }
 
@@ -200,10 +202,15 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// The origin point is always considered to be an intersection point.
     ///
     /// Return None if none of the points is on the best chain
-    fn find_intersect_point(&self, mut points: Vec<Point>) -> Option<Point> {
+    fn find_intersect_point(&self, mut points: Vec<NetworkPoint>) -> Option<Point> {
         let snapshot = self.snapshot();
         points.sort_by_key(|p| Reverse(*p));
-        points.into_iter().find(|&point| point == Point::Origin || snapshot.load_from_best_chain(&point).is_some())
+        points.into_iter().find_map(|point| match point {
+            NetworkPoint::Origin => Some(Point::Origin),
+            NetworkPoint::Specific(_, hash) => snapshot
+                .load_header(&hash)
+                .and_then(|header| snapshot.load_from_best_chain(&header.point()).map(|_| header.point())),
+        })
     }
 
     /// Return a sparse sample of points from the best chain, starting at the tip, with
@@ -227,7 +234,7 @@ pub trait ReadChainStore: BaseReadChainStore {
         let mut spacing = 1;
         let mut last = best_point;
         for (index, header) in ancestors_on_snapshot(best, &*snapshot).skip(1).enumerate() {
-            last = header.tip().point();
+            last = header.point();
             if index + 1 == spacing {
                 points.push(last);
                 spacing *= 2;
@@ -248,13 +255,9 @@ pub trait ReadChainStore: BaseReadChainStore {
     fn find_anchor_at_height(&self, target_height: BlockHeight) -> Option<HeaderHash> {
         let snapshot = self.snapshot();
         let anchor_hash = snapshot.get_anchor_hash();
-        let (mut point, current_height) = if anchor_hash == ORIGIN_HASH {
-            (Point::Origin, BlockHeight::from(0))
-        } else {
-            let header = snapshot.load_header(&anchor_hash)?;
-            (header.point(), header.block_height())
-        };
-        if target_height <= current_height {
+        let mut point =
+            if anchor_hash == ORIGIN_HASH { Point::Origin } else { snapshot.load_header(&anchor_hash)?.point() };
+        if target_height <= point.block_height() {
             return None;
         }
         while let Some(next_point) = snapshot.next_best_chain(&point) {
@@ -316,7 +319,7 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// child_tips(A, ChildTipsMode::All) returns D and G.
     /// child_tips(A, ChildTipsMode::SkipInvalid) returns D only.
     ///
-    fn child_tips(&self, hash: &HeaderHash, mode: ChildTipsMode) -> Vec<Tip> {
+    fn child_tips(&self, hash: &HeaderHash, mode: ChildTipsMode) -> Vec<Point> {
         let snapshot = self.snapshot();
         let mut result = vec![];
         let mut to_visit: VecDeque<HeaderHash> =
@@ -332,7 +335,7 @@ pub trait ReadChainStore: BaseReadChainStore {
                 }
                 let children = snapshot.get_children(&hash);
                 if children.is_empty() {
-                    result.push(header.tip());
+                    result.push(header.point());
                 } else {
                     to_visit.extend(children);
                 }
@@ -350,7 +353,7 @@ fn ancestors_on_snapshot<'a>(
     start: Header,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
 ) -> Box<dyn Iterator<Item = Header> + 'a> {
-    let anchor_point = snapshot.get_anchor_tip().point();
+    let anchor_point = snapshot.get_anchor_tip();
 
     Box::new(successors(Some(start), move |h| {
         if h.slot() <= anchor_point.slot_or_default() {
@@ -365,7 +368,7 @@ fn ancestors_with_validity_on_snapshot<'a>(
     start: HeaderHash,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
 ) -> Box<dyn Iterator<Item = (Header, Option<bool>)> + 'a> {
-    let anchor_point = snapshot.get_anchor_tip().point();
+    let anchor_point = snapshot.get_anchor_tip();
 
     let header_opt = snapshot.load_header_with_validity(&start);
 

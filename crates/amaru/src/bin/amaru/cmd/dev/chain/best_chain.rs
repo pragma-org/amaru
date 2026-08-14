@@ -68,7 +68,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let best_tip = db.load_tip(&best_chain_hash).unwrap();
 
     println!("Anchor:           {anchor}");
-    println!("Best tip (stored): {}", best_tip.point());
+    println!("Best tip (stored): {}", best_tip);
     println!("Best chain length: {}", best_chain.len());
 
     match find_best_candidate(&db) {

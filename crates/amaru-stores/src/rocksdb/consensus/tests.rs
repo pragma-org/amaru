@@ -21,8 +21,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, Hash, Header, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId, RawBlock, Slot,
-    Tip, any_hash28, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
+    BlockHeight, Hash, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId,
+    RawBlock, Slot, any_hash28, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
     make_header_with_op_cert_seq,
     size::HEADER,
     utils::tests::{random_bytes, run_strategy},
@@ -128,7 +128,7 @@ fn store_anchor_hash() {
 #[test]
 fn anchor_tip_when_store_is_empty() {
     with_db(|db| {
-        assert_eq!(db.get_anchor_tip(), Tip::origin());
+        assert_eq!(db.get_anchor_tip(), Point::Origin);
     })
 }
 
@@ -137,7 +137,7 @@ fn anchor_tip_returns_origin_when_anchor_header_is_not_stored() {
     with_db(|db| {
         let anchor = run_strategy(any_header_hash());
         db.set_anchor_hash(&anchor).unwrap();
-        assert_eq!(db.get_anchor_tip(), Tip::origin());
+        assert_eq!(db.get_anchor_tip(), Point::Origin);
     })
 }
 
@@ -147,7 +147,7 @@ fn anchor_tip_returns_tip_of_stored_anchor_header() {
         let header = make_header(1, 0, None);
         db.store_header(&header).unwrap();
         db.set_anchor_hash(&header.hash()).unwrap();
-        assert_eq!(db.get_anchor_tip(), header.tip());
+        assert_eq!(db.get_anchor_tip(), header.point());
     })
 }
 
@@ -397,7 +397,7 @@ fn ancestors_between_returns_the_path_in_parent_to_child_order() {
 
         let path = store.ancestors_between(&headers.h0.point(), headers.h3.hash()).unwrap();
 
-        assert_eq!(path, vec![headers.h1.tip(), headers.h2.tip(), headers.h3.tip()]);
+        assert_eq!(path, vec![headers.h1.point(), headers.h2.point(), headers.h3.point()]);
     });
 }
 
@@ -446,7 +446,7 @@ fn ancestors_between_follows_a_fork_rather_than_the_best_chain() {
 
         let path = store.ancestors_between(&headers.h1.point(), headers.h3a.hash()).unwrap();
 
-        assert_eq!(path, vec![headers.h2a.tip(), headers.h3a.tip()]);
+        assert_eq!(path, vec![headers.h2a.point(), headers.h3a.point()]);
     });
 }
 
@@ -579,7 +579,7 @@ fn next_best_chain_returns_slot_zero_point_given_origin() {
 fn next_best_chain_returns_none_given_point_is_not_on_chain() {
     with_db(|store| {
         let _chain = populate_db(store.clone());
-        let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
+        let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()), BlockHeight::from(100));
 
         assert!(store.next_best_chain(&invalid_point).is_none());
     });
@@ -958,7 +958,8 @@ fn read_snapshot_supports_best_chain_traversal() {
         {
             let chain = chain.clone();
             move |store, snapshot| {
-                let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
+                let invalid_point =
+                    Point::Specific(100.into(), run_strategy(any_header_hash()), BlockHeight::from(100));
 
                 assert_eq!(store.retrieve_best_chain(), chain.iter().map(Header::hash).collect::<Vec<_>>());
                 assert_eq!(snapshot.load_from_best_chain(&chain[0].point()), Some(chain[0].hash()));
@@ -1009,20 +1010,29 @@ fn read_snapshot_supports_find_intersect_point_queries() {
         {
             let chain = chain.clone();
             move |store, _snapshot| {
-                let unknown = Point::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
+                let unknown = NetworkPoint::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
 
                 // intersect one point
-                assert_eq!(store.find_intersect_point(vec![chain[5].point()]), Some(chain[5].point()));
+                assert_eq!(
+                    store.find_intersect_point(vec![chain[5].point().to_network_point()]),
+                    Some(chain[5].point())
+                );
                 // intersect the most recent point
                 assert_eq!(
-                    store.find_intersect_point(vec![chain[3].point(), chain[7].point()]),
+                    store.find_intersect_point(vec![
+                        chain[3].point().to_network_point(),
+                        chain[7].point().to_network_point()
+                    ]),
                     Some(chain[7].point())
                 );
                 // intersect the most recent point
-                assert_eq!(store.find_intersect_point(vec![chain[2].point()]), Some(chain[2].point()));
+                assert_eq!(
+                    store.find_intersect_point(vec![chain[2].point().to_network_point()]),
+                    Some(chain[2].point())
+                );
                 // intersect with no points
                 assert_eq!(store.find_intersect_point(vec![]), None);
-                // intersect with an unknown pointThe thing is not comparable.
+                // intersect with an unknown point
                 assert_eq!(store.find_intersect_point(vec![unknown]), None);
             }
         },
@@ -1034,7 +1044,7 @@ fn find_intersect_point_returns_origin_when_best_chain_is_non_empty() {
     with_db(|store| {
         let _chain = populate_db(store.clone());
 
-        assert_eq!(store.find_intersect_point(vec![Point::Origin]), Some(Point::Origin));
+        assert_eq!(store.find_intersect_point(vec![NetworkPoint::Origin]), Some(Point::Origin));
     });
 }
 
@@ -1149,7 +1159,7 @@ fn read_snapshot_supports_child_tips_all() {
             move |store, _snapshot| {
                 let mut tips = store.child_tips(&headers.h0.hash(), ChildTipsMode::All);
                 tips.sort();
-                let mut expected = vec![headers.h3.tip(), headers.h3a.tip()];
+                let mut expected = vec![headers.h3.point(), headers.h3a.point()];
                 expected.sort();
                 assert_eq!(tips, expected, "\nheaders\n{headers}");
             }
@@ -1178,7 +1188,7 @@ fn read_snapshot_supports_child_tips_skip_invalid() {
             move |store, _snapshot| {
                 assert_eq!(
                     store.child_tips(&headers.h0.hash(), ChildTipsMode::SkipInvalid),
-                    vec![headers.h3a.tip()],
+                    vec![headers.h3a.point()],
                     "\nheaders\n{headers}"
                 );
             }
@@ -1483,7 +1493,7 @@ fn can_convert_v1_sample_db_to_v4() {
 
     let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore>::load_from_best_chain(
         &store,
-        &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
+        &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap(), BlockHeight::from(5)),
     );
     assert!(header.is_some(), "Sample data should be preserved");
 }

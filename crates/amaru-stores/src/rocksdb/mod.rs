@@ -752,7 +752,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
     ) -> Result<(), StoreError> {
         match (point, self.tip().ok()) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _)))
+            (Point::Specific(new, _, _), Some(Point::Specific(current, _, _)))
                 if *new <= current && !self.host.incremental_save =>
             {
                 // Skip saving - point is not newer than current tip

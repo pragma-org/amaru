@@ -17,7 +17,7 @@ use std::{cmp::Ordering, fmt};
 use anyhow::anyhow;
 
 use crate::{
-    BlockHeight, Bytes, Hasher, HeaderBody, HeaderHash, IsHeader, PoolId, Slot, Tip,
+    BlockHeight, Bytes, Hasher, HeaderBody, HeaderHash, IsHeader, PoolId, Slot,
     cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
     size::{HEADER, POOL_COLD_KEY},
@@ -172,10 +172,6 @@ impl Header {
 
     pub fn op_cert_seq(&self) -> u64 {
         self.body().operational_cert.operational_cert_sequence_number
-    }
-
-    pub fn tip(&self) -> Tip {
-        Tip::new(self.point(), self.block_height())
     }
 }
 

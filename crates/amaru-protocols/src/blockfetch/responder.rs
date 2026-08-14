@@ -14,7 +14,7 @@
 
 use std::fmt::Debug;
 
-use amaru_kernel::{IsHeader, NonEmptyVec, Point, RawBlock};
+use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Point, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
 use amaru_observability::debug_span;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -87,7 +87,11 @@ impl PointsRange {
     ///  - Check that there is a valid path of block from `from` to `through` in the chain store.
     ///  - Check that we don't return too many headers to avoid getting over the protocol limits.
     ///  - Return None if any of the above checks fail and return the points range otherwise.
-    pub async fn request_range(store: &Store, from: Point, through: Point) -> anyhow::Result<Option<PointsRange>> {
+    pub async fn request_range(
+        store: &Store,
+        from: NetworkPoint,
+        through: NetworkPoint,
+    ) -> anyhow::Result<Option<PointsRange>> {
         // make sure that from <= through
         if from > through {
             tracing::debug!(%from, %through, "requested range is invalid: from > through");
@@ -95,8 +99,12 @@ impl PointsRange {
         };
 
         if from == through {
+            // FIXME RK: parse header from loaded block
             return if store.load_block(&from.hash()).await?.is_some() {
-                Ok(Some(PointsRange::singleton(from)))
+                match store.load_header(&from.hash()).await {
+                    Some(header) => Ok(Some(PointsRange::singleton(header.point()))),
+                    None => Ok(None),
+                }
             } else {
                 Ok(None)
             };
@@ -268,7 +276,7 @@ pub enum ResponderAction {
 
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ResponderResult {
-    RequestRange { from: Point, through: Point },
+    RequestRange { from: NetworkPoint, through: NetworkPoint },
     Done,
 }
 
@@ -286,7 +294,8 @@ pub mod tests {
     use std::sync::Arc;
 
     use amaru_kernel::{
-        EraHistory, EraName, Header, IsHeader, Slot, any_fake_header, any_headers_chain, any_headers_chain_with_root,
+        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, Slot, any_fake_header, any_headers_chain,
+        any_headers_chain_with_root,
         cardano::network_block::{NetworkBlock, make_encoded_block},
         utils::tests::run_strategy,
     };
@@ -398,12 +407,12 @@ pub mod tests {
 
     #[test]
     fn test_request_range_no_parent_hash_before_from() {
-        let genesis = Point::Specific(Slot::from(10), run_strategy(any_fake_header()).hash());
+        let genesis = NetworkPoint::Specific(Slot::from(10), run_strategy(any_fake_header()).hash());
         let (store, headers) = make_store_with_chain_starting_from(5, genesis);
 
         let result = request_range(
             store,
-            Point::Specific(Slot::from(2), run_strategy(any_fake_header()).hash()),
+            NetworkPoint::Specific(Slot::from(2), run_strategy(any_fake_header()).hash()),
             headers[3].point(),
         );
         assert_eq!(result, None, "should return None when we hit genesis before finding from");
@@ -420,7 +429,7 @@ pub mod tests {
         // and then hit a block with a slot before 'from', triggering the abort condition.
         let from_slot = headers[2].slot();
         let non_existent_hash = run_strategy(any_fake_header()).hash();
-        let from = Point::Specific(from_slot, non_existent_hash);
+        let from = NetworkPoint::Specific(from_slot, non_existent_hash);
 
         let result = request_range(store, from, headers[4].point());
         assert_eq!(result, None, "should return None when we reach a slot before 'from' without finding 'from'");
@@ -487,8 +496,12 @@ pub mod tests {
         make_store_with_chain_starting_from(n, Point::Origin)
     }
 
-    fn make_store_with_chain_starting_from(n: usize, point: Point) -> (Arc<InMemoryChainStore>, Vec<Header>) {
-        let headers: Vec<Header> = run_strategy(any_headers_chain_with_root(n, point));
+    fn make_store_with_chain_starting_from(
+        n: usize,
+        point: impl Into<NetworkPoint>,
+    ) -> (Arc<InMemoryChainStore>, Vec<Header>) {
+        let headers: Vec<Header> =
+            run_strategy(any_headers_chain_with_root(n, Point::new(point.into(), BlockHeight::from(0))));
         let store = Arc::new(InMemoryChainStore::new());
         // Set anchor to the first header
         store.set_anchor_hash(&headers[0].hash()).unwrap();
@@ -507,7 +520,13 @@ pub mod tests {
     }
 
     /// Invoke the PointsRange::request_range method via a stage
-    fn request_range(store: Arc<InMemoryChainStore>, from: Point, through: Point) -> Option<PointsRange> {
+    fn request_range(
+        store: Arc<InMemoryChainStore>,
+        from: impl Into<NetworkPoint>,
+        through: impl Into<NetworkPoint>,
+    ) -> Option<PointsRange> {
+        let from = from.into();
+        let through = through.into();
         match run_points_range_test(store, PointsRangeTestMsg::RequestRange { from, through }) {
             PointsRangeTestResult::RequestRange(result) => result,
             PointsRangeTestResult::NextBlock(_) => unreachable!(),
@@ -545,7 +564,7 @@ pub mod tests {
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     enum PointsRangeTestMsg {
-        RequestRange { from: Point, through: Point },
+        RequestRange { from: NetworkPoint, through: NetworkPoint },
         NextBlock { range: PointsRange },
     }
 

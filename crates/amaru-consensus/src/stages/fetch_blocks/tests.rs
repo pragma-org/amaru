@@ -43,8 +43,8 @@ use crate::{
 #[test]
 fn test_new_tip_load_header_fails() {
     let prep = test_prep();
-    // Tip h2 but store has no headers - load will fail
-    let tip = prep.headers.h2.tip();
+    // Point h2 but store has no headers - load will fail
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = FetchBlocksMsg::new_tip(tip, parent);
 
@@ -73,7 +73,7 @@ fn test_new_tip_no_blocks_to_fetch() {
     prep.store_block(&prep.headers.h2);
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = FetchBlocksMsg::new_tip(tip, parent);
 
@@ -84,7 +84,7 @@ fn test_new_tip_no_blocks_to_fetch() {
             te_state("fb-1", &prep.state),
             te_input("fb-1", &msg),
             te_find_missing_blocks("fb-1", tip.hash(), 25),
-            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(tip.point())),
+            te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(tip)),
             te_state("fb-1", &prep.state_with_block_height(3)),
         ],
     );
@@ -119,13 +119,13 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
             te_send(
                 "fb-1",
                 "downstream",
-                DownloadedBlock::new(prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(3)),
+                DownloadedBlock::new(prep.headers.h1.point(), prep.headers.h0.point(), BlockHeight::from(3)),
             ),
             te_has_block("fb-1", prep.headers.h2.hash()),
             te_send(
                 "fb-1",
                 "downstream",
-                DownloadedBlock::new(prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(3)),
+                DownloadedBlock::new(prep.headers.h2.point(), prep.headers.h1.point(), BlockHeight::from(3)),
             ),
             te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h2.point())),
             te_state("fb-1", &expected),
@@ -179,7 +179,7 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
             te_send(
                 "fb-1",
                 "downstream",
-                DownloadedBlock::new(prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(4)),
+                DownloadedBlock::new(prep.headers.h1.point(), prep.headers.h0.point(), BlockHeight::from(4)),
             ),
             // The tail of the replay path is the batch to fetch, so no second search of the store.
             te_has_block("fb-1", prep.headers.h2.hash()),
@@ -228,7 +228,7 @@ fn test_new_tip_blocks_to_fetch() {
     prep.set_anchor(prep.headers.h0.hash());
     // No blocks stored - so we need to fetch
 
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = FetchBlocksMsg::new_tip(tip, parent);
 
@@ -334,7 +334,7 @@ fn test_block_received() {
             te_send(
                 "fb-1",
                 "downstream",
-                DownloadedBlock::new(prep.headers.h1.tip(), prep.headers.h0.point(), BlockHeight::from(0)),
+                DownloadedBlock::new(prep.headers.h1.point(), prep.headers.h0.point(), BlockHeight::from(0)),
             )
             .into(),
             te_state("fb-1", &expected).into(),
@@ -396,7 +396,7 @@ fn test_block2_received() {
             te_send(
                 "fb-1",
                 "downstream",
-                DownloadedBlock::new(prep.headers.h2.tip(), prep.headers.h1.point(), BlockHeight::from(0)),
+                DownloadedBlock::new(prep.headers.h2.point(), prep.headers.h1.point(), BlockHeight::from(0)),
             )
             .into(),
             te_cancel_schedule("fb-1", schedule_id).into(),
@@ -418,7 +418,7 @@ fn test_block2_received() {
 #[test]
 fn test_new_tip_find_missing_blocks_error() {
     let prep = test_prep();
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = FetchBlocksMsg::new_tip(tip, parent);
 
@@ -563,7 +563,7 @@ fn test_strong_selection_passes_peers_to_manager() {
     prep.set_anchor(prep.headers.h0.hash());
 
     let selected = Peer::new("alice");
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = FetchBlocksMsg::new_tip(tip, parent);
     let selected_clone = selected.clone();
@@ -849,7 +849,7 @@ fn test_first_message_wires_cleanup_replies_child() {
     let mut prep = test_prep();
     prep.state.cleanup_replies = StageRef::blackhole();
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2]);
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = FetchBlocksMsg::new_tip(tip, parent);
 

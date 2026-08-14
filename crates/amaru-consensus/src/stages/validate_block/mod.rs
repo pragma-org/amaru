@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{BlockHeight, HeaderHash, Point, Tip};
+use amaru_kernel::{BlockHeight, HeaderHash, Point};
 use amaru_metrics::LedgerMetrics;
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros_traits::ForkSwitchOutcome;
@@ -37,14 +37,14 @@ use crate::{
 /// - If `msg.parent == state.current`: the block extends the ledger and is validated via
 ///   `Ledger::validate_block` (a `ValidateBlockEffect`).
 ///   - Success: record `LedgerMetrics`, send `SelectChainMsg::BlockValidationResult(msg.tip, true, state.max_block_height)`,
-///     `BlockSourceMsg::Validation { valid: true, point: msg.tip.point() }`, and
-///     `AdoptChainMsg::new(msg.tip, state.max_block_height)` to manager; update `state.current = msg.tip.point()`.
+///     `BlockSourceMsg::Validation { valid: true, point: msg.tip }`, and
+///     `AdoptChainMsg::new(msg.tip, state.max_block_height)` to manager; update `state.current = msg.tip`.
 ///   - `Err`: log warn, send `...Result(msg.tip, false)` + `Validation { valid: false, ... }` (no adopt, no current update).
 /// - Otherwise: ask the ledger to switch to the fork ending at `msg.tip` (`Ledger::switch_to_fork`,
 ///   a `SwitchToForkEffect`) and route its `ForkSwitchOutcome`:
 ///   - `Completed`: same signals as a successful extension.
 ///   - `Partial { applied_tip, failure, .. }`: the ledger kept the fork's valid prefix; signal `applied_tip`
-///     as a successful extension (metrics, results, adopt, `current = applied_tip.point()`), then send
+///     as a successful extension (metrics, results, adopt, `current = applied_tip`), then send
 ///     `...Result(failure.tip, false)` + `Validation { valid: false, ... }` for the failing block. No result
 ///     is sent for `msg.tip` itself: select_chain condemns descendants of an invalid block transitively.
 ///   - `RolledBack { failure }`: the ledger restored its pre-switch state; send
@@ -91,23 +91,23 @@ impl ValidateBlock {
     }
 
     // Notify other stages of a successful block validation, record metrics, and update the current tip.
-    pub async fn completed(&mut self, tip: Tip, eff: &Effects<ValidateBlockMsg>, metrics: LedgerMetrics) {
+    pub async fn completed(&mut self, tip: Point, eff: &Effects<ValidateBlockMsg>, metrics: LedgerMetrics) {
         Metrics::new(eff).record(metrics.into()).await;
         eff.send(&self.select_chain, SelectChainMsg::BlockValidationResult(tip, true, self.max_block_height)).await;
-        eff.send(&self.block_source, BlockSourceMsg::Validation { valid: true, point: tip.point() }).await;
+        eff.send(&self.block_source, BlockSourceMsg::Validation { valid: true, point: tip }).await;
         eff.send(&self.adopt_chain, AdoptChainMsg::new(tip, self.max_block_height)).await;
 
         // Condemned blocks deeper than k below the new tip can never have their header selected again
         let k = self.consensus_security_param;
         self.invalid_blocks.retain(|_, height| height.as_u64() + k > tip.block_height().as_u64());
-        self.current = tip.point();
+        self.current = tip;
     }
 
     // Notify other stages of a failed block validation, record metrics, and update the current tip.
     pub async fn error(
         &mut self,
         msg: ValidateBlockMsg,
-        failed_tip: Tip,
+        failed_tip: Point,
         eff: &Effects<ValidateBlockMsg>,
         reason: &str,
         message: &str,
@@ -118,20 +118,20 @@ impl ValidateBlock {
 
         eff.send(&self.select_chain, SelectChainMsg::BlockValidationResult(failed_tip, false, self.max_block_height))
             .await;
-        eff.send(&self.block_source, BlockSourceMsg::Validation { valid: false, point: failed_tip.point() }).await;
+        eff.send(&self.block_source, BlockSourceMsg::Validation { valid: false, point: failed_tip }).await;
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateBlockMsg {
-    tip: Tip,
+    tip: Point,
     parent: Point,
     max_block_height: BlockHeight,
     trace_context: TraceContext,
 }
 
 impl ValidateBlockMsg {
-    pub fn new(tip: Tip, parent: Point, max_block_height: BlockHeight) -> Self {
+    pub fn new(tip: Point, parent: Point, max_block_height: BlockHeight) -> Self {
         Self { tip, parent, max_block_height, trace_context: Default::default() }
     }
 
@@ -182,7 +182,7 @@ pub async fn stage(
 
         if msg.parent == state.current {
             let result = ledger
-                .validate_block(&tip.point())
+                .validate_block(&tip)
                 .or_terminate_with(&eff, async |err| {
                     tracing::warn!(tip = %msg.tip, err = %err, "failed to validate the new block");
                 })

@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Header, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{Header, HeaderHash, Point, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
@@ -116,8 +116,8 @@ pub fn register_guards() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_data_deserializer::<SelectChain>().boxed(),
         amaru_pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<(Point, Point)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<NewBestTip>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
@@ -137,7 +137,7 @@ pub fn register_guards() -> DeserializerGuards {
     ]
 }
 
-/// Creates test prep with Tip::origin() as best_tip and empty tips (just origin).
+/// Creates test prep with Point::Origin as best_tip and empty tips (just origin).
 pub fn test_prep() -> TestPrep {
     let downstream = StageRef::named_for_tests("downstream");
     let mut state = SelectChain::new(downstream.clone());
@@ -241,7 +241,7 @@ pub fn te_record_block_pruned(
     ))
 }
 
-pub fn te_record_fork_started(at_stage: &str, tip: Tip, now: amaru_pure_stage::Instant) -> TraceEntry {
+pub fn te_record_fork_started(at_stage: &str, tip: Point, now: amaru_pure_stage::Instant) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::record_fork_started(tip, now)),

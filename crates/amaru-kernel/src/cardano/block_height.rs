@@ -19,7 +19,7 @@ use std::{
 
 use crate::cbor;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BlockHeight(u64);
 
 impl BlockHeight {

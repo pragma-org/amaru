@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Hash, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, Tip, from_cbor, size, size::HEADER,
+    Hash, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER,
 };
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
 use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
@@ -73,18 +73,18 @@ where
             .unwrap_or(ORIGIN_HASH)
     }
 
-    fn get_anchor_tip(&self) -> Tip {
+    fn get_anchor_tip(&self) -> Point {
         let anchor_hash = self.get_anchor_hash();
         if anchor_hash == ORIGIN_HASH {
-            return Tip::origin();
+            return Point::Origin;
         }
         self.db
             .get_pinned(&[&HEADER_PREFIX[..], &anchor_hash[..]].concat(), ReadOptions::default())
             .ok()
             .flatten()
             .and_then(|bytes| from_cbor::<Header>(bytes.as_ref()))
-            .map(|h| h.tip())
-            .unwrap_or_else(Tip::origin)
+            .map(|h| h.point())
+            .unwrap_or(Point::Origin)
     }
 
     fn get_best_chain_hash(&self) -> HeaderHash {
@@ -120,10 +120,10 @@ where
         if let Some(Ok((k, v))) = iter.next() {
             #[expect(clippy::unwrap_used)]
             let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
-            let slot = u64::from_be_bytes(slot_bytes);
+            let _slot = u64::from_be_bytes(slot_bytes);
             if v.len() == HEADER {
                 let hash = <HeaderHash>::from(v.as_ref());
-                Some(Point::Specific(slot.into(), hash))
+                self.load_header(&hash).map(|header| header.point())
             } else {
                 None
             }
@@ -215,8 +215,10 @@ where
         opts.set_iterate_range(PrefixRange(prefix.as_slice()));
         for item in self.db.iterator_opt(IteratorMode::From(&seek, Direction::Reverse), opts) {
             let (key, value) = item.map_err(|e| StoreError::ReadError { error: e.to_string() })?;
-            let (slot, hash) = decode_opcert_key(&key)?;
-            if self.load_from_best_chain(&Point::Specific(slot, hash)).is_some() {
+            let (_slot, hash) = decode_opcert_key(&key)?;
+            if let Some(header) = self.load_header(&hash)
+                && self.load_from_best_chain(&header.point()).is_some()
+            {
                 return Ok(from_cbor(&value));
             }
         }
@@ -253,7 +255,7 @@ pub(crate) fn opcert_key(header: &Header) -> Vec<u8> {
 /// If the point is Origin, the slot is 0 by definition.
 fn next_best_chain_start_slot(point: &Point) -> u64 {
     match point {
-        Point::Specific(slot, _) => u64::from(*slot) + 1,
+        Point::Specific(slot, _, _) => u64::from(*slot) + 1,
         Point::Origin => 0,
     }
 }
