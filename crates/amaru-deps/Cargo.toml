@@ -25,6 +25,7 @@ ignored = [
   "clap_builder",
   "console",
   "criterion",
+  "crossbeam-utils",
   "digest",
   "digest-93f6ce9d446188ac",
   "digest-a6292c17cd707f01",
@@ -107,6 +108,7 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_builder = { version = "4", default-features = false, features = ["color", "env", "std", "suggestions", "usage", "wrap_help"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
 criterion = { version = "0.8", features = ["html_reports"] }
+crossbeam-utils = { version = "0.8" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 ed25519 = { version = "2", default-features = false, features = ["alloc", "serde", "std"] }

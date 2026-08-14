@@ -25,6 +25,7 @@ futures-util.workspace = true
 getrandom = { version = "0.3", features = ["wasm_js"] }
 hex.workspace = true
 parking_lot.workspace = true
+poolshark.workspace = true
 pretty_assertions.workspace = true
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive", "alloc", "rc"] }
