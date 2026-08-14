@@ -1741,6 +1741,39 @@ define_schemas! {
                 }
             }
         }
+        node {
+            build {
+                tags: setup
+                /// Opened the ledger state; reports the ledger tip at startup
+                public LEDGER_OPENED {
+                    required tip: amaru_kernel::Point
+                }
+                /// Failed to notify the peer tracker of a stake distribution update
+                public STAKE_DIST_NOTIFY_FAILED {}
+            }
+            metrics {
+                /// The metrics collector could not find Amaru's own process
+                public PROCESS_NOT_FOUND {
+                    required pid: u32
+                }
+            }
+            submit_api {
+                tags: io
+                /// The transaction submission HTTP server is listening
+                public STARTED {
+                    required local_addr: String
+                }
+                /// The transaction submission HTTP server stopped with an error
+                public STOPPED {
+                    required error: String
+                }
+                /// A submitted transaction could not reach the mempool.
+                /// Reason ∈ {send_failed, response_dropped, deserialize_failed}.
+                public MEMPOOL_UNREACHABLE {
+                    required reason: String
+                }
+            }
+        }
         network {
             connection {
                 tags: io

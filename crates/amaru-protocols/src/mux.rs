@@ -177,7 +177,7 @@ impl State {
                 let writer = eff
                     .stage(
                         format!("writer-{}", conn),
-                        move |(conn, muxer, role, peer), data: NonEmptyBytes, eff| async move {
+                        move |(conn, muxer, role, peer): (ConnectionId, StageRef<MuxMessage>, Role, Peer), data: NonEmptyBytes, eff| async move {
                             Network::new(&eff)
                                 .send(conn, data)
                                 .or_terminate_with(

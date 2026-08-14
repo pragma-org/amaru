@@ -3753,6 +3753,109 @@
       "description": "Aborted an existing listener task so the address can be rebound on restart",
       "public": true
     },
+    "amaru::node::build::LEDGER_OPENED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "tip"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ledger_opened",
+      "level": "TRACE",
+      "target": "amaru::node::build",
+      "description": "Opened the ledger state; reports the ledger tip at startup",
+      "public": true
+    },
+    "amaru::node::build::STAKE_DIST_NOTIFY_FAILED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stake_dist_notify_failed",
+      "level": "TRACE",
+      "target": "amaru::node::build",
+      "description": "Failed to notify the peer tracker of a stake distribution update",
+      "public": true
+    },
+    "amaru::node::metrics::PROCESS_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pid"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "process_not_found",
+      "level": "TRACE",
+      "target": "amaru::node::metrics",
+      "description": "The metrics collector could not find Amaru's own process",
+      "public": true
+    },
+    "amaru::node::submit_api::MEMPOOL_UNREACHABLE": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mempool_unreachable",
+      "level": "TRACE",
+      "target": "amaru::node::submit_api",
+      "description": "A submitted transaction could not reach the mempool. Reason ∈ {send_failed, response_dropped, deserialize_failed}.",
+      "public": true
+    },
+    "amaru::node::submit_api::STARTED": {
+      "type": "object",
+      "properties": {
+        "local_addr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_addr"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "started",
+      "level": "TRACE",
+      "target": "amaru::node::submit_api",
+      "description": "The transaction submission HTTP server is listening",
+      "public": true
+    },
+    "amaru::node::submit_api::STOPPED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stopped",
+      "level": "TRACE",
+      "target": "amaru::node::submit_api",
+      "description": "The transaction submission HTTP server stopped with an error",
+      "public": true
+    },
     "amaru::protocols::keepalive::peer::ROUND_TRIP": {
       "type": "object",
       "properties": {
