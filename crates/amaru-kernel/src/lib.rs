@@ -118,7 +118,7 @@ pub use cardano::{
     max_string::MaxString128,
     memoized::{
         self, BorrowedScript, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-        MemoizedTransactionOutput, MemoizedValue, deserialize_script, serialize_memoized_script, serialize_script,
+        MemoizedTransactionOutput, deserialize_script, serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
     multiasset::{self, Multiasset},

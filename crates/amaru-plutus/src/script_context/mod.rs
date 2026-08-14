@@ -105,8 +105,8 @@ pub mod test_vectors {
     use std::{collections::BTreeMap, sync::LazyLock};
 
     use amaru_kernel::{
-        Address, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedTransactionOutput, MemoizedValue, TransactionInput,
-        Value, include_json, size::DATUM, utils::serde::hex_to_bytes,
+        Address, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedTransactionOutput, TransactionInput, Value,
+        include_json, size::DATUM, utils::serde::hex_to_bytes,
     };
     use serde::Deserialize;
 
@@ -268,7 +268,6 @@ pub mod test_vectors {
                     }
 
                     let value = value.ok_or_else(|| serde::de::Error::missing_field("value"))?;
-                    let value = MemoizedValue::new(value).map_err(serde::de::Error::custom)?;
 
                     Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput::new(
                         false,

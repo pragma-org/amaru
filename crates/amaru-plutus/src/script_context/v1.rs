@@ -205,7 +205,7 @@ impl ToPlutusData<1> for MemoizedTransactionOutput {
             0,
             [
                 self.address,
-                self.value.as_ref(),
+                self.value,
                 match &self.datum {
                     MemoizedDatum::Hash(hash) => Some(*hash.as_ref()),
                     _ => None::<Hash<DATUM>>,

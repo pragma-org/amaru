@@ -109,7 +109,7 @@ impl ToPlutusData<3> for TransactionInput {
 
 impl ToPlutusData<3> for MemoizedTransactionOutput {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(0, [self.address, self.value.as_ref(), self.datum, self.script])
+        constr_v3!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 

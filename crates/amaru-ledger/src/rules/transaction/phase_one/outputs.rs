@@ -99,7 +99,7 @@ where
                 .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
         }
 
-        if let Some(input) = construct_utxo(context, position as u64, output.value.as_ref()) {
+        if let Some(input) = construct_utxo(context, position as u64, &output.value) {
             context.produce(input, output);
         }
     }
