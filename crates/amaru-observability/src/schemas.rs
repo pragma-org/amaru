@@ -1727,6 +1727,30 @@ define_schemas! {
                 RECV {}
                 /// Close connection
                 CLOSE {}
+                /// Aborted an existing listener task so the address can be rebound on restart
+                public LISTENER_RESTART {
+                    required address: String
+                }
+                /// A TCP listener is bound and accepting incoming connections
+                LISTENING {
+                    required local: String
+                }
+                /// The accept loop terminated because the listener or channel closed
+                public ACCEPT_LOOP_STOPPED {
+                    required local: String
+                }
+                /// Accepted an incoming TCP connection
+                ACCEPTED {
+                    required peer_addr: String
+                }
+                /// Established a TCP connection to one of the given addresses
+                CONNECTED {
+                    required addresses: Vec<String>
+                }
+                /// Resolved a peer specification into socket addresses
+                RESOLVED {
+                    required addresses: Vec<String>
+                }
             }
         }
     }

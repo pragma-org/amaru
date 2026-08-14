@@ -3239,6 +3239,42 @@
       "description": "Download and verify the digests for a Mithril snapshot",
       "public": true
     },
+    "amaru::network::connection::ACCEPT_LOOP_STOPPED": {
+      "type": "object",
+      "properties": {
+        "local": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "local"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "accept_loop_stopped",
+      "level": "TRACE",
+      "target": "amaru::network::connection",
+      "description": "The accept loop terminated because the listener or channel closed",
+      "public": true
+    },
+    "amaru::network::connection::LISTENER_RESTART": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "listener_restart",
+      "level": "TRACE",
+      "target": "amaru::network::connection",
+      "description": "Aborted an existing listener task so the address can be rebound on restart",
+      "public": true
+    },
     "amaru::protocols::keepalive::peer::ROUND_TRIP": {
       "type": "object",
       "properties": {

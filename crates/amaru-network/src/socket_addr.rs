@@ -14,11 +14,15 @@
 
 use std::net::SocketAddr;
 
+use amaru_observability::debug;
 use amaru_ouroboros::ToSocketAddrs;
 use tokio::net::lookup_host;
 
 pub async fn resolve(addr: ToSocketAddrs) -> std::io::Result<Vec<SocketAddr>> {
+    use std::string::String;
+
     use ToSocketAddrs::*;
+
     let result = match addr {
         SocketAddrs(addr) => Ok(addr),
         SocketAddrV4(addr) => Ok(vec![addr.into()]),
@@ -29,11 +33,8 @@ pub async fn resolve(addr: ToSocketAddrs) -> std::io::Result<Vec<SocketAddr>> {
         String(addr) => Ok(lookup_host(&addr).await?.take(100).collect()),
     };
 
-    if let Ok(addrs) = result.as_ref() {
-        tracing::debug!(
-            addresses = addrs.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(", "),
-            "resolved addresses"
-        );
+    if let Ok(addresses) = result.as_ref() {
+        debug!(network::connection::RESOLVED, addresses = addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>());
     }
 
     result
