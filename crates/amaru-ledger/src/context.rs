@@ -20,8 +20,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalKind,
+    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, GovernanceAction, Hash, Lovelace, MemoizedDatum,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
     ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
@@ -342,9 +342,9 @@ pub struct ProposalState {
 }
 
 pub trait ProposalsSlice {
-    /// Check whether a proposal exists. If the `kind` is specified, it must also match and be part
-    /// of the same lineage.
-    fn exists(&self, id: &ProposalId, kind: Option<ProposalKind>) -> bool;
+    /// The governance action of a known proposal, whether it comes from the ledger state or was
+    /// acknowledged earlier in the block.
+    fn lookup(&self, id: &ProposalId) -> Option<&GovernanceAction>;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;

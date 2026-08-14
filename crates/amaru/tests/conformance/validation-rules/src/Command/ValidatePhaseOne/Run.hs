@@ -513,5 +513,7 @@ normalizeGovFailure = \case
         "VotingOnExpiredGovAction"
     DisallowedVoters{} ->
         "DisallowedVoters"
+    ProposalCantFollow{} ->
+        "ProposalCantFollow"
     otherFailure ->
         "unsupported:" <> showText otherFailure

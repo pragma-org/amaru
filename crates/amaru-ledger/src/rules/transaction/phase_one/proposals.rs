@@ -49,8 +49,8 @@ pub enum InvalidProposals {
     #[error("conflicting committee update: members appear in both add and remove sets")]
     ConflictingCommitteeUpdate,
 
-    #[error("hardfork version {new:?} cannot follow current version {current:?}")]
-    HardforkCantFollow { current: ProtocolVersion, new: ProtocolVersion },
+    #[error("hardfork version {new:?} cannot follow version {previous:?}")]
+    HardforkCantFollow { previous: ProtocolVersion, new: ProtocolVersion },
 
     #[error("malformed parameter change proposal: {reason}")]
     MalformedProposal { reason: String },
@@ -148,7 +148,9 @@ where
     if !matches!(kind, ProposalKind::Orphan) {
         let parent = proposal.parent();
         let follows_root = parent == context.roots().root_of(kind);
-        let follows_in_flight = matches!(parent, Some(id) if context.exists(id, Some(kind)));
+        let follows_in_flight = parent
+            .and_then(|id| ProposalsSlice::lookup(context, id))
+            .is_some_and(|gov_action| ProposalKind::from(gov_action) == kind);
         if !follows_root && !follows_in_flight {
             return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
         }
@@ -226,12 +228,16 @@ where
 
         GovernanceAction::NoConfidence(_) | GovernanceAction::NewConstitution(..) => {}
 
-        GovernanceAction::HardForkInitiation(_, new_version) => {
-            if !new_version.can_follow(protocol_parameters.protocol_version) {
-                return Err(InvalidProposals::HardforkCantFollow {
-                    current: protocol_parameters.protocol_version,
-                    new: *new_version,
-                });
+        GovernanceAction::HardForkInitiation(parent, new_version) => {
+            let previous = preceding_hard_fork_version(
+                context,
+                parent.as_ref(),
+                *new_version,
+                protocol_parameters.protocol_version,
+            );
+
+            if !new_version.can_follow(previous) {
+                return Err(InvalidProposals::HardforkCantFollow { previous, new: *new_version });
             }
         }
 
@@ -244,6 +250,32 @@ where
     }
 
     Ok(())
+}
+
+/// The protocol version a hard fork proposal must follow. A proposal chaining onto another hard
+/// fork still in flight follows *that* proposal's version rather than the one currently in effect.
+fn preceding_hard_fork_version<C>(
+    context: &C,
+    parent: Option<&ProposalId>,
+    new_version: ProtocolVersion,
+    current_version: ProtocolVersion,
+) -> ProtocolVersion
+where
+    C: ProposalsSlice,
+{
+    let follows_root = parent == context.roots().root_of(ProposalKind::HardFork);
+    let skips_major = new_version.major() > current_version.major() + 1;
+
+    if follows_root || skips_major {
+        return current_version;
+    }
+
+    match parent.and_then(|id| context.lookup(id)) {
+        Some(GovernanceAction::HardForkInitiation(_, previous_version)) => *previous_version,
+        // The lineage check in `validate_proposal` runs first, and rejects any parent that is
+        // neither the hard fork root nor a hard fork proposal still in flight.
+        parent => unreachable!("hardfork proposal follows neither its root nor an in-flight hardfork: {parent:?}"),
+    }
 }
 
 /// Only `TreasuryWithdrawals` and `ParameterChange` proposals require the guardrails script hash.

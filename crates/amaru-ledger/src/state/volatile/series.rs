@@ -15,7 +15,7 @@
 use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, ProposalKind, StakeCredential,
+    GovernanceAction, Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, StakeCredential,
     TransactionInput,
 };
 use amaru_observability::debug_span;
@@ -72,8 +72,8 @@ impl VolatileState for VolatileSeries {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<ProposalKind>;
-    fn resolve_proposal(&self, id: &ProposalId) -> Existence<ProposalKind> {
+    type Proposal<'a> = Existence<&'a GovernanceAction>;
+    fn resolve_proposal<'a>(&'a self, id: &ProposalId) -> Self::Proposal<'a> {
         self.aggregate.resolve_proposal(id)
     }
 

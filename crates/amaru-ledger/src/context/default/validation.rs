@@ -22,7 +22,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
     GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalKind, ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential,
+    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential,
     TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
@@ -44,7 +44,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeMap<ProposalId, ProposalKind>,
+    proposals: BTreeMap<ProposalId, GovernanceAction>,
     proposals_roots: ProposalsRoots,
     treasury: Lovelace,
     state: VolatileFragment,
@@ -65,7 +65,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeMap<ProposalId, ProposalKind>,
+        proposals: BTreeMap<ProposalId, GovernanceAction>,
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
     ) -> Self {
@@ -373,22 +373,9 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    // Check whether a proposal exists. If the `kind` is specified, it must also match and be part
-    // of the same lineage.
-    fn exists(&self, id: &ProposalId, kind: Option<ProposalKind>) -> bool {
-        // block-start proposals
-        if let Some(existing) = self.proposals.get(id) {
-            return kind.is_none_or(|kind| mem::discriminant(existing) == mem::discriminant(&kind));
-        }
-
-        // proposals acknowledged earlier in this block
-        if let Some(existing) = self.state.proposals.get(id) {
-            return kind.is_none_or(|kind| {
-                mem::discriminant(&ProposalKind::from(&existing.0.gov_action)) == mem::discriminant(&kind)
-            });
-        }
-
-        false
+    fn lookup(&self, id: &ProposalId) -> Option<&GovernanceAction> {
+        // block-start proposals, then those acknowledged earlier in this block
+        self.proposals.get(id).or_else(|| self.state.proposals.get(id).map(|entry| &entry.0.gov_action))
     }
 
     fn roots(&self) -> &ProposalsRoots {

@@ -18,7 +18,7 @@ use crate::GovernanceAction;
 
 /// A type capturing just the proposal group/kind another proposal belong. The kind determines the
 /// lineage the proposal belongs to.
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "&str", into = "String")]
 pub enum ProposalKind {
     ProtocolParameters,
