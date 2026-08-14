@@ -32,6 +32,9 @@ We would like the codebase to organize the metrics it tracks in a simple, consis
 
     - We will make judicious use of [Spans](https://opentelemetry.io/docs/concepts/observability-primer/#spans) to expose the structured nature of the workload the Amaru node performs.
 
+- How nested span context is encoded on each product sink (console, JSON, OpenTelemetry, TUI)
+  is specified in [EDR-033](./033-tracing-stack-span-encoding.md).
+
 - We define the frontier between logs and traces by following a simple rule:
     - Any event at the DEBUG level or above is considered a log
     - Any event at the TRACE level is considered a trace

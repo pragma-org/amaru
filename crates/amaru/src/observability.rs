@@ -15,7 +15,6 @@
 use std::{
     env::{VarError, var},
     error::Error,
-    fmt,
     io::{self, IsTerminal},
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
@@ -24,8 +23,8 @@ use std::{
 
 use amaru_metrics::{METRICS_METER_NAME, Meter};
 use amaru_observability::{
-    CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge, CborTraceArrayLayer,
-    TelemetryCaptureLayer, console_field_formatter, info, warn,
+    CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
+    CborTraceArrayLayer, TelemetryCaptureLayer, console_field_formatter, info, warn,
 };
 use opentelemetry::{Key, KeyValue, metrics::MeterProvider, trace::TracerProvider};
 use opentelemetry_sdk::{
@@ -35,21 +34,11 @@ use opentelemetry_sdk::{
     trace::SdkTracerProvider,
 };
 use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
-use tracing::{
-    Metadata, Subscriber,
-    field::{Field, Visit},
-    level_filters::LevelFilter,
-    span,
-    subscriber::Interest,
-};
+use tracing::{Metadata, Subscriber, level_filters::LevelFilter, span, subscriber::Interest};
 use tracing_subscriber::{
     EnvFilter, Registry,
-    field::{MakeVisitor, VisitFmt, VisitOutput},
     filter::Filtered,
-    fmt::{
-        Layer,
-        format::{FmtSpan, Writer},
-    },
+    fmt::{Layer, format::FmtSpan},
     layer::{Context, Filter, Layered, SubscriberExt},
     prelude::*,
     util::SubscriberInitExt,
@@ -103,118 +92,10 @@ type LocalTelemetryLayer<S> = Layered<LocalTelemetryFilter<S>, S>;
 
 type DelayedWarning = Option<Box<dyn FnOnce()>>;
 
-// -----------------------------------------------------------------------------
-// HideTagFields
-//
-// The `amaru.tag.<name>` boolean attributes categorize spans (cpu/io/setup) for
-// OpenTelemetry backends. They carry no value in the human-readable console log,
-// and because the compact formatter appends the fields of every span in scope,
-// an inherited tag would otherwise repeat once per nested span. This field
-// formatter drops them from the console output while leaving OpenTelemetry spans
-// and JSON traces untouched.
-// -----------------------------------------------------------------------------
-
-const TAG_FIELD_PREFIX: &str = "amaru.tag.";
-
-fn is_tag_field(field: &Field) -> bool {
-    field.name().starts_with(TAG_FIELD_PREFIX)
-}
-
-/// Wraps a field formatter so that `amaru.tag.*` fields are skipped.
-struct HideTagFields<N>(N);
-
-impl<'writer, N> MakeVisitor<Writer<'writer>> for HideTagFields<N>
-where
-    N: MakeVisitor<Writer<'writer>>,
-{
-    type Visitor = HideTagVisitor<N::Visitor>;
-
-    fn make_visitor(&self, target: Writer<'writer>) -> Self::Visitor {
-        HideTagVisitor(self.0.make_visitor(target))
-    }
-}
-
-/// Forwards every recorded value to the inner visitor except `amaru.tag.*`
-/// fields, which are dropped. Each typed method is forwarded individually so the
-/// inner visitor keeps its per-type formatting.
-struct HideTagVisitor<V>(V);
-
-impl<V: Visit> Visit for HideTagVisitor<V> {
-    fn record_f64(&mut self, field: &Field, value: f64) {
-        if !is_tag_field(field) {
-            self.0.record_f64(field, value);
-        }
-    }
-
-    fn record_i64(&mut self, field: &Field, value: i64) {
-        if !is_tag_field(field) {
-            self.0.record_i64(field, value);
-        }
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        if !is_tag_field(field) {
-            self.0.record_u64(field, value);
-        }
-    }
-
-    fn record_i128(&mut self, field: &Field, value: i128) {
-        if !is_tag_field(field) {
-            self.0.record_i128(field, value);
-        }
-    }
-
-    fn record_u128(&mut self, field: &Field, value: u128) {
-        if !is_tag_field(field) {
-            self.0.record_u128(field, value);
-        }
-    }
-
-    fn record_bool(&mut self, field: &Field, value: bool) {
-        if !is_tag_field(field) {
-            self.0.record_bool(field, value);
-        }
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        if !is_tag_field(field) {
-            self.0.record_str(field, value);
-        }
-    }
-
-    fn record_bytes(&mut self, field: &Field, value: &[u8]) {
-        if !is_tag_field(field) {
-            self.0.record_bytes(field, value);
-        }
-    }
-
-    fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
-        if !is_tag_field(field) {
-            self.0.record_error(field, value);
-        }
-    }
-
-    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-        if !is_tag_field(field) {
-            self.0.record_debug(field, value);
-        }
-    }
-}
-
-impl<Out, V: VisitOutput<Out>> VisitOutput<Out> for HideTagVisitor<V> {
-    fn finish(self) -> Out {
-        self.0.finish()
-    }
-}
-
-impl<V: VisitFmt> VisitFmt for HideTagVisitor<V> {
-    fn writer(&mut self) -> &mut dyn fmt::Write {
-        self.0.writer()
-    }
-}
-
 // JSON event formatting (single-pass CBOR-aware NDJSON) lives in
-// `amaru_observability::json_format`.
+// `amaru_observability::json_format`. Console field formatting (CBOR decode +
+// tag hiding) lives in `amaru_observability::layers`. Nested-span encoding
+// across stacks is specified in EDR-033.
 
 #[derive(Default)]
 pub enum TracingSubscriber<S> {
@@ -301,9 +182,10 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(console_field_formatter()))
-                            .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
+                            .with_ansi(color)
+                            .fmt_fields(console_field_formatter())
                             .with_span_events(FmtSpan::CLOSE)
+                            .event_format(CborConsoleEventFormat::new().with_ansi(color))
                             .with_filter(default_filter),
                     )
                     .init();
@@ -315,9 +197,10 @@ impl TracingSubscriber<Registry> {
                     .with(
                         tracing_subscriber::fmt::layer()
                             .with_writer(io::stderr as fn() -> io::Stderr)
-                            .fmt_fields(HideTagFields(console_field_formatter()))
-                            .event_format(tracing_subscriber::fmt::format().with_ansi(color).compact())
+                            .with_ansi(color)
+                            .fmt_fields(console_field_formatter())
                             .with_span_events(FmtSpan::CLOSE)
+                            .event_format(CborConsoleEventFormat::new().with_ansi(color))
                             .with_filter(default_filter),
                     )
                     .init();
@@ -719,36 +602,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering as AtomicOrdering},
     };
 
-    use tracing_subscriber::fmt::format::DefaultFields;
-
     use super::*;
-
-    /// The compact console formatter appends the fields of every span in scope to
-    /// each event. When several nested spans each carry an `amaru.tag.*` marker
-    /// (as all ledger spans do), the tag would otherwise repeat once per span.
-    /// `HideTagFields` must strip those markers while keeping ordinary fields.
-    #[test]
-    fn console_hides_tag_fields_from_nested_spans() {
-        let buffer = Arc::new(Mutex::new(Vec::new()));
-        let layer = tracing_subscriber::fmt::layer()
-            .with_writer(BufferWriter(Arc::clone(&buffer)))
-            .with_ansi(false)
-            .fmt_fields(HideTagFields(DefaultFields::new()))
-            .event_format(tracing_subscriber::fmt::format().with_ansi(false).compact());
-        let subscriber = tracing_subscriber::registry().with(layer);
-
-        tracing::subscriber::with_default(subscriber, || {
-            let outer = tracing::info_span!("outer", "amaru.tag.cpu" = true);
-            let _outer = outer.enter();
-            let inner = tracing::info_span!("inner", "amaru.tag.cpu" = true, transaction_id = "abc");
-            let _inner = inner.enter();
-            tracing::info!("hello");
-        });
-
-        let output = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
-        assert!(!output.contains("amaru.tag.cpu"), "tag markers must be hidden from the console: {output}");
-        assert!(output.contains("transaction_id=\"abc\""), "ordinary span fields must be kept: {output}");
-    }
 
     #[test]
     fn otel_target_is_recognised_as_internal() {
@@ -871,30 +725,6 @@ mod tests {
     }
 
     // HELPERS
-
-    /// A `MakeWriter` that accumulates everything written into a shared buffer,
-    /// so a test can inspect the formatted output.
-    #[derive(Clone)]
-    struct BufferWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl io::Write for BufferWriter {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for BufferWriter {
-        type Writer = BufferWriter;
-
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
 
     /// Builds a subscriber that wraps a `ThrottledEnvFilter` and counts how
     /// many events pass the filter.  Installing it as the default inside a

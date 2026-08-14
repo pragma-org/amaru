@@ -32,9 +32,10 @@ use tracing::{
 };
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
-use crate::field::{DecodedField, cbor_to_decoded_field};
-
-const TAG_FIELD_PREFIX: &str = "amaru.tag.";
+use crate::{
+    field::{DecodedField, TAG_FIELD_PREFIX, cbor_to_decoded_field},
+    span_encode::ancestor_span_names,
+};
 
 /// A captured field value from a tracing event or span.
 #[derive(Debug, Clone, PartialEq)]
@@ -70,6 +71,14 @@ pub struct TelemetryRecord {
     pub fields: BTreeMap<String, FieldValue>,
     /// `None` for point events; `Some` when a span closed.
     pub duration: Option<std::time::Duration>,
+    /// Ancestor span names, outermost first, excluding the wrapping span.
+    pub parents: Vec<String>,
+    /// Name of the wrapping span (`None` when the record is outside any span).
+    pub span_name: Option<String>,
+    /// Present on closed-span records (the span's own id).
+    pub id: Option<u64>,
+    /// Id of the parent of the wrapping span, when that parent exists.
+    pub parent_id: Option<u64>,
 }
 
 /// `tracing-subscriber` layer that forwards events and closed spans to a channel.
@@ -106,9 +115,26 @@ impl<S> Layer<S> for TelemetryCaptureLayer
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+    fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let mut visitor = FieldVisitor::default();
         event.record(&mut visitor);
+
+        let mut parents = Vec::new();
+        let mut span_name = None;
+        let mut parent_id = None;
+        if let Some(scope) = ctx.event_scope(event) {
+            let spans: Vec<_> = scope.from_root().collect();
+            parents.extend(ancestor_span_names(spans.iter().map(|span| span.name().to_string())));
+            if let Some(leaf) = spans.last() {
+                span_name = Some(leaf.name().to_string());
+                parent_id = leaf.parent().map(|parent| parent.id().into_u64());
+                if let Some(state) = leaf.extensions().get::<CapturedSpan>() {
+                    for (key, value) in &state.fields {
+                        visitor.fields.entry(key.clone()).or_insert_with(|| value.clone());
+                    }
+                }
+            }
+        }
 
         self.emit(TelemetryRecord {
             level: *event.metadata().level(),
@@ -118,6 +144,10 @@ where
             wall_time: SystemTime::now(),
             fields: visitor.fields,
             duration: None,
+            parents,
+            span_name,
+            id: None,
+            parent_id,
         });
     }
 
@@ -157,8 +187,11 @@ where
             return;
         };
 
-        let mut extensions = span.extensions_mut();
-        let Some(state) = extensions.remove::<CapturedSpan>() else {
+        let parents =
+            ancestor_span_names(span.scope().from_root().map(|ancestor| ancestor.name().to_string())).collect();
+        let parent_id = span.parent().map(|parent| parent.id().into_u64());
+        let id = span.id().into_u64();
+        let Some(state) = span.extensions_mut().remove::<CapturedSpan>() else {
             return;
         };
 
@@ -166,11 +199,15 @@ where
         self.emit(TelemetryRecord {
             level: state.level,
             target: state.target,
+            span_name: Some(state.name.clone()),
             name: state.name,
             at: closed_at,
             wall_time: state.wall_time,
             fields: state.fields,
             duration: Some(closed_at.saturating_duration_since(state.opened_at)),
+            parents,
+            id: Some(id),
+            parent_id,
         });
     }
 }
@@ -274,6 +311,42 @@ mod tests {
         if let Some(FieldValue::Debug(s) | FieldValue::Str(s)) = record.fields.get("slot") {
             panic!("slot should be typed U64, got string-like {s:?}");
         }
+        assert!(record.parents.is_empty(), "point event outside a span has an empty path");
+        assert!(record.span_name.is_none());
+        assert!(record.parent_id.is_none());
+        assert!(record.id.is_none());
+    }
+
+    #[test]
+    fn events_inside_nested_spans_record_the_name_path() {
+        let (tx, rx) = sync_channel(4);
+        let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
+
+        tracing::subscriber::with_default(subscriber, || {
+            let outer = tracing::info_span!("epoch.transition");
+            let _outer = outer.enter();
+            let inner = tracing::info_span!("governance.ratify_proposals");
+            let _inner = inner.enter();
+            tracing::info!("ratification.summarize");
+        });
+
+        let records: Vec<_> = rx.try_iter().collect();
+        let event = records
+            .iter()
+            .find(|r| r.duration.is_none() && !r.parents.is_empty())
+            .unwrap_or_else(|| panic!("event, got {records:#?}"));
+        assert_eq!(event.parents, vec!["epoch.transition".to_string()]);
+        assert_eq!(event.span_name.as_deref(), Some("governance.ratify_proposals"));
+        assert!(event.parent_id.is_some(), "child event refers to the outer span by id");
+        assert!(event.id.is_none());
+        let closed_inner = records
+            .iter()
+            .find(|r| r.name == "governance.ratify_proposals" && r.duration.is_some())
+            .expect("inner close");
+        assert_eq!(closed_inner.parents, vec!["epoch.transition".to_string()]);
+        assert_eq!(closed_inner.span_name.as_deref(), Some("governance.ratify_proposals"));
+        assert_eq!(closed_inner.parent_id, event.parent_id);
+        assert!(closed_inner.id.is_some());
     }
 
     #[test]

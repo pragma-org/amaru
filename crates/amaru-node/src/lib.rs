@@ -102,9 +102,10 @@ pub fn default_peer_for_network(network: NetworkName) -> &'static str {
 /// fields (primitives + CBOR-encoded complex values) render correctly.
 pub mod observability {
     pub use amaru_observability::{
-        CborAwareMakeVisitor, CborDiagVisitor, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer,
-        CborOtelLogBridge, CborToStringVisit, CborTraceArrayLayer, SpanJsonFields, as_str_value, cbor_to_any_value,
-        cbor_to_trace_value, console_field_formatter, encode_cbor,
+        CborAwareMakeVisitor, CborConsoleEventFormat, CborDiagVisitor, CborJsonEventFormat, CborJsonFields,
+        CborJsonSpanLayer, CborOtelLogBridge, CborToStringVisit, CborTraceArrayLayer, HideTagFields, SpanJsonFields,
+        abbreviate_span_name, ancestor_span_names, as_str_value, cbor_to_any_value, cbor_to_trace_value,
+        console_field_formatter, encode_cbor, format_abbreviated_span_path,
     };
 }
 
