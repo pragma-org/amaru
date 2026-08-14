@@ -25,12 +25,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, NetworkName, Point,
-    PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer, protocol_version,
-    size::SCRIPT, to_cbor, utils::string::display_collection,
     Block, BlockHeight, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher,
     NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer,
-    protocol_version, to_cbor, utils::string::display_collection,
+    protocol_version, size::SCRIPT, to_cbor, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, error_record, info, info_record, info_span, trace, warn, warn_record};

@@ -19,10 +19,10 @@ use std::{
 };
 
 use amaru_kernel::{
+    Block, EraHistory, ExUnits, GlobalParameters, Hash, NetworkName, ProtocolParameters, Slot, Tip, TransactionId,
+    TransactionIndex, TransactionPointer,
     cardano::transaction_ref::TransactionRef,
     size::{BLOCK_BODY, SCRIPT},
-    Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot, Tip,
-    TransactionId, TransactionIndex, TransactionPointer,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;

@@ -16,13 +16,14 @@ use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::{Debug, Display},
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 
 use amaru_kernel::{
-    Block, BlockHeight, CertificatePointer, ConstitutionalCommitteeStatus, Epoch, EraHistory, GlobalParameters, Hash,
-    Header, HeaderHash, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
-    PREPROD_GLOBAL_PARAMETERS, Point, Pots, ProposalsRoots, ProtocolParameters, Slot, Tip,
+    Anchor, Block, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory,
+    GlobalParameters, Hash, Header, HeaderHash, MaxString128, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Pots, ProposalsRoots, ProtocolParameters, Slot, Tip,
     cardano::network_block::make_block, cbor, make_header, to_cbor,
 };
 use amaru_ledger::{
@@ -165,6 +166,7 @@ pub fn make_state_in_epoch_with_snapshots_and_store(
         global_parameters,
         protocol_parameters,
         GovernanceActivity::default(),
+        None,
         VecDeque::new(),
     );
     (state, stable)
@@ -379,6 +381,19 @@ pub struct MockTransaction<'a> {
 impl ReadStore for MockTransaction<'_> {
     fn governance_activity(&self) -> amaru_ledger::store::Result<GovernanceActivity> {
         Ok(GovernanceActivity::default())
+    }
+
+    /// A bootstrapped ledger always has a constitution; these tests never propose one, so any
+    /// anchor will do and there is no guardrails script to enforce.
+    #[expect(clippy::expect_used)]
+    fn constitution(&self) -> amaru_ledger::store::Result<Constitution> {
+        Ok(Constitution {
+            anchor: Anchor {
+                url: MaxString128::from_str("https://example.com").expect("valid anchor URL"),
+                content_hash: [0; 32].into(),
+            },
+            guardrail_script: None,
+        })
     }
 }
 
