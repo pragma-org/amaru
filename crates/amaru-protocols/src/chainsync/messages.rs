@@ -197,6 +197,9 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
                 let (a, b): (u8, u64) = d.decode()?;
 
                 d.tag()?;
+                // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
+                // which rejects indefinite-length byte strings, so we reject them too.
+                #[allow(clippy::disallowed_methods)]
                 let bytes = d.bytes()?;
 
                 Ok(HeaderContent { variant, byron_prefix: Some((a, b)), cbor: Vec::from(bytes) })
@@ -210,6 +213,9 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
             | EraName::Dijkstra => {
                 cbor::check_tagged_array_length(variant.header_variant().into(), len, 2)?;
                 d.tag()?;
+                // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
+                // which rejects indefinite-length byte strings, so we reject them too.
+                #[allow(clippy::disallowed_methods)]
                 let bytes = d.bytes()?;
                 Ok(HeaderContent { variant, byron_prefix: None, cbor: Vec::from(bytes) })
             }

@@ -243,6 +243,9 @@ impl<'b> cbor::Decode<'b, ()> for EraTaggedTx {
                 tag
             )));
         }
+        // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
+        // which rejects indefinite-length byte strings, so we reject them too.
+        #[allow(clippy::disallowed_methods)]
         let tx = decode_tx(d.bytes()?)?;
         Ok(EraTaggedTx { era, tx })
     }
@@ -429,6 +432,8 @@ mod tests {
         let era = decode_era_tag(&mut d).unwrap();
         assert_eq!(era, EraName::Conway);
         assert_eq!(d.tag().unwrap(), cbor::IanaTag::Cbor.tag()); // cbor-in-cbor tag
+        // Mirrors the strict definite-length read of the production decoder.
+        #[allow(clippy::disallowed_methods)]
         let tx_bytes = d.bytes().unwrap();
 
         assert_eq!(tx_bytes[0], 0x84); // definite-length array of size 4

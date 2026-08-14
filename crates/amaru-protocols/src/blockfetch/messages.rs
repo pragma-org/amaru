@@ -111,6 +111,9 @@ impl<'b> cbor::Decode<'b, ()> for Message {
                     )));
                 }
 
+                // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
+                // which rejects indefinite-length byte strings, so we reject them too.
+                #[allow(clippy::disallowed_methods)]
                 let body = d.bytes()?;
                 Ok(Message::Block { body: Vec::from(body) })
             }
