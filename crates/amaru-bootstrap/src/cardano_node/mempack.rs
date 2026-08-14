@@ -448,7 +448,7 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
         policies.insert(policy_id, NonEmptyKeyValuePairs::try_from(assets).map_err(|e| e.to_string())?);
     }
 
-    Ok(policies)
+    Ok(policies.into())
 }
 
 #[cfg(test)]

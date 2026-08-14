@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{HasLovelace, MemoizedTransactionOutput, ProtocolParameters};
+use amaru_kernel::{HasLovelace, MemoizedTransactionOutput, ProtocolParameters, cbor};
 
-use super::{InvalidOutput, value_size::cardano_node_value_size};
+use super::InvalidOutput;
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
@@ -29,7 +29,7 @@ pub fn execute(
     }
 
     let max_value_size = protocol_parameters.max_value_size;
-    let given_val_size = cardano_node_value_size(&output.value);
+    let given_val_size = cbor::count_bytes(&output.value);
 
     // This conversion is safe because max_value_size will never be big enough to cause a problem
     if given_val_size > max_value_size as usize {
@@ -41,28 +41,26 @@ pub fn execute(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, ops::Deref};
+
     use amaru_kernel::{
-        Address, AssetName, Hash, MemoizedDatum, MemoizedTransactionOutput, NonEmptyKeyValuePairs,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PositiveCoin, ProtocolParameters, Value, from_cbor, to_cbor,
+        Address, AssetName, Hash, MemoizedDatum, MemoizedTransactionOutput, Multiasset, NonEmptyKeyValuePairs,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PositiveCoin, ProtocolParameters, Value, cbor::count_bytes, from_cbor,
+        to_cbor, utils::tests::random_bytes,
     };
 
     use super::*;
 
     #[test]
-    fn the_value_size_is_measured_via_the_cardano_node_serialization_not_the_wire_bytes() {
-        // The 9-byte non-minimal wire form is not what gets measured: the value re-serializes
-        // to 5 bytes, which is the size the rule must compare against the maximum.
-        let value = amaru_encoded_value(1_000_000_000);
-        assert_eq!(cardano_node_value_size(&value), 5);
-
-        let output = output_with(value);
+    fn the_value_size_is_measured_via_reserialization_not_the_wire_bytes() {
+        let output = output_with(non_canonical_value(1_000_000_000));
         let result = execute(&protocol_parameters_with_max_size(5), &output);
         assert!(result.is_ok(), "ledger size 5 must satisfy max_value_size 5: {result:?}");
     }
 
     #[test]
     fn a_value_exceeding_the_ledger_size_limit_is_rejected() {
-        let output = output_with(amaru_encoded_value(1_000_000_000));
+        let output = output_with(non_canonical_value(1_000_000_000));
 
         match execute(&protocol_parameters_with_max_size(4), &output) {
             Err(InvalidOutput::ValueTooLarge { maximum_size, given_size }) => {
@@ -75,24 +73,23 @@ mod tests {
 
     #[test]
     fn large_maps_with_indefinite_length_headers_are_valid_with_the_cardano_node_encoding() {
-        // Maps with less than or equal to 255 entries have the same size regardless of the amaru
-        // or haskell encoding
-        let value = multiasset_value(20);
-        assert_eq!(cardano_node_value_size(&value), to_cbor(&value).len());
+        // Maps with less than or equal to 255 entries have the same size regardless of the encoding
+        let multiassets = multiassets_of(20);
+        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
 
-        let value = multiasset_value(100);
-        assert_eq!(cardano_node_value_size(&value), to_cbor(&value).len());
+        let multiassets = multiassets_of(100);
+        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len());
 
-        // From 256 entries on, there is a one-byte difference between the amaru and haskell encodings.
+        // From 256 entries on, there is a one-byte difference:
         // The indefinite-length header is one byte shorter than the definite-length header.
         // The ledger size is therefore one byte smaller than the amaru encoding.
-        let value = multiasset_value(324);
-        assert_eq!(cardano_node_value_size(&value), to_cbor(&value).len() - 1);
+        let multiassets = multiassets_of(324);
+        assert_eq!(count_bytes(&multiassets), to_cbor(multiassets.deref()).len() - 1);
 
-        let output = output_with(value);
-        // The amaru encoding would fail with this max size
-        let result = execute(&protocol_parameters_with_max_size(1335), &output);
-        assert!(result.is_ok(), "the value is accepted {}", result.unwrap_err());
+        let bytes = to_cbor(&(2000000, multiassets.deref()));
+        let output = output_with(from_cbor(&bytes).expect("valid value"));
+        let result = execute(&protocol_parameters_with_max_size(10700), &output);
+        assert!(result.is_ok(), "the value should have been accepted {}", result.unwrap_err());
     }
 
     #[test]
@@ -103,7 +100,7 @@ mod tests {
         // 303): 358 assets across 6 policies, one of them holding 324 assets. The network
         // accepted it at exactly maxValueSize=5000 while our the amaru encoding originally returned 5001.
         let value: Value = amaru_kernel::include_cbor!("phase-one/preprod/b2c00c16/output-1-value.cbor");
-        let ledger_size = cardano_node_value_size(&value) as u64;
+        let ledger_size = count_bytes(&value) as u64;
         assert_eq!(ledger_size, 5000, "the ledger-side size must be 5000 bytes");
 
         let output = output_with(value);
@@ -113,27 +110,20 @@ mod tests {
 
     // HELPERS
 
-    /// A value decoded from an on-wire encoding one CBOR argument wider than necessary: the coin
-    /// is encoded with the 8-byte argument form (9 wire bytes) although it fits in 4 bytes
-    /// (5 bytes serialized).
-    fn amaru_encoded_value(coin: u32) -> Value {
+    /// A value whose on-wire encoding is one CBOR argument wider than necessary: the coin is
+    /// encoded with the 8-byte argument form although it fits in 4 bytes, giving 9 wire bytes
+    /// against a 5-byte for the haskell node serialization.
+    fn non_canonical_value(coin: u32) -> Value {
         let mut bytes = vec![0x1b];
         bytes.extend_from_slice(&u64::from(coin).to_be_bytes());
         from_cbor(&bytes).expect("valid non-minimal CBOR value")
     }
 
     /// A value carrying `assets` distinct single-unit assets under one policy.
-    fn multiasset_value(assets: u16) -> Value {
-        let assets = NonEmptyKeyValuePairs::try_from(
-            (0..assets)
-                .map(|i| {
-                    let name = AssetName::try_from(i.to_be_bytes().to_vec()).unwrap();
-                    (name, PositiveCoin::try_from(1).unwrap())
-                })
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        Value::Multiasset(2_000_000, std::iter::once((Hash::from([7u8; 28]), assets)).collect())
+    fn multiassets_of(n: u16) -> Multiasset<PositiveCoin> {
+        let assets =
+            NonEmptyKeyValuePairs::try_from(vec![(AssetName::empty(), PositiveCoin::try_from(1).unwrap())]).unwrap();
+        (0..n).map(|_| (Hash::from(random_bytes(28).as_slice()), assets.clone())).collect::<BTreeMap<_, _>>().into()
     }
 
     fn output_with(value: Value) -> MemoizedTransactionOutput {

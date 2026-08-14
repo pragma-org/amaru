@@ -92,12 +92,7 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.map(self.len() as u64)?;
-        for (k, v) in self.iter() {
-            k.encode(e, ctx)?;
-            v.encode(e, ctx)?;
-        }
-        Ok(())
+        cbor::encode_variable_length_map(e, self.iter().map(|(k, v)| (k, v)), ctx)
     }
 }
 

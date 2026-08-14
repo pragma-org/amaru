@@ -301,7 +301,7 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> R
                 multiasset.insert(policy_id, pairs);
             }
 
-            Value::Multiasset(coin, multiasset)
+            Value::Multiasset(coin, multiasset.into())
         }
     };
 

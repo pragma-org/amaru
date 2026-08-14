@@ -299,6 +299,8 @@ pub mod test_vectors {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{EMPTY_ASSET_NAME, Hash, NonEmptyKeyValuePairs, PositiveCoin, Value};
     use proptest::{
         prelude::{any, prop},
@@ -319,9 +321,9 @@ mod tests {
                         .unwrap();
                 (Hash::from(*policy), assets)
             })
-            .collect();
+            .collect::<BTreeMap<_, _>>();
 
-        Value::Multiasset(coin, multiasset)
+        Value::Multiasset(coin, multiasset.into())
     }
 
     #[test]
