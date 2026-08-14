@@ -34,7 +34,7 @@ use amaru_ledger::{
         TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
     },
 };
-use amaru_observability::{debug_span, info_span, trace_record};
+use amaru_observability::{debug_span, info_span, trace_record, warn};
 use amaru_ouroboros_traits::BaseReadChainStore;
 use anyhow::anyhow;
 use parking_lot::Mutex;
@@ -42,7 +42,6 @@ use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
     WriteBatchWithTransaction,
 };
-use tracing::warn;
 
 pub mod ledger;
 use ledger::columns::*;
@@ -409,7 +408,8 @@ fn with_snapshots(
         if let Ok(epoch) = entry.file_name().to_str().unwrap_or_default().parse::<Epoch>() {
             with(path, epoch)?;
         } else if entry.file_name() != DIR_LIVE_DB {
-            warn!(filename = entry.file_name().to_str().unwrap_or_default(), "with_snapshots.unexpected_file");
+            let filename = entry.file_name();
+            warn!(stores::ledger::snapshots::UNEXPECTED_FILE, filename = filename.to_str().unwrap_or_default());
         }
     }
 
@@ -678,7 +678,7 @@ impl Drop for RocksDBTransactionalContext<'_> {
         // If the context is dropped without an explicit commit/rollback then we clear the host flag
         // so a subsequent create_transaction() call does not panic.
         if self.host.ongoing_transaction.get() {
-            warn!("RocksDB transactional context dropped without commit/rollback; auto-rolled-back");
+            warn!(stores::batch::DROPPED_WITHOUT_CLOSE, outcome = "auto_rolled_back");
             self.host.transaction_ended();
         }
     }

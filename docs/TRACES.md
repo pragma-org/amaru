@@ -633,6 +633,41 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::chain_db_migration`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `execute` | `TRACE` | public | Migrate the database if necessary | from, to |  |
+| `reset_best_chain` | `TRACE` | public | Reset the best chain to the anchor during migration so blocks are revalidated | prev_best_chain, new_best_chain |  |
+| `warn` | `TRACE` | public | A database migration relies on an assumption that may not hold; see the reason | to, reason |  |
+
+<details><summary>span: `execute`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from` | `integer` | ✓ |
+| `to` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `reset_best_chain`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `prev_best_chain` | `string` | ✓ |
+| `new_best_chain` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `warn`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `to` | `integer` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::consensus::perf::fork`
 
 | name | level | public | description | required fields | optional fields |
@@ -1814,7 +1849,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `commit` | `TRACE` | public | Commit a write batch |  |  |
+| `dropped_without_close` | `TRACE` | public | A transaction was dropped without commit or rollback. Outcome ∈ {left_open, auto_rolled_back}. | outcome |  |
 | `rollback` | `TRACE` | public | Rollback a write batch |  |  |
+
+<details><summary>span: `dropped_without_close`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `outcome` | `string` | ✓ |
+
+</details>
 
 ## target: `amaru::stores::consensus::block`
 
@@ -2107,7 +2151,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `unexpected_file` | `TRACE` | public | Skipped an unexpected file found in the snapshots directory | filename |  |
 | `validate` | `TRACE` | public | Validate sufficient snapshots exist |  | snapshot_count, continuous_ranges |
+
+<details><summary>span: `unexpected_file`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `filename` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `validate`</summary>
 

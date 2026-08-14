@@ -94,16 +94,29 @@ use amaru_observability_macros::define_schemas;
 define_schemas! {
     amaru {
         consensus {
+            chain_db_migration {
+                /// Migrate the database if necessary
+                public EXECUTE {
+                    required from: u16
+                    required to: u16
+                }
+                /// A database migration relies on an assumption that may not hold; see the reason
+                public WARN {
+                    /// Version the database is being migrated to
+                    required to: u16
+                    required reason: String
+                }
+                /// Reset the best chain to the anchor during migration so blocks are revalidated
+                public RESET_BEST_CHAIN {
+                    required prev_best_chain: amaru_kernel::HeaderHash
+                    required new_best_chain: amaru_kernel::HeaderHash
+                }
+            }
             chain_db {
                 tags: setup
                 /// Open the database
                 OPEN {
                     required path: String
-                }
-                /// Migrate the database if necessary
-                MIGRATE {
-                    required from: u16
-                    required to: u16
                 }
                 /// Initialize the store
                 INITIALIZE {
@@ -1108,6 +1121,11 @@ define_schemas! {
                 public COMMIT {}
                 /// Rollback a write batch
                 public ROLLBACK {}
+                /// A transaction was dropped without commit or rollback.
+                /// Outcome ∈ {left_open, auto_rolled_back}.
+                public DROPPED_WITHOUT_CLOSE {
+                    required outcome: String
+                }
             }
             ledger {
                 epoch {
@@ -1282,6 +1300,10 @@ define_schemas! {
                     public VALIDATE {
                         optional snapshot_count: u64
                         optional continuous_ranges: u64
+                    }
+                    /// Skipped an unexpected file found in the snapshots directory
+                    public UNEXPECTED_FILE {
+                        required filename: String
                     }
                 }
                 /// Full scan for a given collection

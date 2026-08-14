@@ -1124,6 +1124,74 @@
       "description": "Skip a block validation when it is not better than the current ledger tip",
       "public": true
     },
+    "amaru::consensus::chain_db_migration::EXECUTE": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "integer"
+        },
+        "to": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "execute",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_db_migration",
+      "description": "Migrate the database if necessary",
+      "public": true
+    },
+    "amaru::consensus::chain_db_migration::RESET_BEST_CHAIN": {
+      "type": "object",
+      "properties": {
+        "prev_best_chain": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "new_best_chain": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "prev_best_chain",
+        "new_best_chain"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reset_best_chain",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_db_migration",
+      "description": "Reset the best chain to the anchor during migration so blocks are revalidated",
+      "public": true
+    },
+    "amaru::consensus::chain_db_migration::WARN": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "to",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "warn",
+      "level": "TRACE",
+      "target": "amaru::consensus::chain_db_migration",
+      "description": "A database migration relies on an assumption that may not hold; see the reason",
+      "public": true
+    },
     "amaru::consensus::perf::fork::SWITCH": {
       "type": "object",
       "properties": {
@@ -3663,6 +3731,24 @@
       "description": "Commit a write batch",
       "public": true
     },
+    "amaru::stores::batch::DROPPED_WITHOUT_CLOSE": {
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "outcome"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dropped_without_close",
+      "level": "TRACE",
+      "target": "amaru::stores::batch",
+      "description": "A transaction was dropped without commit or rollback. Outcome ∈ {left_open, auto_rolled_back}.",
+      "public": true
+    },
     "amaru::stores::batch::ROLLBACK": {
       "type": "object",
       "properties": {},
@@ -4373,6 +4459,24 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::slots",
       "description": "Write a slot/block-issuer entry",
+      "public": true
+    },
+    "amaru::stores::ledger::snapshots::UNEXPECTED_FILE": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unexpected_file",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::snapshots",
+      "description": "Skipped an unexpected file found in the snapshots directory",
       "public": true
     },
     "amaru::stores::ledger::snapshots::VALIDATE": {
