@@ -103,19 +103,19 @@ impl Scenario {
             // The context will always reach to the stable store for committee members, since the
             // volatile can only know they're gone after a an epoch transition, while everything
             // else requires a stable store view.
-            fn cc_member(
+            fn iter_cc_members(
                 &self,
-                credential: &StakeCredential,
-            ) -> store::Result<Option<store::columns::cc_members::Row>> {
+            ) -> store::Result<impl Iterator<Item = (store::columns::cc_members::Key, store::columns::cc_members::Row)>>
+            {
                 match self.0 {
-                    Scenario::Committee | Scenario::Mixed => Ok(None),
+                    Scenario::Committee | Scenario::Mixed => Ok(std::iter::empty()),
                     Scenario::Utxo
                     | Scenario::Pools
                     | Scenario::Accounts
                     | Scenario::Withdrawals
                     | Scenario::DReps
                     | Scenario::Proposals
-                    | Scenario::Votes => unimplemented!("ReadStore.cc_member({credential:?}"),
+                    | Scenario::Votes => unimplemented!("ReadStore.iter_cc_members() for {:?}", self.0),
                 }
             }
 
@@ -130,7 +130,7 @@ impl Scenario {
                     | Scenario::Committee
                     | Scenario::DReps
                     | Scenario::Proposals
-                    | Scenario::Votes => unimplemented!("ReadStore.account({credential:?}"),
+                    | Scenario::Votes => unimplemented!("ReadStore.account({credential:?} for {:?}", self.0),
                 }
             }
 
