@@ -24,6 +24,139 @@ use amaru_pure_stage::{
     BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
 };
 
+/// Factory for chain-store external effects.
+///
+/// Stages can construct an effect and pass it to `eff.external(...)`:
+///
+/// ```ignore
+/// let point = eff.external(StoreEffect::load_point(hash)).await;
+/// ```
+///
+/// [`Store`] remains available for existing call sites.
+pub struct StoreEffect;
+
+impl StoreEffect {
+    pub fn load_header(hash: HeaderHash) -> LoadHeaderEffect {
+        LoadHeaderEffect::new(hash)
+    }
+
+    pub fn load_header_with_validity(hash: HeaderHash) -> LoadHeaderWithValidityEffect {
+        LoadHeaderWithValidityEffect::new(hash)
+    }
+
+    pub fn get_children(hash: HeaderHash) -> GetChildrenEffect {
+        GetChildrenEffect::new(hash)
+    }
+
+    pub fn get_anchor_hash() -> GetAnchorHashEffect {
+        GetAnchorHashEffect::new()
+    }
+
+    pub fn get_best_chain_hash() -> GetBestChainHashEffect {
+        GetBestChainHashEffect::new()
+    }
+
+    pub fn get_best_chain_tip() -> GetBestChainTipEffect {
+        GetBestChainTipEffect::new()
+    }
+
+    pub fn load_block(hash: HeaderHash) -> LoadBlockEffect {
+        LoadBlockEffect::new(hash)
+    }
+
+    pub fn has_block(hash: HeaderHash) -> HasBlockEffect {
+        HasBlockEffect::new(hash)
+    }
+
+    pub fn get_nonces(hash: HeaderHash) -> GetNoncesEffect {
+        GetNoncesEffect::new(hash)
+    }
+
+    pub fn has_header(hash: HeaderHash) -> HasHeaderEffect {
+        HasHeaderEffect::new(hash)
+    }
+
+    pub fn is_on_best_chain(point: impl Into<NetworkPoint>) -> IsOnBestChainEffect {
+        IsOnBestChainEffect::new(point.into())
+    }
+
+    pub fn next_best_chain(point: Point) -> NextBestChainEffect {
+        NextBestChainEffect::new(point)
+    }
+
+    pub fn next_best_chain_header(point: Point) -> NextBestChainHeaderEffect {
+        NextBestChainHeaderEffect::new(point)
+    }
+
+    pub fn set_block_valid(hash: HeaderHash, valid: bool) -> SetBlockValidEffect {
+        SetBlockValidEffect::new(hash, valid)
+    }
+
+    pub fn set_anchor_point(point: Point) -> SetAnchorPointEffect {
+        SetAnchorPointEffect::new(point)
+    }
+
+    pub fn set_best_chain_tip(tip: Point) -> SetBestChainTipEffect {
+        SetBestChainTipEffect::new(tip)
+    }
+
+    pub fn store_validated_header(header: Header, nonces: Nonces) -> StoreValidatedHeaderEffect {
+        StoreValidatedHeaderEffect::new(header, nonces)
+    }
+
+    pub fn store_block(hash: HeaderHash, block: RawBlock) -> StoreBlockEffect {
+        StoreBlockEffect::new(&hash, block)
+    }
+
+    pub fn put_nonces(header: HeaderHash, nonces: Nonces) -> PutNoncesEffect {
+        PutNoncesEffect::new(header, nonces)
+    }
+
+    pub fn switch_to_fork(fork_point: Point, forward_points: NonEmptyVec<Point>) -> SwitchToForkEffect {
+        SwitchToForkEffect::new(fork_point, forward_points)
+    }
+
+    pub fn roll_forward_chain(point: Point) -> RollForwardChainEffect {
+        RollForwardChainEffect::new(point)
+    }
+
+    pub fn load_point(hash: HeaderHash) -> LoadPointEffect {
+        LoadPointEffect::new(hash)
+    }
+
+    pub fn unvalidated_ancestor_hashes(start: HeaderHash) -> UnvalidatedAncestorHashesEffect {
+        UnvalidatedAncestorHashesEffect::new(start)
+    }
+
+    pub fn ancestors_between(from: Point, to: HeaderHash) -> AncestorsBetweenEffect {
+        AncestorsBetweenEffect::new(from, to)
+    }
+
+    pub fn find_ancestor_on_best_chain(start: HeaderHash) -> FindAncestorOnBestChainEffect {
+        FindAncestorOnBestChainEffect::new(start)
+    }
+
+    pub fn find_common_ancestor(hash_a: HeaderHash, hash_b: HeaderHash) -> FindCommonAncestorEffect {
+        FindCommonAncestorEffect::new(hash_a, hash_b)
+    }
+
+    pub fn find_intersect_point(points: Vec<NetworkPoint>) -> FindIntersectPointEffect {
+        FindIntersectPointEffect::new(points)
+    }
+
+    pub fn sample_ancestor_points() -> SampleAncestorPointsEffect {
+        SampleAncestorPointsEffect::new()
+    }
+
+    pub fn find_anchor_at_height(target_height: BlockHeight) -> FindAnchorAtHeightEffect {
+        FindAnchorAtHeightEffect::new(target_height)
+    }
+
+    pub fn find_missing_blocks(start: HeaderHash, limit: usize) -> FindMissingBlocksEffect {
+        FindMissingBlocksEffect::new(start, limit)
+    }
+}
+
 /// Implementation of ChainStore using amaru_pure_stage::Effects.
 #[derive(Clone, Debug)]
 pub struct Store {
@@ -42,67 +175,67 @@ impl Store {
     }
 
     pub fn load_header(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Header>> {
-        self.effects.external(LoadHeaderEffect::new(*hash))
+        self.effects.external(StoreEffect::load_header(*hash))
     }
 
     pub fn load_header_with_validity(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<(Header, Option<bool>)>> {
-        self.effects.external(LoadHeaderWithValidityEffect::new(*hash))
+        self.effects.external(StoreEffect::load_header_with_validity(*hash))
     }
 
     pub fn get_children(&self, hash: &HeaderHash) -> BoxFuture<'static, Vec<HeaderHash>> {
-        self.effects.external(GetChildrenEffect::new(*hash))
+        self.effects.external(StoreEffect::get_children(*hash))
     }
 
     pub fn get_anchor_hash(&self) -> BoxFuture<'static, HeaderHash> {
-        self.effects.external(GetAnchorHashEffect::new())
+        self.effects.external(StoreEffect::get_anchor_hash())
     }
 
     pub fn get_best_chain_hash(&self) -> BoxFuture<'static, HeaderHash> {
-        self.effects.external(GetBestChainHashEffect::new())
+        self.effects.external(StoreEffect::get_best_chain_hash())
     }
 
     pub fn get_best_chain_tip(&self) -> BoxFuture<'static, Point> {
-        self.effects.external(GetBestChainTipEffect::new())
+        self.effects.external(StoreEffect::get_best_chain_tip())
     }
 
     pub fn load_block(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<Option<RawBlock>, StoreError>> {
-        self.effects.external(LoadBlockEffect::new(*hash))
+        self.effects.external(StoreEffect::load_block(*hash))
     }
 
     pub fn has_block(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<bool, StoreError>> {
-        self.effects.external(HasBlockEffect::new(*hash))
+        self.effects.external(StoreEffect::has_block(*hash))
     }
 
     pub fn get_nonces(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Nonces>> {
-        self.effects.external(GetNoncesEffect::new(*hash))
+        self.effects.external(StoreEffect::get_nonces(*hash))
     }
 
     pub fn has_header(&self, hash: &HeaderHash) -> BoxFuture<'static, bool> {
-        self.effects.external(HasHeaderEffect::new(*hash))
+        self.effects.external(StoreEffect::has_header(*hash))
     }
 
     pub fn is_on_best_chain(&self, point: impl Into<NetworkPoint>) -> BoxFuture<'static, bool> {
-        self.effects.external(IsOnBestChainEffect::new(point.into()))
+        self.effects.external(StoreEffect::is_on_best_chain(point))
     }
 
     pub fn next_best_chain(&self, point: &Point) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(NextBestChainEffect::new(*point))
+        self.effects.external(StoreEffect::next_best_chain(*point))
     }
 
     pub fn next_best_chain_header(&self, point: &Point) -> BoxFuture<'static, Result<NextBestChainHeader, StoreError>> {
-        self.effects.external(NextBestChainHeaderEffect::new(*point))
+        self.effects.external(StoreEffect::next_best_chain_header(*point))
     }
 
     pub fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetBlockValidEffect::new(*hash, valid))
+        self.effects.external(StoreEffect::set_block_valid(*hash, valid))
     }
 
     pub fn set_anchor_point(&self, point: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetAnchorPointEffect::new(*point))
+        self.effects.external(StoreEffect::set_anchor_point(*point))
     }
 
     pub fn set_best_chain_tip(&self, tip: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetBestChainTipEffect::new(*tip))
+        self.effects.external(StoreEffect::set_best_chain_tip(*tip))
     }
 
     pub fn store_validated_header(
@@ -110,15 +243,15 @@ impl Store {
         header: &Header,
         nonces: &Nonces,
     ) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(StoreValidatedHeaderEffect::new(header.clone(), nonces.clone()))
+        self.effects.external(StoreEffect::store_validated_header(header.clone(), nonces.clone()))
     }
 
     pub fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(StoreBlockEffect::new(hash, block.clone()))
+        self.effects.external(StoreEffect::store_block(*hash, block.clone()))
     }
 
     pub fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(PutNoncesEffect::new(*header, nonces.clone()))
+        self.effects.external(StoreEffect::put_nonces(*header, nonces.clone()))
     }
 
     pub fn switch_to_fork(
@@ -126,30 +259,30 @@ impl Store {
         fork_point: &Point,
         forward_points: &NonEmptyVec<Point>,
     ) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SwitchToForkEffect::new(*fork_point, forward_points.clone()))
+        self.effects.external(StoreEffect::switch_to_fork(*fork_point, forward_points.clone()))
     }
 
     pub fn roll_forward_chain(&self, point: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(RollForwardChainEffect::new(*point))
+        self.effects.external(StoreEffect::roll_forward_chain(*point))
     }
 
     pub fn load_point(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(LoadPointEffect::new(*hash).with_trace_context(&self.trace_context))
+        self.effects.external(StoreEffect::load_point(*hash).with_trace_context(&self.trace_context))
     }
 
     pub fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> BoxFuture<'static, (Vec<HeaderHash>, bool)> {
-        self.effects.external(UnvalidatedAncestorHashesEffect::new(start))
+        self.effects.external(StoreEffect::unvalidated_ancestor_hashes(start))
     }
 
     pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Point>>> {
-        self.effects.external(AncestorsBetweenEffect::new(from, to).with_trace_context(&self.trace_context))
+        self.effects.external(StoreEffect::ancestors_between(from, to).with_trace_context(&self.trace_context))
     }
 
     pub fn find_ancestor_on_best_chain(
         &self,
         start: HeaderHash,
     ) -> BoxFuture<'static, Result<FindAncestorOnBestChainResult, StoreError>> {
-        self.effects.external(FindAncestorOnBestChainEffect::new(start))
+        self.effects.external(StoreEffect::find_ancestor_on_best_chain(start))
     }
 
     pub fn find_common_ancestor(
@@ -157,19 +290,19 @@ impl Store {
         hash_a: HeaderHash,
         hash_b: HeaderHash,
     ) -> BoxFuture<'static, Result<FindCommonAncestorResult, StoreError>> {
-        self.effects.external(FindCommonAncestorEffect::new(hash_a, hash_b))
+        self.effects.external(StoreEffect::find_common_ancestor(hash_a, hash_b))
     }
 
     pub fn find_intersect_point(&self, points: Vec<NetworkPoint>) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(FindIntersectPointEffect::new(points))
+        self.effects.external(StoreEffect::find_intersect_point(points))
     }
 
     pub fn sample_ancestor_points(&self) -> BoxFuture<'static, Result<SampleAncestorPointsResult, StoreError>> {
-        self.effects.external(SampleAncestorPointsEffect::new())
+        self.effects.external(StoreEffect::sample_ancestor_points())
     }
 
     pub fn find_anchor_at_height(&self, target_height: BlockHeight) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(FindAnchorAtHeightEffect::new(target_height))
+        self.effects.external(StoreEffect::find_anchor_at_height(target_height))
     }
 
     pub fn find_missing_blocks(
@@ -177,7 +310,7 @@ impl Store {
         start: HeaderHash,
         limit: usize,
     ) -> BoxFuture<'static, Result<MissingBlocksResult, StoreError>> {
-        self.effects.external(FindMissingBlocksEffect::new(start, limit))
+        self.effects.external(StoreEffect::find_missing_blocks(start, limit))
     }
 }
 

@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, NetworkPoint, ORIGIN_HASH, Peer, Point, Slot,
-    from_cbor_no_leftovers, num::CheckedSub,
+    BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, from_cbor_no_leftovers,
+    num::CheckedSub,
 };
 use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
 use amaru_ouroboros::ConnectionId;
@@ -472,7 +472,7 @@ impl TrackPeers {
         &mut self,
         peer: &Peer,
         conn_id: ConnectionId,
-        current: NetworkPoint,
+        current: Point,
         tip: Point,
         store: &Store,
     ) -> Result<Point, ConsensusError> {

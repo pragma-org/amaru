@@ -14,9 +14,7 @@
 
 use std::{self, slice, time::Duration};
 
-use amaru_kernel::{
-    BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, NetworkPoint, Peer, Point, num::CheckedSub,
-};
+use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, num::CheckedSub};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{Nonces, has_stake_distribution::GetPoolError};
 use amaru_protocols::chainsync::{
@@ -199,8 +197,8 @@ fn test_terminated_only_purges_matching_connection() {
 fn test_intersect_found_missing_header_sends_done() {
     let prep = test_prep();
     let state = prep.state.clone();
-    let current = NetworkPoint::Specific(1u64.into(), HeaderHash::from([1u8; 32]));
-    let tip = current.with_height(BlockHeight::from(1));
+    let current = Point::Specific(1u64.into(), HeaderHash::from([1u8; 32]), BlockHeight::from(1));
+    let tip = current;
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: Peer::new("peer1"),
         conn_id: prep.conn_id,
@@ -237,7 +235,7 @@ fn test_intersect_found_tracks_peer() {
         peer: Peer::new("peer1"),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::IntersectFound(current.to_network_point(), tip),
+        msg: chainsync::InitiatorResult::IntersectFound(current, tip),
     });
 
     let mut expected = state.clone();
@@ -888,7 +886,7 @@ fn test_roll_backward_updates_peer() {
         peer: peer.clone(),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollBackward(current.to_network_point(), tip),
+        msg: chainsync::InitiatorResult::RollBackward(current, tip),
     });
 
     let mut state = prep.state.clone();
@@ -930,7 +928,7 @@ fn test_roll_backward_unknown_peer_removes_peer() {
         peer: peer.clone(),
         conn_id: prep.conn_id,
         handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollBackward(current.to_network_point(), Point::Origin),
+        msg: chainsync::InitiatorResult::RollBackward(current, Point::Origin),
     });
 
     let state = prep.state.clone();
@@ -957,7 +955,7 @@ fn test_roll_backward_unknown_peer_removes_peer() {
 fn test_roll_backward_unknown_point_removes_peer() {
     let prep = test_prep();
     let peer = Peer::new("peer1");
-    let current = NetworkPoint::Specific(1u64.into(), HeaderHash::from([1u8; 32]));
+    let current = Point::Specific(1u64.into(), HeaderHash::from([1u8; 32]), BlockHeight::from(1));
     let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
         peer: peer.clone(),
         conn_id: prep.conn_id,
