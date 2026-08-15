@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
-    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots,
+    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
     ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
@@ -69,7 +69,7 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_committee", default)]
     pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals", default)]
-    pub(super) proposals: BTreeMap<ProposalId, ProposalKind>,
+    pub(super) proposals: BTreeMap<ProposalId, ProposalSlim>,
     #[serde(default)]
     pub(super) proposals_roots: ProposalsRoots,
     #[serde(default)]
@@ -182,11 +182,11 @@ where
         .collect())
 }
 
-fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalKind>, D::Error>
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalSlim>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<(ProposalId, ProposalKind)>::deserialize(deserializer)?;
+    let entries = Vec::<(ProposalId, ProposalSlim)>::deserialize(deserializer)?;
     Ok(entries.into_iter().collect())
 }
 
@@ -286,6 +286,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    ProposalCantFollow,
     ScriptsNotPaidUTxO,
     TooManyCollateralInputs,
     ProposalReturnAccountDoesNotExist,
@@ -407,6 +408,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Proposals(InvalidProposals::InvalidGuardrailsScriptHash { .. }) => {
                 Predicate::InvalidGuardrailsScriptHash
             }
+            PhaseOneError::Proposals(InvalidProposals::HardforkCantFollow { .. }) => Predicate::ProposalCantFollow,
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist
             }

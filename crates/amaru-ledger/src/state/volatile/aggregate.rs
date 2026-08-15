@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, PoolId, Proposal, ProposalId, ProposalKind, ProposalPointer, StakeCredential,
+    MemoizedTransactionOutput, PoolId, Proposal, ProposalId, ProposalPointer, ProposalSlim, StakeCredential,
     TransactionInput,
 };
 
@@ -117,9 +117,9 @@ impl VolatileAggregate {
 
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is
     /// `Exists` or `Unknown`; pruning only happens at the boundary.
-    pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<ProposalKind> {
+    pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<ProposalSlim> {
         match self.proposals.get(id) {
-            Some(entry) => Existence::Exists(ProposalKind::from(&entry.0.gov_action)),
+            Some(entry) => Existence::Exists(ProposalSlim::from(&entry.0.gov_action)),
             None => Existence::Unknown,
         }
     }

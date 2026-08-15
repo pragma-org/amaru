@@ -51,7 +51,7 @@ where
             }
 
             for (proposal_id, _) in votes.iter() {
-                if !ProposalsSlice::exists(context, proposal_id, None) {
+                if ProposalsSlice::lookup(context, proposal_id).is_none() {
                     unknown_proposals.insert(*proposal_id);
                 }
             }

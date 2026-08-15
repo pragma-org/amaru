@@ -18,7 +18,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId, ProposalId, ProposalKind,
+    DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId, ProposalId, ProposalSlim,
     ProposalsRoots, StakeCredential, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
@@ -490,7 +490,7 @@ pub fn resolve_proposals(
     volatile: &impl VolatileState<Proposal = <VolatileDB as VolatileState>::Proposal>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ProposalId>,
-) -> Result<BTreeMap<ProposalId, ProposalKind>, ContextHydratationError> {
+) -> Result<BTreeMap<ProposalId, ProposalSlim>, ContextHydratationError> {
     debug_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -501,9 +501,9 @@ pub fn resolve_proposals(
                 Existence::Gone => Ok(proposals),
 
                 // newly proposed in the volatile
-                Existence::Exists(kind) => {
+                Existence::Exists(proposal) => {
                     from_volatile += 1;
-                    proposals.insert(id, kind);
+                    proposals.insert(id, proposal);
 
                     Ok(proposals)
                 }
@@ -512,7 +512,7 @@ pub fn resolve_proposals(
                 Existence::Unknown => {
                     if let Some(row) = db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)? {
                         from_db += 1;
-                        proposals.insert(id, ProposalKind::from(&row.proposal.gov_action));
+                        proposals.insert(id, ProposalSlim::from(&row.proposal.gov_action));
                     }
 
                     Ok(proposals)

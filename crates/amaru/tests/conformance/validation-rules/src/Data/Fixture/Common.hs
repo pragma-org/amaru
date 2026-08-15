@@ -10,6 +10,7 @@ module Data.Fixture.Common
     , compactCoinOrError
     , parseCborHex
     , parsePoolId
+    , parseScriptHash
     , perasDisabled
     , renderRatio
     , ratioFromJson
@@ -43,6 +44,7 @@ import Cardano.Ledger.Core
     )
 import Cardano.Ledger.Hashes
     ( KeyHash
+    , ScriptHash
     )
 import Cardano.Ledger.Keys
     ( KeyRole (StakePool)
@@ -122,6 +124,17 @@ parsePoolId =
                 Error err ->
                     fail ("Invalid pool id hex: " <> err)
             else fail ("Invalid pool id hex: " <> toString hexText)
+
+parseScriptHash :: Value -> Parser ScriptHash
+parseScriptHash =
+    withText "ScriptHash" $ \hexText ->
+        if Text.length hexText == 56 && Text.all isHexDigit hexText
+            then case fromJSON (String hexText) of
+                Success scriptHash ->
+                    pure scriptHash
+                Error err ->
+                    fail ("Invalid script hash hex: " <> err)
+            else fail ("Invalid script hash hex: " <> toString hexText)
 
 compactCoin :: Text -> Coin -> Either Text (CompactForm Coin)
 compactCoin contextLabel coinValue =
