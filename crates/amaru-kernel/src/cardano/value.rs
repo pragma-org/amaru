@@ -30,6 +30,24 @@ pub enum Value {
     Multiasset(Lovelace, Multiasset<PositiveCoin>),
 }
 
+impl Value {
+    /// Partially decode a Value to only extract the lovelace amount, skipping the rest.
+    #[expect(clippy::wildcard_enum_match_arm)]
+    pub fn decode_lovelace<C>(d: &mut cbor::Decoder<'_>, ctx: &mut C) -> Result<Lovelace, cbor::decode::Error> {
+        use cbor::data::Type::*;
+
+        match d.datatype()? {
+            U8 | U16 | U32 | U64 => Ok(d.decode_with(ctx)?),
+            Array | ArrayIndef => cbor::heterogeneous_array(d, |d, _| {
+                let lovelace = d.decode_with(ctx)?;
+                d.skip()?;
+                Ok(lovelace)
+            }),
+            _ => Err(cbor::decode::Error::message("unknown cbor data type for Value")),
+        }
+    }
+}
+
 impl<C> cbor::encode::Encode<C> for Value {
     fn encode<W: cbor::encode::Write>(
         &self,

@@ -43,6 +43,7 @@ Other guiding principles:
 - **amaru-plutus**: encode `CostModels` as a map from language to cost model (#1219).
 - **amaru-ledger**: compute the size of a value using the same encoding as the Haskell node.
 - **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
+- **amaru-ledger**: reduce churn allocations during stake distribution and rewards calculations.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 

@@ -449,7 +449,7 @@ mod test {
     use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, TreasuryDelta};
 
     use super::*;
-    use crate::epoch_transition::Computed;
+    use crate::{AccountState, epoch_transition::Computed};
 
     #[test]
     fn test_rollback() {
@@ -497,7 +497,11 @@ mod test {
             1_000,
             7,
             142,
-            BTreeMap::from([(credential(1), 100), (credential(2), 42)]),
+            BTreeMap::from([
+                (credential(1), AccountState::default().with_rewards(100)),
+                (credential(2), AccountState::default().with_rewards(42)),
+            ])
+            .into(),
             Default::default(),
         );
         Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))

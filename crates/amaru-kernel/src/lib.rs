@@ -44,6 +44,7 @@ pub use data_structures::{
     non_empty_set::{IntoNonEmptySetError, NonEmptySet},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
+    sorted_pairs::SortedPairs,
 };
 
 pub mod cbor {
@@ -67,8 +68,8 @@ pub mod cardano;
 pub use cardano::{
     account::Account,
     address::{
-        self, Address, AddressPointer, ByronAddress, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
-        StakePayload,
+        self, Address, AddressPointer, AddressType, ByronAddress, ShelleyAddress, ShelleyDelegationPart,
+        ShelleyPaymentPart, StakePayload,
     },
     anchor::{self, Anchor},
     asset_name::{AssetName, EMPTY_ASSET_NAME},
@@ -176,6 +177,7 @@ pub use cardano::{
     stake_address::{self, PlutusStakeAddress, StakeAddress},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
+    stake_entry::{self, StakeEntry},
     time_range::TimeRange,
     tip::Tip,
     transaction::Transaction,

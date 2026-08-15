@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref};
+use std::{
+    collections::BTreeMap,
+    ops::Deref,
+    sync::{OnceLock, atomic, atomic::AtomicUsize},
+};
 
 use amaru_kernel::{
-    DRep, Epoch, HasLovelace, Hash, Lovelace, NetworkName, PoolId, StakeCredential, expect_stake_credential, safe_ratio,
+    DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, SortedPairs, StakeCredential, expect_stake_credential, safe_ratio,
 };
 use amaru_observability::info;
 use serde::ser::SerializeStruct;
@@ -50,7 +54,7 @@ pub struct StakeSummary {
     /// Mapping of accounts' stake credentials to their respective state.
     ///
     /// Accounts that have stake but aren't delegated to any pools aren't present in the map.
-    pub accounts: BTreeMap<StakeCredential, AccountState>,
+    pub accounts: SortedPairs<StakeCredential, AccountState>,
 }
 
 impl Deref for StakeSummary {
@@ -145,28 +149,45 @@ impl StakeSummary {
             })
             .collect::<BTreeMap<PoolId, PoolState>>();
 
-        let mut accounts = db
-            .iter_accounts()?
-            .map(|(credential, row)| {
-                (
-                    credential,
-                    AccountState {
-                        balance: row.rewards,
-                        pool: row.pool.and_then(|(pool, since)| {
-                            let PoolState { registered_at, .. } = pools.get(&pool)?;
-                            if &since >= registered_at { Some(pool) } else { None }
-                        }),
-                        drep: row.drep.and_then(|(drep, since)| match drep {
-                            DRep::Abstain | DRep::NoConfidence => Some(drep),
-                            DRep::Key { .. } | DRep::Script { .. } => {
-                                let DRepState { registered_at, .. } = dreps.get(&drep)?;
-                                if &since >= registered_at { Some(drep) } else { None }
-                            }
-                        }),
-                    },
-                )
-            })
-            .collect::<BTreeMap<StakeCredential, AccountState>>();
+        let capacities = Capacity::get_or_init(db);
+        let mut key_accounts = SortedPairs::with_capacity(capacities.keys);
+        let mut script_accounts = SortedPairs::with_capacity(capacities.scripts);
+
+        for (credential, row) in db.iter_accounts()? {
+            let state = AccountState {
+                balance: row.rewards,
+                rewards: 0,
+                pool: row.pool.and_then(|(pool, since)| {
+                    let PoolState { registered_at, .. } = pools.get(&pool)?;
+                    if &since >= registered_at { Some(pool) } else { None }
+                }),
+                drep: row.drep.and_then(|(drep, since)| match drep {
+                    DRep::Abstain | DRep::NoConfidence => Some(drep),
+                    DRep::Key { .. } | DRep::Script { .. } => {
+                        let DRepState { registered_at, .. } = dreps.get(&drep)?;
+                        if &since >= registered_at { Some(drep) } else { None }
+                    }
+                }),
+            };
+            // NOTE: discrepancy between Ord and serialised ordering
+            //
+            // Weirdly enough, the variants of a StakeCredential comes with the script hash first,
+            // and then the key hash. However, they are serialised the other away around (key
+            // variant comes with tag index 0, whereas script is 1).
+            //
+            // RocksDB yields data in ascending order of the serialised key. So if we want to keep
+            // the ordering here, we have to accumulate them separately, and then concatenate the
+            // two arrays.
+            match credential {
+                StakeCredential::AddrKeyhash(..) => &mut key_accounts,
+                StakeCredential::ScriptHash(..) => &mut script_accounts,
+            }
+            .push(credential, state)
+        }
+
+        Capacity::update(key_accounts.len(), script_accounts.len());
+
+        let mut accounts = script_accounts.append(key_accounts);
 
         let accounts_len = accounts.len();
         let total_work = network.estimated_utxo_size().saturating_add(accounts_len.saturating_mul(2)).max(1);
@@ -181,18 +202,21 @@ impl StakeSummary {
             notify(progress);
         };
 
-        db.iter_utxos()?.for_each(|(_, output)| {
-            if let Some(credential) = output.delegate() {
-                let balance = output.lovelace();
-                accounts.entry(credential).and_modify(|account| account.balance += balance);
+        db.iter_stake_distribution()?.for_each(|stake| {
+            if let Some(credential) = stake.credential
+                && let Some(account) = accounts.get_mut(&credential)
+            {
+                account.balance += stake.lovelace;
             }
 
             processed_utxos += 1;
+
             if processed_utxos.saturating_sub(last_reported_utxos) >= PROGRESS_BATCH_SIZE {
                 last_reported_utxos = processed_utxos;
                 notify_progress(processed_utxos);
             }
         });
+
         if processed_utxos != last_reported_utxos {
             notify_progress(processed_utxos);
         }
@@ -230,7 +254,7 @@ impl StakeSummary {
 
         for pool in pools.values_mut() {
             let reward_account = expect_stake_credential(&pool.parameters.reward_account);
-            pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep.clone());
+            pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
         }
 
         db.iter_block_issuers()?.for_each(|(_, issuer)| {
@@ -334,6 +358,52 @@ impl serde::Serialize for StakeSummary {
     }
 }
 
+/// A type to inform of the ideal capacity for scripts and keys accounts in rewards.
+#[derive(Debug, Default, Clone, Copy)]
+struct Capacity<T> {
+    keys: T,
+    scripts: T,
+}
+
+static CAPACITY: OnceLock<Capacity<AtomicUsize>> = OnceLock::new();
+
+impl Capacity<usize> {
+    /// Record updated lengths as hints for the next query
+    fn update(keys: usize, scripts: usize) {
+        if let Some(capacity) = OnceLock::get(&CAPACITY) {
+            capacity.keys.store(keys, atomic::Ordering::Relaxed);
+            capacity.scripts.store(scripts, atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// Get the value of the current capacities, or resolve it once from the database.
+    #[expect(clippy::panic)]
+    fn get_or_init(db: &impl Snapshot) -> Self {
+        let base_capacity = CAPACITY.get_or_init(|| {
+            let mut keys = 0;
+            let mut scripts = 0;
+
+            for (credential, _) in
+                db.iter_accounts().unwrap_or_else(|e| panic!("unable to initialize accounts capacities: {e}"))
+            {
+                match credential {
+                    StakeCredential::AddrKeyhash(..) => keys += 1,
+                    StakeCredential::ScriptHash(..) => scripts += 1,
+                }
+            }
+
+            Capacity { keys: AtomicUsize::new(keys), scripts: AtomicUsize::new(scripts) }
+        });
+
+        let keys = base_capacity.keys.load(atomic::Ordering::Relaxed);
+        let scripts = base_capacity.scripts.load(atomic::Ordering::Relaxed);
+
+        // We always return a little more than what's needed to cope with new accounts
+        // registrations and with unclaimed rewards.
+        Capacity { keys: keys + keys / 10, scripts: scripts + scripts / 10 }
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use std::collections::BTreeMap;
@@ -419,7 +489,7 @@ pub mod tests {
 
             for pool in pools.values_mut() {
                 let reward_account = expect_stake_credential(&pool.parameters.reward_account);
-                pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep.clone());
+                pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
             }
 
             StakeDistribution {
@@ -444,7 +514,8 @@ pub mod tests {
             AccountState {
                 balance,
                 pool,
-                drep
+                drep,
+                rewards: 0,
             }
         }
     }

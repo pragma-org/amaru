@@ -25,7 +25,7 @@ pub type Value = Row;
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Row {
     pub slot_leader: PoolId,
 }

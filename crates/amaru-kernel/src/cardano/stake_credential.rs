@@ -15,8 +15,8 @@
 use std::fmt;
 
 use crate::{
-    Address, HasOwnership, Hash, Network, StakePayload, cbor,
-    size::{KEY, SCRIPT},
+    Address, AddressType, HasOwnership, Hash, Network, ShelleyDelegationPart, ShelleyPaymentPart, StakePayload, cbor,
+    size::{CREDENTIAL, KEY, SCRIPT},
 };
 
 // NOTE: Stake Credential variant order
@@ -34,6 +34,21 @@ use crate::{
 pub enum StakeCredential {
     ScriptHash(Hash<{ SCRIPT }>),
     AddrKeyhash(Hash<{ KEY }>),
+}
+
+impl StakeCredential {
+    pub fn from_raw_address(bytes: &[u8]) -> Option<Self> {
+        use AddressType::*;
+        match AddressType::try_from_header_byte(*bytes.first()?)? {
+            Type0 | Type1 => {
+                (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::AddrKeyhash(Hash::from(&bytes[KEY + 1..])))
+            }
+            Type2 | Type3 => {
+                (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::ScriptHash(Hash::from(&bytes[SCRIPT + 1..])))
+            }
+            Type4 | Type5 | Type6 | Type7 | Type8 | Type14 | Type15 => None,
+        }
+    }
 }
 
 impl fmt::Display for StakeCredential {
@@ -101,6 +116,26 @@ impl From<StakePayload> for StakeCredential {
         match payload {
             StakePayload::Key(hash) => Self::AddrKeyhash(hash),
             StakePayload::Script(hash) => Self::ScriptHash(hash),
+        }
+    }
+}
+
+impl From<ShelleyPaymentPart> for StakeCredential {
+    fn from(part: ShelleyPaymentPart) -> Self {
+        match part {
+            ShelleyPaymentPart::Key(hash) => Self::AddrKeyhash(hash),
+            ShelleyPaymentPart::Script(hash) => Self::ScriptHash(hash),
+        }
+    }
+}
+
+impl TryFrom<ShelleyDelegationPart> for StakeCredential {
+    type Error = ();
+    fn try_from(part: ShelleyDelegationPart) -> Result<Self, Self::Error> {
+        match part {
+            ShelleyDelegationPart::Key(hash) => Ok(Self::AddrKeyhash(hash)),
+            ShelleyDelegationPart::Script(hash) => Ok(Self::ScriptHash(hash)),
+            ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => Err(()),
         }
     }
 }

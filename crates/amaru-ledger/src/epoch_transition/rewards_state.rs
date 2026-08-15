@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{collections::BTreeSet, marker::PhantomData, sync::Arc};
 
-use amaru_kernel::{Lovelace, StakeCredential};
+use amaru_kernel::{Lovelace, SortedPairs, StakeCredential};
+
+use crate::AccountState;
 
 /// Captures the lifecycle of rewards calculation throughout block applications. Rewards are
 /// computed and later consumed/applied to accounts.
@@ -151,7 +149,7 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
     /// carves out the unclaimed ones through `unclaimed`. It is behind an `Arc` so that converting
     /// between `Effective` and `Computed` (and snapshotting the overlay for rollback recovery)
     /// shares this map rather than copying it.
-    accounts: Arc<BTreeMap<StakeCredential, Lovelace>>,
+    accounts: Arc<SortedPairs<StakeCredential, AccountState>>,
 
     /// Known (paid) pools owners at the time the rewards were calculated that received non-zero
     /// rewards.
@@ -182,7 +180,7 @@ impl Rewards<Computed> {
         delta_reserves: Lovelace,
         delta_treasury: Lovelace,
         total_rewards: Lovelace,
-        accounts: BTreeMap<StakeCredential, Lovelace>,
+        accounts: SortedPairs<StakeCredential, AccountState>,
         pools_owners: BTreeSet<StakeCredential>,
     ) -> Self {
         Self {
@@ -205,7 +203,10 @@ impl Rewards<Computed> {
         &self,
         unreachable_accounts: impl IntoIterator<Item = StakeCredential>,
     ) -> BTreeSet<StakeCredential> {
-        unreachable_accounts.into_iter().filter(|credential| self.accounts.contains_key(credential)).collect()
+        unreachable_accounts
+            .into_iter()
+            .filter(|credential| self.accounts.get(credential).is_some_and(|st| st.rewards > 0))
+            .collect()
     }
 }
 
@@ -238,13 +239,13 @@ impl Rewards<Effective> {
     /// The reward payable to a specific account: its computed reward if it is still registered, or
     /// `0` if it is unclaimed (in which case the amount goes to the treasury instead) or has none.
     pub fn reward_of(&self, account: &StakeCredential) -> Lovelace {
-        if self.unclaimed.contains(account) { 0 } else { self.accounts.get(account).copied().unwrap_or(0) }
+        if self.unclaimed.contains(account) { 0 } else { self.accounts.get(account).map(|st| st.rewards).unwrap_or(0) }
     }
 
     /// Total amount of rewards that couldn't be paid to accounts because they unregistered between
     /// the moment the rewards were calculated and the moment they needed to be paid out.
     pub fn total_unclaimed_rewards(&self) -> Lovelace {
-        self.unclaimed.iter().filter_map(|account| self.accounts.get(account)).sum()
+        self.unclaimed.iter().filter_map(|account| self.accounts.get(account).map(|st| st.rewards)).sum()
     }
 
     /// Total rewards of ALL accounts, including unclaimed ones.
@@ -286,6 +287,8 @@ impl From<Rewards<Effective>> for Rewards<Computed> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
     use amaru_kernel::Hash;
 
     use super::*;
@@ -296,8 +299,8 @@ mod test {
         let unregistered = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
 
         let mut accounts = BTreeMap::new();
-        accounts.insert(registered, 100);
-        accounts.insert(unregistered, 42);
+        accounts.insert(registered, AccountState::default().with_rewards(100));
+        accounts.insert(unregistered, AccountState::default().with_rewards(42));
 
         let delta_reserves = 1_000;
         let delta_treasury = 7;
@@ -305,8 +308,8 @@ mod test {
         let computed_rewards = Rewards::<Computed>::new(
             delta_reserves,
             delta_treasury,
-            accounts.values().sum(),
-            accounts,
+            accounts.values().map(|st| st.rewards).sum(),
+            SortedPairs::from(accounts),
             pools_owners.clone(),
         );
         let effective_rewards = Rewards::<Effective>::new(computed_rewards.clone(), BTreeSet::from([unregistered]));
@@ -332,7 +335,7 @@ mod test {
         let rewarded = StakeCredential::ScriptHash(Hash::from([1u8; 28]));
         let rewardless = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
 
-        let accounts = BTreeMap::from([(rewarded, 42)]);
+        let accounts = SortedPairs::default().and_push(rewarded, AccountState::default().with_rewards(42));
         let computed_rewards = Rewards::<Computed>::new(1_000, 7, 42, accounts, Default::default());
 
         // The same credentials repeated, as chaining the unregistration sources may well do.
