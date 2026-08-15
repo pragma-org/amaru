@@ -31,9 +31,6 @@ pub use indexed_bind::IndexedBind;
 mod indexed_epoch_reg;
 pub use indexed_epoch_reg::IndexedEpochReg;
 
-// mod indexed_set;
-// pub use indexed_set::IndexedSet;
-
 /// The window's accounts, indexed by credential so each one's per-fragment history is retracted
 /// exactly on stabilization and folded on read. See [`IndexedBind`].
 type Accounts = IndexedBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>;
