@@ -27,10 +27,13 @@ import Cardano.Ledger.Api.PParams
     ( PParams
     , emptyPParamsUpdate
     , ppPoolDepositL
-    , ppProtocolVersionL
     )
 import Cardano.Ledger.BaseTypes
-    ( addEpochInterval
+    ( ProtVer (..)
+    , addEpochInterval
+    )
+import Cardano.Ledger.Binary.Version
+    ( mkVersion
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
@@ -43,7 +46,8 @@ import Cardano.Ledger.Conway
     ( ConwayEra
     )
 import Cardano.Ledger.Conway.Governance
-    ( GovAction (..)
+    ( Committee (..)
+    , GovAction (..)
     , GovActionId (GovActionId)
     , GovActionIx (GovActionIx)
     , GovActionState (..)
@@ -51,6 +55,7 @@ import Cardano.Ledger.Conway.Governance
     , GovRelation (..)
     , ProposalProcedure (..)
     , Proposals
+    , cgsCommitteeL
     , cgsConstitutionL
     , constitutionGuardrailsScriptHashL
     , fromPrevGovActionIds
@@ -84,7 +89,7 @@ import Cardano.Ledger.Hashes
     , ScriptHash
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (DRepRole, StakePool, Staking)
+    ( KeyRole (ColdCommitteeRole, DRepRole, StakePool, Staking)
     )
 import qualified Cardano.Ledger.Slot as LedgerSlot
 import Cardano.Ledger.Shelley.LedgerState
@@ -96,6 +101,8 @@ import Cardano.Ledger.Shelley.LedgerState
     )
 import Cardano.Ledger.State
     ( ChainAccountState (..)
+    , CommitteeAuthorization (CommitteeHotCredential)
+    , CommitteeState (CommitteeState)
     , DState (..)
     , PState (..)
     , StakePoolState
@@ -153,12 +160,14 @@ import Lens.Micro
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 data InitialState = InitialState
     { utxo :: ![UtxoEntry]
     , pools :: ![KeyHash StakePool]
     , accounts :: ![Account]
     , dreps :: ![RegisteredDRep]
+    , committee :: ![CommitteeMember]
     , proposals :: ![ProposalEntry]
     , proposalsRoots :: !(GovRelation StrictMaybe)
     , pots :: !Pots
@@ -175,6 +184,7 @@ instance FromJSON InitialState where
                 <*> (objectValue .:? "pools" .!= [] >>= traverse parsePoolId)
                 <*> objectValue .:? "accounts" .!= []
                 <*> objectValue .:? "dreps" .!= []
+                <*> objectValue .:? "committee" .!= []
                 <*> objectValue .:? "proposals" .!= []
                 <*> (objectValue .:? "proposalsRoots" >>= maybe (pure def) parseProposalsRoots)
                 <*> objectValue .:? "pots" .!= def
@@ -252,6 +262,23 @@ instance FromJSON RegisteredDRep where
                 <*> objectValue .: "registeredAt"
                 <*> objectValue .: "validUntil"
 
+-- | A seeded constitutional committee row keyed by cold credential. `status = null` means the
+-- member has not authorized any hot credential yet. `validUntil = null` means the member currently
+-- holds no elected seat, even if they still have an authorization recorded.
+data CommitteeMember = CommitteeMember
+    { coldCredential :: !(Credential ColdCommitteeRole)
+    , status :: !(Maybe CommitteeAuthorization)
+    , validUntil :: !(Maybe Word64)
+    }
+
+instance FromJSON CommitteeMember where
+    parseJSON =
+        withObject "CommitteeMember" $ \objectValue ->
+            CommitteeMember
+                <$> (objectValue .: "coldCredential" >>= parseCborHex "ColdCommitteeCredential")
+                <*> (objectValue .:? "status" >>= traverse parseCommitteeAuthorization)
+                <*> objectValue .:? "validUntil"
+
 data CertificatePointer = CertificatePointer
     { transaction :: !Point
     , certificateIndex :: !Word64
@@ -279,51 +306,64 @@ data ProposalEntry = ProposalEntry
 -- | What a fixture states about a seeded proposal's governance action: the action itself, or
 -- only the lineage it belongs to.
 data ProposalAction
-    = ExplicitAction !(GovAction ConwayEra)
-    | LineageOnly !ProposalLineage
+    = ProposalFull !(GovAction ConwayEra)
+    | ProposalSlim !ProposalSlim
 
 -- | The purposes proposals chain along. @Orphan@ covers the actions that chain to nothing.
-data ProposalLineage
-    = ProtocolParametersLineage
-    | HardForkLineage
-    | ConstitutionalCommitteeLineage
-    | ConstitutionLineage
-    | OrphanLineage
+data ProposalSlim
+    = ProtocolParametersSlim
+    | HardForkSlim !ProtVer
+    | ConstitutionalCommitteeSlim
+    | ConstitutionSlim
+    | OrphanSlim
 
-instance FromJSON ProposalLineage where
+instance FromJSON ProposalSlim where
     parseJSON =
-        withText "ProposalLineage" $ \text ->
+        withText "ProposalSlim" $ \text ->
             case text of
                 "ProtocolParameters" ->
-                    pure ProtocolParametersLineage
-                "HardFork" ->
-                    pure HardForkLineage
+                    pure ProtocolParametersSlim
                 "ConstitutionalCommittee" ->
-                    pure ConstitutionalCommitteeLineage
+                    pure ConstitutionalCommitteeSlim
                 "Constitution" ->
-                    pure ConstitutionLineage
+                    pure ConstitutionSlim
                 "Orphan" ->
-                    pure OrphanLineage
+                    pure OrphanSlim
                 other ->
-                    fail (toString ("Unknown proposal lineage: " <> other))
+                    case parseHardForkSlim other of
+                        Right proposalSlim ->
+                            pure proposalSlim
+                        Left err ->
+                            fail (toString err)
+     where
+       parseHardForkSlim :: Text -> Either Text ProposalSlim
+       parseHardForkSlim text = do
+           versionText <-
+               maybe
+                   (Left ("failed to parse proposal from string: " <> text))
+                   Right
+                   (Text.stripSuffix ")" =<< Text.stripPrefix "HardFork(" text)
+           protocolVersion <- parseProtocolVersion versionText
+           pure (HardForkSlim protocolVersion)
+
 
 instance FromJSON ProposalEntry where
     parseJSON value =
         case value of
             Array _ ->
-                parseLineagePair value
+                parseSlimPair value
             _ ->
                 parseFullEntry value
       where
-        parseLineagePair =
+        parseSlimPair =
             parseJSON >=> \(idValue, lineage) -> do
                 entryId <- parseProposalId idValue
-                pure ProposalEntry{proposalId = entryId, proposalAction = LineageOnly lineage, proposalValidUntil = Nothing}
+                pure ProposalEntry{proposalId = entryId, proposalAction = ProposalSlim lineage, proposalValidUntil = Nothing}
         parseFullEntry =
             withObject "ProposalEntry" $ \objectValue ->
                 ProposalEntry
                     <$> (objectValue .: "id" >>= parseProposalId)
-                    <*> (ExplicitAction <$> (objectValue .: "govAction" >>= parseCborHex "GovAction"))
+                    <*> (ProposalFull <$> (objectValue .: "govAction" >>= parseCborHex "GovAction"))
                     <*> objectValue .:? "validUntil"
 
 data Pots = Pots
@@ -371,7 +411,7 @@ buildNewEpochState
     -> Point
     -> Either Error (NewEpochState ConwayEra)
 buildNewEpochState pparams eraHistory initialState point = do
-    let InitialState{utxo, pools, accounts, dreps, proposals, proposalsRoots, pots, governanceActivity, guardrailScript} = initialState
+    let InitialState{utxo, pools, accounts, dreps, committee, proposals, proposalsRoots, pots, governanceActivity, guardrailScript} = initialState
     accountEntries <- traverse toLedgerAccountEntry accounts
     dRepEntries <- traverse toLedgerDRepEntry dreps
     currentEpoch <- pointEpochNo eraHistory point
@@ -402,6 +442,16 @@ buildNewEpochState pparams eraHistory initialState point = do
                     }
                     <- dRepEntries
                 ]
+    let electedCommitteeMembers =
+            Map.fromList
+                [ (coldCredential, phaseOneEpochNo memberValidUntil)
+                | CommitteeMember{coldCredential, validUntil = Just memberValidUntil} <- committee
+                ]
+    let committeeAuthorizations =
+            Map.fromList
+                [ (coldCredential, authorization)
+                | CommitteeMember{coldCredential, status = Just authorization} <- committee
+                ]
     let poolStates =
             Map.fromList
                 [ (poolId, defaultStakePoolState (Coin (poolDepositAmount pparams)))
@@ -430,6 +480,11 @@ buildNewEpochState pparams eraHistory initialState point = do
             emptyGovState
                 & curPParamsGovStateL .~ pparams
                 & prevPParamsGovStateL .~ pparams
+                & cgsCommitteeL
+                    .~ ( if Map.null electedCommitteeMembers
+                            then SNothing
+                            else SJust (def{committeeMembers = electedCommitteeMembers})
+                       )
                 & cgsProposalsL .~ seededProposals
                 & cgsConstitutionL . constitutionGuardrailsScriptHashL .~ maybeToStrictMaybe guardrailScript
     let chainAccountState =
@@ -448,7 +503,7 @@ buildNewEpochState pparams eraHistory initialState point = do
                 { conwayCertVState =
                     VState
                         { vsDReps = dRepStates
-                        , vsCommitteeState = def
+                        , vsCommitteeState = CommitteeState committeeAuthorizations
                         , vsNumDormantEpochs = phaseOneEpochNo (consecutiveDormantEpochs governanceActivity)
                         }
                 , conwayCertPState =
@@ -545,7 +600,7 @@ toGovActionState pparams currentEpoch ProposalEntry{proposalId, proposalAction, 
             ProposalProcedure
                 { pProcDeposit = pparams ^. ppGovActionDepositL
                 , pProcReturnAddr = def
-                , pProcGovAction = toGovAction pparams proposalAction
+                , pProcGovAction = toGovAction proposalAction
                 , pProcAnchor = def
                 }
         , gasProposedIn = currentEpoch
@@ -556,22 +611,22 @@ toGovActionState pparams currentEpoch ProposalEntry{proposalId, proposalAction, 
                 proposalValidUntil
         }
 
--- | A fixture naming only a lineage constrains nothing beyond the purpose its proposal chains
+-- | A fixture naming only a slim constrains nothing beyond the purpose its proposal chains
 -- along, so a minimal action of that purpose stands in. The stand-in hard fork sits at the
 -- current protocol version, the weakest parent a chaining proposal can still follow.
-toGovAction :: PParams ConwayEra -> ProposalAction -> GovAction ConwayEra
-toGovAction pparams = \case
-    ExplicitAction govAction ->
+toGovAction :: ProposalAction -> GovAction ConwayEra
+toGovAction = \case
+    ProposalFull govAction ->
         govAction
-    LineageOnly ProtocolParametersLineage ->
+    ProposalSlim ProtocolParametersSlim ->
         ParameterChange SNothing emptyPParamsUpdate SNothing
-    LineageOnly HardForkLineage ->
-        HardForkInitiation SNothing (pparams ^. ppProtocolVersionL)
-    LineageOnly ConstitutionalCommitteeLineage ->
+    ProposalSlim (HardForkSlim version) ->
+        HardForkInitiation SNothing version
+    ProposalSlim ConstitutionalCommitteeSlim ->
         NoConfidence SNothing
-    LineageOnly ConstitutionLineage ->
+    ProposalSlim ConstitutionSlim ->
         NewConstitution SNothing def
-    LineageOnly OrphanLineage ->
+    ProposalSlim OrphanSlim ->
         InfoAction
 
 buildProposals
@@ -608,3 +663,31 @@ phaseOneEpochNo =
 toDRepCredential :: Credential Staking -> Credential DRepRole
 toDRepCredential =
     coerce
+
+parseCommitteeAuthorization :: Value -> Parser CommitteeAuthorization
+parseCommitteeAuthorization =
+    withText "CommitteeAuthorization" $ \hexText ->
+        parseCborHex "CommitteeAuthorization" hexText
+            <|> (CommitteeHotCredential <$> parseCborHex "HotCommitteeCredential" hexText)
+
+parseProtocolVersion :: Text -> Either Text ProtVer
+parseProtocolVersion versionText =
+    case Text.splitOn "." versionText of
+        [majorText, minorText] -> do
+            majorWord <- parseWord64 "hard fork version major" majorText
+            minorWord <- parseWord64 "hard fork version minor" minorText
+            majorVersion <-
+                maybe
+                    (Left ("hard fork version major is out of bounds: " <> showText majorWord))
+                    Right
+                    (mkVersion majorWord)
+            pure (ProtVer majorVersion (fromIntegral minorWord))
+        _ ->
+            Left ("failed to parse hard fork version: " <> versionText <> "; expected <major>.<minor>")
+
+parseWord64 :: Text -> Text -> Either Text Word64
+parseWord64 contextLabel rawText =
+    maybe
+        (Left ("failed to parse " <> contextLabel <> ": " <> rawText))
+        Right
+        (readMaybe (toString rawText))

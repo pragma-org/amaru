@@ -515,5 +515,7 @@ normalizeGovFailure = \case
         "DisallowedVoters"
     ProposalCantFollow{} ->
         "ProposalCantFollow"
+    UnelectedCommitteeVoters{} ->
+        "VotersDoNotExist"
     otherFailure ->
         "unsupported:" <> showText otherFailure
