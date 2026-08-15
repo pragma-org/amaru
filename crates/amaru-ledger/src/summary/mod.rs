@@ -25,17 +25,25 @@ pub mod stake_distribution;
 
 // ---------------------------------------------------------------- AccountState
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AccountState {
     pub balance: Lovelace,
+    pub rewards: Lovelace,
     pub pool: Option<PoolId>,
     pub drep: Option<DRep>,
+}
+
+impl AccountState {
+    pub fn with_rewards(self, rewards: Lovelace) -> Self {
+        Self { rewards, ..self }
+    }
 }
 
 impl ::serde::Serialize for AccountState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("AccountState", 3)?;
         s.serialize_field("balance", &self.balance)?;
+        // rewards are ignored in this serialization
         s.serialize_field("drep", &self.drep.as_ref().map(drep::AsJson))?;
         s.serialize_field("pool", &self.pool.as_ref().map(hex::encode))?;
         s.end()
