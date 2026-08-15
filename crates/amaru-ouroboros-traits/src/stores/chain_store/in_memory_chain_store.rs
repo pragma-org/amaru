@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NULL_HASH32, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
 
 use crate::{
     DiagnosticChainStore, FullChainStore, Nonces, OpcertSequenceNumbers, StoreError,
@@ -45,7 +45,7 @@ impl InMemoryChainStore {
 struct InMemoryChainStoreInner {
     nonces: BTreeMap<HeaderHash, Nonces>,
     opcert_sequence_numbers: BTreeMap<PoolId, BTreeMap<Slot, BTreeMap<HeaderHash, u64>>>,
-    headers: BTreeMap<HeaderHash, BlockHeader>,
+    headers: BTreeMap<HeaderHash, Header>,
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
     anchor: HeaderHash,
     best_chain: HeaderHash,
@@ -79,7 +79,7 @@ impl InMemoryChainStoreInner {
     /// Record a header, its link to its parent, and the opcert sequence number it declares. Every
     /// stored header must contribute to the opcert index, otherwise the sequence numbers observed
     /// on the chain go stale and subsequent headers get rejected as being too far ahead.
-    fn put_header(&mut self, header: &BlockHeader) {
+    fn put_header(&mut self, header: &Header) {
         let hash = header.hash();
         self.headers.insert(hash, header.clone());
         let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
@@ -98,13 +98,13 @@ impl InMemoryChainStoreInner {
 
 impl BaseReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let inner = self.inner.lock().unwrap();
         inner.headers.get(hash).cloned()
     }
 
     #[expect(clippy::unwrap_used)]
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let inner = self.inner.lock().unwrap();
         let header = inner.headers.get(hash).cloned();
         let validity = inner.block_validity.get(hash).copied();
@@ -166,11 +166,7 @@ impl BaseReadChainStore for InMemoryChainStore {
     }
 
     #[expect(clippy::unwrap_used)]
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         let inner = self.inner.lock().unwrap();
         latest_opcert_sequence_number(
             &inner.headers,
@@ -203,14 +199,14 @@ impl ReadChainStore for InMemoryChainStore {
 
 impl WriteChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
-    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
+    fn store_header(&self, header: &Header) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.put_header(header);
         Ok(())
     }
 
     #[expect(clippy::unwrap_used)]
-    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+    fn store_validated_header(&self, header: &Header, nonces: &Nonces) -> Result<(), StoreError> {
         let mut inner = self.inner.lock().unwrap();
         inner.put_header(header);
         inner.nonces.insert(header.hash(), nonces.clone());
@@ -307,7 +303,7 @@ impl WriteChainStore for InMemoryChainStore {
 struct InMemConsensusSnapshot {
     nonces: BTreeMap<HeaderHash, Nonces>,
     opcert_sequence_numbers: BTreeMap<PoolId, BTreeMap<Slot, BTreeMap<HeaderHash, u64>>>,
-    headers: BTreeMap<HeaderHash, BlockHeader>,
+    headers: BTreeMap<HeaderHash, Header>,
     parent_child_relationship: BTreeMap<HeaderHash, Vec<HeaderHash>>,
     anchor: HeaderHash,
     best_chain: HeaderHash,
@@ -317,11 +313,11 @@ struct InMemConsensusSnapshot {
 }
 
 impl BaseReadChainStore for InMemConsensusSnapshot {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.headers.get(hash).cloned()
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let header = self.headers.get(hash).cloned();
         let validity = self.block_validity.get(hash).copied();
         header.map(|h| (h, validity))
@@ -363,11 +359,7 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
         get_next_best_chain(&self.chain, point)
     }
 
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         latest_opcert_sequence_number(
             &self.headers,
             &self.anchor,
@@ -380,12 +372,12 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
 }
 
 fn latest_opcert_sequence_number(
-    headers: &BTreeMap<HeaderHash, BlockHeader>,
+    headers: &BTreeMap<HeaderHash, Header>,
     anchor: &HeaderHash,
     opcert_sequence_numbers: &BTreeMap<PoolId, BTreeMap<Slot, BTreeMap<HeaderHash, u64>>>,
     chain: &[Point],
     pool_id: &PoolId,
-    header: &BlockHeader,
+    header: &Header,
 ) -> Result<Option<u64>, StoreError> {
     let Some(parent) = header.parent() else {
         return Ok(None);
@@ -448,7 +440,7 @@ fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {
 
 impl DiagnosticChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
-    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
         let inner = self.inner.lock().unwrap();
         Box::new(inner.headers.values().cloned().collect::<Vec<_>>().into_iter())
     }

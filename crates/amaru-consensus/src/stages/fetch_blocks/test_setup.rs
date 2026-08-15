@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, HeaderHash, Peer, RawBlock,
+    BlockHeight, EraHistory, Header, HeaderHash, Peer, RawBlock,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
 use amaru_ouroboros_traits::{MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -41,18 +41,17 @@ pub fn test_peer() -> Peer {
     Peer::new("test-peer")
 }
 
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
+pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {
     let header = amaru_kernel::make_header(block_number, slot, parent);
-    let block = make_block_with_header(&header.into());
-    block.header.into()
+    make_block_with_header(&header).header
 }
 
 /// Simple header chain for fetch_blocks tests: h0 (genesis) -> h1 -> h2.
 #[derive(Clone)]
 pub struct HeaderChain {
-    pub h0: BlockHeader,
-    pub h1: BlockHeader,
-    pub h2: BlockHeader,
+    pub h0: Header,
+    pub h1: Header,
+    pub h2: Header,
 }
 
 impl HeaderChain {
@@ -80,22 +79,22 @@ pub struct TestPrep {
 }
 
 impl TestPrep {
-    pub fn store_headers(&self, headers: &[&BlockHeader]) {
+    pub fn store_headers(&self, headers: &[&Header]) {
         for h in headers {
             self.store.store_header(h).unwrap();
         }
     }
 
-    pub fn store_block(&self, header: &BlockHeader) {
+    pub fn store_block(&self, header: &Header) {
         let raw = Self::raw_block(header);
         self.store.store_block(&header.hash(), &raw).unwrap();
     }
 
-    pub fn raw_block(header: &BlockHeader) -> RawBlock {
+    pub fn raw_block(header: &Header) -> RawBlock {
         make_encoded_block(header, &EraHistory::default())
     }
 
-    pub fn network_block(header: &BlockHeader) -> NetworkBlock {
+    pub fn network_block(header: &Header) -> NetworkBlock {
         make_network_block(header, &EraHistory::default())
     }
 

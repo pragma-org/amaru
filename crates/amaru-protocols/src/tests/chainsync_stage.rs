@@ -14,7 +14,7 @@
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
-use amaru_kernel::{BlockHeader, IsHeader, Point, cbor};
+use amaru_kernel::{Header, IsHeader, Point, cbor};
 use amaru_ouroboros_traits::Nonces;
 use amaru_pure_stage::{Effects, StageRef};
 use tokio::sync::Notify;
@@ -206,7 +206,7 @@ pub(super) async fn test_chainsync_stage(
             eff.send(&msg.handler, chainsync::InitiatorMessage::Done).await;
         }
         RollForward(header_content, tip) => {
-            let block_header: BlockHeader = cbor::from_cbor(header_content.cbor.as_slice()).unwrap();
+            let block_header: Header = cbor::from_cbor(header_content.cbor.as_slice()).unwrap();
             let header_hash = block_header.hash();
             let point = block_header.point();
             let store = Store::new(eff.clone());

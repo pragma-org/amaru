@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, Point, PoolId, RawBlock};
+use amaru_kernel::{Header, HeaderHash, Point, PoolId, RawBlock};
 use parking_lot::Mutex;
 
 use crate::{
@@ -38,9 +38,9 @@ pub struct OverridingChainStore {
 #[expect(clippy::type_complexity)]
 #[derive(Default)]
 struct Overrides {
-    load_header: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<BlockHeader> + Send>>,
+    load_header: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<Header> + Send>>,
     load_header_with_validity:
-        Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<(BlockHeader, Option<bool>)> + Send>>,
+        Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<(Header, Option<bool>)> + Send>>,
     get_children: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Vec<HeaderHash> + Send>>,
     get_anchor_hash: Option<Box<dyn FnMut(&dyn BaseReadChainStore) -> HeaderHash + Send>>,
     get_best_chain_hash: Option<Box<dyn FnMut(&dyn BaseReadChainStore) -> HeaderHash + Send>>,
@@ -50,13 +50,11 @@ struct Overrides {
         Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Result<Option<RawBlock>, StoreError> + Send>>,
     has_block: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Result<bool, StoreError> + Send>>,
     get_nonces: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<Nonces> + Send>>,
-    get_latest_opcert_sequence_number: Option<
-        Box<dyn FnMut(&dyn BaseReadChainStore, &PoolId, &BlockHeader) -> Result<Option<u64>, StoreError> + Send>,
-    >,
+    get_latest_opcert_sequence_number:
+        Option<Box<dyn FnMut(&dyn BaseReadChainStore, &PoolId, &Header) -> Result<Option<u64>, StoreError> + Send>>,
     has_header: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> bool + Send>>,
-    store_header: Option<Box<dyn FnMut(&dyn ChainStore, &BlockHeader) -> Result<(), StoreError> + Send>>,
-    store_validated_header:
-        Option<Box<dyn FnMut(&dyn ChainStore, &BlockHeader, &Nonces) -> Result<(), StoreError> + Send>>,
+    store_header: Option<Box<dyn FnMut(&dyn ChainStore, &Header) -> Result<(), StoreError> + Send>>,
+    store_validated_header: Option<Box<dyn FnMut(&dyn ChainStore, &Header, &Nonces) -> Result<(), StoreError> + Send>>,
     set_anchor_hash: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
     set_best_chain_hash: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
     store_block: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, &RawBlock) -> Result<(), StoreError> + Send>>,
@@ -90,7 +88,7 @@ pub struct OverridingChainStoreBuilder {
 impl OverridingChainStoreBuilder {
     pub fn with_load_header<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<BlockHeader> + Send + 'static,
+        F: FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<Header> + Send + 'static,
     {
         self.overrides.load_header = Some(Box::new(f));
         self
@@ -98,7 +96,7 @@ impl OverridingChainStoreBuilder {
 
     pub fn with_load_header_with_validity<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<(BlockHeader, Option<bool>)> + Send + 'static,
+        F: FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<(Header, Option<bool>)> + Send + 'static,
     {
         self.overrides.load_header_with_validity = Some(Box::new(f));
         self
@@ -170,7 +168,7 @@ impl OverridingChainStoreBuilder {
 
     pub fn with_get_latest_opcert_sequence_number<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn BaseReadChainStore, &PoolId, &BlockHeader) -> Result<Option<u64>, StoreError> + Send + 'static,
+        F: FnMut(&dyn BaseReadChainStore, &PoolId, &Header) -> Result<Option<u64>, StoreError> + Send + 'static,
     {
         self.overrides.get_latest_opcert_sequence_number = Some(Box::new(f));
         self
@@ -186,7 +184,7 @@ impl OverridingChainStoreBuilder {
 
     pub fn with_store_header<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn ChainStore, &BlockHeader) -> Result<(), StoreError> + Send + 'static,
+        F: FnMut(&dyn ChainStore, &Header) -> Result<(), StoreError> + Send + 'static,
     {
         self.overrides.store_header = Some(Box::new(f));
         self
@@ -194,7 +192,7 @@ impl OverridingChainStoreBuilder {
 
     pub fn with_store_validated_header<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn ChainStore, &BlockHeader, &Nonces) -> Result<(), StoreError> + Send + 'static,
+        F: FnMut(&dyn ChainStore, &Header, &Nonces) -> Result<(), StoreError> + Send + 'static,
     {
         self.overrides.store_validated_header = Some(Box::new(f));
         self
@@ -270,7 +268,7 @@ impl OverridingChainStoreBuilder {
 }
 
 impl BaseReadChainStore for OverridingChainStore {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.load_header {
             Some(f) => f(self.inner.as_ref(), hash),
@@ -278,7 +276,7 @@ impl BaseReadChainStore for OverridingChainStore {
         }
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.load_header_with_validity {
             Some(f) => f(self.inner.as_ref(), hash),
@@ -350,11 +348,7 @@ impl BaseReadChainStore for OverridingChainStore {
         }
     }
 
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.get_latest_opcert_sequence_number {
             Some(f) => f(self.inner.as_ref(), pool_id, header),
@@ -378,7 +372,7 @@ impl ReadChainStore for OverridingChainStore {
 }
 
 impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let mut overrides = self.parent.overrides.lock();
         match &mut overrides.load_header {
             Some(f) => f(self.inner.as_ref(), hash),
@@ -386,7 +380,7 @@ impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
         }
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let mut overrides = self.parent.overrides.lock();
         match &mut overrides.load_header_with_validity {
             Some(f) => f(self.inner.as_ref(), hash),
@@ -458,11 +452,7 @@ impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
         }
     }
 
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         let mut overrides = self.parent.overrides.lock();
         match &mut overrides.get_latest_opcert_sequence_number {
             Some(f) => Ok(f(self.inner.as_ref(), pool_id, header)?),
@@ -480,7 +470,7 @@ impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
 }
 
 impl WriteChainStore for OverridingChainStore {
-    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
+    fn store_header(&self, header: &Header) -> Result<(), StoreError> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.store_header {
             Some(f) => f(self.inner.as_ref(), header),
@@ -488,7 +478,7 @@ impl WriteChainStore for OverridingChainStore {
         }
     }
 
-    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+    fn store_validated_header(&self, header: &Header, nonces: &Nonces) -> Result<(), StoreError> {
         let mut overrides = self.overrides.lock();
         match &mut overrides.store_validated_header {
             Some(f) => f(self.inner.as_ref(), header, nonces),
@@ -573,7 +563,7 @@ impl WriteChainStore for OverridingChainStore {
 mod tests {
     use std::sync::Arc;
 
-    use amaru_kernel::{BlockHeader, IsHeader, make_header};
+    use amaru_kernel::{Header, IsHeader, make_header};
 
     use super::*;
     use crate::{FindAncestorOnBestChainResult, in_memory_chain_store::InMemoryChainStore};
@@ -629,11 +619,11 @@ mod tests {
     // HELPERS
 
     /// Create a best chain of size `len` and return its headers from older to most recent.
-    fn create_best_chain(store: &dyn ChainStore, len: usize) -> Vec<BlockHeader> {
+    fn create_best_chain(store: &dyn ChainStore, len: usize) -> Vec<Header> {
         let mut headers = Vec::with_capacity(len);
         for i in 0..len {
-            let parent = headers.last().map(BlockHeader::hash);
-            let header = BlockHeader::from(make_header((i + 1) as u64, (i + 1) as u64, parent));
+            let parent = headers.last().map(Header::hash);
+            let header = make_header((i + 1) as u64, (i + 1) as u64, parent);
             store.store_header(&header).unwrap();
             store.roll_forward_chain(&header.point()).unwrap();
             headers.push(header);

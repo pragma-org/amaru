@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
+    BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Tip, cardano::network_block::NetworkBlock,
 };
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
@@ -397,15 +397,14 @@ impl FetchBlocks {
                 return;
             }
         };
-        let header = BlockHeader::from(&block.header);
-        let point = header.point();
+        let point = block.header.point();
         tracing::debug!(%point, "received block");
 
         // check that body belongs to header
-        if header.header().header_body.block_body_hash != block.body_hash() {
+        if block.header.body().block_body_hash != block.body_hash() {
             let span = debug_span!(consensus::block::MISMATCHED_HASH, peer = peer.clone(), header_hash = point.hash());
             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, (&span).into())).await;
-            tracing::warn!(expected = %header.header().header_body.block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
+            tracing::warn!(expected = %block.header.body().block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;
         }
 
@@ -422,17 +421,17 @@ impl FetchBlocks {
         eff.external(Performance::record_block_delivery(
             peer.clone(),
             point.hash(),
-            header.block_height(),
-            header.parent_hash(),
+            block.header.block_height(),
+            block.header.parent_hash(),
             now,
             response,
             bytes,
         ))
         .await;
 
-        if header.parent_hash() != Some(missing.boundary().hash()) {
+        if block.header.parent_hash() != Some(missing.boundary().hash()) {
             // this happens for stragglers when fetching from multiple peers
-            tracing::debug!(expected = %missing.boundary().hash(), actual = %header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
+            tracing::debug!(expected = %missing.boundary().hash(), actual = %block.header.parent_hash().unwrap_or(ORIGIN_HASH), "block parent hash mismatch");
             return;
         }
         if Some(point) != missing.first() {
@@ -450,7 +449,8 @@ impl FetchBlocks {
                 tracing::error!(%error, "failed to store block");
             })
             .await;
-        let tip = Tip::new(point, block.header.header_body.block_number.into());
+
+        let tip = block.header.tip();
 
         // retrieve the trace context that led to fetching that block to send downstream
         let trace_context = self.trace_context.clone().unwrap_or_default();

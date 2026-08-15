@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
+use amaru_kernel::{Header, HeaderHash, Tip, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::{
     GetAnchorHashEffect, GetBestChainHashEffect, GetChildrenEffect, HasHeaderEffect, LoadHeaderEffect,
@@ -29,8 +29,8 @@ use tokio::runtime::{Builder, Runtime};
 use super::*;
 use crate::stages::test_utils::{Logs, run_simulation};
 
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(make_header(block_number, slot, parent))
+pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {
+    make_header(block_number, slot, parent)
 }
 
 pub fn make_block_header_with_op_cert_seq(
@@ -38,8 +38,8 @@ pub fn make_block_header_with_op_cert_seq(
     slot: u64,
     parent: Option<HeaderHash>,
     op_cert_seq: u64,
-) -> BlockHeader {
-    BlockHeader::from(make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq))
+) -> Header {
+    make_header_with_op_cert_seq(block_number, slot, parent, op_cert_seq)
 }
 
 /// Header tree for testing block invalidation and chain selection:
@@ -51,12 +51,12 @@ pub fn make_block_header_with_op_cert_seq(
 ///       - h3a: block 4, slot 11, parent h2a (fork tip)
 #[derive(Clone)]
 pub struct HeaderTree {
-    pub h0: BlockHeader,
-    pub h1: BlockHeader,
-    pub h2: BlockHeader,
-    pub h3: BlockHeader,
-    pub h2a: BlockHeader,
-    pub h3a: BlockHeader,
+    pub h0: Header,
+    pub h1: Header,
+    pub h2: Header,
+    pub h3: Header,
+    pub h2a: Header,
+    pub h3a: Header,
 }
 
 impl HeaderTree {
@@ -70,11 +70,11 @@ impl HeaderTree {
         Self { h0, h1, h2, h3, h2a, h3a }
     }
 
-    pub fn main(&self) -> [&BlockHeader; 4] {
+    pub fn main(&self) -> [&Header; 4] {
         [&self.h0, &self.h1, &self.h2, &self.h3]
     }
 
-    pub fn all(&self) -> [&BlockHeader; 6] {
+    pub fn all(&self) -> [&Header; 6] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h2a, &self.h3a]
     }
 }
@@ -89,7 +89,7 @@ pub struct TestPrep {
 }
 
 impl TestPrep {
-    pub fn store_headers(&self, headers: &[&BlockHeader]) {
+    pub fn store_headers(&self, headers: &[&Header]) {
         for h in headers {
             self.store.store_header(h).unwrap();
         }
@@ -107,7 +107,7 @@ impl TestPrep {
         self.store.set_best_chain_hash(&hash).unwrap();
     }
 
-    pub fn header(&self, hash: HeaderHash) -> BlockHeader {
+    pub fn header(&self, hash: HeaderHash) -> Header {
         self.headers.all().iter().find(|h| h.hash() == hash).copied().unwrap().clone()
     }
 }

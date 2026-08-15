@@ -38,7 +38,7 @@ impl<const N: usize> FixedBytes<N> {
         Ok(Self(inner))
     }
 
-    pub const fn empty() -> Self {
+    pub const fn zeroes() -> Self {
         Self([0u8; N])
     }
 }
@@ -64,6 +64,12 @@ impl<const N: usize> TryFrom<Vec<u8>> for FixedBytes<N> {
 
     fn try_from(xs: Vec<u8>) -> Result<Self, Self::Error> {
         Self::checked(&xs)
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for FixedBytes<N> {
+    fn from(array: [u8; N]) -> Self {
+        Self(array)
     }
 }
 

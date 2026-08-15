@@ -20,8 +20,8 @@ use std::{
 
 use amaru_consensus::{block_validator::BlockValidator, store::PraosChainStore};
 use amaru_kernel::{
-    Block, BlockHeader, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, NetworkName, RawBlock,
-    cardano::network_block::NetworkBlock, to_cbor,
+    Block, ConsensusParameters, EraHistory, GlobalParameters, IsHeader, NetworkName, RawBlock,
+    cardano::network_block::NetworkBlock,
 };
 use amaru_mithril::read_stable_blocks_after_point;
 use amaru_node::stages::{
@@ -58,23 +58,21 @@ async fn process_block(
     era_history: &EraHistory,
     raw_block: &RawBlock,
     block: Block,
-    block_header: BlockHeader,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let point = block_header.point();
+    let point = block.header.point();
     chain_store.store_block(&point.hash(), raw_block)?;
-    let nonces = praos_chain_store.evolve_nonce(&block_header)?;
+    let nonces = praos_chain_store.evolve_nonce(&block.header)?;
 
     {
         let summaries = pool_summaries.read().unwrap();
-        let pool_id = block_header.pool_id();
-        let last_opcert_sequence_number = chain_store.get_latest_opcert_sequence_number(&pool_id, &block_header)?;
+        let pool_id = block.header.pool_id();
+        let last_opcert_sequence_number = chain_store.get_latest_opcert_sequence_number(&pool_id, &block.header)?;
         let pool_summary = summaries
-            .get_pool(block_header.slot(), &pool_id, era_history)?
+            .get_pool(block.header.slot(), &pool_id, era_history)?
             .ok_or_else(|| anyhow!("unknown pool: {pool_id:?}"))?;
         header::assert_all(
             consensus_parameters,
-            block_header.header(),
-            to_cbor(&block_header.header_body()).as_slice(),
+            &block.header,
             last_opcert_sequence_number,
             &pool_summary,
             &nonces.active,
@@ -82,7 +80,7 @@ async fn process_block(
         .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))?;
     }
 
-    chain_store.store_validated_header(&block_header, &nonces)?;
+    chain_store.store_validated_header(&block.header, &nonces)?;
 
     // Verify block content
     block_validator
@@ -136,8 +134,7 @@ pub(super) async fn run(
         let raw_block = RawBlock::from(block.into_boxed_slice());
         let network_block = NetworkBlock::try_from(raw_block.clone())?;
         let block = network_block.decode_block()?;
-        let block_header = BlockHeader::from(&block.header);
-        let point = block_header.point();
+        let point = block.header.point();
         if let Some(until) = ingest_until_slot
             && point.slot_or_default() > until.into()
         {
@@ -153,7 +150,6 @@ pub(super) async fn run(
             era_history,
             &raw_block,
             block,
-            block_header,
         )
         .await?;
 

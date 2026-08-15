@@ -22,7 +22,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, Epoch, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, RawBlock, Slot,
+    Epoch, GlobalParameters, Hash, Header, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, RawBlock, Slot,
     StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
 };
 use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
@@ -251,8 +251,7 @@ async fn fetch_headers_from_point(
 
         match next {
             NextResponse::RollForward(content, tip) => {
-                let block_header: BlockHeader =
-                    from_cbor(&content.cbor).ok_or("failed to decode fetched block header")?;
+                let block_header: Header = from_cbor(&content.cbor).ok_or("failed to decode fetched block header")?;
                 let slot = u64::from(block_header.slot());
                 headers.push(content.cbor);
 
@@ -478,8 +477,7 @@ pub async fn bootstrap(
 pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for block in blocks {
         let header_cbor = extract_block_header_cbor(&block)?;
-        let block_header: BlockHeader =
-            from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+        let block_header: Header = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
         let hash = block_header.hash();
 
         info!(bootstrap::header::IMPORT, header = %hash);
@@ -520,7 +518,7 @@ fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str)
 
     let block = hex::decode(hex_block)?;
     let header_cbor = extract_block_header_cbor(&block)?;
-    let header: BlockHeader = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+    let header: Header = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
     let expected_point = Point::try_from(expected_point)?;
     if header.point() != expected_point {
         return Err(format!("packaged bootstrap block is {}, expected {expected_point}", header.point()).into());
@@ -581,7 +579,7 @@ pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainSt
 
 pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for header in headers {
-        let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
+        let block_header: Header = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
         let hash = block_header.hash();
 
         info!(bootstrap::header::IMPORT, header = %hash);

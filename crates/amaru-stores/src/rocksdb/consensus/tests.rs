@@ -21,10 +21,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId, RawBlock,
-    Slot, Tip, any_header_hash, any_header_with_parent, any_headers_chain,
-    cardano::block_header::{any_pool_id, make_block_header_with_op_cert_seq},
-    make_header, make_header_with_op_cert_seq,
+    BlockHeight, Hash, Header, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId, RawBlock, Slot,
+    Tip, any_hash28, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
+    make_header_with_op_cert_seq,
     size::HEADER,
     utils::tests::{random_bytes, run_strategy},
 };
@@ -55,7 +54,7 @@ fn both_rw_and_ro_can_be_open_on_same_dir() {
 #[test]
 fn rocksdb_chain_store_can_get_header_it_puts() {
     with_db(|db| {
-        let header = BlockHeader::from(make_header(1, 0, None));
+        let header = make_header(1, 0, None);
         db.store_header(&header).unwrap();
         let header2 = db.load_header(&header.hash()).unwrap();
         assert_eq!(header, header2);
@@ -145,7 +144,7 @@ fn anchor_tip_returns_origin_when_anchor_header_is_not_stored() {
 #[test]
 fn anchor_tip_returns_tip_of_stored_anchor_header() {
     with_db(|db| {
-        let header = BlockHeader::from(make_header(1, 0, None));
+        let header = make_header(1, 0, None);
         db.store_header(&header).unwrap();
         db.set_anchor_hash(&header.hash()).unwrap();
         assert_eq!(db.get_anchor_tip(), header.tip());
@@ -190,10 +189,10 @@ fn store_parent_children_relationship_for_first_header() {
 #[test]
 fn load_all_headers() {
     with_db_path(|(db, path)| {
-        let mut headers: Vec<BlockHeader> = vec![];
+        let mut headers: Vec<Header> = vec![];
         for i in 0..10usize {
             let parent = if i == 0 { None } else { Some(headers[i - 1].hash()) };
-            let header = make_header(i as u64, i as u64 * 10, parent).into();
+            let header = make_header(i as u64, i as u64 * 10, parent);
             db.store_header(&header).unwrap();
             headers.push(header);
         }
@@ -201,7 +200,7 @@ fn load_all_headers() {
 
         let db = initialise_test_ro_store(path).unwrap();
 
-        let mut result: Vec<BlockHeader> = db.load_headers().collect();
+        let mut result: Vec<Header> = db.load_headers().collect();
         result.sort();
         assert_eq!(result, headers);
     })
@@ -466,7 +465,7 @@ fn ancestors_between_reports_a_from_on_another_branch() {
         for header in [&headers.h2a, &headers.h3a] {
             store.store_header(header).unwrap();
         }
-        let sibling = BlockHeader::from(make_header(3, 3, Some(headers.h0.hash())));
+        let sibling = make_header(3, 3, Some(headers.h0.hash()));
         store.store_header(&sibling).unwrap();
         assert_ne!(sibling.hash(), headers.h2.hash());
         assert!(sibling.slot() > headers.h1.slot() && sibling.slot() < headers.h3a.slot());
@@ -565,8 +564,8 @@ fn next_best_chain_returns_first_point_on_chain_given_origin() {
 #[test]
 fn next_best_chain_returns_slot_zero_point_given_origin() {
     with_db(|store| {
-        let h0 = BlockHeader::from(make_header(1, 0, None));
-        let h1 = BlockHeader::from(make_header(2, 1, Some(h0.hash())));
+        let h0 = make_header(1, 0, None);
+        let h1 = make_header(2, 1, Some(h0.hash()));
         let chain = vec![h0, h1];
         append_best_chain(store.clone(), &chain);
 
@@ -803,7 +802,7 @@ fn test_intersect_points_includes_best_point_and_are_spaced_with_a_factor_2() {
     with_db(|store| {
         let mut parent = None;
         for slot in 0..=100 {
-            let header = BlockHeader::from(make_header(slot + 1, slot, parent));
+            let header = make_header(slot + 1, slot, parent);
             store.store_header(&header).unwrap();
             store.roll_forward_chain(&header.point()).unwrap();
             parent = Some(header.hash());
@@ -878,7 +877,7 @@ fn read_snapshot_keeps_original_best_chain_view_after_store_changes() {
             let best_chain_hash = snapshot.get_best_chain_hash();
             let tip = snapshot.load_header(&best_chain_hash).expect("tip should exist in snapshot");
             let next_slot = u64::from(tip.slot()) + 1;
-            let new_tip = BlockHeader::from(make_header(next_slot, next_slot, Some(tip.hash())));
+            let new_tip = make_header(next_slot, next_slot, Some(tip.hash()));
 
             store.store_header(&new_tip).expect("should store header successfully");
             store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
@@ -961,7 +960,7 @@ fn read_snapshot_supports_best_chain_traversal() {
             move |store, snapshot| {
                 let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
 
-                assert_eq!(store.retrieve_best_chain(), chain.iter().map(BlockHeader::hash).collect::<Vec<_>>());
+                assert_eq!(store.retrieve_best_chain(), chain.iter().map(Header::hash).collect::<Vec<_>>());
                 assert_eq!(snapshot.load_from_best_chain(&chain[0].point()), Some(chain[0].hash()));
                 assert_eq!(snapshot.load_from_best_chain(&invalid_point), None);
                 assert_eq!(snapshot.next_best_chain(&Point::Origin), Some(chain[0].point()));
@@ -974,8 +973,8 @@ fn read_snapshot_supports_best_chain_traversal() {
 
 #[test]
 fn read_snapshot_supports_best_chain_traversal_from_origin_to_slot_zero() {
-    let h0 = BlockHeader::from(make_header(1, 0, None));
-    let h1 = BlockHeader::from(make_header(2, 1, Some(h0.hash())));
+    let h0 = make_header(1, 0, None);
+    let h1 = make_header(2, 1, Some(h0.hash()));
     let chain = vec![h0, h1];
 
     with_read_db(
@@ -1190,14 +1189,14 @@ fn read_snapshot_supports_child_tips_skip_invalid() {
 #[test]
 fn opcert_sequence_number_is_none_for_an_unknown_pool() {
     with_db(|db| {
-        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
-        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header1 = make_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
         db.store_header(&header1).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
         db.set_anchor_hash(&header1.hash()).unwrap();
         db.store_header(&header2).unwrap();
 
-        let unknown_pool_id = run_strategy(any_pool_id());
+        let unknown_pool_id = run_strategy(any_hash28());
         assert_eq!(db.get_latest_opcert_sequence_number(&unknown_pool_id, &header2).unwrap(), None);
     })
 }
@@ -1205,9 +1204,9 @@ fn opcert_sequence_number_is_none_for_an_unknown_pool() {
 #[test]
 fn storing_a_header_records_its_opcert_sequence_number() {
     with_db(|db| {
-        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
-        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
-        let header3 = make_block_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
+        let header1 = make_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header3 = make_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
         db.store_header(&header1).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
         db.set_anchor_hash(&header1.hash()).unwrap();
@@ -1233,9 +1232,9 @@ fn storing_a_header_records_its_opcert_sequence_number() {
 #[test]
 fn storing_a_validated_header_records_its_opcert_sequence_number() {
     with_db(|db| {
-        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
-        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
-        let header3 = make_block_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
+        let header1 = make_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header3 = make_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
         db.store_validated_header(&header1, &Nonces::for_tests()).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
         db.set_anchor_hash(&header1.hash()).unwrap();
@@ -1260,15 +1259,15 @@ fn storing_a_validated_header_records_its_opcert_sequence_number() {
 fn pools_can_be_initialized_with_opcert_sequence_numbers() {
     with_db(|db| {
         // mirror bootstrap + first-start initialization (build_node.rs)
-        let tip = BlockHeader::from(make_header(1, 100, None));
+        let tip = make_header(1, 100, None);
         db.store_header(&tip).unwrap();
         db.set_anchor_hash(&tip.hash()).unwrap();
         db.roll_forward_chain(&tip.point()).unwrap();
 
-        let pool_id: PoolId = run_strategy(any_pool_id());
+        let pool_id: PoolId = run_strategy(any_hash28());
         db.put_opcert_seed(&OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)])), &tip.point()).unwrap();
 
-        let next = BlockHeader::from(make_header(2, 110, Some(tip.hash())));
+        let next = make_header(2, 110, Some(tip.hash()));
         db.store_header(&next).unwrap();
         assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &next).unwrap(), Some(5));
         assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &tip).unwrap(), None);
@@ -1278,9 +1277,9 @@ fn pools_can_be_initialized_with_opcert_sequence_numbers() {
 #[test]
 fn a_header_entry_supersedes_an_older_seed_entry() {
     with_db(|db| {
-        let seed_header = BlockHeader::from(make_header(1, 100, None));
-        let header = BlockHeader::from(make_header_with_op_cert_seq(2, 200, Some(seed_header.hash()), 6));
-        let next = BlockHeader::from(make_header(3, 300, Some(header.hash())));
+        let seed_header = make_header(1, 100, None);
+        let header = make_header_with_op_cert_seq(2, 200, Some(seed_header.hash()), 6);
+        let next = make_header(3, 300, Some(header.hash()));
         let pool_id = header.pool_id();
         let seed = OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)]));
         db.store_header(&seed_header).unwrap();
@@ -1300,11 +1299,11 @@ fn opcert_lookup_follows_forks() {
     with_db(|db| {
         // root 1 -> fork_a 5 -> next_a
         //        -> fork_b 2 -> next_b
-        let root = BlockHeader::from(make_header_with_op_cert_seq(1, 10, None, 1));
-        let fork_a = BlockHeader::from(make_header_with_op_cert_seq(2, 20, Some(root.hash()), 5));
-        let fork_b = BlockHeader::from(make_header_with_op_cert_seq(2, 25, Some(root.hash()), 2));
-        let next_a = BlockHeader::from(make_header(3, 30, Some(fork_a.hash())));
-        let next_b = BlockHeader::from(make_header(3, 35, Some(fork_b.hash())));
+        let root = make_header_with_op_cert_seq(1, 10, None, 1);
+        let fork_a = make_header_with_op_cert_seq(2, 20, Some(root.hash()), 5);
+        let fork_b = make_header_with_op_cert_seq(2, 25, Some(root.hash()), 2);
+        let next_a = make_header(3, 30, Some(fork_a.hash()));
+        let next_b = make_header(3, 35, Some(fork_b.hash()));
         db.store_header(&root).unwrap();
         db.roll_forward_chain(&root.point()).unwrap();
         db.set_anchor_hash(&root.hash()).unwrap();
@@ -1494,8 +1493,8 @@ fn migrate_to_v4_backfills_opcert_entries_from_stored_headers() {
     let tempdir = tempfile::tempdir().unwrap();
     let store = initialise_test_rw_store(tempdir.path());
 
-    let header1 = BlockHeader::from(make_header_with_op_cert_seq(1, 10, None, 1));
-    let header2 = BlockHeader::from(make_header_with_op_cert_seq(2, 20, Some(header1.hash()), 2));
+    let header1 = make_header_with_op_cert_seq(1, 10, None, 1);
+    let header2 = make_header_with_op_cert_seq(2, 20, Some(header1.hash()), 2);
     store.store_header(&header1).unwrap();
     store.store_header(&header2).unwrap();
 
@@ -1615,12 +1614,12 @@ const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b00
 
 #[derive(Clone)]
 struct ForkedHeaders {
-    h0: BlockHeader,
-    h1: BlockHeader,
-    h2: BlockHeader,
-    h3: BlockHeader,
-    h2a: BlockHeader,
-    h3a: BlockHeader,
+    h0: Header,
+    h1: Header,
+    h2: Header,
+    h3: Header,
+    h2a: Header,
+    h3a: Header,
 }
 
 impl Display for ForkedHeaders {
@@ -1636,11 +1635,11 @@ impl Display for ForkedHeaders {
 }
 
 impl ForkedHeaders {
-    fn main(&self) -> [&BlockHeader; 4] {
+    fn main(&self) -> [&Header; 4] {
         [&self.h0, &self.h1, &self.h2, &self.h3]
     }
 
-    fn all(&self) -> [&BlockHeader; 6] {
+    fn all(&self) -> [&Header; 6] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h2a, &self.h3a]
     }
 }
@@ -1649,33 +1648,33 @@ impl ForkedHeaders {
 ///          -> h2a -> h3a
 ///
 fn make_forked_headers() -> ForkedHeaders {
-    let h0 = BlockHeader::from(make_header(1, 1, None));
-    let h1 = BlockHeader::from(make_header(2, 2, Some(h0.hash())));
-    let h2 = BlockHeader::from(make_header(3, 3, Some(h1.hash())));
-    let h3 = BlockHeader::from(make_header(4, 4, Some(h2.hash())));
-    let h2a = BlockHeader::from(make_header(3, 10, Some(h1.hash())));
-    let h3a = BlockHeader::from(make_header(4, 11, Some(h2a.hash())));
+    let h0 = make_header(1, 1, None);
+    let h1 = make_header(2, 2, Some(h0.hash()));
+    let h2 = make_header(3, 3, Some(h1.hash()));
+    let h3 = make_header(4, 4, Some(h2.hash()));
+    let h2a = make_header(3, 10, Some(h1.hash()));
+    let h3a = make_header(4, 11, Some(h2a.hash()));
 
     ForkedHeaders { h0, h1, h2, h3, h2a, h3a }
 }
 
-fn make_linear_headers(len: usize) -> Vec<BlockHeader> {
+fn make_linear_headers(len: usize) -> Vec<Header> {
     let mut headers = Vec::with_capacity(len);
     for i in 0..len {
-        let parent = headers.last().map(BlockHeader::hash);
-        headers.push(BlockHeader::from(make_header((i + 1) as u64, (i + 1) as u64, parent)));
+        let parent = headers.last().map(Header::hash);
+        headers.push(make_header((i + 1) as u64, (i + 1) as u64, parent));
     }
     headers
 }
 
-fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a BlockHeader>) {
+fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a Header>) {
     for header in headers {
         store.store_header(header).unwrap();
         store.roll_forward_chain(&header.point()).unwrap();
     }
 }
 
-fn populate_db(store: Arc<dyn ChainStore>) -> Vec<BlockHeader> {
+fn populate_db(store: Arc<dyn ChainStore>) -> Vec<Header> {
     let chain = run_strategy(any_headers_chain(10));
 
     // Set the anchor to the first header in the chain

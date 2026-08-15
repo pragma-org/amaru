@@ -733,13 +733,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `create` | `TRACE` | public | Create validation context for a block | block_body_hash, block_number, block_body_size | total_inputs |
+| `create` | `TRACE` | public | Create validation context for a block | block_id, block_number, block_body_size | total_inputs |
 
 <details><summary>span: `create`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `block_body_hash` | `string` | ✓ |
+| `block_id` | `string` | ✓ |
 | `block_number` | `integer` | ✓ |
 | `block_body_size` | `integer` | ✓ |
 | `total_inputs` | `integer` |  |

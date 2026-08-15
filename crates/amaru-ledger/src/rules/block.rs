@@ -19,9 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, GlobalParameters, Hash, NetworkName, ProtocolParameters, Slot, Tip, TransactionId,
-    TransactionIndex, TransactionPointer,
-    cardano::transaction_ref::TransactionRef,
+    Block, EraHistory, ExUnits, GlobalParameters, Hash, IsHeader, NetworkName, ProtocolParameters, Tip, TransactionId,
+    TransactionIndex, TransactionPointer, TransactionRef,
     size::{BLOCK_BODY, SCRIPT},
 };
 use amaru_observability::debug_span;
@@ -221,6 +220,7 @@ where
     let _block_guard = block_span.enter();
 
     let tip = block.tip();
+    let slot = block.header.slot();
 
     let with_block_context = |result| match result {
         Ok(out) => BlockValidation::Valid(out),
@@ -254,7 +254,6 @@ where
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
-    let slot = Slot::from(block.header.header_body.slot);
     for (i, transaction, tx_size) in block {
         let transaction_id = transaction.tx_id();
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, HeaderHash, ORIGIN_HASH, Point, PoolId, RawBlock, Tip};
+use amaru_kernel::{Header, HeaderHash, ORIGIN_HASH, Point, PoolId, RawBlock, Tip};
 
 use crate::{Nonces, StoreError};
 
@@ -20,9 +20,9 @@ use crate::{Nonces, StoreError};
 /// depend on.
 pub trait BaseReadChainStore: Send + Sync {
     /// Try to load a header by its hash.
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader>;
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header>;
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)>;
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)>;
 
     fn get_children(&self, hash: &HeaderHash) -> Vec<HeaderHash>;
     fn get_anchor_hash(&self) -> HeaderHash;
@@ -45,11 +45,7 @@ pub trait BaseReadChainStore: Send + Sync {
 
     /// Latest opcert sequence number of this header's issuer, as specified in one of the ancestors
     /// of that header. A parentless header yields `None`.
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError>;
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError>;
 
     fn has_header(&self, hash: &HeaderHash) -> bool;
 
@@ -70,11 +66,11 @@ pub trait BaseReadChainStore: Send + Sync {
 }
 
 impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.as_ref().load_header(hash)
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
 
@@ -102,11 +98,7 @@ impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
         self.as_ref().get_nonces(header)
     }
 
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         self.as_ref().get_latest_opcert_sequence_number(pool_id, header)
     }
 

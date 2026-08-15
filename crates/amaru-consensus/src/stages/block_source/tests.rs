@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Peer, Point, Tip, make_header};
+use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, Tip, make_header};
 use tracing::Level;
 
 use super::{
@@ -29,7 +29,7 @@ use crate::stages::{
 const BS: &str = "bs-1";
 
 fn point_n(n: u64) -> Point {
-    BlockHeader::from(make_header(n, n, None)).point()
+    make_header(n, n, None).point()
 }
 
 fn tip_adopted(h: u64) -> Tip {

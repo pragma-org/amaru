@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc};
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistory, Point, Tip, Transaction};
+use amaru_kernel::{ConsensusParameters, EraHistory, Header, Point, Tip, Transaction};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
@@ -35,7 +35,7 @@ pub trait LedgerOps: Send + Sync {
 
     /// Validate a header and return its evolved nonces, which the caller is expected to store
     /// atomically with the header itself.
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>>;
+    fn validate_header(&self, header: &Header) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>>;
 
     fn validate_block(
         &self,
@@ -79,7 +79,7 @@ impl LedgerOps for Ledger {
         self.effects.external(ValidateTxEffect::new(tx))
     }
 
-    fn validate_header(&self, header: &BlockHeader) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>> {
+    fn validate_header(&self, header: &Header) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>> {
         self.effects.external(ValidateHeaderEffect::new(header).with_trace_context(&self.trace_context))
     }
 
@@ -201,12 +201,12 @@ impl ExternalEffectAPI for ValidateBlockEffect {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidateHeaderEffect {
-    header: BlockHeader,
+    header: Header,
     trace_context: TraceContext,
 }
 
 impl ValidateHeaderEffect {
-    pub fn new(header: &BlockHeader) -> Self {
+    pub fn new(header: &Header) -> Self {
         Self { header: header.clone(), trace_context: Default::default() }
     }
 

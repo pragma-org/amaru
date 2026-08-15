@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, ConsensusParameters, EraHistoryError, HeaderHash, IsHeader, Nonce, Point};
+use amaru_kernel::{ConsensusParameters, EraHistoryError, Header, HeaderHash, IsHeader, Nonce, Point};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{ChainStore, Nonces, Praos, StoreError};
 use thiserror::Error;
@@ -31,7 +31,7 @@ impl PraosChainStore {
     }
 }
 
-impl Praos<BlockHeader> for PraosChainStore {
+impl Praos<Header> for PraosChainStore {
     type Error = NoncesError;
 
     fn get_nonce(&self, header: &HeaderHash) -> Option<Nonce> {
@@ -46,7 +46,7 @@ impl Praos<BlockHeader> for PraosChainStore {
     /// be used once crossing the epoch boundary to produce the next epoch nonce.
     ///
     /// Return the evolved nonces.
-    fn evolve_nonce(&self, header: &BlockHeader) -> Result<Nonces, Self::Error> {
+    fn evolve_nonce(&self, header: &Header) -> Result<Nonces, Self::Error> {
         let (epoch, is_within_stability_window) = nonce::randomness_stability_window(
             header,
             self.consensus_parameters.era_history(),
@@ -102,7 +102,7 @@ mod test {
     use std::sync::{Arc, LazyLock};
 
     use amaru_kernel::{
-        BlockHeader, Epoch, EraHistory, GlobalParameters, IsHeader, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
+        Epoch, EraHistory, GlobalParameters, Header, IsHeader, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS,
         from_cbor, hash, to_cbor,
     };
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -155,9 +155,9 @@ mod test {
     });
 
     fn evolve_nonce(
-        last_header_last_epoch: &BlockHeader,
-        parent: (&BlockHeader, &Nonces),
-        current: &BlockHeader,
+        last_header_last_epoch: &Header,
+        parent: (&Header, &Nonces),
+        current: &Header,
         era_history: &EraHistory,
         global_parameters: &GlobalParameters,
     ) -> Nonces {

@@ -100,7 +100,7 @@ Run `make help` for all targets.
 - Implement: Debug, Clone, Copy (if applicable), PartialEq/Eq/Ord, Display, Serialize/Deserialize, CBOR Encode/Decode
 - Validation in constructors or From impls
 - Naming: snake_case for vars/fns, UpperCamel for types, descriptive
-- Use amaru_kernel types where possible (BlockHeader, Tip, Point, EraName, etc.)
+- Use amaru_kernel types where possible (Header, Tip, Point, EraName, etc.)
 - No HashMap/HashSet in public APIs (use BTreeMap for determinism?)
 
 ### Imports and Modules

@@ -15,9 +15,8 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, HeaderHash, NonEmptyVec, Point, Tip,
-    cardano::{block_header::make_block_header_with_op_cert_seq, network_block::make_encoded_block},
-    make_header,
+    BlockHeight, EraHistory, Header, HeaderHash, NonEmptyVec, Point, Tip, cardano::network_block::make_encoded_block,
+    make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
 use amaru_ouroboros_traits::{DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -38,10 +37,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use super::*;
 use crate::stages::test_utils::{BufferWriter, Logs};
 
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(make_header(block_number, slot, parent))
-}
-
 /// Header tree for testing adopt_chain control flow:
 /// - h0: genesis (block 1, slot 1, no parent)
 ///   - h1: block 2, slot 2, parent h0
@@ -52,37 +47,37 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
 ///       - h3a: block 4, slot 11, parent h2a (fork tip, op_cert_seq 0 - loses to h3)
 #[derive(Clone, Debug)]
 pub struct HeaderTree {
-    pub h0: BlockHeader,
-    pub h1: BlockHeader,
-    pub h2: BlockHeader,
-    pub h3: BlockHeader,
-    pub h4: BlockHeader,
-    pub h2a: BlockHeader,
-    pub h3a: BlockHeader,
+    pub h0: Header,
+    pub h1: Header,
+    pub h2: Header,
+    pub h3: Header,
+    pub h4: Header,
+    pub h2a: Header,
+    pub h3a: Header,
 }
 
 #[allow(dead_code)]
 impl HeaderTree {
     pub fn new() -> Self {
-        let h0 = make_block_header(1, 1, None);
-        let h1 = make_block_header(2, 2, Some(h0.hash()));
-        let h2 = make_block_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
-        let h3 = make_block_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
-        let h4 = make_block_header(5, 5, Some(h3.hash()));
-        let h2a = make_block_header(3, 10, Some(h1.hash()));
-        let h3a = make_block_header(4, 11, Some(h2a.hash()));
+        let h0 = make_header(1, 1, None);
+        let h1 = make_header(2, 2, Some(h0.hash()));
+        let h2 = make_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
+        let h3 = make_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
+        let h4 = make_header(5, 5, Some(h3.hash()));
+        let h2a = make_header(3, 10, Some(h1.hash()));
+        let h3a = make_header(4, 11, Some(h2a.hash()));
         Self { h0, h1, h2, h3, h4, h2a, h3a }
     }
 
-    pub fn main_chain(&self) -> [&BlockHeader; 5] {
+    pub fn main_chain(&self) -> [&Header; 5] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h4]
     }
 
-    pub fn fork_chain(&self) -> [&BlockHeader; 3] {
+    pub fn fork_chain(&self) -> [&Header; 3] {
         [&self.h0, &self.h1, &self.h2a]
     }
 
-    pub fn all(&self) -> [&BlockHeader; 7] {
+    pub fn all(&self) -> [&Header; 7] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h4, &self.h2a, &self.h3a]
     }
 }
@@ -96,13 +91,13 @@ pub struct TestPrep {
 }
 
 impl TestPrep {
-    pub fn store_headers(&self, headers: &[&BlockHeader]) {
+    pub fn store_headers(&self, headers: &[&Header]) {
         for h in headers {
             self.store.store_header(h).unwrap();
         }
     }
 
-    pub fn store_block(&self, header: &BlockHeader) {
+    pub fn store_block(&self, header: &Header) {
         let raw_block = make_encoded_block(header, &EraHistory::default());
         self.store.store_block(&header.hash(), &raw_block).unwrap();
     }
@@ -111,7 +106,7 @@ impl TestPrep {
         self.store.set_anchor_hash(&hash).unwrap();
     }
 
-    pub fn set_best_chain(&mut self, header: BlockHeader) {
+    pub fn set_best_chain(&mut self, header: Header) {
         self.state.current_best_tip = header.tip();
         let mut ancestors = self.store.ancestors(header).collect::<Vec<_>>();
         ancestors.reverse();
@@ -129,7 +124,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<MempoolMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Option<BlockHeader>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<Header>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<Point>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<(), StoreError>>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),

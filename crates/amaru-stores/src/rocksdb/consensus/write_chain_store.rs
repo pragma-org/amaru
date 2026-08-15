@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
+use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, size::HEADER, to_cbor};
 use amaru_observability::debug_span;
 use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions, WriteBatch};
@@ -24,7 +24,7 @@ use crate::rocksdb::consensus::{
 };
 
 impl WriteChainStore for RocksDBStore {
-    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError> {
+    fn store_header(&self, header: &Header) -> Result<(), StoreError> {
         let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
         let _guard = span.enter();
 
@@ -34,7 +34,7 @@ impl WriteChainStore for RocksDBStore {
         })
     }
 
-    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError> {
+    fn store_validated_header(&self, header: &Header, nonces: &Nonces) -> Result<(), StoreError> {
         let span = debug_span!(stores::consensus::header::STORE, hash = header.hash());
         let _guard = span.enter();
 
@@ -161,7 +161,7 @@ impl WriteChainStore for RocksDBStore {
 /// Record a header, its link to its parent, and the opcert sequence number it declares. Every
 /// stored header must contribute to the opcert index, otherwise the sequence numbers observed on
 /// the chain go stale and subsequent headers get rejected as being too far ahead.
-fn put_header(batch: &mut WriteBatch, header: &BlockHeader) {
+fn put_header(batch: &mut WriteBatch, header: &Header) {
     let hash = header.hash();
     let parent_hash = header.parent().unwrap_or(ORIGIN_HASH);
 

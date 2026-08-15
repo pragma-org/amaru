@@ -25,7 +25,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, BlockHeight, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher,
+    Block, BlockHeight, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, IsHeader,
     NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer,
     protocol_version, size::SCRIPT, to_cbor, utils::string::display_collection,
 };
@@ -644,9 +644,9 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     fn create_block_validation_context(&self, block: &Block) -> Result<DefaultValidationContext, StateError> {
         debug_span!(
             ledger::block_validation_context::CREATE,
-            block_body_hash = block.header.header_body.block_body_hash,
-            block_number = block.header.header_body.block_number,
-            block_body_size = block.header.header_body.block_body_size
+            block_id = block.header.hash(),
+            block_number = block.header.block_height().into_u64(),
+            block_body_size = block.header.body().block_body_size
         )
         .in_scope(|| {
             let mut ctx = DefaultPreparationContext::new();
@@ -774,7 +774,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         debug_span!(ledger::state::ROLL_FORWARD).in_scope(|| {
             let tip = block.tip();
             let point = block.point();
-            trace_block_transactions(&point, tip.block_height().as_u64(), block);
+            trace_block_transactions(&point, block.header.block_height().into_u64(), block);
 
             // 1. Rewards calculation
             BlockValidation::from(self.try_compute_rewards())?;
@@ -782,7 +782,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             // 2. Epoch transition
             BlockValidation::from(self.try_epoch_transition(point))?;
 
-            let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_verification_key[..]);
+            let issuer = Hasher::<224>::hash(&block.header.body().issuer_verification_key[..]);
 
             let metrics = self.new_metrics(&point, block, issuer);
 
@@ -833,9 +833,9 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
         let slot = point.slot_or_default();
 
-        let prev_hash = block.header.header_body.prev_hash;
+        let prev_hash = block.header.body().prev_hash;
 
-        let block_height = block.header.header_body.block_number;
+        let block_height = block.header.block_height().into_u64();
 
         let epoch = self
             .era_history()

@@ -20,7 +20,7 @@ use std::{
 
 use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{
-    Anchor, BlockHeader, Constitution, Epoch, EraHistory, IsHeader, MaxString128, NetworkName, Peer, Point,
+    Anchor, Constitution, Epoch, EraHistory, Header, IsHeader, MaxString128, NetworkName, Peer, Point,
     ProtocolParameters, Transaction, TransactionId, cardano::network_block::make_encoded_block,
 };
 use amaru_ledger::{
@@ -232,7 +232,7 @@ impl NodeTestConfig {
     /// - Set the chain anchor and best tip to the first header of the chain.
     ///
     #[expect(clippy::unwrap_used)]
-    pub fn with_validated_blocks(self, headers: Vec<BlockHeader>) -> Self {
+    pub fn with_validated_blocks(self, headers: Vec<Header>) -> Self {
         let _span = self.enter_span();
         for header in headers.iter() {
             tracing::info!(

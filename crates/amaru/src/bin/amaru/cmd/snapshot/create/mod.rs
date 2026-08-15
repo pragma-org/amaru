@@ -22,7 +22,7 @@ use std::{
 
 use amaru::default_snapshots_dir;
 use amaru_kernel::{
-    BlockHeader, Epoch, HeaderHash, IsHeader, NetworkName, Point, Slot, from_cbor,
+    Epoch, Header, HeaderHash, IsHeader, NetworkName, Point, Slot, from_cbor,
     num::{CheckedAdd, CheckedSub},
     utils::{self, path::relative_path},
 };
@@ -462,7 +462,7 @@ fn packaged_blocks_from_iter(
             continue;
         }
 
-        let header: BlockHeader = from_cbor(&block.header_cbor)
+        let header: Header = from_cbor(&block.header_cbor)
             .ok_or_else(|| format!("failed to decode target block header {} from immutable blocks", target.hash))?;
         if header.hash() != target.hash {
             return Err(
@@ -502,7 +502,7 @@ fn packaged_blocks_from_iter(
 mod tests {
     use std::{error::Error, fs, path::Path};
 
-    use amaru_kernel::{BlockHeader, Epoch, HeaderHash, IsHeader, Point, Slot, make_header, to_cbor};
+    use amaru_kernel::{Epoch, Header, HeaderHash, IsHeader, Point, Slot, make_header, to_cbor};
     use amaru_mithril::ImmutableBlock;
     use tempfile::TempDir;
 
@@ -515,11 +515,11 @@ mod tests {
         packaged_blocks_from_iter,
     };
 
-    fn immutable_block(header: &BlockHeader, raw_block: &[u8]) -> ImmutableBlock {
+    fn immutable_block(header: &Header, raw_block: &[u8]) -> ImmutableBlock {
         ImmutableBlock { hash: header.hash(), header_cbor: to_cbor(header), raw_block: raw_block.to_vec() }
     }
 
-    fn target_for(header: &BlockHeader, parent_point: Point) -> EpochTarget {
+    fn target_for(header: &Header, parent_point: Point) -> EpochTarget {
         EpochTarget {
             epoch: Epoch::from(1),
             slot: header.slot(),
@@ -596,8 +596,8 @@ mod tests {
     fn packages_only_the_exact_snapshot_block() {
         let parent_hash = HeaderHash::from([1; 32]);
         let parent_point = Point::Specific(Slot::from(41), parent_hash);
-        let target_header = BlockHeader::from(make_header(2, 42, Some(parent_hash)));
-        let child_header = BlockHeader::from(make_header(3, 43, Some(target_header.hash())));
+        let target_header = make_header(2, 42, Some(parent_hash));
+        let child_header = make_header(3, 43, Some(target_header.hash()));
         let target = target_for(&target_header, parent_point);
         let blocks = vec![
             Ok::<_, Box<dyn Error>>(immutable_block(&target_header, b"target")),
@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn rejects_snapshot_block_with_inconsistent_metadata() {
         let parent_hash = HeaderHash::from([1; 32]);
-        let header = BlockHeader::from(make_header(2, 42, Some(parent_hash)));
+        let header = make_header(2, 42, Some(parent_hash));
         let block = immutable_block(&header, b"target");
 
         let mut target = target_for(&header, Point::Specific(Slot::from(41), parent_hash));
@@ -634,7 +634,7 @@ mod tests {
         );
 
         target.parent_point = Some(Point::Specific(Slot::from(41), parent_hash));
-        let mismatched_header = BlockHeader::from(make_header(3, 42, Some(parent_hash)));
+        let mismatched_header = make_header(3, 42, Some(parent_hash));
         let mismatched = ImmutableBlock { hash: target.hash, ..immutable_block(&mismatched_header, b"other") };
         assert!(
             packaged_blocks_from_iter(vec![Ok::<_, Box<dyn Error>>(mismatched)], &target, Path::new("immutable"))

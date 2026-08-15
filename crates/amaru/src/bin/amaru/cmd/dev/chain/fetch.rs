@@ -25,7 +25,7 @@ use amaru::{
     bootstrap::{BOOTSTRAP_HEADERS_PER_POINT, fetch_headers_from_points},
     lifecycle::{Runnable, RuntimeKind},
 };
-use amaru_kernel::{BlockHeader, IsHeader, NetworkName, Point, from_cbor};
+use amaru_kernel::{Header, IsHeader, NetworkName, Point, from_cbor};
 use clap::{ArgAction, Parser};
 use tracing::info;
 
@@ -116,7 +116,7 @@ fn write_headers(headers_dir: &Path, headers: Vec<Vec<u8>>) -> Result<(), Box<dy
     fs::create_dir_all(headers_dir)?;
 
     for header in headers {
-        let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode fetched block header")?;
+        let block_header: Header = from_cbor(&header).ok_or("failed to decode fetched block header")?;
         let hash = block_header.hash();
         let slot = block_header.slot();
         let filename = format!("header.{}.{}.cbor", slot, hex::encode(hash));

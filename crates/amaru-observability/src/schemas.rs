@@ -490,7 +490,7 @@ define_schemas! {
             block_validation_context {
                 /// Create validation context for a block
                 public CREATE {
-                    required block_body_hash: amaru_kernel::HeaderHash
+                    required block_id: amaru_kernel::HeaderHash
                     required block_number: u64
                     required block_body_size: u64
                     optional total_inputs: u64

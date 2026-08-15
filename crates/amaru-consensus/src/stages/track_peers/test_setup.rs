@@ -15,8 +15,8 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Peer, Point, Tip,
-    make_header, num::CheckedSub,
+    ConsensusParameters, Epoch, EraHistory, Header, HeaderHash, IsHeader, NetworkName, Peer, Point, Tip, make_header,
+    num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
@@ -90,7 +90,7 @@ pub fn te_clock(instant: Instant) -> TraceEntry {
     TraceEntry::Clock(instant)
 }
 
-pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
+pub fn build_store(headers: &[Header]) -> Arc<InMemoryChainStore> {
     let store = Arc::new(InMemoryChainStore::new());
     for header in headers {
         store.store_header(header).unwrap();
@@ -100,7 +100,7 @@ pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
 
 /// Like [`build_store`] but also persists nonces for each header, mimicking a header that has
 /// already been fully validated (as opposed to a legacy import without nonces).
-pub fn build_store_with_nonces(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
+pub fn build_store_with_nonces(headers: &[Header]) -> Arc<InMemoryChainStore> {
     let store = build_store(headers);
     for header in headers {
         store.put_nonces(&header.hash(), &Nonces::for_tests()).unwrap();
@@ -115,7 +115,7 @@ pub struct TestPrep {
     pub handler: StageRef<InitiatorMessage>,
     pub conn_id: ConnectionId,
     /// Three linked headers: [h1, h2, h3] with h1 parent None, h2 parent h1, h3 parent h2.
-    pub headers: [BlockHeader; 3],
+    pub headers: [Header; 3],
     pub start_times: StartTimes,
 }
 
@@ -152,11 +152,11 @@ pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
     TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3], start_times }
 }
 
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(make_header(block_number, slot, parent))
+pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {
+    make_header(block_number, slot, parent)
 }
 
-pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
+pub fn te_validate_header(at_stage: &str, header: Header) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header))))
 }
 
@@ -185,7 +185,7 @@ pub fn te_record_rollback(
     ))
 }
 
-pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
+pub fn te_store_validated_header(at_stage: &str, header: Header) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(StoreValidatedHeaderEffect::new(header, Nonces::for_tests())),
