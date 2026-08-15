@@ -15,16 +15,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, EraHistoryProxy, GovernanceAction, Hash, Lovelace,
-    MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots, ProtocolParameters,
-    StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
+    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots,
+    ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
-    context::{AccountState, DelegateError},
+    context::{AccountState, CCMember, DelegateError},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -32,10 +32,10 @@ use crate::{
         transaction::{
             phase_one::{
                 InvalidCertificates, InvalidCollateral, InvalidFees, InvalidInputs, InvalidTransactionMetadata,
-                InvalidValidityInterval, InvalidVerificationKeyWitness, InvalidWithdrawals, PhaseOneError,
+                InvalidValidityInterval, InvalidVerificationKeyWitness, InvalidVotingProcedures, InvalidWithdrawals,
+                PhaseOneError,
                 outputs::{InvalidOutput, InvalidOutputs},
                 proposals::InvalidProposals,
-                voting_procedures::InvalidVotingProcedures,
             },
             phase_two::PhaseTwoError,
         },
@@ -66,9 +66,11 @@ pub(super) struct InitialState {
     pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
     pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
+    #[serde(deserialize_with = "deserialize_committee", default)]
+    pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals", default)]
     pub(super) proposals: BTreeMap<ProposalId, ProposalKind>,
-    #[serde(deserialize_with = "deserialize_proposals_roots", default)]
+    #[serde(default)]
     pub(super) proposals_roots: ProposalsRoots,
     #[serde(default)]
     pub(super) governance_activity: GovernanceActivity,
@@ -88,6 +90,20 @@ where
     let hex = String::deserialize(deserializer)?;
     let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
     cbor::decode(&bytes).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_optional_cbor_hex<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: for<'b> cbor::Decode<'b, ()>,
+{
+    match Option::<String>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(hex) => {
+            let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
+            cbor::decode(&bytes).map(Some).map_err(serde::de::Error::custom)
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -166,55 +182,40 @@ where
         .collect())
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProposalIdProxy {
-    transaction_id: Hash<32>,
-    proposal_index: u32,
-}
-
-impl From<ProposalIdProxy> for ProposalId {
-    fn from(proxy: ProposalIdProxy) -> Self {
-        ProposalId { transaction_id: proxy.transaction_id, action_index: proxy.proposal_index }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProposalProxy {
-    id: ProposalIdProxy,
-    #[serde(deserialize_with = "deserialize_cbor_hex")]
-    gov_action: GovernanceAction,
-}
-
 fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalKind>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<ProposalProxy>::deserialize(deserializer)?;
-    Ok(entries.into_iter().map(|entry| (ProposalId::from(entry.id), ProposalKind::from(&entry.gov_action))).collect())
+    let entries = Vec::<(ProposalId, ProposalKind)>::deserialize(deserializer)?;
+    Ok(entries.into_iter().collect())
 }
 
-#[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
-struct ProposalsRootsProxy {
-    protocol_parameters: Option<ProposalIdProxy>,
-    hard_fork: Option<ProposalIdProxy>,
-    constitutional_committee: Option<ProposalIdProxy>,
-    constitution: Option<ProposalIdProxy>,
+/// A row of the constitutional committee, keyed by cold credential. `hotCredential` is absent for a
+/// member that has never authorized one or has resigned; `validUntil` is absent for a member that is
+/// not (or no longer) elected, which is a state a member can still authorize a hot key from.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitteeMemberProxy {
+    #[serde(deserialize_with = "deserialize_cbor_hex")]
+    cold_credential: StakeCredential,
+    #[serde(default, deserialize_with = "deserialize_optional_cbor_hex")]
+    status: Option<ConstitutionalCommitteeMemberStatus>,
+    #[serde(default)]
+    valid_until: Option<Epoch>,
 }
 
-fn deserialize_proposals_roots<'de, D>(deserializer: D) -> Result<ProposalsRoots, D::Error>
+fn deserialize_committee<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, CCMember>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let proxy = ProposalsRootsProxy::deserialize(deserializer)?;
-    Ok(ProposalsRoots {
-        protocol_parameters: proxy.protocol_parameters.map(ProposalId::from),
-        hard_fork: proxy.hard_fork.map(ProposalId::from),
-        constitutional_committee: proxy.constitutional_committee.map(ProposalId::from),
-        constitution: proxy.constitution.map(ProposalId::from),
-    })
+    let entries = Vec::<CommitteeMemberProxy>::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let member = CCMember { status: entry.status, valid_until: entry.valid_until };
+            (entry.cold_credential, member)
+        })
+        .collect())
 }
 
 #[derive(Debug)]
@@ -263,6 +264,7 @@ pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
+    CommitteeIsUnknown,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
@@ -301,6 +303,7 @@ pub(super) enum Predicate {
     StakePoolCostTooLowPOOL,
     ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
+    VotersDoNotExist,
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -407,15 +410,23 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist
             }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::UnauthorizedOrUnknownVoter(_)) => {
+                Predicate::VotersDoNotExist
+            }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,
+                DelegateError::AlreadyResigned => unreachable!("only applicable to CC"),
             },
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidVoteDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidVoteDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeDRepNotRegistered,
+                DelegateError::AlreadyResigned => unreachable!("only applicable to CC"),
             },
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
+                DelegateError::UnknownSource(_),
+            )) => Predicate::CommitteeIsUnknown,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
             }

@@ -17,7 +17,7 @@ use crate::{
     size::{KEY, POOL_COLD_KEY, SCRIPT},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Voter {
     ConstitutionalCommitteeScript(Hash<{ SCRIPT }>),
     ConstitutionalCommitteeKey(Hash<{ KEY }>),

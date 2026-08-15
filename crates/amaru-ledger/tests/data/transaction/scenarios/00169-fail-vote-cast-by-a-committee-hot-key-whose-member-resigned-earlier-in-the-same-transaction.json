@@ -1,0 +1,37 @@
+{
+  "title": "vote cast by a committee hot key whose member resigned earlier in the same transaction",
+  "description": "A member holding a term and an authorized hot credential resigns their cold credential, then votes with that hot credential in the same transaction.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820fb8a21999f439a8f38c56e440aea8128aa77dc56362e20563271abdfd766b13000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "status": "8200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Orphan"]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a600d9010281825820fb8a21999f439a8f38c56e440aea8128aa77dc56362e20563271abdfd766b130000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d9010281830f8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f60f0013a18200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253ceca18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102828258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258404d79f58c7f71405661467e7489e4aebe9456d1d0195509529691f4cd8700d09f9c2e5d7759e14d6785c3c0cda67abbce5b23d9c45744cfeba772cb6b76c64407825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840c7c344080b361dd538a1a38fa45aecdb813477cda786ae663d84454f03dd5c3001740ea3131de384dc687df91d2f54f041b3c90b7177cd298dcd9f98104b0606f5f6",
+  "expected": {
+    "predicate": "VotersDoNotExist"
+  }
+}

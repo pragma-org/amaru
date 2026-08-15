@@ -15,7 +15,8 @@
 use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalKind, StakeCredential, TransactionInput,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, ProposalKind, StakeCredential,
+    TransactionInput,
 };
 use amaru_observability::debug_span;
 
@@ -65,9 +66,9 @@ impl VolatileState for VolatileSeries {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
-    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
-        self.aggregate.resolve_cc_member(credential)
+    type CCMembers<'a> = Box<dyn Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> + 'a>;
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
+        Box::new(self.aggregate.resolve_cc_members())
     }
 
     // ----------------------------------------------------------------------------------- Proposals
@@ -77,6 +78,10 @@ impl VolatileState for VolatileSeries {
     }
 
     // ---------------------------------------------------------------------------------------- Pots
+    fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
+        pots.treasury
+    }
+
     fn resolve_donations(&self) -> Lovelace {
         self.aggregate.donations()
     }

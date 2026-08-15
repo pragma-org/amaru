@@ -42,6 +42,7 @@ Other guiding principles:
 - **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.
 - **amaru-plutus**: encode `CostModels` as a map from language to cost model (#1219).
 - **amaru-ledger**: compute the size of a value using the same encoding as the Haskell node.
+- **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
@@ -308,6 +309,7 @@ Other guiding principles:
 [#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#923]: https://github.com/pragma-org/amaru/issues/923
 [#924]: https://github.com/pragma-org/amaru/issues/924
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
@@ -364,4 +366,5 @@ Other guiding principles:
 [#1101]: https://github.com/pragma-org/amaru/pull/1101
 [#1109]: https://github.com/pragma-org/amaru/pull/1109
 [#1118]: https://github.com/pragma-org/amaru/pull/1118
+[#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139

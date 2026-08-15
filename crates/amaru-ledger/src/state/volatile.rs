@@ -15,8 +15,8 @@
 use std::collections::VecDeque;
 
 use amaru_kernel::{
-    CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId, Pots, ProposalId, StakeCredential,
-    TransactionInput,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId,
+    Pots, ProposalId, StakeCredential, TransactionInput,
 };
 
 mod db;
@@ -59,9 +59,10 @@ pub use tests::*;
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
 pub type AccountBind<'a> = Bind<&'a (PoolId, CertificatePointer), &'a (DRep, CertificatePointer), &'a Lovelace>;
 
-/// A CC member's accumulated binding: the hot-key delegation. Membership and term come from below,
-/// since no in-block cert establishes them.
-pub type CommitteeMemberBind<'a> = Bind<&'a StakeCredential, &'a Empty, &'a Epoch>;
+/// A CC member's accumulated binding: the authorized hot credential on the left, the term an election
+/// granted on the right. The empty `value` stops a layer superseding the one below it, since either
+/// half can be set without the other.
+pub type CommitteeMemberBind<'a> = Bind<&'a ConstitutionalCommitteeMemberStatus, &'a Epoch, &'a Empty>;
 
 /// A DRep's accumulated binding: the metadata anchor, plus the registration record. The registration
 /// is the queryable value; the anchor is updated independently of registration, so an anchor-only
@@ -74,43 +75,75 @@ pub trait VolatileState {
     type TransactionOutput<'a>
     where
         Self: 'a;
-    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a>;
+    #[expect(clippy::panic)]
+    fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
+        panic!("VolatileState.resolve_input({input})")
+    }
 
     // --------------------------------------------------------------------------------------- Pools
     type Pool;
-    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool;
+    #[expect(clippy::panic)]
+    fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
+        panic!("VolatileState.resolve_pool({pool_id})")
+    }
 
     // ------------------------------------------------------------------------------------ Accounts
     type Account<'a>
     where
         Self: 'a;
-    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a>;
-    fn has_withdrawal(&self, credential: &StakeCredential) -> bool;
+    #[expect(clippy::panic)]
+    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
+        panic!("VolatileState.resolve_account({credential})")
+    }
+    #[expect(clippy::panic)]
+    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+        panic!("VolatileState.has_withdrawal({credential})")
+    }
 
     // --------------------------------------------------------------------------------------- DReps
     type DRep<'a>
     where
         Self: 'a;
-    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a>;
+    #[expect(clippy::panic)]
+    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
+        panic!("VolatileState.resolve_drep({credential})")
+    }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember<'a>
+    type CCMembers<'a>
     where
         Self: 'a;
-    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a>;
+    /// Every cold credential these layers can resolve to a member for.
+    ///
+    /// This is necessary because a hot key authorized or a seat granted at the epoch boundary has
+    /// no stable row yet until the end of the stability window, so iterating the store cannot
+    /// enumerate these.
+    ///
+    /// The same credential may come up multiple times.
+    #[expect(clippy::panic)]
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
+        panic!("VolatileState.resolve_cc_members()")
+    }
 
     // ----------------------------------------------------------------------------------- Proposals
     type Proposal;
-    fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal;
+    #[expect(clippy::panic)]
+    fn resolve_proposal(&self, proposal_id: &ProposalId) -> Self::Proposal {
+        panic!("VolatileState.resolve_proposal({proposal_id})")
+    }
 
     // ---------------------------------------------------------------------------------------- Pots
+    #[expect(clippy::panic)]
     fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
-        pots.treasury
+        panic!("VolatileState.resolve_treasury({pots:?})")
     }
 
     /// The donations collected by blocks that are still volatile, and thus not yet reflected in the
     /// stable pots. They are moved into the treasury at the epoch boundary.
-    fn resolve_donations(&self) -> Lovelace;
+    #[expect(clippy::panic)]
+    fn resolve_donations(&self) -> Lovelace {
+        panic!("VolatileState.resolve_donations()")
+    }
 }
 
 /// A sequence-like API used by the VolatileDB and VolatileSeries.

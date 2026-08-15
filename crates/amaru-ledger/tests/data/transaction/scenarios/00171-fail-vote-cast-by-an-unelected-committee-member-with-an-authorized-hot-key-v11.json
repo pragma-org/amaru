@@ -1,0 +1,43 @@
+{
+  "title": "vote cast by an unelected committee member with an authorized hot key v11",
+  "description": "A constitutional committee voter naming the hot key of a member that holds an authorized hot credential but no term.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": {
+      "version": {
+        "major": 11,
+        "minor": 0
+      }
+    }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820e4ab7bd9de7060f2f81fc907132ce2942081ac10b2b9454d53642eb304a64a3800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581cecc3093b061a9ed426cd9956161fc48d4ed1ac58dc4aaed7e1ce1830",
+        "status": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": null
+      }
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Orphan"]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820e4ab7bd9de7060f2f81fc907132ce2942081ac10b2b9454d53642eb304a64a38000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840f46d6100d906cb1424b6f9234fd187090bddf85d0453f8f09700cbcdf7491556c325dac760dc35efd1dc234e532e357d413aa35a99c1ba2310ed73caa9306008f5f6",
+  "expected": {
+    "predicate": "VotersDoNotExist"
+  }
+}

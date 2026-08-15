@@ -259,6 +259,25 @@
         }
       }
     },
+    "CommitteeMember": {
+      "type": "object",
+      "required": ["coldCredential"],
+      "properties": {
+        "coldCredential": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of StakeCredential. The cold credential keying the member."
+        },
+        "status": {
+          "$ref": "#/$defs/HexCbor",
+          "description": "Hex-encoded CBOR of a member's status. The authorized hot credential or resignation, which is the identity a vote carries. Absent for a member that has never authorized one or has resigned."
+        },
+        "validUntil": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Epoch through which the member's term runs. Absent for a member holding no term, which is still a state a member can authorize a hot credential from."
+        }
+      }
+    },
     "InitialState": {
       "type": "object",
       "properties": {
@@ -280,6 +299,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/DRepRegistration" },
           "description": "Registered delegate representatives. Empty when no DRep state is seeded."
+        },
+        "committee": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CommitteeMember" },
+          "description": "Constitutional committee members, keyed by cold credential. Empty when no committee state is seeded."
         },
         "proposals": {
           "type": "array",
@@ -307,12 +331,15 @@
       }
     },
     "ProposalEntry": {
-      "type": "object",
-      "required": ["id", "govAction"],
-      "properties": {
-        "id": { "$ref": "#/$defs/ProposalId" },
-        "govAction": { "type": "string", "description": "CBOR-hex of the proposal's governance action." }
-      }
+      "type": "array",
+      "items": [
+        { "$ref": "#/$defs/ProposalId" },
+        { "$ref": "#/$defs/ProposalKind" }
+      ]
+    },
+    "ProposalKind": {
+      "type": "string",
+      "enum": ["ProtocolParameters", "HardFork", "ConstitutionalCommittee", "Constitution", "Orphan"]
     },
     "ProposalsRoots": {
       "type": "object",

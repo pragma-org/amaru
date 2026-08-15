@@ -22,13 +22,7 @@
       }
     ],
     "proposals": [
-      {
-        "id": {
-          "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3",
-          "proposalIndex": 0
-        },
-        "govAction": "8305f682827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000f6"
-      }
+      [{ "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3", "proposalIndex": 0 }, "Constitution"]
     ]
   },
   "point": {

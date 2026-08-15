@@ -1,0 +1,37 @@
+{
+  "title": "vote cast by a committee hot key the member has rotated away from",
+  "description": "A constitutional committee voter naming a hot key other than the one the member currently authorizes.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820ac965713b19f1e18f5f28cec07418a761df76f559f868087e64309c6cbcf688e00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581cecc3093b061a9ed426cd9956161fc48d4ed1ac58dc4aaed7e1ce1830",
+        "status": "8200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea6",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Orphan"]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820ac965713b19f1e18f5f28cec07418a761df76f559f868087e64309c6cbcf688e000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584027eaa8e8aa7a00f4c2284f4d64923a87075134be44450e07b6d9afbfadb34ab92a90a7b21586b0e1d8fd4d64fd573c4e98188a883e12aae8630b382a998d2b05f5f6",
+  "expected": {
+    "predicate": "VotersDoNotExist"
+  }
+}

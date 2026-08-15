@@ -16,6 +16,9 @@ use std::collections::BTreeMap;
 
 use crate::{Epoch, PoolId, Proposal, ProposalId, StakeCredential, Vote, cbor};
 
+// TODO: Move out of the kernel?
+//
+// Only used in testing
 #[derive(Debug)]
 pub struct ProposalState {
     pub id: ProposalId,

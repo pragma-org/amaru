@@ -429,7 +429,7 @@ impl TxSubmissionInitiator {
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<TransactionId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        tracing::debug!(tx_ids = display_collection(tx_ids.iter().map(|id| id.short())), "received RequestTxs");
+        tracing::debug!(ids = display_collection(tx_ids.iter().map(|id| id.short())), "received RequestTxs");
         // Return an error if the peer asked for a tx_id that was not advertised.
         let unavailable: Vec<&TransactionId> =
             tx_ids.iter().filter(|id| !self.window.iter().any(|(wid, _)| wid == *id)).collect();
@@ -506,7 +506,7 @@ impl TxSubmissionInitiator {
             protocols::tx_submission::initiator::REPLY_TX_IDS,
             peer = self.peer,
             count = ids.len(),
-            tx_ids = ids.as_slice()
+            ids = ids.as_slice()
         );
     }
 

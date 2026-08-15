@@ -368,27 +368,30 @@ impl StateOverlay {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(&pool_id))
     }
 
-    /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
-    /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
-    /// so it defers to the layers below. `Unknown` outside the straddle window.
-    pub fn committee_verdict<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
+    /// The cold credentials this pending boundary transition can resolve to a member for, that is,
+    /// the ones it elects. A removal short-circuits to `Gone`, so naming it here would only yield a
+    /// candidate to discard.
+    pub fn cc_members<'a>(&'a self) -> impl Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
-            Some(ConstitutionalCommitteeUpdate::ChangeMembers { added, removed, .. }) => {
-                if removed.contains(credential) {
-                    Existence::Gone
-                } else if let Some(epoch) = added.get(credential) {
-                    // freshly elected; no hot key yet and no stable row to fall back to
-                    Existence::Exists(Bind {
-                        left: Resettable::Reset,
-                        right: Resettable::Unchanged,
-                        value: Some(epoch),
-                    })
-                } else {
-                    Existence::Unknown
-                }
-            }
-            Some(ConstitutionalCommitteeUpdate::NoConfidence) | None => Existence::Unknown,
+            Some(ConstitutionalCommitteeUpdate::ChangeMembers { added, removed, .. }) => Some(
+                std::iter::empty()
+                    .chain(added.iter().map(|(cold_credential, valid_until)| {
+                        (
+                            cold_credential,
+                            // NOTE: newly elected member preserve hot credential delegations (resp. resignations)
+                            //
+                            // It is important for `left` to NOT be `Resettable::Reset` here, as it
+                            // would invalidate a delegation (resp. resignation) registered ahead of
+                            // time, as allowed by the ledger rules.
+                            Existence::Exists(Bind { right: Resettable::Set(valid_until), ..Bind::default() }),
+                        )
+                    }))
+                    .chain(removed.iter().map(|cold_credential| (cold_credential, Existence::Gone))),
+            ),
+            Some(ConstitutionalCommitteeUpdate::NoConfidence) | None => None,
         }
+        .into_iter()
+        .flatten()
     }
 
     /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or

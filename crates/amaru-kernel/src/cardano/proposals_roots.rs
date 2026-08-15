@@ -20,7 +20,8 @@ pub type ProposalsRoots = GenericProposalsRoots<ProposalId>;
 
 pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ProposalId>>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenericProposalsRoots<T> {
     pub protocol_parameters: Option<T>,
     pub hard_fork: Option<T>,

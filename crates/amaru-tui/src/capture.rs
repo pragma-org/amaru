@@ -68,14 +68,14 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
 
         tracing::subscriber::with_default(subscriber, || {
-            info!(ledger::transaction::VALIDATE, transaction_id = TransactionId::new(NULL_HASH32),);
+            info!(ledger::transaction::VALIDATE, id = TransactionId::new(NULL_HASH32));
         });
 
         let record = from_observability(rx.recv().expect("telemetry event"));
         assert_eq!(record.target, ledger::transaction::VALIDATE::TARGET);
         assert_eq!(record.name, ledger::transaction::VALIDATE::NAME);
         assert_eq!(
-            record.fields.get(ledger::transaction::VALIDATE::FIELD_TRANSACTION_ID),
+            record.fields.get(ledger::transaction::VALIDATE::FIELD_ID),
             Some(&FieldValue::String(TransactionId::new(NULL_HASH32).to_string()))
         );
         assert!(!record.fields.keys().any(|k| k.starts_with("amaru.tag.")));

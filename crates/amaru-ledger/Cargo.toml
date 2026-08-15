@@ -30,6 +30,7 @@ required-features = ["test-utils"]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 hex.workspace = true
+itertools.workspace = true
 num.workspace = true
 proptest = { workspace = true, optional = true }
 rayon.workspace = true

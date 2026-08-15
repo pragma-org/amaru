@@ -18,10 +18,16 @@ use amaru_minicbor_extra::decode_bytes;
 
 use crate::cbor;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 #[serde(into = "String")]
 #[serde(try_from = "String")]
 pub struct Bytes(cbor::bytes::ByteVec);
+
+impl fmt::Debug for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Bytes").field(&hex::encode(self.0.as_slice())).finish()
+    }
+}
 
 impl<C> cbor::Encode<C> for Bytes {
     fn encode<W: cbor::encode::Write>(

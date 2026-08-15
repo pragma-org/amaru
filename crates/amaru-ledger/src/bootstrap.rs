@@ -641,7 +641,7 @@ fn import_proposals(
             proposals: proposals
                 .iter()
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
-                    let proposal_index = proposal.id.action_index as usize;
+                    let proposal_index = proposal.id.proposal_index as usize;
                     Ok((
                         proposal.id,
                         proposals::Value {
@@ -1023,14 +1023,7 @@ fn import_constitutional_committee(
             proposals: iter::empty(),
             votes: iter::empty(),
             cc_members: cc_members.into_iter().map(|(cold_cred, valid_until)| {
-                let hot_cred = match hot_cold_delegations.remove(&cold_cred) {
-                    Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot_cred)) => {
-                        Resettable::Set(hot_cred)
-                    }
-                    None | Some(ConstitutionalCommitteeMemberStatus::Resigned(..)) => Resettable::Reset,
-                };
-
-                (cold_cred, (hot_cred, Resettable::Set(valid_until)))
+                (cold_cred, (Resettable::from(hot_cold_delegations.remove(&cold_cred)), Resettable::Set(valid_until)))
             }),
         },
         Default::default(),
