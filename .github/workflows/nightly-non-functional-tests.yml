@@ -14,14 +14,39 @@ env:
   RUSTUP_LOG: error
 
 jobs:
-  bootstrap-memory:
-    name: Bootstrap preprod within 500 MiB
+  resource-profile:
+    name: ${{ matrix.workload.label }} / ${{ matrix.memory.label }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        workload:
+          - slug: bootstrap
+            label: Bootstrap preprod
+            title: Preprod bootstrap
+          - slug: run-until-10-epochs
+            label: Run preprod for 10 epochs
+            title: Preprod run until 10 epochs
+        memory:
+          - slug: 384mib
+            label: 384 MiB
+            bytes: "402653184"
+          - slug: 512mib
+            label: 512 MiB
+            bytes: "536870912"
+          - slug: 1gib
+            label: 1 GiB
+            bytes: "1073741824"
     env:
-      AMARU_TRACE: "error,amaru::bootstrap=info,amaru::stores[ledger.epoch.create_snapshot]=info"
-      MEMORY_LIMIT_BYTES: "524288000"
+      AMARU_TRACE: "error,amaru::bootstrap=info,amaru::stores[ledger.epoch.create_snapshot]=info,run_until=info"
+      MEMORY_LIMIT_BYTES: ${{ matrix.memory.bytes }}
+      MEMORY_LABEL: ${{ matrix.memory.label }}
+      MEMORY_SLUG: ${{ matrix.memory.slug }}
+      PROFILE_SLUG: ${{ matrix.workload.slug }}-${{ matrix.memory.slug }}
+      PROFILE_TITLE: ${{ matrix.workload.title }} (${{ matrix.memory.label }} limit)
       SAMPLE_INTERVAL_SECONDS: "1"
+      WORKLOAD_SLUG: ${{ matrix.workload.slug }}
 
     steps:
       - uses: actions/checkout@v6
@@ -34,16 +59,21 @@ jobs:
 
       - name: Build Amaru
         shell: bash
-        run: cargo build --release --bin amaru --locked
+        run: cargo build --bin amaru
 
-      - name: Bootstrap preprod with memory limit
-        timeout-minutes: 30
+      - name: Build run-until
+        if: matrix.workload.slug == 'run-until-10-epochs'
+        shell: bash
+        run: cargo build -p amaru-node --example run_until
+
+      - name: Profile workload with memory limit
+        timeout-minutes: 60
         shell: bash
         run: |
           set -euo pipefail
 
           if [[ ! -f /sys/fs/cgroup/cgroup.controllers ]]; then
-            echo "::error::cgroup v2 is required to run the bootstrap memory test"
+            echo "::error::cgroup v2 is required to run the resource profile"
             exit 1
           fi
 
@@ -59,26 +89,75 @@ jobs:
             exit 1
           fi
 
-          profile_dir="$RUNNER_TEMP/amaru-bootstrap-profile"
-          scratch_dir="$(mktemp -d "$RUNNER_TEMP/amaru-bootstrap.XXXXXX")"
+          profile_dir="$RUNNER_TEMP/amaru-resource-profile"
+          scratch_dir="$(mktemp -d "$RUNNER_TEMP/amaru-resource.XXXXXX")"
           mkdir -p "$profile_dir"
 
-          unit="amaru-bootstrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          bootstrap_job_pid=""
+          unit="amaru-${PROFILE_SLUG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          profile_job_pid=""
           ready_file="$profile_dir/sampler.ready"
-          finished_file="$profile_dir/bootstrap.finished"
+          finished_file="$profile_dir/workload.finished"
           ack_file="$profile_dir/sampler.ack"
           rm -f "$ready_file" "$finished_file" "$ack_file"
 
           cleanup() {
             touch "$ready_file" "$ack_file" 2>/dev/null || true
             sudo systemctl stop "$unit.service" >/dev/null 2>&1 || true
-            if [[ -n "$bootstrap_job_pid" ]]; then
-              wait "$bootstrap_job_pid" || true
+            if [[ -n "$profile_job_pid" ]]; then
+              wait "$profile_job_pid" || true
             fi
             rm -rf "$scratch_dir"
           }
           trap cleanup EXIT
+
+          workload_command=()
+          if [[ "$WORKLOAD_SLUG" == "run-until-10-epochs" ]]; then
+            echo "Preparing an unconstrained bootstrap state for the run-until profile"
+            (
+              cd "$scratch_dir"
+              "$GITHUB_WORKSPACE/target/debug/amaru" --with-json-traces node bootstrap \
+                --network preprod \
+                --ledger-dir "$scratch_dir/ledger.db" \
+                --chain-dir "$scratch_dir/chain.db"
+            ) 2>&1 | tee "$profile_dir/setup-bootstrap.jsonl"
+
+            latest_snapshot_epoch=""
+            for snapshot_dir in "$scratch_dir/ledger.db"/*; do
+              [[ -d "$snapshot_dir" ]] || continue
+              snapshot_epoch="${snapshot_dir##*/}"
+              [[ "$snapshot_epoch" =~ ^[0-9]+$ ]] || continue
+              snapshot_epoch=$((10#$snapshot_epoch))
+              if [[ -z "$latest_snapshot_epoch" ]] || (( snapshot_epoch > latest_snapshot_epoch )); then
+                latest_snapshot_epoch="$snapshot_epoch"
+              fi
+            done
+
+            if [[ -z "$latest_snapshot_epoch" ]]; then
+              echo "::error::unable to infer the bootstrap epoch from the ledger database"
+              exit 1
+            fi
+
+            bootstrap_epoch=$((latest_snapshot_epoch + 1))
+            target_epoch=$((bootstrap_epoch + 10))
+            echo "Bootstrap starts at epoch $bootstrap_epoch; run-until target is epoch $target_epoch"
+            printf '%s\n' "$target_epoch" > "$profile_dir/target-epoch.txt"
+            workload_command=(
+              "$GITHUB_WORKSPACE/target/debug/examples/run_until"
+              --network preprod
+              --epoch "$target_epoch"
+              --ledger-dir "$scratch_dir/ledger.db"
+              --chain-dir "$scratch_dir/chain.db"
+            )
+          else
+            workload_command=(
+              "$GITHUB_WORKSPACE/target/debug/amaru"
+              --with-json-traces
+              node bootstrap
+              --network preprod
+              --ledger-dir "$scratch_dir/ledger.db"
+              --chain-dir "$scratch_dir/chain.db"
+            )
+          fi
 
           (
             set -o pipefail
@@ -91,7 +170,9 @@ jobs:
               --uid="$(id -u)" \
               --gid="$(id -g)" \
               --working-directory="$scratch_dir" \
+              --setenv="AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all" \
               --setenv="AMARU_TRACE=$AMARU_TRACE" \
+              --setenv="AMARU_WITH_JSON_TRACES=true" \
               --setenv="HOME=$HOME" \
               --setenv="PATH=$PATH" \
               --property=CPUAccounting=yes \
@@ -104,13 +185,10 @@ jobs:
                 --finished-file "$finished_file" \
                 --ack-file "$ack_file" \
                 -- \
-                "$GITHUB_WORKSPACE/target/release/amaru" --with-json-traces node bootstrap \
-                  --network preprod \
-                  --ledger-dir "$scratch_dir/ledger.db" \
-                  --chain-dir "$scratch_dir/chain.db" \
-              2>&1 | tee "$profile_dir/amaru-bootstrap.jsonl"
+                "${workload_command[@]}" \
+              2>&1 | tee "$profile_dir/workload.jsonl"
           ) &
-          bootstrap_job_pid=$!
+          profile_job_pid=$!
 
           cgroup_path=""
           for _ in {1..300}; do
@@ -119,7 +197,7 @@ jobs:
               cgroup_path="/sys/fs/cgroup$control_group"
               break
             fi
-            if ! kill -0 "$bootstrap_job_pid" 2>/dev/null; then
+            if ! kill -0 "$profile_job_pid" 2>/dev/null; then
               break
             fi
             sleep 0.1
@@ -143,16 +221,17 @@ jobs:
             --ready-file "$ready_file" \
             --finished-file "$finished_file" \
             --ack-file "$ack_file" \
-            --watch-pid "$bootstrap_job_pid" \
-            --interval "$SAMPLE_INTERVAL_SECONDS"
+            --watch-pid "$profile_job_pid" \
+            --interval "$SAMPLE_INTERVAL_SECONDS" \
+            --systemd-unit "$unit.service"
 
-          bootstrap_status=0
-          wait "$bootstrap_job_pid" || bootstrap_status=$?
-          bootstrap_job_pid=""
+          profile_status=0
+          wait "$profile_job_pid" || profile_status=$?
+          profile_job_pid=""
 
-          if [[ "$bootstrap_status" -ne 0 ]]; then
-            echo "::error::bootstrap exited with status $bootstrap_status"
-            exit "$bootstrap_status"
+          if [[ "$profile_status" -ne 0 ]]; then
+            echo "::error::$WORKLOAD_SLUG exited with status $profile_status under the $MEMORY_LABEL limit"
+            exit "$profile_status"
           fi
 
           test -d "$scratch_dir/ledger.db"
@@ -162,23 +241,39 @@ jobs:
         if: always()
         shell: bash
         run: |
-          profile_dir="$RUNNER_TEMP/amaru-bootstrap-profile"
+          profile_dir="$RUNNER_TEMP/amaru-resource-profile"
           mkdir -p "$profile_dir"
           python3 "$GITHUB_WORKSPACE/scripts/bootstrap-resource-report" render \
             --samples "$profile_dir/samples.csv" \
-            --traces "$profile_dir/amaru-bootstrap.jsonl" \
+            --traces "$profile_dir/workload.jsonl" \
             --output "$profile_dir/resource-usage.svg" \
             --markers-output "$profile_dir/epoch-markers.csv" \
             --summary-output "$profile_dir/summary.json" \
-            --memory-limit-bytes "$MEMORY_LIMIT_BYTES"
+            --memory-limit-bytes "$MEMORY_LIMIT_BYTES" \
+            --title "$PROFILE_TITLE"
+          jq -n \
+            --arg memory_label "$MEMORY_LABEL" \
+            --arg memory_slug "$MEMORY_SLUG" \
+            --arg profile_slug "$PROFILE_SLUG" \
+            --arg title "$PROFILE_TITLE" \
+            --arg workload "$WORKLOAD_SLUG" \
+            --argjson memory_limit_bytes "$MEMORY_LIMIT_BYTES" \
+            '{
+              memory_label: $memory_label,
+              memory_limit_bytes: $memory_limit_bytes,
+              memory_slug: $memory_slug,
+              profile_slug: $profile_slug,
+              title: $title,
+              workload: $workload
+            }' > "$profile_dir/profile.json"
 
       - name: Upload resource profile
         if: always()
         id: upload-profile
         uses: actions/upload-artifact@v7
         with:
-          name: preprod-bootstrap-resource-profile-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/amaru-bootstrap-profile
+          name: preprod-${{ matrix.workload.slug }}-${{ matrix.memory.slug }}-resource-profile-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/amaru-resource-profile
           if-no-files-found: warn
           retention-days: 30
 
@@ -188,9 +283,7 @@ jobs:
         env:
           ARTIFACT_URL: ${{ steps.upload-profile.outputs.artifact-url }}
         run: |
-          profile_dir="$RUNNER_TEMP/amaru-bootstrap-profile"
-          echo "## Preprod bootstrap resource profile" >> "$GITHUB_STEP_SUMMARY"
-          echo >> "$GITHUB_STEP_SUMMARY"
+          profile_dir="$RUNNER_TEMP/amaru-resource-profile"
           if [[ -f "$profile_dir/summary.md" ]]; then
             cat "$profile_dir/summary.md" >> "$GITHUB_STEP_SUMMARY"
             echo >> "$GITHUB_STEP_SUMMARY"
@@ -198,3 +291,161 @@ jobs:
           if [[ -n "$ARTIFACT_URL" ]]; then
             echo "[Download the graph, raw samples, and Amaru traces]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  publish-resource-graphs:
+    name: Publish resource graphs
+    needs: resource-profile
+    if: >-
+      ${{
+        !cancelled()
+        && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        && github.actor != 'dependabot[bot]'
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      PROFILE_RUN_ATTEMPT: ${{ github.run_attempt }}
+      REPORT_BRANCH: resource-reports
+      REPORT_DIRECTORY: resource-graphs
+
+    steps:
+      - name: Download resource profiles
+        uses: actions/download-artifact@v8
+        with:
+          pattern: preprod-*-resource-profile-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/amaru-resource-profiles
+
+      - name: Publish resource graphs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          profiles_dir="$RUNNER_TEMP/amaru-resource-profiles"
+          publish_dir="$RUNNER_TEMP/amaru-resource-graph-publisher"
+          encoded_graph="$publish_dir/resource-usage.b64"
+          request_payload="$publish_dir/request.json"
+          response_file="$publish_dir/response.json"
+          error_file="$publish_dir/error.log"
+          summary_markdown="$publish_dir/summary.md"
+          profile_dirs=("$profiles_dir"/preprod-*-resource-profile-"$PROFILE_RUN_ATTEMPT")
+
+          if [[ "${#profile_dirs[@]}" -eq 0 ]]; then
+            echo "::error::no resource profile artifacts were downloaded"
+            exit 1
+          fi
+
+          mkdir -p "$publish_dir"
+          : > "$summary_markdown"
+
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$REPORT_BRANCH" >/dev/null 2>&1; then
+            default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)"
+            default_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$default_branch" --jq .object.sha)"
+            if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/heads/$REPORT_BRANCH" \
+              -f sha="$default_sha" \
+              >/dev/null 2>"$error_file"; then
+              gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$REPORT_BRANCH" >/dev/null
+            fi
+          fi
+
+          published_count=0
+          for profile_dir in "${profile_dirs[@]}"; do
+            artifact_name="${profile_dir##*/}"
+            profile_slug="${artifact_name#preprod-}"
+            profile_slug="${profile_slug%-resource-profile-$PROFILE_RUN_ATTEMPT}"
+            graph_file="$profile_dir/resource-usage.svg"
+            metadata_file="$profile_dir/profile.json"
+            report_path="$REPORT_DIRECTORY/$GITHUB_RUN_ID/$PROFILE_RUN_ATTEMPT/$profile_slug.svg"
+
+            if [[ ! -s "$graph_file" ]]; then
+              echo "::warning::resource graph is missing from $artifact_name"
+              continue
+            fi
+
+            graph_title="$profile_slug"
+            if [[ -s "$metadata_file" ]]; then
+              graph_title="$(jq -r '.title // empty' "$metadata_file")"
+              [[ -n "$graph_title" ]] || graph_title="$profile_slug"
+            fi
+
+            base64 -w 0 "$graph_file" > "$encoded_graph"
+            published=false
+            for attempt in {1..5}; do
+              current_sha="$(
+                gh api "repos/$GITHUB_REPOSITORY/contents/$report_path?ref=$REPORT_BRANCH" \
+                  --jq .sha \
+                  2>/dev/null \
+                  || true
+              )"
+
+              jq -n \
+                --arg message "ci: publish $profile_slug graph for run $GITHUB_RUN_ID attempt $PROFILE_RUN_ATTEMPT" \
+                --rawfile content "$encoded_graph" \
+                --arg branch "$REPORT_BRANCH" \
+                --arg sha "$current_sha" \
+                '{message: $message, content: $content, branch: $branch}
+                  + (if $sha == "" then {} else {sha: $sha} end)' \
+                > "$request_payload"
+
+              if gh api --method PUT \
+                "repos/$GITHUB_REPOSITORY/contents/$report_path" \
+                --input "$request_payload" \
+                > "$response_file" \
+                2>"$error_file"; then
+                published=true
+                break
+              fi
+
+              sleep "$attempt"
+            done
+
+            if [[ "$published" != "true" ]]; then
+              cat "$error_file" >&2
+              echo "::error::unable to publish $profile_slug after five attempts"
+              exit 1
+            fi
+
+            commit_sha="$(jq -er '.commit.sha' "$response_file")"
+            graph_url="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$commit_sha/$report_path"
+            reachable=false
+            for _ in {1..30}; do
+              if curl --fail --silent --location --output /dev/null "$graph_url"; then
+                reachable=true
+                break
+              fi
+              sleep 1
+            done
+
+            if [[ "$reachable" != "true" ]]; then
+              echo "::error::published graph for $profile_slug is not publicly reachable"
+              exit 1
+            fi
+
+            {
+              echo "### $graph_title"
+              echo
+              echo "![$graph_title resource usage]($graph_url)"
+              echo
+              echo "[Open the full-size graph]($graph_url)"
+              echo
+            } >> "$summary_markdown"
+            published_count=$((published_count + 1))
+          done
+
+          if [[ "$published_count" -eq 0 ]]; then
+            echo "::error::no resource graphs were published"
+            exit 1
+          fi
+
+      - name: Write resource graphs summary
+        shell: bash
+        run: |
+          echo "## Preprod resource graphs" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/amaru-resource-graph-publisher/summary.md" >> "$GITHUB_STEP_SUMMARY"
