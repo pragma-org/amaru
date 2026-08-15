@@ -14,11 +14,10 @@
 
 use std::{fs::File, io::Write, path::Path, sync::Arc};
 
-use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use amaru_pure_stage::trace_buffer::TraceBuffer;
 use parking_lot::Mutex;
 
-use crate::simulator::Args;
+use crate::simulator::{Args, data_generation::GeneratedActions};
 
 /// Persist the generated data for a given test run
 pub fn persist_generated_data(

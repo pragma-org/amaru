@@ -18,7 +18,6 @@ use std::{
     sync::Arc,
 };
 
-use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{
     Anchor, Constitution, Epoch, EraHistory, Header, IsHeader, MaxString128, NetworkName, Peer, Point,
     ProtocolParameters, Transaction, TransactionId, cardano::network_block::make_encoded_block,
@@ -38,6 +37,7 @@ use parking_lot::Mutex;
 use crate::{
     stages::config::{Config, StoreType},
     tests::{
+        Action,
         configuration::NodeType::{NodeUnderTest, UpstreamNode},
         in_memory_connection_provider::InMemoryConnectionProvider,
         test_data::{create_transactions, create_transactions_in_mempool},
@@ -256,7 +256,7 @@ impl NodeTestConfig {
 
     /// Create a node configuration from the simulation configuration.
     /// This sets the ledger and chain store + the upstream peer that is
-    /// eventually used to initialize the HeadersTree for chain selection.
+    /// used as the initial best-chain tip of the chain store.
     pub fn make_node_configuration(&self) -> anyhow::Result<Config> {
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(|p| p.name.clone()).collect(),

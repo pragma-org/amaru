@@ -12,23 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This module provides data types and functions to generate data suited to testing the `HeadersTree`:
-//!
-//!  - `Tree<H>` is used to eventually hold a tree of `Header`s.
-//!  - `generate_header_tree` generates such a tree by arbitrarily grafting subtrees on a chain
-//!    of size `depth`.
-//!
-//!
+//! Random trees of `Header`s used to generate simulation walks.
 
-use std::sync::Arc;
-
-use amaru_kernel::{Bytes, Header, HeaderHash, IsHeader, Peer, make_header, size::HEADER};
-use amaru_ouroboros::ChainStore;
-use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+use amaru_kernel::{Bytes, Header, HeaderHash, IsHeader, make_header, size::HEADER};
 use proptest::prelude::Strategy;
 use rand::{Rng, RngCore, SeedableRng, prelude::StdRng};
 
-use crate::headers_tree::{HeadersTree, data_generation::Chain, tree::Tree};
+use super::tree::Tree;
 
 /// Return a `proptest` Strategy producing a random `GeneratedTree` of a given depth.
 pub fn any_headers_tree(depth: usize) -> impl Strategy<Value = Tree<Header>> {
@@ -54,7 +44,7 @@ impl GeneratedTree {
         &self.tree
     }
 
-    pub fn best_chains(&self) -> Vec<Chain> {
+    pub fn best_chains(&self) -> Vec<Vec<Header>> {
         self.tree.branches()
     }
 
@@ -113,7 +103,7 @@ fn generate_header_subtree(
     tree: &mut Tree<Header>,
     total_depth: usize,
     current_branch_expected_depth: usize,
-) -> Chain {
+) -> Vec<Header> {
     let header_body = tree.value.body().clone();
     let mut spine = generate_headers(
         current_branch_expected_depth,
@@ -158,43 +148,6 @@ pub fn generate_headers_chain(length: usize) -> Vec<Header> {
 /// Generate just one header
 pub fn generate_single_header() -> Header {
     generate_headers_chain(1)[0].clone()
-}
-
-/// Generate a random `HeadersTree` initialized with a single chain of `Header`s
-pub fn create_headers_tree_with_store(store: Arc<InMemoryChainStore>, size: usize) -> HeadersTree {
-    let headers = generate_headers_chain(size);
-    for header in &headers {
-        store.store_header(header).unwrap();
-    }
-    store.set_anchor_point(&headers[0].point()).unwrap();
-    store.set_best_chain_tip(&headers[headers.len() - 1].point()).unwrap();
-    HeadersTree::new(store.clone(), 10)
-}
-
-/// Generate a random `HeadersTree` initialized with a single chain of `Header`s
-pub fn create_headers_tree(size: usize) -> HeadersTree {
-    create_headers_tree_with_store(Arc::new(InMemoryChainStore::new()), size)
-}
-
-/// Generate a `HeadersTree` with one chain and a peer at the tip.
-pub fn initialize_with_peer(size: usize, peer: &Peer) -> HeadersTree {
-    initialize_with_store_and_peer(Arc::new(InMemoryChainStore::new()), size, peer)
-}
-
-/// Generate a `HeadersTree` with one chain and a peer at the tip.
-pub fn initialize_with_store_and_peer(store: Arc<InMemoryChainStore>, size: usize, peer: &Peer) -> HeadersTree {
-    let mut tree = create_headers_tree_with_store(store, size);
-    tree.initialize_peer(peer, &tree.best_chain_tip().hash()).unwrap();
-    tree
-}
-
-/// Generate a random `Header`, child of the `parent` one
-/// and store it in the provided store.
-pub fn store_header_with_parent(store: Arc<dyn ChainStore>, parent: &Header) -> Header {
-    let mut std_rng = StdRng::from_seed([0; 32]);
-    let header = generate_header(1, parent.slot().as_u64() + 1, Some(parent.hash()), &mut std_rng);
-    store.store_header(&header).unwrap();
-    header
 }
 
 // IMPLEMENTATION

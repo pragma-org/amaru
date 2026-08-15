@@ -17,13 +17,12 @@ use std::{
     sync::Arc,
 };
 
-use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use amaru_node::tests::nodes::Nodes;
 use amaru_pure_stage::trace_buffer::TraceBuffer;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 
-use crate::simulator::RunConfig;
+use crate::simulator::{RunConfig, data_generation::GeneratedActions};
 
 /// Result for the execution of one test on a set of nodes.
 /// This result can be used as an input during shrinking with a list of actions that becomes

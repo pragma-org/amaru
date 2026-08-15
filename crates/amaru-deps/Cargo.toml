@@ -172,6 +172,7 @@ digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["a
 either = { version = "1", features = ["use_std"] }
 form_urlencoded = { version = "1" }
 futures-core = { version = "0.3" }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 itertools = { version = "0.13" }
@@ -182,8 +183,11 @@ num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 percent-encoding = { version = "2" }
+ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
+rand = { version = "0.9" }
+rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", default-features = false, features = ["std"] }
 regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
 regex-syntax = { version = "0.8" }
@@ -400,7 +404,6 @@ web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "Blob
 bumpalo = { version = "3", features = ["collections"] }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 js-sys = { version = "0.3" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-bigint = { version = "0.4" }

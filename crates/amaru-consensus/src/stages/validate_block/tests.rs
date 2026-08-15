@@ -358,8 +358,7 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
                 SelectChainMsg::BlockValidationResult(applied_tip, true, BlockHeight::from(0)),
             )
             .into(),
-            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: applied_tip })
-                .into(),
+            te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: applied_tip }).into(),
             te_send("vb-1", "manager", AdoptChainMsg::new(applied_tip, BlockHeight::from(0))).into(),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0)))
                 .into(),
@@ -512,11 +511,7 @@ fn test_invalid_blocks_below_the_security_window_are_evicted() {
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace_contains(
         &running,
-        &[
-            te_input("vb-1", &msg).into(),
-            te_validate_block("vb-1", tip).into(),
-            te_state("vb-1", &expected).into(),
-        ],
+        &[te_input("vb-1", &msg).into(), te_validate_block("vb-1", tip).into(), te_state("vb-1", &expected).into()],
     );
     logs.assert_and_remove(Level::DEBUG, &["validating block"]).assert_no_remaining_at([
         Level::INFO,

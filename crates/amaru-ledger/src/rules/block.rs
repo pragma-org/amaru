@@ -20,8 +20,7 @@ use std::{
 
 use amaru_kernel::{
     Block, EraHistory, ExUnits, GlobalParameters, Hash, IsHeader, NetworkName, Point, ProtocolParameters,
-    TransactionId,
-    TransactionIndex, TransactionPointer, TransactionRef,
+    TransactionId, TransactionIndex, TransactionPointer, TransactionRef,
     size::{BLOCK_BODY, SCRIPT},
 };
 use amaru_observability::debug_span;

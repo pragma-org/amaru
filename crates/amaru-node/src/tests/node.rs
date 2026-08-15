@@ -18,7 +18,6 @@ use std::{
     sync::Arc,
 };
 
-use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_protocols::{manager::ManagerMessage, mux::HandlerMessage, protocol::PROTO_N2N_CHAIN_SYNC};
 use amaru_pure_stage::{
     Effect, Resources, StageGraphRunning,
@@ -29,6 +28,7 @@ use futures_util::FutureExt;
 use parking_lot::Mutex;
 
 use crate::tests::{
+    Action,
     configuration::{NodeTestConfig, NodeType},
     setup::TestNodeStages,
 };

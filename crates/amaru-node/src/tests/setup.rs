@@ -19,7 +19,6 @@ use amaru_consensus::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
         ResourcePoolSummaries, ResourceTxValidation, ValidateHeaderEffect,
     },
-    headers_tree::data_generation::Action,
     stages::test_utils::start_in_era,
 };
 use amaru_kernel::{ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Transaction};
@@ -42,7 +41,7 @@ use tracing_subscriber::EnvFilter;
 use crate::{
     stages::{build_node::build_node, build_stage_graph::NodeStages},
     tests::{
-        configuration::NodeTestConfig, in_memory_connection_provider::InMemoryConnectionProvider, node::Node,
+        Action, configuration::NodeTestConfig, in_memory_connection_provider::InMemoryConnectionProvider, node::Node,
         nodes::Nodes,
     },
 };
