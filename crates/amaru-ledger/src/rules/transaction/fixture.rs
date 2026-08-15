@@ -92,20 +92,6 @@ where
     cbor::decode(&bytes).map_err(serde::de::Error::custom)
 }
 
-fn deserialize_optional_cbor_hex<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: for<'b> cbor::Decode<'b, ()>,
-{
-    match Option::<String>::deserialize(deserializer)? {
-        None => Ok(None),
-        Some(hex) => {
-            let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
-            cbor::decode(&bytes).map(Some).map_err(serde::de::Error::custom)
-        }
-    }
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PoolDelegationProxy {
@@ -198,8 +184,8 @@ where
 struct CommitteeMemberProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     cold_credential: StakeCredential,
-    #[serde(default, deserialize_with = "deserialize_optional_cbor_hex")]
-    status: Option<ConstitutionalCommitteeMemberStatus>,
+    #[serde(default)]
+    status: Option<String>,
     #[serde(default)]
     valid_until: Option<Epoch>,
 }
@@ -212,10 +198,22 @@ where
     Ok(entries
         .into_iter()
         .map(|entry| {
-            let member = CCMember { status: entry.status, valid_until: entry.valid_until };
-            (entry.cold_credential, member)
+            let status = if let Some(st) = entry.status {
+                Some(if st == "resigned" {
+                    ConstitutionalCommitteeMemberStatus::Resigned
+                } else {
+                    let hot_credential = cbor::from_cbor(&hex::decode(&st).map_err(serde::de::Error::custom)?)
+                        .ok_or_else(|| serde::de::Error::custom("unable to decode hot credential"))?;
+                    ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot_credential)
+                })
+            } else {
+                None
+            };
+
+            let member = CCMember { status, valid_until: entry.valid_until };
+            Ok((entry.cold_credential, member))
         })
-        .collect())
+        .collect::<Result<_, _>>()?)
 }
 
 #[derive(Debug)]
@@ -264,6 +262,7 @@ pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
+    CommitteeHasPreviouslyResigned,
     CommitteeIsUnknown,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
@@ -429,6 +428,9 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
                 DelegateError::UnknownSource(_),
             )) => Predicate::CommitteeIsUnknown,
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
+                DelegateError::AlreadyResigned,
+            )) => Predicate::CommitteeHasPreviouslyResigned,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
             }
