@@ -257,23 +257,21 @@ where
     for (i, transaction, tx_size) in block {
         let transaction_id = transaction.tx_id();
 
-        if let Err(violation) =
-            debug_span!(ledger::transaction::VALIDATE, transaction_id = transaction_id).in_scope(|| {
-                validate_transaction(
-                    context,
-                    arena_pool,
-                    network,
-                    protocol_params,
-                    era_history,
-                    global_parameters,
-                    governance_activity,
-                    guardrail_script,
-                    TransactionPointer { slot, transaction_index: i as usize },
-                    transaction,
-                    tx_size,
-                )
-            })
-        {
+        if let Err(violation) = debug_span!(ledger::transaction::VALIDATE, id = transaction_id).in_scope(|| {
+            validate_transaction(
+                context,
+                arena_pool,
+                network,
+                protocol_params,
+                era_history,
+                global_parameters,
+                governance_activity,
+                guardrail_script,
+                TransactionPointer { slot, transaction_index: i as usize },
+                transaction,
+                tx_size,
+            )
+        }) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_id,
                 transaction_index: i,

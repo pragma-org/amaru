@@ -424,67 +424,14 @@ define_schemas! {
             transaction {
                 /// Validate a single transaction
                 public VALIDATE {
-                    required transaction_id: amaru_kernel::TransactionId,
-                }
-                /// Register a stake credential
-                public CERTIFICATE_STAKE_REGISTRATION {
-                    required credential: String
-                }
-                /// Delegate stake to a pool
-                public CERTIFICATE_STAKE_DELEGATION {
-                    required credential: String
-                    required pool_id: amaru_kernel::PoolId
-                }
-                /// Unregister a stake credential
-                public CERTIFICATE_STAKE_DEREGISTRATION {
-                    required credential: String
-                }
-                /// Register a DRep
-                public CERTIFICATE_DREP_REGISTRATION {
-                    required drep: String
-                    required deposit: amaru_kernel::Lovelace
-                    optional anchor_url: String
-                }
-                /// Update DRep anchor
-                public CERTIFICATE_DREP_UPDATE {
-                    required drep: String
-                    optional anchor_url: String
-                }
-                /// Unregister a DRep
-                public CERTIFICATE_DREP_RETIREMENT {
-                    required drep: String
-                    required refund: amaru_kernel::Lovelace
-                }
-                /// Delegate vote to DRep
-                public CERTIFICATE_VOTE_DELEGATION {
-                    required credential: String
-                    optional drep: String
-                }
-                /// Register a pool
-                public CERTIFICATE_POOL_REGISTRATION {
-                    required pool_id: amaru_kernel::PoolId
-                }
-                /// Retire a pool
-                public CERTIFICATE_POOL_RETIREMENT {
-                    required pool_id: amaru_kernel::PoolId
-                    required epoch: amaru_kernel::Epoch
-                }
-                /// Delegate cold key to committee
-                public CERTIFICATE_COMMITTEE_DELEGATE {
-                    required cc_member: String
-                    required delegate: String
-                }
-                /// Resign from committee
-                public CERTIFICATE_COMMITTEE_RESIGN {
-                    required cc_member: String
-                    optional anchor_url: String
+                    required id: amaru_kernel::TransactionId,
                 }
                 /// Found a transaction while applying a block
                 public FOUND {
                     required point: amaru_kernel::Point
                     required block_height: u64
-                    required tx_index: usize
-                    required tx_id: amaru_kernel::TransactionId
+                    required index: usize
+                    required id: amaru_kernel::TransactionId
                 }
             }
             block_validation_context {
@@ -499,7 +446,7 @@ define_schemas! {
             transaction_validation_context {
                 /// Create validation context for a transaction
                 public CREATE {
-                    required transaction_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                 }
             }
             validation_context {
@@ -1396,30 +1343,30 @@ define_schemas! {
             transaction {
                 /// Transaction received by the mempool stage, before validation.
                 public RECEIVED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required origin: String
                 }
                 /// Transaction validated and inserted into the mempool.
                 public ACCEPTED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required seq_no: u64
                     required origin: String
                 }
                 /// Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.
                 public REJECTED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required reason: String
                     optional validation_error: String
                 }
                 /// Transaction removed from the mempool. Reason ∈ {invalid_after_tip}.
                 /// TODO: split the reason into invalid after tip + present in applied block
                 public EVICTED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required reason: String
                 }
                 /// Detail trace carrying upstream peer attribution for a received tx.
                 RECEIVED_DETAIL {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required peer: amaru_kernel::Peer
                 }
                 /// Detail trace for a tip-driven revalidation pass.
@@ -1654,7 +1601,7 @@ define_schemas! {
                     REPLY_TX_IDS {
                         required peer: amaru_kernel::Peer
                         required count: usize
-                        required tx_ids: &[amaru_kernel::TransactionId]
+                        required ids: &[amaru_kernel::TransactionId]
                     }
                     /// Send transaction bodies to the peer in a ReplyTxs. Advertised ids whose
                     /// tx was evicted before the fetch are listed in `omitted`.
@@ -1700,7 +1647,7 @@ define_schemas! {
                     /// without ever fetching its body.
                     SKIP_FETCH {
                         required peer: amaru_kernel::Peer
-                        required tx_id: amaru_kernel::TransactionId
+                        required id: amaru_kernel::TransactionId
                     }
                     /// Request tx ids from the peer, acknowledging processed ones.
                     REQUEST_TX_IDS {
@@ -1713,7 +1660,7 @@ define_schemas! {
                     REQUEST_TXS {
                         required peer: amaru_kernel::Peer
                         required count: usize
-                        required tx_ids: &[amaru_kernel::TransactionId]
+                        required ids: &[amaru_kernel::TransactionId]
                     }
                     /// Mempool near capacity: fetching is deferred until capacity frees up.
                     AWAITING_CAPACITY {
