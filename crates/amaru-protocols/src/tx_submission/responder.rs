@@ -360,7 +360,7 @@ impl TxSubmissionResponder {
                 }
                 Entry::Vacant(v) => {
                     let status = if mempool.contains(&tx_id).await {
-                        debug!(protocols::tx_submission::responder::SKIP_FETCH, peer = self.peer, tx_id = tx_id);
+                        debug!(protocols::tx_submission::responder::SKIP_FETCH, peer = self.peer, id = tx_id);
                         TxStatus::Done
                     } else {
                         TxStatus::Pending(size)
@@ -476,7 +476,7 @@ impl TxSubmissionResponder {
                 protocols::tx_submission::responder::REQUEST_TXS,
                 peer = self.peer,
                 count = tx_ids.len(),
-                tx_ids = tx_ids.as_slice()
+                ids = tx_ids.as_slice()
             );
         }
         tx_ids

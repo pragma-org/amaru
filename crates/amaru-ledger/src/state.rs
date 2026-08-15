@@ -680,7 +680,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         transaction: &Transaction,
     ) -> Result<DefaultValidationContext, StateError> {
         let transaction_id = transaction.tx_id();
-        debug_span!(ledger::transaction_validation_context::CREATE, transaction_id = transaction_id).in_scope(|| {
+        debug_span!(ledger::transaction_validation_context::CREATE, id = transaction_id).in_scope(|| {
             let mut ctx = DefaultPreparationContext::new();
             rules::prepare_transaction(&mut ctx, &transaction.body);
             let db = &*self.stable.lock().unwrap();
@@ -1321,9 +1321,8 @@ fn trace_block_transactions(point: &Point, block_height: u64, block: &Block) {
         return;
     }
 
-    for (tx_index, body) in block.transaction_bodies.iter().enumerate() {
-        let tx_id = body.tx_id();
-        trace!(ledger::transaction::FOUND, %point, block_height, tx_index, tx_id = %tx_id);
+    for (index, body) in block.transaction_bodies.iter().enumerate() {
+        trace!(ledger::transaction::FOUND, %point, block_height, index, id = %body.tx_id());
     }
 }
 

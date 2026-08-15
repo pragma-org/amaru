@@ -366,7 +366,7 @@ mod tests {
             model.handle_message(Message::Telemetry(telemetry_at!(
                 at + Duration::from_millis(500 + index),
                 ledger::transaction::VALIDATE,
-                ledger::transaction::VALIDATE::FIELD_TRANSACTION_ID => format!("tx-{index}"),
+                ledger::transaction::VALIDATE::FIELD_ID => format!("tx-{index}"),
             )));
         }
         model.handle_message(metric(
