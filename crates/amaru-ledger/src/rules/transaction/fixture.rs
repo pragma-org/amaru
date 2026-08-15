@@ -194,8 +194,7 @@ fn deserialize_committee<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCreden
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<CommitteeMemberProxy>::deserialize(deserializer)?;
-    Ok(entries
+    Vec::<CommitteeMemberProxy>::deserialize(deserializer)?
         .into_iter()
         .map(|entry| {
             let status = if let Some(st) = entry.status {
@@ -213,7 +212,7 @@ where
             let member = CCMember { status, valid_until: entry.valid_until };
             Ok((entry.cold_credential, member))
         })
-        .collect::<Result<_, _>>()?)
+        .collect::<Result<_, _>>()
 }
 
 #[derive(Debug)]

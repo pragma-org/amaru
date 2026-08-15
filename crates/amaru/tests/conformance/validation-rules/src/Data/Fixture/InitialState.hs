@@ -101,7 +101,7 @@ import Cardano.Ledger.Shelley.LedgerState
     )
 import Cardano.Ledger.State
     ( ChainAccountState (..)
-    , CommitteeAuthorization (CommitteeHotCredential)
+    , CommitteeAuthorization (..)
     , CommitteeState (CommitteeState)
     , DState (..)
     , PState (..)
@@ -109,7 +109,7 @@ import Cardano.Ledger.State
     , spsDepositL
     )
 import Cardano.Ledger.TxIn
-    ( TxId
+    ( TxId (..)
     , TxIn
     )
 import Command.ValidatePhaseOne.Error
@@ -135,7 +135,8 @@ import Data.Default.Class
     ( Default (def)
     )
 import Data.Fixture.Common
-    ( compactCoin
+    ( boundedRatio
+    , compactCoin
     , compactCoinOrError
     , parseCborHex
     , parsePoolId
@@ -415,8 +416,6 @@ buildNewEpochState pparams eraHistory initialState point = do
     accountEntries <- traverse toLedgerAccountEntry accounts
     dRepEntries <- traverse toLedgerDRepEntry dreps
     currentEpoch <- pointEpochNo eraHistory point
-    let proposalStates = map (toGovActionState pparams currentEpoch) proposals
-    seededProposals <- buildProposals proposalsRoots proposalStates
 
     let accountsMap = Map.fromList accountEntries
     let dRepDelegators =
@@ -457,6 +456,19 @@ buildNewEpochState pparams eraHistory initialState point = do
                 [ (poolId, defaultStakePoolState (Coin (poolDepositAmount pparams)))
                 | poolId <- pools
                 ]
+
+    let proposalStates = map (toGovActionState pparams currentEpoch) proposals
+
+    let orphanAuthorizations =
+            ((Map.keysSet committeeAuthorizations) `Set.difference` (Map.keysSet electedCommitteeMembers))
+            <>
+            Set.fromList
+              [ coldCredential
+              | CommitteeMember{ coldCredential, status = Nothing, validUntil = Nothing } <- committee
+              ]
+
+    seededProposals <- buildProposals proposalsRoots proposalStates orphanAuthorizations
+
     let deposited =
             Coin
                 ( sum
@@ -476,6 +488,7 @@ buildNewEpochState pparams eraHistory initialState point = do
                         , let Coin proposalDepositValue = gasDeposit proposalState
                         ]
                 )
+
     let govState =
             emptyGovState
                 & curPParamsGovStateL .~ pparams
@@ -632,9 +645,11 @@ toGovAction = \case
 buildProposals
     :: GovRelation StrictMaybe
     -> [GovActionState ConwayEra]
+    -> Set (Credential ColdCommitteeRole)
     -> Either Error (Proposals ConwayEra)
-buildProposals roots =
-    foldlM addAction (def & pRootsL .~ fromPrevGovActionIds roots)
+buildProposals roots states orphans = do
+    syntheticProposal <- buildOrphanCommitteeProposal roots states orphans
+    foldlM addAction (def & pRootsL .~ fromPrevGovActionIds roots) (states <> maybeToList syntheticProposal)
   where
     addAction acc proposalState =
         maybe (Left (unplaceable proposalState)) Right (proposalsAddAction proposalState acc)
@@ -644,6 +659,73 @@ buildProposals roots =
                 <> showText (gasId proposalState)
                 <> " does not follow an enacted root or an earlier initial proposal"
             )
+
+buildOrphanCommitteeProposal
+    :: GovRelation StrictMaybe
+    -> [GovActionState ConwayEra]
+    -> Set (Credential ColdCommitteeRole)
+    -> Either Error (Maybe (GovActionState ConwayEra))
+buildOrphanCommitteeProposal roots states orphans
+    | Set.null orphans =
+        pure Nothing
+    | otherwise = do
+        committeeThreshold <- first UnsupportedFixture (boundedRatio "synthetic committee threshold" 1)
+        syntheticId <- nextSyntheticGovActionId states
+        pure
+            ( Just
+                GovActionState
+                    { gasId = syntheticId
+                    , gasCommitteeVotes = mempty
+                    , gasDRepVotes = mempty
+                    , gasStakePoolVotes = mempty
+                    , gasProposalProcedure =
+                        templateProposalProcedure
+                            { pProcGovAction =
+                                UpdateCommittee
+                                    (grCommittee roots)
+                                    mempty
+                                    orphanMembers
+                                    committeeThreshold
+                            }
+                    , gasProposedIn = proposedIn
+                    , gasExpiresAfter = expiresAfter
+                    }
+            )
+  where
+    templateProposalProcedure =
+        maybe
+            ProposalProcedure
+                { pProcDeposit = Coin 0
+                , pProcReturnAddr = def
+                , pProcGovAction = InfoAction
+                , pProcAnchor = def
+                }
+            gasProposalProcedure
+            (listToMaybe states)
+
+    proposedIn =
+        maybe (phaseOneEpochNo 0) gasProposedIn (listToMaybe states)
+
+    expiresAfter =
+        maybe (phaseOneEpochNo maxBound) gasExpiresAfter (listToMaybe states)
+
+    orphanMembers =
+        Map.fromSet (const expiresAfter) orphans
+
+nextSyntheticGovActionId :: [GovActionState ConwayEra] -> Either Error GovActionId
+nextSyntheticGovActionId states =
+    maybe
+        (Left (UnsupportedFixture "failed to allocate a synthetic governance action id for orphan committee authorizations"))
+        Right
+        (find (`Set.notMember` usedIdentifiers) candidates)
+  where
+    usedIdentifiers =
+        Set.fromList (map gasId states)
+
+    candidates =
+        [ GovActionId (TxId def) (GovActionIx proposalIndex)
+        | proposalIndex <- [0 .. maxBound]
+        ]
 
 defaultStakePoolState :: Coin -> StakePoolState
 defaultStakePoolState depositCoin =
@@ -666,9 +748,11 @@ toDRepCredential =
 
 parseCommitteeAuthorization :: Value -> Parser CommitteeAuthorization
 parseCommitteeAuthorization =
-    withText "CommitteeAuthorization" $ \hexText ->
-        parseCborHex "CommitteeAuthorization" hexText
-            <|> (CommitteeHotCredential <$> parseCborHex "HotCommitteeCredential" hexText)
+    withText "CommitteeAuthorization" $ \text ->
+        if text == "resigned" then
+            pure (CommitteeMemberResigned empty)
+        else
+            parseCborHex "CommitteeAuthorization" text <|> (CommitteeHotCredential <$> parseCborHex "HotCommitteeCredential" text)
 
 parseProtocolVersion :: Text -> Either Text ProtVer
 parseProtocolVersion versionText =
