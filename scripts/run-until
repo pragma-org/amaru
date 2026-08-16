@@ -4,56 +4,87 @@
 # When AMARU_WITH_OPEN_TELEMETRY=true, the example installs OTLP via
 # amaru_node::Telemetry so e2e metrics reach the collector on :8889.
 
-set -u
+set -euo pipefail
 
-function status() {
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$script_dir/lib/ledger-epoch.sh"
+
+status() {
   printf '%b\n' "$*" >&2
 }
 
-exitWithUsage () {
-  status "\033[1;31mError: missing argument(s)!\033[00m\n"
-  status "\033[1;32mUsage:\033[00m\n    $0 BUILD_PROFILE TARGET_EPOCH\n"
-  status "\033[1mExamples:\033[00m \n    $0 release 173"
-  exit 1
+usage() {
+  cat <<EOF
+Usage: $0 <build_profile> --epoch <target_epoch>
+       $0 <build_profile> --epochs <extra_epochs>
+
+Run until an absolute target epoch, or for a number of epochs after the
+starting epoch inferred from the ledger database.
+
+Examples:
+  $0 release --epoch 173
+  $0 release --epochs 10
+EOF
 }
 
-if [ $# != 2 ]; then
-    exitWithUsage
+if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
+  usage
+  exit 0
 fi
 
-BUILD_PROFILE=$1
-if [ -z "$BUILD_PROFILE" ]; then
-  exitWithUsage
+if [ "$#" -ne 3 ]; then
+  usage >&2
+  exit 1
 fi
 
-TARGET_EPOCH=$2
-if [ -z "$TARGET_EPOCH" ]; then
-  exitWithUsage
+build_profile="$1"
+target_kind="$2"
+target_value="$3"
+
+if [ -z "$build_profile" ] || ! is_epoch_number "$target_value"; then
+  usage >&2
+  exit 1
 fi
 
-status "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
+case "$target_kind" in
+  --epoch)
+    target_epoch=$((10#$target_value))
+    ;;
+  --epochs)
+    network="${AMARU_NETWORK:-preprod}"
+    ledger_dir="${AMARU_LEDGER_DIR:-ledger.${network}.db}"
+    start_epoch="$(infer_ledger_start_epoch "$ledger_dir")"
+    target_epoch="$(epoch_after "$start_epoch" "$target_value")"
+    status "      \033[1;32mStart\033[00m epoch $start_epoch + $target_value epoch(s)"
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac
+
+status "      \033[1;32mTarget\033[00m epoch $target_epoch"
 
 export AMARU_TRACE="${AMARU_TRACE:-amaru=info}"
 
 # Thin embedder: observe adopted blocks and stop when the target epoch is reached.
 # No JSON log scraping; lifecycle owned by the example binary (EDR 031).
-extra_args=()
+run_until_args=(--epoch "$target_epoch")
 if [ -n "${AMARU_NETWORK:-}" ]; then
-  extra_args+=(--network "$AMARU_NETWORK")
+  run_until_args+=(--network "$AMARU_NETWORK")
 fi
 if [ -n "${AMARU_LEDGER_DIR:-}" ]; then
-  extra_args+=(--ledger-dir "$AMARU_LEDGER_DIR")
+  run_until_args+=(--ledger-dir "$AMARU_LEDGER_DIR")
 fi
 if [ -n "${AMARU_CHAIN_DIR:-}" ]; then
-  extra_args+=(--chain-dir "$AMARU_CHAIN_DIR")
+  run_until_args+=(--chain-dir "$AMARU_CHAIN_DIR")
 fi
 if [ -n "${AMARU_PEER_ADDRESS:-}" ]; then
-  extra_args+=(--peer-address "$AMARU_PEER_ADDRESS")
+  run_until_args+=(--peer-address "$AMARU_PEER_ADDRESS")
 fi
 if [ -n "${AMARU_UPSTREAM_PEERS:-}" ]; then
-  extra_args+=(--upstream-peers "$AMARU_UPSTREAM_PEERS")
+  run_until_args+=(--upstream-peers "$AMARU_UPSTREAM_PEERS")
 fi
 
-cargo run --profile "$BUILD_PROFILE" --locked -p amaru-node --example run_until -- \
-  --epoch "$TARGET_EPOCH" \
-  "${extra_args[@]}"
+cargo run --profile "$build_profile" --locked -p amaru-node --example run_until -- \
+  "${run_until_args[@]}"

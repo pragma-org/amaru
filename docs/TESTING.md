@@ -18,8 +18,10 @@ They are executed via `cargo test`.
 To run Amaru until a target epoch, use:
 
 ```
-AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS=all ./scripts/run-until release 999
+./scripts/run-until release --epoch 999
 ```
+
+To run for a number of epochs from the ledger database's current starting epoch, use `--epochs 10` instead.
 
 Note that this requires a trace severity of at least INFO since the detection of the target is based on the traces.
 
