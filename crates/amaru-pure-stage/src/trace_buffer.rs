@@ -180,8 +180,7 @@ impl Display for TraceEntry {
                         | other @ StageResponse::CallResponse(_)
                         | other @ StageResponse::CancelScheduleResponse(_)
                         | other @ StageResponse::ExternalResponse(_)
-                        | other @ StageResponse::AddStageResponse(_)
-                        | other @ StageResponse::ContramapResponse(_) => format!(" -> {other}"),
+                        | other @ StageResponse::AddStageResponse(_) => format!(" -> {other}"),
                     },
                 )
             }
@@ -305,7 +304,6 @@ enum EffectRef<'a> {
     Terminate { at_stage: &'a Name },
     AddStage { at_stage: &'a Name, name: &'a Name },
     WireStage { at_stage: &'a Name, name: &'a Name, initial_state: &'a dyn SendData, tombstone: &'a dyn SendData },
-    Contramap { at_stage: &'a Name, original: &'a Name, new_name: &'a Name },
 }
 
 impl<'a> EffectRef<'a> {
@@ -323,9 +321,6 @@ impl<'a> EffectRef<'a> {
             StageEffect::AddStage(name) => EffectRef::AddStage { at_stage, name },
             StageEffect::WireStage(name, _transition, initial_state, tombstone) => {
                 EffectRef::WireStage { at_stage, name, initial_state: &**initial_state, tombstone: &**tombstone }
-            }
-            StageEffect::Contramap { original, new_name, transform: _ } => {
-                EffectRef::Contramap { at_stage, original, new_name }
             }
         })
     }

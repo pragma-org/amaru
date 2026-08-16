@@ -114,3 +114,15 @@ fn add_stage() {
 
     running.abort();
 }
+
+#[test]
+fn contramap_input_returns_send_error_when_mailbox_is_gone() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut graph = TokioBuilder::default();
+    let sink = graph.stage("sink", async |state, _msg: u32, _eff| state);
+    let sink = graph.wire_up(sink, ());
+    let as_u8 = sink.contramap(|x: u8| u32::from(x));
+    let sender = graph.input(&as_u8);
+    drop(graph);
+    assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError));
+}

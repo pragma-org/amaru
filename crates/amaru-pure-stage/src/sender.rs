@@ -24,7 +24,7 @@ use crate::{BoxFuture, Name, SendData, stage_ref::StageRef};
 ///
 /// Such a handle is obtained using [`StageGraph::input`](crate::StageGraph::input).
 pub struct Sender<Msg> {
-    tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), Msg>> + Send + Sync>,
+    tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), SendError>> + Send + Sync>,
 }
 
 impl<Msg> Clone for Sender<Msg> {
@@ -40,11 +40,16 @@ impl<Msg> fmt::Debug for Sender<Msg> {
 }
 
 impl<Msg> Sender<Msg> {
-    pub(crate) fn new(tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), Msg>> + Send + Sync>) -> Self {
+    pub(crate) fn new(tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), SendError>> + Send + Sync>) -> Self {
         Self { tx }
     }
 
-    pub fn send(&self, msg: Msg) -> BoxFuture<'static, Result<(), Msg>> {
+    /// Deliver `msg` to the stage.
+    ///
+    /// Returns [`SendError`] if the stage graph has terminated or the mailbox is gone.
+    /// The payload is not returned: it may already have been transformed (e.g. by
+    /// [`StageRef::contramap`](crate::StageRef::contramap)).
+    pub fn send(&self, msg: Msg) -> BoxFuture<'static, Result<(), SendError>> {
         (self.tx)(msg)
     }
 }
@@ -66,7 +71,7 @@ impl<Msg: SendData> Sender<Msg> {
         let send_fut = self.send(msg);
         Box::pin(async move {
             let resp = tokio::time::timeout(timeout, async {
-                send_fut.await.map_err(|_| CallError::SendFailed)?;
+                send_fut.await.map_err(|_err| CallError::SendFailed)?;
                 rx.await.map_err(|_| CallError::ResponseDropped)
             })
             .await
@@ -85,6 +90,11 @@ impl<Msg: SendData> Sender<Msg> {
 /// This is the same mechanism used internally by [`Effects::call`](crate::Effects::call), allowing
 /// the Tokio and simulation runtimes to handle both patterns uniformly.
 pub(crate) type StageRefExtra = Mutex<Option<oneshot::Sender<Box<dyn SendData>>>>;
+
+/// Delivery through [`Sender::send`] failed because the target stage is gone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("failed to deliver message to stage")]
+pub struct SendError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CallError {

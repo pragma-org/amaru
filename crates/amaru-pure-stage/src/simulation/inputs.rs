@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{Name, SendData, Sender, StageRef};
+use crate::{Name, SendData, SendError, Sender, StageRef};
 
 #[derive(Debug)]
 pub struct Envelope {
@@ -43,18 +43,26 @@ impl Inputs {
         Self { tx, rx, peeked: None }
     }
 
+    #[expect(clippy::panic)]
     pub fn sender<Msg: SendData>(&self, stage: &StageRef<Msg>) -> Sender<Msg> {
         let tx_main = self.tx.clone();
-        let stage_name = stage.name().clone();
+        let peeled = stage.peel();
+        if peeled.leftover.is_some() {
+            panic!("cannot input() a call-reply StageRef");
+        }
+        let name = peeled.name;
+        let transform = peeled.transform;
         Sender::new(Arc::new(move |msg| {
             let tx_main = tx_main.clone();
-            let stage_name = stage_name.clone();
+            let name = name.clone();
+            let transform = transform.clone();
             Box::pin(async move {
+                let payload = match transform {
+                    Some(transform) => transform(Box::new(msg)),
+                    None => Box::new(msg),
+                };
                 let (tx, rx) = oneshot::channel();
-                tx_main.send(Envelope::new(stage_name, Box::new(msg), tx)).await.map_err(|e| {
-                    #[expect(clippy::expect_used)]
-                    *e.0.msg.cast::<Msg>().expect("message was just boxed")
-                })?;
+                tx_main.send(Envelope::new(name, payload, tx)).await.map_err(|_| SendError)?;
                 rx.await.ok();
                 Ok(())
             })

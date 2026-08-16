@@ -169,8 +169,8 @@ impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
     pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
-        let call = target.extra().cloned();
-        airlock_effect(&self.effect, StageEffect::Send(target.name().clone(), call, Box::new(msg)), |_eff| Some(()))
+        let (name, call, payload) = target.materialize_send(msg);
+        airlock_effect(&self.effect, StageEffect::Send(name, call, payload), |_eff| Some(()))
     }
 
     /// Obtain the current simulation time.
@@ -210,15 +210,21 @@ impl<M> Effects<M> {
         timeout: Duration,
         msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
-        if target.extra().is_some() {
-            panic!("cannot answer a call with a call ({} -> {})", self.me.name(), target.name());
+        let peeled = target.peel();
+        if peeled.leftover.is_some() {
+            panic!("cannot answer a call with a call ({} -> {})", self.me.name(), peeled.name);
         }
-        let msg = Box::new(move |name: Name, extra: Arc<dyn Any + Send + Sync>| {
-            Box::new(msg(StageRef::new(name).with_extra(extra))) as Box<dyn SendData>
+        let inject = peeled.transform;
+        let msg = Box::new(move |reply_name: Name, extra: Arc<dyn Any + Send + Sync>| {
+            let req = Box::new(msg(StageRef::new(reply_name).with_extra(extra))) as Box<dyn SendData>;
+            match inject {
+                Some(inject) => inject(req),
+                None => req,
+            }
         }) as CallFn;
         airlock_effect(
             &self.effect,
-            StageEffect::Call(target.name().clone(), timeout, CallExtra::CallFn(NoDebug::new(msg))),
+            StageEffect::Call(peeled.name, timeout, CallExtra::CallFn(NoDebug::new(msg))),
             |eff| match eff {
                 Some(StageResponse::CallResponse(resp)) => {
                     if resp.typetag_name() == type_name::<CallTimeout>() {
@@ -374,35 +380,6 @@ impl<M> Effects<M> {
         let StageBuildRef { name, network, .. } = stage;
 
         crate::StageBuildRef { name, network: (network.0, tombstone), _ph: PhantomData }
-    }
-
-    #[expect(clippy::future_not_send)]
-    pub async fn contramap<Original: SendData, Mapped: SendData>(
-        &self,
-        stage: impl AsRef<StageRef<Original>>,
-        new_name: impl AsRef<str>,
-        transform: impl Fn(Mapped) -> Original + Send + 'static,
-    ) -> StageRef<Mapped> {
-        let new_name = Name::from(new_name.as_ref());
-        let transform = Box::new(move |mapped: Box<dyn SendData>| {
-            let mapped = mapped.cast::<Mapped>().expect("internal message type error");
-            let original = transform(*mapped);
-            Box::new(original) as Box<dyn SendData>
-        });
-        let name = airlock_effect(
-            &self.effect,
-            StageEffect::Contramap {
-                original: stage.as_ref().name().clone(),
-                new_name,
-                transform: NoDebug::new(transform),
-            },
-            |eff| match eff {
-                Some(StageResponse::ContramapResponse(name)) => Some(name),
-                _ => None,
-            },
-        )
-        .await;
-        StageRef::new(name)
     }
 
     #[expect(clippy::future_not_send)]
@@ -694,11 +671,6 @@ pub enum StageEffect<T> {
     Terminate,
     AddStage(Name),
     WireStage(Name, NoDebug<TransitionFactory>, T, T),
-    Contramap {
-        original: Name,
-        new_name: Name,
-        transform: NoDebug<Box<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + 'static>>,
-    },
 }
 
 pub type TransitionFactory = Box<dyn FnOnce(EffectBox) -> Transition + Send + 'static>;
@@ -713,7 +685,6 @@ pub enum StageResponse {
     CancelScheduleResponse(bool),
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     AddStageResponse(Name),
-    ContramapResponse(Name),
 }
 
 impl StageResponse {
@@ -744,10 +715,6 @@ impl StageResponse {
                 "type": "add_stage",
                 "name": name,
             }),
-            StageResponse::ContramapResponse(name) => serde_json::json!({
-                "type": "contramap",
-                "name": name,
-            }),
         }
     }
 }
@@ -768,7 +735,6 @@ impl Display for StageResponse {
                 write!(f, "{}", msg.as_send_data_value().borrow())
             }
             StageResponse::AddStageResponse(name) => write!(f, "add_stage {name}"),
-            StageResponse::ContramapResponse(name) => write!(f, "contramap {name}"),
         }
     }
 }
@@ -813,10 +779,6 @@ impl StageEffect<Box<dyn SendData>> {
             StageEffect::WireStage(name, transition, initial_state, tombstone) => (
                 StageEffect::WireStage(name.clone(), transition, (), ()),
                 Effect::WireStage { at_stage: at_name, name, initial_state, tombstone },
-            ),
-            StageEffect::Contramap { original, new_name, transform } => (
-                StageEffect::Contramap { original: original.clone(), new_name: new_name.clone(), transform },
-                Effect::Contramap { at_stage: at_name, original, new_name },
             ),
         }
     }
@@ -877,11 +839,6 @@ pub enum Effect {
         initial_state: Box<dyn SendData>,
         #[serde(with = "crate::serde::serialize_send_data")]
         tombstone: Box<dyn SendData>,
-    },
-    Contramap {
-        at_stage: Name,
-        original: Name,
-        new_name: Name,
     },
 }
 
@@ -955,12 +912,6 @@ impl Effect {
                 "initial_state": format!("{initial_state}"),
                 "tombstone": format!("{tombstone}"),
             }),
-            Effect::Contramap { at_stage, original, new_name } => serde_json::json!({
-                "type": "contramap",
-                "at_stage": at_stage,
-                "original": original,
-                "new_name": new_name,
-            }),
         }
     }
 }
@@ -990,9 +941,6 @@ impl Display for Effect {
             Effect::AddStage { at_stage, name } => write!(f, "add_stage {at_stage} {name}"),
             Effect::WireStage { at_stage, name, initial_state, tombstone } => {
                 write!(f, "wire_stage {at_stage} {name} {initial_state} {tombstone}")
-            }
-            Effect::Contramap { at_stage, original, new_name } => {
-                write!(f, "contramap {at_stage} {original} -> {new_name}")
             }
         }
     }
@@ -1059,14 +1007,6 @@ impl Effect {
         }
     }
 
-    pub fn contramap(at_stage: impl AsRef<str>, original: impl AsRef<str>, new_name: impl AsRef<str>) -> Self {
-        Self::Contramap {
-            at_stage: Name::from(at_stage.as_ref()),
-            original: Name::from(original.as_ref()),
-            new_name: Name::from(new_name.as_ref()),
-        }
-    }
-
     /// Get the stage name of this effect.
     pub fn at_stage(&self) -> &Name {
         match self {
@@ -1081,7 +1021,6 @@ impl Effect {
             Effect::Terminate { at_stage, .. } => at_stage,
             Effect::AddStage { at_stage, .. } => at_stage,
             Effect::WireStage { at_stage, .. } => at_stage,
-            Effect::Contramap { at_stage, .. } => at_stage,
         }
     }
 
@@ -1326,12 +1265,6 @@ impl PartialEq for Effect {
                         && name == other_name
                         && initial_state == other_initial_state
                         && tombstone == other_tombstone
-                }
-                _ => false,
-            },
-            Effect::Contramap { at_stage, original, new_name } => match other {
-                Effect::Contramap { at_stage: other_at_stage, original: other_original, new_name: other_new_name } => {
-                    at_stage == other_at_stage && original == other_original && new_name == other_new_name
                 }
                 _ => false,
             },
