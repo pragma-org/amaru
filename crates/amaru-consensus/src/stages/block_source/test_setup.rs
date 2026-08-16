@@ -71,8 +71,8 @@ pub fn setup(prep: &TestPrep, msgs: &[BlockSourceMsg]) -> (SimulationRunning, De
     let bs = network.wire_up(bs, prep.state.clone());
     network.preload(&bs, msgs.iter().cloned()).expect("preload");
 
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(prep.rt.handle());
+    let mut running = network.run(prep.rt.handle());
+    running.run_until_blocked_incl_effects();
 
     (running, guards, logs.logs())
 }

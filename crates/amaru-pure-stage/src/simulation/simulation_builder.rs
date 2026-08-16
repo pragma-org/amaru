@@ -46,7 +46,7 @@ use std::{
 
 use parking_lot::Mutex;
 use rand::{SeedableRng, prelude::StdRng};
-use tokio::runtime::Builder;
+use tokio::runtime::{Builder, Handle};
 
 use crate::{
     BLACKHOLE_NAME, Clock, EPOCH, Instant, Name, PRIORITY_MAILBOX_SIZE, Resources, ScheduleIds, SendData, Sender,
@@ -91,8 +91,8 @@ use crate::{
 /// let (output, mut rx) = network.output("output", 10);
 /// let stage = network.wire_up(stage, (1u32, output.clone()));
 ///
-/// let mut running = network.run();
 /// let rt = tokio::runtime::Runtime::new().unwrap();
+/// let mut running = network.run(rt.handle());
 ///
 /// // first check that the stages start out suspended on Receive
 /// running.try_effect().unwrap_err().assert_idle();
@@ -127,6 +127,7 @@ pub struct SimulationBuilder {
     inputs: Inputs,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     eval_strategy: Box<dyn EvalStrategy>,
+    duration_rng: StdRng,
 }
 
 impl SimulationBuilder {
@@ -179,7 +180,8 @@ impl SimulationBuilder {
         self
     }
 
-    pub fn with_seed(self, seed: u64) -> Self {
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.duration_rng = StdRng::seed_from_u64(seed);
         self.with_eval_strategy(RandStdRng(StdRng::seed_from_u64(seed)))
     }
 
@@ -216,7 +218,11 @@ impl SimulationBuilder {
         Replay::new(stages, self.effect, self.trace_buffer, self.schedule_ids)
     }
 
-    pub fn run(self) -> SimulationRunning {
+    /// Start the simulation.
+    ///
+    /// `tokio_handle` is required so a sampled external-effect deadline can force `run()`
+    /// to completion at that simulated instant (wall-clock compute must not reorder events).
+    pub fn run(self, tokio_handle: &Handle) -> SimulationRunning {
         let Self {
             stages: s,
             stage_counter,
@@ -230,6 +236,7 @@ impl SimulationBuilder {
             schedule_ids,
             trace_buffer,
             eval_strategy,
+            duration_rng,
         } = self;
 
         debug_assert_eq!(stage_counter, s.len());
@@ -279,6 +286,8 @@ impl SimulationBuilder {
             trace_buffer,
             eval_strategy,
             global_epoch_offset,
+            duration_rng,
+            tokio_handle.clone(),
         )
     }
 }
@@ -301,6 +310,7 @@ impl Default for SimulationBuilder {
             // default is a TraceBuffer that drops all messages
             trace_buffer: Arc::new(Mutex::new(TraceBuffer::new(0, 0))),
             eval_strategy: Box::new(Fifo),
+            duration_rng: StdRng::seed_from_u64(0),
         }
     }
 }
@@ -468,8 +478,8 @@ where
     let stage = network.wire_up(stage, None);
     network.preload(&stage, [msg]).unwrap();
 
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(runtime.handle()).assert_idle();
+    let mut running = network.run(runtime.handle());
+    running.run_until_blocked_incl_effects().assert_idle();
 
     running.get_state(&stage).cloned().flatten()
 }

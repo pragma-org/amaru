@@ -32,7 +32,7 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    BLACKHOLE_NAME, BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
+    BLACKHOLE_NAME, BoxFuture, DurationDist, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
     effect_box::{EffectBox, airlock_effect},
     serde::{NoDebug, SendDataValue, never, to_cbor},
     simulation::Transition,
@@ -466,6 +466,27 @@ impl CanSupervise {
 /// The [`run`](ExternalEffect::run) method is used to perform the effect unless a
 /// simulator chooses differently. The latter can be done by downcasting to the concrete type.
 pub trait ExternalEffect: SendData {
+    /// Distribution of simulated time this effect occupies in
+    /// [`crate::simulation::SimulationRunning`].
+    ///
+    /// The Tokio runtime ignores this. Defaults to [`DurationDist::Zero`] so existing
+    /// effects keep today's traces. Use [`DurationDist::UntilResolved`] when the
+    /// simulation (not a sampled `δ`) decides when the effect Future completes — e.g.
+    /// a network receive.
+    ///
+    /// An associated `const` cannot live on this trait: it would make `dyn ExternalEffect`
+    /// illegal. Declare [`ExternalEffectAPI::SIMULATED_DURATION`] on the concrete type and
+    /// return it from this method:
+    ///
+    /// ```ignore
+    /// fn simulated_duration_dist(&self) -> DurationDist {
+    ///     <Self as ExternalEffectAPI>::SIMULATED_DURATION
+    /// }
+    /// ```
+    fn simulated_duration_dist(&self) -> DurationDist {
+        DurationDist::ZERO
+    }
+
     /// Run the effect in production mode.
     ///
     /// Implementations typically retrieve shared services via typed lookups
@@ -519,6 +540,13 @@ impl Display for dyn ExternalEffect {
 /// in turn would make that trait non-object-safe.
 pub trait ExternalEffectAPI: ExternalEffect {
     type Response: SendData + DeserializeOwned;
+
+    /// Type-level declaration of the simulated duration distribution.
+    ///
+    /// This is the associated constant that cannot sit on [`ExternalEffect`] (that trait
+    /// must remain a trait object). Return it from
+    /// [`ExternalEffect::simulated_duration_dist`] so the simulator can see it.
+    const SIMULATED_DURATION: DurationDist = DurationDist::ZERO;
 }
 
 impl dyn ExternalEffect {

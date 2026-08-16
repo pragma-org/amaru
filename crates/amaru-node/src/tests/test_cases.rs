@@ -33,12 +33,14 @@ fn test_connect_nodes_in_memory() -> anyhow::Result<()> {
     let root_point = NetworkPoint::Specific(conway_start_slot, Hash::new([0u8; 32]));
     let headers = run_strategy(any_headers_chain_with_root(5, root_point.with_height(BlockHeight::from(0))));
     let mut rng = RandStdRng::from_seed(42);
+    let rt = tokio::runtime::Runtime::new()?;
     let mut nodes = create_nodes(
         &mut rng,
         vec![
             NodeTestConfig::initiator().with_chain_length(5).with_validated_blocks(vec![headers[0].clone()]),
             NodeTestConfig::responder().with_chain_length(5).with_validated_blocks(headers),
         ],
+        rt.handle(),
     )?;
     nodes.run(&mut rng);
 

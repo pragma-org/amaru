@@ -87,12 +87,12 @@ fn test_against_node() {
         )
         .unwrap();
 
-    let mut running = network.run();
+    let mut running = network.run(rt.handle());
 
     running
         .breakpoint("output", move |eff| matches!(eff, Effect::External { at_stage, .. } if at_stage == output.name()));
 
-    let output = running.run_until_blocked_incl_effects(rt.handle()).assert_breakpoint("output");
+    let output = running.run_until_blocked_incl_effects().assert_breakpoint("output");
     running.handle_effect(output);
     rt.block_on(running.await_external_effect()).unwrap();
     let result = rx.try_next().unwrap();

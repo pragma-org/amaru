@@ -105,7 +105,9 @@ fn run_test_nb(run_config: &RunConfig, test_run_dir: &Path, test_number: u32) ->
 pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResult {
     let test = |actions: &GeneratedActions| {
         let mut rng = run_config.rng();
-        let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions)).expect("failed to create nodes");
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let mut nodes =
+            create_nodes(&mut rng, node_configs(run_config, actions), rt.handle()).expect("failed to create nodes");
 
         nodes.run(&mut rng);
         check_chain_property(nodes, actions)

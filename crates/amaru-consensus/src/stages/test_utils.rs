@@ -297,13 +297,13 @@ where
 
     let network = build_network(network);
 
-    let mut running = network.run();
+    let mut running = network.run(rt);
     running.use_virtual_child_stages(true);
     setup_overrides(&mut running);
 
     match mode {
         SimulationRunMode::UntilBlocked => {
-            running.run_until_blocked_incl_effects(rt);
+            running.run_until_blocked_incl_effects();
         }
         SimulationRunMode::UntilSleeping => {
             while let amaru_pure_stage::simulation::Blocked::Busy { .. } = running.run_until_sleeping_or_blocked() {

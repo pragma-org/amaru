@@ -190,8 +190,8 @@ pub fn setup(prep: &TestPrep, msg: AdoptChainMsg) -> (SimulationRunning, Deseria
     let ac = network.wire_up(ac, prep.state.clone());
     network.preload(&ac, [msg]).unwrap();
 
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(prep.rt.handle());
+    let mut running = network.run(prep.rt.handle());
+    running.run_until_blocked_incl_effects();
 
     (running, guards, logs.logs())
 }

@@ -285,6 +285,21 @@ pub fn tm_clock(instant: Duration) -> TraceMatch<'static> {
     )
 }
 
+/// Matches a [`TraceEntry::Clock`] whose sim-elapsed time lies in `[min, max]` inclusive.
+pub fn tm_clock_between(min: Duration, max: Duration) -> TraceMatch<'static> {
+    let description = format!("Clock(between {:?} and {:?})", min, max);
+    TraceMatch::Property(
+        Box::new(move |entry| {
+            let TraceEntry::Clock(i) = entry else {
+                return false;
+            };
+            let elapsed = i.inner.saturating_duration_since(*EPOCH);
+            elapsed >= min && elapsed <= max
+        }),
+        description,
+    )
+}
+
 // =============================================================================
 // Assertion helpers
 // =============================================================================

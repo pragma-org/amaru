@@ -49,7 +49,11 @@ use crate::{
 /// Create simulated nodes based on a list of configurations.
 /// The random generator is used to generate the test data that is injected into upstream nodes.
 ///
-pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyhow::Result<Nodes> {
+pub fn create_nodes(
+    rng: &mut RandStdRng,
+    configs: Vec<NodeTestConfig>,
+    tokio_handle: &tokio::runtime::Handle,
+) -> anyhow::Result<Nodes> {
     let connections: ConnectionsResource = Arc::new(InMemoryConnectionProvider::default());
     let mut nodes = vec![];
 
@@ -65,7 +69,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
         let config = config.with_connections(connections.clone());
         let test_node_stages = create_node(&config, &mut stage_graph)?;
 
-        let mut running = stage_graph.run();
+        let mut running = stage_graph.run(tokio_handle);
         // Don't validate the generated headers, we just want to check the mini-protocols communication.
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
             OverrideResult::handled(Ok(Nonces::for_tests()))

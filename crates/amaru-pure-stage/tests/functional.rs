@@ -77,8 +77,8 @@ fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone()).with_epoch_clock();
     graph(&mut network);
 
-    let mut sim = network.run();
-    sim.run_until_blocked_incl_effects(rt.handle()).assert_terminated("trigger");
+    let mut sim = network.run(rt.handle());
+    sim.run_until_blocked_incl_effects().assert_terminated("trigger");
 
     guard.defuse();
 
