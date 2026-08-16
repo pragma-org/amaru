@@ -45,6 +45,7 @@ jobs:
         cardano_node_version: [11.0.1]
     env:
       AMARU_NETWORK: ${{ inputs.network || matrix.network.name }}
+      AMARU_PEER_ADDRESS: 127.0.0.1:3001
       AMARU_UPSTREAM_PEERS: 1
       BUILD_PROFILE: test
       CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
@@ -147,9 +148,10 @@ jobs:
             --name otlp-collector \
             -v "$PWD/monitoring/otlp-collector.yml:/etc/otlp-collector.yml:ro" \
             otel/opentelemetry-collector-contrib:0.133.0 \
-              --config=/etc/otlp-collector.yml
+              --config=/etc/otlp-collector.yml \
+              --set exporters::prometheus::metric_expiration=10m
 
-      - name: Run until target epoch
+      - name: Run epoch snapshot tests
         if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
         timeout-minutes: 30
         shell: bash
@@ -158,10 +160,10 @@ jobs:
           # it takes many seconds to empty the log buffer after `run-until` exists, at which point the
           # metrics are no longer retained within the collector.
           AMARU_TRACE: "amaru=info"
-          AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS: "all"
-          RUN_UNTIL_TARGET_EPOCH: ${{ matrix.network.target_epoch }}
         run: |
-          make run-until
+          ./scripts/run-until-then-test \
+            "${{ matrix.network.start_epoch }}" \
+            "${{ matrix.network.target_epoch }}"
 
       - name: Wait for metrics endpoints
         if: ${{ inputs.network == '' || inputs.network == matrix.network.name }}
