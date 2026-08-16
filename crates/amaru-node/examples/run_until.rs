@@ -54,6 +54,7 @@ fn main() -> anyhow::Result<()> {
             .chain_dir(args.chain_dir)
             .target_upstream_peers(args.upstream_peers)
             .listen_ephemeral_localhost()
+            .migrate_chain_db(true)
             .max_extra_ledger_snapshots(MaxExtraLedgerSnapshots::All)
             .meter(Arc::clone(&telemetry.meter))
             .observers(LedgerObservers::new().on_adopted_block(move |block| {

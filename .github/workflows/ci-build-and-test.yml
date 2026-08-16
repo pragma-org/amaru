@@ -110,9 +110,6 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
-      - name: benches headers_tree
-        shell: bash
-        run: cargo bench --bench headers_tree --features="test-utils profiling"
       - name: benches volatile_db
         shell: bash
         run: cargo bench --bench volatile_db
