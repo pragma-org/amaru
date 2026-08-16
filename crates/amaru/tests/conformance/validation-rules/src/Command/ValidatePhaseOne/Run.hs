@@ -479,6 +479,8 @@ normalizeGovCertFailure = \case
         "DRepAlreadyRegistered"
     ConwayCommitteeIsUnknown{} ->
         "CommitteeIsUnknown"
+    ConwayCommitteeHasPreviouslyResigned{} ->
+        "CommitteeHasPreviouslyResigned"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
