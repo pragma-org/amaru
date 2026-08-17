@@ -34,7 +34,7 @@ mod tests {
     fn run_conformance(fixture_path: &str) {
         let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/transaction");
 
-        let raw = fs::read_to_string(fixtures_dir.join(format!("{}.json", dbg!(fixture_path))))
+        let raw = fs::read_to_string(fixtures_dir.join(format!("{}.json", fixture_path)))
             .unwrap_or_else(|e| panic!("cannot read fixture {fixture_path}: {e}"));
         let fixture: Fixture =
             json::from_str(&raw).unwrap_or_else(|e| panic!("invalid json fixture {fixture_path}: {e}"));

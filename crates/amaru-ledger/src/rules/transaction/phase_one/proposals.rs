@@ -152,13 +152,13 @@ where
 
     let kind = ProposalSlim::from(&proposal.gov_action);
 
-    match dbg!(kind) {
+    match kind {
         ProposalSlim::Orphan(..) => {}
         ProposalSlim::HardFork(..)
         | ProposalSlim::Constitution
         | ProposalSlim::ConstitutionalCommittee
         | ProposalSlim::ProtocolParameters(..) => {
-            let parent = dbg!(proposal).parent();
+            let parent = proposal.parent();
             let follows_root = parent == context.roots().root_of(kind);
             let follows_in_flight = parent
                 .and_then(|id| ProposalsSlice::lookup(context, id))
