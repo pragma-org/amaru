@@ -1,7 +1,6 @@
 name: Nightly Non-Functional Tests
 
 on:
-  pull_request:
   schedule:
     - cron: "0 4 * * *"
   workflow_dispatch:
@@ -15,13 +14,10 @@ env:
 
 jobs:
   bootstrap-memory:
-    name: Bootstrap preprod within 500 MiB
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
-      AMARU_TRACE: "error,amaru::bootstrap=info,amaru::stores[ledger.epoch.create_snapshot]=info"
       MEMORY_LIMIT_BYTES: "524288000"
-      SAMPLE_INTERVAL_SECONDS: "1"
 
     steps:
       - uses: actions/checkout@v6
@@ -37,7 +33,6 @@ jobs:
         run: cargo build --release --bin amaru --locked
 
       - name: Bootstrap preprod with memory limit
-        timeout-minutes: 30
         shell: bash
         run: |
           set -euo pipefail
@@ -47,154 +42,40 @@ jobs:
             exit 1
           fi
 
-          for controller in memory cpu; do
-            if ! grep -qw "$controller" /sys/fs/cgroup/cgroup.controllers; then
-              echo "::error::the cgroup v2 $controller controller is unavailable"
-              exit 1
-            fi
-          done
+          if ! grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
+            echo "::error::the cgroup v2 memory controller is unavailable"
+            exit 1
+          fi
 
           if ! command -v systemd-run >/dev/null; then
             echo "::error::systemd-run is required to create the constrained cgroup"
             exit 1
           fi
 
-          profile_dir="$RUNNER_TEMP/amaru-bootstrap-profile"
           scratch_dir="$(mktemp -d "$RUNNER_TEMP/amaru-bootstrap.XXXXXX")"
-          mkdir -p "$profile_dir"
-
+          trap 'rm -rf "$scratch_dir"' EXIT
           unit="amaru-bootstrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          bootstrap_job_pid=""
-          ready_file="$profile_dir/sampler.ready"
-          finished_file="$profile_dir/bootstrap.finished"
-          ack_file="$profile_dir/sampler.ack"
-          rm -f "$ready_file" "$finished_file" "$ack_file"
 
-          cleanup() {
-            touch "$ready_file" "$ack_file" 2>/dev/null || true
-            sudo systemctl stop "$unit.service" >/dev/null 2>&1 || true
-            if [[ -n "$bootstrap_job_pid" ]]; then
-              wait "$bootstrap_job_pid" || true
-            fi
-            rm -rf "$scratch_dir"
-          }
-          trap cleanup EXIT
-
-          (
-            set -o pipefail
-            sudo systemd-run \
-              --unit="$unit" \
-              --wait \
-              --pipe \
-              --collect \
-              --service-type=exec \
-              --uid="$(id -u)" \
-              --gid="$(id -g)" \
-              --working-directory="$scratch_dir" \
-              --setenv="AMARU_TRACE=$AMARU_TRACE" \
-              --setenv="HOME=$HOME" \
-              --setenv="PATH=$PATH" \
-              --property=CPUAccounting=yes \
-              --property=MemoryAccounting=yes \
-              --property=MemoryMax="$MEMORY_LIMIT_BYTES" \
-              --property=MemorySwapMax=0 \
-              --property=OOMPolicy=continue \
-              python3 "$GITHUB_WORKSPACE/scripts/bootstrap-resource-report" run \
-                --ready-file "$ready_file" \
-                --finished-file "$finished_file" \
-                --ack-file "$ack_file" \
-                -- \
-                "$GITHUB_WORKSPACE/target/release/amaru" --with-json-traces node bootstrap \
-                  --network preprod \
-                  --ledger-dir "$scratch_dir/ledger.db" \
-                  --chain-dir "$scratch_dir/chain.db" \
-              2>&1 | tee "$profile_dir/amaru-bootstrap.jsonl"
-          ) &
-          bootstrap_job_pid=$!
-
-          cgroup_path=""
-          for _ in {1..300}; do
-            control_group="$(systemctl show "$unit.service" --property=ControlGroup --value 2>/dev/null || true)"
-            if [[ -n "$control_group" ]] && [[ -d "/sys/fs/cgroup$control_group" ]]; then
-              cgroup_path="/sys/fs/cgroup$control_group"
-              break
-            fi
-            if ! kill -0 "$bootstrap_job_pid" 2>/dev/null; then
-              break
-            fi
-            sleep 0.1
-          done
-
-          if [[ -z "$cgroup_path" ]]; then
-            echo "::error::unable to locate the transient service cgroup"
-            exit 1
-          fi
-
-          for metric in memory.current memory.peak memory.swap.current memory.events cpu.stat; do
-            if [[ ! -r "$cgroup_path/$metric" ]]; then
-              echo "::error::unable to read $metric from the transient service cgroup"
-              exit 1
-            fi
-          done
-
-          python3 "$GITHUB_WORKSPACE/scripts/bootstrap-resource-report" sample \
-            --cgroup "$cgroup_path" \
-            --output "$profile_dir/samples.csv" \
-            --ready-file "$ready_file" \
-            --finished-file "$finished_file" \
-            --ack-file "$ack_file" \
-            --watch-pid "$bootstrap_job_pid" \
-            --interval "$SAMPLE_INTERVAL_SECONDS"
-
-          bootstrap_status=0
-          wait "$bootstrap_job_pid" || bootstrap_status=$?
-          bootstrap_job_pid=""
-
-          if [[ "$bootstrap_status" -ne 0 ]]; then
-            echo "::error::bootstrap exited with status $bootstrap_status"
-            exit "$bootstrap_status"
-          fi
+          sudo systemd-run \
+            --unit="$unit" \
+            --wait \
+            --pipe \
+            --collect \
+            --service-type=exec \
+            --uid="$(id -u)" \
+            --gid="$(id -g)" \
+            --working-directory="$scratch_dir" \
+            --setenv="HOME=$HOME" \
+            --setenv="PATH=$PATH" \
+            --property=MemoryAccounting=yes \
+            --property=MemoryMax="$MEMORY_LIMIT_BYTES" \
+            --property=MemorySwapMax=0 \
+            --property=OOMPolicy=kill \
+            "$GITHUB_WORKSPACE/target/release/amaru" node bootstrap \
+              --network preprod \
+              --ledger-dir "$scratch_dir/ledger.db" \
+              --chain-dir "$scratch_dir/chain.db" \
+            2>&1 | tee "$RUNNER_TEMP/amaru-bootstrap.log"
 
           test -d "$scratch_dir/ledger.db"
           test -d "$scratch_dir/chain.db"
-
-      - name: Render resource usage graph
-        if: always()
-        shell: bash
-        run: |
-          profile_dir="$RUNNER_TEMP/amaru-bootstrap-profile"
-          mkdir -p "$profile_dir"
-          python3 "$GITHUB_WORKSPACE/scripts/bootstrap-resource-report" render \
-            --samples "$profile_dir/samples.csv" \
-            --traces "$profile_dir/amaru-bootstrap.jsonl" \
-            --output "$profile_dir/resource-usage.svg" \
-            --markers-output "$profile_dir/epoch-markers.csv" \
-            --summary-output "$profile_dir/summary.json" \
-            --memory-limit-bytes "$MEMORY_LIMIT_BYTES"
-
-      - name: Upload resource profile
-        if: always()
-        id: upload-profile
-        uses: actions/upload-artifact@v7
-        with:
-          name: preprod-bootstrap-resource-profile-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/amaru-bootstrap-profile
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Write resource profile summary
-        if: always()
-        shell: bash
-        env:
-          ARTIFACT_URL: ${{ steps.upload-profile.outputs.artifact-url }}
-        run: |
-          profile_dir="$RUNNER_TEMP/amaru-bootstrap-profile"
-          echo "## Preprod bootstrap resource profile" >> "$GITHUB_STEP_SUMMARY"
-          echo >> "$GITHUB_STEP_SUMMARY"
-          if [[ -f "$profile_dir/summary.md" ]]; then
-            cat "$profile_dir/summary.md" >> "$GITHUB_STEP_SUMMARY"
-            echo >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [[ -n "$ARTIFACT_URL" ]]; then
-            echo "[Download the graph, raw samples, and Amaru traces]($ARTIFACT_URL)" >> "$GITHUB_STEP_SUMMARY"
-          fi
