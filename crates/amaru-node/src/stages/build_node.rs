@@ -132,7 +132,7 @@ pub fn build_node(
     let chain_store = make_chain_store(config)?;
 
     // Make the ledger state and get its tip
-    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
+    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
     state.set_observers(config.observers.clone());
     let ledger_tip = state.tip().into_owned();
     tracing::info!(
@@ -285,8 +285,10 @@ pub fn make_block_validator(
 pub fn make_state(
     config: &LedgerConfig,
     on_startup: Option<StartupHook<RocksDB>>,
+    chain_store: Arc<dyn BaseReadChainStore>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
     let store = RocksDB::new(&config.ledger_store)?;
+    store.set_chain_store(chain_store);
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
     Ok(State::new(
         store,

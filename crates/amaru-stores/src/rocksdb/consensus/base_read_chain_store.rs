@@ -15,7 +15,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Hash, Header, HeaderHash, IsHeader, NetworkPoint, Point, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER,
+    Hash, Header, HeaderHash, IsHeader, NetworkPoint, NetworkTip, Point, PoolId, RawBlock, Slot, from_cbor, size,
+    size::HEADER,
 };
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
 use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
@@ -69,7 +70,7 @@ where
             .get_pinned(&ANCHOR_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
-            .and_then(|bytes| from_cbor(bytes.as_ref()))
+            .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
             .unwrap_or(Point::Origin)
     }
 
@@ -78,7 +79,7 @@ where
             .get_pinned(&BEST_CHAIN_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
-            .and_then(|bytes| from_cbor(bytes.as_ref()))
+            .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
             .unwrap_or(Point::Origin)
     }
 
@@ -91,7 +92,7 @@ where
                     .get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), ReadOptions::default())
                     .ok()
                     .flatten()
-                    .and_then(|bytes| from_cbor::<Point>(bytes.as_ref()))
+                    .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
                     .is_some_and(|stored| stored.hash() == hash)
             }
         }
@@ -104,7 +105,7 @@ where
         let prefix = [&CHAIN_PREFIX[..], &slot.to_be_bytes()].concat();
         let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
 
-        if let Some(Ok((_k, v))) = iter.next() { from_cbor(v.as_ref()) } else { None }
+        if let Some(Ok((_k, v))) = iter.next() { from_cbor::<NetworkTip>(v.as_ref()).map(Point::from) } else { None }
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {

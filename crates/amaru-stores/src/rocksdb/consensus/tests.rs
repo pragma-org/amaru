@@ -1605,9 +1605,9 @@ fn migrate_to_v6_rewrites_legacy_hash_encodings() {
     assert_eq!(store.next_best_chain(&h0.point()), Some(h1.point()));
 
     let best_raw = store.db.get(BEST_CHAIN_PREFIX).unwrap().unwrap();
-    assert_ne!(best_raw.len(), HEADER, "best tip must be stored as Point CBOR");
+    assert_ne!(best_raw.len(), HEADER, "best tip must be stored as NetworkTip CBOR");
     let chain_raw = store.db.get([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat()).unwrap().unwrap();
-    assert_ne!(chain_raw.len(), HEADER, "chain entries must be stored as Point CBOR");
+    assert_ne!(chain_raw.len(), HEADER, "chain entries must be stored as NetworkTip CBOR");
 }
 
 #[test]

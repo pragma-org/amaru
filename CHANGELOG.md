@@ -64,7 +64,7 @@ Other guiding principles:
 
 ### Changed
 
-- **amaru-stores**: bump chain DB schema to version 6. Existing v5 databases can be migrated: best-chain tip, anchor, and per-slot chain index values are rewritten from a header hash to a CBOR `Point` that includes slot, hash, and block height.
+- **amaru-stores**: bump chain DB schema to version 6. Existing v5 databases can be migrated: best-chain tip, anchor, and per-slot chain index values are rewritten from a header hash to a CBOR `NetworkTip` (`[network_point, block_height]`). The ledger `@tip` remains a `NetworkPoint`.
 - **amaru / amaru-tui**: product observability setup no longer types against TUI-specific capture types; the TUI installs the shared observability capture layer.
 - **scripts/run-until**: drives the `amaru-node` `run_until` example (observer-based stop). The example installs OTLP via `amaru_node::Telemetry` when `AMARU_WITH_OPEN_TELEMETRY` is set, so e2e metrics still flow to the collector.
 - **amaru-node**: `Telemetry::install` embedder helper for fmt / JSON / OTLP (metrics + traces + logs) using the same env knobs as the product binary.

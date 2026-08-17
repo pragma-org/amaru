@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraName, Header, NetworkPoint, Point, cbor, to_cbor, utils::debug_bytes};
+use amaru_kernel::{EraName, Header, NetworkPoint, NetworkTip, Point, cbor, to_cbor, utils::debug_bytes};
 use amaru_pure_stage::DeserializerGuards;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -94,13 +94,13 @@ impl cbor::Encode<()> for Message {
             Message::RollForward(content, tip) => {
                 e.array(3)?.u16(2)?;
                 e.encode(content)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::RollBackward(point, tip) => {
                 e.array(3)?.u16(3)?;
                 e.encode(point)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::FindIntersect(points) => {
@@ -114,12 +114,12 @@ impl cbor::Encode<()> for Message {
             Message::IntersectFound(point, tip) => {
                 e.array(3)?.u16(5)?;
                 e.encode(point)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::IntersectNotFound(tip) => {
                 e.array(2)?.u16(6)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::Done => {
@@ -147,13 +147,13 @@ impl<'b> cbor::Decode<'b, ()> for Message {
             2 => {
                 cbor::check_tagged_array_length(2, len, 3)?;
                 let content = d.decode()?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::RollForward(content, tip))
             }
             3 => {
                 cbor::check_tagged_array_length(3, len, 3)?;
                 let point = d.decode()?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::RollBackward(point, tip))
             }
             4 => {
@@ -164,12 +164,12 @@ impl<'b> cbor::Decode<'b, ()> for Message {
             5 => {
                 cbor::check_tagged_array_length(5, len, 3)?;
                 let point = d.decode()?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::IntersectFound(point, tip))
             }
             6 => {
                 cbor::check_tagged_array_length(6, len, 2)?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::IntersectNotFound(tip))
             }
             7 => {

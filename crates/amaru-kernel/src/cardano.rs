@@ -66,6 +66,7 @@ pub mod network_block;
 pub mod network_magic;
 pub mod network_name;
 pub mod network_point;
+pub mod network_tip;
 pub mod non_zero_int;
 pub mod nonce;
 pub mod operational_cert;

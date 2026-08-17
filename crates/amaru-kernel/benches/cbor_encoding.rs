@@ -14,7 +14,7 @@
 
 use std::{hint::black_box, time::Duration};
 
-use amaru_kernel::{Point, make_header, to_cbor};
+use amaru_kernel::{NetworkPoint, NetworkTip, make_header, to_cbor};
 use criterion::{Criterion, criterion_group, criterion_main};
 
 fn kernel_types(c: &mut Criterion) {
@@ -22,10 +22,12 @@ fn kernel_types(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(5));
 
     let header = make_header(1_234_567, 1_234_567_890, None);
-    let point = Point::Origin;
+    let point = NetworkPoint::Origin;
+    let tip = NetworkTip::origin();
 
     group.bench_function("Header", |b| b.iter(|| black_box(to_cbor(black_box(&header)))));
-    group.bench_function("Point", |b| b.iter(|| black_box(to_cbor(black_box(&point)))));
+    group.bench_function("NetworkPoint", |b| b.iter(|| black_box(to_cbor(black_box(&point)))));
+    group.bench_function("NetworkTip", |b| b.iter(|| black_box(to_cbor(black_box(&tip)))));
 
     group.finish();
 }

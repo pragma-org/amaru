@@ -17,8 +17,12 @@ use std::{
     str::FromStr,
 };
 
-use crate::{BlockHeight, HeaderHash, NetworkPoint, ORIGIN_HASH, Slot, cbor};
+use crate::{BlockHeight, HeaderHash, NetworkPoint, ORIGIN_HASH, Slot};
 
+/// In-memory chain point: slot, header hash, and block height.
+///
+/// This type has no CBOR instances. Persist or send a [`crate::NetworkPoint`] (slot + hash) or a
+/// [`crate::NetworkTip`] (`[network_point, block_height]`) instead.
 #[derive(Default, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum Point {
     #[default]
@@ -122,30 +126,6 @@ impl FromStr for Point {
     }
 }
 
-/// CBOR encoding matches the Ouroboros tip wire form: `[network_point, block_height]`.
-impl cbor::encode::Encode<()> for Point {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::encode::Encoder<W>,
-        _ctx: &mut (),
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
-        e.encode(self.to_network_point())?;
-        e.encode(self.block_height())?;
-        Ok(())
-    }
-}
-
-impl<'b> cbor::decode::Decode<'b, ()> for Point {
-    fn decode(d: &mut cbor::decode::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
-        let len = d.array()?;
-        cbor::check_tagged_array_length(0, len, 2)?;
-        let network_point = d.decode::<NetworkPoint>()?;
-        let block_height = d.decode::<BlockHeight>()?;
-        Ok(network_point.with_height(block_height))
-    }
-}
-
 impl serde::Serialize for Point {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -171,9 +151,7 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{Point, Slot, any_block_height, any_header_hash, prop_cbor_roundtrip};
-
-    prop_cbor_roundtrip!(Point, any_point());
+    use crate::{Point, Slot, any_block_height, any_header_hash};
 
     prop_compose! {
         fn any_slot()(n in 0u64..=1000) -> Slot {

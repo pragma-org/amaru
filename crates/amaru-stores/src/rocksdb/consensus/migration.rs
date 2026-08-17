@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Point, cbor, size::HEADER, to_cbor};
+use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, NetworkTip, ORIGIN_HASH, Point, cbor, size::HEADER, to_cbor};
 use amaru_ouroboros_traits::{BaseReadChainStore, DiagnosticChainStore, StoreError};
 use rocksdb::{DB, IteratorMode, PrefixRange, ReadOptions};
 use tracing::info;
@@ -40,7 +40,7 @@ pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
 // NOTE: Migrations write the on-disk format of their target version
 //
 // Current `WriteChainStore` methods encode today's schema (for example a
-// CBOR `Point` under `BEST_CHAIN_PREFIX`). Each step must therefore issue
+// CBOR `NetworkTip` under `BEST_CHAIN_PREFIX`). Each step must therefore issue
 // the RocksDB puts that were correct for the version it produces, not call
 // the high-level store API of the running binary.
 static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
@@ -162,7 +162,7 @@ Then start the node with `amaru node run --network=<NETWORK>`."
 }
 
 /// Rewrite best-chain tip, anchor, and per-slot chain entries from a 32-byte header hash
-/// to the CBOR `Point` form (`[network_point, block_height]`).
+/// to the CBOR `NetworkTip` form (`[network_point, block_height]`).
 pub(crate) fn migrate_to_v6(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     rewrite_singleton_point(store, &BEST_CHAIN_PREFIX)?;
     rewrite_singleton_point(store, &ANCHOR_PREFIX)?;
@@ -175,7 +175,10 @@ fn rewrite_singleton_point(store: &RocksDBStore<DB>, key: &[u8]) -> Result<(), S
         return Ok(());
     };
     if let Some(point) = point_from_legacy_hash(store, &bytes)? {
-        store.db.put(key, to_cbor(&point)).map_err(|e| StoreError::WriteError { error: e.to_string() })?;
+        store
+            .db
+            .put(key, to_cbor(&NetworkTip::from(point)))
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })?;
     }
     Ok(())
 }
@@ -187,7 +190,7 @@ fn rewrite_chain_prefix_points(store: &RocksDBStore<DB>) -> Result<(), StoreErro
     for item in store.db.iterator_opt(IteratorMode::Start, opts) {
         let (key, value) = item.map_err(|e| StoreError::ReadError { error: e.to_string() })?;
         if let Some(point) = point_from_legacy_hash(store, &value)? {
-            updates.push((key, to_cbor(&point)));
+            updates.push((key, to_cbor(&NetworkTip::from(point))));
         }
     }
     store.with_batch(|batch| {
@@ -199,7 +202,7 @@ fn rewrite_chain_prefix_points(store: &RocksDBStore<DB>) -> Result<(), StoreErro
 }
 
 /// Convert a 32-byte header-hash encoding to a `Point`. Returns `Ok(None)` when `bytes` is
-/// already a Point (or any other non-hash value left for the reader to reject).
+/// already a NetworkTip (or any other non-hash value left for the reader to reject).
 fn point_from_legacy_hash(store: &RocksDBStore<DB>, bytes: &[u8]) -> Result<Option<Point>, StoreError> {
     if bytes.len() != HEADER {
         return Ok(None);

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, ORIGIN_HASH, Point, RawBlock, from_cbor, to_cbor};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkTip, ORIGIN_HASH, Point, RawBlock, from_cbor, to_cbor};
 use amaru_observability::debug_span;
 use amaru_ouroboros_traits::{Nonces, OpcertSequenceNumbers, StoreError, WriteChainStore};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions, WriteBatch};
@@ -46,11 +46,15 @@ impl WriteChainStore for RocksDBStore {
     }
 
     fn set_anchor_point(&self, point: &Point) -> Result<(), StoreError> {
-        self.db.put(ANCHOR_PREFIX, to_cbor(point)).map_err(|e| StoreError::WriteError { error: e.to_string() })
+        self.db
+            .put(ANCHOR_PREFIX, to_cbor(&NetworkTip::from(point)))
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     fn set_best_chain_tip(&self, tip: &Point) -> Result<(), StoreError> {
-        self.db.put(BEST_CHAIN_PREFIX, to_cbor(tip)).map_err(|e| StoreError::WriteError { error: e.to_string() })
+        self.db
+            .put(BEST_CHAIN_PREFIX, to_cbor(&NetworkTip::from(tip)))
+            .map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError> {
@@ -105,7 +109,7 @@ impl WriteChainStore for RocksDBStore {
         let existing = self.db.get_pinned(&fork_key).map_err(|e| StoreError::ReadError { error: e.to_string() })?;
         let matches = existing
             .as_ref()
-            .and_then(|bytes| from_cbor::<Point>(bytes.as_ref()))
+            .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
             .is_some_and(|stored| stored.hash() == fork_point.hash());
         if !matches {
             return Err(StoreError::ReadError {
@@ -135,10 +139,10 @@ impl WriteChainStore for RocksDBStore {
 
             for point in forward_points.iter() {
                 let slot = u64::from(point.slot_or_default()).to_be_bytes();
-                batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), to_cbor(point));
+                batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), to_cbor(&NetworkTip::from(point)));
             }
 
-            batch.put(BEST_CHAIN_PREFIX, to_cbor(forward_points.last().unwrap_or(fork_point)));
+            batch.put(BEST_CHAIN_PREFIX, to_cbor(&NetworkTip::from(forward_points.last().unwrap_or(fork_point))));
 
             Ok(())
         })
@@ -151,8 +155,8 @@ impl WriteChainStore for RocksDBStore {
 
         self.with_batch(|batch| {
             let slot = u64::from(point.slot_or_default()).to_be_bytes();
-            batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), to_cbor(point));
-            batch.put(BEST_CHAIN_PREFIX, to_cbor(point));
+            batch.put([&CHAIN_PREFIX[..], &slot[..]].concat(), to_cbor(&NetworkTip::from(point)));
+            batch.put(BEST_CHAIN_PREFIX, to_cbor(&NetworkTip::from(point)));
             Ok(())
         })
     }
