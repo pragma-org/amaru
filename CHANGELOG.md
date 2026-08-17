@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## v10.11.20260820 _[unreleased; planned for 2026-08-20]_
 
+### Added
+
+- **amaru-pure-stage**: opt-in typestate layer over `Effects`. A protocol state exposes a receive constructor that consumes a receive allowance (by input variant, not the stage mailbox type) and returns the remaining legal effects. The next state comes only from `Session::finish` (into a live enum); `Send<Role, T>` names a destination whose mailbox implements `From<T>`.
+
 ### Fixed
 
 - **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.

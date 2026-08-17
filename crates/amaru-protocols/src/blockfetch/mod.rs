@@ -15,6 +15,7 @@
 mod initiator;
 pub(crate) mod messages;
 mod responder;
+pub mod typestate;
 
 use amaru_kernel::{NetworkPoint, Peer};
 use amaru_ouroboros::ConnectionId;

@@ -33,6 +33,7 @@ pub mod trace_match;
 mod types;
 
 pub mod simulation;
+pub mod typestate;
 
 pub use effect::{
     Effect, Effects, ExternalEffect, ExternalEffectAPI, ScheduleIds, StageResponse, UnknownExternalEffect,
