@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{StakeCredential, Voter};
+use amaru_kernel::{BallotId, ProposalId, StakeCredential, Voter, cbor};
 pub use amaru_ledger::store::{
     StoreError,
     columns::votes::{Key, Row, Value},
@@ -24,7 +24,7 @@ use rocksdb::Transaction;
 
 use crate::rocksdb::{
     common::{PREFIX_LEN, as_key, as_value},
-    iter,
+    from_store, iter_raw, prefix_successor,
 };
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "vote"
@@ -59,14 +59,38 @@ pub fn add<DB>(
     })
 }
 
-pub fn prune<DB>(db: &Transaction<'_, DB>, should_prune: impl Fn(&Key) -> bool) -> Result<(), StoreError> {
-    trace_span!(stores::ledger::votes::PRUNE).in_scope(|| {
-        for (ballot_id, _) in iter::<Key, Value, _, _>(|mode, opts| db.iterator_opt(mode, opts), PREFIX)? {
-            if should_prune(&ballot_id) {
-                db.delete(as_key(&PREFIX, &ballot_id)).map_err(|err| StoreError::Internal(err.into()))?;
-            }
-        }
+#[expect(clippy::expect_used)]
+pub fn iter_by_proposal<DB>(
+    db: &Transaction<'_, DB>,
+    proposal: &ProposalId,
+) -> Result<impl Iterator<Item = Key>, StoreError> {
+    let mut prefix = Vec::new();
+    prefix.extend_from_slice(&PREFIX);
+    BallotId::encode_prefix(proposal, &mut cbor::encode::Encoder::new(&mut prefix))
+        .unwrap_or_else(|_| unreachable!("encoding to a mutable Vec cannot fail"));
 
-        Ok(())
-    })
+    let lo = prefix.clone();
+    let hi = prefix_successor(&prefix[..]).expect("successor always exists here");
+
+    iter_raw(
+        |mode, mut opts| {
+            // NOTE: RocksDB iterator and prefixes
+            //
+            // We configure a prefix size of PREFIX_LEN at start; which means that unless we provide
+            // an explicit range here; RocksDB will match only based on the first PREFIX_LEN bytes
+            // of our prefix and as a consequence, will yield entry we precisely don't want to
+            // match!
+            //
+            // By setting an explicit prefix range, we avoid this headache.
+            opts.set_iterate_range(lo..hi);
+            db.iterator_opt(mode, opts)
+        },
+        prefix,
+        |key, _| from_store(&key[PREFIX_LEN..]),
+    )
+}
+
+pub fn remove<DB>(db: &Transaction<'_, DB>, key: Key) -> Result<(), StoreError> {
+    trace_span!(stores::ledger::votes::REMOVE)
+        .in_scope(|| db.delete(as_key(&PREFIX, &key)).map_err(|err| StoreError::Internal(err.into())))
 }

@@ -221,6 +221,17 @@ impl RocksDB {
             .map_err(|err| map_rocksdb_open_error(&live_dir, err))
     }
 
+    /// Remove all entries from the store; mostly useful for testing.
+    pub fn clear(&self) -> Result<(), StoreError> {
+        self.with_transaction(|ctx| {
+            for (key, _) in self.db.iterator(rocksdb::IteratorMode::Start).flatten() {
+                ctx.db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
+            }
+
+            Ok(())
+        })
+    }
+
     /// Use `chain_store` to recover the block height of the ledger `@tip` [`NetworkPoint`].
     pub fn set_chain_store(&self, chain_store: Arc<dyn BaseReadChainStore>) {
         *self.chain_store.lock() = Some(chain_store);
@@ -495,9 +506,10 @@ macro_rules! impl_ReadStore_body {
             }
 
             fn iter_stake_distribution(&self) -> Result<impl Iterator<Item = StakeEntry>, StoreError> {
-                iter_value::<scolumns::utxo::Key, StakeEntry, _, _>(
+                iter_raw::<_, _, StakeEntry>(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     utxo::PREFIX,
+                    |_, value| from_store(value),
                 )
             }
 
@@ -986,80 +998,63 @@ where
         .map_err(StoreError::Undecodable)
 }
 
+fn new_raw_iterator<'db, DB, F>(db_iter_opt: F, prefix: &[u8]) -> rocksdb::DBRawIteratorWithThreadMode<'db, DB>
+where
+    DB: DBAccess,
+    F: FnOnce(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'db, DB>,
+{
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    (db_iter_opt)(IteratorMode::From(prefix, Direction::Forward), opts).into()
+}
+
 #[expect(clippy::panic)]
+fn from_store<T>(bytes: &[u8]) -> T
+where
+    T: for<'d> cbor::Decode<'d, ()>,
+{
+    cbor::decode(bytes).unwrap_or_else(|e| {
+        panic!("unable to decode {} as <{}>: {e:?}", hex::encode(bytes), std::any::type_name::<T>(),)
+    })
+}
+
 pub fn iter<'a, 'b, K, V, DB, F>(
     db_iter_opt: F,
     prefix: [u8; PREFIX_LEN],
 ) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
 where
     DB: 'a + 'b + DBAccess,
-    F: Fn(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
+    F: FnOnce(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
     'b: 'a,
     K: for<'d> cbor::Decode<'d, ()> + 'a,
     V: for<'d> cbor::Decode<'d, ()> + 'a,
 {
-    let mut opts = ReadOptions::default();
-    opts.set_prefix_same_as_start(true);
-    let mut it: rocksdb::DBRawIteratorWithThreadMode<'_, _> =
-        (db_iter_opt)(IteratorMode::From(prefix.as_ref(), Direction::Forward), opts).into();
-    Ok(std::iter::from_fn(move || {
-        if let Some((key, value)) = it.item() {
-            let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
-                panic!(
-                    "unable to decode key {}::<{}> for type {}: {e:?}",
-                    hex::encode(key),
-                    std::any::type_name::<K>(),
-                    std::any::type_name::<V>()
-                )
-            });
-            let v = cbor::decode(value).unwrap_or_else(|e| {
-                panic!(
-                    "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
-                    hex::encode(value),
-                    std::any::type_name::<V>(),
-                    hex::encode(key),
-                    std::any::type_name::<K>(),
-                )
-            });
-            it.next();
-            Some((k, v))
-        } else {
-            None
-        }
-    }))
+    iter_raw(db_iter_opt, prefix, |key, value| {
+        let k = from_store::<K>(&key[PREFIX_LEN..]);
+        let v = from_store::<V>(value);
+        (k, v)
+    })
 }
 
-#[expect(clippy::panic)]
-pub fn iter_value<'a, 'b, K, V, DB, F>(
+#[inline]
+pub fn iter_raw<'db, DB, F, T>(
     db_iter_opt: F,
-    prefix: [u8; PREFIX_LEN],
-) -> Result<impl Iterator<Item = V> + 'a, StoreError>
+    prefix: impl AsRef<[u8]>,
+    to_item: impl Fn(&[u8], &[u8]) -> T,
+) -> Result<impl Iterator<Item = T>, StoreError>
 where
-    DB: 'a + 'b + DBAccess,
-    F: Fn(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
-    'b: 'a,
-    V: for<'d> cbor::Decode<'d, ()> + 'a,
+    DB: DBAccess + 'db,
+    F: FnOnce(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'db, DB>,
 {
-    let mut opts = ReadOptions::default();
-    opts.set_prefix_same_as_start(true);
-    let mut it: rocksdb::DBRawIteratorWithThreadMode<'_, _> =
-        (db_iter_opt)(IteratorMode::From(prefix.as_ref(), Direction::Forward), opts).into();
+    let mut iterator = new_raw_iterator(db_iter_opt, prefix.as_ref());
     Ok(std::iter::from_fn(move || {
-        if let Some((key, value)) = it.item() {
-            let v = cbor::decode(value).unwrap_or_else(|e| {
-                panic!(
-                    "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
-                    hex::encode(value),
-                    std::any::type_name::<V>(),
-                    hex::encode(key),
-                    std::any::type_name::<K>(),
-                )
-            });
-            it.next();
-            Some(v)
-        } else {
-            None
+        if let Some((key, value)) = iterator.item() {
+            let item = to_item(key, value);
+            iterator.next();
+            return Some(item);
         }
+
+        None
     }))
 }
 
@@ -1108,6 +1103,21 @@ fn with_prefix_iterator<
         );
         Ok(())
     })
+}
+
+/// Look for the successor of a prefix, to construct upper-bound of seek ranges. Returns `None` if
+/// the prefix is already all `0xff`.
+pub fn prefix_successor(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut next = prefix.to_vec();
+
+    while let Some(byte) = next.pop() {
+        if byte != 0xff {
+            next.push(byte + 1);
+            return Some(next);
+        }
+    }
+
+    None
 }
 
 // Tests

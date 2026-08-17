@@ -4639,13 +4639,13 @@
       "description": "Record governance votes",
       "public": true
     },
-    "amaru::stores::ledger::votes::PRUNE": {
+    "amaru::stores::ledger::votes::REMOVE": {
       "type": "object",
       "properties": {},
       "required": [],
       "optional": [],
       "additionalProperties": false,
-      "name": "prune",
+      "name": "remove",
       "level": "TRACE",
       "target": "amaru::stores::ledger::votes",
       "description": "Remove now-obsolete governance votes",
