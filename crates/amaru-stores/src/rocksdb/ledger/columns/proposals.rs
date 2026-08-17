@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 pub use amaru_ledger::store::{
-    StoreError,
+    StoreError, TransactionalContext,
     columns::{
         proposals::{Key, Row, Value},
         unsafe_decode,
@@ -24,7 +24,10 @@ pub use amaru_ledger::store::{
 use amaru_observability::trace_span;
 use rocksdb::{DBPinnableSlice, Transaction};
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use crate::rocksdb::{
+    common::{PREFIX_LEN, as_key, as_value},
+    votes,
+};
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "prop"
 pub const PREFIX: [u8; PREFIX_LEN] = *b"prop";
@@ -55,9 +58,11 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
     })
 }
 
-/// Remove an expired or enacted proposal.
+/// Remove an expired or enacted proposal and the votes that pertains to it.
 pub fn remove<DB, V>(db: &Transaction<'_, DB>, proposals: &BTreeMap<Key, V>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::proposals::REMOVE).in_scope(|| {
+        votes::prune(db, |ballot_id| proposals.contains_key(&ballot_id.proposal))?;
+
         for key in proposals.keys() {
             db.delete(as_key(&PREFIX, key)).map_err(|err| StoreError::Internal(err.into()))?;
         }
