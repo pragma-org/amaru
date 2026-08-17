@@ -176,10 +176,18 @@ macro_rules! define_mailbox {
 ///
 /// ```ignore
 /// on_receive!(Idle as IdleIn {
-///     RequestRange => { Send<ToPeer, StartBatch> => Streaming }
+///     RequestRange => {
+///         Send<ToPeer, StartBatch> => Streaming
+///         | Send<ToPeer, NoBlocks> => Idle
+///         | Repeat<SendAny<ToSelf>>
+///     }
 ///     ClientDone => { Done }
 /// });
 /// ```
+///
+/// `|` *before* `=> State` is parallel composition: every branch must be
+/// discharged, then the single next state is taken. `|` *between*
+/// `=> State` groups is choice of next state.
 ///
 /// Single-input form only implements [`OnReceive`](crate::typestate::OnReceive)
 /// (used for type-level descriptions).
@@ -247,30 +255,67 @@ macro_rules! typestate_extract {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! typestate_par {
-    ($($eff:ty),+ => $s:ty | $($rest:tt)*) => {
+    ($s:ident) => {
         $crate::typestate::Cons<
-            $crate::typestate_seq!($($eff),+ => $s),
+            $crate::typestate::Then<$crate::typestate::Nil, $s>,
+            $crate::typestate::Nil
+        >
+    };
+    ($($rest:tt)*) => {
+        $crate::typestate_choice!(@go [] [] $($rest)*)
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_choice {
+    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty, $($rest:tt)*) => {
+        $crate::typestate_choice!(@go [ $($seqs)* ] [ $($cur,)* $ty ] $($rest)*)
+    };
+    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty | $($rest:tt)*) => {
+        $crate::typestate_choice!(@go [ $($seqs)* [ $($cur,)* $ty ] ] [] $($rest)*)
+    };
+    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty => $s:ident | $($rest:tt)*) => {
+        $crate::typestate::Cons<
+            $crate::typestate::Then<
+                $crate::typestate_branches!([ $($seqs)* [ $($cur,)* $ty ] ]),
+                $s
+            >,
             $crate::typestate_par!($($rest)*)
         >
     };
-    ($s:ty | $($rest:tt)*) => {
-        $crate::typestate::Cons<$crate::typestate::To<$s>, $crate::typestate_par!($($rest)*)>
+    (@go [ $($seqs:tt)* ] [ $($cur:ty),* ] $ty:ty => $s:ident) => {
+        $crate::typestate::Cons<
+            $crate::typestate::Then<
+                $crate::typestate_branches!([ $($seqs)* [ $($cur,)* $ty ] ]),
+                $s
+            >,
+            $crate::typestate::Nil
+        >
     };
-    ($($eff:ty),+ => $s:ty) => {
-        $crate::typestate::Cons<$crate::typestate_seq!($($eff),+ => $s), $crate::typestate::Nil>
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_branches {
+    ([]) => {
+        $crate::typestate::Nil
     };
-    ($s:ty) => {
-        $crate::typestate::Cons<$crate::typestate::To<$s>, $crate::typestate::Nil>
+    ([ [ $($ty:ty),+ ] $($rest:tt)* ]) => {
+        $crate::typestate::Cons<
+            $crate::typestate_seq!($($ty),+),
+            $crate::typestate_branches!([ $($rest)* ])
+        >
     };
 }
 
 #[macro_export]
 #[doc(hidden)]
 macro_rules! typestate_seq {
-    ($e:ty => $s:ty) => {
-        $crate::typestate::Cons<$e, $crate::typestate::To<$s>>
+    ($e:ty) => {
+        $crate::typestate::Cons<$e, $crate::typestate::Nil>
     };
-    ($e:ty, $($rest:ty),+ => $s:ty) => {
-        $crate::typestate::Cons<$e, $crate::typestate_seq!($($rest),+ => $s)>
+    ($e:ty, $($rest:ty),+) => {
+        $crate::typestate::Cons<$e, $crate::typestate_seq!($($rest),+)>
     };
 }

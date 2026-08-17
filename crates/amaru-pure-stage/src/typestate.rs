@@ -24,11 +24,12 @@
 //! case by hand. [`State::convert_input`] turns the mailbox message into that
 //! state's input enum (`Ok`) or returns it unmatched (`Err`).
 //!
-//! [`Send<Tag, T>`](Send) names a destination [role tag](RoleTag). The value
-//! passed to [`Session::send`] is a [`Role`] wrapper around a
-//! [`StageRef`](crate::StageRef) claiming that tag; sending `T` requires
-//! `Mailbox: From<T>`. Receive needs no role: a stage has a single mailbox of
-//! uniquely named cases.
+//! [`Send<Tag, T>`](Send) names a destination [role tag](RoleTag).
+//! [`SendAny<Tag>`](SendAny) allows any mailbox payload to that role;
+//! [`Repeat<E>`](Repeat) is a Kleene star. `|` *before* `=> State` is parallel
+//! composition (every branch must complete; `finish` strips leading `Repeat`
+//! and requires no branch left). `|` *between* `=> State` groups is choice of
+//! next state.
 //!
 //! Existing stages keep using [`Effects`](crate::Effects) unchanged.
 
@@ -39,9 +40,9 @@ mod role;
 mod session;
 
 pub use effect::{
-    AddStage, Call, CancelSchedule, Clock, Effect, External, Receive, Repeat, Schedule, Send, Terminate, Wait,
+    AddStage, Call, CancelSchedule, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny, Terminate, Wait,
 };
-pub use list::{Clean, Cons, FmtPar, Here, Nil, Select, There};
+pub use list::{CanFinish, Clean, Cons, FmtPar, Here, Nil, Select, Then, There};
 pub use role::{Role, RoleTag};
 pub use session::{
     ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, describe_receive,
@@ -51,7 +52,7 @@ pub use session::{
 pub mod prelude {
     pub use super::{
         AddStage, Call, CancelSchedule, Clock, Cons, External, ExtractInput, FromMailbox, Nil, OnReceive, Receive,
-        Repeat, Role, RoleTag, Schedule, Send, Session, State, Terminate, To, Wait, initial_state,
+        Repeat, Role, RoleTag, Schedule, Send, SendAny, Session, State, Terminate, To, Wait, initial_state,
     };
     pub use crate::{define_mailbox, define_role, define_role_tag, make_states, on_receive};
 }

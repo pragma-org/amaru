@@ -31,6 +31,25 @@ impl<R, T> Effect for Send<R, T> {
     }
 }
 
+/// Send any mailbox-typed message to role `R`.
+pub struct SendAny<R>(PhantomData<R>);
+impl<R> Effect for SendAny<R> {
+    fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SendAny<{}>", type_name::<R>())
+    }
+}
+
+/// Kleene star: zero or more uses of `E`. Does not block [`Session::finish`](super::Session::finish)
+/// unless a required effect is sequenced after it.
+pub struct Repeat<E>(PhantomData<E>);
+impl<E: Effect> Effect for Repeat<E> {
+    fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Repeat<")?;
+        E::fmt(f)?;
+        write!(f, ">")
+    }
+}
+
 /// Receive a value of type `T`. Never appears in a [`Session`](super::Session)
 /// remainder: it is consumed by [`State::receive`](super::State::receive).
 pub struct Receive<T>(PhantomData<T>);
@@ -93,16 +112,5 @@ pub struct AddStage;
 impl Effect for AddStage {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "AddStage")
-    }
-}
-
-/// A bounded repetition. Not yet consumed by [`Session`](super::Session); reserved
-/// for pipelined traces that repeat a prefix.
-pub struct Repeat<E: Effect, const MIN: usize, const MAX: usize>(PhantomData<E>);
-impl<E: Effect, const MIN: usize, const MAX: usize> Effect for Repeat<E, MIN, MAX> {
-    fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Repeat<")?;
-        E::fmt(f)?;
-        write!(f, ", {MIN}, {MAX}>")
     }
 }

@@ -28,6 +28,8 @@ make_states!(pub Live { Idle; Busy, Streaming, Done });
 
 define_role_tag!(pub ToInitiator);
 define_role_tag!(pub ToResponder);
+define_role_tag!(pub ToCollector);
+define_role_tag!(pub ToSelf);
 
 /// Local request that starts an initiator fetch.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -112,25 +114,28 @@ impl From<BatchDone> for Message {
 // Initiator: local fetch / close, then network replies.
 on_receive!(Idle as ClientIdleIn {
     Fetch => { Send<ToResponder, RequestRange> => Busy }
-    Close => { Send<ToResponder, ClientDone> => Done }
+    Close => { Send<ToResponder, ClientDone> | Repeat<SendAny<ToCollector>> => Done }
 });
 on_receive!(Busy as ClientBusyIn {
     StartBatch => { Streaming }
-    NoBlocks => { Idle }
+    NoBlocks => { Repeat<SendAny<ToCollector>> => Idle }
 });
 on_receive!(Streaming as ClientStreamingIn {
-    Block => { Streaming }
-    BatchDone => { Idle }
+    Block => { Repeat<SendAny<ToCollector>> => Streaming }
+    BatchDone => { Repeat<SendAny<ToCollector>> => Idle }
 });
 
 // Responder: network requests, then local stream commands.
 on_receive!(Idle as ServerIdleIn {
-    RequestRange => { Send<ToInitiator, StartBatch> => Streaming | Send<ToInitiator, NoBlocks> => Idle }
+    RequestRange => {
+        Send<ToInitiator, StartBatch> | Repeat<SendAny<ToSelf>> => Streaming
+        | Send<ToInitiator, NoBlocks> => Idle
+    }
     ClientDone => { Done }
 });
 on_receive!(Busy as ServerBusyIn {});
 on_receive!(Streaming as ServerStreamingIn {
-    NextBlock => { Send<ToInitiator, Block> => Streaming }
+    NextBlock => { Send<ToInitiator, Block> | Repeat<SendAny<ToSelf>> => Streaming }
     EndBatch => { Send<ToInitiator, BatchDone> => Idle }
 });
 on_receive!(Done as DoneIn {});
@@ -139,7 +144,7 @@ on_receive!(Done as DoneIn {});
 mod tests {
     use amaru_kernel::NetworkPoint;
     use amaru_pure_stage::{
-        Effects, StageGraph, StageRef, define_mailbox, define_role,
+        Effects, StageGraph, define_mailbox, define_role,
         simulation::SimulationBuilder,
         typestate::{FmtPar, OnReceive, Session},
     };
@@ -158,14 +163,21 @@ mod tests {
         format!("Send<{}, {}>", std::any::type_name::<Tag>(), std::any::type_name::<T>())
     }
 
+    fn star_any<Tag>() -> String {
+        format!("Repeat<SendAny<{}>>", std::any::type_name::<Tag>())
+    }
+
     #[test]
     fn initiator_receive_allowances() {
         assert_eq!(remaining::<Idle, Fetch>(), format!("{} => Busy", send_desc::<ToResponder, RequestRange>()));
-        assert_eq!(remaining::<Idle, Close>(), format!("{} => Done", send_desc::<ToResponder, ClientDone>()));
+        assert_eq!(
+            remaining::<Idle, Close>(),
+            format!("{} | {} => Done", send_desc::<ToResponder, ClientDone>(), star_any::<ToCollector>())
+        );
         assert_eq!(remaining::<Busy, StartBatch>(), "=> Streaming");
-        assert_eq!(remaining::<Busy, NoBlocks>(), "=> Idle");
-        assert_eq!(remaining::<Streaming, Block>(), "=> Streaming");
-        assert_eq!(remaining::<Streaming, BatchDone>(), "=> Idle");
+        assert_eq!(remaining::<Busy, NoBlocks>(), format!("{} => Idle", star_any::<ToCollector>()));
+        assert_eq!(remaining::<Streaming, Block>(), format!("{} => Streaming", star_any::<ToCollector>()));
+        assert_eq!(remaining::<Streaming, BatchDone>(), format!("{} => Idle", star_any::<ToCollector>()));
     }
 
     #[test]
@@ -173,13 +185,17 @@ mod tests {
         assert_eq!(
             remaining::<Idle, RequestRange>(),
             format!(
-                "{} => Streaming | {} => Idle",
+                "{} | {} => Streaming | {} => Idle",
                 send_desc::<ToInitiator, StartBatch>(),
+                star_any::<ToSelf>(),
                 send_desc::<ToInitiator, NoBlocks>()
             )
         );
         assert_eq!(remaining::<Idle, ClientDone>(), "=> Done");
-        assert_eq!(remaining::<Streaming, NextBlock>(), format!("{} => Streaming", send_desc::<ToInitiator, Block>()));
+        assert_eq!(
+            remaining::<Streaming, NextBlock>(),
+            format!("{} | {} => Streaming", send_desc::<ToInitiator, Block>(), star_any::<ToSelf>())
+        );
         assert_eq!(remaining::<Streaming, EndBatch>(), format!("{} => Idle", send_desc::<ToInitiator, BatchDone>()));
     }
 
@@ -209,18 +225,21 @@ mod tests {
 
     define_role!(ToServer, ToResponder, ServerIn);
     define_role!(ToClient, ToInitiator, ClientIn);
+    define_role!(ToOut, ToCollector, Collected);
+    define_role!(ToMe, ToSelf, ServerIn);
 
     #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     struct Client {
         live: Live,
         peer: ToServer,
-        out: StageRef<Collected>,
+        out: ToOut,
     }
 
     #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
     struct Server {
         live: Live,
         peer: ToClient,
+        slf: ToMe,
         remaining: Vec<Vec<u8>>,
     }
 
@@ -233,7 +252,7 @@ mod tests {
                 }
                 Ok(ClientIdleIn::Close(close)) => {
                     let s = idle.receive(close, eff).send(&state.peer, ClientDone).await;
-                    s.notify(&state.out, Collected::ClientDone).await;
+                    let s = s.send_any(&state.out, Collected::ClientDone).await;
                     Client { live: s.finish().into(), ..state }
                 }
                 Err(_msg) => Client { live: idle.into(), ..state },
@@ -243,21 +262,18 @@ mod tests {
                     Client { live: busy.receive(start, eff).finish().into(), ..state }
                 }
                 Ok(ClientBusyIn::NoBlocks(none)) => {
-                    let s = busy.receive(none, eff);
-                    s.notify(&state.out, Collected::NoBlocks).await;
+                    let s = busy.receive(none, eff).send_any(&state.out, Collected::NoBlocks).await;
                     Client { live: s.finish().into(), ..state }
                 }
                 Err(_msg) => Client { live: busy.into(), ..state },
             },
             Live::Streaming(st) => match st.convert_input(msg) {
                 Ok(ClientStreamingIn::Block(block)) => {
-                    let s = st.receive(block.clone(), eff);
-                    s.notify(&state.out, Collected::Block(block.body)).await;
+                    let s = st.receive(block.clone(), eff).send_any(&state.out, Collected::Block(block.body)).await;
                     Client { live: s.finish().into(), ..state }
                 }
                 Ok(ClientStreamingIn::BatchDone(done)) => {
-                    let s = st.receive(done, eff);
-                    s.notify(&state.out, Collected::BatchDone).await;
+                    let s = st.receive(done, eff).send_any(&state.out, Collected::BatchDone).await;
                     Client { live: s.finish().into(), ..state }
                 }
                 Err(_msg) => Client { live: st.into(), ..state },
@@ -279,13 +295,11 @@ mod tests {
                     } else {
                         let first = NextBlock { body: state.remaining.remove(0) };
                         let s = s.send(&state.peer, StartBatch).await;
-                        s.notify(&s.me(), first.into()).await;
+                        let s = s.send_any(&state.slf, first).await;
                         Server { live: s.finish().into(), ..state }
                     }
                 }
-                Ok(ServerIdleIn::ClientDone(done)) => {
-                    Server { live: idle.receive(done, eff).finish().into(), ..state }
-                }
+                Ok(ServerIdleIn::ClientDone(done)) => Server { live: idle.receive(done, eff).finish().into(), ..state },
                 Err(_msg) => Server { live: idle.into(), ..state },
             },
             Live::Busy(busy) => match busy.convert_input::<ServerBusyIn, _>(msg) {
@@ -295,12 +309,12 @@ mod tests {
             Live::Streaming(st) => match st.convert_input(msg) {
                 Ok(ServerStreamingIn::NextBlock(next)) => {
                     let s = st.receive(next.clone(), eff).send(&state.peer, Block { body: next.body }).await;
-                    if state.remaining.is_empty() {
-                        s.notify(&s.me(), EndBatch.into()).await;
+                    let s = if state.remaining.is_empty() {
+                        s.send_any(&state.slf, EndBatch).await
                     } else {
                         let body = state.remaining.remove(0);
-                        s.notify(&s.me(), NextBlock { body }.into()).await;
-                    }
+                        s.send_any(&state.slf, NextBlock { body }).await
+                    };
                     Server { live: s.finish().into(), ..state }
                 }
                 Ok(ServerStreamingIn::EndBatch(end)) => {
@@ -330,11 +344,20 @@ mod tests {
         let out = network.wire_up(out, Vec::new());
         let client = network.wire_up(
             client_b,
-            Client { live: initial_state::<Idle>().into(), peer: ToServer::new(server_ref), out: (*out).clone() },
+            Client {
+                live: initial_state::<Idle>().into(),
+                peer: ToServer::new(server_ref.clone()),
+                out: ToOut::new((*out).clone()),
+            },
         );
         let server = network.wire_up(
             server_b,
-            Server { live: initial_state::<Idle>().into(), peer: ToClient::new(client_ref), remaining: server_blocks },
+            Server {
+                live: initial_state::<Idle>().into(),
+                peer: ToClient::new(client_ref),
+                slf: ToMe::new(server_ref),
+                remaining: server_blocks,
+            },
         );
 
         network.preload(&client, client_msgs).unwrap();

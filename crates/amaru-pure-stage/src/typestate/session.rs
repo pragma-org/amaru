@@ -16,8 +16,8 @@ use std::{fmt, future::Future, marker::PhantomData, time::Duration};
 
 use super::{
     Clean, FmtPar, Role, RoleTag, Select,
-    effect::{Send as SendEff, Terminate, Wait},
-    list,
+    effect::{Send as SendEff, SendAny, Terminate, Wait},
+    list::{self, CanFinish},
 };
 use crate::{Effects, ExternalEffectAPI, Instant, SendData, StageRef};
 
@@ -133,9 +133,9 @@ pub struct To<S: State>(PhantomData<S>);
 
 /// `Effects` plus the type-level remainder of a receive.
 ///
-/// Protocol [`send`](Self::send), [`wait`](Self::wait), and
-/// [`terminate`](Self::terminate) consume from `Rem`. Local decision helpers
-/// (`clock`, `external`, `notify`) do not.
+/// Protocol [`send`](Self::send), [`send_any`](Self::send_any), [`wait`](Self::wait),
+/// and [`terminate`](Self::terminate) consume from `Rem`. Local helpers
+/// (`clock`, `external`) do not.
 pub struct Session<M, Rem> {
     effects: Effects<M>,
     _rem: PhantomData<fn() -> Rem>,
@@ -175,12 +175,6 @@ impl<M, Rem> Session<M, Rem> {
         self.effects.external(effect)
     }
 
-    /// Send a message that is *not* part of the protocol remainder (local
-    /// plumbing, metrics, self-replies).
-    pub fn notify<T: SendData>(&self, target: &StageRef<T>, msg: T) -> crate::BoxFuture<'static, ()> {
-        self.effects.send(target, msg)
-    }
-
     /// Protocol send. Consumes a [`Send<Tag, T>`] allowance.
     ///
     /// `target` wraps a [`StageRef`] claiming `Tag`; its mailbox must implement [`From<T>`].
@@ -195,6 +189,56 @@ impl<M, Rem> Session<M, Rem> {
     ///     let _ = s.receive(1u8, eff).send(target, 0u32).await;
     /// }
     /// ```
+    ///
+    /// After choosing one alternative, the other sequence is gone:
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// make_states!(Live { Idle; StateA, StateC });
+    /// define_role_tag!(RoleA);
+    /// define_role_tag!(RoleB);
+    /// define_role_tag!(RoleC);
+    /// define_role_tag!(RoleD);
+    /// define_role!(DestA, RoleA, u8);
+    /// define_role!(DestB, RoleB, u8);
+    /// define_role!(DestC, RoleC, u8);
+    /// define_role!(DestD, RoleD, u8);
+    /// on_receive!(Idle, Go => Send<RoleA, u8>, Send<RoleB, u8> => StateA | Send<RoleC, u8>, Send<RoleD, u8> => StateC);
+    /// struct Go;
+    /// async fn after_a_cannot_send_d<M>(
+    ///     s: Idle,
+    ///     a: &DestA,
+    ///     d: &DestD,
+    ///     eff: amaru_pure_stage::Effects<M>,
+    /// ) {
+    ///     let s = s.receive(Go, eff).send(a, 1u8).await;
+    ///     let _ = s.send(d, 1u8).await;
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// make_states!(Live { Idle; StateA, StateC });
+    /// define_role_tag!(RoleA);
+    /// define_role_tag!(RoleB);
+    /// define_role_tag!(RoleC);
+    /// define_role_tag!(RoleD);
+    /// define_role!(DestA, RoleA, u8);
+    /// define_role!(DestB, RoleB, u8);
+    /// define_role!(DestC, RoleC, u8);
+    /// define_role!(DestD, RoleD, u8);
+    /// on_receive!(Idle, Go => Send<RoleA, u8>, Send<RoleB, u8> => StateA | Send<RoleC, u8>, Send<RoleD, u8> => StateC);
+    /// struct Go;
+    /// async fn after_c_cannot_send_b<M>(
+    ///     s: Idle,
+    ///     c: &DestC,
+    ///     b: &DestB,
+    ///     eff: amaru_pure_stage::Effects<M>,
+    /// ) {
+    ///     let s = s.receive(Go, eff).send(c, 1u8).await;
+    ///     let _ = s.send(b, 1u8).await;
+    /// }
+    /// ```
     pub fn send<Tag, T, Dest, I>(
         self,
         target: &Dest,
@@ -205,6 +249,29 @@ impl<M, Rem> Session<M, Rem> {
         Dest: Role<Tag>,
         Dest::Mailbox: From<T>,
         Rem: Select<SendEff<Tag, T>, I>,
+        Rem::Rest: Clean,
+        M: Send,
+    {
+        let send = self.effects.send(target.mailbox(), Dest::Mailbox::from(msg));
+        async move {
+            send.await;
+            Session::new(self.effects)
+        }
+    }
+
+    /// Send any mailbox message to `target`. Consumes a [`SendAny<Tag>`]
+    /// permission, or uses a [`Repeat<SendAny<Tag>>`](super::Repeat) without
+    /// removing it.
+    pub fn send_any<Tag, T, Dest, I>(
+        self,
+        target: &Dest,
+        msg: T,
+    ) -> impl Future<Output = Session<M, After<Rem, SendAny<Tag>, I>>> + Send
+    where
+        Tag: RoleTag,
+        Dest: Role<Tag>,
+        Dest::Mailbox: From<T>,
+        Rem: Select<SendAny<Tag>, I>,
         Rem::Rest: Clean,
         M: Send,
     {
@@ -249,9 +316,22 @@ impl<M, Rem> Session<M, Rem> {
     ///     s.receive(1u8, eff).finish()
     /// }
     /// ```
+    ///
+    /// A leading [`Repeat`](super::Repeat) does not block finish; a required
+    /// effect sequenced after it still does:
+    ///
+    /// ```compile_fail
+    /// use amaru_pure_stage::typestate::prelude::*;
+    /// make_states!(Live { Idle; Done });
+    /// define_role_tag!(ToPeer);
+    /// on_receive!(Idle, u8 => Repeat<SendAny<ToPeer>>, Send<ToPeer, String> => Done);
+    /// fn bad<M>(s: Idle, eff: amaru_pure_stage::Effects<M>) -> Done {
+    ///     s.receive(1u8, eff).finish()
+    /// }
+    /// ```
     pub fn finish<S: State, I>(self) -> S
     where
-        Rem: Select<To<S>, I>,
+        Rem: CanFinish<S, I>,
     {
         let _ = self;
         S::make(Marker(Private))

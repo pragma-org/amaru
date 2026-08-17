@@ -16,9 +16,9 @@
 //! `tests/typestate.rs`.
 
 use super::{
-    Cons, Here, Nil, OnReceive, Select, There, To,
-    effect::Send,
-    list::{Clean, describe},
+    Cons, Here, Nil, OnReceive, Select, Then, There,
+    effect::{Repeat, Send, SendAny},
+    list::{CanFinish, Clean, describe},
     session::describe_receive,
 };
 
@@ -80,23 +80,16 @@ fn receive_constructor_selects_by_input_variant() {
 
 #[test]
 fn select_picks_first_matching_head() {
-    type Rem = Cons<Cons<Send<toy::Peer, u8>, To<toy::Idle>>, Cons<Cons<Send<toy::Peer, String>, To<toy::Done>>, Nil>>;
+    type Left = Then<Cons<Cons<Send<toy::Peer, u8>, Nil>, Nil>, toy::Idle>;
+    type Rem = Cons<Left, Cons<Then<Cons<Cons<Send<toy::Peer, String>, Nil>, Nil>, toy::Done>, Nil>>;
 
-    assert_types_eq::<
-        <Rem as Select<Send<toy::Peer, u8>, Here>>::Rest,
-        Cons<To<toy::Idle>, Cons<Cons<Send<toy::Peer, String>, To<toy::Done>>, Nil>>,
-    >();
-
-    assert_types_eq::<
-        <Rem as Select<Send<toy::Peer, String>, There<Here>>>::Rest,
-        Cons<Cons<Send<toy::Peer, u8>, To<toy::Idle>>, Cons<To<toy::Done>, Nil>>,
-    >();
+    assert_types_eq::<<Rem as Select<Send<toy::Peer, u8>, super::list::Left<Here>>>::Rest, Cons<Then<Nil, toy::Idle>, Nil>>();
 }
 
 #[test]
 fn clean_drops_exhausted_sequences() {
-    type Dirty = Cons<Nil, Cons<To<toy::Done>, Nil>>;
-    assert_types_eq::<<Dirty as Clean>::Out, Cons<To<toy::Done>, Nil>>();
+    type Dirty = Cons<Nil, Cons<Then<Nil, toy::Done>, Nil>>;
+    assert_types_eq::<<Dirty as Clean>::Out, Cons<Then<Nil, toy::Done>, Nil>>();
 }
 
 #[test]
@@ -110,6 +103,93 @@ fn describe_remainder() {
             std::any::type_name::<toy::Peer>()
         )
     );
+}
+
+#[test]
+fn unused_star_does_not_block_finish() {
+    type Rem = Cons<Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>, toy::Idle>, Nil>;
+    fn assert_finish<R: CanFinish<toy::Idle, Here>>() {}
+    assert_finish::<Rem>();
+}
+
+#[test]
+fn star_then_required_send_does_not_finish() {
+    type Rem =
+        Cons<Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Cons<Send<toy::Peer, u8>, Nil>>, Nil>, toy::Idle>, Nil>;
+    fn assert_selects_send<R: Select<Send<toy::Peer, u8>, Here>>() {}
+    assert_selects_send::<Rem>();
+}
+
+#[test]
+fn using_star_keeps_the_star() {
+    type Inner = Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>, toy::Idle>;
+    type Rem = Cons<Inner, Nil>;
+    assert_types_eq::<<Rem as Select<SendAny<toy::Peer>, Here>>::Rest, Rem>();
+}
+
+#[test]
+fn parallel_star_is_usable_beside_a_required_send() {
+    type Rem = Cons<
+        Then<Cons<Cons<Send<toy::Peer, u8>, Nil>, Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>>, toy::Idle>,
+        Nil,
+    >;
+    fn assert_send<R: Select<Send<toy::Peer, u8>, Here>>() {}
+    fn assert_any<R: Select<SendAny<toy::Peer>, There<Here>>>() {}
+    assert_send::<Rem>();
+    assert_any::<Rem>();
+}
+
+/// `Send<A, A1>, Send<B, B1> => StateA | Send<C, C1>, Send<D, D1> => StateC`
+#[allow(dead_code)]
+mod exclusive_choice {
+    use super::*;
+    use crate::typestate::prelude::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct A1;
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct B1;
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct C1;
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct D1;
+
+    define_role_tag!(pub RoleA);
+    define_role_tag!(pub RoleB);
+    define_role_tag!(pub RoleC);
+    define_role_tag!(pub RoleD);
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Go;
+
+    make_states!(pub Live { Idle; StateA, StateC });
+    on_receive!(Idle as IdleIn {
+        Go => { Send<RoleA, A1>, Send<RoleB, B1> => StateA | Send<RoleC, C1>, Send<RoleD, D1> => StateC }
+    });
+
+    type Rem = <Idle as OnReceive<Go>>::Then;
+    type AfterA = <Rem as Select<Send<RoleA, A1>, crate::typestate::list::Left<Here>>>::Rest;
+    type AfterC = <Rem as Select<Send<RoleC, C1>, crate::typestate::list::Right<Here>>>::Rest;
+
+    #[test]
+    fn after_a_only_b_remains() {
+        fn assert_b<R: Select<Send<RoleB, B1>, Here>>() {}
+        assert_b::<AfterA>();
+        assert_eq!(
+            describe::<AfterA>(),
+            format!("Send<{}, {}> => StateA", std::any::type_name::<RoleB>(), std::any::type_name::<B1>())
+        );
+    }
+
+    #[test]
+    fn after_c_only_d_remains() {
+        fn assert_d<R: Select<Send<RoleD, D1>, Here>>() {}
+        assert_d::<AfterC>();
+        assert_eq!(
+            describe::<AfterC>(),
+            format!("Send<{}, {}> => StateC", std::any::type_name::<RoleD>(), std::any::type_name::<D1>())
+        );
+    }
 }
 
 #[test]
