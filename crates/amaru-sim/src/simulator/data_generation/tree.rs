@@ -119,7 +119,6 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl<H> Tree<H> {
     /// Return the depth of a `Tree`
     pub fn depth(&self) -> usize {
@@ -195,7 +194,6 @@ impl<H> Tree<H> {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
     /// Add a child to a specific parent in the tree
     pub fn add(&mut self, parent_hash: HeaderHash, new: &H) -> bool {
@@ -249,9 +247,9 @@ impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
 mod tests {
     use proptest::{prop_assert_eq, proptest};
 
-    use super::*;
-    use crate::headers_tree::data_generation::{
-        any_headers_tree, config_begin, generate_headers_chain, generate_headers_tree,
+    use super::{
+        super::{any_headers_tree, config_begin, generate_headers_chain, generate_headers_tree},
+        *,
     };
 
     proptest! {

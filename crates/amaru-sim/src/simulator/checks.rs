@@ -14,13 +14,12 @@
 
 use std::sync::Arc;
 
-use amaru_consensus::headers_tree::data_generation::GeneratedActions;
 use amaru_kernel::utils::string::{ListToString, ListsToString};
 use amaru_node::tests::nodes::Nodes;
 use amaru_ouroboros::DiagnosticChainStore;
 use anyhow::anyhow;
 
-use crate::simulator::test_result::TestResult;
+use crate::simulator::{data_generation::GeneratedActions, test_result::TestResult};
 
 /// Property: at the end of the simulation, the chain built from the history of messages received
 /// downstream must match one of the best chains built directly from messages coming from upstream peers.

@@ -15,13 +15,15 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Header, HeaderHash, Peer, RawBlock,
+    BlockHeight, EraHistory, Header, HeaderHash, Peer, Point, RawBlock,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
-use amaru_ouroboros_traits::{MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros_traits::{
+    BaseReadChainStore, MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_protocols::store_effects::{
     AncestorsBetweenEffect, FindMissingBlocksEffect, GetAnchorHashEffect, GetChildrenEffect, HasBlockEffect,
-    LoadHeaderEffect, LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, StoreBlockEffect,
+    LoadHeaderEffect, LoadHeaderWithValidityEffect, LoadPointEffect, ResourceHeaderStore, StoreBlockEffect,
     UnvalidatedAncestorHashesEffect,
 };
 use amaru_pure_stage::{
@@ -99,7 +101,7 @@ impl TestPrep {
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {
-        self.store.set_anchor_hash(&hash).unwrap();
+        self.store.set_anchor_point(&self.store.load_point(&hash).unwrap_or(Point::Origin)).unwrap();
     }
 
     pub fn set_validity(&self, hash: HeaderHash, valid: bool) {
@@ -135,7 +137,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<HasBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
@@ -146,7 +148,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectPeersForFetchEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::performance::FetchPeerSet>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Point>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
     ]
 }

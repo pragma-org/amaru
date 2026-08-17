@@ -25,6 +25,7 @@ required-features = ["rocksdb"]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 hex.workspace = true
+parking_lot.workspace = true
 rand = { workspace = true, optional = true }
 tracing.workspace = true
 

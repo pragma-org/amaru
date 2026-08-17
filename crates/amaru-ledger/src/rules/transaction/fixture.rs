@@ -266,6 +266,7 @@ pub(super) enum Predicate {
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
+    DisallowedVoters,
     FeeTooSmallUTxO,
     GovActionsDoNotExist,
     IncorrectDepositDELEG,
@@ -410,9 +411,8 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist
             }
-            PhaseOneError::VotingProcedures(InvalidVotingProcedures::UnauthorizedOrUnknownVoter(_)) => {
-                Predicate::VotersDoNotExist
-            }
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::UnknownVoter(_)) => Predicate::VotersDoNotExist,
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::DisallowedVoter(_)) => Predicate::DisallowedVoters,
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,

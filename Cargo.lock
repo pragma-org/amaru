@@ -175,7 +175,6 @@ dependencies = [
  "async-trait",
  "criterion",
  "hex",
- "itertools 0.15.0",
  "opentelemetry",
  "parking_lot",
  "pprof",
@@ -667,7 +666,6 @@ dependencies = [
 name = "amaru-sim"
 version = "0.1.2"
 dependencies = [
- "amaru-consensus",
  "amaru-deps",
  "amaru-kernel",
  "amaru-node",
@@ -702,6 +700,7 @@ dependencies = [
  "amaru-plutus",
  "anyhow",
  "hex",
+ "parking_lot",
  "proptest",
  "rand 0.9.5",
  "rocksdb",

@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Ballot, BallotId, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
+    Ballot, BallotId, BlockHeight, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots, Proposal,
     ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
@@ -766,7 +766,12 @@ fn import_block_issuers(
                 // TODO: Unused when storing block issuers; require API change.
                 &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
                 GovernanceActivity::default(),
-                &Point::Specific(fake_slot.into(), Hash::new([0; 32])),
+                // NOTE: Synthetic keys for historical issuer counts
+                //
+                // These are not chain points. Each increment of `fake_slot` is a unique store key
+                // used only to record that a pool issued a block. Height uses the same counter so
+                // the constructed `Point` is complete and distinct.
+                &Point::Specific(fake_slot.into(), Hash::new([0; 32]), BlockHeight::from(fake_slot)),
                 Some(&pool),
                 store::Columns {
                     utxo: iter::empty(),

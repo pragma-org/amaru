@@ -95,12 +95,12 @@ Run `make help` for all targets.
 
 ### Types and Naming (EDR 009-avoid-primitive-obsession.md)
 
-- Avoid primitive obsession: use newtypes for domain concepts (Slot, Point, Tip, Peer, Hash, etc.)
+- Avoid primitive obsession: use newtypes for domain concepts (Slot, Point, NetworkPoint, Peer, Hash, etc.)
 - Newtypes: #[derive(...)] #[repr(transparent)] pub struct Slot(u64); with private field
 - Implement: Debug, Clone, Copy (if applicable), PartialEq/Eq/Ord, Display, Serialize/Deserialize, CBOR Encode/Decode
 - Validation in constructors or From impls
 - Naming: snake_case for vars/fns, UpperCamel for types, descriptive
-- Use amaru_kernel types where possible (Header, Tip, Point, EraName, etc.)
+- Use amaru_kernel types where possible (Header, Point, NetworkPoint, EraName, etc.)
 - No HashMap/HashSet in public APIs (use BTreeMap for determinism?)
 
 ### Imports and Modules

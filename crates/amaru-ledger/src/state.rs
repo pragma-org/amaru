@@ -25,9 +25,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, BlockHeight, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, IsHeader,
-    NetworkName, Point, PoolId, ProtocolParameters, Slot, Tip, Transaction, TransactionId, TransactionPointer,
-    protocol_version, size::SCRIPT, to_cbor, utils::string::display_collection,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, IsHeader, NetworkName,
+    Point, PoolId, ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer, protocol_version,
+    size::SCRIPT, to_cbor, utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, error_record, info, info_record, info_span, trace, warn, warn_record};
@@ -304,7 +304,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     /// applied to the ledger.
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
-            return Cow::Owned(st.anchor.0.point());
+            return Cow::Owned(st.anchor.0);
         }
 
         Cow::Owned(self.immutable_tip())
@@ -312,13 +312,13 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
 
     #[expect(clippy::panic)]
     #[expect(clippy::unwrap_used)]
-    /// Tip of the immutable db (i.e. farthest point we can ever rollback to).
+    /// Point of the immutable db (i.e. farthest point we can ever rollback to).
     pub fn immutable_tip(&self) -> Point {
         self.stable.lock().unwrap().tip().unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}"))
     }
 
-    /// Tip of the volatile (`VolatileDB`) sequence only, if non-empty.
-    pub fn volatile_tip(&self) -> Option<Tip> {
+    /// Point of the volatile (`VolatileDB`) sequence only, if non-empty.
+    pub fn volatile_tip(&self) -> Option<Point> {
         self.volatile.view_back().map(|fragment| fragment.tip())
     }
 
@@ -527,11 +527,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let is_previous_epoch_stable =
             self.era_history.slot_in_epoch(tip, tip).unwrap_or_default() >= self.global_parameters().stability_window();
 
-        // FIXME: Asynchronous rewards calculation
-        //
-        // compute rewards in a thread, or in a non-blocking manner to carry on with other
-        // tasks while rewards are being computed; they only need to be available at the epoch
-        // boundary.
         if self.volatile.rewards_not_ready()
             && self.rewards_join_handle.is_none()
             && Some(self.most_recent_snapshot()) == current_epoch.checked_sub(Epoch::ONE)
@@ -773,9 +768,8 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         arena_pool: &ArenaPool,
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         debug_span!(ledger::state::ROLL_FORWARD).in_scope(|| {
-            let tip = block.tip();
             let point = block.point();
-            trace_block_transactions(&point, block.header.block_height().into_u64(), block);
+            trace_block_transactions(&point, block);
 
             // 1. Rewards calculation
             BlockValidation::from(self.try_compute_rewards())?;
@@ -804,7 +798,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
             )?;
 
             // 5. Record new volatile state
-            let fragment = VolatileFragment::from(context).anchor(tip, issuer);
+            let fragment = VolatileFragment::from(context).anchor(point, issuer);
             if let Some(now_stable) = BlockValidation::from(self.push_fragment(fragment))? {
                 // 6. Apply now-stable block
                 BlockValidation::from(self.apply_block(now_stable))?;
@@ -933,12 +927,12 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let keep_blocks = real_on_block.is_some();
         let mut deferred_blocks: Vec<Block> = Vec::with_capacity(if keep_blocks { blocks.size_hint().0 } else { 0 });
 
-        let mut applied_tip = Tip::new(initial_immutable_tip, BlockHeight::new(0));
+        let mut applied_tip = initial_immutable_tip;
         let mut metrics = LedgerMetrics::default();
 
         // Try to apply each block in the fork, and stop at the first failure.
         for block in blocks {
-            let block_tip = block.tip();
+            let block_tip = block.point();
             match self.roll_forward(&block, arena_pool) {
                 BlockValidation::Valid(new_metrics) => {
                     if keep_blocks {
@@ -1031,7 +1025,7 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
         info_span!(ledger::state::ROLL_BACKWARD).in_scope(|| {
             let immutable_tip = self.immutable_tip();
-            let volatile_tip = self.volatile_tip().map(|t| t.point()).unwrap_or(immutable_tip);
+            let volatile_tip = self.volatile_tip().unwrap_or(immutable_tip);
 
             // NOTE: Rolling back to the tip of the immutable
             //
@@ -1323,17 +1317,17 @@ impl<'a> Deref for StakeDistributionView<'a> {
     }
 }
 
-fn trace_block_transactions(point: &Point, block_height: u64, block: &Block) {
+fn trace_block_transactions(point: &Point, block: &Block) {
     let tx_count = block.transaction_bodies.len();
 
-    trace!(ledger::non_empty_block::FOUND, %point, block_height, tx_count);
+    trace!(ledger::non_empty_block::FOUND, %point, tx_count);
 
     if !tracing_enabled!(tracing::Level::TRACE) {
         return;
     }
 
     for (index, body) in block.transaction_bodies.iter().enumerate() {
-        trace!(ledger::transaction::FOUND, %point, block_height, index, id = %body.tx_id());
+        trace!(ledger::transaction::FOUND, %point, index, id = %body.tx_id());
     }
 }
 

@@ -163,13 +163,11 @@ This is a lot of information. Let's break it down:
 * The `History` presents the list of messages sent from the peers to the node under test but also the message emitted by the simulated nodes.
 * The `Error message` display the chain selection property failure;
 * The `Headers tree` shows the full tree of headers that was generated to produce roll forwards and rollback messages.
-* The `Actions` parts displays a list of actions that can be pasted to a unit test in the [`headers_tree.rs`](../amaru-consensus/src/consensus/headers_tree.rs) file to reproduce the failure if the issue is
-  specifically related to the chain selection algorithm.
+* The `Actions` part lists the generated roll-forward / rollback steps that were injected into upstream nodes.
 * The seed is what was used to produce the test case, it can be used to replay the full test (see `AMARU_TEST_SEED` above).
 
 ## Debug a test failure
 
-Re-running the chain selection algorithm in `headers_tree.rs` might not be enough to understand what went wrong.
 To help with debugging, you can:
 
  1. Visualize the generated input data with [`entries.html`](tests/data/entries.html)
@@ -206,7 +204,7 @@ the generated data and the amaru-pure-stage traces are persisted in the top-leve
 * Each test directory contains:
   * `latest↗` symlink to the latest test in a run.
   * `entries.json` generated headers tree and the list of messages sent to the nodes under test.
-  * `actions.json` the list of actions that can be used to reproduce a chain selection failure in `headers_tree.rs`.
+  * `actions.json` the list of generated roll-forward / rollback steps for that test.
 
 ### Visualize generated input data
 

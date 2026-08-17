@@ -14,9 +14,9 @@
 
 use std::{fs::create_dir_all, iter::once, path::Path, sync::Arc, time::SystemTime};
 
-use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
 use amaru_kernel::{Header, Peer};
 use amaru_node::tests::{
+    Action,
     configuration::{
         NodeTestConfig,
         NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode},
@@ -30,6 +30,7 @@ use rayon::prelude::*;
 use crate::simulator::{
     Args, RunConfig, TestResult,
     checks::check_chain_property,
+    data_generation::{GeneratedActions, shrink},
     generate_actions,
     report::{create_symlink_dir, display_actions_statistics, persist_args, persist_generated_data, persist_traces},
 };

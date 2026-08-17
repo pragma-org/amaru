@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, GlobalParameters, Hash, IsHeader, NetworkName, ProtocolParameters, Tip, TransactionId,
-    TransactionIndex, TransactionPointer, TransactionRef,
+    Block, EraHistory, ExUnits, GlobalParameters, Hash, IsHeader, NetworkName, Point, ProtocolParameters,
+    TransactionId, TransactionIndex, TransactionPointer, TransactionRef,
     size::{BLOCK_BODY, SCRIPT},
 };
 use amaru_observability::debug_span;
@@ -83,12 +83,12 @@ pub enum InvalidBlockDetails {
 #[derive(Debug)]
 pub enum BlockValidation<A, E> {
     Valid(A),
-    Invalid(Tip, InvalidBlockDetails),
+    Invalid(Point, InvalidBlockDetails),
     Err(E),
 }
 
 pub enum BlockValidationResidual<E> {
-    Invalid(Tip, InvalidBlockDetails),
+    Invalid(Point, InvalidBlockDetails),
     Err(E),
 }
 
@@ -219,7 +219,7 @@ where
     let block_span = debug_span!(ledger::rules::EXECUTE);
     let _block_guard = block_span.enter();
 
-    let tip = block.tip();
+    let tip = block.point();
     let slot = block.header.slot();
 
     let with_block_context = |result| match result {

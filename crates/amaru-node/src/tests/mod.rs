@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod action;
 pub(crate) mod test_data;
 
 #[cfg(test)]
 mod test_cases;
+
+pub use action::Action;
 
 pub mod assertions;
 pub mod configuration;

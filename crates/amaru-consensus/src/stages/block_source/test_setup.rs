@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, Tip};
+use amaru_kernel::{BlockHeight, Point};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
@@ -33,7 +33,7 @@ pub struct TestPrep {
     pub rt: Runtime,
 }
 
-pub fn test_prep(adopted_tip: Tip, max_tip_distance: u64) -> TestPrep {
+pub fn test_prep(adopted_tip: Point, max_tip_distance: u64) -> TestPrep {
     let invalid_sink = StageRef::named_for_tests("invalid_sink");
     let state = BlockSource::new(adopted_tip, max_tip_distance, invalid_sink);
     TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
@@ -45,7 +45,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::Peer>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<BlockHeight>().boxed(),
     ]

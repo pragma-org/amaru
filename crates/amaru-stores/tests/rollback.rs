@@ -23,8 +23,8 @@ use crate::{assert_no_rollback_to, forward_to, make_state, point, point_with_has
 #[test]
 fn rollback_before_volatile_front_is_rejected() {
     let mut state = make_state();
-    forward_to(&mut state, point(100), 1);
-    forward_to(&mut state, point(200), 2);
+    forward_to(&mut state, point(100));
+    forward_to(&mut state, point(200));
 
     let to = point(50);
 
@@ -40,8 +40,8 @@ fn rollback_within_volatile_but_unknown_hash_is_rejected() {
     let mut state = make_state();
     let point1 = point_with_hash(100, Hash::new([1u8; 32]));
     let point2 = point_with_hash(200, Hash::new([2u8; 32]));
-    forward_to(&mut state, point1, 1);
-    forward_to(&mut state, point2, 2);
+    forward_to(&mut state, point1);
+    forward_to(&mut state, point2);
 
     let to = point_with_hash(100, Hash::new([3u8; 32]));
     assert_no_rollback_to(&mut state, &to, |err| {
@@ -57,8 +57,8 @@ fn rollback_within_volatile_but_unknown_hash_is_rejected() {
 #[test]
 fn rollback_within_volatile_but_unknown_slot_is_rejected() {
     let mut state = make_state();
-    forward_to(&mut state, point(100), 1);
-    forward_to(&mut state, point(200), 2);
+    forward_to(&mut state, point(100));
+    forward_to(&mut state, point(200));
 
     let to = point(150);
 
@@ -72,7 +72,7 @@ fn rollback_within_volatile_but_unknown_slot_is_rejected() {
 #[test]
 fn rollback_after_volatile_front_is_rejected() {
     let mut state = make_state();
-    forward_to(&mut state, point(100), 1);
+    forward_to(&mut state, point(100));
 
     let to = point(101);
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{BlockHeight, HeaderHash, Point, Slot, Tip, cbor};
+use crate::{BlockHeight, HeaderHash, Point, Slot, cbor};
 
 /// Interface to a header for the purpose of chain selection.
 pub trait IsHeader: cbor::Encode<()> + Sized {
@@ -25,7 +25,7 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
 
     /// Point to this header
     fn point(&self) -> Point {
-        Point::Specific(self.slot(), self.hash())
+        Point::Specific(self.slot(), self.hash(), self.block_height())
     }
 
     /// Parent hash of the header
@@ -41,9 +41,4 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     /// The raw vrf output from the header, which can then be derived for nonce or leader VRF
     /// computations.
     fn vrf_output(&self) -> &[u8];
-
-    /// Return the header tip
-    fn tip(&self) -> Tip {
-        Tip::new(self.point(), self.block_height())
-    }
 }

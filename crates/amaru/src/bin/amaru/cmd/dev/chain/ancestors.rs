@@ -72,7 +72,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let point = header.point();
         let height = header.block_height();
         let has_block = db.has_block(&header.hash()).unwrap_or(false);
-        let on_best_chain = db.load_from_best_chain(&point).is_some();
+        let on_best_chain = db.is_on_best_chain(point.into());
 
         println!(
             "{} height={} block={} valid={} best-chain={}",

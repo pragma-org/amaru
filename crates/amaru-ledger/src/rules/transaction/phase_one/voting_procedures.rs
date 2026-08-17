@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProtocolVersion, RedeemerTag, RequiredScript,
-    StakeCredential, Voter, VotingProcedure, protocol_version::PROTOCOL_VERSION_11,
+    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim, ProtocolVersion, RedeemerTag,
+    RequiredScript, StakeCredential, Voter, VotingProcedure, protocol_version::PROTOCOL_VERSION_11,
+    utils::string::display_map,
 };
 use itertools::Itertools;
 use thiserror::Error;
@@ -26,7 +27,10 @@ use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalsSlice, Wit
 #[derive(Debug, Error)]
 pub enum InvalidVotingProcedures {
     #[error("unauthorized or unknown voters: {0:?}")]
-    UnauthorizedOrUnknownVoter(BTreeSet<Voter>),
+    UnknownVoter(BTreeSet<Voter>),
+
+    #[error("invalid combinations of voters and proposals they have no say over: {}", display_map(.0))]
+    DisallowedVoter(BTreeMap<Voter, ProposalSlim>),
 
     #[error("governance actions do not exist: {0:?}")]
     GovActionsDoNotExist(BTreeSet<ProposalId>),
@@ -41,22 +45,31 @@ where
     C: WitnessSlice + ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
-        let mut disallowed_voters = BTreeSet::new();
+        let mut unknown_voters = BTreeSet::new();
         let mut unknown_proposals = BTreeSet::new();
+        let mut disallowed_voters = BTreeMap::new();
 
         voting_procedures.into_iter().sorted_by_key(|(k, _)| *k).enumerate().for_each(|(index, (voter, votes))| {
-            if !is_allowed_voter(context, protocol_version, &voter) {
-                disallowed_voters.insert(voter);
+            if !is_known_voter(context, protocol_version, &voter) {
+                unknown_voters.insert(voter);
                 return;
             }
 
             for (proposal_id, _) in votes.iter() {
-                if ProposalsSlice::lookup(context, proposal_id).is_none() {
-                    unknown_proposals.insert(*proposal_id);
+                match ProposalsSlice::lookup(context, proposal_id) {
+                    None => {
+                        unknown_proposals.insert(*proposal_id);
+                    }
+                    Some(proposal) => {
+                        if !is_allowed_voter(&voter, &proposal) {
+                            disallowed_voters.insert(voter, proposal);
+                            return;
+                        }
+                    }
                 }
             }
 
-            if !(disallowed_voters.is_empty() && unknown_proposals.is_empty()) {
+            if !(unknown_voters.is_empty() && disallowed_voters.is_empty() && unknown_proposals.is_empty()) {
                 return; // Skip validations after if any proposal or voter is invalid;
             }
 
@@ -77,27 +90,55 @@ where
             })
         });
 
-        if !disallowed_voters.is_empty() {
-            return Err(InvalidVotingProcedures::UnauthorizedOrUnknownVoter(disallowed_voters));
+        if !unknown_voters.is_empty() {
+            return Err(InvalidVotingProcedures::UnknownVoter(unknown_voters));
         }
 
         if !unknown_proposals.is_empty() {
             return Err(InvalidVotingProcedures::GovActionsDoNotExist(unknown_proposals));
+        }
+
+        if !disallowed_voters.is_empty() {
+            return Err(InvalidVotingProcedures::DisallowedVoter(disallowed_voters));
         }
     }
 
     Ok(())
 }
 
+/// Whether a voter has any say over this kind of governance action
+fn is_allowed_voter(voter: &Voter, proposal: &ProposalSlim) -> bool {
+    use ProposalSlim::*;
+    use Voter::*;
+
+    match voter {
+        DRepKey(..) | DRepScript(..) => true,
+
+        ConstitutionalCommitteeKey(..) | ConstitutionalCommitteeScript(..) => match proposal {
+            ConstitutionalCommittee => false,
+            ProtocolParameters(..) | Constitution | Orphan(..) | HardFork(..) => true,
+        },
+
+        StakePoolKey(..) => match proposal {
+            ProtocolParameters(any_in_security_group) => bool::from(*any_in_security_group),
+            Orphan(is_treasury_withdrawals) => !bool::from(*is_treasury_withdrawals),
+            ConstitutionalCommittee | HardFork(..) => true,
+            Constitution => false,
+        },
+    }
+}
+
 /// Whether the entity a vote is cast by is known at this point in the block.
-fn is_allowed_voter<C>(context: &C, protocol_version: ProtocolVersion, voter: &Voter) -> bool
+fn is_known_voter<C>(context: &C, protocol_version: ProtocolVersion, voter: &Voter) -> bool
 where
     C: CommitteeSlice + DRepsSlice + PoolsSlice,
 {
+    use Voter::*;
+
     match voter {
         // A vote identifies its member by the hot credential the member authorized, never by the cold
         // credential that identifies the seat.
-        Voter::ConstitutionalCommitteeKey(_) | Voter::ConstitutionalCommitteeScript(_) => {
+        ConstitutionalCommitteeKey(_) | ConstitutionalCommitteeScript(_) => {
             let owner = voter.owner();
             let mut cc_members = CommitteeSlice::lookup_by_hot_credential(context, &owner);
             if protocol_version >= PROTOCOL_VERSION_11 {
@@ -106,7 +147,7 @@ where
                 cc_members.count() > 0
             }
         }
-        Voter::DRepKey(_) | Voter::DRepScript(_) => DRepsSlice::lookup(context, &voter.owner()).is_some(),
-        Voter::StakePoolKey(pool) => PoolsSlice::exists(context, *pool),
+        DRepKey(_) | DRepScript(_) => DRepsSlice::lookup(context, &voter.owner()).is_some(),
+        StakePoolKey(pool) => PoolsSlice::exists(context, *pool),
     }
 }

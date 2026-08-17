@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, time::Duration};
 
-use amaru_kernel::{Peer, Tip};
+use amaru_kernel::{Peer, Point};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
@@ -256,8 +256,8 @@ fn setup_preload_with_mode(
             running.use_virtual_child_stages(true);
 
             running
-                .override_external_effect::<VolatileTipEffect>(usize::MAX, |_| OverrideResult::handled(Tip::origin()));
-            running.override_external_effect::<TipEffect>(usize::MAX, |_| OverrideResult::handled(Tip::origin()));
+                .override_external_effect::<VolatileTipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
+            running.override_external_effect::<TipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
             running.override_external_effect::<RegisteredRelaySocketAddrsEffect>(usize::MAX, |_| {
                 OverrideResult::handled(Ok(BTreeSet::new()))
             });

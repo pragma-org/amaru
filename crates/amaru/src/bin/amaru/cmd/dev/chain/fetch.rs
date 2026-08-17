@@ -25,7 +25,7 @@ use amaru::{
     bootstrap::{BOOTSTRAP_HEADERS_PER_POINT, fetch_headers_from_points},
     lifecycle::{Runnable, RuntimeKind},
 };
-use amaru_kernel::{Header, IsHeader, NetworkName, Point, from_cbor};
+use amaru_kernel::{Header, IsHeader, NetworkName, NetworkPoint, from_cbor};
 use clap::{ArgAction, Parser};
 use tracing::info;
 
@@ -95,7 +95,8 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         "running",
     );
 
-    let points = args.parent.iter().map(|point| Point::try_from(point.as_str())).collect::<Result<Vec<_>, _>>()?;
+    let points =
+        args.parent.iter().map(|point| NetworkPoint::try_from(point.as_str())).collect::<Result<Vec<_>, _>>()?;
 
     fetch_headers_for_network(network, &args.headers_dir, &args.peer_address, &points).await?;
 
@@ -106,7 +107,7 @@ async fn fetch_headers_for_network(
     network: NetworkName,
     headers_dir: &Path,
     peer_address: &str,
-    points: &[Point],
+    points: &[NetworkPoint],
 ) -> Result<(), Box<dyn Error>> {
     let headers = fetch_headers_from_points(peer_address, network, points, BOOTSTRAP_HEADERS_PER_POINT).await?;
     write_headers(headers_dir, headers)

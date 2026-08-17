@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use amaru_kernel::{Block, Point, Tip, Transaction};
+use amaru_kernel::{Block, Point, Transaction};
 use amaru_ledger::{
     rules::block::BlockValidation,
     state::State,
@@ -84,12 +84,11 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
     }
 
     #[expect(clippy::unwrap_used)]
-    fn switch_to_fork(&self, fork_point: &Point, to: &Tip) -> Result<ForkSwitchOutcome, BlockValidationError> {
+    fn switch_to_fork(&self, fork_point: &Point, to: &Point) -> Result<ForkSwitchOutcome, BlockValidationError> {
         // Get all the headers of the block to apply between the fork point and the expected new tip
         let Some(forward_tips) = self.chain_store.ancestors_between(fork_point, to.hash()) else {
             return Err(BlockValidationError::new(anyhow!(
-                "the stored headers do not form a chain from {fork_point} to {}",
-                to.point()
+                "the stored headers do not form a chain from {fork_point} to {to}"
             )));
         };
 
@@ -109,7 +108,7 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
 
         if forward_blocks.is_empty() {
             // We are not supposed to switch to a fork that would be a no-op for the ledger.
-            return Err(BlockValidationError::new(anyhow!("block already applied to the ledger: {}", to.point())));
+            return Err(BlockValidationError::new(anyhow!("block already applied to the ledger: {to}")));
         }
 
         // Now switch the fork in the ledger by rolling back to the fork point and then rolling forward the blocks to the new tip.
@@ -125,7 +124,7 @@ impl<S: Store + Send + Sync, HS: HistoricalStores + Send + Sync + 'static> CanVa
     }
 
     #[expect(clippy::unwrap_used)]
-    fn volatile_tip(&self) -> Option<Tip> {
+    fn volatile_tip(&self) -> Option<Point> {
         let state = self.state.lock().unwrap();
         state.volatile_tip()
     }

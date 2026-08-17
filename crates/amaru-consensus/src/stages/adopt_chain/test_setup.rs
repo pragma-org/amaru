@@ -15,15 +15,17 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Header, HeaderHash, NonEmptyVec, Point, Tip, cardano::network_block::make_encoded_block,
+    BlockHeight, EraHistory, Header, HeaderHash, NonEmptyVec, Point, cardano::network_block::make_encoded_block,
     make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros::{MempoolMsg, StoreError};
-use amaru_ouroboros_traits::{DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros_traits::{
+    BaseReadChainStore, DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_protocols::store_effects::{
     FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
-    LoadFromBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
-    SetAnchorHashEffect, SwitchToForkEffect,
+    IsOnBestChainEffect, LoadHeaderEffect, NextBestChainEffect, ResourceHeaderStore, RollForwardChainEffect,
+    SetAnchorPointEffect, SwitchToForkEffect,
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
@@ -103,11 +105,11 @@ impl TestPrep {
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {
-        self.store.set_anchor_hash(&hash).unwrap();
+        self.store.set_anchor_point(&self.store.load_point(&hash).unwrap_or(Point::Origin)).unwrap();
     }
 
     pub fn set_best_chain(&mut self, header: Header) {
-        self.state.current_best_tip = header.tip();
+        self.state.current_best_tip = header.point();
         let mut ancestors = self.store.ancestors(header).collect::<Vec<_>>();
         ancestors.reverse();
         for header in ancestors {
@@ -119,7 +121,7 @@ impl TestPrep {
 pub fn register_guards() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_data_deserializer::<AdoptChain>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ManagerMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<MempoolMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
@@ -132,8 +134,8 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<GetBestChainHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<RollForwardChainEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SetAnchorPointEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<IsOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
@@ -155,7 +157,7 @@ pub fn test_prep(consensus_security_param: u64) -> TestPrep {
     let block_source = StageRef::named_for_tests("block_source");
     let mempool = StageRef::named_for_tests("mempool");
     let headers = HeaderTree::new();
-    let state = AdoptChain::new(downstream, block_source, mempool, consensus_security_param, Tip::origin());
+    let state = AdoptChain::new(downstream, block_source, mempool, consensus_security_param, Point::Origin);
     TestPrep {
         state,
         rt: Builder::new_current_thread().build().unwrap(),
@@ -198,8 +200,8 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
 }
 
-pub fn te_set_anchor_hash(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(SetAnchorHashEffect::new(hash))))
+pub fn te_set_anchor_point(at_stage: &str, point: Point) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(SetAnchorPointEffect::new(point))))
 }
 
 pub fn te_switch_to_fork(at_stage: &str, fork_point: Point, forward_points: NonEmptyVec<Point>) -> TraceEntry {

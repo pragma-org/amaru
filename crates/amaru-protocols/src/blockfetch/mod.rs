@@ -16,7 +16,7 @@ mod initiator;
 pub(crate) mod messages;
 mod responder;
 
-use amaru_kernel::{Peer, Point};
+use amaru_kernel::{NetworkPoint, Peer};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
 // Re-export types
@@ -36,7 +36,7 @@ where
     use State::*;
 
     let mut spec = ProtoSpec::default();
-    let request_range = || Message::RequestRange { from: Point::Origin, through: Point::Origin };
+    let request_range = || Message::RequestRange { from: NetworkPoint::Origin, through: NetworkPoint::Origin };
     let no_blocks = || Message::NoBlocks;
     let client_done = || Message::ClientDone;
     let batch_done = || Message::BatchDone;

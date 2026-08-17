@@ -14,7 +14,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::{Block, Point, Tip};
+use amaru_kernel::{Block, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -26,19 +26,19 @@ pub trait CanValidateBlocks: Send + Sync {
         block: Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 
-    fn switch_to_fork(&self, fork_point: &Point, to: &Tip) -> Result<ForkSwitchOutcome, BlockValidationError>;
+    fn switch_to_fork(&self, fork_point: &Point, to: &Point) -> Result<ForkSwitchOutcome, BlockValidationError>;
 
     fn tip(&self) -> Point;
 
     /// The chain tip of the volatile in-memory ledger view, if any (`VolatileDB::view_back`).
     /// When `None`, the applied ledger tip is entirely in stable storage.
-    fn volatile_tip(&self) -> Option<Tip>;
+    fn volatile_tip(&self) -> Option<Point>;
 }
 
 /// A block that failed to apply during a fork switch, with a rendered reason.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InvalidBlock {
-    pub tip: Tip,
+    pub tip: Point,
     pub reason: String,
 }
 
@@ -49,7 +49,7 @@ pub enum ForkSwitchOutcome {
     Completed { metrics: LedgerMetrics },
     /// A block failed to apply but the applied prefix was kept because it already beats the chain
     /// it replaced; `applied_tip` is the first actual ledger tip after the switch.
-    Partial { applied_tip: Tip, metrics: LedgerMetrics, failure: InvalidBlock },
+    Partial { applied_tip: Point, metrics: LedgerMetrics, failure: InvalidBlock },
     /// A block failed to apply and the ledger fully restored its pre-switch state.
     Failed { failure: InvalidBlock },
 }

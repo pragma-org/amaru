@@ -14,7 +14,7 @@
 
 use std::time::Instant;
 
-use amaru_kernel::{Tip, Transaction};
+use amaru_kernel::{Point, Transaction};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::mempool_effects::MemoryPool;
 use amaru_pure_stage::{Effects, StageRef};
@@ -134,7 +134,7 @@ async fn validate_and_insert(
 }
 
 /// Revalidate all the mempool transactions when a new tip has been adopted.
-async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Tip) -> RevalidationOutcome {
+async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Point) -> RevalidationOutcome {
     let started = Instant::now();
     let txs = memory_pool.mempool_txs().await;
     let total_before = txs.len() as u64;

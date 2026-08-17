@@ -83,7 +83,7 @@ where
 {
     let mut decoder = LazyDecoder::new(state_file);
     let parsed_snapshot = decoder.with_decoder(|d| parse_state_snapshot_prefix(d, global_parameters))?;
-    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
+    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
 
     info!(bootstrap::snapshot::IMPORT_TVAR, point = point, new_epoch_state_offset = parsed_snapshot.ledger_data_begin);
 

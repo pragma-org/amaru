@@ -66,7 +66,6 @@ use amaru_plutus::arena_pool::ArenaPool;
 use crate::{
     MockStore, StateAcrossEpochBoundary, assert_invalid_switch_to_fork_from, empty_block_at, epoch_of, forward_to,
     invalid_block_at, make_state_across_epoch_boundary, make_state_in_epoch, make_state_in_epoch_with_store, point,
-    tip,
 };
 
 // ASSERTIONS
@@ -79,8 +78,8 @@ use crate::{
 fn the_fork_point_must_be_in_the_volatile_window() {
     let first_slot = 69_200_000; // inside epoch 163
     let (mut state, _) = make_state_in_epoch(epoch_of(first_slot));
-    forward_to(&mut state, point(first_slot + 100), 1);
-    forward_to(&mut state, point(first_slot + 200), 2);
+    forward_to(&mut state, point(first_slot + 100));
+    forward_to(&mut state, point(first_slot + 200));
 
     let fork_point = point(first_slot + 150);
     let blocks = vec![empty_block_at(first_slot + 300)];
@@ -95,8 +94,8 @@ fn the_fork_point_must_be_in_the_volatile_window() {
 fn the_fork_cannot_exceed_the_replaced_chain_by_more_than_one_block() {
     let first_slot = 69_200_000; // inside epoch 163
     let (mut state, _) = make_state_in_epoch(epoch_of(first_slot));
-    forward_to(&mut state, point(first_slot + 100), 1);
-    forward_to(&mut state, point(first_slot + 200), 2);
+    forward_to(&mut state, point(first_slot + 100));
+    forward_to(&mut state, point(first_slot + 200));
 
     // Try to switch to a fork rolling back one block and replaying three
     let fork_point = point(first_slot + 100);
@@ -113,8 +112,8 @@ fn the_fork_cannot_exceed_the_replaced_chain_by_more_than_one_block() {
 fn the_fork_cannot_be_shorter_than_the_replaced_chain() {
     let first_slot = 69_200_000; // inside epoch 163
     let (mut state, _) = make_state_in_epoch(epoch_of(first_slot));
-    forward_to(&mut state, point(first_slot + 100), 1);
-    forward_to(&mut state, point(first_slot + 200), 2);
+    forward_to(&mut state, point(first_slot + 100));
+    forward_to(&mut state, point(first_slot + 200));
 
     // Roll back two blocks but replay only one.
     let fork_point = Point::Origin;
@@ -143,8 +142,8 @@ fn the_volatile_db_is_restored_when_a_block_on_the_fork_is_invalid_with_small_vo
     //
     let point1 = point(first_slot + 100);
     let point2 = point(first_slot + 200);
-    forward_to(&mut state, point1, 1);
-    forward_to(&mut state, point2, 2);
+    forward_to(&mut state, point1);
+    forward_to(&mut state, point2);
     assert_eq!(*state.tip(), point2);
 
     // Switching to a fork rooted at Origin itself rolls back to the immutable tip, which
@@ -160,7 +159,7 @@ fn the_volatile_db_is_restored_when_a_block_on_the_fork_is_invalid_with_small_vo
     //
     let block1 = empty_block_at(first_slot + 300);
     let block2 = invalid_block_at(first_slot + 400);
-    let block2_tip = block2.tip();
+    let block2_tip = block2.point();
     match state.switch_to_fork(&Point::Origin, vec![block1, block2], &ArenaPool::new(1024, 0)) {
         Ok(ForkSwitchOutcome::Failed { failure }) => assert_eq!(failure.tip, block2_tip),
         other => panic!("expected a rolled back switch, got: {other:?}"),
@@ -178,10 +177,10 @@ fn the_volatile_db_is_restored_when_a_block_on_the_fork_is_invalid_with_full_vol
     // Make the volatile window full (`k` blocks).
     let k = PREPROD_GLOBAL_PARAMETERS.consensus_security_param;
     for slot in first_slot..(first_slot + k) {
-        forward_to(&mut state, point(slot), slot);
+        forward_to(&mut state, point(slot));
     }
     let tip_slot = first_slot + k - 1;
-    let original_tip = tip(tip_slot);
+    let original_tip = point(tip_slot);
 
     // Switch to a fork that goes back two blocks and replays a
     // two-block fork whose second block is invalid:
@@ -195,7 +194,7 @@ fn the_volatile_db_is_restored_when_a_block_on_the_fork_is_invalid_with_full_vol
     let block1 = empty_block_at(tip_slot + 1);
     let block2 = invalid_block_at(tip_slot + 2);
 
-    let block2_tip = block2.tip();
+    let block2_tip = block2.point();
     let blocks = vec![block1, block2];
     let result = state.switch_to_fork(&fork_point, blocks, &ArenaPool::new(1024, 0));
 
@@ -213,7 +212,7 @@ fn the_volatile_db_is_restored_when_a_block_on_the_fork_is_invalid_with_full_vol
         other => panic!("expected a rolled back switch, got: {other:?}"),
     }
 
-    assert_eq!(*state.tip(), original_tip.point(), "the pre-switch tip is restored");
+    assert_eq!(*state.tip(), original_tip, "the pre-switch tip is restored");
     assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
 }
 
@@ -235,7 +234,7 @@ fn the_volatile_db_is_restored_when_a_block_is_invalid_after_an_epoch_transition
     // The transition only mutated the in-memory state and nothing reached the stable store, so
     // the switch is fully undone, epoch transition included.
     let block3 = invalid_block_at(boundary_slot + 1);
-    let block3_tip = block3.tip();
+    let block3_tip = block3.point();
     let result = state.switch_to_fork(&block_before.point(), vec![block3], &ArenaPool::new(1024, 0));
 
     match result {
@@ -273,9 +272,9 @@ fn the_volatile_db_is_restored_when_there_is_a_failed_epoch_transition() {
     let (mut state, stable) = make_state_in_epoch_with_store(epoch, MockStore::failing_transition_progress());
     // Initialize the ledger with roll forwards
     for slot in first_slot..boundary {
-        forward_to(&mut state, point(slot), slot);
+        forward_to(&mut state, point(slot));
     }
-    let initial_tip = tip(boundary - 1);
+    let initial_tip = point(boundary - 1);
 
     // Switch to a fork that goes back one block and replays a single block sitting on the
     // other side of the epoch boundary:
@@ -295,7 +294,7 @@ fn the_volatile_db_is_restored_when_there_is_a_failed_epoch_transition() {
     };
     assert!(matches!(err.downcast_ref::<StateError>(), Some(StateError::Storage(_))), "unexpected error: {err:#}");
 
-    assert_eq!(*state.tip(), initial_tip.point(), "the pre-switch tip is restored after a failed transition");
+    assert_eq!(*state.tip(), initial_tip, "the pre-switch tip is restored after a failed transition");
     assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
 }
 
@@ -311,7 +310,7 @@ fn a_switch_to_fork_can_be_successful_without_extending_the_ledger() {
     // Make the volatile window full (`k` blocks).
     let k = PREPROD_GLOBAL_PARAMETERS.consensus_security_param;
     for slot in first_slot..(first_slot + k) {
-        forward_to(&mut state, point(slot), slot);
+        forward_to(&mut state, point(slot));
     }
     let tip_slot = first_slot + k - 1;
 
@@ -327,13 +326,13 @@ fn a_switch_to_fork_can_be_successful_without_extending_the_ledger() {
     // The window never grows past `k`, so nothing is persisted to the stable store.
     let fork_point = point(tip_slot - 1);
     let block1 = empty_block_at(tip_slot + 1);
-    let block1_tip = block1.tip();
+    let block1_tip = block1.point();
     match state.switch_to_fork(&fork_point, vec![block1], &ArenaPool::new(1024, 0)) {
         Ok(ForkSwitchOutcome::Completed { metrics }) => assert_eq!(metrics.slot, tip_slot + 1),
         other => panic!("expected a completed switch, got: {other:?}"),
     }
 
-    assert_eq!(*state.tip(), block1_tip.point(), "the ledger follows the fork tip");
+    assert_eq!(*state.tip(), block1_tip, "the ledger follows the fork tip");
     assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
 }
 
@@ -346,7 +345,7 @@ fn a_switch_to_fork_can_be_successful_and_extend_the_ledger() {
     // Make the volatile window full (`k` blocks).
     let k = PREPROD_GLOBAL_PARAMETERS.consensus_security_param;
     for slot in first_slot..(first_slot + k) {
-        forward_to(&mut state, point(slot), slot);
+        forward_to(&mut state, point(slot));
     }
     let tip_slot = first_slot + k - 1;
 
@@ -361,7 +360,7 @@ fn a_switch_to_fork_can_be_successful_and_extend_the_ledger() {
     let fork_point = point(tip_slot - 1);
     let block1 = empty_block_at(tip_slot + 1);
     let block2 = empty_block_at(tip_slot + 2);
-    let block2_tip = block2.tip();
+    let block2_tip = block2.point();
 
     // Replaying:
     //   rollback block(tip_slot) -> len k−1
@@ -372,7 +371,7 @@ fn a_switch_to_fork_can_be_successful_and_extend_the_ledger() {
         other => panic!("expected a completed switch, got: {other:?}"),
     }
 
-    assert_eq!(*state.tip(), block2_tip.point(), "the ledger follows the fork tip");
+    assert_eq!(*state.tip(), block2_tip, "the ledger follows the fork tip");
     assert_eq!(
         *stable.lock().unwrap(),
         vec![point(first_slot)],
@@ -395,14 +394,14 @@ fn a_switch_to_fork_can_be_successful_across_an_epoch_transition() {
     //                      │         ╎
     //                      └─────────╎ block3         replayed
     let block3 = empty_block_at(boundary_slot + 1);
-    let block3_tip = block3.tip();
+    let block3_tip = block3.point();
     let result = state.switch_to_fork(&block_before.point(), vec![block3], &ArenaPool::new(1024, 0));
 
     match result {
         Ok(ForkSwitchOutcome::Completed { .. }) => (),
         other => panic!("expected the re-crossing switch to complete, got: {other:?}"),
     }
-    assert_eq!(*state.tip(), block3_tip.point(), "the ledger follows the fork across the boundary");
+    assert_eq!(*state.tip(), block3_tip, "the ledger follows the fork across the boundary");
     assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
 }
 
@@ -432,8 +431,8 @@ fn a_partial_switch_happens_when_a_snapshot_is_forced_during_the_replay() {
     // prefix and reports a partial outcome.
     let block3 = empty_block_at(boundary_slot + stability_window);
     let block4 = invalid_block_at(boundary_slot + stability_window + 1);
-    let block3_tip = block3.tip();
-    let block4_tip = block4.tip();
+    let block3_tip = block3.point();
+    let block4_tip = block4.point();
 
     let result = state.switch_to_fork(&block_before.point(), vec![block3, block4], &ArenaPool::new(1024, 0));
 
@@ -445,7 +444,7 @@ fn a_partial_switch_happens_when_a_snapshot_is_forced_during_the_replay() {
         other => panic!("expected a partial switch, got: {other:?}"),
     }
 
-    assert_eq!(*state.tip(), block3_tip.point(), "the ledger stays on the last applied block");
+    assert_eq!(*state.tip(), block3_tip, "the ledger stays on the last applied block");
     assert_eq!(
         *stable.lock().unwrap(),
         vec![point(boundary_slot - 3), block_before.point()],

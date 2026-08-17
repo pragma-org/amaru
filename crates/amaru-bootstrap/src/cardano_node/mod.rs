@@ -14,7 +14,9 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, HeaderHash, Nonce, Point};
+use amaru_kernel::{
+    BlockHeight, EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, HeaderHash, Nonce, Point,
+};
 use amaru_ouroboros::OpcertSequenceNumbers;
 use anyhow::anyhow;
 use minicbor::Decoder;
@@ -27,6 +29,7 @@ pub mod tvar;
 pub struct ParsedStateSnapshot {
     pub slot: u64,
     pub hash: HeaderHash,
+    pub block_height: BlockHeight,
     pub era_history: EraHistory,
     pub ledger_data_begin: usize,
     pub ledger_data_end: usize,
@@ -35,6 +38,7 @@ pub struct ParsedStateSnapshot {
 pub(super) struct StateSnapshotPrefix {
     pub slot: u64,
     pub hash: HeaderHash,
+    pub block_height: BlockHeight,
     pub era_history: EraHistory,
     pub ledger_data_begin: usize,
 }
@@ -49,6 +53,7 @@ pub fn parse_state_snapshot(
     Ok(ParsedStateSnapshot {
         slot: prefix.slot,
         hash: prefix.hash,
+        block_height: prefix.block_height,
         era_history: prefix.era_history,
         ledger_data_begin: prefix.ledger_data_begin,
         ledger_data_end: d.position(),
@@ -151,7 +156,7 @@ pub fn parse_state_snapshot_with_chain_state(
 ) -> Result<(ParsedStateSnapshot, ChainState), Box<dyn std::error::Error>> {
     let parsed_snapshot =
         parse_state_snapshot(&mut d, global_parameters).map_err(|err| format!("parse state snapshot prefix: {err}"))?;
-    let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
+    let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
     let chain_state = extract_snapshot_chain_state_after_ledger(&mut d, at, tail)?;
 
     Ok((parsed_snapshot, chain_state))
@@ -188,18 +193,18 @@ fn decode_current_era(
 
     // tip
     // https://github.com/IntersectMBO/ouroboros-consensus/blob/617145bd1d36b4dd07ea2dfad4b840e6001ce427/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Ledger/Ledger.hs#L846-L857
-    // the Tip is wrapped in a WithOrigin type hence the double array
+    // the Point is wrapped in a WithOrigin type hence the double array
     d.array()?;
     d.array()?;
     let slot = d.u64()?;
-    let _height = d.u64()?;
+    let block_height = BlockHeight::from(d.u64()?);
     let hash: HeaderHash = d.decode()?;
 
     let ledger_data_begin = d.position();
 
     let era_history = EraHistory::new(&eras, global_parameters.stability_window());
 
-    Ok(StateSnapshotPrefix { slot, hash, era_history, ledger_data_begin })
+    Ok(StateSnapshotPrefix { slot, hash, block_height, era_history, ledger_data_begin })
 }
 
 fn decode_partial_era_summary(

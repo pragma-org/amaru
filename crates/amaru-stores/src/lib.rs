@@ -25,9 +25,9 @@ pub mod tests {
     #[cfg(not(target_os = "windows"))]
     use amaru_kernel::any_proposal_id;
     use amaru_kernel::{
-        Anchor, Constitution, ConstitutionalCommitteeStatus, DRepRegistration, Epoch, EraHistory, Hash, Lovelace,
-        MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point,
-        PoolId, PoolParams, RationalNumber, Slot, StakeCredential, TransactionInput, any_certificate_pointer,
+        Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, DRepRegistration, Epoch, EraHistory, Hash,
+        Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
+        Point, PoolId, PoolParams, RationalNumber, Slot, StakeCredential, TransactionInput, any_certificate_pointer,
         any_hash28, any_lovelace, any_pool_params, any_stake_credential,
     };
     #[cfg(not(target_os = "windows"))]
@@ -177,7 +177,7 @@ pub mod tests {
         let cc_members_iter = std::iter::once((cc_member_key, (Resettable::Set(member_status), Resettable::Unchanged)));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
-        let point = Point::Specific(slot, Hash::from([0u8; 32]));
+        let point = Point::Specific(slot, Hash::from([0u8; 32]), BlockHeight::from(u64::from(slot)));
         let slot_leader = any_hash28().new_tree(runner).unwrap().current();
 
         {
