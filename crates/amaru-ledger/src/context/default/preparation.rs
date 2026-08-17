@@ -465,11 +465,12 @@ fn resolve_committee<'block, 'volatile>(
         // reachable through the stable store.
         if !gone_but_requested.is_empty() {
             for (_, row) in db.iter_proposals().map_err(ContextHydratationError::ResolveCommittee)? {
-                if let GovernanceAction::UpdateCommittee(_, _, added, _) = row.proposal.gov_action
-                    && let Some((cold_credential, _)) =
-                        added.into_iter().find(|(candidate, _)| gone_but_requested.contains(candidate))
-                {
-                    cc_members.entry(cold_credential).or_default();
+                if let GovernanceAction::UpdateCommittee(_, _, added, _) = row.proposal.gov_action {
+                    for (cold_credential, _) in
+                        added.into_iter().filter(|(candidate, _)| gone_but_requested.contains(candidate))
+                    {
+                        cc_members.entry(cold_credential).or_default();
+                    }
                 }
             }
         }
@@ -592,10 +593,20 @@ mod tests {
         }
 
         pub fn any_update_committee_proposal(cold_credential: StakeCredential) -> Proposal {
+            any_update_committee_proposal_with_members(vec![cold_credential])
+        }
+
+        pub fn any_update_committee_proposal_with_members(cold_credentials: Vec<StakeCredential>) -> Proposal {
             let gov_action = GovernanceAction::UpdateCommittee(
                 Default::default(),
                 Default::default(),
-                TryFrom::try_from(vec![(cold_credential, Default::default())]).unwrap(),
+                TryFrom::try_from(
+                    cold_credentials
+                        .into_iter()
+                        .map(|cold_credential| (cold_credential, Default::default()))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap(),
                 run_strategy(any_rational_number()),
             );
 
@@ -675,6 +686,38 @@ mod tests {
                 context.get(&cold_credential),
                 Some(&CCMember { status: Some(hot_credential.into()), valid_until: None })
             );
+        }
+
+        #[test]
+        fn all_recently_evicted_cc_members_still_proposal_are_resolved_for_certificates() {
+            let first_cold_credential: StakeCredential = run_strategy(any_stake_credential());
+            let second_cold_credential: StakeCredential = run_strategy(any_stake_credential());
+
+            let mock = Mock {
+                volatile_cc_members: vec![
+                    (first_cold_credential, Existence::Gone),
+                    (second_cold_credential, Existence::Gone),
+                ],
+                stable_cc_members: vec![
+                    (first_cold_credential, Some(Epoch::default()), None),
+                    (second_cold_credential, Some(Epoch::default()), None),
+                ],
+                proposals: vec![any_update_committee_proposal_with_members(vec![
+                    first_cold_credential,
+                    second_cold_credential,
+                ])],
+            };
+
+            let context = resolve_committee(
+                &mock,
+                &mock,
+                From::from([&first_cold_credential, &second_cold_credential]),
+                Default::default(),
+            )
+            .unwrap();
+
+            assert_eq!(context.get(&first_cold_credential), Some(&CCMember::default()));
+            assert_eq!(context.get(&second_cold_credential), Some(&CCMember::default()));
         }
     }
 }
