@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraName, Peer, Point, Tip};
+use amaru_kernel::{EraName, NetworkPoint, Peer, Point};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
@@ -44,12 +44,12 @@ pub fn responder() -> Miniprotocol<ResponderState, ChainSyncResponder, Responder
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderMessage {
-    NewTip(Tip, TraceContext),
+    NewTip(Point, TraceContext),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncResponder {
-    upstream: Tip,
+    upstream: Point,
     peer: Peer,
     pointer: Point,
     conn_id: ConnectionId,
@@ -58,7 +58,7 @@ pub struct ChainSyncResponder {
 
 impl ChainSyncResponder {
     pub fn new(
-        upstream: Tip,
+        upstream: Point,
         peer: Peer,
         conn_id: ConnectionId,
         muxer: StageRef<MuxMessage>,
@@ -142,7 +142,7 @@ async fn next_header(
     state: ResponderState,
     pointer: &mut Point,
     store: &Store,
-    tip: Tip,
+    tip: Point,
 ) -> anyhow::Result<Option<ResponderAction>> {
     match state {
         ResponderState::CanAwait { send_rollback: true } => {
@@ -153,7 +153,7 @@ async fn next_header(
             return Ok(None);
         }
     };
-    if *pointer == tip.point() {
+    if *pointer == tip {
         return Ok((matches!(state, ResponderState::CanAwait { .. })).then_some(ResponderAction::AwaitReply));
     }
 
@@ -169,7 +169,11 @@ async fn next_header(
 }
 
 /// Rollback when the client pointer is on a different fork from our best chain.
-async fn next_header_rollback(pointer: &mut Point, store: &Store, tip: Tip) -> anyhow::Result<Option<ResponderAction>> {
+async fn next_header_rollback(
+    pointer: &mut Point,
+    store: &Store,
+    tip: Point,
+) -> anyhow::Result<Option<ResponderAction>> {
     match store.find_ancestor_on_best_chain(pointer.hash()).await? {
         FindAncestorOnBestChainResult::StartHeaderNotFound => Err(anyhow!("header not found {}", pointer.hash())),
         FindAncestorOnBestChainResult::NotFound => {
@@ -182,7 +186,7 @@ async fn next_header_rollback(pointer: &mut Point, store: &Store, tip: Tip) -> a
     }
 }
 
-async fn intersect(points: Vec<Point>, store: &Store, tip: Tip) -> anyhow::Result<ResponderAction> {
+async fn intersect(points: Vec<NetworkPoint>, store: &Store, tip: Point) -> anyhow::Result<ResponderAction> {
     Ok(match store.find_intersect_point(points).await {
         Some(point) => ResponderAction::IntersectFound(point, tip),
         None => ResponderAction::IntersectNotFound(tip),
@@ -191,16 +195,16 @@ async fn intersect(points: Vec<Point>, store: &Store, tip: Tip) -> anyhow::Resul
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResponderAction {
-    IntersectFound(Point, Tip),
-    IntersectNotFound(Tip),
+    IntersectFound(Point, Point),
+    IntersectNotFound(Point),
     AwaitReply,
-    RollForward(HeaderContent, Tip),
-    RollBackward(Point, Tip),
+    RollForward(HeaderContent, Point),
+    RollBackward(Point, Point),
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ResponderResult {
-    FindIntersect(Vec<Point>),
+    FindIntersect(Vec<NetworkPoint>),
     RequestNext,
     Done,
 }
@@ -258,9 +262,10 @@ impl ProtocolState<Responder> for ResponderState {
         use ResponderState::*;
 
         Ok(match (self, input) {
-            (Intersect, ResponderAction::IntersectFound(point, tip)) => {
-                (outcome().send(Message::IntersectFound(point, tip)).want_next(), Idle { send_rollback: true })
-            }
+            (Intersect, ResponderAction::IntersectFound(point, tip)) => (
+                outcome().send(Message::IntersectFound(point.to_network_point(), tip)).want_next(),
+                Idle { send_rollback: true },
+            ),
             (Intersect, ResponderAction::IntersectNotFound(tip)) => {
                 (outcome().send(Message::IntersectNotFound(tip)).want_next(), Idle { send_rollback: false })
             }
@@ -275,9 +280,10 @@ impl ProtocolState<Responder> for ResponderState {
             (MustReply, ResponderAction::RollForward(content, tip)) => {
                 (outcome().send(Message::RollForward(content, tip)).want_next(), Idle { send_rollback: false })
             }
-            (CanAwait { .. } | MustReply, ResponderAction::RollBackward(point, tip)) => {
-                (outcome().send(Message::RollBackward(point, tip)).want_next(), Idle { send_rollback: false })
-            }
+            (CanAwait { .. } | MustReply, ResponderAction::RollBackward(point, tip)) => (
+                outcome().send(Message::RollBackward(point.to_network_point(), tip)).want_next(),
+                Idle { send_rollback: false },
+            ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }
@@ -299,11 +305,11 @@ mod tests {
         // canonical states and messages
         let idle = |send_rollback: bool| Idle { send_rollback };
         let can_await = |send_rollback: bool| CanAwait { send_rollback };
-        let find_intersect = || FindIntersect(vec![Point::Origin]);
-        let intersect_found = || IntersectFound(Point::Origin, Tip::origin());
-        let intersect_not_found = || IntersectNotFound(Tip::origin());
-        let roll_forward = || RollForward(HeaderContent::with_bytes(vec![], EraName::Conway), Tip::origin());
-        let roll_backward = || RollBackward(Point::Origin, Tip::origin());
+        let find_intersect = || FindIntersect(vec![NetworkPoint::Origin]);
+        let intersect_found = || IntersectFound(NetworkPoint::Origin, Point::Origin);
+        let intersect_not_found = || IntersectNotFound(Point::Origin);
+        let roll_forward = || RollForward(HeaderContent::with_bytes(vec![], EraName::Conway), Point::Origin);
+        let roll_backward = || RollBackward(NetworkPoint::Origin, Point::Origin);
 
         let mut spec = ProtoSpec::default();
         spec.init(idle(false), find_intersect(), Intersect);
@@ -324,8 +330,14 @@ mod tests {
         spec.check(idle(false), |msg| match msg {
             AwaitReply => Some(ResponderAction::AwaitReply),
             RollForward(header_content, tip) => Some(ResponderAction::RollForward(header_content.clone(), *tip)),
-            RollBackward(point, tip) => Some(ResponderAction::RollBackward(*point, *tip)),
-            IntersectFound(point, tip) => Some(ResponderAction::IntersectFound(*point, *tip)),
+            RollBackward(point, tip) => {
+                assert_eq!(*point, NetworkPoint::Origin);
+                Some(ResponderAction::RollBackward(Point::Origin, *tip))
+            }
+            IntersectFound(point, tip) => {
+                assert_eq!(*point, NetworkPoint::Origin);
+                Some(ResponderAction::IntersectFound(Point::Origin, *tip))
+            }
             IntersectNotFound(tip) => Some(ResponderAction::IntersectNotFound(*tip)),
             _ => None,
         });

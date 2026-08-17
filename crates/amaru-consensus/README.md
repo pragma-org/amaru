@@ -172,42 +172,18 @@ of blocks where each block is valid and linked to its parent.
     immutable : Chain,
 ```
 
-and a "volatile" or _mutable_ part which we call [`HeadersTree`](src/consensus/headers_tree.rs). It contains only
-headers as the blocks are always stored on disk and referenced by their header hash
+and a _volatile_ part: headers and the adopted best-chain index live in the chain store, while per-peer
+tips are tracked by the `track_peers` stage and chain selection is performed by `select_chain`.
 
 ```.idris
-    headers_tree: HeadersTree
+    chain_store: ChainStore
+    peer_tips: Map Peer Point
  }
 ```
-
-This `HeadersTree` structure is:
-
-* A `headers` map storing volatile headers by their hash. Since `Header`s specify a parent-child relationship, this is
-  sufficient to reconstruct a tree of headers where the root of the tree is the tip of the `immutable` chain.
-* A `parent_child_relationship` map of headers hashes to be able to traverse from root to leaves (for
-  performance reasons).
-* A `peers` map associating each `Peer` to the list of hashes forming the chain they are currently following.
-* A singled out `best_chain` which points at _the_ header hash which is our current best chain.
-* A `max_length` parameter, fixed at creation time, that bounds the maximum length of any branch of the `tree`.
-
-```.idris
-data HeadersTree = HeadersTree {
-    headers :: Map HeaderHash Header,
-    parent_child_relationship :: Map HeaderHash [HeaderHash],
-    peers: Map Peer [HeaderHash],
-    best_chain: HeaderHash,
-    root: HeaderHash,
-    max_length: Nat,
- }
-```
-
-Here is a graphical representation of a `HeadersTree` with a couple of peers and a maximum length of 6:
-
-![A live `HeadersTree` with some state](basic-headers-tree.jpg)
 
 > [!IMPORTANT]
 >
-> Invariants for `HeadersTree` structure:
+> Invariants for the volatile chain:
 > * `best_chain`'s length is:
     >
 
@@ -288,7 +264,7 @@ The first step is to check whether or not the given `point` exists in our `tree`
 * If it does not then it's an error because:
     * either the pointed-at header is in the `immutable` part of the chain, and this is illegal,
     * or it's completely made up,
-* If it does, then we need to update the content of the `HeadersTree`:
+* If it does, then we need to update peer tracking and the adopted chain:
     * we update the `peers` map to truncate the list of header hashes for the `peer` which sent us the rollback message.
     * In addition, if the `peer` pointed to our current `best_chain`, this necessarily changes it with 2 different
       cases:
@@ -312,7 +288,7 @@ When a fork should happen:
 
 1. We need to find the `rollback_point`, eg. the most recent intersection `Point` of the old and new `best_chain`s (node
    3 in the picture),
-2. We update the `HeadersTree` so that:
+2. We update peer tracking and the adopted chain so that:
     * The `peers` map for `peer` is so that its chain is truncated up to the rollback `point` hash (4 in the example),
     * Among the remaining peers having the longest chains, we pick the one where the tip has the smallest slot (let's
       call it `best_peer`).

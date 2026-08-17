@@ -542,8 +542,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, SafeRatio, Slot,
-        SortedPairs, StakeCredential, any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        BlockHeight, ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, SafeRatio,
+        Slot, SortedPairs, StakeCredential, any_modern_output, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -622,7 +622,7 @@ mod tests {
 
         // Rollback to slot 5 (before the first element at slot 10)
         // This represents rolling back to a point in the stable DB
-        let rollback_point = Point::Specific(Slot::from(5), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(5), Hash::new([0u8; 32]), BlockHeight::from(5));
 
         let result = db.rollback_to(&rollback_point);
 
@@ -638,7 +638,7 @@ mod tests {
         let mut db = VolatileDB::fixture();
 
         // Rollback to slot 30 (the last element)
-        let rollback_point = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(30), Hash::new([0u8; 32]), BlockHeight::from(30));
 
         // This should succeed, keeping all 3 elements
         let result = db.rollback_to(&rollback_point);
@@ -653,7 +653,7 @@ mod tests {
         let mut db = VolatileDB::fixture();
 
         // Rollback to slot 20 (middle element)
-        let rollback_point = Point::Specific(Slot::from(20), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(20), Hash::new([0u8; 32]), BlockHeight::from(20));
 
         let result = db.rollback_to(&rollback_point);
 
@@ -668,7 +668,7 @@ mod tests {
         let mut db = VolatileDB::fixture();
 
         // Rollback to slot 25 (between 20 and 30)
-        let rollback_point = Point::Specific(Slot::from(25), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(25), Hash::new([0u8; 32]), BlockHeight::from(25));
 
         let result = db.rollback_to(&rollback_point);
 
@@ -1284,7 +1284,7 @@ mod tests {
         db.pop_front();
         assert_eq!(db.resolve_donations(), 370_000, "a stabilized block's donation reached the stable pot");
 
-        db.rollback_to(&Point::Specific(Slot::from(20), Hash::new([0u8; 32]))).unwrap();
+        db.rollback_to(&Point::Specific(Slot::from(20), Hash::new([0u8; 32]), BlockHeight::from(20))).unwrap();
         assert_eq!(db.resolve_donations(), 300_000, "the rolled-back block's donation is discarded");
     }
 
@@ -1294,7 +1294,7 @@ mod tests {
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.simple_transition(7_000_000);
         assert_eq!(db.resolve_treasury(&Pots::default()), Pots::default().treasury + 7_000_000);
-        db.rollback_to(&Point::Specific(Slot::from(10), Hash::new([0u8; 32]))).unwrap();
+        db.rollback_to(&Point::Specific(Slot::from(10), Hash::new([0u8; 32]), BlockHeight::from(10))).unwrap();
         assert_eq!(db.resolve_treasury(&Pots::default()), Pots::default().treasury);
     }
 

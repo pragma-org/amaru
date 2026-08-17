@@ -16,15 +16,15 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
     path::{Path, PathBuf},
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
-    StakeCredential, StakeEntry, TransactionInput, cbor,
+    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
+    MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
+    RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -35,7 +35,9 @@ use amaru_ledger::{
     },
 };
 use amaru_observability::{debug_span, info_span, trace_record};
+use amaru_ouroboros_traits::BaseReadChainStore;
 use anyhow::anyhow;
+use parking_lot::Mutex;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
@@ -88,7 +90,7 @@ const DIR_LIVE_DB: &str = "live";
 // * ===========================*================================================ *
 // * key                        * value                                           *
 // * ===========================*================================================ *
-// * '@tip'                      * Point                                          *
+// * '@tip'                      * NetworkPoint                                   *
 // * '@progress'                 * EpochTransitionProgress                        *
 // * '@pots'                     * (Lovelace, Lovelace, Lovelace)                 *
 // * '@protocol-version'         * ProtocolVersion                                *
@@ -125,6 +127,11 @@ pub struct RocksDB {
     db: OptimisticTransactionDB,
 
     ongoing_transaction: OngoingTransaction,
+
+    /// Optional chain store used to recover the block height of `@tip`, which is stored as a
+    /// [`NetworkPoint`] (slot + hash only).
+    // FIXME: once ledger knows DB migrations, store the full `Point` as `NetworkTip`
+    chain_store: Mutex<Option<Arc<dyn BaseReadChainStore>>>,
 }
 
 #[derive(Clone)]
@@ -188,7 +195,13 @@ impl RocksDB {
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, &live_dir)
-            .map(|db| Self { dir, incremental_save: false, db, ongoing_transaction: OngoingTransaction::new() })
+            .map(|db| Self {
+                dir,
+                incremental_save: false,
+                db,
+                ongoing_transaction: OngoingTransaction::new(),
+                chain_store: Mutex::new(None),
+            })
             .map_err(|err| map_rocksdb_open_error(&live_dir, err))
     }
 
@@ -198,8 +211,19 @@ impl RocksDB {
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, &live_dir)
-            .map(|db| Self { dir, incremental_save: true, db, ongoing_transaction: OngoingTransaction::new() })
+            .map(|db| Self {
+                dir,
+                incremental_save: true,
+                db,
+                ongoing_transaction: OngoingTransaction::new(),
+                chain_store: Mutex::new(None),
+            })
             .map_err(|err| map_rocksdb_open_error(&live_dir, err))
+    }
+
+    /// Use `chain_store` to recover the block height of the ledger `@tip` [`NetworkPoint`].
+    pub fn set_chain_store(&self, chain_store: Arc<dyn BaseReadChainStore>) {
+        *self.chain_store.lock() = Some(chain_store);
     }
 
     fn transaction_ended(&self) {
@@ -384,7 +408,8 @@ macro_rules! impl_ReadStore_body {
     ($($header:tt)*) => {
         $($header)* {
             fn tip(&self) -> Result<Point, StoreError> {
-                get_or_bail(|key| self.db.get_pinned(key), KEY_TIP)
+                let tip = get_or_bail::<NetworkPoint>(|key| self.db.get_pinned(key), KEY_TIP)?;
+                self.resolve_stored_tip(tip)
             }
 
             fn epoch_transition_progress(&self) -> Result<Option<EpochTransitionProgress>, StoreError> {
@@ -579,6 +604,34 @@ macro_rules! impl_ReadStore_body {
     }
 }
 
+trait ResolveStoredTip {
+    fn resolve_stored_tip(&self, tip: NetworkPoint) -> Result<Point, StoreError> {
+        Ok(tip.with_height(BlockHeight::from(0)))
+    }
+}
+
+impl ResolveStoredTip for RocksDB {
+    fn resolve_stored_tip(&self, tip: NetworkPoint) -> Result<Point, StoreError> {
+        match self.chain_store.lock().as_ref() {
+            None => Ok(tip.with_height(BlockHeight::from(0))),
+            Some(chain_store) => chain_store.load_point(&tip.hash()).ok_or_else(|| {
+                StoreError::Internal(
+                    format!("cannot recover block height for ledger tip {tip}: header not found").into(),
+                )
+            }),
+        }
+    }
+}
+
+impl ResolveStoredTip for RocksDBSnapshot {}
+impl ResolveStoredTip for ReadOnlyRocksDB {}
+
+impl ResolveStoredTip for RocksDBTransactionalContext<'_> {
+    fn resolve_stored_tip(&self, tip: NetworkPoint) -> Result<Point, StoreError> {
+        self.host.resolve_stored_tip(tip)
+    }
+}
+
 impl_ReadStore!(RocksDB);
 impl_ReadStore!(RocksDBSnapshot);
 impl_ReadStore!(ReadOnlyRocksDB);
@@ -752,14 +805,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
     ) -> Result<(), StoreError> {
         match (point, self.tip().ok()) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _)))
+            (Point::Specific(new, _, _), Some(Point::Specific(current, _, _)))
                 if *new <= current && !self.host.incremental_save =>
             {
                 // Skip saving - point is not newer than current tip
             }
             _ => {
                 let tip = point.slot_or_default();
-                self.db.put(KEY_TIP, as_value(point)).map_err(|err| StoreError::Internal(err.into()))?;
+                self.db
+                    .put(KEY_TIP, as_value(NetworkPoint::from(point)))
+                    .map_err(|err| StoreError::Internal(err.into()))?;
 
                 let current_epoch =
                     era_history.slot_to_epoch(tip, tip).map_err(|err| StoreError::Internal(err.into()))?;

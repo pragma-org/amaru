@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Hash, Point, Slot, any_headers_chain_with_root, utils::tests::run_strategy};
+use amaru_kernel::{BlockHeight, Hash, NetworkPoint, Slot, any_headers_chain_with_root, utils::tests::run_strategy};
 use amaru_pure_stage::simulation::RandStdRng;
 
 use crate::tests::{
@@ -30,8 +30,8 @@ fn test_connect_nodes_in_memory() -> anyhow::Result<()> {
     // Use a slot in the Conway era (era tag 7) for Preprod which starts at slot 68774400
     // This ensures blocks created with era tag 7 are valid according to the era history
     let conway_start_slot = Slot::from(68774400);
-    let root_point = Point::Specific(conway_start_slot, Hash::new([0u8; 32]));
-    let headers = run_strategy(any_headers_chain_with_root(5, root_point));
+    let root_point = NetworkPoint::Specific(conway_start_slot, Hash::new([0u8; 32]));
+    let headers = run_strategy(any_headers_chain_with_root(5, root_point.with_height(BlockHeight::from(0))));
     let mut rng = RandStdRng::from_seed(42);
     let mut nodes = create_nodes(
         &mut rng,

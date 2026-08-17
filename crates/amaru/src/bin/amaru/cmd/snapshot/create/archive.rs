@@ -183,7 +183,7 @@ mod tests {
         let packaged_blocks = serde_json::to_vec(&vec![hex::encode(block)]).unwrap();
 
         write_snapshot_archive(&source, &archive_path, &target, &packaged_blocks).unwrap();
-        validate_publishable_snapshot_archive(&archive_path, &header.point().to_string()).unwrap();
+        validate_publishable_snapshot_archive(&archive_path, &header.point().to_network_point().to_string()).unwrap();
 
         let root = format!("{}.{}", target.slot, target.hash);
         let decoder = Decoder::new(fs::File::open(&archive_path).unwrap()).unwrap();

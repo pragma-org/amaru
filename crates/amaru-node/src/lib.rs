@@ -43,7 +43,7 @@ pub mod system_metrics;
 pub mod telemetry;
 
 pub use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, Point, Tip, Transaction, TransactionRef,
+    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, Point, Transaction, TransactionRef,
 };
 pub use amaru_ledger::{
     AccountState, AdoptedBlock, DRepState, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, PoolState,

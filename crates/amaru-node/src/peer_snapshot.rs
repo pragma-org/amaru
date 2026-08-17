@@ -24,7 +24,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{NetworkMagic, NetworkName, PEER_SNAPSHOT_NETWORKS, Peer, Point, Slot, size::HEADER};
+use amaru_kernel::{NetworkMagic, NetworkName, NetworkPoint, PEER_SNAPSHOT_NETWORKS, Peer, Slot, size::HEADER};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -40,7 +40,7 @@ pub const DEFAULT_RELAY_PORT: NonZeroU16 = NonZeroU16::new(3001).unwrap();
 pub struct PeerSnapshot {
     pub network_magic: NetworkMagic,
     pub node_to_client_version: u64,
-    pub point: Point,
+    pub point: NetworkPoint,
     pub peers: BTreeSet<Peer>,
     pub pool_count: usize,
 }
@@ -61,7 +61,7 @@ pub enum PeerSnapshotError {
     },
     #[error("peer snapshot network magic mismatch for {path}: file has {file_magic}, expected {expected}")]
     NetworkMagicMismatch { path: PathBuf, file_magic: u64, expected: NetworkMagic },
-    #[error("failed to convert snapshot point to Point: {0}")]
+    #[error("failed to convert snapshot point to NetworkPoint: {0}")]
     PointConversion(#[from] PointConversionError),
 }
 
@@ -162,13 +162,13 @@ pub fn parse_peer_snapshot_bytes(
     Ok(PeerSnapshot {
         network_magic: NetworkMagic::new(file.network_magic),
         node_to_client_version: file.node_to_client_version,
-        point: Point::try_from(file.point)?,
+        point: NetworkPoint::try_from(file.point)?,
         peers,
         pool_count,
     })
 }
 
-impl TryFrom<SnapshotPoint> for Point {
+impl TryFrom<SnapshotPoint> for NetworkPoint {
     type Error = PointConversionError;
 
     fn try_from(value: SnapshotPoint) -> Result<Self, Self::Error> {
@@ -176,7 +176,7 @@ impl TryFrom<SnapshotPoint> for Point {
         let hash = hex::decode(value.block_point_hash)?;
         let hash = <[u8; HEADER]>::try_from(&*hash)?;
         let hash = amaru_kernel::HeaderHash::new(hash);
-        Ok(Point::Specific(slot, hash))
+        Ok(NetworkPoint::Specific(slot, hash))
     }
 }
 
@@ -219,7 +219,7 @@ mod tests {
             .expect("parse");
         assert_eq!(
             snap.point,
-            Point::Specific(
+            NetworkPoint::Specific(
                 185831188.into(),
                 HeaderHash::new([
                     0x1a, 0x7f, 0x1a, 0xf3, 0xe5, 0x2b, 0xa8, 0x81, 0x02, 0x47, 0xf7, 0xc8, 0x24, 0x31, 0x11, 0x3a,

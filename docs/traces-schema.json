@@ -128,7 +128,7 @@
         },
         "tip": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::Tip"
+          "description": "Custom type: amaru_kernel::Point"
         }
       },
       "required": [
@@ -1773,16 +1773,12 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Point"
         },
-        "block_height": {
-          "type": "integer"
-        },
         "tx_count": {
           "type": "integer"
         }
       },
       "required": [
         "point",
-        "block_height",
         "tx_count"
       ],
       "optional": [],
@@ -3017,9 +3013,6 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Point"
         },
-        "block_height": {
-          "type": "integer"
-        },
         "index": {
           "type": "integer"
         },
@@ -3030,7 +3023,6 @@
       },
       "required": [
         "point",
-        "block_height",
         "index",
         "id"
       ],

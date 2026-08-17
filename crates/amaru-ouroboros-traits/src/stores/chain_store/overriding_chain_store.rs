@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Header, HeaderHash, Point, PoolId, RawBlock};
+use amaru_kernel::{Header, HeaderHash, NetworkPoint, Point, PoolId, RawBlock};
 use parking_lot::Mutex;
 
 use crate::{
@@ -42,9 +42,9 @@ struct Overrides {
     load_header_with_validity:
         Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Option<(Header, Option<bool>)> + Send>>,
     get_children: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Vec<HeaderHash> + Send>>,
-    get_anchor_hash: Option<Box<dyn FnMut(&dyn BaseReadChainStore) -> HeaderHash + Send>>,
-    get_best_chain_hash: Option<Box<dyn FnMut(&dyn BaseReadChainStore) -> HeaderHash + Send>>,
-    load_from_best_chain: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &Point) -> Option<HeaderHash> + Send>>,
+    get_anchor_tip: Option<Box<dyn FnMut(&dyn BaseReadChainStore) -> Point + Send>>,
+    get_best_chain_tip: Option<Box<dyn FnMut(&dyn BaseReadChainStore) -> Point + Send>>,
+    is_on_best_chain: Option<Box<dyn FnMut(&dyn BaseReadChainStore, NetworkPoint) -> bool + Send>>,
     next_best_chain: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &Point) -> Option<Point> + Send>>,
     load_block:
         Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> Result<Option<RawBlock>, StoreError> + Send>>,
@@ -55,8 +55,8 @@ struct Overrides {
     has_header: Option<Box<dyn FnMut(&dyn BaseReadChainStore, &HeaderHash) -> bool + Send>>,
     store_header: Option<Box<dyn FnMut(&dyn ChainStore, &Header) -> Result<(), StoreError> + Send>>,
     store_validated_header: Option<Box<dyn FnMut(&dyn ChainStore, &Header, &Nonces) -> Result<(), StoreError> + Send>>,
-    set_anchor_hash: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
-    set_best_chain_hash: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
+    set_anchor_point: Option<Box<dyn FnMut(&dyn ChainStore, &Point) -> Result<(), StoreError> + Send>>,
+    set_best_chain_tip: Option<Box<dyn FnMut(&dyn ChainStore, &Point) -> Result<(), StoreError> + Send>>,
     store_block: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, &RawBlock) -> Result<(), StoreError> + Send>>,
     set_block_valid: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash, bool) -> Result<(), StoreError> + Send>>,
     remove_block_valid: Option<Box<dyn FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send>>,
@@ -110,27 +110,27 @@ impl OverridingChainStoreBuilder {
         self
     }
 
-    pub fn with_get_anchor_hash<F>(mut self, f: F) -> Self
+    pub fn with_get_anchor_tip<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn BaseReadChainStore) -> HeaderHash + Send + 'static,
+        F: FnMut(&dyn BaseReadChainStore) -> Point + Send + 'static,
     {
-        self.overrides.get_anchor_hash = Some(Box::new(f));
+        self.overrides.get_anchor_tip = Some(Box::new(f));
         self
     }
 
-    pub fn with_get_best_chain_hash<F>(mut self, f: F) -> Self
+    pub fn with_get_best_chain_tip<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn BaseReadChainStore) -> HeaderHash + Send + 'static,
+        F: FnMut(&dyn BaseReadChainStore) -> Point + Send + 'static,
     {
-        self.overrides.get_best_chain_hash = Some(Box::new(f));
+        self.overrides.get_best_chain_tip = Some(Box::new(f));
         self
     }
 
-    pub fn with_load_from_best_chain<F>(mut self, f: F) -> Self
+    pub fn with_is_on_best_chain<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn BaseReadChainStore, &Point) -> Option<HeaderHash> + Send + 'static,
+        F: FnMut(&dyn BaseReadChainStore, NetworkPoint) -> bool + Send + 'static,
     {
-        self.overrides.load_from_best_chain = Some(Box::new(f));
+        self.overrides.is_on_best_chain = Some(Box::new(f));
         self
     }
 
@@ -198,19 +198,19 @@ impl OverridingChainStoreBuilder {
         self
     }
 
-    pub fn with_set_anchor_hash<F>(mut self, f: F) -> Self
+    pub fn with_set_anchor_point<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send + 'static,
+        F: FnMut(&dyn ChainStore, &Point) -> Result<(), StoreError> + Send + 'static,
     {
-        self.overrides.set_anchor_hash = Some(Box::new(f));
+        self.overrides.set_anchor_point = Some(Box::new(f));
         self
     }
 
-    pub fn with_set_best_chain_hash<F>(mut self, f: F) -> Self
+    pub fn with_set_best_chain_tip<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&dyn ChainStore, &HeaderHash) -> Result<(), StoreError> + Send + 'static,
+        F: FnMut(&dyn ChainStore, &Point) -> Result<(), StoreError> + Send + 'static,
     {
-        self.overrides.set_best_chain_hash = Some(Box::new(f));
+        self.overrides.set_best_chain_tip = Some(Box::new(f));
         self
     }
 
@@ -292,27 +292,27 @@ impl BaseReadChainStore for OverridingChainStore {
         }
     }
 
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_point(&self) -> Point {
         let mut overrides = self.overrides.lock();
-        match &mut overrides.get_anchor_hash {
+        match &mut overrides.get_anchor_tip {
             Some(f) => f(self.inner.as_ref()),
-            None => self.inner.get_anchor_hash(),
+            None => self.inner.get_anchor_point(),
         }
     }
 
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_tip(&self) -> Point {
         let mut overrides = self.overrides.lock();
-        match &mut overrides.get_best_chain_hash {
+        match &mut overrides.get_best_chain_tip {
             Some(f) => f(self.inner.as_ref()),
-            None => self.inner.get_best_chain_hash(),
+            None => self.inner.get_best_chain_tip(),
         }
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+    fn is_on_best_chain(&self, point: NetworkPoint) -> bool {
         let mut overrides = self.overrides.lock();
-        match &mut overrides.load_from_best_chain {
+        match &mut overrides.is_on_best_chain {
             Some(f) => f(self.inner.as_ref(), point),
-            None => self.inner.load_from_best_chain(point),
+            None => self.inner.is_on_best_chain(point),
         }
     }
 
@@ -396,27 +396,27 @@ impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
         }
     }
 
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_point(&self) -> Point {
         let mut overrides = self.parent.overrides.lock();
-        match &mut overrides.get_anchor_hash {
+        match &mut overrides.get_anchor_tip {
             Some(f) => f(self.inner.as_ref()),
-            None => self.inner.get_anchor_hash(),
+            None => self.inner.get_anchor_point(),
         }
     }
 
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_tip(&self) -> Point {
         let mut overrides = self.parent.overrides.lock();
-        match &mut overrides.get_best_chain_hash {
+        match &mut overrides.get_best_chain_tip {
             Some(f) => f(self.inner.as_ref()),
-            None => self.inner.get_best_chain_hash(),
+            None => self.inner.get_best_chain_tip(),
         }
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
+    fn is_on_best_chain(&self, point: NetworkPoint) -> bool {
         let mut overrides = self.parent.overrides.lock();
-        match &mut overrides.load_from_best_chain {
+        match &mut overrides.is_on_best_chain {
             Some(f) => f(self.inner.as_ref(), point),
-            None => self.inner.load_from_best_chain(point),
+            None => self.inner.is_on_best_chain(point),
         }
     }
 
@@ -486,19 +486,19 @@ impl WriteChainStore for OverridingChainStore {
         }
     }
 
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_anchor_point(&self, point: &Point) -> Result<(), StoreError> {
         let mut overrides = self.overrides.lock();
-        match &mut overrides.set_anchor_hash {
-            Some(f) => f(self.inner.as_ref(), hash),
-            None => self.inner.set_anchor_hash(hash),
+        match &mut overrides.set_anchor_point {
+            Some(f) => f(self.inner.as_ref(), point),
+            None => self.inner.set_anchor_point(point),
         }
     }
 
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError> {
+    fn set_best_chain_tip(&self, tip: &Point) -> Result<(), StoreError> {
         let mut overrides = self.overrides.lock();
-        match &mut overrides.set_best_chain_hash {
-            Some(f) => f(self.inner.as_ref(), hash),
-            None => self.inner.set_best_chain_hash(hash),
+        match &mut overrides.set_best_chain_tip {
+            Some(f) => f(self.inner.as_ref(), tip),
+            None => self.inner.set_best_chain_tip(tip),
         }
     }
 
@@ -575,11 +575,7 @@ mod tests {
         let hidden_point = chain[1].point();
         let hidden_hash = chain[1].hash();
         let store = OverridingChainStore::builder(inner)
-            .with_load_from_best_chain(
-                move |_store, point| {
-                    if point == &hidden_point { None } else { Some(point.hash()) }
-                },
-            )
+            .with_is_on_best_chain(move |_store, point| point != hidden_point.into())
             .build();
 
         let Ok(FindAncestorOnBestChainResult::Found { fork_point, forward_points }) =
@@ -602,18 +598,18 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let calls_clone = calls.clone();
         let store = OverridingChainStore::builder(inner)
-            .with_load_from_best_chain(move |store, point| {
+            .with_is_on_best_chain(move |store, point| {
                 calls_clone.fetch_add(1, Ordering::SeqCst);
-                store.load_from_best_chain(point)
+                store.is_on_best_chain(point)
             })
             .build();
 
         let snapshot = store.snapshot();
         let chain = create_best_chain(inner_clone.as_ref(), 1);
-        let result = snapshot.load_from_best_chain(&chain[0].point());
+        let result = snapshot.is_on_best_chain(chain[0].point().into());
 
         assert!(calls.load(Ordering::SeqCst) > 0, "override must be called");
-        assert!(result.is_none(), "the snapshot must not return a best chain header");
+        assert!(!result, "the snapshot must not return a best chain header");
     }
 
     // HELPERS

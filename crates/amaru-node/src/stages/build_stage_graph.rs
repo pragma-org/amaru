@@ -24,7 +24,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Tip};
+use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Point};
 use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
@@ -50,7 +50,7 @@ pub fn build_stage_graph(
     config: &Config,
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
-    ledger_tip: Tip,
+    ledger_tip: Point,
     recovery_best_hash: HeaderHash,
     max_epoch: Epoch,
     stage_graph: &mut impl StageGraph,
@@ -134,7 +134,7 @@ pub fn build_stage_graph(
             select_chain.sender(),
             block_source_sender.clone(),
             k,
-            ledger_tip.point(),
+            ledger_tip,
         ),
     );
     let validate_block_input = stage_graph.contramap(validate_block, "validate_block_input", |msg| {
@@ -157,7 +157,7 @@ pub fn build_stage_graph(
     stage_graph
         .preload(
             &fetch_blocks,
-            [FetchBlocksMsg::RecoverStoredBlocks { from: ledger_tip.point(), to: recovery_best_hash, trace_context }],
+            [FetchBlocksMsg::RecoverStoredBlocks { from: ledger_tip, to: recovery_best_hash, trace_context }],
         )
         .expect("fetch blocks recovery message must be preloaded");
 

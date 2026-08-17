@@ -194,7 +194,7 @@ struct AccountVolatileView<'volatile> {
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::{BlockHeight, Hash, Point, Slot, Tip};
+    use amaru_kernel::{BlockHeight, Hash, Point, Slot};
 
     use super::*;
     use crate::state::VolatileFragment;
@@ -295,8 +295,8 @@ mod test {
         StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
     }
 
-    fn tip() -> Tip {
-        Tip::new(Point::Specific(Slot::from(1), Hash::new([0; 32])), BlockHeight::from(1))
+    fn tip() -> Point {
+        Point::Specific(Slot::from(1), Hash::new([0; 32]), BlockHeight::from(1))
     }
 
     /// A stable store holding a set of accounts and a set of recently unregistered ones.

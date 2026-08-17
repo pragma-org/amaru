@@ -20,7 +20,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
     Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProtocolParameters, Slot, StakeCredential, Tip, TransactionInput,
+    ProtocolParameters, Slot, StakeCredential, TransactionInput,
 };
 
 use crate::{
@@ -67,7 +67,7 @@ pub struct VolatileFragment {
 }
 
 impl VolatileFragment {
-    pub fn anchor(self, tip: Tip, issuer: PoolId) -> AnchoredVolatileFragment {
+    pub fn anchor(self, tip: Point, issuer: PoolId) -> AnchoredVolatileFragment {
         AnchoredVolatileFragment { anchor: (tip, issuer), fragment: self }
     }
 }
@@ -77,12 +77,12 @@ impl VolatileFragment {
 /// A [`VolatileFragment`] anchored to a specific point and block issuer.
 #[derive(Debug, Clone)]
 pub struct AnchoredVolatileFragment {
-    pub anchor: (Tip, PoolId),
+    pub anchor: (Point, PoolId),
     pub fragment: VolatileFragment,
 }
 
 impl AnchoredVolatileFragment {
-    pub fn tip(&self) -> Tip {
+    pub fn tip(&self) -> Point {
         self.anchor.0
     }
 
@@ -91,7 +91,7 @@ impl AnchoredVolatileFragment {
     }
 
     pub fn point(&self) -> Point {
-        self.tip().point()
+        self.tip()
     }
 
     #[allow(clippy::type_complexity)]
@@ -141,7 +141,7 @@ impl AnchoredVolatileFragment {
         } = self;
 
         StoreUpdate {
-            point: tip.point(),
+            point: tip,
             issuer,
             fees,
             donations,
@@ -182,9 +182,8 @@ impl AnchoredVolatileFragment {
     pub fn fixture(slot: u64, pool_id: u8) -> Self {
         use amaru_kernel::{BlockHeight, Hash};
 
-        let point = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]));
+        let tip = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]), BlockHeight::from(slot));
         let pool = Hash::new([pool_id; 28]);
-        let tip = Tip::new(point, BlockHeight::from(slot));
 
         Self { anchor: (tip, pool), fragment: VolatileFragment::default() }
     }

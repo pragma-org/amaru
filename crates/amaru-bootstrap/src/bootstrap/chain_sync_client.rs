@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Peer, Point, Slot};
+use amaru_kernel::{NetworkPoint, Peer, Slot};
 use amaru_observability::debug_span;
 use pallas_network::miniprotocols::{
     Point as PallasPoint,
@@ -21,17 +21,17 @@ use pallas_network::miniprotocols::{
 use tracing::Instrument;
 
 // TODO: Avoid Pallas points here and use our own chain sync client.
-fn to_pallas_point(point: Point) -> PallasPoint {
+fn to_pallas_point(point: NetworkPoint) -> PallasPoint {
     match point {
-        Point::Origin => PallasPoint::Origin,
-        Point::Specific(slot, hash) => PallasPoint::Specific(slot.as_u64(), hash.to_vec()),
+        NetworkPoint::Origin => PallasPoint::Origin,
+        NetworkPoint::Specific(slot, hash) => PallasPoint::Specific(slot.as_u64(), hash.to_vec()),
     }
 }
 
-fn from_pallas_point(point: &PallasPoint) -> Point {
+fn from_pallas_point(point: &PallasPoint) -> NetworkPoint {
     match point {
-        PallasPoint::Origin => Point::Origin,
-        PallasPoint::Specific(slot, hash) => Point::Specific(Slot::from(*slot), From::from(hash.as_slice())),
+        PallasPoint::Origin => NetworkPoint::Origin,
+        PallasPoint::Specific(slot, hash) => NetworkPoint::Specific(Slot::from(*slot), From::from(hash.as_slice())),
     }
 }
 
@@ -39,15 +39,15 @@ fn from_pallas_point(point: &PallasPoint) -> Point {
 pub struct ChainSyncClient {
     pub peer: Peer,
     chain_sync: Client<HeaderContent>,
-    intersection: Vec<Point>,
+    intersection: Vec<NetworkPoint>,
 }
 
 impl ChainSyncClient {
-    pub fn new(peer: Peer, chain_sync: Client<HeaderContent>, intersection: Vec<Point>) -> Self {
+    pub fn new(peer: Peer, chain_sync: Client<HeaderContent>, intersection: Vec<NetworkPoint>) -> Self {
         Self { peer, chain_sync, intersection }
     }
 
-    pub async fn find_intersection(&mut self) -> Result<Point, ChainSyncClientError> {
+    pub async fn find_intersection(&mut self) -> Result<NetworkPoint, ChainSyncClientError> {
         async {
             let client = &mut self.chain_sync;
             let (point, _) = client
@@ -99,5 +99,5 @@ pub enum ChainSyncClientError {
     #[error("Network error: {0}")]
     NetworkError(ClientError),
     #[error("No intersection found for points: {points:?}")]
-    NoIntersectionFound { points: Vec<Point> },
+    NoIntersectionFound { points: Vec<NetworkPoint> },
 }

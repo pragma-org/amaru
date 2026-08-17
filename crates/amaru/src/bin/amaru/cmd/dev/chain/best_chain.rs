@@ -49,7 +49,6 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 #[expect(clippy::print_stdout)]
-#[expect(clippy::unwrap_used)]
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
@@ -64,11 +63,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let best_chain = db.retrieve_best_chain();
     let anchor = db.get_anchor_hash();
-    let best_chain_hash = db.get_best_chain_hash();
-    let best_tip = db.load_tip(&best_chain_hash).unwrap();
+    let best_tip = db.get_best_chain_tip();
 
     println!("Anchor:           {anchor}");
-    println!("Best tip (stored): {}", best_tip.point());
+    println!("Best tip (stored): {}", best_tip);
     println!("Best chain length: {}", best_chain.len());
 
     match find_best_candidate(&db) {

@@ -125,7 +125,7 @@ define_schemas! {
                 /// Fetch a range of blocks starting from the specified tip
                 FETCH {
                     tags: cpu
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
             }
@@ -144,13 +144,13 @@ define_schemas! {
                 /// Received a new tip from an upstream peer
                 SELECT_FROM_TIP {
                     tags: cpu
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Received a block validation result
                 SELECT_FROM_BLOCK_VALIDATION {
                     tags: cpu
-                    required point: amaru_kernel::Tip
+                    required point: amaru_kernel::Point
                     required valid: bool
                     required header_hash: amaru_kernel::HeaderHash
                 }
@@ -165,7 +165,7 @@ define_schemas! {
                 tags: cpu
                 /// Received a new tip to roll forward
                 PROCESS {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required peer: amaru_kernel::Peer
                     optional header_hash: amaru_kernel::HeaderHash
                 }
@@ -175,7 +175,7 @@ define_schemas! {
                 /// Received a header to rollback
                 PROCESS {
                     required current: amaru_kernel::Point
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required peer: amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
                 }
@@ -200,7 +200,7 @@ define_schemas! {
                 }
                 /// Forward to a downstream peer
                 FORWARD {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                     required peer: amaru_kernel::Peer
                 }
@@ -209,13 +209,13 @@ define_schemas! {
                 tags: cpu
                 /// Validate a block by applying it to the current ledger
                 VALIDATE {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                     optional valid: bool
                 }
                 /// Adopt a block as the next block in the best chain
                 ADOPT {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Mismatched body hash after download, the peer is adversarial
@@ -429,7 +429,6 @@ define_schemas! {
                 /// Found a transaction while applying a block
                 public FOUND {
                     required point: amaru_kernel::Point
-                    required block_height: u64
                     required index: usize
                     required id: amaru_kernel::TransactionId
                 }
@@ -628,7 +627,6 @@ define_schemas! {
                 /// Found a non-empty block while applying it to the ledger
                 public FOUND {
                     required point: amaru_kernel::Point
-                    required block_height: u64
                     required tx_count: usize
                 }
             }
@@ -823,7 +821,7 @@ define_schemas! {
                 /// Received a rollback while fetching bootstrap headers
                 public ROLLBACK {
                     required point: amaru_kernel::Point
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                 }
             }
             governance_activity {

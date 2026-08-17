@@ -14,7 +14,9 @@
 
 use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Tip};
+use amaru_kernel::{
+    BlockHeight, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock,
+};
 
 use crate::{
     BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
@@ -32,7 +34,7 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// Return the next best-chain header from the given pointer using a single snapshot.
     fn next_best_chain_header(&self, pointer: &Point) -> Result<NextBestChainHeader, StoreError> {
         let snapshot = self.snapshot();
-        if *pointer != Point::Origin && snapshot.load_from_best_chain(pointer).is_none() {
+        if *pointer != Point::Origin && !snapshot.is_on_best_chain((*pointer).into()) {
             return Ok(NextBestChainHeader::NeedRollback);
         }
         let Some(point) = snapshot.next_best_chain(pointer) else {
@@ -99,7 +101,7 @@ pub trait ReadChainStore: BaseReadChainStore {
     ///
     /// Returns `None` when a header along the way is missing from the store, or when `to` is not a
     /// descendant of `from`.
-    fn ancestors_between(&self, from: &Point, to: HeaderHash) -> Option<Vec<Tip>> {
+    fn ancestors_between(&self, from: &Point, to: HeaderHash) -> Option<Vec<Point>> {
         let snapshot = self.snapshot();
         let from_slot = from.slot_or_default();
         let from_hash = from.hash();
@@ -116,7 +118,7 @@ pub trait ReadChainStore: BaseReadChainStore {
                 return None;
             }
 
-            tips.push(header.tip());
+            tips.push(header.point());
             current = header.parent()?;
         }
 
@@ -146,16 +148,16 @@ pub trait ReadChainStore: BaseReadChainStore {
         };
         let mut forward_points = Vec::new();
         for ancestor in ancestors_on_snapshot(header, &*snapshot) {
-            let tip = ancestor.point();
-            if snapshot.load_from_best_chain(&tip).is_some() {
+            let point = ancestor.point();
+            if snapshot.is_on_best_chain(point.into()) {
                 forward_points.reverse();
                 if let Ok(forward_points) = NonEmptyVec::try_from(forward_points) {
-                    return Ok(FindAncestorOnBestChainResult::Found { fork_point: tip, forward_points });
+                    return Ok(FindAncestorOnBestChainResult::Found { fork_point: point, forward_points });
                 } else {
                     break;
                 }
             }
-            forward_points.push(tip);
+            forward_points.push(point);
         }
         Ok(FindAncestorOnBestChainResult::NotFound)
     }
@@ -200,10 +202,13 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// The origin point is always considered to be an intersection point.
     ///
     /// Return None if none of the points is on the best chain
-    fn find_intersect_point(&self, mut points: Vec<Point>) -> Option<Point> {
+    fn find_intersect_point(&self, mut points: Vec<NetworkPoint>) -> Option<Point> {
         let snapshot = self.snapshot();
         points.sort_by_key(|p| Reverse(*p));
-        points.into_iter().find(|&point| point == Point::Origin || snapshot.load_from_best_chain(&point).is_some())
+        points.into_iter().find_map(|point| match point {
+            NetworkPoint::Origin => Some(Point::Origin),
+            NetworkPoint::Specific(_, hash) => snapshot.is_on_best_chain(point).then(|| snapshot.load_point(&hash))?,
+        })
     }
 
     /// Return a sparse sample of points from the best chain, starting at the tip, with
@@ -215,19 +220,18 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// Returns `[G, F, D, O]`.
     fn sample_ancestor_points(&self) -> Result<SampleAncestorPointsResult, StoreError> {
         let snapshot = self.snapshot();
-        let best = snapshot.get_best_chain_hash();
-        if best == ORIGIN_HASH {
+        let best_point = snapshot.get_best_chain_tip();
+        if best_point == Point::Origin {
             return Ok(SampleAncestorPointsResult::Found(vec![Point::Origin]));
         }
-        let Some(best) = snapshot.load_header(&best) else {
+        let Some(best) = snapshot.load_header(&best_point.hash()) else {
             return Ok(SampleAncestorPointsResult::BestChainTipNotFound);
         };
-        let best_point = best.point();
         let mut points = vec![best_point];
         let mut spacing = 1;
         let mut last = best_point;
         for (index, header) in ancestors_on_snapshot(best, &*snapshot).skip(1).enumerate() {
-            last = header.tip().point();
+            last = header.point();
             if index + 1 == spacing {
                 points.push(last);
                 spacing *= 2;
@@ -245,22 +249,15 @@ pub trait ReadChainStore: BaseReadChainStore {
     ///
     /// The entire walk runs against a single snapshot, so callers see a consistent view of the
     /// best chain even if other writers mutate it concurrently.
-    fn find_anchor_at_height(&self, target_height: BlockHeight) -> Option<HeaderHash> {
+    fn find_anchor_at_height(&self, target_height: BlockHeight) -> Option<Point> {
         let snapshot = self.snapshot();
-        let anchor_hash = snapshot.get_anchor_hash();
-        let (mut point, current_height) = if anchor_hash == ORIGIN_HASH {
-            (Point::Origin, BlockHeight::from(0))
-        } else {
-            let header = snapshot.load_header(&anchor_hash)?;
-            (header.point(), header.block_height())
-        };
-        if target_height <= current_height {
+        let mut point = snapshot.get_anchor_point();
+        if target_height <= point.block_height() {
             return None;
         }
         while let Some(next_point) = snapshot.next_best_chain(&point) {
-            let next_header = snapshot.load_header(&next_point.hash())?;
-            if next_header.block_height() >= target_height {
-                return Some(next_header.hash());
+            if next_point.block_height() >= target_height {
+                return Some(next_point);
             }
             point = next_point;
         }
@@ -316,7 +313,7 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// child_tips(A, ChildTipsMode::All) returns D and G.
     /// child_tips(A, ChildTipsMode::SkipInvalid) returns D only.
     ///
-    fn child_tips(&self, hash: &HeaderHash, mode: ChildTipsMode) -> Vec<Tip> {
+    fn child_tips(&self, hash: &HeaderHash, mode: ChildTipsMode) -> Vec<Point> {
         let snapshot = self.snapshot();
         let mut result = vec![];
         let mut to_visit: VecDeque<HeaderHash> =
@@ -332,7 +329,7 @@ pub trait ReadChainStore: BaseReadChainStore {
                 }
                 let children = snapshot.get_children(&hash);
                 if children.is_empty() {
-                    result.push(header.tip());
+                    result.push(header.point());
                 } else {
                     to_visit.extend(children);
                 }
@@ -350,7 +347,7 @@ fn ancestors_on_snapshot<'a>(
     start: Header,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
 ) -> Box<dyn Iterator<Item = Header> + 'a> {
-    let anchor_point = snapshot.get_anchor_tip().point();
+    let anchor_point = snapshot.get_anchor_point();
 
     Box::new(successors(Some(start), move |h| {
         if h.slot() <= anchor_point.slot_or_default() {
@@ -365,7 +362,7 @@ fn ancestors_with_validity_on_snapshot<'a>(
     start: HeaderHash,
     snapshot: &'a (dyn BaseReadChainStore + 'a),
 ) -> Box<dyn Iterator<Item = (Header, Option<bool>)> + 'a> {
-    let anchor_point = snapshot.get_anchor_tip().point();
+    let anchor_point = snapshot.get_anchor_point();
 
     let header_opt = snapshot.load_header_with_validity(&start);
 
@@ -391,16 +388,16 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
         self.as_ref().get_children(hash)
     }
 
-    fn get_anchor_hash(&self) -> HeaderHash {
-        self.as_ref().get_anchor_hash()
+    fn get_anchor_point(&self) -> Point {
+        self.as_ref().get_anchor_point()
     }
 
-    fn get_best_chain_hash(&self) -> HeaderHash {
-        self.as_ref().get_best_chain_hash()
+    fn get_best_chain_tip(&self) -> Point {
+        self.as_ref().get_best_chain_tip()
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        self.as_ref().load_from_best_chain(point)
+    fn is_on_best_chain(&self, point: NetworkPoint) -> bool {
+        self.as_ref().is_on_best_chain(point)
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {

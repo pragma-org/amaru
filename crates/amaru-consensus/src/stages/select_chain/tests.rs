@@ -25,7 +25,7 @@ use tracing::Level;
 use super::*;
 use crate::stages::{
     select_chain::test_setup::{
-        make_block_header, setup, setup_many, te_find_best_candidate, te_has_header, te_load_header, te_load_tip,
+        make_block_header, setup, setup_many, te_find_best_candidate, te_has_header, te_load_header, te_load_point,
         te_record_block_pruned, te_record_block_valid, te_record_fork_started, te_record_header_abandoned,
         te_set_block_valid, te_unvalidated_ancestor_hashes, test_prep,
     },
@@ -36,9 +36,9 @@ use crate::stages::{
 fn test_tip_not_found() {
     let prep = test_prep();
     let state = prep.state.clone();
-    // Tip for h3 but store only has h0, h1 - not h3
+    // Point for h3 but store only has h0, h1 - not h3
     prep.store_headers(&[&prep.headers.h0, &prep.headers.h1]);
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let parent = prep.headers.h2.point();
 
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
@@ -66,7 +66,7 @@ fn test_tip_already_validated_is_ignored() {
     let prep = test_prep();
     prep.store_headers(&prep.headers.main());
     prep.set_validity(prep.headers.h2.hash(), true);
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -92,7 +92,7 @@ fn test_tip_already_invalid_is_abandoned() {
     let prep = test_prep();
     prep.store_headers(&prep.headers.main());
     prep.set_validity(prep.headers.h2.hash(), false);
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -123,7 +123,7 @@ fn test_tip_already_invalid_is_abandoned() {
 fn test_tip_already_tracked_is_noop() {
     let mut prep = test_prep();
     prep.store_headers(&prep.headers.main());
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     prep.state.best_tip = Some(prep.headers.h2.clone());
     prep.state.tips = BTreeMap::from_iter([(
@@ -151,7 +151,7 @@ fn test_tip_already_tracked_is_noop() {
 fn test_tip_extends_from_origin() {
     let prep = test_prep();
     prep.store_headers(&[&prep.headers.h0]);
-    let tip = prep.headers.h0.tip();
+    let tip = prep.headers.h0.point();
     let parent = Point::Origin;
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -184,7 +184,7 @@ fn test_tip_extends_from_h1() {
     let mut prep = test_prep();
     prep.state.best_tip = Some(prep.headers.h1.clone());
     prep.store_headers(&prep.headers.main());
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let parent = prep.headers.h1.point();
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -221,7 +221,7 @@ fn test_tip_h3_extends_with_anchor_at_h2() {
     let prep = test_prep();
     prep.store_headers(&prep.headers.main());
     prep.set_anchor(prep.headers.h2.hash());
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let parent = prep.headers.h2.point();
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -264,7 +264,7 @@ fn test_tip_h3_extends_with_best_chain_h3a() {
         BTreeMap::from_iter([(prep.headers.h3a.hash(), vec![prep.headers.h2a.hash(), prep.headers.h3a.hash()])]);
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let parent = prep.headers.h2.point();
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -314,7 +314,7 @@ fn test_tip_h3a_extends_with_best_chain_h3() {
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
-    let tip = prep.headers.h3a.tip();
+    let tip = prep.headers.h3a.point();
     let parent = prep.headers.h2a.point();
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -350,7 +350,7 @@ fn test_tip_h3a_extends_with_best_chain_h2() {
         BTreeMap::from_iter([(prep.headers.h2.hash(), vec![prep.headers.h1.hash(), prep.headers.h2.hash()])]);
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h1.hash());
-    let tip = prep.headers.h3a.tip();
+    let tip = prep.headers.h3a.point();
     let parent = prep.headers.h2a.point();
     let msg = SelectChainMsg::tip_from_upstream(tip, parent);
 
@@ -394,7 +394,7 @@ fn test_upstream_tip_depends_on_invalid_block() {
     prep.store_headers(&prep.headers.main());
     prep.set_validity(prep.headers.h1.hash(), false);
     prep.set_anchor(prep.headers.h0.hash());
-    let tip = prep.headers.h3.tip();
+    let tip = prep.headers.h3.point();
     let parent = prep.headers.h2.point();
     // Use the simulation clock as the reception time so the forward duration measured at
     // abandonment (which reads the same clock) is zero.
@@ -432,7 +432,7 @@ fn test_block_validation_result_valid() {
     prep.state.tips =
         BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]);
     prep.store_headers(&prep.headers.main());
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let msg = SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0));
 
     let expected = SelectChain {
@@ -471,7 +471,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
@@ -491,8 +491,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated() {
             te_set_block_valid("sc-1", tip.hash(), false),
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h1.hash(), false),
-            te_load_tip("sc-1", prep.headers.h0.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.tip(), prep.headers.h0.point())),
+            te_load_point("sc-1", prep.headers.h0.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h1.point(), prep.headers.h0.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h1.hash()),
             te_clock_read("sc-1"),
             te_record_block_pruned(
@@ -530,7 +530,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
     prep.set_best_chain(prep.headers.h1.hash());
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     // Fallback uses get_anchor_hash; we set best_tip but tips stays empty (we don't reconstruct).
@@ -550,8 +550,8 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             te_set_block_valid("sc-1", tip.hash(), false),
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h3a.hash(), false),
-            te_load_tip("sc-1", prep.headers.h2a.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.tip(), prep.headers.h2a.point())),
+            te_load_point("sc-1", prep.headers.h2a.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3a.point(), prep.headers.h2a.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h3a.hash()),
             te_clock_read("sc-1"),
             te_record_block_pruned(
@@ -570,7 +570,7 @@ fn test_block_validation_result_invalid_best_tip_invalidated_switch_fork() {
             ),
             te_record_fork_started(
                 "sc-1",
-                prep.headers.h3a.tip(),
+                prep.headers.h3a.point(),
                 Instant::at_offset(Duration::from_secs(10), start_in_era().relative_time),
             ),
             te_state("sc-1", &expected),
@@ -591,7 +591,7 @@ fn test_block_validation_result_invalid_removes_tips() {
     ]);
     prep.store_headers(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
-    let tip = prep.headers.h2a.tip();
+    let tip = prep.headers.h2a.point();
     let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     let expected = SelectChain {
@@ -638,7 +638,7 @@ fn test_block_validation_result_invalid_for_unknown_hash() {
     prep.state.best_tip = Some(prep.headers.h3.clone());
     prep.store_headers(&prep.headers.main());
     let unknown_hash = HeaderHash::from([99u8; 32]);
-    let tip = Tip::new(Point::Specific(Slot::from(999), unknown_hash), BlockHeight::from(0));
+    let tip = Point::Specific(Slot::from(999), unknown_hash, BlockHeight::from(1));
     let msg = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -671,7 +671,7 @@ fn test_fault_set_block_valid_returns_err_failed_to_store_block_validation_resul
             })
             .build(),
     );
-    let tip = prep.headers.h2.tip();
+    let tip = prep.headers.h2.point();
     let msg = SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -706,8 +706,8 @@ fn test_startup_with_non_empty_store() {
             te_state("sc-1", &prep.state),
             te_input("sc-1", &msg),
             te_load_header("sc-1", prep.headers.h3.hash(), false),
-            te_load_tip("sc-1", prep.headers.h2.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.tip(), prep.headers.h2.point())),
+            te_load_point("sc-1", prep.headers.h2.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.point(), prep.headers.h2.point())),
             te_state("sc-1", &prep.state),
         ],
     );
@@ -738,8 +738,8 @@ fn test_fetch_next_from_resumes_best_candidate() {
         &[
             te_input("sc-1", &msg).into(),
             te_load_header("sc-1", prep.headers.h3.hash(), false).into(),
-            te_load_tip("sc-1", prep.headers.h2.hash()).into(),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.tip(), prep.headers.h2.point())).into(),
+            te_load_point("sc-1", prep.headers.h2.hash()).into(),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h3.point(), prep.headers.h2.point())).into(),
         ],
     );
 
@@ -791,7 +791,7 @@ fn test_last_best_tip_invalidated_falls_back_to_origin() {
     prep.state.tips.insert(prep.headers.h3.hash(), vec![prep.headers.h3.hash()]);
 
     // Invalidate the last remaining best tip candidate (the anchor)
-    let msg = SelectChainMsg::BlockValidationResult(prep.headers.h3.tip(), false, BlockHeight::from(0));
+    let msg = SelectChainMsg::BlockValidationResult(prep.headers.h3.point(), false, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
 
@@ -825,8 +825,8 @@ fn test_new_tip_after_pruning_restores_pending_block_validations() {
     prep.set_validity(prep.headers.h0.hash(), true);
     prep.set_validity(prep.headers.h1.hash(), true);
 
-    let invalid = SelectChainMsg::BlockValidationResult(prep.headers.h3a.tip(), false, BlockHeight::from(0));
-    let new_tip = SelectChainMsg::tip_from_upstream(h3b.tip(), prep.headers.h2a.point());
+    let invalid = SelectChainMsg::BlockValidationResult(prep.headers.h3a.point(), false, BlockHeight::from(0));
+    let new_tip = SelectChainMsg::tip_from_upstream(h3b.point(), prep.headers.h2a.point());
 
     let after_prune = SelectChain {
         tips: BTreeMap::from_iter([(prep.headers.h3.hash(), vec![prep.headers.h2.hash(), prep.headers.h3.hash()])]),
@@ -878,8 +878,8 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
     prep.set_best_chain(prep.headers.h1.hash());
 
     // h2 is validated but not h3
-    let tip = prep.headers.h3.tip();
-    let msg1 = SelectChainMsg::BlockValidationResult(prep.headers.h2.tip(), true, BlockHeight::from(0));
+    let tip = prep.headers.h3.point();
+    let msg1 = SelectChainMsg::BlockValidationResult(prep.headers.h2.point(), true, BlockHeight::from(0));
     let msg2 = SelectChainMsg::BlockValidationResult(tip, false, BlockHeight::from(0));
 
     // Validating h2 drains it from the pending list; h3 is still awaiting its result.
@@ -912,8 +912,8 @@ fn test_invalid_block_validation_result_invalidates_best_tip_and_trims_the_branc
             te_set_block_valid("sc-1", tip.hash(), false),
             te_find_best_candidate("sc-1"),
             te_load_header("sc-1", prep.headers.h2.hash(), false),
-            te_load_tip("sc-1", prep.headers.h1.hash()),
-            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h2.tip(), prep.headers.h1.point())),
+            te_load_point("sc-1", prep.headers.h1.hash()),
+            te_send("sc-1", "downstream", NewBestTip::new(prep.headers.h2.point(), prep.headers.h1.point())),
             te_unvalidated_ancestor_hashes("sc-1", prep.headers.h2.hash()),
             te_clock_read("sc-1"),
             te_record_block_pruned("sc-1", prep.headers.h3.hash(), true, now, false),
@@ -946,7 +946,7 @@ mod best_tip_from_store_tests {
         for header in [&a, &b, &c, &d] {
             store.store_header(header).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         for header in [&a, &b] {
             store.roll_forward_chain(&header.point()).unwrap();
         }
@@ -966,7 +966,7 @@ mod best_tip_from_store_tests {
         for header in [&a, &b, &c, &d] {
             store.store_header(header).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         for header in [&a, &b] {
             store.roll_forward_chain(&header.point()).unwrap();
         }
@@ -993,7 +993,7 @@ mod best_tip_from_store_tests {
         for header in [&a, &b, &c, &d, &e] {
             store.store_header(header).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         for header in [&a, &b] {
             store.roll_forward_chain(&header.point()).unwrap();
         }
@@ -1014,7 +1014,7 @@ mod best_tip_from_store_tests {
             store.store_header(header).unwrap();
             store.roll_forward_chain(&header.point()).unwrap();
         }
-        store.set_anchor_hash(&a.hash()).unwrap();
+        store.set_anchor_point(&a.point()).unwrap();
         store.set_block_valid(&a.hash(), true).unwrap();
         store.set_block_valid(&b.hash(), true).unwrap();
 

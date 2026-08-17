@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::headers_tree::data_generation::{
-    GeneratedActions, any_select_chains_from_tree, any_tree_of_headers,
-};
 use amaru_kernel::utils::tests::run_strategy_with_rng;
 
+use super::{GeneratedActions, any_select_chains_from_tree, any_tree_of_headers};
 use crate::simulator::RunConfig;
 
 /// Generates a sequence of random actions from peers on a tree of

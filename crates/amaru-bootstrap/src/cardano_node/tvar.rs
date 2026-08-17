@@ -66,7 +66,7 @@ where
         let mut decoder = minicbor::Decoder::new(&state_head);
         (parse_state_snapshot(&mut decoder, global_parameters)?, None)
     };
-    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
+    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
     let new_epoch_state_offset = parsed_snapshot.ledger_data_begin;
 
     info!(bootstrap::snapshot::IMPORT_TVAR, point = point, new_epoch_state_offset = new_epoch_state_offset);

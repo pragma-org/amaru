@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
@@ -142,7 +142,7 @@ pub enum ConnectionMessage {
         interval: std::time::Duration,
         reply_to: StageRef<ShareResult>,
     },
-    NewTip(Tip, TraceContext),
+    NewTip(Point, TraceContext),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
 }
@@ -160,7 +160,7 @@ impl ConnectionMessage {
         }
     }
 
-    pub fn new_tip(tip: Tip) -> Self {
+    pub fn new_tip(tip: Point) -> Self {
         ConnectionMessage::NewTip(tip, TraceContext::none())
     }
 }
@@ -498,7 +498,7 @@ mod tests {
 
     fn new_tip_in_disconnected_state_reschedules(connection_state: State) {
         assert_message_reschedules_in_disconnected_state(connection_state, |_| {
-            ConnectionMessage::new_tip(Tip::origin())
+            ConnectionMessage::new_tip(Point::Origin)
         });
     }
 

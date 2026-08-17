@@ -17,7 +17,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot, Tip};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot};
 use amaru_pure_stage::{ExternalEffect, Instant, Resources};
 
 use super::{
@@ -33,8 +33,8 @@ fn hash(byte: u8) -> HeaderHash {
     HeaderHash::from([byte; 32])
 }
 
-fn tip(byte: u8, height: u64) -> Tip {
-    Tip::new(Point::Specific(Slot::from(height), hash(byte)), BlockHeight::from(height))
+fn tip(byte: u8, height: u64) -> Point {
+    Point::Specific(Slot::from(height), hash(byte), BlockHeight::from(height))
 }
 
 fn peer(name: &str) -> Peer {
