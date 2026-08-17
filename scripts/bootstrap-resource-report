@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Collect and render cgroup resource usage for Amaru workloads."""
+"""Collect and render cgroup resource usage for bootstrap runs."""
 
 from __future__ import annotations
 
@@ -38,7 +38,6 @@ from typing import Any, Iterable
 READY_TIMEOUT_SECONDS = 60.0
 ACK_TIMEOUT_SECONDS = 15.0
 CGROUP_TIMEOUT_SECONDS = 30.0
-SYSTEMD_REFRESH_TIMEOUT_SECONDS = 5.0
 MARKER_POLL_SECONDS = 0.05
 MIB = 1024 * 1024
 
@@ -257,40 +256,6 @@ def capture_sample(
     return row, cpu_usage, sampled_at
 
 
-def refresh_systemd_memory_accounting(unit: str) -> None:
-    """Cache final cgroup peaks in systemd before it prunes the transient unit."""
-
-    command = [
-        "systemctl",
-        "show",
-        unit,
-        "--property=MemoryPeak",
-        "--property=MemorySwapPeak",
-        "--value",
-        "--no-pager",
-    ]
-    try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=SYSTEMD_REFRESH_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        print(f"warning: unable to refresh systemd memory accounting for {unit}: {error}", file=sys.stderr)
-        return
-
-    if completed.returncode != 0:
-        detail = completed.stderr.strip()
-        suffix = f": {detail}" if detail else ""
-        print(
-            f"warning: failed to refresh systemd memory accounting for {unit} (status {completed.returncode}){suffix}",
-            file=sys.stderr,
-        )
-
-
 def sample_cgroup(args: argparse.Namespace) -> int:
     if args.interval <= 0:
         raise ValueError("--interval must be greater than zero")
@@ -347,8 +312,6 @@ def sample_cgroup(args: argparse.Namespace) -> int:
             final_row, _, _ = capture_sample(args.cgroup, started_at, previous_cpu_usage, previous_sampled_at)
             writer.writerow(final_row)
             handle.flush()
-            if args.systemd_unit is not None:
-                refresh_systemd_memory_accounting(args.systemd_unit)
     finally:
         if ready_written:
             atomic_write_text(args.ack_file, "acknowledged\n")
@@ -484,39 +447,29 @@ def is_true(value: Any) -> bool:
     return value is True or (isinstance(value, str) and value.lower() == "true")
 
 
-def load_trace_markers(path: Path) -> tuple[list[EpochMarker], int | None]:
+def load_epoch_markers(path: Path) -> list[EpochMarker]:
     if not path.is_file():
-        return [], None
+        return []
 
     candidates: list[EpochMarker] = []
-    download_complete_candidates: list[int] = []
     try:
         with path.open(encoding="utf-8", errors="replace") as handle:
             for line in handle:
                 record = extract_json_record(line)
-                if record is None:
+                if record is None or record.get("target") != "amaru::stores":
                     continue
                 fields = record.get("fields") if isinstance(record.get("fields"), dict) else {}
-                timestamp_ms = parse_timestamp_ms(record.get("timestamp"))
-                if (
-                    record.get("target") == "amaru::bootstrap"
-                    and fields.get("message") == "snapshot.import_archive"
-                    and timestamp_ms is not None
-                ):
-                    download_complete_candidates.append(timestamp_ms)
-
-                if record.get("target") != "amaru::stores":
-                    continue
                 if fields.get("message") != "enter":
                     continue
 
                 database_tag = record.get("amaru.tag.db", fields.get("amaru.tag.db"))
                 epoch = record.get("epoch", fields.get("epoch"))
+                timestamp_ms = parse_timestamp_ms(record.get("timestamp"))
                 if not is_true(database_tag) or epoch is None or timestamp_ms is None:
                     continue
                 candidates.append(EpochMarker(timestamp_ms=timestamp_ms, epoch=str(epoch)))
     except OSError:
-        return [], None
+        return []
 
     candidates.sort(key=lambda marker: marker.timestamp_ms)
     markers: list[EpochMarker] = []
@@ -526,8 +479,7 @@ def load_trace_markers(path: Path) -> tuple[list[EpochMarker], int | None]:
             continue
         seen_epochs.add(marker.epoch)
         markers.append(marker)
-    download_complete = min(download_complete_candidates) if download_complete_candidates else None
-    return markers, download_complete
+    return markers
 
 
 def maximum(values: Iterable[int | float | None]) -> int | float | None:
@@ -547,30 +499,12 @@ def format_percent(value: int | float | None) -> str:
     return f"{float(value):.1f}%"
 
 
-def elapsed_at_timestamp(timestamp_ms: int | None, samples: list[ResourceSample]) -> float | None:
-    if timestamp_ms is None or not samples:
-        return None
-    return samples[0].elapsed_seconds + (timestamp_ms - samples[0].timestamp_ms) / 1000.0
-
-
-def build_summary(
-    samples: list[ResourceSample],
-    markers: list[EpochMarker],
-    download_complete_timestamp_ms: int | None,
-    memory_limit_bytes: int,
-    title: str,
-) -> dict[str, Any]:
+def build_summary(samples: list[ResourceSample], markers: list[EpochMarker], memory_limit_bytes: int) -> dict[str, Any]:
     elapsed = [sample.elapsed_seconds for sample in samples]
-    download_complete_elapsed = elapsed_at_timestamp(download_complete_timestamp_ms, samples)
     return {
-        "title": title,
         "sample_count": len(samples),
         "duration_seconds": round(max(elapsed) - min(elapsed), 3) if elapsed else None,
         "epoch_marker_count": len(markers),
-        "download_complete_timestamp_ms": download_complete_timestamp_ms,
-        "download_complete_elapsed_seconds": (
-            round(download_complete_elapsed, 3) if download_complete_elapsed is not None else None
-        ),
         "memory_limit_bytes": memory_limit_bytes,
         "max_memory_current_bytes": maximum(sample.memory_current_bytes for sample in samples),
         "max_memory_peak_bytes": maximum(sample.memory_peak_bytes for sample in samples),
@@ -585,32 +519,24 @@ def build_summary(
 def build_markdown_summary(summary: dict[str, Any]) -> str:
     duration = summary["duration_seconds"]
     duration_label = f"{duration} s" if duration is not None else "n/a"
-    download_complete = summary["download_complete_elapsed_seconds"]
-    download_complete_label = f"{download_complete} s" if download_complete is not None else "n/a"
     lines = [
-        f"## {summary['title']}",
+        "## Bootstrap resource usage",
         "",
         "| Metric | Value |",
         "|---|---:|",
         f"| Samples | {summary['sample_count']} |",
         f"| Duration | {duration_label} |",
+        f"| Epoch markers | {summary['epoch_marker_count']} |",
+        f"| Memory limit | {format_bytes(summary['memory_limit_bytes'])} |",
+        f"| Maximum current memory | {format_bytes(summary['max_memory_current_bytes'])} |",
+        f"| Maximum reported memory peak | {format_bytes(summary['max_memory_peak_bytes'])} |",
+        f"| Maximum swap | {format_bytes(summary['max_memory_swap_current_bytes'])} |",
+        f"| Maximum CPU (100% = one core) | {format_percent(summary['max_cpu_percent_one_core'])} |",
+        f"| OOM events | {summary['oom_events']} |",
+        f"| OOM kills | {summary['oom_kill_events']} |",
+        f"| OOM group kills | {summary['oom_group_kill_events']} |",
+        "",
     ]
-    if download_complete is not None:
-        lines.append(f"| Downloads complete | {download_complete_label} |")
-    lines.extend(
-        [
-            f"| Epoch markers | {summary['epoch_marker_count']} |",
-            f"| Memory limit | {format_bytes(summary['memory_limit_bytes'])} |",
-            f"| Maximum current memory | {format_bytes(summary['max_memory_current_bytes'])} |",
-            f"| Maximum reported memory peak | {format_bytes(summary['max_memory_peak_bytes'])} |",
-            f"| Maximum swap | {format_bytes(summary['max_memory_swap_current_bytes'])} |",
-            f"| Maximum CPU (100% = one core) | {format_percent(summary['max_cpu_percent_one_core'])} |",
-            f"| OOM events | {summary['oom_events']} |",
-            f"| OOM kills | {summary['oom_kill_events']} |",
-            f"| OOM group kills | {summary['oom_group_kill_events']} |",
-            "",
-        ]
-    )
     return "\n".join(lines)
 
 
@@ -658,13 +584,7 @@ def svg_polyline(
     return elements
 
 
-def build_svg(
-    samples: list[ResourceSample],
-    markers: list[EpochMarker],
-    download_complete_timestamp_ms: int | None,
-    memory_limit_bytes: int,
-    title: str,
-) -> str:
+def build_svg(samples: list[ResourceSample], markers: list[EpochMarker], memory_limit_bytes: int) -> str:
     width = 1600
     height = 900
     left = 110
@@ -683,8 +603,12 @@ def build_svg(
     if maximum_elapsed <= minimum_elapsed:
         maximum_elapsed = minimum_elapsed + 1.0
 
-    memory_values = [sample.memory_current_bytes for sample in samples if sample.memory_current_bytes is not None]
-    memory_peak = maximum(sample.memory_peak_bytes for sample in samples)
+    memory_values = [
+        value
+        for sample in samples
+        for value in (sample.memory_current_bytes, sample.memory_peak_bytes)
+        if value is not None
+    ]
     memory_maximum = max([memory_limit_bytes, *memory_values, 1]) * 1.08
     cpu_values = [sample.cpu_percent_one_core for sample in samples if sample.cpu_percent_one_core is not None]
     cpu_maximum = max([100.0, *cpu_values, 1.0]) * 1.08
@@ -692,32 +616,22 @@ def build_svg(
     def x_coordinate(elapsed: float) -> float:
         return left + (elapsed - minimum_elapsed) * plot_width / (maximum_elapsed - minimum_elapsed)
 
-    def marker_label_layout(marker_x: float) -> tuple[float, str]:
-        if marker_x > left + plot_width / 2:
-            return marker_x - 4, "end"
-        return marker_x + 4, "start"
-
     def memory_y(value: int | float) -> float:
         return memory_bottom - float(value) * panel_height / memory_maximum
 
     def cpu_y(value: int | float) -> float:
         return cpu_bottom - float(value) * panel_height / cpu_maximum
 
-    escaped_title = html.escape(title)
     elements = [
         '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" '
         'role="img" aria-labelledby="title description">',
-        f'<title id="title">{escaped_title}</title>',
-        '<desc id="description">Current cgroup memory and CPU usage over time with a peak-memory annotation, '
-        'memory limit, download completion marker, and completed epoch import markers.</desc>',
+        '<title id="title">Amaru bootstrap resource usage</title>',
+        '<desc id="description">Cgroup memory and CPU usage over time with completed epoch import markers.</desc>',
         '<rect width="1600" height="900" fill="#ffffff"/>',
         '<style>text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #172033; } '
         '.axis { stroke: #4b5563; stroke-width: 1.5; } .grid { stroke: #d9dee8; stroke-width: 1; } '
-        '.label { font-size: 18px; } .tick { font-size: 14px; } '
-        '.peak-annotation { font-size: 16px; font-weight: 600; fill: #d97706; } '
-        '.marker-label { font-size: 12px; fill: #6d28d9; } '
-        '.phase-marker-label { font-size: 12px; font-weight: 600; fill: #0f766e; }</style>',
-        f'<text x="800" y="38" text-anchor="middle" font-size="25" font-weight="bold">{escaped_title}</text>',
+        '.label { font-size: 18px; } .tick { font-size: 14px; } .marker-label { font-size: 12px; fill: #6d28d9; }</style>',
+        '<text x="800" y="38" text-anchor="middle" font-size="25" font-weight="bold">Amaru bootstrap resource usage</text>',
         f'<rect x="{left}" y="{top}" width="{plot_width}" height="{panel_height}" fill="#f8fafc"/>',
         f'<rect x="{left}" y="{cpu_top}" width="{plot_width}" height="{panel_height}" fill="#f8fafc"/>',
     ]
@@ -767,13 +681,18 @@ def build_svg(
             ]
         )
 
-    if memory_peak is not None:
-        elements.append(
-            f'<text class="peak-annotation" x="{width - right}" y="{top - 14}" text-anchor="end">'
-            f'Peak: {float(memory_peak) / MIB:.0f} MiB</text>'
-        )
-
     if samples:
+        elements.extend(
+            svg_polyline(
+                samples,
+                lambda sample: sample.memory_peak_bytes,
+                x_coordinate,
+                memory_y,
+                "#d97706",
+                "memory-peak",
+                "8 6",
+            )
+        )
         elements.extend(
             svg_polyline(
                 samples,
@@ -803,40 +722,20 @@ def build_svg(
         )
 
     if samples:
-        download_complete_elapsed = elapsed_at_timestamp(download_complete_timestamp_ms, samples)
-        if (
-            download_complete_elapsed is not None
-            and minimum_elapsed <= download_complete_elapsed <= maximum_elapsed
-        ):
-            marker_x = x_coordinate(download_complete_elapsed)
-            label_x, label_anchor = marker_label_layout(marker_x)
-            elements.extend(
-                [
-                    f'<line data-marker="download-complete" x1="{marker_x:.2f}" y1="{top}" '
-                    f'x2="{marker_x:.2f}" y2="{cpu_bottom}" stroke="#0f766e" stroke-width="2" '
-                    'stroke-dasharray="8 4"/>',
-                    f'<text class="phase-marker-label" x="{label_x:.2f}" y="{top + 18}" '
-                    f'text-anchor="{label_anchor}">'
-                    'Downloads complete</text>',
-                ]
-            )
-
+        first_timestamp = samples[0].timestamp_ms
+        first_elapsed = samples[0].elapsed_seconds
         for index, marker in enumerate(markers):
-            marker_elapsed = elapsed_at_timestamp(marker.timestamp_ms, samples)
-            if marker_elapsed is None:
-                continue
+            marker_elapsed = first_elapsed + (marker.timestamp_ms - first_timestamp) / 1000.0
             if marker_elapsed < minimum_elapsed or marker_elapsed > maximum_elapsed:
                 continue
             marker_x = x_coordinate(marker_elapsed)
-            label_x, label_anchor = marker_label_layout(marker_x)
             label = html.escape(f"Epoch {marker.epoch} complete")
-            label_y = top + 36 + (index % 3) * 15
+            label_y = top + 18 + (index % 3) * 15
             elements.extend(
                 [
                     f'<line data-epoch="{html.escape(marker.epoch, quote=True)}" x1="{marker_x:.2f}" y1="{top}" '
                     f'x2="{marker_x:.2f}" y2="{cpu_bottom}" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 4"/>',
-                    f'<text class="marker-label" x="{label_x:.2f}" y="{label_y}" '
-                    f'text-anchor="{label_anchor}">{label}</text>',
+                    f'<text class="marker-label" x="{marker_x + 4:.2f}" y="{label_y}">{label}</text>',
                 ]
             )
 
@@ -844,8 +743,10 @@ def build_svg(
         [
             f'<line x1="{left + 15}" y1="{memory_bottom + 30}" x2="{left + 55}" y2="{memory_bottom + 30}" stroke="#2563eb" stroke-width="3"/>',
             f'<text x="{left + 65}" y="{memory_bottom + 35}" font-size="14">memory.current</text>',
-            f'<line x1="{left + 230}" y1="{memory_bottom + 30}" x2="{left + 270}" y2="{memory_bottom + 30}" stroke="#dc2626" stroke-width="2" stroke-dasharray="10 7"/>',
-            f'<text x="{left + 280}" y="{memory_bottom + 35}" font-size="14">Memory limit ({memory_limit_bytes / MIB:.1f} MiB)</text>',
+            f'<line x1="{left + 230}" y1="{memory_bottom + 30}" x2="{left + 270}" y2="{memory_bottom + 30}" stroke="#d97706" stroke-width="3" stroke-dasharray="8 6"/>',
+            f'<text x="{left + 280}" y="{memory_bottom + 35}" font-size="14">memory.peak (cumulative)</text>',
+            f'<line x1="{left + 525}" y1="{memory_bottom + 30}" x2="{left + 565}" y2="{memory_bottom + 30}" stroke="#dc2626" stroke-width="2" stroke-dasharray="10 7"/>',
+            f'<text x="{left + 575}" y="{memory_bottom + 35}" font-size="14">Memory limit ({memory_limit_bytes / MIB:.1f} MiB)</text>',
             f'<line x1="{left + 15}" y1="{cpu_top - 25}" x2="{left + 55}" y2="{cpu_top - 25}" stroke="#059669" stroke-width="3"/>',
             f'<text x="{left + 65}" y="{cpu_top - 20}" font-size="14">CPU usage</text>',
             "</svg>",
@@ -859,14 +760,11 @@ def render_report(args: argparse.Namespace) -> int:
         raise ValueError("--memory-limit-bytes must not be negative")
 
     samples = load_samples(args.samples)
-    markers, download_complete_timestamp_ms = load_trace_markers(args.traces)
-    summary = build_summary(samples, markers, download_complete_timestamp_ms, args.memory_limit_bytes, args.title)
+    markers = load_epoch_markers(args.traces)
+    summary = build_summary(samples, markers, args.memory_limit_bytes)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        build_svg(samples, markers, download_complete_timestamp_ms, args.memory_limit_bytes, args.title),
-        encoding="utf-8",
-    )
+    args.output.write_text(build_svg(samples, markers, args.memory_limit_bytes), encoding="utf-8")
     write_markers(args.markers_output, markers, samples)
 
     args.summary_output.parent.mkdir(parents=True, exist_ok=True)
@@ -909,7 +807,6 @@ def build_parser() -> argparse.ArgumentParser:
     sample_parser.add_argument("--ack-file", type=Path, required=True)
     sample_parser.add_argument("--watch-pid", type=int, required=True)
     sample_parser.add_argument("--interval", type=positive_float, required=True)
-    sample_parser.add_argument("--systemd-unit")
     sample_parser.set_defaults(handler=sample_cgroup)
 
     render_parser = subparsers.add_parser("render", help="render samples and JSON traces to an SVG report")
@@ -919,7 +816,6 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument("--markers-output", type=Path, required=True)
     render_parser.add_argument("--summary-output", type=Path, required=True)
     render_parser.add_argument("--memory-limit-bytes", type=non_negative_int, required=True)
-    render_parser.add_argument("--title", default="Amaru bootstrap resource usage")
     render_parser.set_defaults(handler=render_report)
 
     return parser
