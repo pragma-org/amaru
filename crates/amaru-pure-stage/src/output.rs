@@ -16,7 +16,7 @@ use std::fmt;
 
 use tokio::sync::mpsc;
 
-use crate::{ExternalEffect, ExternalEffectAPI, Name, Resources, SendData, types::MpscSender};
+use crate::{ExternalEffectAPI, Name, Resources, SendData, types::MpscSender};
 
 /// An effect that sends a message to an output channel.
 ///
@@ -58,10 +58,12 @@ impl<Msg: SendData + PartialEq> PartialEq for OutputEffect<Msg> {
     }
 }
 
-impl<Msg> ExternalEffect for OutputEffect<Msg>
+impl<Msg> ExternalEffectAPI for OutputEffect<Msg>
 where
     Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
 {
+    type Response = ();
+
     fn run(self: Box<Self>, _resources: Resources) -> crate::BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async move {
             if let Err(e) = self.sender.send(self.msg).await {
@@ -70,11 +72,4 @@ where
             Box::new(()) as Box<dyn SendData>
         })
     }
-}
-
-impl<Msg> ExternalEffectAPI for OutputEffect<Msg>
-where
-    Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
-{
-    type Response = ();
 }

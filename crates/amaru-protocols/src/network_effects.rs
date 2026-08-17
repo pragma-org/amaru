@@ -22,7 +22,7 @@ use std::{
 
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_ouroboros::{ConnectionId, ConnectionsResource, ToSocketAddrs};
-use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, DurationDist, Effects, ExternalEffectAPI, Resources, SendData};
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
     vec![
@@ -93,19 +93,17 @@ pub struct ListenEffect {
     pub addr: SocketAddr,
 }
 
-impl ExternalEffect for ListenEffect {
+impl ExternalEffectAPI for ListenEffect {
+    type Response = Result<SocketAddr, ListenError>;
+
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        self.wrap(|this| async move {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("ListenEffect requires a ConnectionsResource").clone();
-            resource.listen(self.addr).await.map_err(|e| ListenError(format!("{e}")))
+            resource.listen(this.addr).await.map_err(|e| ListenError(format!("{e}")))
         })
     }
-}
-
-impl ExternalEffectAPI for ListenEffect {
-    type Response = Result<SocketAddr, ListenError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -123,23 +121,22 @@ pub struct AcceptEffect {
     pub listener_addr: SocketAddr,
 }
 
-impl ExternalEffect for AcceptEffect {
+impl ExternalEffectAPI for AcceptEffect {
+    type Response = Result<(Peer, ConnectionId), AcceptError>;
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        self.wrap(|this| async move {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("AcceptEffect requires a ConnectionsResource").clone();
             #[expect(clippy::wildcard_enum_match_arm)]
-            resource.accept(self.listener_addr).await.map_err(|e| match e.kind() {
+            resource.accept(this.listener_addr).await.map_err(|e| match e.kind() {
                 ErrorKind::ConnectionAborted => AcceptError::ConnectionAborted,
                 other => AcceptError::Other(format!("{other}")),
             })
         })
     }
-}
-
-impl ExternalEffectAPI for AcceptEffect {
-    type Response = Result<(Peer, ConnectionId), AcceptError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -164,22 +161,21 @@ pub struct ConnectEffect {
     pub timeout: Duration,
 }
 
-impl ExternalEffect for ConnectEffect {
+impl ExternalEffectAPI for ConnectEffect {
+    type Response = Result<ConnectionId, ConnectError>;
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        self.wrap(|this| async move {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("ConnectEffect requires a ConnectionsResource").clone();
             resource
-                .connect_addrs(self.addr.clone(), self.timeout)
+                .connect_addrs(this.addr.clone(), this.timeout)
                 .await
-                .map_err(|e| ConnectError { addr: self.addr, error: format!("{e}") })
+                .map_err(|e| ConnectError { addr: this.addr, error: format!("{e}") })
         })
     }
-}
-
-impl ExternalEffectAPI for ConnectEffect {
-    type Response = Result<ConnectionId, ConnectError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -201,19 +197,18 @@ pub struct SendEffect {
     pub data: NonEmptyBytes,
 }
 
-impl ExternalEffect for SendEffect {
+impl ExternalEffectAPI for SendEffect {
+    type Response = Result<(), SendError>;
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        self.wrap(|this| async move {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("SendEffect requires a ConnectionsResource").clone();
-            resource.send(self.conn, self.data).await.map_err(|e| SendError { conn: self.conn, error: format!("{e}") })
+            resource.send(this.conn, this.data).await.map_err(|e| SendError { conn: this.conn, error: format!("{e}") })
         })
     }
-}
-
-impl ExternalEffectAPI for SendEffect {
-    type Response = Result<(), SendError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -235,22 +230,21 @@ pub struct RecvEffect {
     pub bytes: NonZeroUsize,
 }
 
-impl ExternalEffect for RecvEffect {
+impl ExternalEffectAPI for RecvEffect {
+    type Response = Result<NonEmptyBytes, ReceiveError>;
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        self.wrap(|this| async move {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("RecvEffect requires a ConnectionsResource").clone();
             resource
-                .recv(self.conn, self.bytes)
+                .recv(this.conn, this.bytes)
                 .await
-                .map_err(|e| ReceiveError { conn: self.conn, error: format!("{e}") })
+                .map_err(|e| ReceiveError { conn: this.conn, error: format!("{e}") })
         })
     }
-}
-
-impl ExternalEffectAPI for RecvEffect {
-    type Response = Result<NonEmptyBytes, ReceiveError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -271,19 +265,17 @@ pub struct CloseEffect {
     pub conn: ConnectionId,
 }
 
-impl ExternalEffect for CloseEffect {
+impl ExternalEffectAPI for CloseEffect {
+    type Response = Result<(), CloseError>;
+
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap(async move {
+        self.wrap(|this| async move {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("CloseEffect requires a ConnectionsResource").clone();
-            resource.close(self.conn).await.map_err(|e| CloseError { conn: self.conn, error: format!("{e}") })
+            resource.close(this.conn).await.map_err(|e| CloseError { conn: this.conn, error: format!("{e}") })
         })
     }
-}
-
-impl ExternalEffectAPI for CloseEffect {
-    type Response = Result<(), CloseError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

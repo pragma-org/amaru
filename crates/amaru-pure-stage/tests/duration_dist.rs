@@ -32,85 +32,61 @@ use amaru_pure_stage::{
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct ZeroWork;
 
-impl ExternalEffect for ZeroWork {
-    fn simulated_duration_dist(&self) -> DurationDist {
-        <Self as ExternalEffectAPI>::SIMULATED_DURATION
-    }
+impl ExternalEffectAPI for ZeroWork {
+    type Response = ();
 
     fn run(
         self: Box<Self>,
         _resources: Resources,
     ) -> amaru_pure_stage::BoxFuture<'static, Box<dyn amaru_pure_stage::SendData>> {
-        Self::wrap_sync(())
+        self.wrap_sync(())
     }
-}
-
-impl ExternalEffectAPI for ZeroWork {
-    type Response = ();
 }
 
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct ConstWork;
 
-impl ExternalEffect for ConstWork {
-    fn simulated_duration_dist(&self) -> DurationDist {
-        <Self as ExternalEffectAPI>::SIMULATED_DURATION
-    }
+impl ExternalEffectAPI for ConstWork {
+    type Response = ();
+    const SIMULATED_DURATION: DurationDist = DurationDist::Constant(Duration::from_secs(10));
 
     fn run(
         self: Box<Self>,
         _resources: Resources,
     ) -> amaru_pure_stage::BoxFuture<'static, Box<dyn amaru_pure_stage::SendData>> {
-        Self::wrap_sync(())
+        self.wrap_sync(())
     }
-}
-
-impl ExternalEffectAPI for ConstWork {
-    type Response = ();
-    const SIMULATED_DURATION: DurationDist = DurationDist::Constant(Duration::from_secs(10));
 }
 
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct UniformWork;
 
-impl ExternalEffect for UniformWork {
-    fn simulated_duration_dist(&self) -> DurationDist {
-        <Self as ExternalEffectAPI>::SIMULATED_DURATION
-    }
+impl ExternalEffectAPI for UniformWork {
+    type Response = ();
+    const SIMULATED_DURATION: DurationDist =
+        DurationDist::Uniform { min: Duration::from_secs(5), max: Duration::from_secs(15) };
 
     fn run(
         self: Box<Self>,
         _resources: Resources,
     ) -> amaru_pure_stage::BoxFuture<'static, Box<dyn amaru_pure_stage::SendData>> {
-        Self::wrap_sync(())
+        self.wrap_sync(())
     }
-}
-
-impl ExternalEffectAPI for UniformWork {
-    type Response = ();
-    const SIMULATED_DURATION: DurationDist =
-        DurationDist::Uniform { min: Duration::from_secs(5), max: Duration::from_secs(15) };
 }
 
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct ResolvedWork;
 
-impl ExternalEffect for ResolvedWork {
-    fn simulated_duration_dist(&self) -> DurationDist {
-        <Self as ExternalEffectAPI>::SIMULATED_DURATION
-    }
+impl ExternalEffectAPI for ResolvedWork {
+    type Response = ();
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
 
     fn run(
         self: Box<Self>,
         _resources: Resources,
     ) -> amaru_pure_stage::BoxFuture<'static, Box<dyn amaru_pure_stage::SendData>> {
-        Self::wrap_sync(())
+        self.wrap_sync(())
     }
-}
-
-impl ExternalEffectAPI for ResolvedWork {
-    type Response = ();
-    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
 }
 
 fn run_once<E: ExternalEffectAPI<Response = ()> + Default>(
@@ -282,10 +258,9 @@ static COMPUTED_AT_DEADLINE: AtomicBool = AtomicBool::new(false);
 #[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct DeadlineWork;
 
-impl ExternalEffect for DeadlineWork {
-    fn simulated_duration_dist(&self) -> DurationDist {
-        DurationDist::Constant(Duration::from_secs(10))
-    }
+impl ExternalEffectAPI for DeadlineWork {
+    type Response = ();
+    const SIMULATED_DURATION: DurationDist = DurationDist::Constant(Duration::from_secs(10));
 
     fn run(
         self: Box<Self>,
@@ -298,9 +273,32 @@ impl ExternalEffect for DeadlineWork {
     }
 }
 
-impl ExternalEffectAPI for DeadlineWork {
+#[cfg(debug_assertions)]
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct MismatchedDuration;
+
+#[cfg(debug_assertions)]
+impl ExternalEffectAPI for MismatchedDuration {
     type Response = ();
-    const SIMULATED_DURATION: DurationDist = DurationDist::Constant(Duration::from_secs(10));
+    const SIMULATED_DURATION: DurationDist = DurationDist::UntilResolved;
+
+    fn simulated_duration_dist(&self) -> DurationDist {
+        DurationDist::ZERO
+    }
+
+    fn run(
+        self: Box<Self>,
+        _resources: Resources,
+    ) -> amaru_pure_stage::BoxFuture<'static, Box<dyn amaru_pure_stage::SendData>> {
+        self.wrap_sync(())
+    }
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "must return ExternalEffectAPI::SIMULATED_DURATION")]
+fn wrap_rejects_duration_dist_mismatch() {
+    drop(ExternalEffectAPI::run(Box::new(MismatchedDuration), Resources::default()));
 }
 
 #[test]
