@@ -41,6 +41,10 @@ Other guiding principles:
 
 - **amaru-bootstrap**: speed up node bootstrap by streaming state archives and account imports, decoding large snapshot maps incrementally, and avoiding unnecessary optimistic-transaction conflict tracking when importing fresh database batches. ([#1212][])
 
+### Added
+
+- **amaru-pure-stage**: simulate how long an `ExternalEffect` occupies time (`DurationDist`: zero, constant, uniform, or until the effect future resolves). Sampled durations are scheduled when the effect is issued; `SimulationBuilder::run` now takes a Tokio `Handle` so a still-pending `run()` can be forced at that deadline. ([#1224](https://github.com/pragma-org/amaru/pull/1224))
+
 ### Fixed
 
 - **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.

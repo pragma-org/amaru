@@ -524,7 +524,8 @@ mod test {
             network.stage("stage", async |_: u32, msg: Option<u32>, eff| msg.or_terminate(&eff, async |_| ()).await);
         let stage = network.wire_up(stage, 0);
 
-        let mut sim = network.run();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut sim = network.run(rt.handle());
 
         sim.enqueue_msg(&stage, [Some(1)]);
         sim.run_until_blocked();
@@ -561,7 +562,8 @@ mod test {
         });
         let stage = network.wire_up(stage, 0);
 
-        let mut sim = network.run();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut sim = network.run(rt.handle());
 
         sim.enqueue_msg(&stage, [Ok(1)]);
         sim.run_until_blocked();

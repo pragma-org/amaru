@@ -150,7 +150,8 @@ mod tests {
     fn runs_connects_in_parallel_up_to_pool_limit() {
         let timeout = Duration::from_secs(10);
         let (network, connector, _rx) = setup_connector(timeout);
-        let mut running = network.run();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
 
         running.breakpoint(
             "connect",
@@ -199,7 +200,8 @@ mod tests {
     fn delay_does_not_occupy_a_worker() {
         let timeout = Duration::from_secs(10);
         let (network, connector, _rx) = setup_connector(timeout);
-        let mut running = network.run();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
 
         running.breakpoint(
             "connect",
@@ -229,15 +231,15 @@ mod tests {
     fn forwards_connection_result_to_manager() {
         let timeout = Duration::from_secs(10);
         let (network, connector, mut rx) = setup_connector(timeout);
-        let mut running = network.run();
         let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
 
         let conn_id = ConnectionId::initial();
         running.override_external_effect::<ConnectEffect>(usize::MAX, move |_| OverrideResult::handled(Ok(conn_id)));
 
         let peer = Peer::new("127.0.0.1:4000");
         running.enqueue_msg(&connector, [ConnectorMsg::Connect { peer: peer.clone(), delay: Duration::ZERO }]);
-        running.run_until_blocked_incl_effects(rt.handle()).assert_idle();
+        running.run_until_blocked_incl_effects().assert_idle();
 
         let msgs: Vec<_> = rx.drain().collect();
         assert_eq!(msgs, vec![ManagerMessage::ConnectionResult(peer, Ok(conn_id))]);

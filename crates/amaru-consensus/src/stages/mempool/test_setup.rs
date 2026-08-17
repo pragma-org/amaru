@@ -90,8 +90,8 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     let mempool = network.wire_up(mempool, MempoolStageState::default());
     network.preload(&mempool, [prep.msg.clone()]).unwrap();
 
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(prep.rt.handle());
+    let mut running = network.run(prep.rt.handle());
+    running.run_until_blocked_incl_effects();
 
     (running, guards, logs.logs())
 }

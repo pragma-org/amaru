@@ -36,7 +36,7 @@ use amaru_pure_stage::{
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Handle, Runtime};
+use tokio::runtime::{Handle, Runtime};
 
 use super::{NewTip, TrackPeers, TrackPeersMsg, stage};
 use crate::{
@@ -142,7 +142,7 @@ pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
         max_peer_lead,
         start_times.epoch.checked_sub(Epoch::TWO).unwrap(),
     );
-    let rt = Builder::new_current_thread().build().unwrap();
+    let rt = crate::stages::test_utils::test_runtime();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
     let conn_id = ConnectionId::initial();
     let h1 = make_block_header(1, 1, None);

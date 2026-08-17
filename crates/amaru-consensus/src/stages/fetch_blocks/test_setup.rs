@@ -30,7 +30,7 @@ use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
     simulation::SimulationRunning, trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 
 use super::*;
 use crate::stages::{
@@ -167,7 +167,7 @@ pub fn test_prep() -> TestPrep {
 
     TestPrep {
         state,
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         cleanup_replies,
         headers: HeaderChain::new(),
         store: Arc::new(InMemoryChainStore::new()),

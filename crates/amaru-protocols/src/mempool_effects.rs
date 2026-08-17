@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use amaru_kernel::{Transaction, TransactionId};
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
-use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
+use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
 use serde::{Deserialize, Serialize};
 
 /// Implementation of Mempool effects using amaru_pure_stage::Effects.
@@ -215,18 +215,16 @@ impl Insert {
     }
 }
 
-impl ExternalEffect for Insert {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.insert(self.tx, self.tx_origin)
-        })
-    }
-}
-
 impl ExternalEffectAPI for Insert {
     type Response = TxInsertResult;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
+            mempool.insert(self.tx.clone(), self.tx_origin.clone())
+        })
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -240,18 +238,16 @@ impl GetTx {
     }
 }
 
-impl ExternalEffect for GetTx {
+impl ExternalEffectAPI for GetTx {
+    type Response = Option<Transaction>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.get_tx(&self.tx_id)
         })
     }
-}
-
-impl ExternalEffectAPI for GetTx {
-    type Response = Option<Transaction>;
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -265,18 +261,16 @@ impl ContainsTx {
     }
 }
 
-impl ExternalEffect for ContainsTx {
+impl ExternalEffectAPI for ContainsTx {
+    type Response = bool;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.contains(&self.tx_id)
         })
     }
-}
-
-impl ExternalEffectAPI for ContainsTx {
-    type Response = bool;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -291,18 +285,16 @@ impl TxIdsSince {
     }
 }
 
-impl ExternalEffect for TxIdsSince {
+impl ExternalEffectAPI for TxIdsSince {
+    type Response = Vec<(TransactionId, u32, MempoolSeqNo)>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.tx_ids_since(self.mempool_seqno, self.limit)
         })
     }
-}
-
-impl ExternalEffectAPI for TxIdsSince {
-    type Response = Vec<(TransactionId, u32, MempoolSeqNo)>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -316,35 +308,31 @@ impl GetTxsForIds {
     }
 }
 
-impl ExternalEffect for GetTxsForIds {
+impl ExternalEffectAPI for GetTxsForIds {
+    type Response = Vec<Transaction>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.get_txs_for_ids(&self.tx_ids)
         })
     }
 }
 
-impl ExternalEffectAPI for GetTxsForIds {
-    type Response = Vec<Transaction>;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct MempoolTxs;
 
-impl ExternalEffect for MempoolTxs {
+impl ExternalEffectAPI for MempoolTxs {
+    type Response = Vec<Transaction>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.mempool_txs()
         })
     }
-}
-
-impl ExternalEffectAPI for MempoolTxs {
-    type Response = Vec<Transaction>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -358,35 +346,31 @@ impl RemoveTxs {
     }
 }
 
-impl ExternalEffect for RemoveTxs {
+impl ExternalEffectAPI for RemoveTxs {
+    type Response = ();
+
     #[expect(clippy::expect_used, clippy::unit_arg)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.remove_txs(&self.tx_ids)
         })
     }
 }
 
-impl ExternalEffectAPI for RemoveTxs {
-    type Response = ();
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct LastSeqNo;
 
-impl ExternalEffect for LastSeqNo {
+impl ExternalEffectAPI for LastSeqNo {
+    type Response = MempoolSeqNo;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.last_seq_no()
         })
     }
-}
-
-impl ExternalEffectAPI for LastSeqNo {
-    type Response = MempoolSeqNo;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -394,35 +378,31 @@ struct IsNearCapacity {
     additional_bytes: u64,
 }
 
-impl ExternalEffect for IsNearCapacity {
+impl ExternalEffectAPI for IsNearCapacity {
+    type Response = bool;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.is_near_capacity(self.additional_bytes)
         })
     }
 }
 
-impl ExternalEffectAPI for IsNearCapacity {
-    type Response = bool;
-}
-
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct State;
 
-impl ExternalEffect for State {
+impl ExternalEffectAPI for State {
+    type Response = MempoolState;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.state()
         })
     }
-}
-
-impl ExternalEffectAPI for State {
-    type Response = MempoolState;
 }
 
 #[cfg(test)]

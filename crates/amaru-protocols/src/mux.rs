@@ -683,7 +683,7 @@ mod tests {
 
         graph.resources().put::<ConnectionsResource>(Arc::new(network));
 
-        let mut running = graph.run();
+        let mut running = graph.run(&tokio::runtime::Handle::current());
         let join_handle = tokio::spawn(async move {
             loop {
                 let blocked = running.run_until_blocked();
@@ -772,7 +772,8 @@ mod tests {
             ),
         );
 
-        let mut running = network.run();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
         let running = &mut running;
 
         // set breakpoints to capture interactions with outside world
