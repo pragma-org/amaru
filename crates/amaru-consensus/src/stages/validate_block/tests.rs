@@ -22,8 +22,8 @@ use crate::stages::{
     select_chain::SelectChainMsg,
     test_utils::{te_input, te_state},
     validate_block::test_setup::{
-        assert_trace, setup, setup_many, te_rollback_ledger, te_send, te_terminate, te_terminated, te_validate_block,
-        test_prep, tm_record_metrics,
+        assert_trace, setup, setup_many, te_load_header, te_rollback_ledger, te_send, te_terminate, te_terminated,
+        te_validate_block, test_prep, tm_record_metrics,
     },
 };
 // if needed for Literal
@@ -86,19 +86,58 @@ fn test_parent_equals_current_validates_tip_only() {
 }
 
 #[test]
-fn test_parent_in_ledger_skips_roll_forward() {
+fn test_mock_rollback_fails_terminates() {
+    // The ledger is on the fork h2a (height 3).
+    // Switching back to the main chain tip h3 (height 4) fails at the rollback, which terminates the stage.
     let mut prep = test_prep();
     prep.set_current(prep.headers.h2a.point());
     prep.block_validator
-        .with_tip(prep.headers.h0.point())
         .with_contains(prep.headers.h1.point())
-        .with_contains(prep.headers.h2a.point());
+        .with_contains(prep.headers.h2a.point())
+        .with_rollback_fails(true);
     prep.store_headers(&prep.headers.all());
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
 
-    let tip = prep.headers.h2.point();
-    let parent = prep.headers.h1.point();
+    let tip = prep.headers.h3.point();
+    let parent = prep.headers.h2.point();
+    let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg),
+            te_load_header("vb-1", tip.hash()),
+            te_load_header("vb-1", prep.headers.h2a.hash()),
+            te_rollback_ledger("vb-1", &tip),
+            te_terminate("vb-1"),
+            te_terminated("vb-1", TerminationReason::Voluntary),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["validating block"])
+        .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
+        .assert_and_remove(Level::WARN, &["failed to switch to a new fork"])
+        .assert_and_remove(Level::INFO, &["terminated"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_completed_fork_switch_adopts_the_new_tip() {
+    // The ledger is on the fork h2a (height 3) and the main chain tip h3 (height 4) wins chain
+    // selection: the switch replays h2 and h3 from the store, completes, and h3 is adopted.
+    let mut prep = test_prep();
+    prep.set_current(prep.headers.h2a.point());
+    prep.store_headers(&prep.headers.all());
+    prep.store_blocks(&prep.headers.all());
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.roll_forward_chain(prep.headers.h0.point());
+    prep.roll_forward_chain(prep.headers.h1.point());
+    prep.set_validity(prep.headers.h1.hash(), true);
+
+    let tip = prep.headers.h3.point();
+    let parent = prep.headers.h2.point();
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
@@ -118,14 +157,13 @@ fn test_parent_in_ledger_skips_roll_forward() {
 }
 
 #[test]
-fn test_mock_rollback_fails_terminates() {
+fn test_equal_height_fork_winning_the_tiebreak_is_switched_to() {
+    // A fork replacing the current chain at equal length is only adopted when its tip wins the
+    // chain-selection tiebreak. Here the ledger is on h2a (height 3) and h2 (height 3) wins:
+    // h2 and h2a share block number 3, so their VRF outputs tie and h2's higher op-cert
+    // sequence (1 vs 0) decides.
     let mut prep = test_prep();
     prep.set_current(prep.headers.h2a.point());
-    prep.block_validator
-        .with_tip(prep.headers.h0.point())
-        .with_contains(prep.headers.h1.point())
-        .with_contains(prep.headers.h2a.point())
-        .with_rollback_fails(true);
     prep.store_headers(&prep.headers.all());
     prep.store_blocks(&prep.headers.all());
     prep.set_anchor(prep.headers.h0.hash());
@@ -135,47 +173,11 @@ fn test_mock_rollback_fails_terminates() {
     let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
 
     let (running, _guards, mut logs) = setup(&prep, msg.clone());
-    assert_trace(
-        &running,
-        &[
-            te_state("vb-1", &prep.state),
-            te_input("vb-1", &msg),
-            te_rollback_ledger("vb-1", &tip),
-            te_terminate("vb-1"),
-            te_terminated("vb-1", TerminationReason::Voluntary),
-        ],
-    );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
-        .assert_and_remove(Level::WARN, &["failed to switch to a new fork"])
-        .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
-}
-
-#[test]
-fn test_grand_parent_in_ledger() {
-    let mut prep = test_prep();
-    prep.set_current(prep.headers.h2a.point());
-    prep.block_validator
-        .with_tip(prep.headers.h0.point())
-        .with_contains(prep.headers.h1.point())
-        .with_contains(prep.headers.h2a.point());
-    prep.store_headers(&prep.headers.all());
-    prep.store_blocks(&prep.headers.all());
-    prep.set_anchor(prep.headers.h0.hash());
-    prep.roll_forward_chain(prep.headers.h0.point());
-    prep.roll_forward_chain(prep.headers.h1.point());
-    prep.set_validity(prep.headers.h1.hash(), true);
-
-    let tip = prep.headers.h3.point();
-    let parent = prep.headers.h2.point();
-    let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
-
-    let (running, _guards, mut logs) = setup(&prep, msg.clone());
     assert_trace_contains(
         &running,
         &[
             te_input("vb-1", &msg).into(),
+            te_rollback_ledger("vb-1", &tip).into(),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(tip, true, BlockHeight::from(0)))
                 .into(),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: true, point: tip }).into(),
@@ -246,6 +248,8 @@ fn test_rollback_fails_when_rollback_point_not_in_volatile_db() {
         &[
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg),
+            te_load_header("vb-1", tip.hash()),
+            te_load_header("vb-1", prep.headers.h2.hash()),
             te_rollback_ledger("vb-1", &tip),
             te_terminate("vb-1"),
             te_terminated("vb-1", TerminationReason::Voluntary),
@@ -324,8 +328,10 @@ fn test_validation_failure_sends_false() {
 
 #[test]
 fn test_partial_fork_switch_adopts_the_applied_prefix() {
+    // The ledger is on h2 (height 3) and switches to the fork h2a -> h3a (height 4): the switch
+    // stops at h2a because h3a fails to apply, and the applied prefix is adopted.
     let mut prep = test_prep();
-    prep.set_current(prep.headers.h1.point());
+    prep.set_current(prep.headers.h2.point());
     prep.block_validator.with_partial_switch(
         prep.headers.h3a.point(),
         prep.headers.h2a.point(),
@@ -374,8 +380,10 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
 
 #[test]
 fn test_rolled_back_fork_switch_reports_the_failing_block() {
+    // The ledger is on h2 (height 3) and switches to the fork h2a -> h3a (height 4): the switch
+    // fails at its first block h2a, so the ledger restores its pre-switch state.
     let mut prep = test_prep();
-    prep.set_current(prep.headers.h1.point());
+    prep.set_current(prep.headers.h2.point());
     prep.block_validator.with_rolled_back_switch(prep.headers.h3a.point(), prep.headers.h2a.point());
     prep.store_headers(&prep.headers.all());
     prep.store_blocks(&prep.headers.all());
@@ -396,6 +404,8 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
         &[
             te_state("vb-1", &prep.state),
             te_input("vb-1", &msg),
+            te_load_header("vb-1", tip.hash()),
+            te_load_header("vb-1", prep.headers.h2.hash()),
             te_rollback_ledger("vb-1", &tip),
             te_send("vb-1", "select_chain", SelectChainMsg::BlockValidationResult(failed, false, BlockHeight::from(0))),
             te_send("vb-1", "block_source", BlockSourceMsg::Validation { valid: false, point: failed }),
@@ -405,6 +415,42 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
     logs.assert_and_remove(Level::DEBUG, &["validating block"])
         .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
         .assert_and_remove(Level::WARN, &["failed to fork the ledger to a new tip"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn test_switch_to_a_fork_only_for_a_better_candidate() {
+    // We set-up the validate_block stage with a current tip of h3 (height 4).
+    // The stage receives a message from the fetch_blocks stage for block h2a. Since h2a is
+    // not a best candidate (it is not the longest chain), the stage must skip that message.
+    let mut prep = test_prep();
+    prep.set_current(prep.headers.h3.point());
+    prep.store_headers(&prep.headers.all());
+    prep.store_blocks(&prep.headers.all());
+    prep.set_anchor(prep.headers.h0.hash());
+    for h in &[&prep.headers.h0, &prep.headers.h1, &prep.headers.h2, &prep.headers.h3] {
+        prep.roll_forward_chain(h.point());
+        prep.set_validity(h.hash(), true);
+    }
+
+    let tip = prep.headers.h2a.point();
+    let parent = prep.headers.h1.point();
+    let msg = ValidateBlockMsg::new(tip, parent, BlockHeight::from(0));
+
+    let (running, _guards, mut logs) = setup(&prep, msg.clone());
+    assert_trace(
+        &running,
+        &[
+            te_state("vb-1", &prep.state),
+            te_input("vb-1", &msg),
+            te_load_header("vb-1", tip.hash()),
+            te_load_header("vb-1", prep.headers.h3.hash()),
+            // the message is dropped: no ledger effect, no downstream signal, no state change
+            te_state("vb-1", &prep.state),
+        ],
+    );
+    logs.assert_and_remove(Level::DEBUG, &["validating block"])
+        .assert_and_remove(Level::DEBUG, &["block.skip"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
