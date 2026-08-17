@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(generic_const_exprs, const_type_name)]
+#![allow(incomplete_features)]
 #![deny(clippy::future_not_send)]
 
 mod adapter;

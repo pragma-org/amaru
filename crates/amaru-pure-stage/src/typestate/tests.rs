@@ -16,7 +16,7 @@
 //! `tests/typestate.rs`.
 
 use super::{
-    Cons, Here, Nil, OnReceive, Select, Then, There,
+    Cons, FmtPar, Here, Nil, OnReceive, Select, Then,
     effect::{Repeat, Send, SendAny},
     list::{CanFinish, Clean, describe},
     session::describe_receive,
@@ -29,6 +29,21 @@ fn assert_types_eq<A, B>()
 where
     A: TypeEq<B>,
 {
+}
+
+fn assert_after<R, E, Expect, I>()
+where
+    R: Select<E, I>,
+    R::Rest: TypeEq<Expect>,
+{
+}
+
+fn describe_after<R, E, I>() -> String
+where
+    R: Select<E, I>,
+    R::Rest: FmtPar,
+{
+    describe::<R::Rest>()
 }
 
 mod toy {
@@ -83,7 +98,7 @@ fn select_picks_first_matching_head() {
     type Left = Then<Cons<Cons<Send<toy::Peer, u8>, Nil>, Nil>, toy::Idle>;
     type Rem = Cons<Left, Cons<Then<Cons<Cons<Send<toy::Peer, String>, Nil>, Nil>, toy::Done>, Nil>>;
 
-    assert_types_eq::<<Rem as Select<Send<toy::Peer, u8>, super::list::Left<Here>>>::Rest, Cons<Then<Nil, toy::Idle>, Nil>>();
+    assert_after::<Rem, Send<toy::Peer, u8>, Cons<Then<Nil, toy::Idle>, Nil>, _>();
 }
 
 #[test]
@@ -114,17 +129,16 @@ fn unused_star_does_not_block_finish() {
 
 #[test]
 fn star_then_required_send_does_not_finish() {
-    type Rem =
-        Cons<Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Cons<Send<toy::Peer, u8>, Nil>>, Nil>, toy::Idle>, Nil>;
-    fn assert_selects_send<R: Select<Send<toy::Peer, u8>, Here>>() {}
-    assert_selects_send::<Rem>();
+    type Rem = Cons<Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Cons<Send<toy::Peer, u8>, Nil>>, Nil>, toy::Idle>, Nil>;
+    fn assert_selects_send<R: Select<Send<toy::Peer, u8>, I>, I>() {}
+    assert_selects_send::<Rem, _>();
 }
 
 #[test]
 fn using_star_keeps_the_star() {
     type Inner = Then<Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>, toy::Idle>;
     type Rem = Cons<Inner, Nil>;
-    assert_types_eq::<<Rem as Select<SendAny<toy::Peer>, Here>>::Rest, Rem>();
+    assert_after::<Rem, SendAny<toy::Peer>, Rem, _>();
 }
 
 #[test]
@@ -133,10 +147,73 @@ fn parallel_star_is_usable_beside_a_required_send() {
         Then<Cons<Cons<Send<toy::Peer, u8>, Nil>, Cons<Cons<Repeat<SendAny<toy::Peer>>, Nil>, Nil>>, toy::Idle>,
         Nil,
     >;
-    fn assert_send<R: Select<Send<toy::Peer, u8>, Here>>() {}
-    fn assert_any<R: Select<SendAny<toy::Peer>, There<Here>>>() {}
-    assert_send::<Rem>();
-    assert_any::<Rem>();
+    fn assert_send<R: Select<Send<toy::Peer, u8>, I>, I>() {}
+    fn assert_any<R: Select<SendAny<toy::Peer>, I>, I>() {}
+    assert_send::<Rem, _>();
+    assert_any::<Rem, _>();
+}
+
+#[test]
+fn repeat_sequence_unrolls_then_keeps_the_star() {
+    type Seq = Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>;
+    type Rem = Cons<Then<Cons<Cons<Repeat<Seq>, Nil>, Nil>, toy::Idle>, Nil>;
+    type Expect = Cons<Then<Cons<Cons<Send<toy::Peer, u16>, Cons<Repeat<Seq>, Nil>>, Nil>, toy::Idle>, Nil>;
+    assert_after::<Rem, Send<toy::Peer, u8>, Expect, _>();
+}
+
+#[test]
+fn repeat_is_discarded_when_the_suffix_matches() {
+    type Rem =
+        Cons<Then<Cons<Cons<Repeat<Send<toy::Peer, u8>>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>, toy::Idle>, Nil>;
+    assert_after::<Rem, Send<toy::Peer, u16>, Cons<Then<Nil, toy::Idle>, Nil>, _>();
+}
+
+#[test]
+fn repeat_of_sequence_is_discarded_when_the_suffix_matches() {
+    type Seq = Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>;
+    type Rem = Cons<Then<Cons<Cons<Repeat<Seq>, Cons<Send<toy::Peer, u32>, Nil>>, Nil>, toy::Idle>, Nil>;
+    assert_after::<Rem, Send<toy::Peer, u32>, Cons<Then<Nil, toy::Idle>, Nil>, _>();
+}
+
+#[test]
+fn repeat_wins_over_a_matching_suffix() {
+    type Rem = Cons<Then<Cons<Cons<Repeat<Send<toy::Peer, u8>>, Cons<Send<toy::Peer, u8>, Nil>>, Nil>, toy::Idle>, Nil>;
+    assert_after::<Rem, Send<toy::Peer, u8>, Rem, _>();
+}
+
+#[test]
+fn leftmost_parallel_head_wins_when_both_match() {
+    type Rem = Cons<
+        Then<
+            Cons<Cons<Send<toy::Peer, u8>, Nil>, Cons<Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>>,
+            toy::Idle,
+        >,
+        Nil,
+    >;
+    type Expect = Cons<Then<Cons<Cons<Send<toy::Peer, u8>, Cons<Send<toy::Peer, u16>, Nil>>, Nil>, toy::Idle>, Nil>;
+    assert_after::<Rem, Send<toy::Peer, u8>, Expect, _>();
+    assert_eq!(
+        describe_after::<Rem, Send<toy::Peer, u8>, _>(),
+        format!(
+            "Send<{}, u8>, Send<{}, u16> => Idle",
+            std::any::type_name::<toy::Peer>(),
+            std::any::type_name::<toy::Peer>()
+        )
+    );
+}
+
+#[test]
+fn star_macro_unrolls_the_sequence() {
+    use crate::typestate::prelude::*;
+    type Rem = Cons<Then<Cons<Cons<star!(Send<toy::Peer, u8>, Send<toy::Peer, u16>), Nil>, Nil>, toy::Idle>, Nil>;
+    type Expect = Cons<
+        Then<
+            Cons<Cons<Send<toy::Peer, u16>, Cons<star!(Send<toy::Peer, u8>, Send<toy::Peer, u16>), Nil>>, Nil>,
+            toy::Idle,
+        >,
+        Nil,
+    >;
+    assert_after::<Rem, Send<toy::Peer, u8>, Expect, _>();
 }
 
 /// `Send<A, A1>, Send<B, B1> => StateA | Send<C, C1>, Send<D, D1> => StateC`
@@ -168,27 +245,55 @@ mod exclusive_choice {
     });
 
     type Rem = <Idle as OnReceive<Go>>::Then;
-    type AfterA = <Rem as Select<Send<RoleA, A1>, crate::typestate::list::Left<Here>>>::Rest;
-    type AfterC = <Rem as Select<Send<RoleC, C1>, crate::typestate::list::Right<Here>>>::Rest;
+    type AfterAExpect = Cons<Then<Cons<Cons<Send<RoleB, B1>, Nil>, Nil>, StateA>, Nil>;
+    type AfterCExpect = Cons<Then<Cons<Cons<Send<RoleD, D1>, Nil>, Nil>, StateC>, Nil>;
 
     #[test]
     fn after_a_only_b_remains() {
-        fn assert_b<R: Select<Send<RoleB, B1>, Here>>() {}
-        assert_b::<AfterA>();
+        assert_after::<Rem, Send<RoleA, A1>, AfterAExpect, _>();
+        fn assert_b<R: Select<Send<RoleB, B1>, I>, I>() {}
+        assert_b::<AfterAExpect, _>();
         assert_eq!(
-            describe::<AfterA>(),
+            describe_after::<Rem, Send<RoleA, A1>, _>(),
             format!("Send<{}, {}> => StateA", std::any::type_name::<RoleB>(), std::any::type_name::<B1>())
         );
     }
 
     #[test]
     fn after_c_only_d_remains() {
-        fn assert_d<R: Select<Send<RoleD, D1>, Here>>() {}
-        assert_d::<AfterC>();
+        assert_after::<Rem, Send<RoleC, C1>, AfterCExpect, _>();
+        fn assert_d<R: Select<Send<RoleD, D1>, I>, I>() {}
+        assert_d::<AfterCExpect, _>();
         assert_eq!(
-            describe::<AfterC>(),
+            describe_after::<Rem, Send<RoleC, C1>, _>(),
             format!("Send<{}, {}> => StateC", std::any::type_name::<RoleD>(), std::any::type_name::<D1>())
         );
+    }
+
+    define_role_tag!(pub RoleE);
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct E1;
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Kick;
+
+    make_states!(pub Live3 { Start; StateX, StateY, StateZ });
+    on_receive!(Start as StartIn {
+        Kick => {
+            Send<RoleA, A1> => StateX
+            | Send<RoleC, C1> => StateY
+            | Send<RoleE, E1> => StateZ
+        }
+    });
+
+    type Rem3 = <Start as OnReceive<Kick>>::Then;
+    type AfterEExpect = Cons<Then<Nil, StateZ>, Nil>;
+
+    #[test]
+    fn three_way_choice_picks_the_last_alternative() {
+        assert_after::<Rem3, Send<RoleE, E1>, AfterEExpect, _>();
+        fn assert_done<R: CanFinish<StateZ, crate::typestate::list::Here>>() {}
+        assert_done::<AfterEExpect>();
+        assert_eq!(describe_after::<Rem3, Send<RoleE, E1>, _>(), "=> StateZ");
     }
 }
 

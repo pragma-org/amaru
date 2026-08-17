@@ -12,6 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Linear handle: [`Effects`] plus a remainder type `Rem`.
+//!
+//! [`State::receive`] opens a [`Session`]. [`send`](Session::send) / [`send_any`](Session::send_any)
+//! / [`wait`](Session::wait) require [`Select`] of that effect; [`finish`](Session::finish)
+//! requires [`CanFinish`]. [`convert_input`](State::convert_input) classifies a
+//! mailbox value and does not consume the state token — [`receive`](State::receive) does.
+
 use std::{fmt, future::Future, marker::PhantomData, time::Duration};
 
 use super::{

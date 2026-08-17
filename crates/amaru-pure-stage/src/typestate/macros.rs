@@ -12,6 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Surface syntax for states, remainders, roles, and mailboxes.
+//!
+//! `typestate_par!` splits on the first `=> State`: `|` before that is parallel
+//! sequences (one [`Then`](crate::typestate::Then)); `|` after starts another
+//! choice alternative (n-way `Cons` of `Then`). A lone ident is `Then<Nil, S>`.
+//! [`star`]`(A, B)` is `Repeat` of that sequence. Grouped [`on_receive`] builds
+//! the input enum and [`ExtractInput`](crate::typestate::ExtractInput).
+
 /// Declare protocol states and the live enum that holds them.
 ///
 /// Names before `;` are initial (constructible via
@@ -317,5 +325,13 @@ macro_rules! typestate_seq {
     };
     ($e:ty, $($rest:ty),+) => {
         $crate::typestate::Cons<$e, $crate::typestate_seq!($($rest),+)>
+    };
+}
+
+/// `Repeat` of a sequence: `star!(Send<A, T>, Send<B, U>)`.
+#[macro_export]
+macro_rules! star {
+    ($($e:ty),+) => {
+        $crate::typestate::Repeat<$crate::typestate_seq!($($e),+)>
     };
 }

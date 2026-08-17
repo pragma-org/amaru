@@ -12,26 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Opt-in session-typed layer over [`Effects`](crate::Effects).
+//! Opt-in session types over [`Effects`](crate::Effects).
 //!
-//! Pure-stage transitions are invoked *because* a message arrived; there is no
-//! `Effects::receive`. This module treats that implicit receive as the constructor:
-//! from a protocol state value (usually taken out of a [`make_states`](crate::make_states)
-//! enum), [`State::receive`] consumes the receive allowance for a particular
-//! input variant and returns a [`Session`] whose remaining effects are still
-//! allowed. [`Session::finish`] is the only way to obtain the next state; wrap
-//! it with [`Into`] into the live enum so the programmer cannot pick the next
-//! case by hand. [`State::convert_input`] turns the mailbox message into that
-//! state's input enum (`Ok`) or returns it unmatched (`Err`).
+//! Receive is implicit (the stage was invoked). [`State::receive`] consumes that
+//! allowance and returns a [`Session`] whose type is the remainder. [`Session::finish`]
+//! is the only constructor of a non-initial state; put it in the live enum via [`Into`].
 //!
-//! [`Send<Tag, T>`](Send) names a destination [role tag](RoleTag).
-//! [`SendAny<Tag>`](SendAny) allows any mailbox payload to that role;
-//! [`Repeat<E>`](Repeat) is a Kleene star. `|` *before* `=> State` is parallel
-//! composition (every branch must complete; `finish` strips leading `Repeat`
-//! and requires no branch left). `|` *between* `=> State` groups is choice of
-//! next state.
+//! Remainder syntax: `,` sequences effects; `|` before `=> S` is parallel (all
+//! branches); `|` between `=> S` groups is exclusive choice of next state
+//! (any number of alternatives). [`Repeat<E>`](Repeat) is a Kleene star: a
+//! single effect, or a sequence via [`star`](crate::star). Selecting the first
+//! step unrolls the rest in front of the same `Repeat`. Selecting a later
+//! step discards the star (zero iterations).
 //!
-//! Existing stages keep using [`Effects`](crate::Effects) unchanged.
+//! **Limits:** parallel and choice are flat `Cons` lists (not tree-associative).
+//! Sequences are ordered. When several parallel heads match, the **leftmost**
+//! wins. Two choice alternatives with the same head are ambiguous (payload
+//! inference would otherwise stick to the first alternative). `finish` strips
+//! `Repeat` only at each branch prefix. Existing stages keep using
+//! [`Effects`](crate::Effects).
 
 mod effect;
 mod list;
@@ -42,7 +41,7 @@ mod session;
 pub use effect::{
     AddStage, Call, CancelSchedule, Clock, Effect, External, Receive, Repeat, Schedule, Send, SendAny, Terminate, Wait,
 };
-pub use list::{CanFinish, Clean, Cons, FmtPar, Here, Nil, Select, Then, There};
+pub use list::{CanFinish, Clean, Cons, FmtPar, Here, In, Nil, Select, Skip, Then, There};
 pub use role::{Role, RoleTag};
 pub use session::{
     ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, describe_receive,
@@ -54,7 +53,7 @@ pub mod prelude {
         AddStage, Call, CancelSchedule, Clock, Cons, External, ExtractInput, FromMailbox, Nil, OnReceive, Receive,
         Repeat, Role, RoleTag, Schedule, Send, SendAny, Session, State, Terminate, To, Wait, initial_state,
     };
-    pub use crate::{define_mailbox, define_role, define_role_tag, make_states, on_receive};
+    pub use crate::{define_mailbox, define_role, define_role_tag, make_states, on_receive, star};
 }
 
 #[cfg(test)]

@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Phantom tags that appear in a remainder list. No runtime data; [`Effect::fmt`]
+//! is for diagnostics. [`Repeat<E>`] is Kleene star (use does not consume it).
+//! [`SendAny<R>`] is “any mailbox payload to role `R`.” Other variants (`Call`,
+//! `Clock`, …) are reserved and not selected by [`Session`](super::Session) yet.
+
 use std::{any::type_name, fmt, marker::PhantomData};
 
 use crate::ExternalEffect;
@@ -39,8 +44,10 @@ impl<R> Effect for SendAny<R> {
     }
 }
 
-/// Kleene star: zero or more uses of `E`. Does not block [`Session::finish`](super::Session::finish)
-/// unless a required effect is sequenced after it.
+/// Kleene star of a single effect or of a sequence (`Repeat<Cons<A, Cons<B, Nil>>>`).
+///
+/// Selecting the first step unrolls the rest in front of the same `Repeat`.
+/// Selecting the following step discards the star (zero iterations).
 pub struct Repeat<E>(PhantomData<E>);
 impl<E: Effect> Effect for Repeat<E> {
     fn fmt(f: &mut fmt::Formatter<'_>) -> fmt::Result {

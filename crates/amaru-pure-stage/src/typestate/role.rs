@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Destination of a protocol send, split so the remainder need not name the mailbox.
+//!
+//! [`RoleTag`] is the phantom in [`Send<Tag, T>`](super::Send) / [`SendAny<Tag>`](super::SendAny).
+//! [`Role<Tag>`] is a [`StageRef`] wrapper; `Mailbox: From<T>` at the call site.
+//! Receive has no role (one mailbox, uniquely named cases).
+
 use crate::{SendData, StageRef};
 
 /// Name of a send destination, used as the first parameter of [`Send`](super::Send).
