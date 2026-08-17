@@ -21,7 +21,7 @@ use std::{
 use amaru_kernel::{
     Block, EraName, ProtocolVersion, Transaction, TransactionBody, cbor,
     cbor::{from_cbor_no_leftovers_with, to_cbor_with},
-    protocol_version::PROTOCOL_VERSION_12,
+    protocol_version::PROTOCOL_VERSION_11,
 };
 use serde::Deserialize;
 
@@ -308,11 +308,11 @@ fn check_round_trip<T>(bytes: &[u8], exact_re_encoding: bool) -> Result<(), cbor
 where
     T: for<'b> cbor::Decode<'b, ProtocolVersion> + cbor::Encode<ProtocolVersion>,
 {
-    // The fixtures are generated from the CDDL, where `bytes` matches both the definite and the
-    // indefinite form. cardano-ledger only accepts the indefinite form from protocol version 12
-    // (Dijkstra) onwards, so CDDL conformance corresponds to decoding at that version; earlier
-    // versions are strictly definite and would reject many of these fixtures.
-    let mut version = PROTOCOL_VERSION_12;
+    // The suite targets the Haskell node's behaviour at Conway, so fixtures decode at the highest
+    // Conway protocol version. In particular, indefinite-length byte strings are decode errors:
+    // cardano-ledger only accepts them from protocol version 12 (Dijkstra) onwards, and the
+    // fixture generator is restricted accordingly (see scripts/regenerate-cbor-fixtures).
+    let mut version = PROTOCOL_VERSION_11;
     let value: T = from_cbor_no_leftovers_with(bytes, &mut version)?;
     let re_encoded = to_cbor_with(&value, &mut version);
 
