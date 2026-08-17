@@ -17,6 +17,7 @@
 use std::{any::type_name, collections::BTreeSet, fmt, io, sync::Arc, time::Duration};
 
 use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, Slot};
+use amaru_observability::{CborConsoleEventFormat, console_field_formatter};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, Resources, SendData, StageGraph, TerminationReason,
     simulation::{SimulationBuilder, SimulationRunning},
@@ -285,9 +286,13 @@ where
     let writer = BufferWriter::new();
     let mut logs = writer.clone();
 
+    // Use the CBOR-aware console stack (EDR-033) so schema events render their typed fields
+    // as readable values instead of raw CBOR byte arrays.
     let sub = tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_ansi(false)
+        .event_format(CborConsoleEventFormat::new().with_ansi(false))
+        .fmt_fields(console_field_formatter())
         .with_writer(move || writer.clone())
         .set_default();
     logs.set_guard(sub);
