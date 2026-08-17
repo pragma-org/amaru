@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, env};
+use std::{collections::BTreeMap, env, io};
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_observability::{aliases, registry::SchemaEntry};
@@ -34,10 +34,13 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let aliases = aliases::load_workspace_type_aliases_from(&env::current_dir()?)?;
     let output = generate_traces_json_schema(&SchemaEntry::all(), &aliases);
-    let json_string =
-        if args.compact { serde_json::to_string(&output)? } else { serde_json::to_string_pretty(&output)? };
 
-    eprintln!("{}", json_string);
+    if args.compact {
+        serde_json::to_writer(io::stdout(), &output)
+    } else {
+        serde_json::to_writer_pretty(io::stdout(), &output)
+    }?;
+
     Ok(())
 }
 

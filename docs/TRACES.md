@@ -2147,6 +2147,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `add` | `TRACE` | public | Record governance votes |  |  |
+| `prune` | `TRACE` | public | Remove now-obsolete governance votes |  |  |
 
 ## Updating This Documentation
 
