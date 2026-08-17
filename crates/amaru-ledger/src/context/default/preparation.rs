@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId, ProposalId, ProposalSlim,
-    ProposalsRoots, StakeCredential, TransactionInput, drep,
+    ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId,
+    ProposalId, ProposalSlim, ProposalsRoots, StakeCredential, TransactionInput, drep,
 };
 use amaru_observability::debug_span;
 
@@ -399,37 +399,32 @@ fn resolve_committee<'block, 'volatile>(
         for (cold_credential, row) in db.iter_cc_members().map_err(ContextHydratationError::ResolveCommittee)? {
             let for_certificates = cold_credentials_in_certificates.contains(&cold_credential);
 
-            let for_votes = row
-                .status
-                .as_ref()
-                .and_then(|status| status.as_hot_credential())
-                .is_some_and(|hot| hot_credentials_in_votes.contains(hot));
+            let for_votes = |status: Option<&ConstitutionalCommitteeMemberStatus>| {
+                status.and_then(|st| st.as_hot_credential()).is_some_and(|hot| hot_credentials_in_votes.contains(hot))
+            };
 
-            if for_certificates || for_votes {
-                match volatile_cc_members.remove(&cold_credential) {
-                    Some(Existence::Unknown) | None => {
+            match volatile_cc_members.remove(&cold_credential) {
+                Some(Existence::Unknown) | None => {
+                    if for_certificates || for_votes(row.status.as_ref()) {
                         cc_members.insert(cold_credential, row);
                     }
+                }
 
-                    Some(Existence::Exists(Bind { left: status, right: valid_until, .. })) => {
+                Some(Existence::Exists(Bind { left: volatile_status, right: valid_until, .. })) => {
+                    let status = volatile_status.to_option(row.status.as_ref());
+                    if for_certificates || for_votes(status.as_ref()) {
                         cc_members.insert(
                             cold_credential,
-                            CCMember {
-                                status: status.to_option(row.status.as_ref()),
-                                valid_until: valid_until.to_option(row.valid_until.as_ref()),
-                            },
+                            CCMember { status, valid_until: valid_until.to_option(row.valid_until.as_ref()) },
                         );
                     }
+                }
 
-                    Some(Existence::Gone) => {
-                        if for_certificates {
-                            gone_but_requested.insert(cold_credential);
-                        }
+                Some(Existence::Gone) => {
+                    if for_certificates {
+                        gone_but_requested.insert(cold_credential);
                     }
                 }
-            } else {
-                // Discard this member entirely if it's not relevant to the context
-                volatile_cc_members.remove(&cold_credential);
             }
         }
 
