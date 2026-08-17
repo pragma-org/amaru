@@ -154,12 +154,17 @@ impl GovernanceSummary {
                     StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                 };
 
+                // Dormant epochs extend a DRep's expiry only while it remains active; an already
+                // expired DRep keeps its raw expiry, matching the store's bake-in on reactivation.
+                let extended = valid_until + consecutive_dormant_epochs as u64;
+                let valid_until = if extended >= current_epoch { extended } else { valid_until };
+
                 Ok((
                     drep,
                     DRepState {
                         registered_at,
                         metadata: anchor,
-                        valid_until: Some(valid_until + consecutive_dormant_epochs as u64),
+                        valid_until: Some(valid_until),
                         // The actual stake is filled later when computing the stake distribution.
                         voting_stake: 0,
                     },

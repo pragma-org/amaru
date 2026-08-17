@@ -186,7 +186,7 @@ pub mod tests {
             context.save(
                 &PREPROD_ERA_HISTORY,
                 &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                GovernanceActivity::default(),
+                Some(GovernanceActivity::default()),
                 &point,
                 Some(&slot_leader),
                 Columns {
@@ -326,7 +326,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),
@@ -357,7 +357,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),
@@ -387,7 +387,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),
@@ -430,7 +430,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),

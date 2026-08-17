@@ -501,7 +501,7 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
         &self,
         _era_history: &EraHistory,
         _protocol_parameters: &ProtocolParameters,
-        _governance_activity: GovernanceActivity,
+        _governance_activity: Option<GovernanceActivity>,
         point: &Point,
         _issuer: Option<&pools::Key>,
         _add: Columns<
