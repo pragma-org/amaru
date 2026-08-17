@@ -1281,7 +1281,7 @@ define_schemas! {
                     /// Record governance votes
                     public ADD {}
                     /// Remove now-obsolete governance votes
-                    public PRUNE {}
+                    public REMOVE {}
                 }
                 slots {
                     /// Point-read a slot/block-issuer entry

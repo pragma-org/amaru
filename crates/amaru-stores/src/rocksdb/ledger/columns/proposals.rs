@@ -61,9 +61,8 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 /// Remove an expired or enacted proposal and the votes that pertains to it.
 pub fn remove<DB, V>(db: &Transaction<'_, DB>, proposals: &BTreeMap<Key, V>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::proposals::REMOVE).in_scope(|| {
-        votes::prune(db, |ballot_id| proposals.contains_key(&ballot_id.proposal))?;
-
         for key in proposals.keys() {
+            votes::iter_by_proposal(db, key)?.try_for_each(|vote| votes::remove(db, vote))?;
             db.delete(as_key(&PREFIX, key)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
@@ -73,7 +72,10 @@ pub fn remove<DB, V>(db: &Transaction<'_, DB>, proposals: &BTreeMap<Key, V>) -> 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        sync::LazyLock,
+    };
 
     use amaru_kernel::{Ballot, BallotId, ProposalId, Voter, any_ballot, any_proposal, any_proposal_id, any_voter};
     use amaru_ledger::store::{ReadStore, Store};
@@ -84,6 +86,13 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::rocksdb::{RocksDB, RocksDbConfig, StoreError, proposals, votes};
+
+    // Re-using the database connection for property tests considerably speed things up. One must
+    // `.clear()` the database at the start of each test, though.
+    static DB: LazyLock<RocksDB> = LazyLock::new(|| {
+        let tmp = TempDir::new().expect("failed to create temp dir");
+        RocksDB::empty(&RocksDbConfig::new(tmp.path().into())).unwrap()
+    });
 
     prop_compose! {
         fn any_proposal_row()(proposal in any_proposal()) -> proposals::Row {
@@ -100,12 +109,15 @@ mod tests {
         fn remove(
             proposals in btree_map(any_proposal_id(), any_proposal_row(), 2..=3),
             votes in btree_map(any_voter(), any_ballot(), 100),
-            indices_to_remove in btree_set(any::<usize>(), 0..=3),
+            indices_to_remove in btree_set(any::<usize>(), 1..=3),
         ) {
-            let tmp = TempDir::new().expect("failed to create temp dir");
-            let db = RocksDB::empty(&RocksDbConfig::new(tmp.path().into())).unwrap();
+            DB.clear().unwrap();
 
-            fixture_proposals_and_votes(&db, proposals.clone().into_iter(), votes.into_iter());
+            prop_assume!(DB.iter_votes()?.collect::<Vec<_>>().is_empty());
+
+            let indices_to_remove: BTreeSet<usize> = indices_to_remove.into_iter().map(|ix| ix % proposals.len()).collect();
+
+            let mut votes_count_before = fixture_proposals_and_votes(&DB, proposals.clone().into_iter(), votes.into_iter());
 
             let (removed, kept): (BTreeMap<ProposalId, ()>, BTreeSet<ProposalId>) = proposals.keys().enumerate().fold(
                 Default::default(),
@@ -120,17 +132,26 @@ mod tests {
                 }
             );
 
+            prop_assume!(!removed.is_empty());
+
             // Remove proposals and associated votes
-            db.with_transaction(|ctx| proposals::remove(&ctx.db, &removed)).unwrap();
+            DB.with_transaction(|ctx| proposals::remove(&ctx.db, &removed)).unwrap();
+
+            let mut votes_count_after = BTreeMap::new();
 
             // No votes to that proposal should remain
-            for (ballot_id, _) in db.iter_votes()? {
-                prop_assert!(kept.contains(&ballot_id.proposal));
-                prop_assert!(!removed.contains_key(&ballot_id.proposal));
+            for (ballot_id, _) in DB.iter_votes()? {
+                votes_count_after.entry(ballot_id.proposal).and_modify(|n| *n += 1).or_insert(1);
+                prop_assert!(kept.contains(&ballot_id.proposal), "{ballot_id:?} => {kept:?}");
+                prop_assert!(!removed.contains_key(&ballot_id.proposal), "{ballot_id:?} => {removed:?}");
             }
 
+            // Ensures that no other votes are deleted;
+            votes_count_before.retain(|k, _| !removed.contains_key(k));
+            prop_assert_eq!(votes_count_before, votes_count_after);
+
             // Proposals should have been pruned or left untouched.
-            db.with_transaction(|ctx| {
+            DB.with_transaction(|ctx| {
                 for (proposal_id, proposal) in proposals {
                     prop_assert_eq!(
                         proposals::get(|key| ctx.db.get_pinned(key), &proposal_id).unwrap(),
@@ -147,18 +168,23 @@ mod tests {
         }
     }
 
+    // Prepare the store with some votes, returning a map of the number of votes for each proposal.
     fn fixture_proposals_and_votes(
         db: &RocksDB,
         proposals: impl Iterator<Item = (ProposalId, proposals::Row)>,
         votes: impl Iterator<Item = (Voter, Ballot)>,
-    ) {
+    ) -> BTreeMap<ProposalId, usize> {
+        let mut count = BTreeMap::new();
+
         db.with_transaction(|ctx| {
             let proposals = proposals.collect::<Vec<_>>();
 
             votes::add(
                 &ctx.db,
                 votes.enumerate().map(|(ix, (voter, ballot))| {
-                    let ballot_id = BallotId { voter, proposal: proposals[ix % proposals.len()].0 };
+                    let proposal = proposals[ix % proposals.len()].0;
+                    count.entry(proposal).and_modify(|n| *n += 1).or_insert(1);
+                    let ballot_id = BallotId { voter, proposal };
                     (ballot_id, ballot)
                 }),
             )?;
@@ -168,5 +194,7 @@ mod tests {
             Ok::<_, StoreError>(())
         })
         .unwrap();
+
+        count
     }
 }

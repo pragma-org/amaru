@@ -20,6 +20,19 @@ pub struct BallotId {
     pub voter: Voter,
 }
 
+impl BallotId {
+    /// Returns the CBOR prefix resulting from encoding this ballot with a given proposal id but an
+    /// unknown voter.
+    pub fn encode_prefix<W: cbor::encode::Write>(
+        proposal: &ProposalId,
+        e: &mut cbor::Encoder<W>,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.encode(proposal)?;
+        Ok(())
+    }
+}
+
 impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for BallotId {
     fn encode<W: cbor::encode::Write>(
         &self,
