@@ -137,21 +137,109 @@ macro_rules! define_role {
     };
 }
 
+/// A stage mailbox: uniquely named cases wrapping protocol payloads.
+///
+/// Generates [`From`] into the mailbox (for [`Send`](crate::typestate::Send))
+/// and [`FromMailbox`](crate::typestate::FromMailbox) the other way (for
+/// [`convert_input`](crate::typestate::State::convert_input)).
+#[macro_export]
+macro_rules! define_mailbox {
+    ($vis:vis $name:ident { $($var:ident ($ty:ty)),+ $(,)? }) => {
+        #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+        $vis enum $name {
+            $($var($ty),)+
+        }
+
+        $(
+            impl ::core::convert::From<$ty> for $name {
+                fn from(value: $ty) -> Self {
+                    $name::$var(value)
+                }
+            }
+
+            #[allow(clippy::wildcard_enum_match_arm)]
+            impl $crate::typestate::FromMailbox<$name> for $ty {
+                fn from_mailbox(msg: $name) -> ::core::result::Result<$ty, $name> {
+                    match msg {
+                        $name::$var(value) => ::core::result::Result::Ok(value),
+                        other => ::core::result::Result::Err(other),
+                    }
+                }
+            }
+        )+
+    };
+}
+
 /// Declare the remainder after `$from` receives `$in`.
 ///
+/// Grouped form builds an input enum and [`convert_input`](crate::typestate::State::convert_input):
+///
 /// ```ignore
-/// on_receive!(Idle, RequestRange => Send<ToPeer, StartBatch> => Streaming | Send<ToPeer, NoBlocks> => Idle);
-/// on_receive!(Idle, ClientDone => Done);
-/// on_receive!(Busy, StartBatch => Streaming);
+/// on_receive!(Idle as IdleIn {
+///     RequestRange => { Send<ToPeer, StartBatch> => Streaming }
+///     ClientDone => { Done }
+/// });
 /// ```
 ///
-/// The last type of each branch is the next protocol state. Effects before
-/// `=>` are consumed by [`Session`](crate::typestate::Session) methods.
+/// Single-input form only implements [`OnReceive`](crate::typestate::OnReceive)
+/// (used for type-level descriptions).
 #[macro_export]
 macro_rules! on_receive {
+    ($from:ident as $inputs:ident { $($body:tt)* }) => {
+        $crate::typestate_on_receive_body!($from, $inputs, [], $($body)*);
+    };
     ($from:ty, $in:ty => $($then:tt)*) => {
         impl $crate::typestate::OnReceive<$in> for $from {
             type Then = $crate::typestate_par!($($then)*);
+        }
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_on_receive_body {
+    ($from:ident, $inputs:ident, [$($done:tt)*], $in:ident => { $($then:tt)* } $($rest:tt)*) => {
+        $crate::typestate_on_receive_body!($from, $inputs, [$($done)* [$in, $($then)*]], $($rest)*);
+    };
+    ($from:ident, $inputs:ident, [$([$in:ident, $($then:tt)*])*] $(,)?) => {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        enum $inputs {
+            $($in($in),)*
+        }
+
+        impl<M> $crate::typestate::ExtractInput<M> for $inputs
+        where
+            $($in: $crate::typestate::FromMailbox<M>,)*
+        {
+            fn extract(msg: M) -> ::core::result::Result<Self, M> {
+                $crate::typestate_extract!(msg, $inputs, $($in),*)
+            }
+        }
+
+        $(
+            impl $crate::typestate::OnReceive<$in> for $from {
+                type Then = $crate::typestate_par!($($then)*);
+            }
+        )*
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! typestate_extract {
+    ($msg:ident, $enum:ident, ) => {
+        ::core::result::Result::Err($msg)
+    };
+    ($msg:ident, $enum:ident, $in:ident) => {
+        match <$in as $crate::typestate::FromMailbox<_>>::from_mailbox($msg) {
+            ::core::result::Result::Ok(value) => ::core::result::Result::Ok($enum::$in(value)),
+            ::core::result::Result::Err(msg) => ::core::result::Result::Err(msg),
+        }
+    };
+    ($msg:ident, $enum:ident, $in:ident, $($rest:ident),+) => {
+        match <$in as $crate::typestate::FromMailbox<_>>::from_mailbox($msg) {
+            ::core::result::Result::Ok(value) => ::core::result::Result::Ok($enum::$in(value)),
+            ::core::result::Result::Err(msg) => $crate::typestate_extract!(msg, $enum, $($rest),+),
         }
     };
 }

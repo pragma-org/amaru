@@ -21,7 +21,8 @@
 //! input variant and returns a [`Session`] whose remaining effects are still
 //! allowed. [`Session::finish`] is the only way to obtain the next state; wrap
 //! it with [`Into`] into the live enum so the programmer cannot pick the next
-//! case by hand.
+//! case by hand. [`State::convert_input`] turns the mailbox message into that
+//! state's input enum (`Ok`) or returns it unmatched (`Err`).
 //!
 //! [`Send<Tag, T>`](Send) names a destination [role tag](RoleTag). The value
 //! passed to [`Session::send`] is a [`Role`] wrapper around a
@@ -43,15 +44,16 @@ pub use effect::{
 pub use list::{Clean, Cons, FmtPar, Here, Nil, Select, There};
 pub use role::{Role, RoleTag};
 pub use session::{
-    InitialState, Marker, NotInitialState, OnReceive, Session, State, To, describe_receive, initial_state,
+    ExtractInput, FromMailbox, InitialState, Marker, NotInitialState, OnReceive, Session, State, To, describe_receive,
+    initial_state,
 };
 
 pub mod prelude {
     pub use super::{
-        AddStage, Call, CancelSchedule, Clock, Cons, External, Nil, OnReceive, Receive, Repeat, Role, RoleTag,
-        Schedule, Send, Session, State, Terminate, To, Wait, initial_state,
+        AddStage, Call, CancelSchedule, Clock, Cons, External, ExtractInput, FromMailbox, Nil, OnReceive, Receive,
+        Repeat, Role, RoleTag, Schedule, Send, Session, State, Terminate, To, Wait, initial_state,
     };
-    pub use crate::{define_role, define_role_tag, make_states, on_receive};
+    pub use crate::{define_mailbox, define_role, define_role_tag, make_states, on_receive};
 }
 
 #[cfg(test)]

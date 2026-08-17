@@ -49,17 +49,17 @@ impl From<Bye> for ClientMsg {
 define_role_tag!(ToClient);
 define_role!(ClientDest, ToClient, ClientMsg);
 
-on_receive!(Idle, Ping => Send<ToClient, Pong> => Idle | Send<ToClient, Bye> => Done);
+define_mailbox!(In { Ping(Ping) });
+
+on_receive!(Idle as IdleIn {
+    Ping => { Send<ToClient, Pong> => Idle | Send<ToClient, Bye> => Done }
+});
+on_receive!(Done as DoneIn {});
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Server {
     live: Live,
     client: ClientDest,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-enum In {
-    Ping(Ping),
 }
 
 #[test]
@@ -69,16 +69,22 @@ fn receive_then_choice_of_sends() {
         inbox.push(msg);
         inbox
     });
-    let server = network.stage("server", async |state: Server, msg: In, eff: Effects<In>| match (state.live, msg) {
-        (Live::Idle(idle), In::Ping(ping)) => {
-            let live = if ping.0 == 0 {
-                idle.receive(ping, eff).send(&state.client, Bye).await.finish().into()
-            } else {
-                idle.receive(ping.clone(), eff).send(&state.client, Pong(ping.0)).await.finish().into()
-            };
-            Server { live, ..state }
-        }
-        (done @ Live::Done(_), _) => Server { live: done, ..state },
+    let server = network.stage("server", async |state: Server, msg: In, eff: Effects<In>| match state.live {
+        Live::Idle(idle) => match idle.convert_input(msg) {
+            Ok(IdleIn::Ping(ping)) => {
+                let live = if ping.0 == 0 {
+                    idle.receive(ping, eff).send(&state.client, Bye).await.finish().into()
+                } else {
+                    idle.receive(ping.clone(), eff).send(&state.client, Pong(ping.0)).await.finish().into()
+                };
+                Server { live, ..state }
+            }
+            Err(_msg) => Server { live: idle.into(), ..state },
+        },
+        Live::Done(done) => match done.convert_input::<DoneIn, _>(msg) {
+            Ok(never) => match never {},
+            Err(_msg) => Server { live: done.into(), ..state },
+        },
     });
 
     let client_ref = client.sender();
@@ -86,7 +92,7 @@ fn receive_then_choice_of_sends() {
     let server =
         network.wire_up(server, Server { live: initial_state::<Idle>().into(), client: ClientDest::new(client_ref) });
 
-    network.preload(&server, [In::Ping(Ping(7)), In::Ping(Ping(0))]).unwrap();
+    network.preload(&server, [Ping(7).into(), Ping(0).into()]).unwrap();
 
     let mut running = network.run();
     running.run_until_blocked().assert_idle();
@@ -97,17 +103,25 @@ fn receive_then_choice_of_sends() {
 }
 
 make_states!(Closer { Ready; Closed });
-on_receive!(Ready, Bye => Closed);
+define_mailbox!(CloserMsg { Bye(Bye) });
+on_receive!(Ready as ReadyIn { Bye => { Closed } });
+on_receive!(Closed as ClosedIn {});
 
 #[test]
 fn empty_remainder_finishes_immediately() {
     let mut network = SimulationBuilder::default();
-    let stage = network.stage("closer", async |live: Closer, msg: Bye, eff| match live {
-        Closer::Ready(ready) => ready.receive(msg, eff).finish().into(),
-        closed @ Closer::Closed(_) => closed,
+    let stage = network.stage("closer", async |live: Closer, msg: CloserMsg, eff| match live {
+        Closer::Ready(ready) => match ready.convert_input(msg) {
+            Ok(ReadyIn::Bye(bye)) => ready.receive(bye, eff).finish().into(),
+            Err(_msg) => ready.into(),
+        },
+        Closer::Closed(closed) => match closed.convert_input::<ClosedIn, _>(msg) {
+            Ok(never) => match never {},
+            Err(_msg) => closed.into(),
+        },
     });
     let stage = network.wire_up(stage, initial_state::<Ready>().into());
-    network.preload(&stage, [Bye]).unwrap();
+    network.preload(&stage, [Bye.into()]).unwrap();
     let mut running = network.run();
     running.run_until_blocked().assert_idle();
     assert!(matches!(running.get_state(&stage).cloned().unwrap(), Closer::Closed(_)));

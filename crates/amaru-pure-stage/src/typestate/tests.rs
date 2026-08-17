@@ -117,3 +117,29 @@ fn initial_state_wraps_into_live_enum() {
     let live: toy::Live = super::initial_state::<toy::Idle>().into();
     assert!(matches!(live, toy::Live::Idle(_)));
 }
+
+#[allow(dead_code)]
+mod convert {
+    use crate::typestate::prelude::*;
+
+    make_states!(Live { Idle; Done });
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Ping(u8);
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Pong(u16);
+
+    define_mailbox!(Mail { Ping(Ping), Pong(Pong) });
+    on_receive!(Idle as IdleIn { Ping => { Done } });
+    on_receive!(Done as DoneIn {});
+
+    #[test]
+    fn convert_input_rejects_inadmissible_mailbox() {
+        let idle = initial_state::<Idle>();
+        match idle.convert_input(Mail::Pong(Pong(1))) {
+            Ok(IdleIn::Ping(_)) => panic!("Pong must not convert in Idle"),
+            Err(Mail::Pong(Pong(1))) => {}
+            Err(other) => panic!("unexpected mailbox {other:?}"),
+        }
+    }
+}

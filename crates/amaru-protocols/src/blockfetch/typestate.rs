@@ -110,24 +110,36 @@ impl From<BatchDone> for Message {
 }
 
 // Initiator: local fetch / close, then network replies.
-on_receive!(Idle, Fetch => Send<ToResponder, RequestRange> => Busy);
-on_receive!(Idle, Close => Send<ToResponder, ClientDone> => Done);
-on_receive!(Busy, StartBatch => Streaming);
-on_receive!(Busy, NoBlocks => Idle);
-on_receive!(Streaming, Block => Streaming);
-on_receive!(Streaming, BatchDone => Idle);
+on_receive!(Idle as ClientIdleIn {
+    Fetch => { Send<ToResponder, RequestRange> => Busy }
+    Close => { Send<ToResponder, ClientDone> => Done }
+});
+on_receive!(Busy as ClientBusyIn {
+    StartBatch => { Streaming }
+    NoBlocks => { Idle }
+});
+on_receive!(Streaming as ClientStreamingIn {
+    Block => { Streaming }
+    BatchDone => { Idle }
+});
 
 // Responder: network requests, then local stream commands.
-on_receive!(Idle, RequestRange => Send<ToInitiator, StartBatch> => Streaming | Send<ToInitiator, NoBlocks> => Idle);
-on_receive!(Idle, ClientDone => Done);
-on_receive!(Streaming, NextBlock => Send<ToInitiator, Block> => Streaming);
-on_receive!(Streaming, EndBatch => Send<ToInitiator, BatchDone> => Idle);
+on_receive!(Idle as ServerIdleIn {
+    RequestRange => { Send<ToInitiator, StartBatch> => Streaming | Send<ToInitiator, NoBlocks> => Idle }
+    ClientDone => { Done }
+});
+on_receive!(Busy as ServerBusyIn {});
+on_receive!(Streaming as ServerStreamingIn {
+    NextBlock => { Send<ToInitiator, Block> => Streaming }
+    EndBatch => { Send<ToInitiator, BatchDone> => Idle }
+});
+on_receive!(Done as DoneIn {});
 
 #[cfg(test)]
 mod tests {
     use amaru_kernel::NetworkPoint;
     use amaru_pure_stage::{
-        Effects, StageGraph, StageRef, define_role,
+        Effects, StageGraph, StageRef, define_mailbox, define_role,
         simulation::SimulationBuilder,
         typestate::{FmtPar, OnReceive, Session},
     };
@@ -179,54 +191,21 @@ mod tests {
         ClientDone,
     }
 
-    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-    enum ClientIn {
+    define_mailbox!(ClientIn {
         Fetch(Fetch),
-        Close,
-        StartBatch,
-        NoBlocks,
+        Close(Close),
+        StartBatch(StartBatch),
+        NoBlocks(NoBlocks),
         Block(Block),
-        BatchDone,
-    }
+        BatchDone(BatchDone),
+    });
 
-    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-    enum ServerIn {
+    define_mailbox!(ServerIn {
         RequestRange(RequestRange),
-        ClientDone,
+        ClientDone(ClientDone),
         NextBlock(NextBlock),
-        EndBatch,
-    }
-
-    impl From<StartBatch> for ClientIn {
-        fn from(_: StartBatch) -> Self {
-            ClientIn::StartBatch
-        }
-    }
-    impl From<NoBlocks> for ClientIn {
-        fn from(_: NoBlocks) -> Self {
-            ClientIn::NoBlocks
-        }
-    }
-    impl From<Block> for ClientIn {
-        fn from(value: Block) -> Self {
-            ClientIn::Block(value)
-        }
-    }
-    impl From<BatchDone> for ClientIn {
-        fn from(_: BatchDone) -> Self {
-            ClientIn::BatchDone
-        }
-    }
-    impl From<RequestRange> for ServerIn {
-        fn from(value: RequestRange) -> Self {
-            ServerIn::RequestRange(value)
-        }
-    }
-    impl From<ClientDone> for ServerIn {
-        fn from(_: ClientDone) -> Self {
-            ServerIn::ClientDone
-        }
-    }
+        EndBatch(EndBatch),
+    });
 
     define_role!(ToServer, ToResponder, ServerIn);
     define_role!(ToClient, ToInitiator, ClientIn);
@@ -246,68 +225,93 @@ mod tests {
     }
 
     async fn client_step(state: Client, msg: ClientIn, eff: Effects<ClientIn>) -> Client {
-        match (state.live, msg) {
-            (Live::Idle(idle), ClientIn::Fetch(fetch)) => {
-                let range = RequestRange { from: fetch.from, through: fetch.through };
-                Client { live: idle.receive(fetch, eff).send(&state.peer, range).await.finish().into(), ..state }
-            }
-            (Live::Idle(idle), ClientIn::Close) => {
-                let s = idle.receive(Close, eff).send(&state.peer, ClientDone).await;
-                s.notify(&state.out, Collected::ClientDone).await;
-                Client { live: s.finish().into(), ..state }
-            }
-            (Live::Busy(busy), ClientIn::StartBatch) => {
-                Client { live: busy.receive(StartBatch, eff).finish().into(), ..state }
-            }
-            (Live::Busy(busy), ClientIn::NoBlocks) => {
-                let s = busy.receive(NoBlocks, eff);
-                s.notify(&state.out, Collected::NoBlocks).await;
-                Client { live: s.finish().into(), ..state }
-            }
-            (Live::Streaming(st), ClientIn::Block(block)) => {
-                let s = st.receive(block.clone(), eff);
-                s.notify(&state.out, Collected::Block(block.body)).await;
-                Client { live: s.finish().into(), ..state }
-            }
-            (Live::Streaming(st), ClientIn::BatchDone) => {
-                let s = st.receive(BatchDone, eff);
-                s.notify(&state.out, Collected::BatchDone).await;
-                Client { live: s.finish().into(), ..state }
-            }
-            (live, _) => Client { live, ..state },
+        match state.live {
+            Live::Idle(idle) => match idle.convert_input(msg) {
+                Ok(ClientIdleIn::Fetch(fetch)) => {
+                    let range = RequestRange { from: fetch.from, through: fetch.through };
+                    Client { live: idle.receive(fetch, eff).send(&state.peer, range).await.finish().into(), ..state }
+                }
+                Ok(ClientIdleIn::Close(close)) => {
+                    let s = idle.receive(close, eff).send(&state.peer, ClientDone).await;
+                    s.notify(&state.out, Collected::ClientDone).await;
+                    Client { live: s.finish().into(), ..state }
+                }
+                Err(_msg) => Client { live: idle.into(), ..state },
+            },
+            Live::Busy(busy) => match busy.convert_input(msg) {
+                Ok(ClientBusyIn::StartBatch(start)) => {
+                    Client { live: busy.receive(start, eff).finish().into(), ..state }
+                }
+                Ok(ClientBusyIn::NoBlocks(none)) => {
+                    let s = busy.receive(none, eff);
+                    s.notify(&state.out, Collected::NoBlocks).await;
+                    Client { live: s.finish().into(), ..state }
+                }
+                Err(_msg) => Client { live: busy.into(), ..state },
+            },
+            Live::Streaming(st) => match st.convert_input(msg) {
+                Ok(ClientStreamingIn::Block(block)) => {
+                    let s = st.receive(block.clone(), eff);
+                    s.notify(&state.out, Collected::Block(block.body)).await;
+                    Client { live: s.finish().into(), ..state }
+                }
+                Ok(ClientStreamingIn::BatchDone(done)) => {
+                    let s = st.receive(done, eff);
+                    s.notify(&state.out, Collected::BatchDone).await;
+                    Client { live: s.finish().into(), ..state }
+                }
+                Err(_msg) => Client { live: st.into(), ..state },
+            },
+            Live::Done(done) => match done.convert_input::<DoneIn, _>(msg) {
+                Ok(never) => match never {},
+                Err(_msg) => Client { live: done.into(), ..state },
+            },
         }
     }
 
     async fn server_step(mut state: Server, msg: ServerIn, eff: Effects<ServerIn>) -> Server {
-        match (state.live, msg) {
-            (Live::Idle(idle), ServerIn::RequestRange(range)) => {
-                let s = idle.receive(range, eff);
-                if state.remaining.is_empty() {
-                    Server { live: s.send(&state.peer, NoBlocks).await.finish().into(), ..state }
-                } else {
-                    let first = NextBlock { body: state.remaining.remove(0) };
-                    let s = s.send(&state.peer, StartBatch).await;
-                    s.notify(&s.me(), ServerIn::NextBlock(first)).await;
+        match state.live {
+            Live::Idle(idle) => match idle.convert_input(msg) {
+                Ok(ServerIdleIn::RequestRange(range)) => {
+                    let s = idle.receive(range, eff);
+                    if state.remaining.is_empty() {
+                        Server { live: s.send(&state.peer, NoBlocks).await.finish().into(), ..state }
+                    } else {
+                        let first = NextBlock { body: state.remaining.remove(0) };
+                        let s = s.send(&state.peer, StartBatch).await;
+                        s.notify(&s.me(), first.into()).await;
+                        Server { live: s.finish().into(), ..state }
+                    }
+                }
+                Ok(ServerIdleIn::ClientDone(done)) => {
+                    Server { live: idle.receive(done, eff).finish().into(), ..state }
+                }
+                Err(_msg) => Server { live: idle.into(), ..state },
+            },
+            Live::Busy(busy) => match busy.convert_input::<ServerBusyIn, _>(msg) {
+                Ok(never) => match never {},
+                Err(_msg) => Server { live: busy.into(), ..state },
+            },
+            Live::Streaming(st) => match st.convert_input(msg) {
+                Ok(ServerStreamingIn::NextBlock(next)) => {
+                    let s = st.receive(next.clone(), eff).send(&state.peer, Block { body: next.body }).await;
+                    if state.remaining.is_empty() {
+                        s.notify(&s.me(), EndBatch.into()).await;
+                    } else {
+                        let body = state.remaining.remove(0);
+                        s.notify(&s.me(), NextBlock { body }.into()).await;
+                    }
                     Server { live: s.finish().into(), ..state }
                 }
-            }
-            (Live::Idle(idle), ServerIn::ClientDone) => {
-                Server { live: idle.receive(ClientDone, eff).finish().into(), ..state }
-            }
-            (Live::Streaming(st), ServerIn::NextBlock(next)) => {
-                let s = st.receive(next.clone(), eff).send(&state.peer, Block { body: next.body }).await;
-                if state.remaining.is_empty() {
-                    s.notify(&s.me(), ServerIn::EndBatch).await;
-                } else {
-                    let body = state.remaining.remove(0);
-                    s.notify(&s.me(), ServerIn::NextBlock(NextBlock { body })).await;
+                Ok(ServerStreamingIn::EndBatch(end)) => {
+                    Server { live: st.receive(end, eff).send(&state.peer, BatchDone).await.finish().into(), ..state }
                 }
-                Server { live: s.finish().into(), ..state }
-            }
-            (Live::Streaming(st), ServerIn::EndBatch) => {
-                Server { live: st.receive(EndBatch, eff).send(&state.peer, BatchDone).await.finish().into(), ..state }
-            }
-            (live, _) => Server { live, ..state },
+                Err(_msg) => Server { live: st.into(), ..state },
+            },
+            Live::Done(done) => match done.convert_input::<DoneIn, _>(msg) {
+                Ok(never) => match never {},
+                Err(_msg) => Server { live: done.into(), ..state },
+            },
         }
     }
 
@@ -347,7 +351,7 @@ mod tests {
     fn lockstep_fetch_streams_blocks_then_returns_to_idle() {
         let (client, server, collected) = run_pair(
             vec![b"one".to_vec(), b"two".to_vec()],
-            vec![ClientIn::Fetch(Fetch { from: NetworkPoint::Origin, through: NetworkPoint::Origin })],
+            vec![Fetch { from: NetworkPoint::Origin, through: NetworkPoint::Origin }.into()],
         );
         assert!(matches!(client, Live::Idle(_)));
         assert!(matches!(server, Live::Idle(_)));
@@ -359,10 +363,8 @@ mod tests {
 
     #[test]
     fn lockstep_fetch_without_blocks() {
-        let (client, server, collected) = run_pair(
-            vec![],
-            vec![ClientIn::Fetch(Fetch { from: NetworkPoint::Origin, through: NetworkPoint::Origin })],
-        );
+        let (client, server, collected) =
+            run_pair(vec![], vec![Fetch { from: NetworkPoint::Origin, through: NetworkPoint::Origin }.into()]);
         assert!(matches!(client, Live::Idle(_)));
         assert!(matches!(server, Live::Idle(_)));
         assert_eq!(collected, vec![Collected::NoBlocks]);
@@ -370,7 +372,7 @@ mod tests {
 
     #[test]
     fn lockstep_client_done() {
-        let (client, server, collected) = run_pair(vec![], vec![ClientIn::Close]);
+        let (client, server, collected) = run_pair(vec![], vec![Close.into()]);
         assert!(matches!(client, Live::Done(_)));
         assert!(matches!(server, Live::Done(_)));
         assert_eq!(collected, vec![Collected::ClientDone]);
