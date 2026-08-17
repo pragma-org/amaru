@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use crate::{
     Hash, cbor,
     size::{KEY, POOL_COLD_KEY, SCRIPT},
@@ -24,6 +26,18 @@ pub enum Voter {
     DRepScript(Hash<{ SCRIPT }>),
     DRepKey(Hash<{ KEY }>),
     StakePoolKey(Hash<{ POOL_COLD_KEY }>),
+}
+
+impl fmt::Display for Voter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ConstitutionalCommitteeScript(hash) => write!(f, "constitutional-committee(script({hash}))"),
+            Self::ConstitutionalCommitteeKey(hash) => write!(f, "constitutional-committee(key({hash}))"),
+            Self::DRepScript(hash) => write!(f, "drep(script({hash}))"),
+            Self::DRepKey(hash) => write!(f, "drep(key({hash}))"),
+            Self::StakePoolKey(hash) => write!(f, "stake-pool(key({hash}))"),
+        }
+    }
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for Voter {

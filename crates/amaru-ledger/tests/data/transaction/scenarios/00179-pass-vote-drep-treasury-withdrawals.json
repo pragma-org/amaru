@@ -1,0 +1,45 @@
+{
+  "title": "vote cast by a drep on a treasury withdrawal",
+  "description": "The action stake pools are barred from is one dreps carry a threshold on.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258209c37bdc1e4676c7fc9ff2e0adc4d24b793e13d878c28ac406d47757fdd42f07300",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "dreps": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 500000000,
+        "registeredAt": {
+          "transaction": {
+            "slot": 0,
+            "transactionIndex": 0
+          },
+          "certificateIndex": 0
+        },
+        "validUntil": 1000
+      }
+    ],
+    "proposals": [
+      [
+        { "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 },
+        "TreasuryWithdrawals"
+      ]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258209c37bdc1e4676c7fc9ff2e0adc4d24b793e13d878c28ac406d47757fdd42f073000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840cf55f310f371efff5f6f6e15cf6e03721e6b5c776078f87fd7ac6099fd008aad261a71a4cd95fffa80d3d5220076cc0606b8b8d0bae9678390d1c9b1e0ec3f00f5f6",
+  "expected": "Pass"
+}

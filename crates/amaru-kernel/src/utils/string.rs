@@ -27,7 +27,15 @@ pub fn display_collection<T>(collection: impl IntoIterator<Item = T>) -> String
 where
     T: std::fmt::Display,
 {
-    collection.into_iter().collect::<Vec<_>>().list_to_string(", ")
+    collection.into_iter().join(", ")
+}
+
+pub fn display_map<K, V>(map: impl IntoIterator<Item = (K, V)>) -> String
+where
+    K: std::fmt::Display,
+    V: std::fmt::Display,
+{
+    map.into_iter().map(|(k, v)| format!("{k}: {v}")).join(", ")
 }
 
 /// Extension trait to convert a list of displayable items into a single string.

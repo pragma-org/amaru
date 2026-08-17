@@ -27,6 +27,7 @@ import Cardano.Ledger.Api.PParams
     ( PParams
     , emptyPParamsUpdate
     , ppPoolDepositL
+    , ppuMaxBBSizeL
     )
 import Cardano.Ledger.BaseTypes
     ( ProtVer (..)
@@ -47,7 +48,7 @@ import Cardano.Ledger.Conway
     )
 import Cardano.Ledger.Conway.Governance
     ( Committee (..)
-    , GovAction (..)
+    , GovAction (HardForkInitiation, InfoAction, NewConstitution, NoConfidence, ParameterChange, UpdateCommittee)
     , GovActionId (GovActionId)
     , GovActionIx (GovActionIx)
     , GovActionState (..)
@@ -63,6 +64,7 @@ import Cardano.Ledger.Conway.Governance
     , pRootsL
     , proposalsAddAction
     )
+import qualified Cardano.Ledger.Conway.Governance as ConwayGov
 import Cardano.Ledger.Conway.PParams
     ( ppGovActionDepositL
     , ppGovActionLifetimeL
@@ -310,26 +312,40 @@ data ProposalAction
     = ProposalFull !(GovAction ConwayEra)
     | ProposalSlim !ProposalSlim
 
+data GroupKind
+    = SecurityGroup
+    | OtherGroup
+
+data OrphanKind
+    = Information
+    | TreasuryWithdrawals
+
 -- | The purposes proposals chain along. @Orphan@ covers the actions that chain to nothing.
 data ProposalSlim
-    = ProtocolParametersSlim
+    = ProtocolParametersSlim !GroupKind
     | HardForkSlim !ProtVer
     | ConstitutionalCommitteeSlim
     | ConstitutionSlim
-    | OrphanSlim
+    | OrphanSlim !OrphanKind
 
 instance FromJSON ProposalSlim where
     parseJSON =
         withText "ProposalSlim" $ \text ->
             case text of
                 "ProtocolParameters" ->
-                    pure ProtocolParametersSlim
+                    pure $ ProtocolParametersSlim OtherGroup
+                "ProtocolParameters(security-group)" ->
+                    pure $ ProtocolParametersSlim SecurityGroup
                 "ConstitutionalCommittee" ->
                     pure ConstitutionalCommitteeSlim
                 "Constitution" ->
                     pure ConstitutionSlim
                 "Orphan" ->
-                    pure OrphanSlim
+                    pure $ OrphanSlim (Information)
+                "Information" ->
+                    pure $ OrphanSlim (Information)
+                "TreasuryWithdrawals" ->
+                    pure $ OrphanSlim (TreasuryWithdrawals)
                 other ->
                     case parseHardForkSlim other of
                         Right proposalSlim ->
@@ -631,15 +647,19 @@ toGovAction :: ProposalAction -> GovAction ConwayEra
 toGovAction = \case
     ProposalFull govAction ->
         govAction
-    ProposalSlim ProtocolParametersSlim ->
+    ProposalSlim (ProtocolParametersSlim OtherGroup) ->
         ParameterChange SNothing emptyPParamsUpdate SNothing
+    ProposalSlim (ProtocolParametersSlim SecurityGroup) ->
+        ParameterChange SNothing (emptyPParamsUpdate & ppuMaxBBSizeL .~ SJust 1) SNothing
     ProposalSlim (HardForkSlim version) ->
         HardForkInitiation SNothing version
     ProposalSlim ConstitutionalCommitteeSlim ->
         NoConfidence SNothing
     ProposalSlim ConstitutionSlim ->
         NewConstitution SNothing def
-    ProposalSlim OrphanSlim ->
+    ProposalSlim (OrphanSlim TreasuryWithdrawals) ->
+        ConwayGov.TreasuryWithdrawals (Map.singleton def (Coin 1)) SNothing
+    ProposalSlim (OrphanSlim Information) ->
         InfoAction
 
 buildProposals
