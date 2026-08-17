@@ -3,9 +3,6 @@
 "conway/fail-deleg-delegate-unregistered-stake-credentials/0" = "Expected failure, got success"
 "conway/fail-deleg-delegate-vote-of-unregistered-stake-credentials/0" = "Expected failure, got success"
 "conway/fail-deleg-with-non-zero-reward-balance/0" = "Expected failure, got success"
-"conway/fail-gov-committee-member-can-not-vote-on-noconfidence-action/0" = "Expected failure, got success"
-"conway/fail-gov-committee-member-can-not-vote-on-updatecommittee-action/0" = "Expected failure, got success"
-"conway/fail-gov-committee-member-mixed-with-other-voters-can-not-vote-on-updatecommittee-action/0" = "Expected failure, got success"
 # InvalidPrevGovActionId is implemented, but the enacted root this vector depends on is set by a
 # PassEpoch event that this harness skips, so the empty prev-gov-action-id can't be rejected here.
 "conway/fail-gov-empty-prevgovid-after-the-first-constitution-was-enacted/0" = "Expected failure, got success"

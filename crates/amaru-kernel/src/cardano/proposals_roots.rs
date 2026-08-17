@@ -40,11 +40,11 @@ impl<T> GenericProposalsRoots<T> {
     /// withdrawals, info actions) that never chain.
     pub fn root_of(&self, kind: impl Into<ProposalSlim>) -> Option<&T> {
         match kind.into() {
-            ProposalSlim::ProtocolParameters => self.protocol_parameters.as_ref(),
+            ProposalSlim::ProtocolParameters(..) => self.protocol_parameters.as_ref(),
             ProposalSlim::HardFork(..) => self.hard_fork.as_ref(),
             ProposalSlim::ConstitutionalCommittee => self.constitutional_committee.as_ref(),
             ProposalSlim::Constitution => self.constitution.as_ref(),
-            ProposalSlim::Orphan => None,
+            ProposalSlim::Orphan(..) => None,
         }
     }
 }

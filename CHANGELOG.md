@@ -46,6 +46,7 @@ Other guiding principles:
 - **amaru-ledger**: reduce churn allocations during stake distribution and rewards calculations.
 - **amaru-ledger**: prevent CC action of resigned members.
 - **amaru-ledger**: resolve and control CC member cold credentials following ratification or in-flight proposals.
+- **amaru-ledger**: disallow voters not relevant to the target proposals.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 

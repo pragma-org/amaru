@@ -151,14 +151,21 @@ where
     }
 
     let kind = ProposalSlim::from(&proposal.gov_action);
-    if !matches!(kind, ProposalSlim::Orphan) {
-        let parent = proposal.parent();
-        let follows_root = parent == context.roots().root_of(kind);
-        let follows_in_flight = parent
-            .and_then(|id| ProposalsSlice::lookup(context, id))
-            .is_some_and(|in_flight| in_flight.same_lineage(kind));
-        if !follows_root && !follows_in_flight {
-            return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
+
+    match dbg!(kind) {
+        ProposalSlim::Orphan(..) => {}
+        ProposalSlim::HardFork(..)
+        | ProposalSlim::Constitution
+        | ProposalSlim::ConstitutionalCommittee
+        | ProposalSlim::ProtocolParameters(..) => {
+            let parent = dbg!(proposal).parent();
+            let follows_root = parent == context.roots().root_of(kind);
+            let follows_in_flight = parent
+                .and_then(|id| ProposalsSlice::lookup(context, id))
+                .is_some_and(|in_flight| in_flight.same_lineage(kind));
+            if !follows_root && !follows_in_flight {
+                return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
+            }
         }
     }
 

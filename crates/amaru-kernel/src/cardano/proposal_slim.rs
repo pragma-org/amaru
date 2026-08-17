@@ -14,7 +14,7 @@
 
 use std::{fmt, mem, str::FromStr};
 
-use crate::{GovernanceAction, ProtocolVersion};
+use crate::{GovernanceAction, ProtocolParamUpdate, ProtocolVersion};
 
 /// A slim view of a [`GovernanceAction`], holding only what a proposal needs to know about the one
 /// it chains onto: the lineage it belongs to and, for hard forks, the protocol version it would
@@ -28,11 +28,11 @@ use crate::{GovernanceAction, ProtocolVersion};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "&str", into = "String")]
 pub enum ProposalSlim {
-    ProtocolParameters,
+    ProtocolParameters(AnyInSecurityGroup),
     HardFork(ProtocolVersion),
-    ConstitutionalCommittee,
     Constitution,
-    Orphan,
+    ConstitutionalCommittee,
+    Orphan(IsTreasuryWithdrawals),
 }
 
 impl ProposalSlim {
@@ -58,11 +58,19 @@ impl From<ProposalSlim> for String {
 impl fmt::Display for ProposalSlim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ProtocolParameters => write!(f, "ProtocolParameters"),
+            Self::ProtocolParameters(any_in_security_group) if bool::from(*any_in_security_group) => {
+                write!(f, "ProtocolParameters(security-group)")
+            }
+            Self::ProtocolParameters(..) => {
+                write!(f, "ProtocolParameters")
+            }
             Self::HardFork(version) => write!(f, "HardFork({version})"),
             Self::ConstitutionalCommittee => write!(f, "ConstitutionalCommittee"),
             Self::Constitution => write!(f, "Constitution"),
-            Self::Orphan => write!(f, "Orphan"),
+            Self::Orphan(is_treasury_withdrawals) if bool::from(*is_treasury_withdrawals) => {
+                write!(f, "TreasuryWithdrawals")
+            }
+            Self::Orphan(..) => write!(f, "Information"),
         }
     }
 }
@@ -71,14 +79,19 @@ impl FromStr for ProposalSlim {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "ProtocolParameters" => Ok(Self::ProtocolParameters),
+            "ProtocolParameters" => Ok(Self::ProtocolParameters(false.into())),
+            "ProtocolParameters(security-group)" => Ok(Self::ProtocolParameters(true.into())),
             "ConstitutionalCommittee" => Ok(Self::ConstitutionalCommittee),
             "Constitution" => Ok(Self::Constitution),
-            "Orphan" => Ok(Self::Orphan),
-            s => match s.strip_prefix("HardFork(").and_then(|s| s.strip_suffix(")")) {
-                Some(version) => ProtocolVersion::from_str(version).map(Self::HardFork),
-                None => Err(s.to_string()),
-            },
+            "Orphan" | "Information" => Ok(Self::Orphan(false.into())),
+            "TreasuryWithdrawals" => Ok(Self::Orphan(true.into())),
+            s => {
+                if let Some(version) = s.strip_prefix("HardFork(").and_then(|s| s.strip_suffix(")")) {
+                    return ProtocolVersion::from_str(version).map(Self::HardFork);
+                }
+
+                Err(s.to_string())
+            }
         }
     }
 }
@@ -87,11 +100,64 @@ impl From<&GovernanceAction> for ProposalSlim {
     fn from(action: &GovernanceAction) -> Self {
         use GovernanceAction::*;
         match action {
-            ParameterChange(..) => Self::ProtocolParameters,
+            ParameterChange(_, update, _) => Self::ProtocolParameters(update.as_ref().into()),
             HardForkInitiation(_, version) => Self::HardFork(*version),
-            UpdateCommittee(..) | NoConfidence(..) => Self::ConstitutionalCommittee,
+            TreasuryWithdrawals(..) => Self::Orphan(true.into()),
+            Information => Self::Orphan(false.into()),
+            NoConfidence(..) | UpdateCommittee(..) => Self::ConstitutionalCommittee,
             NewConstitution(..) => Self::Constitution,
-            TreasuryWithdrawals(..) | Information => Self::Orphan,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct IsTreasuryWithdrawals(bool);
+
+impl fmt::Display for IsTreasuryWithdrawals {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<bool> for IsTreasuryWithdrawals {
+    fn from(true_or_false: bool) -> Self {
+        Self(true_or_false)
+    }
+}
+
+impl From<IsTreasuryWithdrawals> for bool {
+    fn from(IsTreasuryWithdrawals(true_or_false): IsTreasuryWithdrawals) -> Self {
+        true_or_false
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct AnyInSecurityGroup(bool);
+
+impl fmt::Display for AnyInSecurityGroup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<&ProtocolParamUpdate> for AnyInSecurityGroup {
+    fn from(update: &ProtocolParamUpdate) -> AnyInSecurityGroup {
+        Self(update.any_in_security_group())
+    }
+}
+
+impl From<bool> for AnyInSecurityGroup {
+    fn from(true_or_false: bool) -> Self {
+        Self(true_or_false)
+    }
+}
+
+impl From<AnyInSecurityGroup> for bool {
+    fn from(AnyInSecurityGroup(true_or_false): AnyInSecurityGroup) -> Self {
+        true_or_false
     }
 }

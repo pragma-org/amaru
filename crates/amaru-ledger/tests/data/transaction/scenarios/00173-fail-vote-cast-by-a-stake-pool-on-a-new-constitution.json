@@ -1,0 +1,36 @@
+{
+  "title": "vote cast by a stake pool on a new constitution",
+  "description": "Stake pools have no say over the constitution.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "82582069cc89b96119c6a7a191c65c8b4cf7d17531e3114b4181fd7e20c2f1c9ce254500",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ],
+    "proposals": [
+      [
+        { "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 },
+        "Constitution"
+      ]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d901028182582069cc89b96119c6a7a191c65c8b4cf7d17531e3114b4181fd7e20c2f1c9ce2545000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18204581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584041920b436922de329cae67b416b149c2254dd11d0be22a67fec91bbea916de58d2e129fe9043e13c3fa6002e17eaecd3286cfde5c955ab60a084bd3668b72e03f5f6",
+  "expected": {
+    "predicate": "DisallowedVoters"
+  }
+}

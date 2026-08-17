@@ -306,7 +306,7 @@ pub mod tests {
 
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
 
-        let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
+        let proposals_roots = dbg!(snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution));
 
         let mut validation_context = DefaultValidationContext::new(
             decoded.utxos,
@@ -314,7 +314,7 @@ pub mod tests {
             accounts,
             dreps,
             committee,
-            proposals,
+            dbg!(proposals),
             proposals_roots,
             decoded.treasury,
         );
