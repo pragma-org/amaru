@@ -527,11 +527,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
         let is_previous_epoch_stable =
             self.era_history.slot_in_epoch(tip, tip).unwrap_or_default() >= self.global_parameters().stability_window();
 
-        // FIXME: Asynchronous rewards calculation
-        //
-        // compute rewards in a thread, or in a non-blocking manner to carry on with other
-        // tasks while rewards are being computed; they only need to be available at the epoch
-        // boundary.
         if self.volatile.rewards_not_ready()
             && self.rewards_join_handle.is_none()
             && Some(self.most_recent_snapshot()) == current_epoch.checked_sub(Epoch::ONE)
