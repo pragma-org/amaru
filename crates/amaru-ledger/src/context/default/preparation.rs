@@ -697,7 +697,7 @@ mod tests {
         }
 
         #[test]
-        fn all_recently_evicted_cc_members_still_proposal_are_resolved_for_certificates() {
+        fn all_recently_evicted_cc_members_still_in_proposals_are_resolved_for_certificates() {
             let first_cold_credential: StakeCredential = run_strategy(any_stake_credential());
             let second_cold_credential: StakeCredential = run_strategy(any_stake_credential());
 
@@ -726,6 +726,25 @@ mod tests {
 
             assert_eq!(context.get(&first_cold_credential), Some(&CCMember::default()));
             assert_eq!(context.get(&second_cold_credential), Some(&CCMember::default()));
+        }
+
+        #[test]
+        fn stable_hot_delegation_is_resolved_for_votes_without_volatile_entry() {
+            let cold_credential: StakeCredential = run_strategy(any_stake_credential());
+            let hot_credential: StakeCredential = run_strategy(any_stake_credential());
+
+            let mock = Mock {
+                volatile_cc_members: vec![],
+                stable_cc_members: vec![(cold_credential, Some(Epoch::default()), Some(hot_credential.into()))],
+                proposals: vec![],
+            };
+
+            let context = resolve_committee(&mock, &mock, Default::default(), From::from([hot_credential])).unwrap();
+
+            assert_eq!(
+                context.get(&cold_credential),
+                Some(&CCMember { status: Some(hot_credential.into()), valid_until: Some(Epoch::default()) })
+            );
         }
     }
 }

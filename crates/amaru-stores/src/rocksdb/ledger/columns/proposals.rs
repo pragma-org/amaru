@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 pub use amaru_ledger::store::{
-    StoreError, TransactionalContext,
+    StoreError,
     columns::{
         proposals::{Key, Row, Value},
         unsafe_decode,
@@ -69,4 +69,104 @@ pub fn remove<DB, V>(db: &Transaction<'_, DB>, proposals: &BTreeMap<Key, V>) -> 
 
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use amaru_kernel::{Ballot, BallotId, ProposalId, Voter, any_ballot, any_proposal, any_proposal_id, any_voter};
+    use amaru_ledger::store::{ReadStore, Store};
+    use proptest::{
+        collection::{btree_map, btree_set},
+        prelude::*,
+    };
+    use tempfile::TempDir;
+
+    use crate::rocksdb::{RocksDB, RocksDbConfig, StoreError, proposals, votes};
+
+    prop_compose! {
+        fn any_proposal_row()(proposal in any_proposal()) -> proposals::Row {
+            proposals::Row {
+                proposed_in: Default::default(),
+                valid_until: Default::default(),
+                proposal,
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn remove(
+            proposals in btree_map(any_proposal_id(), any_proposal_row(), 2..=3),
+            votes in btree_map(any_voter(), any_ballot(), 100),
+            indices_to_remove in btree_set(any::<usize>(), 0..=3),
+        ) {
+            let tmp = TempDir::new().expect("failed to create temp dir");
+            let db = RocksDB::empty(&RocksDbConfig::new(tmp.path().into())).unwrap();
+
+            fixture_proposals_and_votes(&db, proposals.clone().into_iter(), votes.into_iter());
+
+            let (removed, kept): (BTreeMap<ProposalId, ()>, BTreeSet<ProposalId>) = proposals.keys().enumerate().fold(
+                Default::default(),
+                |(mut removed, mut kept), (ix, proposal_id)| {
+                    if indices_to_remove.contains(&ix) {
+                        removed.insert(*proposal_id, ());
+                    } else {
+                        kept.insert(*proposal_id);
+                    }
+
+                    (removed, kept)
+                }
+            );
+
+            // Remove proposals and associated votes
+            db.with_transaction(|ctx| proposals::remove(&ctx.db, &removed)).unwrap();
+
+            // No votes to that proposal should remain
+            for (ballot_id, _) in db.iter_votes()? {
+                prop_assert!(kept.contains(&ballot_id.proposal));
+                prop_assert!(!removed.contains_key(&ballot_id.proposal));
+            }
+
+            // Proposals should have been pruned or left untouched.
+            db.with_transaction(|ctx| {
+                for (proposal_id, proposal) in proposals {
+                    prop_assert_eq!(
+                        proposals::get(|key| ctx.db.get_pinned(key), &proposal_id).unwrap(),
+                        if removed.contains_key(&proposal_id) {
+                            None
+                        } else {
+                            Some(proposal)
+                        }
+                    );
+                }
+
+                Ok(())
+            }).unwrap();
+        }
+    }
+
+    fn fixture_proposals_and_votes(
+        db: &RocksDB,
+        proposals: impl Iterator<Item = (ProposalId, proposals::Row)>,
+        votes: impl Iterator<Item = (Voter, Ballot)>,
+    ) {
+        db.with_transaction(|ctx| {
+            let proposals = proposals.collect::<Vec<_>>();
+
+            votes::add(
+                &ctx.db,
+                votes.enumerate().map(|(ix, (voter, ballot))| {
+                    let ballot_id = BallotId { voter, proposal: proposals[ix % proposals.len()].0 };
+                    (ballot_id, ballot)
+                }),
+            )?;
+
+            proposals::add(&ctx.db, proposals.into_iter())?;
+
+            Ok::<_, StoreError>(())
+        })
+        .unwrap();
+    }
 }
