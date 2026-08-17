@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
-    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots,
+    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
     ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
@@ -69,7 +69,7 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_committee", default)]
     pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals", default)]
-    pub(super) proposals: BTreeMap<ProposalId, ProposalKind>,
+    pub(super) proposals: BTreeMap<ProposalId, ProposalSlim>,
     #[serde(default)]
     pub(super) proposals_roots: ProposalsRoots,
     #[serde(default)]
@@ -90,20 +90,6 @@ where
     let hex = String::deserialize(deserializer)?;
     let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
     cbor::decode(&bytes).map_err(serde::de::Error::custom)
-}
-
-fn deserialize_optional_cbor_hex<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: for<'b> cbor::Decode<'b, ()>,
-{
-    match Option::<String>::deserialize(deserializer)? {
-        None => Ok(None),
-        Some(hex) => {
-            let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
-            cbor::decode(&bytes).map(Some).map_err(serde::de::Error::custom)
-        }
-    }
 }
 
 #[derive(Deserialize)]
@@ -182,11 +168,11 @@ where
         .collect())
 }
 
-fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalKind>, D::Error>
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalSlim>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<(ProposalId, ProposalKind)>::deserialize(deserializer)?;
+    let entries = Vec::<(ProposalId, ProposalSlim)>::deserialize(deserializer)?;
     Ok(entries.into_iter().collect())
 }
 
@@ -198,8 +184,8 @@ where
 struct CommitteeMemberProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
     cold_credential: StakeCredential,
-    #[serde(default, deserialize_with = "deserialize_optional_cbor_hex")]
-    status: Option<ConstitutionalCommitteeMemberStatus>,
+    #[serde(default)]
+    status: Option<String>,
     #[serde(default)]
     valid_until: Option<Epoch>,
 }
@@ -208,14 +194,25 @@ fn deserialize_committee<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCreden
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<CommitteeMemberProxy>::deserialize(deserializer)?;
-    Ok(entries
+    Vec::<CommitteeMemberProxy>::deserialize(deserializer)?
         .into_iter()
         .map(|entry| {
-            let member = CCMember { status: entry.status, valid_until: entry.valid_until };
-            (entry.cold_credential, member)
+            let status = if let Some(st) = entry.status {
+                Some(if st == "resigned" {
+                    ConstitutionalCommitteeMemberStatus::Resigned
+                } else {
+                    let hot_credential = cbor::from_cbor(&hex::decode(&st).map_err(serde::de::Error::custom)?)
+                        .ok_or_else(|| serde::de::Error::custom("unable to decode hot credential"))?;
+                    ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot_credential)
+                })
+            } else {
+                None
+            };
+
+            let member = CCMember { status, valid_until: entry.valid_until };
+            Ok((entry.cold_credential, member))
         })
-        .collect())
+        .collect::<Result<_, _>>()
 }
 
 #[derive(Debug)]
@@ -264,6 +261,7 @@ pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
+    CommitteeHasPreviouslyResigned,
     CommitteeIsUnknown,
     ConflictingMetadataHash,
     ConwayTxRefScriptsSizeTooBig,
@@ -286,6 +284,7 @@ pub(super) enum Predicate {
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    ProposalCantFollow,
     ScriptsNotPaidUTxO,
     TooManyCollateralInputs,
     ProposalReturnAccountDoesNotExist,
@@ -407,6 +406,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Proposals(InvalidProposals::InvalidGuardrailsScriptHash { .. }) => {
                 Predicate::InvalidGuardrailsScriptHash
             }
+            PhaseOneError::Proposals(InvalidProposals::HardforkCantFollow { .. }) => Predicate::ProposalCantFollow,
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist
             }
@@ -427,6 +427,9 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
                 DelegateError::UnknownSource(_),
             )) => Predicate::CommitteeIsUnknown,
+            PhaseOneError::Certificates(InvalidCertificates::CCMemberInvalidDelegation(
+                DelegateError::AlreadyResigned,
+            )) => Predicate::CommitteeHasPreviouslyResigned,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialAlreadyRegistered(_)) => {
                 Predicate::StakeKeyRegistered
             }

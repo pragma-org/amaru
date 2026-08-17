@@ -382,7 +382,7 @@ normalizeUtxowFailure expectedHint = \case
     InvalidWitnessesUTXOW{} ->
         "InvalidWitnessesUTXOW"
     MissingVKeyWitnessesUTXOW{} ->
-        "MissingVKeyWitnessesUTXOW"
+        "MissingVerificationKeyWitnessesUTXOW"
     MissingTxBodyMetadataHash{} ->
         "MissingTxBodyMetadataHash"
     MissingTxMetadata{} ->
@@ -479,6 +479,8 @@ normalizeGovCertFailure = \case
         "DRepAlreadyRegistered"
     ConwayCommitteeIsUnknown{} ->
         "CommitteeIsUnknown"
+    ConwayCommitteeHasPreviouslyResigned{} ->
+        "CommitteeHasPreviouslyResigned"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
@@ -504,6 +506,18 @@ normalizeGovFailure = \case
     ZeroTreasuryWithdrawals{} ->
         "TreasuryWithdrawalsAllZeros"
     VotersDoNotExist{} ->
+        "VotersDoNotExist"
+    GovActionsDoNotExist{} ->
+        "GovActionsDoNotExist"
+    InvalidGuardrailsScriptHash{} ->
+        "InvalidGuardrailsScriptHash"
+    VotingOnExpiredGovAction{} ->
+        "VotingOnExpiredGovAction"
+    DisallowedVoters{} ->
+        "DisallowedVoters"
+    ProposalCantFollow{} ->
+        "ProposalCantFollow"
+    UnelectedCommitteeVoters{} ->
         "VotersDoNotExist"
     otherFailure ->
         "unsupported:" <> showText otherFailure

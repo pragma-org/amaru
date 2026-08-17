@@ -1,0 +1,34 @@
+{
+  "title": "hot key authorization for a member that resigned earlier in the same transaction",
+  "description": "A transaction carrying a ResignCommitteeCold certificate for an elected committee member, followed by an AuthCommitteeHot certificate for the same member.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820dd5a3925f51289f19f77abca43e7efd5aca15b27308c2d07f907ea91819e7b9200",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00989680"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "status": "8200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea6",
+        "validUntil": 200
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820dd5a3925f51289f19f77abca43e7efd5aca15b27308c2d07f907ea91819e7b92000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940021a00030d4004d9010282830f8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f6830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584041c5b5617533c7c3ed32f18b58a506f71d10009f5212c201cb81c409b428c5b1d1792d4c951edf201f824d951ec8d82b8bf20a75ad7897c3374e39e6f0da880af5f6",
+  "expected": {
+    "predicate": "CommitteeHasPreviouslyResigned"
+  }
+}

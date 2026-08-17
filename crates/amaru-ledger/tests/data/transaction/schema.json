@@ -268,8 +268,16 @@
           "description": "Hex-encoded CBOR of StakeCredential. The cold credential keying the member."
         },
         "status": {
-          "$ref": "#/$defs/HexCbor",
-          "description": "Hex-encoded CBOR of a member's status. The authorized hot credential or resignation, which is the identity a vote carries. Absent for a member that has never authorized one or has resigned."
+          "oneOf": [
+            {
+              "$ref": "#/$defs/HexCbor",
+              "description": "Hex-encoded CBOR of a hot StakeCredential the member has delegated to."
+            },
+            {
+              "type": "string",
+              "enum": ["resigned"]
+            }
+          ]
         },
         "validUntil": {
           "type": "integer",

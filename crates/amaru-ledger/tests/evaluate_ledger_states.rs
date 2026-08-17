@@ -25,7 +25,7 @@ pub mod tests {
     use amaru_kernel::{
         Account, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
         DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
-        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalKind,
+        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalSlim,
         ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, Transaction,
         TransactionInput, TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
     };
@@ -301,7 +301,7 @@ pub mod tests {
         let proposals = decoded
             .proposals
             .into_iter()
-            .map(|st| (st.id, ProposalKind::from(&st.procedure.gov_action)))
+            .map(|st| (st.id, ProposalSlim::from(&st.procedure.gov_action)))
             .collect::<BTreeMap<_, _>>();
 
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;

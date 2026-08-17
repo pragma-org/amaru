@@ -1,0 +1,34 @@
+{
+  "title": "second resignation for a member that resigned earlier in the same transaction",
+  "description": "A transaction carrying two ResignCommitteeCold certificates for the same elected committee member, the second with an anchor.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820072fad40c65919c78ad880359452dfd6fed30ea8d2366b11720c82791539450400",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00989680"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "status": "8200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea6",
+        "validUntil": 200
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820072fad40c65919c78ad880359452dfd6fed30ea8d2366b11720c827915394504000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940021a00030d4004d9010282830f8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f6830f8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8827368747470733a2f2f6578616d706c652e636f6d582000000000000000000000000000000000000000000000000000000000000000000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584013bfc4b02cc928dcb66fdfc291a0303c55e0ccd78a8377017d26000a80d87d153800000e16b69f6ea2ea8008c2c2679cb294c7fc48693da933ab9d4e095ab405f5f6",
+  "expected": {
+    "predicate": "CommitteeHasPreviouslyResigned"
+  }
+}

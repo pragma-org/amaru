@@ -1,0 +1,32 @@
+{
+  "title": "resignation for a member holding no term",
+  "description": "A transaction carrying a ResignCommitteeCold certificate for a committee member holding no term and no hot credential.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258203654f02beeca9e4406532a4872cde3e6f9b77851878e9788bda79edfe134913b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00989680"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "status": null,
+        "validUntil": null
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258203654f02beeca9e4406532a4872cde3e6f9b77851878e9788bda79edfe134913b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00958940021a00030d4004d9010281830f8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f60f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406a540fcfb147753eeba1476be4e9ea80d8265228bcb821f8ef363c05b5fba209bd55ea0725e500dbb1fd20f8f7ecfc733c92a2e60f8357f6a8792eacc5ca300df5f6",
+  "expected": "Pass"
+}

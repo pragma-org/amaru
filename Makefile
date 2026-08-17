@@ -125,7 +125,7 @@ run-until: ## &test Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPO
 		echo "RUN_UNTIL_TARGET_EPOCH must be set" >&2; \
 		exit 1; \
 	fi; \
-	./scripts/run-until $(BUILD_PROFILE) $(RUN_UNTIL_TARGET_EPOCH)
+	./scripts/run-until $(BUILD_PROFILE) --epoch $(RUN_UNTIL_TARGET_EPOCH)
 
 check-rust-toolchain-version: ## &test Verify rust-toolchain.toml and Cargo.toml rust-version stay aligned
 	@./scripts/check-rust-toolchain-version

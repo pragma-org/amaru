@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, fmt::Debug};
+use std::{fmt, fmt::Debug, str::FromStr};
 
 use crate::cbor;
 
 pub const PROTOCOL_VERSION_10: ProtocolVersion = ProtocolVersion::new(10, 0);
 
 pub const PROTOCOL_VERSION_11: ProtocolVersion = ProtocolVersion::new(11, 0);
+
+pub const PROTOCOL_VERSION_12: ProtocolVersion = ProtocolVersion::new(12, 0);
 
 pub const DEFAULT: ProtocolVersion = PROTOCOL_VERSION_11;
 
@@ -40,18 +42,18 @@ impl Debug for ProtocolVersion {
 impl ProtocolVersion {
     /// Highest major version the ledger recognises.
     ///
-    /// See <https://github.com/IntersectMBO/cardano-ledger/blob/693218df6cd90263da24e6c2118bac420ceea3a1/eras/conway/impl/cddl-files/conway.cddl#L126>
-    const MAX_MAJOR: u64 = 12;
+    /// See <https://github.com/IntersectMBO/cardano-ledger/blob/9f6b6f1ab10d7cc730dae3328f4003e7fa55afe2/eras/conway/impl/cddl/data/conway.cddl#L105>
+    const MAX_MAJOR: u64 = PROTOCOL_VERSION_12.major();
 
     pub const fn new(major: u64, minor: u64) -> Self {
         Self { major, minor }
     }
 
-    pub fn major(&self) -> u64 {
+    pub const fn major(&self) -> u64 {
         self.major
     }
 
-    pub fn minor(&self) -> u64 {
+    pub const fn minor(&self) -> u64 {
         self.minor
     }
 
@@ -64,6 +66,20 @@ impl ProtocolVersion {
 impl fmt::Display for ProtocolVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+impl FromStr for ProtocolVersion {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match &s.split(".").collect::<Vec<_>>()[..] {
+            [major, minor] => {
+                let major = major.parse::<u64>().map_err(|e| e.to_string())?;
+                let minor = minor.parse::<u64>().map_err(|e| e.to_string())?;
+                Ok(Self::new(major, minor))
+            }
+            _ => Err(s.to_string()),
+        }
     }
 }
 
