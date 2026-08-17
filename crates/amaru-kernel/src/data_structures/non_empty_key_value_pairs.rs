@@ -98,7 +98,7 @@ where
 
 impl<'b, C, K, V> cbor::decode::Decode<'b, C> for NonEmptyKeyValuePairs<K, V>
 where
-    K: for<'k> cbor::Decode<'k, ()> + Eq,
+    K: for<'k> cbor::Decode<'k, C> + Eq,
     V: for<'v> cbor::Decode<'v, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {

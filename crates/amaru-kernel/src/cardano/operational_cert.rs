@@ -15,6 +15,7 @@
 use crate::{Bytes, VerificationKey, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct OperationalCert {
     #[n(0)]
     pub operational_cert_hot_verification_key: VerificationKey,

@@ -119,9 +119,9 @@ impl<const N: usize> fmt::Display for FixedBytes<N> {
     }
 }
 
-impl<'b, C, const N: usize> cbor::Decode<'b, C> for FixedBytes<N> {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Self::checked(&cbor::decode_bytes(d)?).map_err(|e| cbor::decode::Error::message(e.to_string()))
+impl<'b, C: cbor::HasProtocolVersion, const N: usize> cbor::Decode<'b, C> for FixedBytes<N> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Self::checked(&cbor::decode_bytes_with(d, ctx)?).map_err(|e| cbor::decode::Error::message(e.to_string()))
     }
 }
 

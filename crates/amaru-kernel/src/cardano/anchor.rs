@@ -23,7 +23,7 @@ pub struct Anchor {
     pub url: MaxString128,
 }
 
-impl<'b, C> cbor::Decode<'b, C> for Anchor {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Anchor {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
@@ -32,7 +32,7 @@ impl<'b, C> cbor::Decode<'b, C> for Anchor {
     }
 }
 
-impl<C> cbor::Encode<C> for Anchor {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Anchor {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

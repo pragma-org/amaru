@@ -66,6 +66,7 @@ pub mod tests {
     }
 
     #[derive(cbor::Decode)]
+    #[cbor(context_bound = "cbor::HasProtocolVersion")]
     #[allow(dead_code)]
     struct TestVector {
         #[n(0)]
@@ -88,7 +89,7 @@ pub mod tests {
         PassEpoch(u64),
     }
 
-    impl<'b, C> cbor::decode::Decode<'b, C> for TestVectorEvent {
+    impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for TestVectorEvent {
         fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
             d.array()?;
             let variant = d.u16()?;

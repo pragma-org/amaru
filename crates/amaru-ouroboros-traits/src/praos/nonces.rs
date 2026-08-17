@@ -38,7 +38,7 @@ impl Nonces {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for Nonces {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Nonces {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -55,7 +55,7 @@ impl<C> cbor::encode::Encode<C> for Nonces {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Nonces {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Nonces {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Nonces {

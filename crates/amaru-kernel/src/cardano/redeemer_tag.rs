@@ -19,6 +19,7 @@ use crate::cbor;
 #[derive(
     Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode,
 )]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(index_only)]
 pub enum RedeemerTag {
     #[n(0)]

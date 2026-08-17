@@ -18,6 +18,13 @@ use thiserror::Error;
 
 use crate::{Address, Bytes, Lovelace, NonEmptyKeyValuePairs, PlutusStakeAddress, StakeCredential, StakePayload};
 
+/// FIXME(cbor): RewardAccount decodes as raw bytes, without validation.
+///
+/// The Haskell node decodes this position (e.g. withdrawal map keys) as a structured
+/// `RewardAccount` — the same bytes primitive underneath, but followed by parsing and validating
+/// the address header, network tag, and stake credential (`fromCborRewardAcnt` in
+/// Cardano.Ledger.Address). By keeping the raw bytes, amaru accepts malformed reward accounts
+/// that the Haskell node rejects at deserialisation time.
 pub type RewardAccount = Bytes;
 
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,

@@ -22,7 +22,7 @@ pub struct ConstitutionalCommittee {
     pub threshold: RationalNumber,
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
+impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;

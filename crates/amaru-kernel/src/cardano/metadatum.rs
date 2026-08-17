@@ -47,7 +47,7 @@ pub enum Metadatum {
 /// FIXME(cbor): Multi-era
 ///
 /// Ensure that this decoder is multi-era capable
-impl<'b, C> cbor::Decode<'b, C> for Metadatum {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Metadatum {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         use cbor::data::Type::*;
 
@@ -57,6 +57,9 @@ impl<'b, C> cbor::Decode<'b, C> for Metadatum {
                 let i = d.decode()?;
                 Ok(Metadatum::Int(i))
             }
+            // Conformance: the Haskell node accepts indefinite-length bytes and text inside metadata
+            // at every protocol version (`decodeMetadatum` has explicit TypeBytesIndef/TypeStringIndef branches),
+            // so this decoder is deliberately not version-dependent.
             Bytes | BytesIndef => {
                 let bytes = decode_bytes(d)?.into_owned();
                 if bytes.len() > 64 {
@@ -91,7 +94,7 @@ impl<'b, C> cbor::Decode<'b, C> for Metadatum {
     }
 }
 
-impl<C> cbor::Encode<C> for Metadatum {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Metadatum {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

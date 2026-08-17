@@ -33,7 +33,7 @@ pub struct Transaction {
 //
 // minicbor omits a trailing 'None' Option when serialising an array, whereas the CDDL
 // explicitly requires the auxiliary_data slot to always be present as a null marker.
-impl<C> cbor::Encode<C> for Transaction {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Transaction {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -51,7 +51,7 @@ impl<C> cbor::Encode<C> for Transaction {
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for Transaction {
+impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Transaction {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(4)?;

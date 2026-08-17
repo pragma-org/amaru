@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_minicbor_extra::decode_bytes;
-
-use crate::{cbor, cbor::IanaTag};
+use crate::{
+    cbor,
+    cbor::IanaTag,
+    utils::cbor::versioned::{HasProtocolVersion, decode_bytes_with},
+};
 
 /// Encode a type as tagged CBOR bytes, also known as "CBOR-in-CBOR".
 #[derive(Debug)]
@@ -33,7 +35,7 @@ impl<C, T: cbor::Encode<C>> cbor::Encode<C> for SerialisedAsCbor<T> {
     }
 }
 
-impl<'d, C, T: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d, C> for SerialisedAsCbor<T> {
+impl<'d, C: HasProtocolVersion, T: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d, C> for SerialisedAsCbor<T> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let tag = d.tag()?;
 
@@ -45,7 +47,7 @@ impl<'d, C, T: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d, C> for SerialisedAs
             )));
         }
 
-        let bytes = decode_bytes(d)?;
+        let bytes = decode_bytes_with(d, ctx)?;
         let data = cbor::Decoder::new(&bytes).decode_with(ctx).map_err(|e| {
             cbor::decode::Error::message(format!("failed to decode serialised {}: {e}", std::any::type_name::<T>()))
         })?;

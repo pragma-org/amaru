@@ -33,6 +33,7 @@ use crate::{
 ///
 ///   Importantly, this behaviour is changing again in v12, back to being a non-empty set / maps.
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(map)]
 pub struct WitnessSet {
     #[n(0)]

@@ -20,6 +20,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, cbor::Encode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct Block {
     #[cbor(skip)]
     original_body_size: u64,
@@ -172,7 +173,7 @@ impl<'a> IntoIterator for &'a Block {
 // previous eras in normal operation (albeit, to be confirmed...), we will require to re-validate
 // that a given chain is indeed at least well-formed, and that means drilling through headers to
 // ensure they form a chain. So at least *some level* of multi-era decoding is necessary.
-impl<'b, C> cbor::Decode<'b, C> for Block {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(Block::CBOR_FIELD_COUNT)?;

@@ -30,6 +30,7 @@ use crate::cbor;
     cbor::Encode,
     cbor::Decode,
 )]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(transparent)]
 #[serde(into = "i128")]
 #[serde(try_from = "i128")]

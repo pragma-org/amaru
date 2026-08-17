@@ -15,6 +15,7 @@
 use crate::{ExUnits, PlutusData, RedeemerTag, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct Redeemer {
     #[n(0)]
     pub tag: RedeemerTag,

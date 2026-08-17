@@ -27,7 +27,7 @@ pub struct DRepState {
     pub delegators: BTreeSet<StakeCredential>,
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for DRepState {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(DRepState {

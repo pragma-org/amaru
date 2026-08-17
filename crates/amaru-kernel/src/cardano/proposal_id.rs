@@ -36,7 +36,7 @@ impl ProposalId {
     }
 }
 
-impl<C> cbor::Encode<C> for ProposalId {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for ProposalId {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -49,7 +49,7 @@ impl<C> cbor::Encode<C> for ProposalId {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for ProposalId {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ProposalId {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;

@@ -175,7 +175,7 @@ impl Header {
     }
 }
 
-impl<C> cbor::Encode<C> for Header {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Header {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -188,7 +188,7 @@ impl<C> cbor::Encode<C> for Header {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for Header {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Header {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let ((body, signature), header_bytes) = cbor::tee(d, |d| {
             cbor::heterogeneous_array(d, |d, assert_len| {

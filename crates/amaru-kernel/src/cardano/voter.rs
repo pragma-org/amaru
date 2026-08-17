@@ -40,7 +40,7 @@ impl fmt::Display for Voter {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Voter {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Voter {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
@@ -57,7 +57,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Voter {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for Voter {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Voter {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
