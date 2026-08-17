@@ -1,4 +1,3 @@
-#![expect(clippy::unwrap_used, clippy::wildcard_enum_match_arm)]
 // Copyright 2026 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,6 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+#![expect(clippy::unwrap_used, clippy::wildcard_enum_match_arm)]
 
 //! Simulated duration of [`ExternalEffect`]: sampled `δ` is scheduled when the effect is
 //! issued; [`DurationDist::UntilResolved`] waits for the Future instead.

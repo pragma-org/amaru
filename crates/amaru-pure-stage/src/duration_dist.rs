@@ -21,15 +21,15 @@ use rand::Rng;
 /// The Tokio runtime ignores this. The simulation samples (or declines to sample) when the
 /// effect is *issued*, not when its `Future` later completes. Real CPU time is never used as `δ`.
 ///
-/// - [`Zero`], [`Constant`], [`Uniform`]: `δ` is known at issue time. The simulator enqueues a
-///   wakeup at `now + δ` immediately. The stage resumes only once that time has been reached
-///   *and* the effect result is available.
-/// - [`UntilResolved`]: there is no `δ`. The stage stays suspended until the effect `Future`
-///   is resolved. This is how a later world runner delivers a network receive at a time of
-///   its choosing.
+/// - [`DurationDist::Zero`], [`DurationDist::Constant`], [`DurationDist::Uniform`]: `δ` is
+///   known at issue time. The simulator enqueues a wakeup at `now + δ` immediately. The
+///   stage resumes only once that time has been reached *and* the effect result is available.
+/// - [`DurationDist::UntilResolved`]: there is no `δ`. The stage stays suspended until the
+///   effect `Future` is resolved. This is how a later world runner delivers a network receive
+///   at a time of its choosing.
 ///
-/// Start every effect at [`DurationDist::Zero`]. Pick [`UntilResolved`] for completions the
-/// simulation drives; pick a sampled variant for local work (store, validation, …).
+/// Start every effect at [`DurationDist::Zero`]. Pick [`DurationDist::UntilResolved`] for
+/// completions the simulation drives; pick a sampled variant for local work (store, validation, …).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub enum DurationDist {
     /// The effect occupies no simulated time. Resume as soon as the result is available.
@@ -55,7 +55,7 @@ impl DurationDist {
 
     /// Draw a finite `δ` if this distribution has one.
     ///
-    /// Returns `None` for [`UntilResolved`] — that variant has no duration to sample.
+    /// Returns `None` for [`DurationDist::UntilResolved`] — that variant has no duration to sample.
     ///
     /// # Panics
     ///
@@ -77,8 +77,9 @@ impl DurationDist {
 
     /// Wall-clock bound when forcing `run()` at a sampled deadline: `1.5 × max + 1s`.
     ///
-    /// `max` is zero for [`Zero`], the constant for [`Constant`], and the upper end for
-    /// [`Uniform`]. [`UntilResolved`] has no force bound (that variant is never forced).
+    /// `max` is zero for [`DurationDist::Zero`], the constant for [`DurationDist::Constant`],
+    /// and the upper end for [`DurationDist::Uniform`]. [`DurationDist::UntilResolved`] has
+    /// no force bound (that variant is never forced).
     pub fn force_timeout(self) -> Option<Duration> {
         let max = match self {
             Self::Zero => Duration::ZERO,

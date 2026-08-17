@@ -181,7 +181,8 @@ impl SimulationBuilder {
     }
 
     pub fn with_seed(mut self, seed: u64) -> Self {
-        self.duration_rng = StdRng::seed_from_u64(seed);
+        // Distinct derived stream so duration samples do not share the eval-strategy sequence.
+        self.duration_rng = StdRng::seed_from_u64(seed.wrapping_add(0x9E37_79B9_7F4A_7C15));
         self.with_eval_strategy(RandStdRng(StdRng::seed_from_u64(seed)))
     }
 

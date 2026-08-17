@@ -18,7 +18,7 @@ use amaru_pure_stage::{
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -36,7 +36,7 @@ pub struct TestPrep {
 pub fn test_prep(adopted_tip: Point, max_tip_distance: u64) -> TestPrep {
     let invalid_sink = StageRef::named_for_tests("invalid_sink");
     let state = BlockSource::new(adopted_tip, max_tip_distance, invalid_sink);
-    TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
+    TestPrep { state, rt: crate::stages::test_utils::test_runtime() }
 }
 
 pub fn register_guards() -> DeserializerGuards {

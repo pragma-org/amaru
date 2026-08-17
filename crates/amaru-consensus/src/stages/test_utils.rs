@@ -23,7 +23,12 @@ use amaru_pure_stage::{
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use parking_lot::Mutex;
-use tokio::runtime::Handle;
+use tokio::runtime::{Builder, Handle, Runtime};
+
+/// Current-thread runtime with IO and time, required to force pending external effects.
+pub fn test_runtime() -> Runtime {
+    Builder::new_current_thread().enable_all().build().expect("current-thread tokio runtime")
+}
 use tracing::{Level, subscriber::DefaultGuard};
 use tracing_subscriber::util::SubscriberInitExt;
 

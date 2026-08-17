@@ -794,11 +794,9 @@ fn virtual_child_stages() {
     let mut running = network.run(test_runtime().handle());
     running.use_virtual_child_stages(true);
 
-    // Kick off the parent with a message that will trigger child creation + a send to the child.
     running.enqueue_msg(&parent, [42u32]);
     running.resume_receive(&parent).unwrap();
 
-    // Run the simulation using the high-level automatic driver (the style used by consensus tests).
     running.run_until_blocked_or_time_incl_effects(Instant::at_offset(Duration::from_secs(1), Duration::ZERO));
 
     // Because the child was virtual, its logic never ran → nothing reached the output.

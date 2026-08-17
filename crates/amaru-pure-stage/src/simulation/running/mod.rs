@@ -360,7 +360,7 @@ impl SimulationRunning {
     /// If the future is not already ready, `block_on` is bounded by
     /// [`DurationDist::force_timeout`] (`1.5 × max + 1s`). Exceeding that is a bug.
     fn force_scheduled_computation(&mut self, at_stage: &Name) {
-        let Some(fut) = self.pending_computations.remove(at_stage) else {
+        let Some(mut fut) = self.pending_computations.remove(at_stage) else {
             return;
         };
         let timeout = self
@@ -368,10 +368,18 @@ impl SimulationRunning {
             .get(at_stage)
             .and_then(|pending| pending.dist.force_timeout())
             .expect("force only for sampled DurationDist");
-        let result = self
-            .tokio_handle
-            .block_on(tokio::time::timeout(timeout, fut))
-            .expect("external effect on `{at_stage}` exceeded force timeout {timeout:?}");
+        // Poll first so already-ready `run()` (typical wrap_sync) never enters the runtime.
+        // `timeout` must be constructed inside `block_on`: current-thread test runtimes
+        // have no ambient reactor, and `tokio::time::timeout` requires one.
+        let result = match std::future::Future::poll(fut.as_mut(), &mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(result) => result,
+            Poll::Pending => match self.tokio_handle.block_on(async { tokio::time::timeout(timeout, fut).await }) {
+                Ok(result) => result,
+                Err(_elapsed) => {
+                    panic!("external effect on `{at_stage}` exceeded force timeout {timeout:?}")
+                }
+            },
+        };
         self.provide_external_result(at_stage.clone(), result);
     }
 
@@ -379,12 +387,15 @@ impl SimulationRunning {
         pending: &mut BTreeMap<Name, BoxFuture<'static, Box<dyn SendData>>>,
         cx: &mut Context<'_>,
     ) -> Option<(Name, Box<dyn SendData>)> {
-        for (name, fut) in pending.iter_mut() {
+        let names: Vec<Name> = pending.keys().cloned().collect();
+        for name in names {
+            let Some(fut) = pending.get_mut(&name) else {
+                continue;
+            };
             match std::future::Future::poll(fut.as_mut(), cx) {
                 Poll::Ready(result) => {
-                    let name = name.clone();
                     pending.remove(&name);
-                    return Some((name.clone(), result));
+                    return Some((name, result));
                 }
                 Poll::Pending => {}
             }
@@ -598,7 +609,7 @@ impl SimulationRunning {
     pub fn run_until_blocked_incl_effects(&mut self) -> Blocked {
         loop {
             match self.run_until_sleeping_or_blocked() {
-                Blocked::Busy { .. } => {
+                Blocked::Busy { external_effects, .. } if external_effects > 0 => {
                     self.tokio_handle.clone().block_on(self.await_external_effect());
                 }
                 Blocked::Sleeping { .. } => {
@@ -1277,7 +1288,12 @@ impl SimulationRunning {
     /// Panics if the stage name does not exist (which may also happen due to termination).
     pub fn resume_external_box(&mut self, at_stage: impl AsRef<Name>, result: Box<dyn SendData>) -> anyhow::Result<()> {
         let at_stage = at_stage.as_ref().clone();
-        self.stages.get_mut(&at_stage).assert_stage("which cannot receive external effects");
+        {
+            let data = self.stages.get_mut(&at_stage).assert_stage("which cannot receive external effects");
+            if !matches!(data.waiting, Some(StageEffect::External(_))) {
+                anyhow::bail!("stage `{at_stage}` was not waiting for an external effect, but {:?}", data.waiting);
+            }
+        }
         self.provide_external_result(at_stage, result);
         Ok(())
     }
@@ -1293,7 +1309,12 @@ impl SimulationRunning {
         result: Eff::Response,
     ) -> anyhow::Result<()> {
         let at_stage = at_stage.as_ref().clone();
-        self.stages.get_mut(&at_stage).assert_stage("which cannot receive external effects");
+        {
+            let data = self.stages.get_mut(&at_stage).assert_stage("which cannot receive external effects");
+            if !matches!(data.waiting, Some(StageEffect::External(_))) {
+                anyhow::bail!("stage `{at_stage}` was not waiting for an external effect, but {:?}", data.waiting);
+            }
+        }
         self.provide_external_result(at_stage, Box::new(result));
         Ok(())
     }

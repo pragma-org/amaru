@@ -24,7 +24,7 @@ use amaru_protocols::store_effects::{
 use amaru_pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef, simulation::SimulationRunning, trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 
 use super::*;
 use crate::stages::test_utils::{Logs, run_simulation};
@@ -144,7 +144,7 @@ pub fn test_prep() -> TestPrep {
     state.may_fetch_blocks = true;
     TestPrep {
         state,
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         downstream,
         headers: HeaderTree::new(),
         store: Arc::new(InMemoryChainStore::new()),

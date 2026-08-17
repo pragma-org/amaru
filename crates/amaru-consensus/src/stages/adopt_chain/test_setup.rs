@@ -32,7 +32,7 @@ use amaru_pure_stage::{
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -160,7 +160,7 @@ pub fn test_prep(consensus_security_param: u64) -> TestPrep {
     let state = AdoptChain::new(downstream, block_source, mempool, consensus_security_param, Point::Origin);
     TestPrep {
         state,
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         headers,
         store: Arc::new(InMemoryChainStore::new()),
     }
