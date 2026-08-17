@@ -22,7 +22,7 @@
       }
     ],
     "proposals": [
-      [{ "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3", "proposalIndex": 0 }, "ConstitutionalCommittee"]
+      [{ "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3", "proposalIndex": 0 }, "ConstitutionalCommittee", 6]
     ]
   },
   "point": {

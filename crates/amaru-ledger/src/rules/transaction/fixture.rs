@@ -24,7 +24,7 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    context::{AccountState, CCMember, DelegateError},
+    context::{AccountState, CCMember, DelegateError, ProposalStateSlim},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -69,7 +69,7 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_committee", default)]
     pub(super) committee: BTreeMap<StakeCredential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals", default)]
-    pub(super) proposals: BTreeMap<ProposalId, ProposalSlim>,
+    pub(super) proposals: BTreeMap<ProposalId, ProposalStateSlim>,
     #[serde(default)]
     pub(super) proposals_roots: ProposalsRoots,
     #[serde(default)]
@@ -168,12 +168,14 @@ where
         .collect())
 }
 
-fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalSlim>, D::Error>
+fn deserialize_proposals<'de, D>(deserializer: D) -> Result<BTreeMap<ProposalId, ProposalStateSlim>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let entries = Vec::<(ProposalId, ProposalSlim)>::deserialize(deserializer)?;
-    Ok(entries.into_iter().collect())
+    Ok(Vec::<(ProposalId, ProposalSlim, Epoch)>::deserialize(deserializer)?
+        .into_iter()
+        .map(|(id, action, valid_until)| (id, ProposalStateSlim { action, valid_until }))
+        .collect())
 }
 
 /// A row of the constitutional committee, keyed by cold credential. `hotCredential` is absent for a
@@ -304,6 +306,7 @@ pub(super) enum Predicate {
     ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
     VotersDoNotExist,
+    VotingOnExpiredGovAction,
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -413,6 +416,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::UnknownVoter(_)) => Predicate::VotersDoNotExist,
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::DisallowedVoter(_)) => Predicate::DisallowedVoters,
+            PhaseOneError::VotingProcedures(InvalidVotingProcedures::VotingOnExpiredGovAction(_)) => {
+                Predicate::VotingOnExpiredGovAction
+            }
             PhaseOneError::ValueNotPreserved(_) => Predicate::ValueNotConservedUTxO,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
@@ -464,7 +470,10 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::Withdrawals(_)
             | PhaseOneError::Scripts(_)
             | PhaseOneError::Collateral(_)
-            | PhaseOneError::Proposals(_) => unreachable!("no predicate mapping yet for {err}"),
+            | PhaseOneError::Proposals(_)
+            | PhaseOneError::VotingProcedures(InvalidVotingProcedures::EraHistory(_)) => {
+                unreachable!("no predicate mapping yet for {err}")
+            }
         }
     }
 }

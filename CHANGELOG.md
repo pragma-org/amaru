@@ -56,6 +56,7 @@ Other guiding principles:
 - **amaru-ledger**: resolve and control CC member cold credentials following ratification or in-flight proposals.
 - **amaru-ledger**: disallow voters not relevant to the target proposals.
 - **amaru**: use definite decoding for Conway bytes
+- **amaru-ledger**: reject votes cast on governance actions that have expired. ([#1143][], [#926][])
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
@@ -326,6 +327,7 @@ Other guiding principles:
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#923]: https://github.com/pragma-org/amaru/issues/923
 [#924]: https://github.com/pragma-org/amaru/issues/924
+[#926]: https://github.com/pragma-org/amaru/issues/926
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
 [#931]: https://github.com/pragma-org/amaru/issues/931
@@ -383,3 +385,4 @@ Other guiding principles:
 [#1118]: https://github.com/pragma-org/amaru/pull/1118
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
+[#1143]: https://github.com/pragma-org/amaru/pull/1143

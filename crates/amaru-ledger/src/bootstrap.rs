@@ -663,7 +663,7 @@ fn import_proposals(
                                 },
                                 proposal_index,
                             },
-                            valid_until: proposal.proposed_in + protocol_parameters.gov_action_lifetime,
+                            valid_until: proposal.expires_after,
                             proposal: proposal.procedure.clone(),
                         },
                     ))

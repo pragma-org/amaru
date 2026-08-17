@@ -1,0 +1,48 @@
+{
+  "title": "no vote cast by a registered drep script credential on an action expiring in the current epoch",
+  "description": "A registered DRep script credential voting no on an action whose validUntil is the current epoch.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820705db7d66b415daa4602eda637bf6a603d87f657f9d176db543580e8871f361b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [
+      {
+        "credential": "8201581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf",
+        "deposit": 500000000,
+        "registeredAt": {
+          "transaction": {
+            "slot": 0,
+            "transactionIndex": 0
+          },
+          "certificateIndex": 0
+        },
+        "validUntil": 1000
+      }
+    ],
+    "committee": [],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Information", 1]
+    ],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 432000,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820705db7d66b415daa4602eda637bf6a603d87f657f9d176db543580e8871f361b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18203581cd441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcfa18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008200f6a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406c110559b38d4dbdd8e90889f9f115b66a14196c56a360ae25111977780f4ff88715e5ffbad800a6050f36285148192906d8c531d5df22ab39d30c3ab5cd4e080181820180f5f6",
+  "expected": "Pass"
+}
