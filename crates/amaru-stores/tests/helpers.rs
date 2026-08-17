@@ -23,7 +23,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Block, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory,
     GlobalParameters, Hash, Header, HeaderHash, MaxString128, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Pots, ProposalsRoots, ProtocolParameters, Slot,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Pots, ProposalId, ProposalsRoots, ProtocolParameters, Slot,
     cardano::network_block::make_block, cbor, make_header, to_cbor,
 };
 use amaru_ledger::{
@@ -457,18 +457,11 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
         Ok(())
     }
 
-    fn with_proposals(&self, _with: impl FnMut(proposals::Iter<'_, '_>)) -> amaru_ledger::store::Result<()> {
-        Ok(())
-    }
-
     fn with_cc_members(&self, _with: impl FnMut(cc_members::Iter<'_, '_>)) -> amaru_ledger::store::Result<()> {
         Ok(())
     }
 
-    fn remove_proposals<'iter>(
-        &self,
-        _proposals: impl Iterator<Item = &'iter amaru_kernel::ProposalId>,
-    ) -> amaru_ledger::store::Result<()> {
+    fn remove_proposals<T>(&self, _proposals: &BTreeMap<ProposalId, T>) -> amaru_ledger::store::Result<()> {
         Ok(())
     }
 
