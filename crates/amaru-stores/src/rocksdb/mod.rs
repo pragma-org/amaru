@@ -765,11 +765,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter>(
-        &self,
-        proposals: impl IntoIterator<Item = &'iter ProposalId>,
-    ) -> Result<(), StoreError> {
-        proposals::remove(&self.db, proposals.into_iter())
+    fn remove_proposals<T>(&self, proposals: &BTreeMap<ProposalId, T>) -> Result<(), StoreError> {
+        proposals::remove(&self.db, proposals)
     }
 
     /// Prune recently unregistered accounts from the database that are no longer required.
@@ -918,10 +915,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn with_dreps(&self, with: impl FnMut(scolumns::dreps::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, dreps::PREFIX, "dreps", with)
-    }
-
-    fn with_proposals(&self, with: impl FnMut(scolumns::proposals::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, proposals::PREFIX, "proposals", with)
     }
 
     fn with_cc_members(&self, with: impl FnMut(scolumns::cc_members::Iter<'_, '_>)) -> Result<(), StoreError> {

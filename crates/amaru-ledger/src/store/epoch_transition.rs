@@ -259,7 +259,7 @@ pub fn apply_governance_updates<'store>(
             db.set_governance_activity(governance_activity)?;
         }
 
-        db.remove_proposals(updates.pruned_proposals.keys())?;
+        db.remove_proposals(&updates.pruned_proposals)?;
 
         Ok((updates.protocol_parameters.clone(), governance_activity, guardrail_script))
     })

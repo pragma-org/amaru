@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 pub use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -54,9 +56,9 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = (Key, Value)
 }
 
 /// Remove an expired or enacted proposal.
-pub fn remove<'iter, DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = &'iter Key>) -> Result<(), StoreError> {
+pub fn remove<DB, V>(db: &Transaction<'_, DB>, proposals: &BTreeMap<Key, V>) -> Result<(), StoreError> {
     trace_span!(stores::ledger::proposals::REMOVE).in_scope(|| {
-        for key in rows {
+        for key in proposals.keys() {
             db.delete(as_key(&PREFIX, key)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
