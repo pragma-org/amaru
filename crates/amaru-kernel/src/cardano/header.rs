@@ -260,7 +260,7 @@ mod tests {
                     operational_cert_hot_verification_key: FixedBytes::zeroes(),
                     operational_cert_sequence_number: op_cert_seq,
                     operational_cert_kes_period: 0,
-                    operational_cert_sigma: Bytes::default(),
+                    operational_cert_sigma: FixedBytes::zeroes(),
                 },
                 protocol_version: ProtocolVersion::new(1, 2),
             },
