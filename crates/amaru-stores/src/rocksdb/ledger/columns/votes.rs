@@ -22,7 +22,10 @@ pub use amaru_ledger::store::{
 use amaru_observability::trace_span;
 use rocksdb::Transaction;
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use crate::rocksdb::{
+    common::{PREFIX_LEN, as_key, as_value},
+    iter,
+};
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "vote"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x76, 0x6f, 0x74, 0x65];
@@ -53,5 +56,17 @@ pub fn add<DB>(
         }
 
         Ok(voting_dreps)
+    })
+}
+
+pub fn prune<DB>(db: &Transaction<'_, DB>, should_prune: impl Fn(&Key) -> bool) -> Result<(), StoreError> {
+    trace_span!(stores::ledger::votes::PRUNE).in_scope(|| {
+        for (ballot_id, _) in iter::<Key, Value, _, _>(|mode, opts| db.iterator_opt(mode, opts), PREFIX)? {
+            if should_prune(&ballot_id) {
+                db.delete(as_key(&PREFIX, &ballot_id)).map_err(|err| StoreError::Internal(err.into()))?;
+            }
+        }
+
+        Ok(())
     })
 }
