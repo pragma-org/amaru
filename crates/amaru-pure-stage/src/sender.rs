@@ -46,7 +46,8 @@ impl<Msg> Sender<Msg> {
 
     /// Deliver `msg` to the stage.
     ///
-    /// Returns [`SendError`] if the stage graph has terminated or the mailbox is gone.
+    /// Returns [`SendError`] (including the destination stage name) if the stage graph has
+    /// terminated or the mailbox is gone.
     /// The payload is not returned: it may already have been transformed (e.g. by
     /// [`StageRef::contramap`](crate::StageRef::contramap)).
     pub fn send(&self, msg: Msg) -> BoxFuture<'static, Result<(), SendError>> {
@@ -92,9 +93,18 @@ impl<Msg: SendData> Sender<Msg> {
 pub(crate) type StageRefExtra = Mutex<Option<oneshot::Sender<Box<dyn SendData>>>>;
 
 /// Delivery through [`Sender::send`] failed because the target stage is gone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("failed to deliver message to stage")]
-pub struct SendError;
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("failed to deliver message to stage `{target}`")]
+pub struct SendError {
+    /// The destination stage name (after any [`StageRef::contramap`](crate::StageRef::contramap)).
+    pub target: Name,
+}
+
+impl SendError {
+    pub fn new(target: Name) -> Self {
+        Self { target }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CallError {

@@ -62,7 +62,7 @@ impl Inputs {
                     None => Box::new(msg),
                 };
                 let (tx, rx) = oneshot::channel();
-                tx_main.send(Envelope::new(name, payload, tx)).await.map_err(|_| SendError)?;
+                tx_main.send(Envelope::new(name.clone(), payload, tx)).await.map_err(|_| SendError::new(name))?;
                 rx.await.ok();
                 Ok(())
             })

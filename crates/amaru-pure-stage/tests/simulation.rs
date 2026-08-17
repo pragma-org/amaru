@@ -865,5 +865,5 @@ fn contramap_sends_injected_message_to_original_name() {
     assert_eq!(running.get_state(&sink), Some(&vec![Sum::N(7)]));
 
     drop(running);
-    assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError));
+    assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError::new(sink.name().clone())));
 }

@@ -381,14 +381,16 @@ fn mk_sender<Msg: SendData>(stage: &StageRef<Msg>, inner: &TokioInner) -> Sender
         panic!("cannot input() a call-reply StageRef");
     }
     let transform = peeled.transform;
+    let target = peeled.name;
     Sender::new(Arc::new(move |msg: Msg| {
         let tx = tx.clone();
         let transform = transform.clone();
+        let target = target.clone();
         let payload = match transform {
             Some(transform) => transform(Box::new(msg)),
             None => Box::new(msg),
         };
-        Box::pin(async move { tx.send(payload).await.map_err(|_| crate::SendError) })
+        Box::pin(async move { tx.send(payload).await.map_err(|_| crate::SendError::new(target)) })
     }))
 }
 

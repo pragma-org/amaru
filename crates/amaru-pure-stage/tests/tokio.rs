@@ -124,5 +124,5 @@ fn contramap_input_returns_send_error_when_mailbox_is_gone() {
     let as_u8 = sink.contramap(|x: u8| u32::from(x));
     let sender = graph.input(&as_u8);
     drop(graph);
-    assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError));
+    assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError::new(sink.name().clone())));
 }
