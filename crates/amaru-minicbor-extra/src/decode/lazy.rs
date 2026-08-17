@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs, io::Read};
+use std::io::Read;
 
 use minicbor as cbor;
 
@@ -22,7 +22,6 @@ use minicbor as cbor;
 /// The decoder keeps an internal state with the bytes that have been read but not consumed, and a
 /// handle to a source that implements [`std::io::Read`].
 ///
-/// See [`Self::from_file`] for example, to lazily read and decode from a (large) file.
 pub struct LazyDecoder<'a> {
     reader: &'a mut dyn Read,
     bytes: Vec<u8>,
@@ -31,26 +30,33 @@ pub struct LazyDecoder<'a> {
 impl<'a> LazyDecoder<'a> {
     const CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2MiB, chosen at random by fair dice roll
 
+    /// Create a decoder that reads incrementally from `reader`.
     pub fn new(reader: &'a mut dyn Read) -> Self {
         Self { reader, bytes: Vec::with_capacity(Self::CHUNK_SIZE) }
     }
 
-    pub fn from_file(file: &'a mut fs::File) -> Self {
-        Self::new(file)
-    }
-
-    /// Consumes enough bytes and skip the next CBOR element.
+    /// Consume enough bytes to skip the next CBOR element.
     pub fn skip(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.with_decoder(|d| Ok(d.skip()?))
     }
 
-    /// Consumes enough bytes and decode the next CBOR element.
+    /// Consume enough bytes to decode the next CBOR element.
     pub fn decode<T: for<'d> cbor::decode::Decode<'d, ()>>(&mut self) -> Result<T, Box<dyn std::error::Error>> {
         self.with_decoder(|d| Ok(d.decode()?))
     }
 
-    /// Decode some element according to a custom strategy. This consumes more bytes if the decoder
-    /// fails due to a lack of bytes. And error otherwise.
+    /// Consume the header of the next definite- or indefinite-length CBOR array.
+    pub fn begin_array(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.with_decoder(|d| {
+            d.array()?;
+            Ok(())
+        })
+    }
+
+    /// Decode an element with a custom strategy.
+    ///
+    /// More bytes are read and the strategy is retried when it reaches the end of the available
+    /// input. Other errors are returned unchanged.
     pub fn with_decoder<T>(
         &mut self,
         decode: impl Fn(&mut cbor::decode::Decoder<'_>) -> Result<T, Box<dyn std::error::Error>>,
@@ -99,5 +105,187 @@ impl<'a> LazyDecoder<'a> {
                 Err(err) => return Err(err),
             }
         }
+    }
+
+    /// Decode a CBOR map in batches without waiting for the entire map to be buffered.
+    ///
+    /// Both definite- and indefinite-length maps are accepted. `init` receives the map's declared
+    /// length, or `None` for an indefinite-length map. `decode_entry` may be retried after more
+    /// input is read and must not have external side effects. `handle_entries` receives each chunk
+    /// exactly once, so it may safely update the state or perform external side effects. An empty
+    /// map produces one empty chunk. If the handler fails, the decoder remains positioned after
+    /// the chunk it received.
+    pub fn stream_map<T, S>(
+        &mut self,
+        decode_entry: impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
+        init: impl FnOnce(Option<u64>) -> S,
+        mut handle_entries: impl FnMut(&mut S, Vec<T>) -> Result<(), Box<dyn std::error::Error>>,
+    ) -> Result<S, Box<dyn std::error::Error>> {
+        let length = self.with_decoder(|d| Ok(d.map()?))?;
+        let mut remaining = length;
+        let mut state = init(length);
+
+        loop {
+            let (entries, complete) =
+                self.with_decoder(|d| decode_map_chunk(d, remaining, &decode_entry).map_err(Into::into))?;
+
+            remaining = remaining.map(|count| count - entries.len() as u64);
+            handle_entries(&mut state, entries)?;
+
+            if complete {
+                return Ok(state);
+            }
+        }
+    }
+
+    /// Skip a CBOR map incrementally without retaining its keys or values.
+    ///
+    /// Unlike [`Self::skip`], this avoids buffering the entire map before it can make progress.
+    pub fn skip_map(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.stream_map(
+            |d| {
+                d.skip()?;
+                d.skip()
+            },
+            |_| (),
+            |_, _| Ok(()),
+        )
+    }
+}
+
+/// Decode as many complete entries as possible from the current input of a CBOR map.
+///
+/// `remaining` is the number of entries left in a definite-length map, or `None` for an
+/// indefinite-length map. The returned boolean is `true` when the end of the map was consumed.
+/// An incomplete entry is left untouched so decoding can resume after more input becomes
+/// available. The caller must consume the map header before calling this function.
+///
+/// The `decode_entry` callback may be retried and must not have external side effects.
+fn decode_map_chunk<T>(
+    decoder: &mut cbor::Decoder<'_>,
+    remaining: Option<u64>,
+    decode_entry: &impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
+) -> Result<(Vec<T>, bool), cbor::decode::Error> {
+    let mut entries = Vec::new();
+
+    loop {
+        let remaining = remaining.map(|count| count - entries.len() as u64);
+        if remaining == Some(0) {
+            return Ok((entries, true));
+        }
+        if remaining.is_none() {
+            match crate::decode_break(decoder, None) {
+                Ok(true) => return Ok((entries, true)),
+                Ok(false) => {}
+                Err(error) if error.is_end_of_input() && !entries.is_empty() => return Ok((entries, false)),
+                Err(error) => return Err(error),
+            }
+        }
+
+        let decoded = {
+            let mut probe = decoder.probe();
+            decode_entry(&mut probe).map(|entry| (entry, probe.position()))
+        };
+        match decoded {
+            Ok((entry, position)) => {
+                decoder.set_position(position);
+                entries.push(entry);
+            }
+            Err(error) if error.is_end_of_input() && !entries.is_empty() => return Ok((entries, false)),
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{self, Read};
+
+    use minicbor as cbor;
+
+    use super::{LazyDecoder, decode_map_chunk};
+
+    struct ChunkedReader<R> {
+        inner: R,
+        chunk_size: usize,
+    }
+
+    impl<R: Read> Read for ChunkedReader<R> {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let len = buffer.len().min(self.chunk_size);
+            self.inner.read(&mut buffer[..len])
+        }
+    }
+
+    #[test]
+    fn decode_map_chunk_leaves_an_incomplete_entry_untouched() {
+        let mut decoder = cbor::Decoder::new(&[0x01, 0x0a, 0x02]);
+
+        let (entries, complete) =
+            decode_map_chunk(&mut decoder, Some(2), &|d| Ok((d.u8()?, d.u8()?))).expect("valid first entry");
+
+        assert_eq!(entries, vec![(1, 10)]);
+        assert!(!complete);
+        assert_eq!(decoder.position(), 2);
+    }
+
+    #[test]
+    fn decodes_definite_and_indefinite_maps_incrementally() {
+        let cases: &[&[u8]] = &[
+            &[0xa3, 0x03, 0x18, 0x1e, 0x01, 0x0a, 0x02, 0x14],
+            &[0xbf, 0x03, 0x18, 0x1e, 0x01, 0x0a, 0x02, 0x14, 0xff],
+        ];
+
+        for bytes in cases {
+            let mut reader = ChunkedReader { inner: *bytes, chunk_size: 2 };
+            let mut decoder = LazyDecoder::new(&mut reader);
+
+            let (entries, folds) = decoder
+                .stream_map(
+                    |d| Ok((d.u8()?, d.u8()?)),
+                    |_| (Vec::new(), 0),
+                    |(entries, folds), chunk| {
+                        *folds += chunk.len();
+                        entries.extend(chunk);
+                        Ok(())
+                    },
+                )
+                .expect("valid map");
+
+            assert_eq!(entries, vec![(3, 30), (1, 10), (2, 20)]);
+            assert_eq!(folds, 3);
+        }
+    }
+
+    #[test]
+    fn reports_the_declared_length_for_an_empty_map() {
+        let bytes = [0xa0];
+        let mut reader = bytes.as_slice();
+        let mut decoder = LazyDecoder::new(&mut reader);
+        let (length, chunks) = decoder
+            .stream_map(
+                |d| Ok((d.u8()?, d.u8()?)),
+                |length| (length, Vec::new()),
+                |(length, chunks), entries| {
+                    chunks.push((*length, entries));
+                    Ok(())
+                },
+            )
+            .expect("valid empty map");
+
+        assert_eq!(length, Some(0));
+        assert_eq!(chunks, vec![(Some(0), Vec::<(u8, u8)>::new())]);
+    }
+
+    #[test]
+    fn skips_a_map_without_consuming_the_next_item() {
+        let bytes = [0x82, 0xbf, 0x01, 0x82, 0x02, 0x03, 0xff, 0x18, 0x2a];
+        let mut reader = ChunkedReader { inner: bytes.as_slice(), chunk_size: 2 };
+        let mut decoder = LazyDecoder::new(&mut reader);
+
+        decoder.begin_array().expect("valid array");
+        decoder.skip_map().expect("valid map");
+
+        assert_eq!(decoder.decode::<u8>().expect("trailing integer"), 42);
     }
 }

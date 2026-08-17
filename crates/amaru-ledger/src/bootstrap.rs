@@ -21,7 +21,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    Account, Ballot, BallotId, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
+    Ballot, BallotId, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots, Proposal,
     ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
@@ -139,141 +139,55 @@ struct ImportedAccounts {
     awaiting_default_deposit: Vec<(StakeCredential, NodeAccount)>,
 }
 
-fn skip_map(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
-    decode_map_with_decoder(
-        decoder,
-        |d| {
-            d.skip()?;
-            d.skip()
-        },
-        (),
-        |state, _| state,
-    )
+/// Persist normalized account rows in bounded write batches.
+fn save_bootstrap_account_batches(
+    db: &impl Store,
+    mut rows: impl Iterator<Item = (accounts::Key, accounts::Row)>,
+    mut on_batch: impl FnMut(usize),
+) -> Result<(), StoreError> {
+    loop {
+        let batch = rows.by_ref().take(BATCH_SIZE).collect::<Vec<_>>();
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        let size = batch.len();
+        db.save_bootstrap_accounts(batch.into_iter())?;
+        on_batch(size);
+    }
 }
 
 fn decode_stake_snapshot_lazy(
     decoder: &mut LazyDecoder<'_>,
     registered_accounts: &[StakeCredential],
 ) -> Result<BTreeSet<StakeCredential>, Box<dyn std::error::Error>> {
-    decoder.with_decoder(|d| {
-        d.array()?;
-        Ok(())
-    })?;
+    decoder.begin_array()?;
 
-    let accounts = decode_map_with_decoder(
-        decoder,
+    let accounts = decoder.stream_map(
         |d| {
             let credential = d.decode()?;
             d.skip()?;
             Ok(credential)
         },
-        BTreeSet::new(),
-        |mut accounts, credential| {
-            if registered_accounts.binary_search(&credential).is_err() {
-                accounts.insert(credential);
+        |_| BTreeSet::new(),
+        |accounts, credentials| {
+            for credential in credentials {
+                if registered_accounts.binary_search(&credential).is_err() {
+                    accounts.insert(credential);
+                }
             }
-            accounts
+            Ok(())
         },
     )?;
-    skip_map(decoder)?;
+    decoder.skip_map()?;
 
     Ok(accounts)
 }
 
 fn skip_stake_snapshot_lazy(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
-    decoder.with_decoder(|d| {
-        d.array()?;
-        Ok(())
-    })?;
-    skip_map(decoder)?;
-    skip_map(decoder)
-}
-
-fn decode_at_probe<T>(
-    decoder: &mut cbor::Decoder<'_>,
-    decode: &impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
-) -> Result<T, cbor::decode::Error> {
-    let (entry, position) = {
-        let mut probe = decoder.probe();
-        (decode(&mut probe)?, probe.position())
-    };
-
-    decoder.set_position(position);
-    Ok(entry)
-}
-
-fn decode_next_map_entry<T>(
-    decoder: &mut cbor::Decoder<'_>,
-    remaining: Option<u64>,
-    decode: &impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
-) -> Result<Option<T>, cbor::decode::Error> {
-    match remaining {
-        Some(0) => Ok(None),
-        None if cbor::decode_break(decoder, None)? => Ok(None),
-        _ => decode_at_probe(decoder, decode).map(Some),
-    }
-}
-
-fn decode_map_chunk<T>(
-    decoder: &mut cbor::Decoder<'_>,
-    remaining: Option<u64>,
-    decode: &impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
-) -> Result<(Vec<T>, bool), cbor::decode::Error> {
-    let mut entries = Vec::new();
-
-    loop {
-        match decode_next_map_entry(decoder, remaining.map(|count| count - entries.len() as u64), decode) {
-            Ok(Some(entry)) => entries.push(entry),
-            Ok(None) => return Ok((entries, true)),
-            Err(error) if error.is_end_of_input() && !entries.is_empty() => return Ok((entries, false)),
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-/// Decode a CBOR map in chunks that fit in the [`LazyDecoder`]'s current buffer.
-///
-/// Decoding a large map with a single `with_decoder` call restarts the map from its first entry
-/// whenever more input is needed. Keeping completed entries outside the callback makes the work
-/// linear in the encoded map size while preserving bounded input buffering.
-///
-/// `decode_entry` may be retried after more input is read and must not have external side effects.
-/// Completed entries are passed to `fold_entry` exactly once.
-fn decode_map_with_decoder<T, A>(
-    decoder: &mut LazyDecoder<'_>,
-    decode_entry: impl Fn(&mut cbor::Decoder<'_>) -> Result<T, cbor::decode::Error>,
-    mut accumulator: A,
-    fold_entry: impl Fn(A, T) -> A,
-) -> Result<A, Box<dyn std::error::Error>> {
-    let mut remaining = decoder.with_decoder(|d| Ok(d.map()?))?;
-
-    loop {
-        let (entries, complete) =
-            decoder.with_decoder(|d| decode_map_chunk(d, remaining, &decode_entry).map_err(Into::into))?;
-
-        remaining = remaining.map(|count| count - entries.len() as u64);
-        accumulator = entries.into_iter().fold(accumulator, &fold_entry);
-
-        if complete {
-            return Ok(accumulator);
-        }
-    }
-}
-
-fn decode_btree_map<K, V>(decoder: &mut LazyDecoder<'_>) -> Result<BTreeMap<K, V>, Box<dyn std::error::Error>>
-where
-    K: Ord + for<'b> cbor::decode::Decode<'b, ()>,
-    V: for<'b> cbor::decode::Decode<'b, ()>,
-{
-    decode_map_with_decoder(
-        decoder,
-        |d| Ok((d.decode()?, d.decode()?)),
-        BTreeMap::new(),
-        |mut entries, (key, value)| {
-            entries.insert(key, value);
-            entries
-        },
-    )
+    decoder.begin_array()?;
+    decoder.skip_map()?;
+    decoder.skip_map()
 }
 
 fn import_reward_updates_lazy(
@@ -281,46 +195,37 @@ fn import_reward_updates_lazy(
     db: &impl Store,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
 ) -> Result<u64, Box<dyn std::error::Error>> {
-    let mut remaining = decoder.with_decoder(|d| Ok(d.map()?))?;
-    let progress = with_progress(
-        remaining.unwrap_or_default() as usize,
-        "{spinner:.green} Applying reward updates {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
-    );
-    let mut unclaimed_rewards = 0_u64;
-
-    loop {
-        let (entries, complete) = decoder.with_decoder(|d| {
-            decode_map_chunk(d, remaining, &|d| {
-                let credential = d.decode()?;
-                let SerialisedAsSet(rewards): SerialisedAsSet<Vec<Reward>> = d.decode()?;
-                let amount = rewards.into_iter().fold(0, |total, reward| total + reward.amount);
-                Ok((credential, amount))
-            })
-            .map_err(Into::into)
-        })?;
-
-        remaining = remaining.map(|count| count - entries.len() as u64);
-        let mut entries = entries.into_iter();
-        loop {
-            let batch = entries.by_ref().take(BATCH_SIZE).collect::<Vec<_>>();
-            if batch.is_empty() {
-                break;
+    let (progress, unclaimed_rewards) = decoder.stream_map(
+        |d| {
+            let credential = d.decode()?;
+            let SerialisedAsSet(rewards): SerialisedAsSet<Vec<Reward>> = d.decode()?;
+            let amount = rewards.into_iter().fold(0, |total, reward| total + reward.amount);
+            Ok((credential, amount))
+        },
+        |length| {
+            (
+                with_progress(
+                    length.unwrap_or_default() as usize,
+                    "{spinner:.green} Applying reward updates {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
+                ),
+                0_u64,
+            )
+        },
+        |(progress, unclaimed_rewards), entries| {
+            for batch in entries.chunks(BATCH_SIZE) {
+                let transaction = db.create_transaction();
+                for (credential, amount) in batch {
+                    *unclaimed_rewards += transaction.refund(credential, *amount)?;
+                }
+                transaction.commit()?;
+                progress.tick(batch.len());
             }
+            Ok(())
+        },
+    )?;
 
-            let size = batch.len();
-            let transaction = db.create_transaction();
-            for (credential, amount) in batch {
-                unclaimed_rewards += transaction.refund(&credential, amount)?;
-            }
-            transaction.commit()?;
-            progress.tick(size);
-        }
-
-        if complete {
-            progress.clear();
-            return Ok(unclaimed_rewards);
-        }
-    }
+    progress.clear();
+    Ok(unclaimed_rewards)
 }
 
 fn decode_node_pool_map_lazy<T>(
@@ -329,8 +234,7 @@ fn decode_node_pool_map_lazy<T>(
     field_name: &'static str,
     decode_value: impl Fn(&mut cbor::Decoder<'_>, &mut NetworkName) -> Result<T, cbor::decode::Error>,
 ) -> Result<BTreeMap<PoolId, T>, Box<dyn std::error::Error>> {
-    decode_map_with_decoder(
-        decoder,
+    decoder.stream_map(
         |d| {
             let mut node_network = network;
             let pool_id = d
@@ -340,10 +244,10 @@ fn decode_node_pool_map_lazy<T>(
                 .map_err(|err| contextualize_decode_error(format!("{field_name} value"), err))?;
             Ok((pool_id, value))
         },
-        BTreeMap::new(),
-        |mut entries, (pool_id, value)| {
-            entries.insert(pool_id, value);
-            entries
+        |_| BTreeMap::new(),
+        |entries, chunk| {
+            entries.extend(chunk);
+            Ok(())
         },
     )
 }
@@ -355,22 +259,19 @@ fn decode_node_pool_state_lazy(
     (BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>),
     Box<dyn std::error::Error>,
 > {
-    decoder.with_decoder(|d| {
-        d.array()?;
-        Ok(())
-    })?;
+    decoder.begin_array()?;
 
-    decode_map_with_decoder(
-        decoder,
-        |d| {
-            let _: Hash<{ size::VRF_KEY }> = d.decode()?;
-            let _: u64 = d.decode()?;
-            Ok(())
-        },
-        (),
-        |state, _| state,
-    )
-    .map_err(|err| format!("node pool vrf key hashes: {err}"))?;
+    decoder
+        .stream_map(
+            |d| {
+                let _: Hash<{ size::VRF_KEY }> = d.decode()?;
+                let _: u64 = d.decode()?;
+                Ok(())
+            },
+            |_| (),
+            |_, _| Ok(()),
+        )
+        .map_err(|err| format!("node pool vrf key hashes: {err}"))?;
 
     let pools = decode_node_pool_map_lazy(decoder, network, "node pools", |d, network| {
         let params: NodePoolStateParams = d.decode_with(network)?;
@@ -380,7 +281,8 @@ fn decode_node_pool_state_lazy(
         let params: NodePoolUpdateParams = d.decode_with(network)?;
         Ok(params)
     })?;
-    let pools_retirements = decode_btree_map(decoder)?;
+    let pools_retirements =
+        decode_node_pool_map_lazy(decoder, network, "node pool retirements", |d, network| d.decode_with(network))?;
 
     Ok((
         pools.into_iter().map(|(id, params)| (id, params.into_pool_params(id))).collect(),
@@ -400,53 +302,38 @@ fn import_node_accounts_lazy(
         warn!(bootstrap::accounts::IS_NOT_EMPTY);
     }
 
-    decoder.with_decoder(|d| {
-        d.array()?;
-        Ok(())
-    })?;
+    decoder.begin_array()?;
 
-    let mut remaining = decoder.with_decoder(|d| Ok(d.map()?))?;
-    let estimated_size = remaining.map(|size| size as usize).unwrap_or(match network {
-        NetworkName::Mainnet => 1_500_000,
-        NetworkName::Preprod | NetworkName::Preview => 100_000,
-        NetworkName::Testnet(_) => 1,
-    });
-    let progress = with_progress(
-        estimated_size,
-        "{spinner:.green} Importing accounts {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
-    );
-    let mut credentials = Vec::with_capacity(estimated_size);
-    let mut awaiting_default_deposit = Vec::new();
+    let (progress, credentials, awaiting_default_deposit) = decoder.stream_map(
+        |d| Ok((d.decode::<StakeCredential>()?, d.decode::<NodeAccount>()?)),
+        |length| {
+            let estimated_size = length.map(|size| size as usize).unwrap_or(match network {
+                NetworkName::Mainnet => 1_500_000,
+                NetworkName::Preprod | NetworkName::Preview => 100_000,
+                NetworkName::Testnet(_) => 1,
+            });
+            (
+                with_progress(
+                    estimated_size,
+                    "{spinner:.green} Importing accounts {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
+                ),
+                Vec::with_capacity(estimated_size),
+                Vec::new(),
+            )
+        },
+        |(progress, credentials, awaiting_default_deposit), entries| {
+            progress.tick(entries.len());
+            credentials.extend(entries.iter().map(|(credential, _)| *credential));
 
-    loop {
-        let (entries, complete) = decoder.with_decoder(|d| {
-            decode_map_chunk(d, remaining, &|d| -> Result<_, cbor::decode::Error> {
-                Ok((d.decode::<StakeCredential>()?, d.decode::<NodeAccount>()?))
-            })
-            .map_err(Into::into)
-        })?;
+            let (awaiting, ready): (Vec<_>, Vec<_>) =
+                entries.into_iter().partition(|(_, account)| account.requires_default_deposit());
+            awaiting_default_deposit.extend(awaiting);
 
-        remaining = remaining.map(|count| count - entries.len() as u64);
-        progress.tick(entries.len());
-        credentials.extend(entries.iter().map(|(credential, _)| *credential));
-
-        let (awaiting, ready): (Vec<_>, Vec<_>) =
-            entries.into_iter().partition(|(_, account)| account.requires_default_deposit());
-        awaiting_default_deposit.extend(awaiting);
-
-        let mut ready = ready.into_iter().map(|(credential, account)| (credential, account.into_row(point, None)));
-        loop {
-            let batch = ready.by_ref().take(BATCH_SIZE).collect::<Vec<_>>();
-            if batch.is_empty() {
-                break;
-            }
-            db.save_bootstrap_accounts(batch.into_iter())?;
-        }
-
-        if complete {
-            break;
-        }
-    }
+            let ready = ready.into_iter().map(|(credential, account)| (credential, account.into_row(point, None)));
+            save_bootstrap_account_batches(db, ready, |_| {})?;
+            Ok(())
+        },
+    )?;
 
     progress.clear();
     info!(bootstrap::accounts::IMPORT, size = credentials.len());
@@ -469,21 +356,12 @@ fn import_default_deposit_accounts(
         accounts.awaiting_default_deposit.len(),
         "{spinner:.green} Applying account deposits {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
     );
-    let mut awaiting = accounts
+    let awaiting = accounts
         .awaiting_default_deposit
         .drain(..)
         .map(|(credential, account)| (credential, account.into_row(point, Some(default_deposit))));
 
-    loop {
-        let batch = awaiting.by_ref().take(BATCH_SIZE).collect::<Vec<_>>();
-        if batch.is_empty() {
-            break;
-        }
-
-        let size = batch.len();
-        db.save_bootstrap_accounts(batch.into_iter())?;
-        progress.tick(size);
-    }
+    save_bootstrap_account_batches(db, awaiting, |size| progress.tick(size))?;
 
     progress.clear();
     Ok(())
@@ -511,46 +389,25 @@ fn decode_initial_snapshot(
     // last block of the epoch. We have no intrinsic ways to check that this is the case since we
     // do not know what the last block of an epoch is, and we can't reliably look at the number of
     // blocks either.
-    let block_issuers: BTreeMap<PoolId, u64> = decoder.with_decoder(|d| {
-        // Previous blocks made
-        d.skip()?;
+    decoder.skip()?; // Previous blocks made
+    let block_issuers: BTreeMap<PoolId, u64> = decoder.decode()?;
 
-        Ok(d.decode()?)
-    })?;
+    decoder.begin_array()?; // Epoch State
+    decoder.begin_array()?; // Epoch State / Account State
+    let treasury: i64 = decoder.decode()?;
+    let reserves: i64 = decoder.decode()?;
 
-    let (treasury, reserves): (i64, i64) = decoder.with_decoder(|d| {
-        // Epoch State
-        d.array()?;
-
-        // Epoch State / Account State
-        d.array()?;
-
-        Ok((d.decode()?, d.decode()?))
-    })?;
-
-    let dreps: BTreeMap<StakeCredential, DRepState> = decoder.with_decoder(|d| {
-        // Epoch State / Ledger State
-        d.array()?;
-
-        // Epoch State / Ledger State / Cert State
-        d.array()?;
-
-        // Epoch State / Ledger State / Cert State / Voting State
-        d.array()?;
-
-        Ok(d.decode()?)
-    })?;
+    decoder.begin_array()?; // Epoch State / Ledger State
+    decoder.begin_array()?; // Epoch State / Ledger State / Cert State
+    decoder.begin_array()?; // Epoch State / Ledger State / Cert State / Voting State
+    let dreps: BTreeMap<StakeCredential, DRepState> = decoder.decode()?;
 
     // Committee cold -> hot delegations
     let cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus> = decoder.decode()?;
 
-    let governance_activity: GovernanceActivity = decoder.with_decoder(|d| {
-        // Dormant Epoch
-        let dormant_epoch: Epoch = d.decode()?;
-        let governance_activity = GovernanceActivity { consecutive_dormant_epochs: u64::from(dormant_epoch) as u32 };
-        info!(bootstrap::governance_activity::IMPORT, dormant_epochs = governance_activity.consecutive_dormant_epochs);
-        Ok(governance_activity)
-    })?;
+    let dormant_epoch: Epoch = decoder.decode()?;
+    let governance_activity = GovernanceActivity { consecutive_dormant_epochs: u64::from(dormant_epoch) as u32 };
+    info!(bootstrap::governance_activity::IMPORT, dormant_epochs = governance_activity.consecutive_dormant_epochs);
 
     let pool_state_progress = with_progress(0, "{spinner:.green} Reading pool state");
     let (pools, pools_updates, pools_retirements) =
@@ -566,33 +423,22 @@ fn decode_initial_snapshot(
 
     let remaining_state_progress = with_progress(0, "{spinner:.green} Reading remaining ledger state");
 
-    skip_map(decoder)?; // dsPtrs
+    decoder.skip_map()?; // dsPtrs
     decoder.skip()?; // dsFutureGenDelegs
     decoder.skip()?; // dsGenDelegs
 
     skip_embedded_utxo(decoder).map_err(|err| format!("skip embedded utxo: {err}"))?;
 
-    let fees: i64 = decoder
-        .with_decoder(|d| {
-            let _deposited: u64 = d.decode()?;
-            Ok(d.decode()?)
-        })
-        .map_err(|err| format!("decode fees: {err}"))?;
+    decoder.skip().map_err(|err| format!("decode deposited: {err}"))?;
+    let fees: i64 = decoder.decode().map_err(|err| format!("decode fees: {err}"))?;
 
-    let (
-        SerialisedAsArray(root_params),
-        SerialisedAsArray(root_hard_fork),
-        SerialisedAsArray(root_cc),
-        SerialisedAsArray(root_constitution),
-    ) = decoder.with_decoder(|d| {
-        // Epoch State / Ledger State / UTxO State / utxosGovState
-        d.array()?;
-
-        // Proposals
-        d.array()?;
-        d.array()?;
-        Ok((d.decode()?, d.decode()?, d.decode()?, d.decode()?))
-    })?;
+    decoder.begin_array()?; // Epoch State / Ledger State / UTxO State / utxosGovState
+    decoder.begin_array()?; // Proposals
+    decoder.begin_array()?;
+    let SerialisedAsArray(root_params) = decoder.decode()?;
+    let SerialisedAsArray(root_hard_fork) = decoder.decode()?;
+    let SerialisedAsArray(root_cc) = decoder.decode()?;
+    let SerialisedAsArray(root_constitution) = decoder.decode()?;
 
     let proposals_roots = ProposalsRoots {
         protocol_parameters: root_params,
@@ -627,11 +473,9 @@ fn decode_initial_snapshot(
 
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
-    decoder.with_decoder(|d| {
-        d.array()?; // DRep Pulsing State
-        d.array()?; // Pulsing Snapshot
-        Ok(d.skip()?) // Last epoch votes
-    })?;
+    decoder.begin_array()?; // DRep Pulsing State
+    decoder.begin_array()?; // Pulsing Snapshot
+    decoder.skip()?; // Last epoch votes
     decoder.skip()?; // DRep distr
     decoder.skip()?; // DRep state
     decoder.skip()?; // Pool distr
@@ -652,16 +496,13 @@ fn decode_initial_snapshot(
         .map_err(|err| format!("decode ratify state: {err}"))?;
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
-    skip_map(decoder)?;
+    decoder.skip_map()?;
 
     // Epoch State / Ledger State / UTxO State / utxosDonation
-    let donations = decoder.with_decoder(|d| Ok(d.u64()?))?;
+    let donations: u64 = decoder.decode()?;
 
     // Epoch State / Snapshots
-    decoder.with_decoder(|d| {
-        d.array()?;
-        Ok(())
-    })?;
+    decoder.begin_array()?;
     let mark_snapshot = decode_stake_snapshot_lazy(decoder, &accounts.credentials)?;
     accounts.credentials = Vec::new();
     skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Set
@@ -948,11 +789,8 @@ fn import_block_issuers(
 }
 
 fn skip_embedded_utxo(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
-    decoder.with_decoder(|d| {
-        d.array()?;
-        Ok(())
-    })?;
-    skip_map(decoder)
+    decoder.begin_array()?;
+    decoder.skip_map()
 }
 
 fn import_dreps(
@@ -1431,24 +1269,6 @@ fn import_votes(
     Ok(())
 }
 
-pub fn decode_stake_snapshot(d: &mut cbor::Decoder<'_>) -> Result<BTreeSet<StakeCredential>, cbor::decode::Error> {
-    d.array()?;
-
-    struct Stake;
-    impl<'d, C> cbor::decode::Decode<'d, C> for Stake {
-        fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-            d.skip()?;
-            Ok(Stake)
-        }
-    }
-
-    let accounts: BTreeMap<StakeCredential, Stake> = d.decode()?;
-
-    d.skip()?;
-
-    Ok(accounts.into_keys().collect())
-}
-
 // TODO: Move to Pallas
 #[derive(Debug)]
 #[expect(dead_code)]
@@ -1477,87 +1297,6 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
             })
         })
     }
-}
-
-pub fn decode_node_pool_state(
-    d: &mut cbor::Decoder<'_>,
-    network: NetworkName,
-) -> Result<(BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>), cbor::decode::Error>
-{
-    d.array()?;
-
-    let mut node_network = network;
-    let _pool_vrf_key_hashes: BTreeMap<Hash<{ size::VRF_KEY }>, u64> =
-        d.decode().map_err(|err| contextualize_decode_error("node pool vrf key hashes", err))?;
-    let pools = decode_node_pool_map(d, &mut node_network, "node pools", |d, network| {
-        let params: NodePoolStateParams = d.decode_with(network)?;
-        Ok(params)
-    })?;
-    let pools_updates = decode_node_pool_map(d, &mut node_network, "node pool updates", |d, network| {
-        let params: NodePoolUpdateParams = d.decode_with(network)?;
-        Ok(params)
-    })?;
-    let pools_retirements: BTreeMap<PoolId, Epoch> =
-        d.decode().map_err(|err| contextualize_decode_error("node pool retirements", err))?;
-
-    Ok((
-        pools.into_iter().map(|(id, params)| (id, params.into_pool_params(id))).collect(),
-        pools_updates.into_iter().map(|(id, params)| (id, params.into_pool_params(id))).collect(),
-        pools_retirements,
-    ))
-}
-
-fn decode_node_pool_map<T>(
-    d: &mut cbor::Decoder<'_>,
-    network: &mut NetworkName,
-    field_name: &'static str,
-    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut NetworkName) -> Result<T, cbor::decode::Error>,
-) -> Result<BTreeMap<PoolId, T>, cbor::decode::Error> {
-    let len = d.map().map_err(|err| contextualize_decode_error(field_name, err))?;
-    let mut entries = BTreeMap::new();
-    let mut index = 0_u64;
-
-    loop {
-        match len {
-            Some(total) if index == total => break,
-            None if d.datatype()? == cbor::data::Type::Break => {
-                d.skip()?;
-                break;
-            }
-            _ => {}
-        }
-
-        let key_offset = d.position();
-        let pool_id: PoolId = d.decode_with(network).map_err(|err| {
-            contextualize_decode_error(format!("{field_name} key at entry {index} offset {key_offset}"), err)
-        })?;
-        let value_offset = d.position();
-        let value = decode_value(d, network).map_err(|err| {
-            contextualize_decode_error(format!("{field_name} value at entry {index} offset {value_offset}"), err)
-        })?;
-        entries.insert(pool_id, value);
-        index += 1;
-    }
-
-    Ok(entries)
-}
-
-pub fn decode_node_accounts(
-    d: &mut cbor::Decoder<'_>,
-) -> Result<BTreeMap<StakeCredential, Account>, cbor::decode::Error> {
-    d.array()?;
-    let accounts: BTreeMap<StakeCredential, NodeAccount> = d.decode()?;
-    let mut pointers: BTreeMap<StakeCredential, SerialisedAsSet<BTreeSet<(u64, u64, u64)>>> = d.decode()?;
-    d.skip()?; // dsFutureGenDelegs
-    d.skip()?; // dsGenDelegs
-
-    Ok(accounts
-        .into_iter()
-        .map(|(credential, account)| {
-            let pointers = pointers.remove(&credential).map(|SerialisedAsSet(pointers)| pointers).unwrap_or_default();
-            (credential, account.into_account(pointers))
-        })
-        .collect())
 }
 
 // TODO: Reduce duplication with existing `PoolParams`
@@ -1851,19 +1590,6 @@ impl NodeAccount {
                 )
             }),
             rewards: self.rewards,
-        }
-    }
-
-    fn into_account(self, pointers: BTreeSet<(u64, u64, u64)>) -> Account {
-        Account {
-            rewards_and_deposit: if self.rewards == 0 && self.deposit == 0 {
-                None
-            } else {
-                Some((self.rewards, self.deposit))
-            },
-            pointers,
-            pool: self.pool,
-            drep: self.drep,
         }
     }
 }
