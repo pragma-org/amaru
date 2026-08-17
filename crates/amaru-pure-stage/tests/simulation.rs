@@ -33,6 +33,12 @@ use amaru_pure_stage::{
 use rand::{SeedableRng, rngs::StdRng};
 use tracing_subscriber::EnvFilter;
 
+#[expect(clippy::expect_used)]
+fn test_runtime() -> &'static tokio::runtime::Runtime {
+    static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RT.get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"))
+}
+
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct State(u32, StageRef<u32>);
 
@@ -47,7 +53,7 @@ fn basic() {
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.clone()));
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
 
     // first check that the stages start out suspended on Receive
     running.try_effect().unwrap_err().assert_idle();
@@ -91,11 +97,10 @@ fn automatic() {
     }
 
     let (in_ref, mut rx, output) = basic(&mut network);
-    let mut running = network.run();
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&in_ref, [1, 2, 3]);
-    running.run_until_blocked_incl_effects(rt.handle()).assert_idle();
+    running.run_until_blocked_incl_effects().assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 4, 7]);
 
     let trace = trace_buffer.lock().hydrate_without_timestamps();
@@ -112,13 +117,13 @@ fn automatic() {
         "Input { stage: Name(\"output-2\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
         "Resume { stage: Name(\"output-2\"), response: Unit }",
         "Suspend(External { at_stage: Name(\"output-2\"), effect: UnknownExternalEffect { value: SendDataValue { typetag: \"amaru_pure_stage::output::OutputEffect<u32>\", value: Map([(Text(\"name\"), Text(\"output-2\")), (Text(\"msg\"), Integer(2)), (Text(\"sender\"), Map([]))]) } } })",
+        "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
+        "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"amaru_pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "State { stage: Name(\"basic-1\"), state: SendDataValue { typetag: \"simulation::State\", value: Array([Integer(2), Map([(Text(\"name\"), Text(\"output-2\"))])]) } }",
         "Input { stage: Name(\"basic-1\"), input: SendDataValue { typetag: \"u32\", value: Integer(2) } }",
         "Resume { stage: Name(\"basic-1\"), response: Unit }",
         "Suspend(Wait { at_stage: Name(\"basic-1\"), duration: 10s })",
-        "Resume { stage: Name(\"output-2\"), response: ExternalResponse(SendDataValue { typetag: \"()\", value: Array([]) }) }",
-        "State { stage: Name(\"output-2\"), state: SendDataValue { typetag: \"amaru_pure_stage::types::MpscSender<u32>\", value: Map([]) } }",
         "Clock(Instant(20s))",
         "Resume { stage: Name(\"basic-1\"), response: WaitResponse(Instant(20s)) }",
         "Suspend(Send { from: Name(\"basic-1\"), to: Name(\"output-2\"), msg: SendDataValue { typetag: \"u32\", value: Integer(4) } })",
@@ -170,11 +175,11 @@ fn breakpoint() {
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.clone()));
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     running.enqueue_msg(&basic, [1, 2, 3]);
-    let output2 = output.clone();
+    let output_for_assert = output.clone();
     running.breakpoint("send4", move |eff| {
         matches!(
             eff,
@@ -185,10 +190,17 @@ fn breakpoint() {
         )
     });
     running.run_until_blocked().assert_breakpoint("send4");
-    assert_eq!(&rt.block_on(running.await_external_effect()).unwrap(), output2.name());
+    // OutputEffect is Zero: run() is forced when issued. Depending on the eval
+    // strategy, the output stage's resume may already have been processed or still
+    // sit on the runnable queue.
     assert_eq!(rt.block_on(running.await_external_effect()), None);
-    running.effect().assert_receive(&output2);
-    running.try_effect().unwrap_err().assert_deadlock(["basic-1"]);
+    match running.try_effect() {
+        Ok(effect) => {
+            effect.assert_receive(&output_for_assert);
+            running.try_effect().unwrap_err().assert_deadlock(["basic-1"]);
+        }
+        Err(blocked) => blocked.assert_deadlock(["basic-1"]),
+    }
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 }
 
@@ -210,8 +222,7 @@ fn overrides() {
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.clone()));
-    let mut running = network.run();
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut running = network.run(test_runtime().handle());
 
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = count.clone();
@@ -224,7 +235,7 @@ fn overrides() {
             OverrideResult::no_match(eff)
         }
     });
-    running.run_until_blocked_incl_effects(rt.handle()).assert_idle();
+    running.run_until_blocked_incl_effects().assert_idle();
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2, 7]);
     assert_eq!(count.load(Ordering::Relaxed), 1);
 
@@ -253,7 +264,7 @@ fn backpressure() {
     let sender = network.wire_up(sender, pressure.sender());
     let pressure = network.wire_up(pressure, 1u32);
 
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&sender, [1]);
     running.breakpoint("pressure", {
@@ -305,7 +316,7 @@ fn schedule_delivered_despite_full_bulk_mailbox() {
         state
     });
     let stage = network.wire_up(stage, Vec::<u32>::new());
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&stage, [0u32]);
     running.breakpoint("clock", {
@@ -351,7 +362,7 @@ fn schedule_cap_panics_at_limit_plus_one() {
         state
     });
     let stage = network.wire_up(stage, ());
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&stage, [0u32]);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -386,7 +397,7 @@ fn cancel_schedule_frees_priority_slot() {
         }
     });
     let stage = network.wire_up(stage, None);
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&stage, [0u32]);
     // Stop at Sleeping so far-future schedules are not delivered yet.
@@ -414,7 +425,7 @@ fn clock() {
         State2::Full(msg, now, later)
     });
     let basic = network.wire_up(basic, State2::Empty);
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&basic, [42]);
     let now = running.now();
@@ -437,7 +448,7 @@ fn clock_manual() {
         State2::Full(msg, now, later)
     });
     let stage = network.wire_up(stage, State2::Empty);
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
 
     running.enqueue_msg(&stage, [42]);
     let now = running.now();
@@ -494,7 +505,7 @@ fn call() {
     let caller = network.wire_up(caller, State3(1u32, callee.sender()));
     let callee = network.wire_up(callee, ());
 
-    let mut sim = network.run();
+    let mut sim = network.run(test_runtime().handle());
 
     sim.enqueue_msg(&caller, [1]);
     sim.run_until_blocked().assert_idle();
@@ -533,7 +544,7 @@ fn call_external_sender_in_simulation() {
     let callee = network.wire_up(callee, ());
     let sender = network.input(callee.clone().without_state());
 
-    let mut sim = network.run();
+    let mut sim = network.run(test_runtime().handle());
     let call = rt.spawn(async move { sender.call::<u32>(|cr| Msg3(3, cr), Duration::from_secs(1)).await });
 
     rt.block_on(sim.await_external_input());
@@ -567,7 +578,7 @@ fn call_timeout_terminates_graph() {
     let caller = network.wire_up(caller, State3(0u32, callee.sender()));
     network.wire_up(callee, ());
 
-    let mut sim = network.run();
+    let mut sim = network.run(test_runtime().handle());
 
     sim.enqueue_msg(&caller, [1]);
     // Run until blocked, then assert termination flips true
@@ -626,9 +637,7 @@ fn create_stage_within_stage() {
 
     let (output, mut rx) = network.output("output", 10);
     let parent = network.wire_up(parent, ParentState { child_ref: None, output: output.clone() });
-    let mut running = network.run();
-
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut running = network.run(test_runtime().handle());
 
     // Initially, parent is waiting for Receive
     running.try_effect().unwrap_err().assert_idle();
@@ -668,8 +677,7 @@ fn create_stage_within_stage() {
     running.handle_effect(external_effect);
 
     running.effect().assert_receive(&child_ref);
-    running.try_effect().unwrap_err().assert_busy(["output-2"]).assert_external_effects(1);
-    assert_eq!(&rt.block_on(running.await_external_effect()).unwrap(), output.name());
+    // OutputEffect is Zero: run() is forced when the effect is issued.
     running.effect().assert_receive(&output);
 
     // Verify output received the message from the child stage
@@ -783,20 +791,13 @@ fn virtual_child_stages() {
     let (output, mut rx) = network.output("output", 10);
     let parent = network.wire_up(parent, ParentState { child_ref: None, output: output.clone() });
 
-    let mut running = network.run();
+    let mut running = network.run(test_runtime().handle());
     running.use_virtual_child_stages(true);
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-
-    // Kick off the parent with a message that will trigger child creation + a send to the child.
     running.enqueue_msg(&parent, [42u32]);
     running.resume_receive(&parent).unwrap();
 
-    // Run the simulation using the high-level automatic driver (the style used by consensus tests).
-    running.run_until_blocked_or_time_incl_effects(
-        Instant::at_offset(Duration::from_secs(1), Duration::ZERO),
-        rt.handle(),
-    );
+    running.run_until_blocked_or_time_incl_effects(Instant::at_offset(Duration::from_secs(1), Duration::ZERO));
 
     // Because the child was virtual, its logic never ran → nothing reached the output.
     assert!(rx.drain().collect::<Vec<_>>().is_empty(), "virtual child must not produce any output");

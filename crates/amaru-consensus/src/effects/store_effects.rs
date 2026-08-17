@@ -15,25 +15,12 @@
 use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH};
 use amaru_ouroboros::ReadChainStore;
 use amaru_protocols::store_effects::ResourceHeaderStore;
-use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Resources, SendData};
 
 use crate::{errors::ConsensusError, stages::select_chain::cmp_tip};
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FindBestCandidate;
-
-impl ExternalEffect for FindBestCandidate {
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        #[expect(clippy::expect_used)]
-        Self::wrap_sync_f(|| {
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("FindBestCandidate requires a ResourceHeaderStore")
-                .clone();
-            find_best_candidate(store.as_ref())
-        })
-    }
-}
 
 pub fn find_best_candidate(store: &dyn ReadChainStore) -> Result<HeaderHash, ConsensusError> {
     let snapshot = store.snapshot();
@@ -74,4 +61,15 @@ pub fn find_best_candidate(store: &dyn ReadChainStore) -> Result<HeaderHash, Con
 
 impl ExternalEffectAPI for FindBestCandidate {
     type Response = Result<HeaderHash, ConsensusError>;
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        #[expect(clippy::expect_used)]
+        self.wrap_sync_f(|| {
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("FindBestCandidate requires a ResourceHeaderStore")
+                .clone();
+            find_best_candidate(store.as_ref())
+        })
+    }
 }

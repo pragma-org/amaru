@@ -464,6 +464,7 @@ pub fn register_deserializers() -> DeserializerGuards {
 mod tests {
     use amaru_kernel::PREPROD_ERA_HISTORY;
     use amaru_pure_stage::{Effect, StageGraph, simulation::SimulationBuilder};
+    use tokio::runtime::Runtime;
 
     use super::*;
 
@@ -514,7 +515,8 @@ mod tests {
         let msg = make_msg(&mut network);
         network.preload(&connection_stage, [msg]).unwrap();
 
-        let mut running = network.run();
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
         let start_time = running.now();
 
         let stage_name = connection_stage.name().clone();

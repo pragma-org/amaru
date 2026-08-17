@@ -22,7 +22,7 @@ use amaru_ouroboros_traits::{
     HasStakePools, Nonces, PoolSummaries, TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
-use amaru_pure_stage::{BoxFuture, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void};
+use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
 use anyhow::anyhow;
 use opentelemetry::trace::FutureExt;
 
@@ -134,10 +134,12 @@ impl PartialEq for ValidateTxEffect {
     }
 }
 
-impl ExternalEffect for ValidateTxEffect {
+impl ExternalEffectAPI for ValidateTxEffect {
+    type Response = Result<(), TransactionValidationError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let validator = resources
                 .get::<ResourceTxValidation>()
                 .expect("ValidateTxEffect requires a ResourceTxValidation resource")
@@ -145,10 +147,6 @@ impl ExternalEffect for ValidateTxEffect {
             validator.validate_tx(&self.tx)
         })
     }
-}
-
-impl ExternalEffectAPI for ValidateTxEffect {
-    type Response = Result<(), TransactionValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -168,11 +166,13 @@ impl ValidateBlockEffect {
     }
 }
 
-impl ExternalEffect for ValidateBlockEffect {
+impl ExternalEffectAPI for ValidateBlockEffect {
+    type Response = Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let Self { point, trace_context } = *self;
-        Self::wrap(
+        self.wrap(|this| {
+            let Self { point, trace_context } = this;
             async move {
                 let store = resources
                     .get::<ResourceHeaderStore>()
@@ -190,13 +190,9 @@ impl ExternalEffect for ValidateBlockEffect {
                     .clone();
                 validator.roll_forward_block(block).await
             }
-            .with_context(trace_context.context()),
-        )
+            .with_context(trace_context.context())
+        })
     }
-}
-
-impl ExternalEffectAPI for ValidateBlockEffect {
-    type Response = Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -216,10 +212,12 @@ impl ValidateHeaderEffect {
     }
 }
 
-impl ExternalEffect for ValidateHeaderEffect {
+impl ExternalEffectAPI for ValidateHeaderEffect {
+    type Response = Result<Nonces, ValidateHeaderError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let _guard = self.trace_context.attach();
 
             let consensus_parameters = resources
@@ -250,10 +248,6 @@ impl ExternalEffect for ValidateHeaderEffect {
     }
 }
 
-impl ExternalEffectAPI for ValidateHeaderEffect {
-    type Response = Result<Nonces, ValidateHeaderError>;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SwitchToForkEffect {
     tip: Point,
@@ -271,11 +265,13 @@ impl SwitchToForkEffect {
     }
 }
 
-impl ExternalEffect for SwitchToForkEffect {
+impl ExternalEffectAPI for SwitchToForkEffect {
+    type Response = Result<ForkSwitchOutcome, BlockValidationError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        let Self { tip, trace_context } = *self;
-        Self::wrap(
+        self.wrap(|this| {
+            let Self { tip, trace_context } = this;
             async move {
                 let store = resources
                     .get::<ResourceHeaderStore>()
@@ -307,22 +303,20 @@ impl ExternalEffect for SwitchToForkEffect {
 
                 validator.switch_to_fork(&fork_point, &tip)
             }
-            .with_context(trace_context.context()),
-        )
+            .with_context(trace_context.context())
+        })
     }
-}
-
-impl ExternalEffectAPI for SwitchToForkEffect {
-    type Response = Result<ForkSwitchOutcome, BlockValidationError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TipEffect;
 
-impl ExternalEffect for TipEffect {
+impl ExternalEffectAPI for TipEffect {
+    type Response = Point;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let ledger = resources
                 .get::<ResourceBlockValidation>()
                 .expect("TipEffect requires a ResourceBlockValidation resource")
@@ -332,17 +326,15 @@ impl ExternalEffect for TipEffect {
     }
 }
 
-impl ExternalEffectAPI for TipEffect {
-    type Response = Point;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VolatileTipEffect;
 
-impl ExternalEffect for VolatileTipEffect {
+impl ExternalEffectAPI for VolatileTipEffect {
+    type Response = Point;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let ledger = resources
                 .get::<ResourceBlockValidation>()
                 .expect("VolatileTipPointEffect requires a ResourceBlockValidation resource")
@@ -352,17 +344,15 @@ impl ExternalEffect for VolatileTipEffect {
     }
 }
 
-impl ExternalEffectAPI for VolatileTipEffect {
-    type Response = Point;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RegisteredRelaySocketAddrsEffect;
 
-impl ExternalEffect for RegisteredRelaySocketAddrsEffect {
+impl ExternalEffectAPI for RegisteredRelaySocketAddrsEffect {
+    type Response = Result<BTreeSet<SocketAddr>, BlockValidationError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let stake_pools = resources
                 .get::<ResourceHasStakePools>()
                 .expect("RegisteredRelaySocketAddrsEffect requires a ResourceHasStakePools resource")
@@ -370,8 +360,4 @@ impl ExternalEffect for RegisteredRelaySocketAddrsEffect {
             stake_pools.registered_relay_socket_addrs()
         })
     }
-}
-
-impl ExternalEffectAPI for RegisteredRelaySocketAddrsEffect {
-    type Response = Result<BTreeSet<SocketAddr>, BlockValidationError>;
 }

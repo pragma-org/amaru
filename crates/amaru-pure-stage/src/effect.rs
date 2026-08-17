@@ -32,7 +32,7 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    BLACKHOLE_NAME, BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
+    BLACKHOLE_NAME, BoxFuture, DurationDist, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
     effect_box::{EffectBox, airlock_effect},
     serde::{NoDebug, SendDataValue, never, to_cbor},
     simulation::Transition,
@@ -465,7 +465,21 @@ impl CanSupervise {
 ///
 /// The [`run`](ExternalEffect::run) method is used to perform the effect unless a
 /// simulator chooses differently. The latter can be done by downcasting to the concrete type.
+///
+/// Prefer implementing [`ExternalEffectAPI`]: a blanket impl provides [`ExternalEffect`]
+/// and wires [`simulated_duration_dist`](Self::simulated_duration_dist) to
+/// [`ExternalEffectAPI::SIMULATED_DURATION`].
 pub trait ExternalEffect: SendData {
+    /// Distribution of simulated time this effect occupies in
+    /// [`crate::simulation::SimulationRunning`].
+    ///
+    /// The Tokio runtime ignores this. Types that implement [`ExternalEffectAPI`] inherit
+    /// [`ExternalEffectAPI::SIMULATED_DURATION`]. Direct implementors default to
+    /// [`DurationDist::Zero`].
+    fn simulated_duration_dist(&self) -> DurationDist {
+        DurationDist::ZERO
+    }
+
     /// Run the effect in production mode.
     ///
     /// Implementations typically retrieve shared services via typed lookups
@@ -473,37 +487,6 @@ pub trait ExternalEffect: SendData {
     ///
     /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
-
-    /// Helper method for implementers of ExternalEffect.
-    fn wrap(
-        f: impl Future<Output = <Self as ExternalEffectAPI>::Response> + Send + 'static,
-    ) -> BoxFuture<'static, Box<dyn SendData>>
-    where
-        Self: Sized + ExternalEffectAPI,
-    {
-        Box::pin(async move {
-            let response = f.await;
-            Box::new(response) as Box<dyn SendData>
-        })
-    }
-
-    /// Helper method for implementers of ExternalEffect that have a synchronous response.
-    fn wrap_sync(response: <Self as ExternalEffectAPI>::Response) -> BoxFuture<'static, Box<dyn SendData>>
-    where
-        Self: Sized + ExternalEffectAPI,
-    {
-        Box::pin(future::ready(Box::new(response) as Box<dyn SendData>))
-    }
-
-    /// Helper method for implementers of ExternalEffect that have a synchronous response.
-    fn wrap_sync_f(
-        response: impl FnOnce() -> <Self as ExternalEffectAPI>::Response,
-    ) -> BoxFuture<'static, Box<dyn SendData>>
-    where
-        Self: Sized + ExternalEffectAPI,
-    {
-        Box::pin(future::ready(Box::new(response()) as Box<dyn SendData>))
-    }
 }
 
 impl Display for dyn ExternalEffect {
@@ -516,9 +499,83 @@ impl Display for dyn ExternalEffect {
 /// Separate trait for fixing the response type of an external effect.
 ///
 /// This cannot be included in [`ExternalEffect`] because it would require a type parameter, which
-/// in turn would make that trait non-object-safe.
-pub trait ExternalEffectAPI: ExternalEffect {
+/// in turn would make that trait non-object-safe. Implement this trait only: a blanket impl
+/// supplies [`ExternalEffect`].
+pub trait ExternalEffectAPI: SendData {
     type Response: SendData + DeserializeOwned;
+
+    /// Type-level declaration of the simulated duration distribution.
+    ///
+    /// A blanket [`ExternalEffect`] impl reports this as
+    /// [`ExternalEffect::simulated_duration_dist`]. Use [`DurationDist::UntilResolved`] when
+    /// the simulation (not a sampled `δ`) decides when the effect Future completes.
+    const SIMULATED_DURATION: DurationDist = DurationDist::ZERO;
+
+    /// Instance view of [`Self::SIMULATED_DURATION`]. Override only if the distribution
+    /// depends on the effect value; keep it equal to the const so [`Self::wrap`] stays honest.
+    fn simulated_duration_dist(&self) -> DurationDist {
+        Self::SIMULATED_DURATION
+    }
+
+    /// Run the effect in production mode.
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
+
+    /// Helper for implementers of [`ExternalEffect::run`].
+    ///
+    /// Pass a closure so this method can assert
+    /// [`ExternalEffect::simulated_duration_dist`] matches [`Self::SIMULATED_DURATION`]
+    /// before `self` is moved into the future.
+    fn wrap<F, Fut>(self, f: F) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized,
+        F: FnOnce(Self) -> Fut + Send + 'static,
+        Fut: Future<Output = Self::Response> + Send + 'static,
+    {
+        assert_simulated_duration(&self);
+        Box::pin(async move {
+            let response = f(self).await;
+            Box::new(response) as Box<dyn SendData>
+        })
+    }
+
+    /// Helper for implementers of [`ExternalEffect::run`] with a synchronous response.
+    fn wrap_sync(&self, response: Self::Response) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized,
+    {
+        assert_simulated_duration(self);
+        Box::pin(future::ready(Box::new(response) as Box<dyn SendData>))
+    }
+
+    /// Helper for implementers of [`ExternalEffect::run`] with a synchronous response.
+    fn wrap_sync_f(&self, response: impl FnOnce() -> Self::Response) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized,
+    {
+        assert_simulated_duration(self);
+        Box::pin(future::ready(Box::new(response()) as Box<dyn SendData>))
+    }
+}
+
+impl<T: ExternalEffectAPI> ExternalEffect for T {
+    fn simulated_duration_dist(&self) -> DurationDist {
+        ExternalEffectAPI::simulated_duration_dist(self)
+    }
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        ExternalEffectAPI::run(self, resources)
+    }
+}
+
+fn assert_simulated_duration<E: ExternalEffectAPI>(effect: &E) {
+    debug_assert_eq!(
+        effect.simulated_duration_dist(),
+        E::SIMULATED_DURATION,
+        "{}: ExternalEffect::simulated_duration_dist() must return ExternalEffectAPI::SIMULATED_DURATION ({:?}), got {:?}",
+        type_name::<E>(),
+        E::SIMULATED_DURATION,
+        effect.simulated_duration_dist(),
+    );
 }
 
 impl dyn ExternalEffect {
@@ -549,14 +606,12 @@ impl serde::Serialize for dyn ExternalEffect {
     }
 }
 
-impl ExternalEffect for () {
+impl ExternalEffectAPI for () {
+    type Response = ();
+
     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async { Box::new(()) as Box<dyn SendData> })
     }
-}
-
-impl ExternalEffectAPI for () {
-    type Response = ();
 }
 
 /// Generic deserialization result of external effects.

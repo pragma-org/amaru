@@ -23,14 +23,14 @@ use std::{
 };
 
 use either::Either::{Left, Right};
-use futures_util::{StreamExt, stream::FuturesUnordered};
 use override_external_effect::OverrideExternalEffect;
 use parking_lot::Mutex;
+use rand::rngs::StdRng;
 use tokio::{runtime::Handle, select, sync::watch};
 
 use crate::{
-    BLACKHOLE_NAME, BoxFuture, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources, ScheduleId,
-    SendData, StageRef, StageResponse,
+    BLACKHOLE_NAME, BoxFuture, DurationDist, Effect, ExternalEffect, ExternalEffectAPI, Instant, Name, Resources,
+    ScheduleId, SendData, StageRef, StageResponse,
     adapter::{Adapter, StageOrAdapter, find_recipient},
     effect::{CallExtra, CanSupervise, ScheduleIds, StageEffect},
     effect_box::EffectBox,
@@ -87,15 +87,33 @@ pub struct SimulationRunning {
     schedule_ids: ScheduleIds,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
     eval_strategy: Box<dyn EvalStrategy>,
+    duration_rng: StdRng,
     terminate: watch::Sender<bool>,
     termination: watch::Receiver<bool>,
-    external_effects: FuturesUnordered<BoxFuture<'static, (Name, Box<dyn SendData>)>>,
+    /// `ExternalEffect::run` futures, keyed by stage. Timed effects are forced at their deadline.
+    pending_computations: BTreeMap<Name, BoxFuture<'static, Box<dyn SendData>>>,
+    /// In-flight external effects: `δ` is scheduled when the effect is issued; the result may arrive later.
+    external_inflight: BTreeMap<Name, PendingExternal>,
+    /// Drives still-pending `run()` futures to completion when a sampled deadline fires.
+    tokio_handle: Handle,
     /// When true, AddStage/WireStage effects (dynamic child stage creation via `eff.stage` + `eff.wire_up`)
     /// succeed for the parent (responses are delivered, effects traced) but no real child stage is
     /// materialized in the simulation. Subsequent sends to the child's StageRef are dropped (NotFound).
     /// This is intended for testing parent stage orchestration logic without having to implement
     /// or override effects for the child stages.
     virtual_child_stages: bool,
+}
+
+/// An external effect whose `δ` was fixed when the effect was issued.
+struct PendingExternal {
+    result: Option<Box<dyn SendData>>,
+    /// `true` once the sampled deadline has been reached, or the dist has no `δ`
+    /// ([`DurationDist::Zero`] or [`DurationDist::UntilResolved`]).
+    time_ready: bool,
+    /// When time is ready and no result is stored, poll/`block_on` the scheduled `run()`.
+    /// `false` for [`DurationDist::UntilResolved`]: the world runner owns completion.
+    force_on_ready: bool,
+    dist: DurationDist,
 }
 
 impl SimulationRunning {
@@ -112,6 +130,8 @@ impl SimulationRunning {
         trace_buffer: Arc<Mutex<TraceBuffer>>,
         eval_strategy: Box<dyn EvalStrategy>,
         global_epoch_offset: Duration,
+        duration_rng: StdRng,
+        tokio_handle: Handle,
     ) -> Self {
         let (terminate, termination) = watch::channel(false);
         Self {
@@ -131,9 +151,12 @@ impl SimulationRunning {
             schedule_ids,
             trace_buffer,
             eval_strategy,
+            duration_rng,
             terminate,
             termination,
-            external_effects: FuturesUnordered::new(),
+            pending_computations: BTreeMap::new(),
+            external_inflight: BTreeMap::new(),
+            tokio_handle,
             virtual_child_stages: false,
         }
     }
@@ -156,7 +179,7 @@ impl SimulationRunning {
 
     /// Return true if there are any effects to be run.
     pub fn has_effects(&self) -> bool {
-        !self.external_effects.is_empty()
+        !self.pending_computations.is_empty()
     }
 
     /// Install a breakpoint that will be hit when an effect matching the given predicate is encountered.
@@ -285,6 +308,131 @@ impl SimulationRunning {
         self.scheduled.schedule(id, Box::new(wakeup));
     }
 
+    /// Record an external effect at the moment it is issued: sample `δ` now and enqueue
+    /// the wakeup. The result may arrive later; the stage resumes only when both are ready.
+    ///
+    /// [`DurationDist::UntilResolved`] and a sampled `δ` of zero schedule nothing: completion
+    /// is the result (the Future, or a manual / override resume).
+    fn begin_external(&mut self, at_stage: Name, dist: DurationDist) {
+        if self.external_inflight.contains_key(&at_stage) {
+            return;
+        }
+        let delta = dist.sample(&mut self.duration_rng);
+        // UntilResolved has no δ: the world runner completes the Future. Sampled δ
+        // (including zero) means the computation is scheduled and must be forced when due.
+        let force_on_ready = delta.is_some();
+        let time_ready = match delta {
+            None => true,
+            Some(d) if d.is_zero() => true,
+            Some(delta) => {
+                let now = self.clock.now(self.global_epoch_offset);
+                let id = self.schedule_ids.next_at(now + delta);
+                let name = at_stage.clone();
+                self.schedule_wakeup(id, move |sim| {
+                    if let Some(pending) = sim.external_inflight.get_mut(&name) {
+                        pending.time_ready = true;
+                    }
+                    sim.try_deliver_external(&name);
+                });
+                false
+            }
+        };
+        self.external_inflight.insert(at_stage, PendingExternal { result: None, time_ready, force_on_ready, dist });
+    }
+
+    /// Offer the computed result of an in-flight external effect. Resumes the stage if
+    /// the scheduled time has already been reached (or there was no `δ`).
+    fn provide_external_result(&mut self, at_stage: Name, result: Box<dyn SendData>) {
+        let pending = self.external_inflight.entry(at_stage.clone()).or_insert(PendingExternal {
+            result: None,
+            // No `begin_external` (manual resume without going through `try_effect`): treat as UntilResolved.
+            time_ready: true,
+            force_on_ready: false,
+            dist: DurationDist::UntilResolved,
+        });
+        pending.result = Some(result);
+        self.try_deliver_external(&at_stage);
+    }
+
+    /// Drive `run()` to completion now. Called only when a sampled deadline has been reached
+    /// (or `δ` was zero), so wall-clock compute cannot slip past other simulated events.
+    ///
+    /// If the future is not already ready, `block_on` is bounded by
+    /// [`DurationDist::force_timeout`] (`1.5 × max + 1s`). Exceeding that is a bug.
+    fn force_scheduled_computation(&mut self, at_stage: &Name) {
+        let Some(mut fut) = self.pending_computations.remove(at_stage) else {
+            return;
+        };
+        let timeout = self
+            .external_inflight
+            .get(at_stage)
+            .and_then(|pending| pending.dist.force_timeout())
+            .expect("force only for sampled DurationDist");
+        // Poll first so already-ready `run()` (typical wrap_sync) never enters the runtime.
+        // `timeout` must be constructed inside `block_on`: current-thread test runtimes
+        // have no ambient reactor, and `tokio::time::timeout` requires one.
+        let result = match std::future::Future::poll(fut.as_mut(), &mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(result) => result,
+            Poll::Pending => match self.tokio_handle.block_on(async { tokio::time::timeout(timeout, fut).await }) {
+                Ok(result) => result,
+                Err(_elapsed) => {
+                    panic!("external effect on `{at_stage}` exceeded force timeout {timeout:?}")
+                }
+            },
+        };
+        self.provide_external_result(at_stage.clone(), result);
+    }
+
+    fn poll_ready_computations(
+        pending: &mut BTreeMap<Name, BoxFuture<'static, Box<dyn SendData>>>,
+        cx: &mut Context<'_>,
+    ) -> Option<(Name, Box<dyn SendData>)> {
+        let names: Vec<Name> = pending.keys().cloned().collect();
+        for name in names {
+            let Some(fut) = pending.get_mut(&name) else {
+                continue;
+            };
+            match std::future::Future::poll(fut.as_mut(), cx) {
+                Poll::Ready(result) => {
+                    pending.remove(&name);
+                    return Some((name, result));
+                }
+                Poll::Pending => {}
+            }
+        }
+        None
+    }
+
+    fn try_deliver_external(&mut self, at_stage: &Name) {
+        let Some(pending) = self.external_inflight.get(at_stage) else {
+            return;
+        };
+        if !pending.time_ready {
+            return;
+        }
+        if pending.result.is_none() && pending.force_on_ready {
+            self.force_scheduled_computation(at_stage);
+            return;
+        }
+        if pending.result.is_none() {
+            return;
+        }
+        let pending = self.external_inflight.remove(at_stage).expect("just checked");
+        let Some(data) = self.stages.get_mut(at_stage) else {
+            tracing::warn!(name = %at_stage, "stage was terminated, skipping external effect delivery");
+            return;
+        };
+        resume_external_internal(
+            data.assert_stage("which cannot receive external effects"),
+            pending.result.expect("just checked"),
+            &mut |name, response| {
+                tracing::debug!(%name, ?response, "enqueuing stage");
+                self.runnable.push_back((name, response));
+            },
+        )
+        .expect("external effect is always runnable");
+    }
+
     /// Place messages in the given stage’s mailbox, but don’t resume it.
     /// The next message will be consumed when resuming an [`Effect::Receive`]
     /// for this stage.
@@ -371,6 +519,12 @@ impl SimulationRunning {
             self.trace_buffer.lock().push_suspend(&effect);
         }
 
+        if let Effect::External { at_stage, effect } = &effect {
+            let at_stage = at_stage.clone();
+            let dist = effect.simulated_duration_dist();
+            self.begin_external(at_stage, dist);
+        }
+
         Ok(effect)
     }
 
@@ -411,29 +565,35 @@ impl SimulationRunning {
     /// When external effects are currently unresolved, await either the resolution of an effect
     /// or the arrival of a new external input message.
     pub async fn await_external_effect(&mut self) -> Option<Name> {
-        if self.external_effects.is_empty() {
+        if self.pending_computations.is_empty() {
             return None;
         }
-        let (at_stage, result) = select! {
-            x = self.external_effects.next() => x?,
-            env = self.inputs.next() => {
-                self.inputs.put_back(env);
-                return None;
+        if let Some((name, result)) =
+            Self::poll_ready_computations(&mut self.pending_computations, &mut Context::from_waker(Waker::noop()))
+        {
+            self.provide_external_result(name.clone(), result);
+            return Some(name);
+        }
+        if self.pending_computations.is_empty() {
+            return None;
+        }
+
+        let pending = &mut self.pending_computations;
+        let inputs = &mut self.inputs;
+        let ready = select! {
+            env = inputs.next() => {
+                inputs.put_back(env);
+                None
             }
+            ready = std::future::poll_fn(|cx| match Self::poll_ready_computations(pending, cx) {
+                Some(ready) => Poll::Ready(Some(ready)),
+                None if pending.is_empty() => Poll::Ready(None),
+                None => Poll::Pending,
+            }) => ready,
         };
-
-        let runnable = &mut self.runnable;
-        let run = &mut |name, response| {
-            runnable.push_back((name, response));
-        };
-
-        let Some(data) = self.stages.get_mut(&at_stage) else {
-            tracing::warn!(name = %at_stage, "stage was terminated, skipping external effect delivery");
-            return Some(at_stage);
-        };
-        let data = data.assert_stage("which cannot receive external effects");
-        resume_external_internal(data, result, run).expect("external effect is always runnable");
-        Some(at_stage)
+        let (name, result) = ready?;
+        self.provide_external_result(name.clone(), result);
+        Some(name)
     }
 
     /// Wait for a message to be enqueued via an external input to the simulation.
@@ -446,11 +606,11 @@ impl SimulationRunning {
     /// Keep alternating between [`Self::run_until_blocked`] and
     /// [`Self::await_external_effect`] until the simulation is blocked
     /// without waiting for external effects to be resolved.
-    pub fn run_until_blocked_incl_effects(&mut self, rt: &Handle) -> Blocked {
+    pub fn run_until_blocked_incl_effects(&mut self) -> Blocked {
         loop {
             match self.run_until_sleeping_or_blocked() {
-                Blocked::Busy { .. } => {
-                    rt.block_on(self.await_external_effect());
+                Blocked::Busy { external_effects, .. } if external_effects > 0 => {
+                    self.tokio_handle.clone().block_on(self.await_external_effect());
                 }
                 Blocked::Sleeping { .. } => {
                     assert!(self.skip_to_next_wakeup(None));
@@ -497,11 +657,11 @@ impl SimulationRunning {
         }
     }
 
-    pub fn run_until_blocked_or_time_incl_effects(&mut self, time: Instant, rt: &Handle) -> Blocked {
+    pub fn run_until_blocked_or_time_incl_effects(&mut self, time: Instant) -> Blocked {
         loop {
             match self.run_until_sleeping_or_blocked() {
                 Blocked::Busy { external_effects, .. } if external_effects > 0 => {
-                    rt.block_on(self.await_external_effect());
+                    self.tokio_handle.clone().block_on(self.await_external_effect());
                 }
                 Blocked::Sleeping { next_wakeup } => {
                     if !self.skip_to_next_wakeup(Some(time)) {
@@ -529,11 +689,11 @@ impl SimulationRunning {
     }
 
     // TODO: shouldn’t this have a clock ceiling?
-    pub fn run_one_step(&mut self, rt: &Handle) -> Option<Blocked> {
+    pub fn run_one_step(&mut self) -> Option<Blocked> {
         self.receive_inputs();
         match self.run_effect() {
             Some(Blocked::Busy { .. }) => {
-                rt.block_on(self.await_external_effect());
+                self.tokio_handle.clone().block_on(self.await_external_effect());
                 None
             }
             Some(Blocked::Sleeping { .. }) => {
@@ -778,7 +938,6 @@ impl SimulationRunning {
                     .expect("cancel_schedule effect is always runnable");
             }
             Effect::External { at_stage, mut effect } => {
-                let mut result = None;
                 let mut idx = 0;
                 while idx < self.overrides.len() {
                     use override_external_effect::OverrideResult::*;
@@ -789,13 +948,11 @@ impl SimulationRunning {
                             idx += 1;
                         }
                         Handled(msg) => {
-                            result = Some(msg);
-                            // dummy effect value since we moved out of `effect` and need it later in the other case
-                            effect = Box::new(());
                             if over.register_use_and_get_removal() {
                                 self.overrides.remove(idx);
                             }
-                            break;
+                            self.provide_external_result(at_stage, msg);
+                            return None;
                         }
                         Replaced(effect2) => {
                             effect = effect2;
@@ -807,17 +964,10 @@ impl SimulationRunning {
                         }
                     }
                 }
-                if let Some(result) = result {
-                    let data = self
-                        .stages
-                        .get_mut(&at_stage)
-                        .log_termination(&at_stage)?
-                        .assert_stage("which cannot receive external effects");
-                    resume_external_internal(data, result, run).expect("external effect is always runnable");
-                    return None;
-                }
                 let resources = self.resources.clone();
-                self.external_effects.push(Box::pin(async move { (at_stage, effect.run(resources).await) }));
+                let name = at_stage.clone();
+                self.pending_computations.insert(name.clone(), effect.run(resources));
+                self.try_deliver_external(&name);
             }
             Effect::Terminate { at_stage } => {
                 tracing::info!(stage = %at_stage, "terminated");
@@ -914,6 +1064,8 @@ impl SimulationRunning {
 
         // clean up simulation state for this stage
         self.runnable.retain(|(n, _)| n != &at_stage);
+        self.external_inflight.remove(&at_stage);
+        self.pending_computations.remove(&at_stage);
 
         let runnable = &mut self.runnable;
         let run = &mut |name, response| {
@@ -1135,11 +1287,15 @@ impl SimulationRunning {
     ///
     /// Panics if the stage name does not exist (which may also happen due to termination).
     pub fn resume_external_box(&mut self, at_stage: impl AsRef<Name>, result: Box<dyn SendData>) -> anyhow::Result<()> {
-        let data = self.stages.get_mut(at_stage.as_ref()).assert_stage("which cannot receive external effects");
-        resume_external_internal(data, result, &mut |name, response| {
-            tracing::debug!(%name, ?response, "enqueuing stage");
-            self.runnable.push_back((name, response));
-        })
+        let at_stage = at_stage.as_ref().clone();
+        {
+            let data = self.stages.get_mut(&at_stage).assert_stage("which cannot receive external effects");
+            if !matches!(data.waiting, Some(StageEffect::External(_))) {
+                anyhow::bail!("stage `{at_stage}` was not waiting for an external effect, but {:?}", data.waiting);
+            }
+        }
+        self.provide_external_result(at_stage, result);
+        Ok(())
     }
 
     /// Resume an [`Effect::External`].
@@ -1152,11 +1308,15 @@ impl SimulationRunning {
         at_stage: impl AsRef<Name>,
         result: Eff::Response,
     ) -> anyhow::Result<()> {
-        let data = self.stages.get_mut(at_stage.as_ref()).assert_stage("which cannot receive external effects");
-        resume_external_internal(data, Box::new(result), &mut |name, response| {
-            tracing::debug!(%name, ?response, "enqueuing stage");
-            self.runnable.push_back((name, response));
-        })
+        let at_stage = at_stage.as_ref().clone();
+        {
+            let data = self.stages.get_mut(&at_stage).assert_stage("which cannot receive external effects");
+            if !matches!(data.waiting, Some(StageEffect::External(_))) {
+                anyhow::bail!("stage `{at_stage}` was not waiting for an external effect, but {:?}", data.waiting);
+            }
+        }
+        self.provide_external_result(at_stage, Box::new(result));
+        Ok(())
     }
 
     /// Resume an [`Effect::AddStage`].
@@ -1425,13 +1585,18 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
             }
             StageEffect::Receive => {}
             StageEffect::Wait(..) => sleep.push(k.clone()),
+            StageEffect::External(_) => match sim.external_inflight.get(k) {
+                // Deadline not yet reached: sleep even if the Future is still running.
+                Some(pending) if !pending.time_ready => sleep.push(k.clone()),
+                _ => busy.push(k.clone()),
+            },
             StageEffect::Call(_, _, CallExtra::Scheduled(id)) if sim.scheduled.contains(id) => sleep.push(k.clone()),
             _ => busy.push(k.clone()),
         }
     }
 
     if !busy.is_empty() {
-        Blocked::Busy { stages: busy, external_effects: sim.external_effects.len() }
+        Blocked::Busy { stages: busy, external_effects: sim.pending_computations.len() }
     } else if !sleep.is_empty() {
         Blocked::Sleeping { next_wakeup: sim.next_wakeup().expect("stages are waiting for a wait effect") }
     } else if !send.is_empty() {
@@ -1564,7 +1729,8 @@ fn simulation_invariants() {
     });
 
     let stage = network.wire_up(stage, false);
-    let mut sim = network.run();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut sim = network.run(rt.handle());
 
     #[expect(clippy::type_complexity)]
     let ops: [(

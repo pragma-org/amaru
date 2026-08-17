@@ -21,7 +21,7 @@ use amaru_pure_stage::{
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 
 use super::*;
 pub use crate::stages::test_utils::TraceMatch;
@@ -132,7 +132,7 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
     let state = PeerSelection::new(manager, 3, 10, COOLDOWN_SECS);
     TestPrep {
         state,
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         static_peers,
         snapshot_candidates,
         ledger_candidates: BTreeSet::new(),

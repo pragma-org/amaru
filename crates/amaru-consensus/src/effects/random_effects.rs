@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_pure_stage::{BoxFuture, ExternalEffect, ExternalEffectAPI, Resources, SendData};
+use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Resources, SendData};
 use rand::Rng;
 
 /// External effect that produces a fresh 256-bit random seed.
@@ -24,12 +24,10 @@ use rand::Rng;
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GenerateRandomSeed;
 
-impl ExternalEffect for GenerateRandomSeed {
-    fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync(rand::rng().random::<[u8; 32]>())
-    }
-}
-
 impl ExternalEffectAPI for GenerateRandomSeed {
     type Response = [u8; 32];
+
+    fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync(rand::rng().random::<[u8; 32]>())
+    }
 }

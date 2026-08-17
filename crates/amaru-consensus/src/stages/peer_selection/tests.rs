@@ -665,7 +665,7 @@ fn test_reban_later_deadline_survives_early_timer() {
     assert_eq!(running.now(), intermediate);
 
     running.enqueue_msg(peer_selection_stage(), [PeerSelectionMsg::adversarial(p.clone())]);
-    running.run_until_blocked_incl_effects(prep.rt.handle());
+    running.run_until_blocked_incl_effects();
 
     assert_trace_contains(
         &running,
