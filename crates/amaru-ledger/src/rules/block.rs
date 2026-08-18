@@ -216,8 +216,7 @@ pub fn execute<C, S: From<C>>(
 where
     C: ValidationContext<FinalState = S> + fmt::Debug,
 {
-    let block_span = debug_span!(ledger::rules::EXECUTE);
-    let _block_guard = block_span.enter();
+    let _block_guard = debug_span!(ledger::rules::BLOCK).entered();
 
     let tip = block.point();
     let slot = block.header.slot();
@@ -226,9 +225,6 @@ where
         Ok(out) => BlockValidation::Valid(out),
         Err(err) => BlockValidation::Invalid(tip, err),
     };
-
-    let preflight_span = debug_span!(ledger::rules::phase_one::BLOCK);
-    let _preflight_guard = preflight_span.enter();
 
     with_block_context(header_size::block_header_size_valid(block.header_len(), protocol_params))?;
 
@@ -252,8 +248,6 @@ where
         protocol_params,
     ))?;
 
-    // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
-    // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction, tx_size) in block {
         let transaction_id = transaction.tx_id();
 

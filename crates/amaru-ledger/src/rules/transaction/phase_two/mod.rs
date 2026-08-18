@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, time::Instant};
 
 use amaru_kernel::{
     BorrowedScript, EraHistory, GlobalParameters, HasTransactionId, PlutusVersion, ProtocolParameters, RedeemerKey,
     TransactionBody, TransactionInput, TransactionPointer, TxInfo, TxInfoTranslationError, Utxos, WitnessSet, cbor,
-    to_cbor,
+    to_cbor, utils::duration::elapsed_and_reset,
 };
 use amaru_observability::debug_span;
 use amaru_plutus::{
@@ -93,12 +93,16 @@ pub fn execute<C>(
 where
     C: UtxoSlice + fmt::Debug,
 {
+    use amaru_observability::amaru::ledger::rules::PHASE_TWO;
+
     if transaction_witness_set.redeemer.is_none() {
         return if is_valid { Ok(()) } else { Err(PhaseTwoError::ValidityStateError) };
     }
 
-    let span_build_context = debug_span!(ledger::rules::phase_two::BUILD_SCRIPT_CONTEXT);
-    let guard_build_context = span_build_context.enter();
+    let span = debug_span!(ledger::rules::PHASE_TWO);
+    let _guard = span.enter();
+
+    let mut meter = Instant::now();
 
     let mut resolved_inputs = transaction_body
         .inputs
@@ -133,137 +137,134 @@ where
 
     let scripts_to_execute = tx_info.to_script_contexts();
 
-    drop(guard_build_context);
-    let span_execute_scripts = debug_span!(ledger::rules::phase_two::EXECUTE_SCRIPTS);
-    let _guard_execute_scripts = span_execute_scripts.enter();
+    span.record(PHASE_TWO::FIELD_SCRIPT_CONTEXT_MICROS, elapsed_and_reset(&mut meter));
 
     let script_results = scripts_to_execute
         .into_par_iter()
         .map(|(redeemer @ RedeemerKey { tag: purpose, index }, script_context, script)| {
-            debug_span!(
-                parent: &span_execute_scripts,
-                ledger::rules::phase_two::EXECUTE_ONE_SCRIPT,
-                purpose = purpose.to_string(),
+            use amaru_observability::amaru::ledger::transaction::script::EXECUTE;
+
+            let span_execute = debug_span!(
+                parent: &span,
+                ledger::transaction::script::EXECUTE,
+                purpose = %purpose,
                 index = index
-            )
-            .in_scope(|| {
-                let arena = debug_span!(ledger::rules::phase_two::ACQUIRE_ARENA).in_scope(|| arena_pool.acquire());
+            );
+            let _guard = span_execute.enter();
 
-                // TODO: The following code screams for traits.
-                let (mut program, plutus_version, args, cost_model) =
-                    debug_span!(ledger::rules::phase_two::DECODE_SCRIPT).in_scope(|| match script {
-                        BorrowedScript::Native(_) => {
-                            unreachable!("cannot have a redeemer point to a native_script")
-                        }
-                        BorrowedScript::PlutusV1(plutus_script) => {
-                            let (program, plutus_version) =
-                                decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
-                                    .map_err(PhaseTwoError::from)?;
+            let mut meter = Instant::now();
+            let arena = arena_pool.acquire();
+            span_execute.record(EXECUTE::FIELD_ACQUIRE_ARENA_MICROS, elapsed_and_reset(&mut meter));
 
-                            let args = script_context.to_script_args(PLUTUS_V1)?;
-
-                            let cost_model = protocol_parameters
-                                .cost_models
-                                .plutus_v1
-                                .as_deref()
-                                .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
-
-                            Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
-                        }
-                        BorrowedScript::PlutusV2(plutus_script) => {
-                            let (program, plutus_version) =
-                                decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
-                                    .map_err(PhaseTwoError::from)?;
-
-                            let args = script_context.to_script_args(PLUTUS_V2)?;
-
-                            let cost_model = protocol_parameters
-                                .cost_models
-                                .plutus_v2
-                                .as_deref()
-                                .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
-
-                            Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
-                        }
-                        BorrowedScript::PlutusV3(plutus_script) => {
-                            let (program, plutus_version) =
-                                decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
-                                    .map_err(PhaseTwoError::from)?;
-
-                            let args = script_context.to_script_args(PLUTUS_V3)?;
-
-                            let cost_model = protocol_parameters
-                                .cost_models
-                                .plutus_v3
-                                .as_deref()
-                                .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
-
-                            Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
-                        }
-                    })?;
-
-                let span_build_uplc_program = debug_span!(ledger::rules::phase_two::BUILD_UPLC_PROGRAM);
-                let guard_build_uplc_program = span_build_uplc_program.enter();
-
-                // TODO: we should stop using Pallas' PlutusData
-                // We are using Pallas' PlutusData in `amaru-plutus` and not the `PlutusData` from `uplc`
-                // so we have to do this really bad conversion (uplc uses references in plutus data, so we have to make sure everything lives long enough)
-                let constants = args
-                    .iter()
-                    .map(|arg| {
-                        let bytes = to_cbor(&arg);
-                        #[allow(clippy::expect_used)]
-                        let data = PlutusData::from_cbor(&arena, &bytes).expect("unable to decode PlutusData cbor");
-                        Constant::Data(data)
-                    })
-                    .collect::<Vec<_>>();
-
-                let arguments = constants.iter().map(Term::Constant).collect::<Vec<_>>();
-
-                for term in arguments.iter() {
-                    program = program.apply(&arena, term);
+            // TODO: The following code screams for traits.
+            let (mut program, plutus_version, args, cost_model) = match script {
+                BorrowedScript::Native(_) => {
+                    unreachable!("cannot have a redeemer point to a native_script")
                 }
+                BorrowedScript::PlutusV1(plutus_script) => {
+                    let (program, plutus_version) =
+                        decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
+                            .map_err(PhaseTwoError::from)?;
+                    span_execute.record(EXECUTE::FIELD_DECODE_SCRIPT_MICROS, elapsed_and_reset(&mut meter));
 
-                let budget = script_context.budget();
+                    let args = script_context.to_script_args(PLUTUS_V1)?;
 
-                let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
+                    let cost_model = protocol_parameters
+                        .cost_models
+                        .plutus_v1
+                        .as_deref()
+                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
 
-                drop(guard_build_uplc_program);
-
-                let result = debug_span!(ledger::rules::phase_two::EVALUATE_UPLC_PROGRAM).in_scope(|| {
-                    program.eval(
-                        &arena,
-                        CostModel::new(plutus_version, protocol_parameters.protocol_version, cost_model),
-                        uplc_budget,
-                    )
-                });
-
-                let uplc_machine_error = |err| {
-                    Err(PhaseTwoError::UplcMachineError(UplcMachineError {
-                        plutus_version,
-                        info: result.info,
-                        err,
-                        redeemer: *redeemer,
-                        program: encode_program(program),
-                    }))
-                };
-
-                match plutus_version {
-                    PlutusVersion::V1 | PlutusVersion::V2 => match result.term {
-                        Ok(Term::Error) => uplc_machine_error("evaluated to error term".to_owned()),
-                        Ok(_) => Ok(()),
-                        Err(e) => uplc_machine_error(e.to_string()),
-                    },
-
-                    // According to [CIP-117](https://cips.cardano.org/cip/CIP-0117),
-                    // Plutus V3 scripts must evaluate to a constant term of unit
-                    PlutusVersion::V3 => match result.term {
-                        Ok(Term::Constant(Constant::Unit)) => Ok(()),
-                        Ok(_) => uplc_machine_error("evaluated to a non-unit term".to_owned()),
-                        Err(e) => uplc_machine_error(e.to_string()),
-                    },
+                    Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
                 }
-            })
+                BorrowedScript::PlutusV2(plutus_script) => {
+                    let (program, plutus_version) =
+                        decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
+                            .map_err(PhaseTwoError::from)?;
+                    span_execute.record(EXECUTE::FIELD_DECODE_SCRIPT_MICROS, elapsed_and_reset(&mut meter));
+
+                    let args = script_context.to_script_args(PLUTUS_V2)?;
+
+                    let cost_model = protocol_parameters
+                        .cost_models
+                        .plutus_v2
+                        .as_deref()
+                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+
+                    Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
+                }
+                BorrowedScript::PlutusV3(plutus_script) => {
+                    let (program, plutus_version) =
+                        decode_plutus_script(plutus_script, protocol_parameters.protocol_version, &arena)
+                            .map_err(PhaseTwoError::from)?;
+                    span_execute.record(EXECUTE::FIELD_DECODE_SCRIPT_MICROS, elapsed_and_reset(&mut meter));
+
+                    let args = script_context.to_script_args(PLUTUS_V3)?;
+
+                    let cost_model = protocol_parameters
+                        .cost_models
+                        .plutus_v3
+                        .as_deref()
+                        .ok_or(PhaseTwoError::MissingCostModel(plutus_version))?;
+
+                    Ok::<_, PhaseTwoError>((program, plutus_version, args, cost_model))
+                }
+            }?;
+
+            // TODO: we should stop using Pallas' PlutusData
+            // We are using Pallas' PlutusData in `amaru-plutus` and not the `PlutusData` from `uplc`
+            // so we have to do this really bad conversion (uplc uses references in plutus data, so we have to make sure everything lives long enough)
+            let constants = args
+                .iter()
+                .map(|arg| {
+                    let bytes = to_cbor(&arg);
+                    #[allow(clippy::expect_used)]
+                    let data = PlutusData::from_cbor(&arena, &bytes).expect("unable to decode PlutusData cbor");
+                    Constant::Data(data)
+                })
+                .collect::<Vec<_>>();
+
+            let arguments = constants.iter().map(Term::Constant).collect::<Vec<_>>();
+
+            for term in arguments.iter() {
+                program = program.apply(&arena, term);
+            }
+            span_execute.record(EXECUTE::FIELD_BUILD_UPLC_PROGRAM_MICROS, elapsed_and_reset(&mut meter));
+
+            let budget = script_context.budget();
+            let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
+            let result = program.eval(
+                &arena,
+                CostModel::new(plutus_version, protocol_parameters.protocol_version, cost_model),
+                uplc_budget,
+            );
+            span_execute.record(EXECUTE::FIELD_EVALUATE_UPLC_PROGRAM_MICROS, elapsed_and_reset(&mut meter));
+
+            let uplc_machine_error = |err| {
+                Err(PhaseTwoError::UplcMachineError(UplcMachineError {
+                    plutus_version,
+                    info: result.info,
+                    err,
+                    redeemer: *redeemer,
+                    program: encode_program(program),
+                }))
+            };
+
+            match plutus_version {
+                PlutusVersion::V1 | PlutusVersion::V2 => match result.term {
+                    Ok(Term::Error) => uplc_machine_error("evaluated to error term".to_owned()),
+                    Ok(_) => Ok(()),
+                    Err(e) => uplc_machine_error(e.to_string()),
+                },
+
+                // According to [CIP-117](https://cips.cardano.org/cip/CIP-0117),
+                // Plutus V3 scripts must evaluate to a constant term of unit
+                PlutusVersion::V3 => match result.term {
+                    Ok(Term::Constant(Constant::Unit)) => Ok(()),
+                    Ok(_) => uplc_machine_error("evaluated to a non-unit term".to_owned()),
+                    Err(e) => uplc_machine_error(e.to_string()),
+                },
+            }
         })
         .collect::<Result<Vec<_>, _>>()
         .map(|_| ());

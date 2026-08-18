@@ -1231,46 +1231,38 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `execute` | `TRACE` | public | Validate block against ledger rules |  |  |
+| `block` | `TRACE` | public | Block-related rules and other preflight checks |  |  |
+| `phase_one` | `TRACE` | public | All phase one validations |  | preflight_micros, certificates_micros, collateral_micros, collateral_return_micros, donation_micros, fees_micros, inputs_micros, metadata_micros, mint_micros, outputs_micros, proposals_micros, scripts_micros, signatures_micros, validity_interval_micros, votes_micros, withdrawals_micros |
+| `phase_two` | `TRACE` | public | Initialize script context and cost models for phase-2 validations, common to all scripts |  | script_context_micros |
 
-## target: `amaru::ledger::rules::phase_one`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `block` | `TRACE` | public | Ledger rules related to block metadata and 'global' preflight checks |  |  |
-| `certificates` | `TRACE` | public | Ledger rules and state-transitions for certificates |  |  |
-| `collateral` | `TRACE` | public | Ledger rules and state-transitions for collateral |  |  |
-| `donation` | `TRACE` | public | Ledger rules and state-transitions for treasury donation |  |  |
-| `fees` | `TRACE` | public | Ledger rules and state-transitions for fees |  |  |
-| `inputs` | `TRACE` | public | Ledger rules and state-transitions for inputs |  |  |
-| `metadata` | `TRACE` | public | Ledger rules and state-transitions for metadata |  |  |
-| `mint` | `TRACE` | public | Ledger rules and state-transitions for minte/burned assets |  |  |
-| `outputs` | `TRACE` | public | Ledger rules and state-transitions for outputs |  |  |
-| `proposals` | `TRACE` | public | Ledger rules and state-transitions for governance proposals |  |  |
-| `scripts` | `TRACE` | public | Ledger rules and state-transitions for script witnesses |  |  |
-| `signatures` | `TRACE` | public | Ledger rules and state-transitions for key signatures |  |  |
-| `validity_interval` | `TRACE` | public | Ledger rules and state-transitions for validity interval |  |  |
-| `votes` | `TRACE` | public | Ledger rules and state-transitions for governance votes |  |  |
-| `withdrawals` | `TRACE` | public | Ledger rules and state-transitions for withdrawas |  |  |
-
-## target: `amaru::ledger::rules::phase_two`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `acquire_arena` | `TRACE` | public | Acquiring the allocation arena for decoding and execution |  |  |
-| `build_script_context` | `TRACE` | public | Initialize script context and cost models, common to all scripts |  |  |
-| `build_uplc_program` | `TRACE` | public | Construct the UPLC program from parameters, decoded script and context |  |  |
-| `decode_script` | `TRACE` | public | Decoding the script from Cbor/Flat |  |  |
-| `evaluate_uplc_program` | `TRACE` | public | Execute the fully-applied UPLC program |  |  |
-| `execute_one_script` | `TRACE` | public | A single script execution, with the associated redeemer qualifiers | purpose, index |  |
-| `execute_scripts` | `TRACE` | public | A span wrapping all script executions |  |  |
-
-<details><summary>span: `execute_one_script`</summary>
+<details><summary>span: `phase_one`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `purpose` | `string` | ✓ |
-| `index` | `integer` | ✓ |
+| `preflight_micros` | `integer` |  |
+| `certificates_micros` | `integer` |  |
+| `collateral_micros` | `integer` |  |
+| `collateral_return_micros` | `integer` |  |
+| `donation_micros` | `integer` |  |
+| `fees_micros` | `integer` |  |
+| `inputs_micros` | `integer` |  |
+| `metadata_micros` | `integer` |  |
+| `mint_micros` | `integer` |  |
+| `outputs_micros` | `integer` |  |
+| `proposals_micros` | `integer` |  |
+| `scripts_micros` | `integer` |  |
+| `signatures_micros` | `integer` |  |
+| `validity_interval_micros` | `integer` |  |
+| `votes_micros` | `integer` |  |
+| `withdrawals_micros` | `integer` |  |
+
+</details>
+
+<details><summary>span: `phase_two`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `script_context_micros` | `integer` |  |
 
 </details>
 
@@ -1386,24 +1378,32 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `found` | `TRACE` | public | Found a transaction while applying a block | point, index, id |  |
 | `validate` | `TRACE` | public | Validate a single transaction | id |  |
-
-<details><summary>span: `found`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `point` | `string` | ✓ |
-| `index` | `integer` | ✓ |
-| `id` | `string` | ✓ |
-
-</details>
 
 <details><summary>span: `validate`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `id` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::ledger::transaction::script`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `execute` | `TRACE` | public | A single script execution, with the associated redeemer qualifiers | purpose, index | acquire_arena_micros, decode_script_micros, build_uplc_program_micros, evaluate_uplc_program_micros |
+
+<details><summary>span: `execute`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `purpose` | `string` | ✓ |
+| `index` | `integer` | ✓ |
+| `acquire_arena_micros` | `integer` |  |
+| `decode_script_micros` | `integer` |  |
+| `build_uplc_program_micros` | `integer` |  |
+| `evaluate_uplc_program_micros` | `integer` |  |
 
 </details>
 

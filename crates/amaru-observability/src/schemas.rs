@@ -342,61 +342,6 @@ define_schemas! {
                     required dreps_voting_stake: amaru_kernel::Lovelace
                 }
             }
-            rules {
-                /// Validate block against ledger rules
-                public EXECUTE {}
-                phase_one {
-                    /// Ledger rules related to block metadata and 'global' preflight checks
-                    public BLOCK {}
-                    /// Ledger rules and state-transitions for certificates
-                    public CERTIFICATES {}
-                    /// Ledger rules and state-transitions for collateral
-                    public COLLATERAL {}
-                    /// Ledger rules and state-transitions for treasury donation
-                    public DONATION {}
-                    /// Ledger rules and state-transitions for fees
-                    public FEES {}
-                    /// Ledger rules and state-transitions for inputs
-                    public INPUTS {}
-                    /// Ledger rules and state-transitions for metadata
-                    public METADATA {}
-                    /// Ledger rules and state-transitions for minte/burned assets
-                    public MINT {}
-                    /// Ledger rules and state-transitions for outputs
-                    public OUTPUTS {}
-                    /// Ledger rules and state-transitions for governance proposals
-                    public PROPOSALS {}
-                    /// Ledger rules and state-transitions for script witnesses
-                    public SCRIPTS {}
-                    /// Ledger rules and state-transitions for key signatures
-                    public SIGNATURES {}
-                    /// Ledger rules and state-transitions for validity interval
-                    public VALIDITY_INTERVAL {}
-                    /// Ledger rules and state-transitions for governance votes
-                    public VOTES {}
-                    /// Ledger rules and state-transitions for withdrawas
-                    public WITHDRAWALS {}
-                }
-                phase_two {
-                    /// Initialize script context and cost models, common to all scripts
-                    public BUILD_SCRIPT_CONTEXT {}
-                    /// A span wrapping all script executions
-                    public EXECUTE_SCRIPTS {}
-                    /// A single script execution, with the associated redeemer qualifiers
-                    public EXECUTE_ONE_SCRIPT {
-                        required purpose: String
-                        required index: u32
-                    }
-                    /// Acquiring the allocation arena for decoding and execution
-                    public ACQUIRE_ARENA {}
-                    /// Decoding the script from Cbor/Flat
-                    public DECODE_SCRIPT {}
-                    /// Construct the UPLC program from parameters, decoded script and context
-                    public BUILD_UPLC_PROGRAM {}
-                    /// Execute the fully-applied UPLC program
-                    public EVALUATE_UPLC_PROGRAM {}
-                }
-            }
             rewards {
                 /// Compute rewards for epoch
                 public COMPUTE {
@@ -429,11 +374,62 @@ define_schemas! {
                 public VALIDATE {
                     required id: amaru_kernel::TransactionId,
                 }
-                /// Found a transaction while applying a block
-                public FOUND {
-                    required point: amaru_kernel::Point
-                    required index: usize
-                    required id: amaru_kernel::TransactionId
+
+                script {
+                    /// A single script execution, with the associated redeemer qualifiers
+                    public EXECUTE {
+                        required purpose: String
+                        required index: u32
+                        optional acquire_arena_micros: u64
+                        optional decode_script_micros: u64
+                        optional build_uplc_program_micros: u64
+                        optional evaluate_uplc_program_micros: u64
+                    }
+                }
+            }
+            rules {
+                /// Block-related rules and other preflight checks
+                public BLOCK {}
+
+                /// All phase one validations
+                public PHASE_ONE {
+                    /// Ledger rules related to size, metadata and 'global' preflight checks
+                    optional preflight_micros: u64
+                    /// Ledger rules and state-transitions for certificates
+                    optional certificates_micros: u64
+                    /// Ledger rules and state-transitions for collateral
+                    optional collateral_micros: u64
+                    /// Ledger rules and state-transitions for collateral return
+                    optional collateral_return_micros: u64
+                    /// Ledger rules and state-transitions for treasury donation
+                    optional donation_micros: u64
+                    /// Ledger rules and state-transitions for fees
+                    optional fees_micros: u64
+                    /// Ledger rules and state-transitions for inputs
+                    optional inputs_micros: u64
+                    /// Ledger rules and state-transitions for metadata
+                    optional metadata_micros: u64
+                    /// Ledger rules and state-transitions for minted/burned assets
+                    optional mint_micros: u64
+                    /// Ledger rules and state-transitions for outputs
+                    optional outputs_micros: u64
+                    /// Ledger rules and state-transitions for governance proposals
+                    optional proposals_micros: u64
+                    /// Ledger rules and state-transitions for script witnesses
+                    optional scripts_micros: u64
+                    /// Ledger rules and state-transitions for key signatures
+                    optional signatures_micros: u64
+                    /// Ledger rules and state-transitions for validity interval
+                    optional validity_interval_micros: u64
+                    /// Ledger rules and state-transitions for governance votes
+                    optional votes_micros: u64
+                    /// Ledger rules and state-transitions for withdrawals
+                    optional withdrawals_micros: u64
+                }
+
+                /// Initialize script context and cost models for phase-2 validations, common to all scripts
+                public PHASE_TWO {
+                    optional script_context_micros: u64
                 }
             }
             block_validation_context {
