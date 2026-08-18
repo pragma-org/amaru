@@ -727,11 +727,11 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn remove_proposals<'iter>(&self, proposals: impl Iterator<Item = &'iter ProposalId>) -> Result<()>;
+    fn remove_proposals<T>(&self, proposals: &BTreeMap<ProposalId, T>) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn remove_proposals<'iter>(&self, proposals: impl Iterator<Item = &'iter ProposalId>) -> Result<()> {
-        unimplemented!("TransactionalContext.remove_proposals({:?})", proposals.collect::<Vec<_>>());
+    fn remove_proposals<T>(&self, proposals: &BTreeMap<ProposalId, T>) -> Result<()> {
+        unimplemented!("TransactionalContext.remove_proposals({:?})", proposals.keys().collect::<Vec<_>>());
     }
 
     /// Prune all recently unregistered accounts from the database that are no longer required to
@@ -803,15 +803,6 @@ pub trait TransactionalContext<'a>: ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn with_dreps(&self, _with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<()> {
         unimplemented!("TransactionalContext.with_dreps()");
-    }
-
-    /// Provide an access to iterate over dreps, similar to 'with_pools'.
-    #[cfg(not(any(test, feature = "test-utils")))]
-    fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<()>;
-
-    #[cfg(any(test, feature = "test-utils"))]
-    fn with_proposals(&self, _with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<()> {
-        unimplemented!("TransactionalContext.with_proposals()");
     }
 
     /// Provide an access to iterate over cc members, similar to 'with_pools'.
