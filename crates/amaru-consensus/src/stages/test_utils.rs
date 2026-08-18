@@ -30,7 +30,7 @@ use tokio::runtime::{Builder, Handle, Runtime};
 pub fn test_runtime() -> Runtime {
     Builder::new_current_thread().enable_all().build().expect("current-thread tokio runtime")
 }
-use tracing::{Level, subscriber::DefaultGuard};
+use amaru_observability::tracing::{Level, subscriber::DefaultGuard};
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub struct BufferWriter {

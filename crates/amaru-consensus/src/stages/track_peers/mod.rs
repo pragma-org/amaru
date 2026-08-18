@@ -22,7 +22,7 @@ use amaru_kernel::{
     BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, from_cbor_no_leftovers,
     num::CheckedSub,
 };
-use amaru_observability::{TraceContext, debug, debug_record, debug_span, error, info, trace, warn};
+use amaru_observability::{Instrument, TraceContext, debug, debug_record, debug_span, error, info, trace, warn};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
@@ -30,7 +30,6 @@ use amaru_protocols::{
     store_effects::Store,
 };
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
-use tracing::Instrument;
 
 use super::peer_selection::PeerSelectionMsg;
 use crate::{

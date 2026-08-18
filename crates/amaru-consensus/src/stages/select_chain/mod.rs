@@ -15,11 +15,10 @@
 use std::{cmp::Ordering, collections::BTreeMap};
 
 use amaru_kernel::{BlockHeight, Header, HeaderHash, IsHeader, ORIGIN_HASH, Point};
-use amaru_observability::{TraceContext, debug, debug_span, error, info, warn};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
 use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
-use tracing::Instrument;
 
 use crate::{effects::FindBestCandidate, performance::Performance};
 

@@ -18,6 +18,7 @@ use amaru_kernel::{
     size::TRANSACTION_BODY,
 };
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
 use amaru_ouroboros_traits::MockBlockValidator;
 use amaru_protocols::store_effects::ResourceParameters;
@@ -28,7 +29,6 @@ use amaru_pure_stage::{
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::Runtime;
-use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;

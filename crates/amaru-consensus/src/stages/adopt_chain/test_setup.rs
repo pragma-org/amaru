@@ -18,6 +18,7 @@ use amaru_kernel::{
     BlockHeight, EraHistory, Header, HeaderHash, IsHeader, NonEmptyVec, Point,
     cardano::network_block::EncodedTestBlock, make_header, make_header_with_op_cert_seq,
 };
+use amaru_observability::tracing::Level;
 use amaru_ouroboros::{MempoolMsg, StoreError};
 use amaru_ouroboros_traits::{
     BaseReadChainStore, DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
@@ -33,7 +34,6 @@ use amaru_pure_stage::{
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::Runtime;
-use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::*;

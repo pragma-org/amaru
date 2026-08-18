@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{IsHeader, Point};
+use amaru_observability::tracing::Level;
 use amaru_pure_stage::{
     TerminationReason,
     trace_match::{assert_trace_contains, assert_trace_match},
 };
-use tracing::Level;
 
 use super::*;
 use crate::stages::{
@@ -50,9 +50,9 @@ fn test_block_with_origin_parent_terminates() {
             te_terminated("vb-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["cannot start from genesis block"])
+    logs.assert_and_remove(Level::ERROR, &["block.validate_from_genesis"])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -80,7 +80,8 @@ fn test_block_extending_the_current_tip_is_adopted() {
             te_send("vb-1", "manager", AdoptChainMsg::new(tip, BlockHeight::from(0))).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["block.validate"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -125,10 +126,11 @@ fn test_invalid_block_condemns_in_flight_descendants() {
             te_state("vb-1", &after_second),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::WARN, &["failed to advance the ledger to a new tip"])
-        .assert_and_remove(Level::WARN, &["refusing to validate the descendant of an invalid block"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::WARN, &["block.invalid", "failed to advance the ledger to a new tip"])
+        .assert_and_remove(Level::WARN, &["block.invalid", "refusing to validate the descendant of an invalid block"])
+        .assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -158,7 +160,8 @@ fn test_invalid_blocks_below_the_security_window_are_evicted() {
         &running,
         &[te_input("vb-1", &msg).into(), te_validate_block("vb-1", tip).into(), te_state("vb-1", &expected).into()],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["block.validate"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -190,10 +193,10 @@ fn test_ledger_failure_during_validation_terminates() {
             te_terminated("vb-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::WARN, &["failed to validate the new block"])
+    logs.assert_and_remove(Level::WARN, &["block.apply_failed"])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -232,9 +235,9 @@ fn test_completed_fork_switch_adopts_the_new_tip() {
             te_state("vb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_and_remove(Level::INFO, &["block.switch_fork"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -272,9 +275,9 @@ fn test_equal_height_fork_winning_the_tiebreak_is_switched_to() {
             te_state("vb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_and_remove(Level::INFO, &["block.switch_fork"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -323,10 +326,10 @@ fn test_partial_fork_switch_adopts_the_applied_prefix() {
             te_state("vb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
-        .assert_and_remove(Level::WARN, &["fork switch partially applied"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["block.switch_fork"])
+        .assert_and_remove(Level::WARN, &["block.invalid", "fork switch partially applied"])
+        .assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -367,10 +370,10 @@ fn test_rolled_back_fork_switch_reports_the_failing_block() {
             te_state("vb-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
-        .assert_and_remove(Level::WARN, &["failed to fork the ledger to a new tip"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["block.switch_fork"])
+        .assert_and_remove(Level::WARN, &["block.invalid", "failed to fork the ledger to a new tip"])
+        .assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -404,9 +407,9 @@ fn test_switch_to_a_fork_only_for_a_better_candidate() {
             te_state("vb-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
+    logs.assert_and_remove(Level::DEBUG, &["block.validate"])
         .assert_and_remove(Level::DEBUG, &["block.skip"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -437,9 +440,9 @@ fn test_ledger_failure_during_fork_switch_terminates() {
             te_terminated("vb-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["validating block"])
-        .assert_and_remove(Level::INFO, &["switching the ledger to a new fork"])
-        .assert_and_remove(Level::WARN, &["failed to switch to a new fork"])
+    logs.assert_and_remove(Level::INFO, &["block.switch_fork"])
+        .assert_and_remove(Level::WARN, &["block.apply_failed"])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_and_remove(Level::DEBUG, &["block.validate"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }

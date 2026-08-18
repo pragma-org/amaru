@@ -17,12 +17,12 @@ use std::sync::Arc;
 use amaru_kernel::{Transaction, cbor::WithOriginalBytes, to_cbor};
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrigin, TxInsertionResult};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros::{
     MempoolMsg, MempoolSeqNo, MempoolState, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
 };
 use amaru_ouroboros_traits::{TxSubmissionMempool, in_memory_chain_store::InMemoryChainStore};
 use amaru_pure_stage::StageRef;
-use tracing::Level;
 
 use crate::stages::{
     mempool::{
@@ -72,7 +72,10 @@ fn insert_batch_returns_one_result_per_transaction() {
         .assert_and_remove(Level::INFO, &["transaction.rejected", "invalid", "transaction rejected for testing"])
         .assert_and_remove(Level::INFO, &["transaction.rejected", "duplicate"])
         .assert_and_remove(Level::DEBUG, &["state.update", "tx_count=1", "size_bytes=51"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_and_remove(Level::DEBUG, &["amaru_consensus::stages::mempool::traces:", r#"origin="local""#])
+        .assert_and_remove(Level::DEBUG, &["amaru_consensus::stages::mempool::traces:", r#"origin="local""#])
+        .assert_and_remove(Level::DEBUG, &["amaru_consensus::stages::mempool::traces:", r#"origin="local""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -96,8 +99,9 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 
     assert_eq!(mempool.mempool_txs(), vec![tx_0, tx_2]);
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"]);
+    logs.assert_and_remove(Level::DEBUG, &["transaction.revalidation_detail", "total_before=3", "evicted_count=1"]);
     logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]

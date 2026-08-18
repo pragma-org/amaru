@@ -15,6 +15,7 @@
 use std::{self, slice, time::Duration};
 
 use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, num::CheckedSub};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{Nonces, has_stake_distribution::GetPoolError};
 use amaru_protocols::chainsync::{
@@ -24,7 +25,6 @@ use amaru_pure_stage::{
     Instant, assert_trace_contains, assert_trace_does_not_contain, assert_trace_match,
     simulation::running::OverrideResult, tm_send,
 };
-use tracing::Level;
 
 use crate::{
     effects::{ValidateHeaderEffect, VolatileTipEffect},

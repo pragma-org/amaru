@@ -15,13 +15,13 @@
 use std::time::Duration;
 
 use amaru_kernel::{HeaderHash, NonEmptyVec, ORIGIN_HASH};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::BaseReadChainStore;
 use amaru_pure_stage::{Instant, trace_buffer::TerminationReason};
 use test_setup::{
     assert_trace, setup, te_find_ancestor_on_best_chain, te_load_header, te_terminate, te_terminated, test_prep,
 };
-use tracing::Level;
 
 use super::*;
 use crate::stages::{
@@ -56,9 +56,9 @@ fn test_incoming_tip_not_in_store() {
             te_terminated("ac-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::WARN, &["failed to load incoming tip"])
+    logs.assert_and_remove(Level::WARN, &["block.header_not_found", r#"role="incoming_tip""#])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Current best not loadable (best_chain_hash points to missing header) -> terminate.
@@ -83,9 +83,9 @@ fn test_current_best_not_loadable() {
             te_terminated("ac-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::WARN, &["failed to load current best"])
+    logs.assert_and_remove(Level::WARN, &["block.header_not_found", r#"role="current_best""#])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Incoming tip not better than current best (h3a loses to h3 on op_cert_seq) -> don't adopt, no send.
@@ -109,11 +109,8 @@ fn test_incoming_not_better_than_current_best() {
             te_state("ac-1", &prep.state),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["incoming tip not better than current best"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["block.adopt_skipped", r#"reason="not_better_than_best""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Extension: h3 extends h2 -> roll_forward, drag anchor, send.
@@ -155,11 +152,17 @@ fn test_extension_adopts_and_sends() {
     assert_eq!(prep.store.get_best_chain_hash(), prep.headers.h3.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h1.hash());
 
-    logs.assert_and_remove(Level::DEBUG, &["tip.adopt"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &[
+            "tip.adopt",
+            &format!(r#"header_hash="{}""#, prep.headers.h3.hash()),
+            "block_height=4",
+            "max_block_height=0",
+            "suppressed=0",
+        ],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Fork switch: best was h2, adopt h3a (longer fork) -> rollback to h1, roll_forward h2a, h3a, set_best_chain, drag anchor, send.
@@ -207,11 +210,17 @@ fn test_fork_switch_adopts_and_sends() {
     assert_eq!(prep.store.get_best_chain_hash(), tip.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h1.hash());
 
-    logs.assert_and_remove(Level::DEBUG, &["tip.adopt"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &[
+            "tip.adopt",
+            &format!(r#"header_hash="{}""#, prep.headers.h3a.hash()),
+            "block_height=4",
+            "max_block_height=0",
+            "suppressed=0",
+        ],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -252,11 +261,17 @@ fn test_fork_switch_opcert_hacked() {
     assert_eq!(prep.store.get_best_chain_hash(), tip.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h0.hash());
 
-    logs.assert_and_remove(Level::DEBUG, &["tip.adopt"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(
+        Level::DEBUG,
+        &[
+            "tip.adopt",
+            &format!(r#"header_hash="{}""#, prep.headers.h2.hash()),
+            "block_height=3",
+            "max_block_height=0",
+            "suppressed=0",
+        ],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -285,5 +300,6 @@ fn test_fork_not_better_no_switch() {
     assert_eq!(prep.store.get_best_chain_hash(), prep.headers.h2.hash());
     assert_eq!(prep.store.get_anchor_hash(), prep.headers.h0.hash());
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block.adopt_skipped", r#"reason="not_better_than_best""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }

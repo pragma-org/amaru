@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{BlockHeight, IsHeader, Peer, Point, make_header};
-use tracing::Level;
+use amaru_observability::tracing::Level;
 
 use super::{
     BlockSourceMsg, BlockValidity,
@@ -45,7 +45,9 @@ fn test_block_received_inserts_pending() {
     expected.by_point.insert(p, BlockValidity::Pending(BlockHeight::from(50), BTreeSet::from([Peer::new("alice")])));
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &expected)]);
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -75,7 +77,11 @@ fn test_block_received_merges_second_peer() {
             te_state(BS, &expected),
         ],
     );
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="bob""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -102,7 +108,11 @@ fn test_validation_valid_marks_known_point() {
             te_state(BS, &expected),
         ],
     );
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=true"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -112,7 +122,9 @@ fn test_validation_valid_unknown_point_is_noop() {
     let m = BlockSourceMsg::Validation { valid: true, point: p };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=0"])
+        .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=true"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -148,7 +160,13 @@ fn test_validation_invalid_faults_each_peer() {
             te_state(BS, &final_state),
         ],
     );
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="bob""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -158,7 +176,9 @@ fn test_validation_invalid_without_provenance_sends_nothing() {
     let m = BlockSourceMsg::Validation { valid: false, point: p };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=0"])
+        .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -189,7 +209,14 @@ fn test_block_received_after_invalid_new_peer_faults() {
             te_state(BS, &after_carol),
         ],
     );
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="carol""#])
+        .assert_and_remove(Level::INFO, &["block_source.known_invalid", r#"peer="carol""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -218,7 +245,14 @@ fn test_block_received_after_invalid_same_peer_no_second_fault() {
             te_state(BS, &after_invalid),
         ],
     );
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.validation", "valid=false"])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_and_remove(Level::INFO, &["block_source.known_invalid", r#"peer="alice""#])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -228,7 +262,9 @@ fn test_block_received_pruned_when_below_adopted_window() {
     let m = BlockSourceMsg::BlockReceived { peer: Peer::new("alice"), tip: p };
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &prep.state)]);
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=1", "retained=0"])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -253,7 +289,10 @@ fn test_adopted_tip_prunes_entries_far_below() {
             te_state(BS, &after_adopt),
         ],
     );
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=1"])
+        .assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=1", "retained=0"])
+        .assert_and_remove(Level::DEBUG, &["block_source.received", r#"peer="alice""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -264,5 +303,10 @@ fn test_adopted_tip_updates_only() {
     expected.adopted_tip = tip_adopted(150);
     let (running, _g, mut logs) = setup(&prep, std::slice::from_ref(&m));
     assert_trace(&running, &[te_state(BS, &prep.state), te_input(BS, &m), te_state(BS, &expected)]);
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["block_source.prune", "pruned=0", "retained=0"]).assert_no_remaining_at([
+        Level::DEBUG,
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
 }

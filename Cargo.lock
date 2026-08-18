@@ -170,7 +170,6 @@ dependencies = [
  "amaru-plutus",
  "amaru-protocols",
  "amaru-pure-stage",
- "amaru-stores",
  "anyhow",
  "async-trait",
  "criterion",
@@ -183,11 +182,8 @@ dependencies = [
  "rand 0.9.5",
  "rayon",
  "serde",
- "serde_json",
- "tempfile",
  "thiserror 2.0.19",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 

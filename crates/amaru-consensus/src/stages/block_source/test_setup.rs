@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use amaru_kernel::{BlockHeight, Point};
+use amaru_observability::tracing::Level;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use tokio::runtime::Runtime;
-use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use super::{BlockSource, BlockSourceMsg, stage};
