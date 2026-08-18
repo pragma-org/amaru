@@ -575,4 +575,170 @@ mod tests {
         let collected = running.get_state(&out).cloned().unwrap();
         assert_eq!(collected, vec![Blocks::NoBlocks(1, Peer::new("peer")), Blocks::NoBlocks(2, Peer::new("peer"))]);
     }
+
+    #[test]
+    fn single_range_does_not_want_next_after_idle() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
+        });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler());
+        let handler = network.wire_up(handler_b, Handler::new(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::new("peer")));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: (*out).clone(),
+                    }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run();
+        running.run_until_blocked().assert_idle();
+        assert_eq!(running.get_state(&mux).unwrap().wants, 1);
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+        );
+        running.run_until_blocked().assert_idle();
+        assert_eq!(running.get_state(&mux).unwrap().wants, 1);
+        assert_eq!(running.get_state(&out).cloned().unwrap(), vec![Blocks::NoBlocks(1, Peer::new("peer"))]);
+    }
+
+    #[test]
+    fn close_idle_sends_one_client_done() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler());
+        let handler = network.wire_up(handler_b, Handler::new(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::new("peer")));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::Close),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run();
+        running.run_until_blocked().assert_idle();
+        let log = running.get_state(&mux).cloned().unwrap();
+        assert_eq!(log.sends, vec!["ClientDone"]);
+        assert_eq!(log.wants, 0);
+    }
+
+    #[test]
+    fn close_drops_slack_and_does_not_send_second_range() {
+        let mut network = SimulationBuilder::default();
+        let out = network.stage("out", async |mut inbox: Vec<Blocks>, msg: Blocks, _eff| {
+            inbox.push(msg);
+            inbox
+        });
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let out = network.wire_up(out, Vec::new());
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler());
+        let handler = network.wire_up(handler_b, Handler::new(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::new("peer")));
+        let cr = (*out).clone();
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 1,
+                        cr: cr.clone(),
+                    }),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 2,
+                        cr: cr.clone(),
+                    }),
+                    Inputs::Local(BlockFetchMessage::RequestRange {
+                        from: Point::Origin,
+                        through: Point::Origin,
+                        id: 3,
+                        cr,
+                    }),
+                    Inputs::Local(BlockFetchMessage::Close),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run();
+        running.run_until_blocked().assert_idle();
+        assert_eq!(running.get_state(&mux).unwrap().sends, vec!["RequestRange", "RequestRange"]);
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+        );
+        running.run_until_blocked().assert_idle();
+        running.enqueue_msg(
+            &handler,
+            [Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::NoBlocks)))],
+        );
+        running.run_until_blocked().assert_idle();
+        let log = running.get_state(&mux).cloned().unwrap();
+        assert_eq!(log.sends, vec!["RequestRange", "RequestRange", "ClientDone"]);
+        assert_eq!(running.get_state(&out).cloned().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn start_batch_while_idle_terminates() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler());
+        let handler = network.wire_up(handler_b, Handler::new(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::new("peer")));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::StartBatch))),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run();
+        let blocked = running.run_until_blocked();
+        assert!(matches!(blocked, amaru_pure_stage::simulation::Blocked::Terminated(_)));
+    }
+
+    #[test]
+    fn initiator_wire_variant_terminates() {
+        let mut network = SimulationBuilder::default();
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let _mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", handler());
+        let handler = network.wire_up(handler_b, Handler::new(BLOCKFETCH_PIPELINE_N, mux_ref, Peer::new("peer")));
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(PROTO_N2N_BLOCK_FETCH.erase())),
+                    Inputs::Network(HandlerMessage::FromNetwork(NonEmptyBytes::encode(&Message::ClientDone))),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run();
+        let blocked = running.run_until_blocked();
+        assert!(matches!(blocked, amaru_pure_stage::simulation::Blocked::Terminated(_)));
+    }
 }
