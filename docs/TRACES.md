@@ -940,6 +940,95 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::chainsync`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `initialized` | `TRACE` | public | A chainsync session with an upstream peer was initialized | peer, conn_id |  |
+| `intersect_found` | `TRACE` | public | An intersection with the peer's chain was found | peer, conn_id, current, highest |  |
+| `intersect_not_found` | `TRACE` | public | No intersection with the peer's chain was found, so chainsync with it stops | peer, highest |  |
+| `reinitialized` | `TRACE` | public | A chainsync session was re-initialized while still active; prior state is purged | peer, conn_id |  |
+| `roll_backward` | `TRACE` | public | A peer rolled back to an earlier point | peer, current, highest |  |
+| `roll_backward_failed` | `TRACE` | public | A rollback requested by a peer could not be applied; the peer is adversarial | peer, error |  |
+| `terminated` | `TRACE` | public | A chainsync session terminated and its connection state was purged | peer, conn_id |  |
+| `unknown_intersection_point` | `TRACE` | public | The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike \`INTERSECT_NOT_FOUND\` this points at local state, not at the peer. | peer, current, highest |  |
+
+<details><summary>span: `initialized`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `intersect_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `current` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `intersect_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `reinitialized`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `roll_backward`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `current` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `roll_backward_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `terminated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `unknown_intersection_point`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `current` | `string` | ✓ |
+| `highest` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::consensus::perf::fork`
 
 | name | level | public | description | required fields | optional fields |

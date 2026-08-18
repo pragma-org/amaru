@@ -329,6 +329,78 @@ define_schemas! {
                     required valid: bool
                 }
             }
+            chainsync {
+                /// A chainsync session with an upstream peer was initialized
+                public INITIALIZED {
+                    required peer: amaru_kernel::Peer
+                    required conn_id: u64
+                }
+                /// A chainsync session was re-initialized while still active; prior state is purged
+                public REINITIALIZED {
+                    required peer: amaru_kernel::Peer
+                    required conn_id: u64
+                }
+                /// A chainsync session terminated and its connection state was purged
+                public TERMINATED {
+                    required peer: amaru_kernel::Peer
+                    required conn_id: u64
+                }
+                /// An intersection with the peer's chain was found
+                public INTERSECT_FOUND {
+                    required peer: amaru_kernel::Peer
+                    required conn_id: u64
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                }
+                /// No intersection with the peer's chain was found, so chainsync with it stops
+                public INTERSECT_NOT_FOUND {
+                    required peer: amaru_kernel::Peer
+                    required highest: amaru_kernel::Point
+                }
+                /// The peer intersected on a point absent from our own store, so chainsync with it
+                /// stops. Unlike `INTERSECT_NOT_FOUND` this points at local state, not at the peer.
+                public UNKNOWN_INTERSECTION_POINT {
+                    required peer: amaru_kernel::Peer
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                }
+                /// A header was announced by a peer
+                ROLL_FORWARD {
+                    required peer: amaru_kernel::Peer
+                    required variant: String
+                    required highest: amaru_kernel::Point
+                }
+                /// A header announced by a peer was processed.
+                /// Outcome ∈ {already_stored, stored}.
+                ROLL_FORWARD_DONE {
+                    required peer: amaru_kernel::Peer
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                    required outcome: String
+                }
+                /// A peer rolled back to an earlier point
+                public ROLL_BACKWARD {
+                    required peer: amaru_kernel::Peer
+                    required current: amaru_kernel::Point
+                    required highest: amaru_kernel::Point
+                }
+                /// A rollback requested by a peer could not be applied; the peer is adversarial
+                public ROLL_BACKWARD_FAILED {
+                    required peer: amaru_kernel::Peer
+                    required error: String
+                }
+                /// A header's validation is held back until what blocks it resolves.
+                /// Reason ∈ {ledger_height, stake_distribution, clock_skew, follow_up}; the height
+                /// fields are present for `ledger_height`, where they say how far behind we are.
+                HEADER_DEFERRED {
+                    required peer: amaru_kernel::Peer
+                    required reason: String
+                    required header_hash: amaru_kernel::HeaderHash
+                    optional header_height: u64
+                    optional ledger_height: u64
+                    optional limit: u64
+                }
+            }
             roll_forward {
                 tags: cpu
                 /// Received a new tip to roll forward
