@@ -44,9 +44,6 @@ Other guiding principles:
 ### Changed
 
 - **amaru-bootstrap**: speed up node bootstrap by streaming state archives and account imports, decoding large snapshot maps incrementally, and avoiding unnecessary optimistic-transaction conflict tracking when importing fresh database batches.
-
-### Changed
-
 - **amaru-pure-stage**: `contramap` is now a method on `StageRef`. It no longer allocates a runtime name or adapter entry; the injection runs in the sending stage and traces record the transformed message sent to the original stage. `StageGraph::contramap` and `Effects::contramap` are removed. `Sender::send` now returns `SendError` instead of the original message (the payload cannot be recovered after a contramap injection). ([#762](https://github.com/pragma-org/amaru/issues/762))
 
 ### Fixed

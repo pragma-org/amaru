@@ -350,7 +350,7 @@ impl Store for RocksDB {
         }
 
         let mut batch = WriteBatchWithTransaction::<true>::default();
-        batch.put(KEY_TIP, as_value(point));
+        batch.put(KEY_TIP, as_value(NetworkPoint::from(point)));
         for (input, output) in utxo {
             batch.put(as_key(&utxo::PREFIX, input), as_value(output));
         }
