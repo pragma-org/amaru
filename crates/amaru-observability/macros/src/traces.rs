@@ -237,7 +237,10 @@ fn field_usage_anchor(meta: &SchemaMeta, schema_path: &syn::Path, field_name: &s
 
 fn private_emit_guard_tokens() -> proc_macro2::TokenStream {
     quote! {
-        let __amaru_emit_private = {
+        // Tests always emit private schemas, so assertions can observe every trace a stage
+        // produces without any environment setup. `cfg!(test)` is resolved in the crate holding
+        // the call site, so it is a compile-time constant that costs nothing in release builds.
+        let __amaru_emit_private = cfg!(test) || {
             static __AMARU_TRACE_EMIT_PRIVATE: ::std::sync::OnceLock<bool> = ::std::sync::OnceLock::new();
             *__AMARU_TRACE_EMIT_PRIVATE.get_or_init(|| {
                 ::std::env::var("AMARU_TRACE_EMIT_PRIVATE").is_ok_and(|value| {

@@ -89,12 +89,29 @@ fn parse_level(line: &str) -> Level {
     }
 }
 
+fn parse_target(line: &str) -> &str {
+    line.split_whitespace().nth(2).unwrap_or("").trim_end_matches(':')
+}
+
+/// Whether a captured line is worth asserting on.
+///
+/// The simulation engine narrates every step it takes (`resuming stage`, `run effect`, ...) at
+/// DEBUG. Keeping that noise would make `assert_no_remaining_at` unusable at DEBUG, so engine
+/// chatter below INFO is discarded while its INFO and above (stage termination, dropped messages)
+/// is kept, since tests do rely on those.
+fn is_relevant(level: Level, target: &str) -> bool {
+    level <= Level::INFO || !target.starts_with("amaru_pure_stage")
+}
+
 impl Logs {
     fn from_buffer(s: &str) -> Self {
         let entries = s
             .split('\n')
             .filter(|line| !line.is_empty())
-            .map(|line| LogEntry { level: parse_level(line), line: line.to_string() })
+            .filter_map(|line| {
+                let level = parse_level(line);
+                is_relevant(level, parse_target(line)).then(|| LogEntry { level, line: line.to_string() })
+            })
             .collect();
         Self { entries }
     }
