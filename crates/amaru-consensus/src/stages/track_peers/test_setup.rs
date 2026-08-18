@@ -212,6 +212,22 @@ pub fn te_record_header_announcement(
     ))
 }
 
+/// Performance effect recorded for a header rejected on reception.
+pub fn te_header_rejected(outcome: &str) -> TraceEntry {
+    use crate::performance::HeaderLifecycleOutcome as O;
+    let outcome = match outcome {
+        "invalid header" => O::InvalidHeader,
+        "duplicate header" => O::DuplicateHeader,
+        "undecodable header" => O::UndecodableHeader,
+        "store header error" => O::StoreHeaderError,
+        other => panic!("unknown header rejection outcome in test: {other}"),
+    };
+    TraceEntry::suspend(Effect::external(
+        "tp-1",
+        Box::new(crate::performance::Performance::record_header_rejected(outcome)),
+    ))
+}
+
 /// Slot-start → header reception interval matching [`TrackPeers`] test era history.
 pub fn slot_start_to_header_micros(header: &Point, received_at: Instant) -> u64 {
     let slot_start = EraHistory::default().slot_to_relative_time_unchecked_horizon(header.slot()).unwrap_or_default();

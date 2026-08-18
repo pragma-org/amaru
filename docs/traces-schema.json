@@ -2007,6 +2007,213 @@
       "description": "A database migration relies on an assumption that may not hold; see the reason",
       "public": true
     },
+    "amaru::consensus::chainsync::INITIALIZED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "initialized",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A chainsync session with an upstream peer was initialized",
+      "public": true
+    },
+    "amaru::consensus::chainsync::INTERSECT_FOUND": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "current": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "highest": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "current",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "intersect_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "An intersection with the peer's chain was found",
+      "public": true
+    },
+    "amaru::consensus::chainsync::INTERSECT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "highest": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "peer",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "intersect_not_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "No intersection with the peer's chain was found, so chainsync with it stops",
+      "public": true
+    },
+    "amaru::consensus::chainsync::REINITIALIZED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reinitialized",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A chainsync session was re-initialized while still active; prior state is purged",
+      "public": true
+    },
+    "amaru::consensus::chainsync::ROLL_BACKWARD": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "current": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "highest": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "peer",
+        "current",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_backward",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A peer rolled back to an earlier point",
+      "public": true
+    },
+    "amaru::consensus::chainsync::ROLL_BACKWARD_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "roll_backward_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A rollback requested by a peer could not be applied; the peer is adversarial",
+      "public": true
+    },
+    "amaru::consensus::chainsync::TERMINATED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "terminated",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "A chainsync session terminated and its connection state was purged",
+      "public": true
+    },
+    "amaru::consensus::chainsync::UNKNOWN_INTERSECTION_POINT": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "current": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "highest": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "peer",
+        "current",
+        "highest"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unknown_intersection_point",
+      "level": "TRACE",
+      "target": "amaru::consensus::chainsync",
+      "description": "The peer intersected on a point absent from our own store, so chainsync with it stops. Unlike `INTERSECT_NOT_FOUND` this points at local state, not at the peer.",
+      "public": true
+    },
     "amaru::consensus::perf::fork::SWITCH": {
       "type": "object",
       "properties": {
