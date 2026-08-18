@@ -1387,6 +1387,30 @@
       "description": "Skip a block validation when it is not better than the current ledger tip",
       "public": true
     },
+    "amaru::consensus::block_source::KNOWN_INVALID": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "peer",
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "known_invalid",
+      "level": "TRACE",
+      "target": "amaru::consensus::block_source",
+      "description": "A peer announced a block already known to be invalid",
+      "public": true
+    },
     "amaru::consensus::blocks::DECODE_FAILED": {
       "type": "object",
       "properties": {
@@ -4796,6 +4820,92 @@
       "description": "A peer was removed from the manager",
       "public": true
     },
+    "amaru::protocols::peer_selection::CONNECT_INITIAL": {
+      "type": "object",
+      "properties": {
+        "static_peers": {
+          "type": "integer"
+        },
+        "snapshot_peers": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "static_peers",
+        "snapshot_peers"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_initial",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection",
+      "description": "Connect to the initial set of peers at startup",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::ledger::CANDIDATES_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "candidates_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::ledger",
+      "description": "Failed to read registered relay addresses from the ledger",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::ADDED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "was_banned": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "was_banned"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "added",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer was added to the outbound set",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::ADD_SKIPPED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "add_skipped",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer was not added to the outbound set. Reason ∈ {already_added, too_many_inbound}.",
+      "public": true
+    },
     "amaru::protocols::peer_selection::peer::CONNECTED": {
       "type": "object",
       "properties": {
@@ -4859,6 +4969,64 @@
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::peer",
       "description": "A connection has been terminated (graceful disconnect, error, handshake refusal, or network error).",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::RECONNECTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "direction",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "reconnected",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}.",
+      "public": true
+    },
+    "amaru::protocols::peer_selection::peer::REMOVED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "peer_state": {
+          "type": "string"
+        },
+        "is_static": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "direction",
+        "peer_state",
+        "is_static"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "removed",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_selection::peer",
+      "description": "A peer was removed after behaving adversarially",
       "public": true
     },
     "amaru::protocols::peer_selection::sharing::RECEIVED": {

@@ -64,11 +64,8 @@ fn test_initialize_empty_static() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=0", "snapshot_peers=0"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -97,8 +94,8 @@ fn test_initialize_adds_static_peers() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=2", "snapshot_peers=0"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -124,11 +121,11 @@ fn test_initialize_fills_from_snapshot() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.connect_initial", "static_peers=0", "snapshot_peers=3"])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="snap3:3""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="snap2:2""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="snap1:1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -160,10 +157,10 @@ fn test_regulate_prefers_static_before_snapshot_before_ledger() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="static1:1""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="snap2:2""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="snap1:1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -192,9 +189,9 @@ fn test_ledger_candidates_replace_does_not_clear_snapshot() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="snap1:1""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="ledger1:1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,8 +219,8 @@ fn test_add_peer_not_in_cooldown() {
             te_state("ps-1", &after),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="9.9.9.9:9""#, "was_banned=false"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -260,9 +257,9 @@ fn test_add_peer_during_cooldown_cancels_timer() {
             te_state("ps-1", &after_add),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="8.8.8.8:8""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="8.8.8.8:8""#, "was_banned=true"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,8 +296,8 @@ fn test_adversarial_outbound_connected() {
             te_state("ps-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="7.7.7.7:7""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +314,7 @@ fn test_check_cooldowns_stale() {
         &running,
         &[te_input("ps-1", &msg).into(), te_random_seed("ps-1").into(), te_state("ps-1", &state).into()],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -364,8 +361,8 @@ fn test_check_cooldowns_before_due_does_not_lift_ban() {
             te_state("ps-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="5.5.5.5:5""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +391,7 @@ fn test_connected_inbound_success() {
             te_state("ps-1", &after),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -419,8 +416,11 @@ fn test_connected_inbound_too_many() {
             te_state("ps-1", &state),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["rejecting inbound connection: too many peers"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::INFO,
+        &["peer_selection.peer.add_skipped", r#"peer="3.3.3.3:3""#, r#"reason="too_many_inbound""#],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -446,7 +446,7 @@ fn test_connected_outbound() {
             te_state("ps-1", &after),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -486,7 +486,7 @@ fn test_connected_outbound_starts_peer_sharing() {
             te_state("ps-1", &after).into(),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -511,9 +511,12 @@ fn test_share_peers_result_records_shared_peers() {
             ),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["peer_selection.sharing.received"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(
+        Level::INFO,
+        &["peer_selection.sharing.received", r#"peer="7.7.7.7:7""#, "added=1", "total=1"],
+    )
+    .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="9.9.9.9:3001""#])
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -542,7 +545,7 @@ fn test_connect_failed_records_failure() {
             te_state("ps-1", &after).into(),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -568,7 +571,7 @@ fn test_disconnected_inbound() {
             te_state("ps-1", &after),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -590,7 +593,7 @@ fn test_disconnected_outbound_connecting_schedules_cooldown() {
             te_state("ps-1", &state),
         ],
     );
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -726,9 +729,9 @@ fn test_adversarial_twice_extends_cooldown_single_timer() {
             te_state("ps-1", &state).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="11.11.11.11:11""#])
+        .assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="11.11.11.11:11""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -824,9 +827,12 @@ fn test_adversarial_inbound_only() {
         ],
     );
 
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_and_remove(Level::WARN, &["removing peer (inbound)"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="9.9.9.9:9""#])
+        .assert_and_remove(
+            Level::WARN,
+            &["peer_selection.peer.removed", r#"peer="9.9.9.9:9""#, r#"direction="inbound""#],
+        )
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -869,7 +875,7 @@ fn test_disconnected_outbound_connected_normal() {
         ],
     );
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -901,10 +907,10 @@ fn test_regulate_prefers_static_before_ledger() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="static2:2""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="static1:1""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="ledger2:2""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -943,9 +949,9 @@ fn test_regulate_skips_peers_in_cooldown() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_and_remove(Level::INFO, &["peer_selection.add_peer"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="static2:2""#])
+        .assert_and_remove(Level::INFO, &["peer_selection.peer.added", r#"peer="ledger1:1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -984,7 +990,7 @@ fn test_disconnected_outbound_peer_also_in_inbound() {
     // Still inbound ⇒ claims must not be cleared.
     assert_trace_does_not_contain(&running, &[te_clear_peer_availability("ps-1", p).into()]);
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1027,10 +1033,10 @@ fn test_many_cooldowns_arm_only_one_schedule() {
         ],
     );
 
-    for _ in 0..15 {
-        logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"]);
+    for i in 0..15 {
+        logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", &format!(r#"peer="9.9.9.{i}:9""#)]);
     }
-    logs.assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -1078,9 +1084,9 @@ fn test_second_cooldown_does_not_schedule_again() {
         ],
     );
 
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="1.1.1.1:1""#])
+        .assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="2.2.2.2:2""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -1123,10 +1129,14 @@ fn test_earlier_cooldown_reschedules_timer() {
         ],
     );
 
-    logs.assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_and_remove(Level::WARN, &["removing peer (outbound)"])
-        .assert_and_remove(Level::DEBUG, &["peer_selection.adversarial"])
-        .assert_no_remaining_at([Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="static1:1""#])
+        .assert_and_remove(
+            Level::WARN,
+            &["peer_selection.peer.removed", r#"peer="static1:1""#, r#"direction="outbound""#, "is_static=true"],
+        )
+        .assert_and_remove(Level::DEBUG, &["peer_selection.peer.adversarial", r#"peer="other:1""#])
+        .assert_and_remove(Level::INFO, &["peer.ban", r#"peer="static1:1""#, "was_banned=false", r#"peer="static1:1""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,11 +1199,11 @@ fn test_share_request_replies_with_selected_peers() {
             }),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["peer_selection.sharing.sent"]).assert_no_remaining_at([
+    logs.assert_and_remove(
         Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+        &["peer_selection.sharing.sent", r#"peer="10.0.0.9:3001""#, "requested=10", "count=2"],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -1221,9 +1231,9 @@ fn test_share_request_excludes_requester_and_respects_amount() {
             }),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["peer_selection.sharing.sent"]).assert_no_remaining_at([
+    logs.assert_and_remove(
         Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+        &["peer_selection.sharing.sent", r#"peer="10.0.0.1:3001""#, "requested=2", "count=2"],
+    )
+    .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }

@@ -664,6 +664,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::block_source`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `known_invalid` | `TRACE` | public | A peer announced a block already known to be invalid | peer, point |  |
+
+<details><summary>span: `known_invalid`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `point` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::consensus::blocks`
 
 | name | level | public | description | required fields | optional fields |
@@ -2155,12 +2170,63 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::protocols::peer_selection`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `connect_initial` | `TRACE` | public | Connect to the initial set of peers at startup | static_peers, snapshot_peers |  |
+
+<details><summary>span: `connect_initial`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `static_peers` | `integer` | ✓ |
+| `snapshot_peers` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::peer_selection::ledger`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `candidates_failed` | `TRACE` | public | Failed to read registered relay addresses from the ledger | error |  |
+
+<details><summary>span: `candidates_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::peer_selection::peer`
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `add_skipped` | `TRACE` | public | A peer was not added to the outbound set. Reason ∈ {already_added, too_many_inbound}. | peer, reason |  |
+| `added` | `TRACE` | public | A peer was added to the outbound set | peer, was_banned |  |
 | `connected` | `TRACE` | public | A connection has been established and the handshake completed successfully. | peer, conn_id, direction, full_duplex_capable, full_duplex |  |
 | `disconnected` | `TRACE` | public | A connection has been terminated (graceful disconnect, error, handshake refusal, or network error). | peer, conn_id, direction | reason |
+| `reconnected` | `TRACE` | public | A peer reconnected while a previous connection was still registered; the older connection is dropped. Direction ∈ {inbound, outbound}. | peer, direction, conn_id |  |
+| `removed` | `TRACE` | public | A peer was removed after behaving adversarially | peer, direction, peer_state, is_static |  |
+
+<details><summary>span: `add_skipped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `added`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `was_banned` | `boolean` | ✓ |
+
+</details>
 
 <details><summary>span: `connected`</summary>
 
@@ -2182,6 +2248,27 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `conn_id` | `integer` | ✓ |
 | `direction` | `string` | ✓ |
 | `reason` | `string` |  |
+
+</details>
+
+<details><summary>span: `reconnected`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `direction` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `direction` | `string` | ✓ |
+| `peer_state` | `string` | ✓ |
+| `is_static` | `boolean` | ✓ |
 
 </details>
 
