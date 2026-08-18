@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    env,
     fmt::{self, Display},
     fs, io,
     path::{Path, PathBuf},
@@ -72,6 +73,8 @@ pub struct Args {
     epoch: Option<Epoch>,
 
     /// Distribution directory used for metadata, caches and temporary work files.
+    ///
+    /// Defaults to data/<NETWORK>/epoch-snapshots/ beside the `amaru` executable.
     #[arg(
         long = "dist-dir",
         value_name = amaru::value_names::DIRECTORY,
@@ -81,7 +84,7 @@ pub struct Args {
 
     /// Directory where snapshot archives and materialized snapshot directories are written.
     ///
-    /// Defaults to ./snapshots/<NETWORK>/ when unspecified.
+    /// Defaults to snapshots/<NETWORK>/ beside the `amaru` executable.
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
@@ -92,8 +95,7 @@ pub struct Args {
     /// Directory containing the cardano-node config.json and genesis files.
     ///
     /// Only required for custom testnet networks. For mainnet, preprod and preview,
-    /// the config is downloaded automatically from the official source and cached
-    /// when no local bundled copy is available.
+    /// the config is downloaded automatically from the official source and cached.
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
@@ -193,12 +195,24 @@ impl EpochTarget {
     }
 }
 
-fn default_dist_dir(network: NetworkName) -> PathBuf {
-    repo_root().join(format!("data/{}", network.to_string().to_lowercase())).join("epoch-snapshots")
+fn executable_dir() -> io::Result<PathBuf> {
+    let executable = env::current_exe()
+        .map_err(|err| io::Error::new(err.kind(), format!("failed to determine the amaru executable path: {err}")))?;
+
+    executable.parent().map(Path::to_path_buf).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("amaru executable path has no parent directory: {}", executable.display()),
+        )
+    })
 }
 
-pub(super) fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
-    repo_root().join(default_snapshots_dir(network))
+fn default_dist_dir(network: NetworkName) -> io::Result<PathBuf> {
+    Ok(executable_dir()?.join("data").join(network.to_string().to_lowercase()).join("epoch-snapshots"))
+}
+
+pub(super) fn default_snapshot_output_dir(network: NetworkName) -> io::Result<PathBuf> {
+    Ok(executable_dir()?.join(default_snapshots_dir(network)))
 }
 
 fn create_directory(path: &Path, purpose: &str) -> io::Result<()> {
@@ -223,8 +237,14 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     } = args;
 
     let client = reqwest::Client::new();
-    let dist_dir = dist_dir.unwrap_or_else(|| default_dist_dir(network));
-    let snapshot_output_dir = snapshot_dir.unwrap_or_else(|| default_snapshot_output_dir(network));
+    let dist_dir = match dist_dir {
+        Some(path) => path,
+        None => default_dist_dir(network)?,
+    };
+    let snapshot_output_dir = match snapshot_dir {
+        Some(path) => path,
+        None => default_snapshot_output_dir(network)?,
+    };
     let work_dir = dist_dir.join("work");
     let cardano_node_db = cardano_node_db.unwrap_or_else(|| work_dir.join("cardano-db"));
     let immutable_dir = cardano_node_db.join("immutable");
@@ -446,11 +466,6 @@ fn bootstrap_target_epochs(epoch: Epoch) -> Result<[Epoch; 3], Box<dyn std::erro
             .checked_add(Epoch::TWO)
             .ok_or_else(|| format!("bootstrap snapshot window overflows for epoch {epoch}"))?,
     ])
-}
-
-pub(super) fn repo_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.parent().and_then(Path::parent).unwrap_or(manifest_dir.as_path()).to_path_buf()
 }
 
 fn packaged_blocks_for_target(
