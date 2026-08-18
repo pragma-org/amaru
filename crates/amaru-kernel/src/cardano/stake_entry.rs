@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Address, Lovelace, StakeCredential, Value, cbor, cbor::decode_bytes};
+use crate::{Address, Lovelace, StakeCredential, Value, cbor, cbor::HasProtocolVersion};
 
 /// A stake distribution entry corresponding to a single key/value mapping between a stake
 /// credential and an amount. This is decoded from a UTxO but in a way that circumvent allocations
@@ -23,7 +23,7 @@ pub struct StakeEntry {
     pub lovelace: Lovelace,
 }
 
-impl<'d, C> cbor::Decode<'d, C> for StakeEntry {
+impl<'d, C: HasProtocolVersion> cbor::Decode<'d, C> for StakeEntry {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let data_type = d.datatype()?;
 
@@ -37,14 +37,17 @@ impl<'d, C> cbor::Decode<'d, C> for StakeEntry {
     }
 }
 
-fn decode_modern<C>(d: &mut cbor::Decoder<'_>, ctx: &mut C) -> Result<StakeEntry, cbor::decode::Error> {
+fn decode_modern<C: HasProtocolVersion>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<StakeEntry, cbor::decode::Error> {
     let (credential, lovelace) = cbor::heterogeneous_map(
         d,
         (None, None),
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = Some(StakeCredential::from_raw_address(&decode_bytes(d)?)),
+                0 => state.0 = Some(StakeCredential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?)),
                 1 => state.1 = Some(Value::decode_lovelace(d, ctx)?),
                 2 => d.skip()?,
                 3 => d.skip()?,
@@ -60,10 +63,13 @@ fn decode_modern<C>(d: &mut cbor::Decoder<'_>, ctx: &mut C) -> Result<StakeEntry
     })
 }
 
-fn decode_legacy<C>(d: &mut cbor::Decoder<'_>, ctx: &mut C) -> Result<StakeEntry, cbor::decode::Error> {
+fn decode_legacy<C: HasProtocolVersion>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+) -> Result<StakeEntry, cbor::decode::Error> {
     let len = d.array()?;
 
-    let credential = StakeCredential::from_raw_address(&decode_bytes(d)?);
+    let credential = StakeCredential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?);
     let lovelace = Value::decode_lovelace(d, ctx)?;
 
     if let Some(len) = len {

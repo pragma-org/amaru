@@ -52,7 +52,7 @@ pub mod cbor {
         TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
         collect_map_value_bytes, count_bytes, decode_break, decode_bytes, decode_string, encode_variable_length_map,
         expect_tag, from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array,
-        heterogeneous_map, lazy, missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
+        heterogeneous_map, heterogeneous_map_with, lazy, missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -60,7 +60,7 @@ pub mod cbor {
         decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
     };
 
-    pub use super::utils::cbor::Skip;
+    pub use super::utils::cbor::{HasProtocolVersion, Skip, decode_bytes_with};
 }
 pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 

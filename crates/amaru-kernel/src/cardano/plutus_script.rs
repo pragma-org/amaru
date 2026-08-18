@@ -15,6 +15,7 @@
 use crate::{Bytes, ToBytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(transparent)]
 pub struct PlutusScript<const VERSION: usize>(#[n(0)] pub Bytes);
 

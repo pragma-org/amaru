@@ -221,9 +221,21 @@ pub fn check_tagged_array_length(label: usize, actual: Option<u64>, expected: u6
 /// ```
 pub fn heterogeneous_map<K, S>(
     d: &mut cbor::Decoder<'_>,
-    mut state: S,
+    state: S,
     decode_key: impl Fn(&mut cbor::Decoder<'_>) -> Result<K, cbor::decode::Error>,
     mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut S, K) -> Result<(), cbor::decode::Error>,
+) -> Result<S, cbor::decode::Error> {
+    heterogeneous_map_with(d, &mut (), state, |d, _| decode_key(d), |d, _, st, k| decode_value(d, st, k))
+}
+
+/// Like [`heterogeneous_map`], but threading a decoding context through both the key and the
+/// value decoders, for maps whose keys themselves need the context to decode.
+pub fn heterogeneous_map_with<C, K, S>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+    mut state: S,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>, &mut C) -> Result<K, cbor::decode::Error>,
+    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut C, &mut S, K) -> Result<(), cbor::decode::Error>,
 ) -> Result<S, cbor::decode::Error> {
     let len = d.map()?;
 
@@ -233,8 +245,8 @@ pub fn heterogeneous_map<K, S>(
             break;
         }
 
-        let k = decode_key(d)?;
-        decode_value(d, &mut state, k)?;
+        let k = decode_key(d, ctx)?;
+        decode_value(d, ctx, &mut state, k)?;
 
         n += 1;
     }

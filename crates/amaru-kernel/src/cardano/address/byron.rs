@@ -14,7 +14,6 @@
 
 use std::ops::Deref;
 
-use amaru_minicbor_extra::decode_bytes;
 use sha3::{Digest, Sha3_256};
 
 use crate::{BootstrapWitness, Hash, Hasher, Network, cbor};
@@ -138,7 +137,11 @@ impl<'b, C> cbor::Decode<'b, C> for ByronAddress {
                 return Err(cbor::decode::Error::message("invalid tag for Byron address payload"));
             }
 
-            let payload = decode_bytes(d)?.into_owned();
+            // Conformance: the Haskell node reads the tag-24 payload with cborg's `decodeBytes`
+            // (via `decodeCrcProtected`, always at the Byron protocol version), which rejects
+            // indefinite-length byte strings, so we reject them too.
+            #[allow(clippy::disallowed_methods)]
+            let payload = d.bytes()?.to_vec();
             let crc = d.u32()?;
 
             if CRC.checksum(&payload) != crc {
@@ -184,7 +187,7 @@ impl AddressPayload {
     }
 }
 
-impl<C> cbor::Encode<C> for AddressPayload {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressPayload {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -202,7 +205,7 @@ impl<C> cbor::Encode<C> for AddressPayload {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for AddressPayload {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for AddressPayload {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(3)?;
@@ -232,7 +235,7 @@ impl Deref for AddressAttributes {
     }
 }
 
-impl<C> cbor::Encode<C> for AddressAttributes {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressAttributes {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -257,17 +260,19 @@ impl<'b, C> cbor::Decode<'b, C> for AddressAttributes {
             Vec::new(),
             |d| d.u8(),
             |d, s, k| {
-                match k {
-                    1 => {
-                        s.push((k, AddressAttribute::DerivationPath(decode_bytes(d)?.into_owned())));
-                    }
-                    2 => {
-                        s.push((k, AddressAttribute::NetworkTag(decode_bytes(d)?.into_owned())));
-                    }
-                    _ => {
-                        s.push((k, AddressAttribute::Unknown(decode_bytes(d)?.into_owned())));
-                    }
-                }
+                // Conformance: the Haskell node decodes every attribute value as a bytestring
+                // with cborg's `decodeBytes`, which rejects indefinite-length byte strings, so we
+                // reject them too.
+                #[allow(clippy::disallowed_methods)]
+                let bytes = d.bytes()?.to_vec();
+                s.push((
+                    k,
+                    match k {
+                        1 => AddressAttribute::DerivationPath(bytes),
+                        2 => AddressAttribute::NetworkTag(bytes),
+                        _ => AddressAttribute::Unknown(bytes),
+                    },
+                ));
                 Ok(())
             },
         )?;
@@ -306,7 +311,7 @@ pub enum AddressType {
     RedemptionVoucher,
 }
 
-impl<C> cbor::Encode<C> for AddressType {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressType {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -345,7 +350,7 @@ pub enum SpendingData {
     RedemptionVoucher([u8; 32]),
 }
 
-impl<'b, C> cbor::Decode<'b, C> for SpendingData {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for SpendingData {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
@@ -360,7 +365,7 @@ impl<'b, C> cbor::Decode<'b, C> for SpendingData {
     }
 }
 
-impl<C> cbor::Encode<C> for SpendingData {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for SpendingData {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -412,6 +417,37 @@ mod tests {
             let ours = addr.to_base58();
             assert_eq!(vector, ours);
         }
+    }
+
+    #[test]
+    fn reject_indefinite_length_payload() {
+        let addr = ByronAddress::from_base58(TEST_VECTORS[0]).unwrap();
+        let encoded = cbor::to_cbor(&addr);
+
+        let mut d = cbor::Decoder::new(&encoded);
+        d.array().unwrap();
+        d.tag().unwrap();
+        #[allow(clippy::disallowed_methods)]
+        let payload = d.bytes().unwrap().to_vec();
+        let crc = d.u32().unwrap();
+
+        // Re-encode the same address with the tag-24 payload split into two indefinite-length
+        // chunks; the CRC still matches, but the decoder must reject the chunked form.
+        let mut lenient = Vec::new();
+        let mut e = cbor::Encoder::new(&mut lenient);
+        let (head, tail) = payload.split_at(payload.len() / 2);
+        e.array(2).unwrap().tag(cbor::IanaTag::Cbor).unwrap().begin_bytes().unwrap();
+        e.bytes(head).unwrap().bytes(tail).unwrap().end().unwrap();
+        e.u32(crc).unwrap();
+
+        assert!(cbor::from_cbor::<ByronAddress>(&lenient).is_none());
+    }
+
+    #[test]
+    fn reject_indefinite_length_attribute_value() {
+        // {1: (_ h'0102', h'0304')}
+        let bytes = hex::decode("a1015f420102420304ff").unwrap();
+        assert!(cbor::from_cbor::<super::AddressAttributes>(&bytes).is_none());
     }
 
     #[test]

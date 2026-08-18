@@ -30,6 +30,7 @@ use crate::{Hash, cbor, hash};
     serde::Serialize,
     serde::Deserialize,
 )]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct TransactionInput {
     #[n(0)]
     pub transaction_id: Hash<{ hash::size::TRANSACTION_BODY }>,

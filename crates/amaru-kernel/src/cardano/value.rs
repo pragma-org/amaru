@@ -48,7 +48,7 @@ impl Value {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for Value {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Value {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -69,7 +69,7 @@ impl<C> cbor::encode::Encode<C> for Value {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Value {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Value {
     #[expect(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         match d.datatype()? {

@@ -52,7 +52,7 @@ impl TryFrom<String> for MemoizedNativeScript {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for MemoizedNativeScript {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedNativeScript {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let (expr, original_bytes) = cbor::tee(d, |d| d.decode_with(ctx))?;
         Ok(Self { original_bytes: original_bytes.to_vec(), expr })
@@ -159,7 +159,7 @@ mod tests {
         }
     }
 
-    impl<C> cbor::encode::Encode<C> for VariableEncodingNativeScript {
+    impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for VariableEncodingNativeScript {
         fn encode<W: cbor::encode::Write>(
             &self,
             e: &mut cbor::Encoder<W>,

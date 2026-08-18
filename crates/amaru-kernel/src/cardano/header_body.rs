@@ -15,6 +15,7 @@
 use crate::{Hash, OperationalCert, ProtocolVersion, VerificationKey, VrfCert, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct HeaderBody {
     #[n(0)]
     pub block_number: u64,

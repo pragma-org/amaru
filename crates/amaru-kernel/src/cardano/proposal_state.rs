@@ -30,7 +30,7 @@ pub struct ProposalState {
     pub pools_votes: BTreeMap<PoolId, Vote>,
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for ProposalState {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProposalState {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let id = d.decode_with(ctx)?;

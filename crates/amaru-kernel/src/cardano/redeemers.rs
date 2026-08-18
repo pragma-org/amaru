@@ -38,7 +38,7 @@ enum RedeemersInner {
     Map(BTreeMap<RedeemerKey, RedeemerValue>),
 }
 
-impl<C> cbor::Encode<C> for Redeemers {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Redeemers {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -48,7 +48,7 @@ impl<C> cbor::Encode<C> for Redeemers {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for Redeemers {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Redeemers {
     #[expect(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let (inner, bytes) = cbor::tee(d, |d| match d.datatype()? {

@@ -34,6 +34,7 @@ fn init() {
 /// Each test case specifies:
 ///  - If the rules are supposed to succeed.
 ///  - Or if one of them is supposed to fail. In that case the error type is specified.
+///  - Or if the header is malformed and CBOR decoding is supposed to fail.
 ///
 /// The fixtures in `tests/data/header-test-cases.json` have been generated from some
 /// `ouroboros-consensus` Haskell code. They carry the generation context, the hex-encoded
@@ -48,7 +49,30 @@ fn validation_conforms_to_header_test_cases() {
 
     for case in cases.iter_mut() {
         let context = &case.context;
-        let block_header = case.header.get_header().expect("cannot extract header from bytes");
+        let block_header = match (case.header.get_header(), &case.expected) {
+            (Ok(_), Expected::DecodeError(expected)) => {
+                panic!(
+                    "[{}] {}\nexpected header decoding to fail with {:?}, but it succeeded",
+                    case.title, case.description, expected
+                )
+            }
+            (Ok(header), _) => header,
+            (Err(error), Expected::DecodeError(expected)) => {
+                let actual = error.to_string();
+                assert!(
+                    actual.contains(expected),
+                    "[{}] {}\nexpected decoding error to contain {:?}, got {:?}",
+                    case.title,
+                    case.description,
+                    expected,
+                    actual
+                );
+                continue;
+            }
+            (Err(error), _) => {
+                panic!("[{}] {}\ncannot decode header: {error}", case.title, case.description)
+            }
+        };
 
         let pool_id = block_header.pool_id();
         let era_history = NetworkName::Preprod.as_era_history().expect("era");
@@ -87,6 +111,7 @@ fn validation_conforms_to_header_test_cases() {
                     case.title, case.description, expected, context
                 )
             }
+            (Expected::DecodeError(_), _) => unreachable!("decode errors are handled before validation"),
         }
     }
 }
@@ -188,6 +213,7 @@ struct HeaderTestCase {
 enum Expected {
     Pass,
     Error(String),
+    DecodeError(String),
 }
 
 /// Context from which a header has been generated.
@@ -262,8 +288,8 @@ struct HeaderWrapper {
 }
 
 impl HeaderWrapper {
-    fn get_header(&mut self) -> Result<Header, ()> {
-        cbor::decode(self.bytes.as_slice()).map_err(|_| ())
+    fn get_header(&mut self) -> Result<Header, cbor::decode::Error> {
+        cbor::decode(self.bytes.as_slice())
     }
 }
 

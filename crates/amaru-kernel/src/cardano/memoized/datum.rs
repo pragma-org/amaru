@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_minicbor_extra::decode_bytes;
 use serde::ser::SerializeStruct;
 
 use crate::{
@@ -83,7 +82,7 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
@@ -97,7 +96,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                     if d.tag()? != IanaTag::Cbor.tag() {
                         return Err(cbor::decode::Error::message("unknown tag for datum tag"));
                     }
-                    let plutus_data: MemoizedPlutusData = cbor::decode_with(&decode_bytes(d)?, ctx)?;
+                    let plutus_data: MemoizedPlutusData = cbor::decode_with(&cbor::decode_bytes_with(d, ctx)?, ctx)?;
                     Ok(MemoizedDatum::from(plutus_data))
                 }
                 _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
@@ -106,9 +105,9 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let raw = decode_bytes(d)?;
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let raw = cbor::decode_bytes_with(d, ctx)?;
         if raw.len() != 32 {
             return Err(cbor::decode::Error::message(format!("expected datum hash of length 32, got {}", raw.len())));
         }
