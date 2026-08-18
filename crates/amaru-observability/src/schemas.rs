@@ -329,6 +329,28 @@ define_schemas! {
                     required valid: bool
                 }
             }
+            block_source {
+                /// Forget tracked blocks that fell too far behind the adopted tip
+                PRUNE {
+                    optional pruned: usize
+                    optional retained: usize
+                }
+                /// A peer announced a block body
+                RECEIVED {
+                    required peer: amaru_kernel::Peer
+                    required point: amaru_kernel::Point
+                }
+                /// A peer announced a block already known to be invalid
+                public KNOWN_INVALID {
+                    required peer: amaru_kernel::Peer
+                    required point: amaru_kernel::Point
+                }
+                /// A block validation result was recorded against its known sources
+                VALIDATION {
+                    required point: amaru_kernel::Point
+                    required valid: bool
+                }
+            }
             chainsync {
                 /// A chainsync session with an upstream peer was initialized
                 public INITIALIZED {
@@ -1689,6 +1711,51 @@ define_schemas! {
                         required direction: String
                         optional reason: String
                     }
+                    /// A peer was removed after behaving adversarially
+                    public REMOVED {
+                        required peer: amaru_kernel::Peer
+                        required direction: String
+                        required peer_state: String
+                        required is_static: bool
+                    }
+                    /// A peer was added to the outbound set
+                    public ADDED {
+                        required peer: amaru_kernel::Peer
+                        required was_banned: bool
+                    }
+                    /// A peer was not added to the outbound set.
+                    /// Reason ∈ {already_added, too_many_inbound}.
+                    public ADD_SKIPPED {
+                        required peer: amaru_kernel::Peer
+                        required reason: String
+                    }
+                    /// A peer reconnected while a previous connection was still registered;
+                    /// the older connection is dropped. Direction ∈ {inbound, outbound}.
+                    public RECONNECTED {
+                        required peer: amaru_kernel::Peer
+                        required direction: String
+                        required conn_id: u64
+                    }
+                    /// A peer was reported as adversarial and is about to be banned
+                    ADVERSARIAL {
+                        required peer: amaru_kernel::Peer
+                    }
+                }
+                ledger {
+                    /// Look for peer candidates registered as relays in the ledger
+                    CHECK_CANDIDATES {
+                        required last_height: u64
+                    }
+                    /// Failed to read registered relay addresses from the ledger
+                    public CANDIDATES_FAILED {
+                        required error: String
+                    }
+                }
+                /// Connect to the initial set of peers at startup
+                public CONNECT_INITIAL {
+                    tags: setup
+                    required static_peers: usize
+                    required snapshot_peers: usize
                 }
                 sharing {
                     /// Peer-sharing address list received from peer.
