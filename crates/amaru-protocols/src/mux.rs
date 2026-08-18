@@ -534,8 +534,8 @@ impl std::fmt::Debug for PerProto {
 impl PerProto {
     pub fn new(handler: StageRef<HandlerMessage>, frame: Frame, max_buffer: usize) -> Self {
         Self {
-            incoming: BytesMut::with_capacity(max_buffer),
-            outgoing: BytesMut::with_capacity(max_buffer),
+            incoming: BytesMut::new(),
+            outgoing: BytesMut::new(),
             sent_bytes: 0,
             notifiers: VecDeque::new(),
             handler,
