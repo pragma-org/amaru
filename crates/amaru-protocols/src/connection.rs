@@ -22,7 +22,8 @@ use tracing::Instrument;
 
 use crate::{
     blockfetch::{
-        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator, register_blockfetch_responder,
+        self, BlockFetchMessage, Blocks, StreamBlocks, register_blockfetch_initiator,
+        register_blockfetch_initiator_pipelined, register_blockfetch_responder,
     },
     chainsync::{
         self, ChainSyncInitiatorMsg, InitiatorResult, register_chainsync_initiator, register_chainsync_responder,
@@ -390,14 +391,26 @@ async fn do_handshake(
             ConnectionMessage::ChildDied(ChildId::ChainSync),
         )
         .await;
-        let blockfetch_initiator = register_blockfetch_initiator(
-            &muxer,
-            peer.clone(),
-            *conn_id,
-            &eff,
-            ConnectionMessage::ChildDied(ChildId::BlockFetch),
-        )
-        .await;
+        let blockfetch_initiator = if let Some(n) = config.blockfetch_pipeline_n {
+            register_blockfetch_initiator_pipelined(
+                &muxer,
+                peer.clone(),
+                *conn_id,
+                n,
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::BlockFetch),
+            )
+            .await
+        } else {
+            register_blockfetch_initiator(
+                &muxer,
+                peer.clone(),
+                *conn_id,
+                &eff,
+                ConnectionMessage::ChildDied(ChildId::BlockFetch),
+            )
+            .await
+        };
         let peer_sharing_initiator = register_peer_sharing_initiator(
             &muxer,
             peer.clone(),
