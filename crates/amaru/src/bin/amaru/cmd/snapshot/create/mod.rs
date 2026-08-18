@@ -14,7 +14,7 @@
 
 use std::{
     fmt::{self, Display},
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -201,6 +201,12 @@ pub(super) fn default_snapshot_output_dir(network: NetworkName) -> PathBuf {
     repo_root().join(default_snapshots_dir(network))
 }
 
+fn create_directory(path: &Path, purpose: &str) -> io::Result<()> {
+    fs::create_dir_all(path).map_err(|err| {
+        io::Error::new(err.kind(), format!("failed to create {purpose} directory at {}: {err}", path.display()))
+    })
+}
+
 pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
@@ -221,12 +227,13 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let snapshot_output_dir = snapshot_dir.unwrap_or_else(|| default_snapshot_output_dir(network));
     let work_dir = dist_dir.join("work");
     let cardano_node_db = cardano_node_db.unwrap_or_else(|| work_dir.join("cardano-db"));
+    let immutable_dir = cardano_node_db.join("immutable");
     let ledger_snapshot_dir = cardano_node_db.join("ledger");
     let snapshots_str = utils::string::display_collection(&snapshot_points);
 
-    fs::create_dir_all(&snapshot_output_dir)?;
-    fs::create_dir_all(cardano_node_db.join("immutable"))?;
-    fs::create_dir_all(&ledger_snapshot_dir)?;
+    create_directory(&snapshot_output_dir, "snapshot output")?;
+    create_directory(&immutable_dir, "cardano-node immutable data")?;
+    create_directory(&ledger_snapshot_dir, "ledger snapshot")?;
 
     let config_dir = resolve_config_dir(&client, cardano_node_config_dir, network, &work_dir).await?;
 
@@ -272,7 +279,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         snapshots = @(!snapshots_str.is_empty()).then_some(snapshots_str),
     );
 
-    let from_chunk = first_missing_immutable_chunk(&cardano_node_db.join("immutable"))?;
+    let from_chunk = first_missing_immutable_chunk(&immutable_dir)?;
     let required_chunk = targets.last().and_then(|t| chunk_for_slot(network, t.slot.into()).ok()).unwrap_or(0);
 
     let progress_factory: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync> =
