@@ -227,39 +227,6 @@ pub trait Store: ReadStore {
         }
     }
 
-    /// Save one batch of UTxO entries while importing a bootstrap snapshot.
-    ///
-    /// Stores may override this to avoid transaction bookkeeping that is unnecessary while
-    /// populating a fresh database. The default preserves the regular transactional behavior.
-    fn save_bootstrap_utxo(
-        &self,
-        era_history: &EraHistory,
-        protocol_parameters: &ProtocolParameters,
-        point: &Point,
-        utxo: impl Iterator<Item = (utxo::Key, utxo::Value)>,
-    ) -> Result<()> {
-        self.with_transaction(|transaction| {
-            transaction.save(
-                era_history,
-                protocol_parameters,
-                None,
-                point,
-                None,
-                Columns {
-                    utxo,
-                    pools: iter::empty(),
-                    accounts: iter::empty(),
-                    dreps: iter::empty(),
-                    cc_members: iter::empty(),
-                    proposals: iter::empty(),
-                    votes: iter::empty(),
-                },
-                Default::default(),
-                iter::empty(),
-            )
-        })
-    }
-
     /// Save one batch of account rows while importing a bootstrap snapshot.
     ///
     /// Snapshot import calls this before the snapshot's protocol parameters have been decoded,

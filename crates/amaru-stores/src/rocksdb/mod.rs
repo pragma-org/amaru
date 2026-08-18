@@ -14,7 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt, fs, iter,
+    fmt, fs,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock},
 };
@@ -326,47 +326,6 @@ impl Store for RocksDB {
         let transaction = self.db.transaction();
         self.ongoing_transaction.set(true);
         RocksDBTransactionalContext { host: self, db: transaction }
-    }
-
-    fn save_bootstrap_utxo(
-        &self,
-        era_history: &EraHistory,
-        protocol_parameters: &ProtocolParameters,
-        point: &Point,
-        utxo: impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
-    ) -> Result<(), StoreError> {
-        assert!(!self.ongoing_transaction.get(), "RocksDB already has an ongoing transaction");
-
-        if !self.incremental_save {
-            let transaction = self.create_transaction();
-            transaction.save(
-                era_history,
-                protocol_parameters,
-                None,
-                point,
-                None,
-                Columns {
-                    utxo,
-                    pools: iter::empty(),
-                    accounts: iter::empty(),
-                    dreps: iter::empty(),
-                    cc_members: iter::empty(),
-                    proposals: iter::empty(),
-                    votes: iter::empty(),
-                },
-                Default::default(),
-                iter::empty(),
-            )?;
-            return transaction.commit();
-        }
-
-        let mut batch = WriteBatchWithTransaction::<true>::default();
-        batch.put(KEY_TIP, as_value(NetworkPoint::from(point)));
-        for (input, output) in utxo {
-            batch.put(as_key(&utxo::PREFIX, input), as_value(output));
-        }
-
-        self.db.write(batch).map_err(|err| StoreError::Internal(err.into()))
     }
 
     fn save_bootstrap_accounts(

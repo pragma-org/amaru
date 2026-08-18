@@ -22,13 +22,17 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
+    iter,
 };
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, MemoizedTransactionOutput, NetworkName, Point,
     StakeCredential, TransactionInput, cbor, cbor::lazy::LazyDecoder,
 };
-use amaru_ledger::{bootstrap::import_initial_snapshot_with_decoder, store::Store};
+use amaru_ledger::{
+    bootstrap::import_initial_snapshot_with_decoder,
+    store::{Columns, Store, TransactionalContext},
+};
 use amaru_observability::info;
 use amaru_progress_bar::ProgressBar;
 
@@ -193,7 +197,26 @@ where
         actual_size += size;
 
         if !utxo.is_empty() {
-            db.save_bootstrap_utxo(era_history, &protocol_parameters, point, utxo.into_iter())?;
+            db.with_transaction(|transaction| {
+                transaction.save(
+                    era_history,
+                    &protocol_parameters,
+                    None,
+                    point,
+                    None,
+                    Columns {
+                        utxo: utxo.into_iter(),
+                        pools: iter::empty(),
+                        accounts: iter::empty(),
+                        dreps: iter::empty(),
+                        cc_members: iter::empty(),
+                        proposals: iter::empty(),
+                        votes: iter::empty(),
+                    },
+                    Default::default(),
+                    iter::empty(),
+                )
+            })?;
         }
 
         if done {
