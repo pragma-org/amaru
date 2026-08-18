@@ -15,15 +15,17 @@
 use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, ProposalSlim, StakeCredential,
-    TransactionInput,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, StakeCredential, TransactionInput,
 };
 use amaru_observability::debug_span;
 
-use crate::state::{
-    AnchoredVolatileFragment,
-    volatile::{
-        AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+use crate::{
+    context::ProposalStateSlim,
+    state::{
+        AnchoredVolatileFragment,
+        volatile::{
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+        },
     },
 };
 
@@ -72,7 +74,7 @@ impl VolatileState for VolatileSeries {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<ProposalSlim>;
+    type Proposal = Existence<ProposalStateSlim>;
     fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {
         self.aggregate.resolve_proposal(id)
     }

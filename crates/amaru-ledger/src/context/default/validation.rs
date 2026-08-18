@@ -22,8 +22,7 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
     GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential,
-    TransactionInput, Value, Vote, Voter,
+    PoolParams, ProposalId, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -31,8 +30,8 @@ use amaru_kernel::{
 use crate::{
     context::{
         AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
-        WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        PotsSlice, ProposalState, ProposalStateSlim, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
+        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
     },
     state::volatile::{BindError, Existence, VolatileFragment},
 };
@@ -44,7 +43,7 @@ pub struct DefaultValidationContext {
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
-    proposals: BTreeMap<ProposalId, ProposalSlim>,
+    proposals: BTreeMap<ProposalId, ProposalStateSlim>,
     proposals_roots: ProposalsRoots,
     treasury: Lovelace,
     state: VolatileFragment,
@@ -65,7 +64,7 @@ impl DefaultValidationContext {
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
-        proposals: BTreeMap<ProposalId, ProposalSlim>,
+        proposals: BTreeMap<ProposalId, ProposalStateSlim>,
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
     ) -> Self {
@@ -373,18 +372,18 @@ impl CommitteeSlice for DefaultValidationContext {
 }
 
 impl ProposalsSlice for DefaultValidationContext {
-    fn lookup(&self, id: &ProposalId) -> Option<ProposalSlim> {
+    fn lookup(&self, id: &ProposalId) -> Option<ProposalStateSlim> {
         self.proposals
             .get(id)
             .copied()
-            .or_else(|| self.state.proposals.get(id).map(|entry| ProposalSlim::from(&entry.0.gov_action)))
+            .or_else(|| self.state.proposals.get(id).map(|state| ProposalStateSlim::from(state.as_ref())))
     }
 
     fn roots(&self) -> &ProposalsRoots {
         &self.proposals_roots
     }
 
-    fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
+    fn acknowledge(&mut self, id: ProposalId, state: ProposalState) {
         // NOTE: Candidate CC Members
         //
         // Members present in pending proposals are seen and accessible for various operations
@@ -392,7 +391,7 @@ impl ProposalsSlice for DefaultValidationContext {
         // be overridden by certificates also present in the transaction. And they are removed when
         // the fragment (and proposals) go out of the volatile and the proposals become available to
         // the store anyway.
-        if let GovernanceAction::UpdateCommittee(_, _, added, _) = &proposal.gov_action {
+        if let GovernanceAction::UpdateCommittee(_, _, added, _) = &state.proposal.gov_action {
             for (cold_credential, _) in added.iter() {
                 if !matches!(self.state.committee.get(cold_credential), Existence::Exists(..)) {
                     self.state
@@ -403,7 +402,7 @@ impl ProposalsSlice for DefaultValidationContext {
             }
         }
 
-        self.state.proposals.insert(id, Arc::new((proposal, pointer)));
+        self.state.proposals.insert(id, Arc::new(state));
     }
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {

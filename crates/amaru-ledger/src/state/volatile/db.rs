@@ -19,11 +19,12 @@ use std::{
 
 use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
-    ProtocolParameters, StakeCredential, TransactionInput, size::SCRIPT,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
+    StakeCredential, TransactionInput, size::SCRIPT,
 };
 
 use crate::{
+    context::ProposalStateSlim,
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
@@ -173,7 +174,7 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<ProposalSlim>;
+    type Proposal = Existence<ProposalStateSlim>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.

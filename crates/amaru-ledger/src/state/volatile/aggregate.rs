@@ -19,11 +19,13 @@ use std::{
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace,
-    MemoizedTransactionOutput, PoolId, Proposal, ProposalId, ProposalPointer, ProposalSlim, StakeCredential,
-    TransactionInput,
+    MemoizedTransactionOutput, PoolId, ProposalId, StakeCredential, TransactionInput,
 };
 
-use crate::state::volatile::{AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, VolatileFragment};
+use crate::{
+    context::{ProposalState, ProposalStateSlim},
+    state::volatile::{AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, VolatileFragment},
+};
 
 mod indexed_bind;
 pub use indexed_bind::IndexedBind;
@@ -65,7 +67,7 @@ pub struct VolatileAggregate {
     dreps: DReps,
     committee: Committee,
     withdrawals: BTreeSet<StakeCredential>,
-    proposals: BTreeMap<ProposalId, Arc<(Proposal, ProposalPointer)>>,
+    proposals: BTreeMap<ProposalId, Arc<ProposalState>>,
     fees: Lovelace,
     donations: Lovelace,
 }
@@ -117,9 +119,9 @@ impl VolatileAggregate {
 
     /// This aggregate's view of a governance proposal. Proposals are add-only in a block, so this is
     /// `Exists` or `Unknown`; pruning only happens at the boundary.
-    pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<ProposalSlim> {
+    pub fn resolve_proposal(&self, id: &ProposalId) -> Existence<ProposalStateSlim> {
         match self.proposals.get(id) {
-            Some(entry) => Existence::Exists(ProposalSlim::from(&entry.0.gov_action)),
+            Some(state) => Existence::Exists(ProposalStateSlim::from(state.as_ref())),
             None => Existence::Unknown,
         }
     }

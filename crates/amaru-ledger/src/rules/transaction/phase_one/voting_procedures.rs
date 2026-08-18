@@ -15,14 +15,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim, ProtocolVersion, RedeemerTag,
-    RequiredScript, StakeCredential, Voter, VotingProcedure, protocol_version::PROTOCOL_VERSION_11,
-    utils::string::display_map,
+    Epoch, EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim, ProtocolVersion,
+    RedeemerTag, RequiredScript, StakeCredential, TransactionPointer, Voter, VotingProcedure,
+    protocol_version::PROTOCOL_VERSION_11, utils::string::display_map,
 };
 use itertools::Itertools;
 use thiserror::Error;
 
-use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalsSlice, WitnessSlice};
+use crate::context::{CommitteeSlice, DRepsSlice, PoolsSlice, ProposalStateSlim, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidVotingProcedures {
@@ -34,19 +34,34 @@ pub enum InvalidVotingProcedures {
 
     #[error("governance actions do not exist: {0:?}")]
     GovActionsDoNotExist(BTreeSet<ProposalId>),
+
+    #[error("votes cast on governance actions that have expired: {}", display_map(.0))]
+    VotingOnExpiredGovAction(BTreeMap<Voter, ProposalId>),
+
+    #[error("era history error: {0}")]
+    EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
 pub(crate) fn execute<C>(
     context: &mut C,
     protocol_version: ProtocolVersion,
+    era_history: &EraHistory,
+    pointer: TransactionPointer,
     voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
 ) -> Result<(), InvalidVotingProcedures>
 where
     C: WitnessSlice + ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
+        // NOTE: Some conformance tests fail this check because the Haskell imp tests run on a
+        // synthetic test chain whose epoch/slot mapping differs from our era_history. Our
+        // slot_to_epoch computes a different current epoch, so an action they expect to have expired
+        // still reads as live here.
+        let current_epoch = era_history.slot_to_epoch(pointer.slot, pointer.slot)?;
+
         let mut unknown_voters = BTreeSet::new();
         let mut unknown_proposals = BTreeSet::new();
+        let mut expired_proposals = BTreeMap::new();
         let mut disallowed_voters = BTreeMap::new();
 
         voting_procedures.into_iter().sorted_by_key(|(k, _)| *k).enumerate().for_each(|(index, (voter, votes))| {
@@ -61,16 +76,25 @@ where
                         unknown_proposals.insert(*proposal_id);
                     }
                     Some(proposal) => {
-                        if !is_allowed_voter(&voter, &proposal) {
-                            disallowed_voters.insert(voter, proposal);
+                        if is_expired(&proposal, current_epoch) {
+                            expired_proposals.insert(voter, *proposal_id);
+                            return;
+                        }
+
+                        if !is_allowed_voter(&voter, &proposal.action) {
+                            disallowed_voters.insert(voter, proposal.action);
                             return;
                         }
                     }
                 }
             }
 
-            if !(unknown_voters.is_empty() && disallowed_voters.is_empty() && unknown_proposals.is_empty()) {
-                return; // Skip validations after if any proposal or voter is invalid;
+            if !(unknown_voters.is_empty()
+                && disallowed_voters.is_empty()
+                && unknown_proposals.is_empty()
+                && expired_proposals.is_empty())
+            {
+                return;
             }
 
             match voter.owner() {
@@ -98,12 +122,21 @@ where
             return Err(InvalidVotingProcedures::GovActionsDoNotExist(unknown_proposals));
         }
 
+        if !expired_proposals.is_empty() {
+            return Err(InvalidVotingProcedures::VotingOnExpiredGovAction(expired_proposals));
+        }
+
         if !disallowed_voters.is_empty() {
             return Err(InvalidVotingProcedures::DisallowedVoter(disallowed_voters));
         }
     }
 
     Ok(())
+}
+
+/// Whether the proposal is past the last epoch in which a vote on it still counts.
+fn is_expired(proposal: &ProposalStateSlim, current_epoch: Epoch) -> bool {
+    proposal.valid_until < current_epoch
 }
 
 /// Whether a voter has any say over this kind of governance action

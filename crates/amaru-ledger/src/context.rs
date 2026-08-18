@@ -341,15 +341,29 @@ pub struct ProposalState {
     pub proposal: Proposal,
 }
 
+/// [`ProposalState`] with its payload reduced to a [`ProposalSlim`], as the volatile window and the
+/// validation context carry it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProposalStateSlim {
+    pub action: ProposalSlim,
+    pub valid_until: Epoch,
+}
+
+impl From<&ProposalState> for ProposalStateSlim {
+    fn from(state: &ProposalState) -> Self {
+        Self { action: ProposalSlim::from(&state.proposal.gov_action), valid_until: state.valid_until }
+    }
+}
+
 pub trait ProposalsSlice {
     /// A slim view of a known proposal, whether it comes from the ledger state or was acknowledged
     /// earlier in the block.
-    fn lookup(&self, id: &ProposalId) -> Option<ProposalSlim>;
+    fn lookup(&self, id: &ProposalId) -> Option<ProposalStateSlim>;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;
 
-    fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
+    fn acknowledge(&mut self, id: ProposalId, state: ProposalState);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
 }

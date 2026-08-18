@@ -31,7 +31,7 @@ pub mod tests {
     };
     use amaru_ledger::{
         self,
-        context::{AccountState, DefaultValidationContext},
+        context::{AccountState, DefaultValidationContext, ProposalStateSlim},
         epoch_transition::GovernanceActivity,
         rules::transaction,
         snapshot,
@@ -302,7 +302,10 @@ pub mod tests {
         let proposals = decoded
             .proposals
             .into_iter()
-            .map(|st| (st.id, ProposalSlim::from(&st.procedure.gov_action)))
+            .map(|st| {
+                let action = ProposalSlim::from(&st.procedure.gov_action);
+                (st.id, ProposalStateSlim { action, valid_until: st.expires_after })
+            })
             .collect::<BTreeMap<_, _>>();
 
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;

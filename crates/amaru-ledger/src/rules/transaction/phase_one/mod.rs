@@ -289,6 +289,8 @@ where
             voting_procedures::execute(
                 context,
                 protocol_parameters.protocol_version,
+                era_history,
+                pointer,
                 mem::take(&mut transaction_body.votes),
             )
         })?;
