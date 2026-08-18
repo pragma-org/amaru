@@ -16,15 +16,15 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs,
     path::{Path, PathBuf},
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters, RatificationStatus,
-    StakeCredential, TransactionInput, cbor,
+    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
+    MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
+    RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -35,7 +35,9 @@ use amaru_ledger::{
     },
 };
 use amaru_observability::{debug_span, info_span, trace_record};
+use amaru_ouroboros_traits::BaseReadChainStore;
 use anyhow::anyhow;
+use parking_lot::Mutex;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
 };
@@ -88,7 +90,7 @@ const DIR_LIVE_DB: &str = "live";
 // * ===========================*================================================ *
 // * key                        * value                                           *
 // * ===========================*================================================ *
-// * '@tip'                      * Point                                          *
+// * '@tip'                      * NetworkPoint                                   *
 // * '@progress'                 * EpochTransitionProgress                        *
 // * '@pots'                     * (Lovelace, Lovelace, Lovelace)                 *
 // * '@protocol-version'         * ProtocolVersion                                *
@@ -125,6 +127,11 @@ pub struct RocksDB {
     db: OptimisticTransactionDB,
 
     ongoing_transaction: OngoingTransaction,
+
+    /// Optional chain store used to recover the block height of `@tip`, which is stored as a
+    /// [`NetworkPoint`] (slot + hash only).
+    // FIXME: once ledger knows DB migrations, store the full `Point` as `NetworkTip`
+    chain_store: Mutex<Option<Arc<dyn BaseReadChainStore>>>,
 }
 
 #[derive(Clone)]
@@ -188,7 +195,13 @@ impl RocksDB {
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, &live_dir)
-            .map(|db| Self { dir, incremental_save: false, db, ongoing_transaction: OngoingTransaction::new() })
+            .map(|db| Self {
+                dir,
+                incremental_save: false,
+                db,
+                ongoing_transaction: OngoingTransaction::new(),
+                chain_store: Mutex::new(None),
+            })
             .map_err(|err| map_rocksdb_open_error(&live_dir, err))
     }
 
@@ -198,8 +211,30 @@ impl RocksDB {
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, &live_dir)
-            .map(|db| Self { dir, incremental_save: true, db, ongoing_transaction: OngoingTransaction::new() })
+            .map(|db| Self {
+                dir,
+                incremental_save: true,
+                db,
+                ongoing_transaction: OngoingTransaction::new(),
+                chain_store: Mutex::new(None),
+            })
             .map_err(|err| map_rocksdb_open_error(&live_dir, err))
+    }
+
+    /// Remove all entries from the store; mostly useful for testing.
+    pub fn clear(&self) -> Result<(), StoreError> {
+        self.with_transaction(|ctx| {
+            for (key, _) in self.db.iterator(rocksdb::IteratorMode::Start).flatten() {
+                ctx.db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
+            }
+
+            Ok(())
+        })
+    }
+
+    /// Use `chain_store` to recover the block height of the ledger `@tip` [`NetworkPoint`].
+    pub fn set_chain_store(&self, chain_store: Arc<dyn BaseReadChainStore>) {
+        *self.chain_store.lock() = Some(chain_store);
     }
 
     fn transaction_ended(&self) {
@@ -384,7 +419,8 @@ macro_rules! impl_ReadStore_body {
     ($($header:tt)*) => {
         $($header)* {
             fn tip(&self) -> Result<Point, StoreError> {
-                get_or_bail(|key| self.db.get_pinned(key), KEY_TIP)
+                let tip = get_or_bail::<NetworkPoint>(|key| self.db.get_pinned(key), KEY_TIP)?;
+                self.resolve_stored_tip(tip)
             }
 
             fn epoch_transition_progress(&self) -> Result<Option<EpochTransitionProgress>, StoreError> {
@@ -466,6 +502,14 @@ macro_rules! impl_ReadStore_body {
                 iter(
                     |mode, opts| self.db.iterator_opt(mode, opts),
                     utxo::PREFIX,
+                )
+            }
+
+            fn iter_stake_distribution(&self) -> Result<impl Iterator<Item = StakeEntry>, StoreError> {
+                iter_raw::<_, _, StakeEntry>(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    utxo::PREFIX,
+                    |_, value| from_store(value),
                 )
             }
 
@@ -569,6 +613,34 @@ macro_rules! impl_ReadStore_body {
                 )
             }
         }
+    }
+}
+
+trait ResolveStoredTip {
+    fn resolve_stored_tip(&self, tip: NetworkPoint) -> Result<Point, StoreError> {
+        Ok(tip.with_height(BlockHeight::from(0)))
+    }
+}
+
+impl ResolveStoredTip for RocksDB {
+    fn resolve_stored_tip(&self, tip: NetworkPoint) -> Result<Point, StoreError> {
+        match self.chain_store.lock().as_ref() {
+            None => Ok(tip.with_height(BlockHeight::from(0))),
+            Some(chain_store) => chain_store.load_point(&tip.hash()).ok_or_else(|| {
+                StoreError::Internal(
+                    format!("cannot recover block height for ledger tip {tip}: header not found").into(),
+                )
+            }),
+        }
+    }
+}
+
+impl ResolveStoredTip for RocksDBSnapshot {}
+impl ResolveStoredTip for ReadOnlyRocksDB {}
+
+impl ResolveStoredTip for RocksDBTransactionalContext<'_> {
+    fn resolve_stored_tip(&self, tip: NetworkPoint) -> Result<Point, StoreError> {
+        self.host.resolve_stored_tip(tip)
     }
 }
 
@@ -705,11 +777,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
-    fn remove_proposals<'iter>(
-        &self,
-        proposals: impl IntoIterator<Item = &'iter ProposalId>,
-    ) -> Result<(), StoreError> {
-        proposals::remove(&self.db, proposals.into_iter())
+    fn remove_proposals<T>(&self, proposals: &BTreeMap<ProposalId, T>) -> Result<(), StoreError> {
+        proposals::remove(&self.db, proposals)
     }
 
     /// Prune recently unregistered accounts from the database that are no longer required.
@@ -721,7 +790,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         &self,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
-        mut governance_activity: GovernanceActivity,
+        governance_activity: Option<GovernanceActivity>,
         point: &Point,
         issuer: Option<&scolumns::pools::Key>,
         add: Columns<
@@ -745,14 +814,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
     ) -> Result<(), StoreError> {
         match (point, self.tip().ok()) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _)))
+            (Point::Specific(new, _, _), Some(Point::Specific(current, _, _)))
                 if *new <= current && !self.host.incremental_save =>
             {
                 // Skip saving - point is not newer than current tip
             }
             _ => {
                 let tip = point.slot_or_default();
-                self.db.put(KEY_TIP, as_value(point)).map_err(|err| StoreError::Internal(err.into()))?;
+                self.db
+                    .put(KEY_TIP, as_value(NetworkPoint::from(point)))
+                    .map_err(|err| StoreError::Internal(err.into()))?;
 
                 let current_epoch =
                     era_history.slot_to_epoch(tip, tip).map_err(|err| StoreError::Internal(err.into()))?;
@@ -762,7 +833,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 }
 
                 let drep_validity = current_epoch + protocol_parameters.drep_expiry
-                    - governance_activity.consecutive_dormant_epochs as u64;
+                    - governance_activity.map_or(0, |ga| ga.consecutive_dormant_epochs) as u64;
 
                 utxo::add(&self.db, add.utxo)?;
                 pools::add(&self.db, add.pools)?;
@@ -785,26 +856,32 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 accounts::remove(&self.db, remove.accounts, current_epoch)?;
                 dreps::remove(&self.db, remove.dreps)?;
 
-                // When a proposal is seen during a dormant period, we flush the current dormant
-                // epochs counter on each drep.
-                if governance_activity.consecutive_dormant_epochs > 0
-                    && proposals_count > 0
-                    && !self.host.incremental_save
-                {
-                    self.with_dreps(|iterator| {
-                        for (_, mut entry) in iterator {
-                            if let Some(row) = entry.borrow_mut() {
-                                let actual_expiry =
-                                    row.valid_until + governance_activity.consecutive_dormant_epochs as u64;
-                                if actual_expiry >= current_epoch {
-                                    row.valid_until = actual_expiry;
+                if let Some(mut governance_activity) = governance_activity {
+                    // When a proposal is seen during a dormant period, we flush the current dormant
+                    // epochs counter on each drep.
+                    let reactivating = governance_activity.consecutive_dormant_epochs > 0
+                        && proposals_count > 0
+                        && !self.host.incremental_save;
+                    if reactivating {
+                        self.with_dreps(|iterator| {
+                            for (_, mut entry) in iterator {
+                                if let Some(row) = entry.borrow_mut() {
+                                    let actual_expiry =
+                                        row.valid_until + governance_activity.consecutive_dormant_epochs as u64;
+                                    if actual_expiry >= current_epoch {
+                                        row.valid_until = actual_expiry;
+                                    }
                                 }
                             }
-                        }
-                    })?;
+                        })?;
 
-                    governance_activity.consecutive_dormant_epochs = 0;
-                    self.set_governance_activity(governance_activity)?;
+                        governance_activity.consecutive_dormant_epochs = 0;
+                    }
+
+                    // Bootstrap import bypasses the epoch-transition path that otherwise persists this counter.
+                    if reactivating || self.host.incremental_save {
+                        self.set_governance_activity(governance_activity)?;
+                    }
                 }
             }
         }
@@ -850,10 +927,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn with_dreps(&self, with: impl FnMut(scolumns::dreps::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, dreps::PREFIX, "dreps", with)
-    }
-
-    fn with_proposals(&self, with: impl FnMut(scolumns::proposals::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.db, proposals::PREFIX, "proposals", with)
     }
 
     fn with_cc_members(&self, with: impl FnMut(scolumns::cc_members::Iter<'_, '_>)) -> Result<(), StoreError> {
@@ -931,46 +1004,63 @@ where
         .map_err(StoreError::Undecodable)
 }
 
+fn new_raw_iterator<'db, DB, F>(db_iter_opt: F, prefix: &[u8]) -> rocksdb::DBRawIteratorWithThreadMode<'db, DB>
+where
+    DB: DBAccess,
+    F: FnOnce(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'db, DB>,
+{
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    (db_iter_opt)(IteratorMode::From(prefix, Direction::Forward), opts).into()
+}
+
 #[expect(clippy::panic)]
+fn from_store<T>(bytes: &[u8]) -> T
+where
+    T: for<'d> cbor::Decode<'d, ()>,
+{
+    cbor::decode(bytes).unwrap_or_else(|e| {
+        panic!("unable to decode {} as <{}>: {e:?}", hex::encode(bytes), std::any::type_name::<T>(),)
+    })
+}
+
 pub fn iter<'a, 'b, K, V, DB, F>(
     db_iter_opt: F,
     prefix: [u8; PREFIX_LEN],
 ) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
 where
     DB: 'a + 'b + DBAccess,
-    F: Fn(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
+    F: FnOnce(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
     'b: 'a,
     K: for<'d> cbor::Decode<'d, ()> + 'a,
     V: for<'d> cbor::Decode<'d, ()> + 'a,
 {
-    let mut opts = ReadOptions::default();
-    opts.set_prefix_same_as_start(true);
-    let mut it: rocksdb::DBRawIteratorWithThreadMode<'_, _> =
-        (db_iter_opt)(IteratorMode::From(prefix.as_ref(), Direction::Forward), opts).into();
+    iter_raw(db_iter_opt, prefix, |key, value| {
+        let k = from_store::<K>(&key[PREFIX_LEN..]);
+        let v = from_store::<V>(value);
+        (k, v)
+    })
+}
+
+#[inline]
+pub fn iter_raw<'db, DB, F, T>(
+    db_iter_opt: F,
+    prefix: impl AsRef<[u8]>,
+    to_item: impl Fn(&[u8], &[u8]) -> T,
+) -> Result<impl Iterator<Item = T>, StoreError>
+where
+    DB: DBAccess + 'db,
+    F: FnOnce(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'db, DB>,
+{
+    let mut iterator = new_raw_iterator(db_iter_opt, prefix.as_ref());
     Ok(std::iter::from_fn(move || {
-        if let Some((key, value)) = it.item() {
-            let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
-                panic!(
-                    "unable to decode key {}::<{}> for type {}: {e:?}",
-                    hex::encode(key),
-                    std::any::type_name::<K>(),
-                    std::any::type_name::<V>()
-                )
-            });
-            let v = cbor::decode(value).unwrap_or_else(|e| {
-                panic!(
-                    "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
-                    hex::encode(value),
-                    std::any::type_name::<V>(),
-                    hex::encode(key),
-                    std::any::type_name::<K>(),
-                )
-            });
-            it.next();
-            Some((k, v))
-        } else {
-            None
+        if let Some((key, value)) = iterator.item() {
+            let item = to_item(key, value);
+            iterator.next();
+            return Some(item);
         }
+
+        None
     }))
 }
 
@@ -1019,6 +1109,21 @@ fn with_prefix_iterator<
         );
         Ok(())
     })
+}
+
+/// Look for the successor of a prefix, to construct upper-bound of seek ranges. Returns `None` if
+/// the prefix is already all `0xff`.
+pub fn prefix_successor(prefix: &[u8]) -> Option<Vec<u8>> {
+    let mut next = prefix.to_vec();
+
+    while let Some(byte) = next.pop() {
+        if byte != 0xff {
+            next.push(byte + 1);
+            return Some(next);
+        }
+    }
+
+    None
 }
 
 // Tests

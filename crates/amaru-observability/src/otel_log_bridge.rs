@@ -33,8 +33,10 @@
 use opentelemetry::{
     Key,
     logs::{AnyValue, LogRecord, Logger, LoggerProvider, Severity},
+    trace::TraceContextExt,
 };
 use tracing::Level;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::Layer;
 
 use crate::field::cbor_to_any_value;
@@ -164,6 +166,18 @@ where
 
         let mut visitor = EventVisitor::new(&mut log_record);
         event.record(&mut visitor);
+
+        // Associate the log with the current OTEL span when one is entered, so
+        // Loki/Tempo (and similar) can join logs to the same nested span tree
+        // that traces already form natively.
+        let span_context = tracing::Span::current().context().span().span_context().clone();
+        if span_context.is_valid() {
+            log_record.set_trace_context(
+                span_context.trace_id(),
+                span_context.span_id(),
+                Some(span_context.trace_flags()),
+            );
+        }
 
         self.logger.emit(log_record);
     }

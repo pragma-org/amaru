@@ -14,7 +14,9 @@
 
 use std::{borrow::Cow, fmt, fmt::Display};
 
-use amaru_kernel::{Block, Certificate, GovernanceAction, Proposal, TransactionBody, parse_reward_account};
+use amaru_kernel::{
+    Block, Certificate, GovernanceAction, HasOwnership, Proposal, TransactionBody, Voter, parse_reward_account,
+};
 use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
@@ -79,15 +81,26 @@ fn prepare_withdrawals<'a>(context: &mut impl PreparationContext<'a>, transactio
         .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
 }
 
-/// Collect and require the proposals a transaction votes on.
+/// Collect and require the proposals a transaction votes on, along with the state each voter's
+/// existence is decided against. A `Voter` carries a bare hash rather than a credential, so the
+/// credential is rebuilt here rather than borrowed from the transaction.
 fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a TransactionBody) {
     let Some(votes) = transaction.votes.as_ref() else {
         return;
     };
-    for (_, ballots) in votes.iter() {
+
+    for (voter, ballots) in votes.iter() {
         for (proposal_id, _) in ballots.iter() {
             context.require_proposal(proposal_id);
         }
+
+        match voter {
+            Voter::ConstitutionalCommitteeKey(_) | Voter::ConstitutionalCommitteeScript(_) => {
+                context.require_committee_voter(voter.owner())
+            }
+            Voter::DRepKey(_) | Voter::DRepScript(_) => context.require_drep(Cow::Owned(voter.owner())),
+            Voter::StakePoolKey(pool) => context.require_pool(pool),
+        };
     }
 }
 
@@ -147,7 +160,7 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
 
         Certificate::RegDRepCert(drep, _, _)
         | Certificate::UnRegDRepCert(drep, _)
-        | Certificate::UpdateDRepCert(drep, _) => context.require_drep(drep),
+        | Certificate::UpdateDRepCert(drep, _) => context.require_drep(Cow::Borrowed(drep)),
 
         Certificate::StakeRegistration(credential)
         | Certificate::Reg(credential, _)
@@ -221,10 +234,11 @@ pub(crate) mod tests {
             &PREPROD_ERA_HISTORY,
             &PREPROD_GLOBAL_PARAMETERS,
             GovernanceActivity { consecutive_dormant_epochs: 0 },
+            None,
             &block,
         );
 
-        assert!(matches!(results, BlockValidation::Invalid(_, _, InvalidBlockDetails::HeaderSizeTooBig { .. })))
+        assert!(matches!(results, BlockValidation::Invalid(_, InvalidBlockDetails::HeaderSizeTooBig { .. })))
     }
 
     /// A block walks every transaction body, so preparing it requires each spent input.
@@ -245,7 +259,7 @@ pub(crate) mod tests {
     /// A body carrying every kind of reference the preparation pass collects: spent, reference and
     /// collateral inputs, a withdrawal, one certificate per `require_*` target, a vote, and a
     /// treasury-withdrawal proposal whose return account must also be resolved.
-    const PREPARE_TRANSACTION_BODY: &str = "a900d9010281825820a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000180021a00030d400dd9010281825820a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a30012d9010281825820a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a20005a1581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a000f4240048782008200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd883028200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581c111111111111111111111111111111111111111111111111111111118304581c11111111111111111111111111111111111111111111111111111111183283098200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581c22222222222222222222222222222222222222222222222222222222840a8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581c111111111111111111111111111111111111111111111111111111118200581c22222222222222222222222222222222222222222222222222222222830e8200581c333333333333333333333333333333333333333333333333333333338200581c4444444444444444444444444444444444444444444444444444444484108200581c222222222222222222222222222222222222222222222222222222221a1dcd6500f613a18202581c22222222222222222222222222222222222222222222222222222222a1825820b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1008201f614d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88302a1581de0222222222222222222222222222222222222222222222222222222221a006acfc0f6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000";
+    const PREPARE_TRANSACTION_BODY: &str = "a900d9010281825820a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000180021a00030d400dd9010281825820a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a30012d9010281825820a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a20005a1581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a000f4240048782008200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd883028200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581c111111111111111111111111111111111111111111111111111111118304581c11111111111111111111111111111111111111111111111111111111183283098200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581c22222222222222222222222222222222222222222222222222222222840a8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581c111111111111111111111111111111111111111111111111111111118200581c22222222222222222222222222222222222222222222222222222222830e8200581c333333333333333333333333333333333333333333333333333333338200581c4444444444444444444444444444444444444444444444444444444484108200581c222222222222222222222222222222222222222222222222222222221a1dcd6500f613a38202581c22222222222222222222222222222222222222222222222222222222a1825820b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1008201f68200581c55555555555555555555555555555555555555555555555555555555a1825820b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1008201f68204581c66666666666666666666666666666666666666666666666666666666a1825820b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1008201f614d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88302a1581de0222222222222222222222222222222222222222222222222222222221a006acfc0f6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000";
 
     #[test]
     fn prepare_transaction_requires_every_referenced_entity() {
@@ -261,6 +275,8 @@ pub(crate) mod tests {
         let pool = Hash::from(hex::decode("11".repeat(28)).unwrap().as_slice());
         let drep = Hash::from(hex::decode("22".repeat(28)).unwrap().as_slice());
         let cc_cold = Hash::from(hex::decode("33".repeat(28)).unwrap().as_slice());
+        let cc_hot = Hash::from(hex::decode("55".repeat(28)).unwrap().as_slice());
+        let voting_pool = Hash::from(hex::decode("66".repeat(28)).unwrap().as_slice());
 
         // spent, collateral and reference inputs all have to be resolvable
         assert_eq!(
@@ -277,18 +293,23 @@ pub(crate) mod tests {
             // the withdrawal's reward account, plus the proposal's treasury-withdrawal target
             BTreeSet::from([StakeCredential::AddrKeyhash(proposal_key), StakeCredential::AddrKeyhash(dev_key),])
         );
-        assert_eq!(context.pools.into_iter().copied().collect::<BTreeSet<_>>(), BTreeSet::from([pool]));
+        // the certificates' pool, plus the one that cast a vote
+        assert_eq!(context.pools.into_iter().copied().collect::<BTreeSet<_>>(), BTreeSet::from([pool, voting_pool]));
+        // the certificates' DRep, which is also the one that cast a vote
         assert_eq!(
-            context.dreps.into_iter().cloned().collect::<BTreeSet<_>>(),
+            context.dreps.into_iter().map(|k| k.into_owned()).collect::<BTreeSet<_>>(),
             BTreeSet::from([StakeCredential::AddrKeyhash(drep)])
         );
         assert_eq!(context.drep_delegations.into_iter().cloned().collect::<Vec<_>>(), vec![DRep::Key(drep)]);
+        // a certificate names a member by cold credential...
         assert_eq!(
             context.committee.into_iter().cloned().collect::<BTreeSet<_>>(),
             BTreeSet::from([StakeCredential::AddrKeyhash(cc_cold)])
         );
+        // ...whereas a vote names one by the hot credential it authorized
+        assert_eq!(context.committee_voters, BTreeSet::from([StakeCredential::AddrKeyhash(cc_hot)]));
 
-        // the proposal the vote is cast on
+        // the single proposal all three votes are cast on
         assert_eq!(context.proposals.len(), 1);
     }
 

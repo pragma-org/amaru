@@ -19,7 +19,7 @@ use std::{
 
 use amaru_minicbor_extra::to_cbor;
 
-use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, Slot, cbor};
+use crate::{Block, EraHistory, EraHistoryError, EraName, Header, RawBlock, cbor, traits::is_header::IsHeader};
 
 /// A network block contains:
 ///  - An era tag identifying the Cardano era of the block, which determines its exact encoding.
@@ -29,7 +29,7 @@ use crate::{Block, BlockHeader, EraHistory, EraHistoryError, EraName, RawBlock, 
 ///
 ///  - The raw CBOR bytes of the block, wrapped in a `RawBlock`.
 ///  - The decoded `Block` structure, by decoding the inner CBOR bytes.
-///  - The decoded `BlockHeader`, by decoding only the header part of the inner CBOR bytes.
+///  - The decoded `Header`, by decoding only the header part of the inner CBOR bytes.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[allow(clippy::len_without_is_empty)]
 pub struct NetworkBlock {
@@ -39,7 +39,7 @@ pub struct NetworkBlock {
 
 impl NetworkBlock {
     pub fn new(era_history: &EraHistory, block: &Block) -> Result<Self, EraHistoryError> {
-        let era_tag = era_history.slot_to_era_tag(Slot::from(block.header.header_body.slot))?;
+        let era_tag = era_history.slot_to_era_tag(block.header.slot())?;
 
         Ok(NetworkBlock { era_tag, encoded_block: to_cbor(block) })
     }
@@ -70,7 +70,7 @@ impl NetworkBlock {
     }
 
     /// Decode only the header from the raw CBOR representation of the block.
-    pub fn decode_header(&self) -> Result<BlockHeader, cbor::decode::Error> {
+    pub fn decode_header(&self) -> Result<Header, cbor::decode::Error> {
         let mut decoder = minicbor::Decoder::new(&self.encoded_block);
         // format: [header, tx_bodies, witnesses, auxiliary_data?, invalid_transactions?]
         decoder.array()?;

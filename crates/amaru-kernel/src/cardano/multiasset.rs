@@ -12,8 +12,41 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref};
 
-use crate::{AssetName, Hash, NonEmptyKeyValuePairs, size::SCRIPT};
+use crate::{AssetName, Hash, NonEmptyKeyValuePairs, cbor, size::SCRIPT};
 
-pub type Multiasset<A> = BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct Multiasset<A>(BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>);
+
+impl<A> From<BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>> for Multiasset<A> {
+    fn from(map: BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>) -> Self {
+        Self(map)
+    }
+}
+
+impl<A> Deref for Multiasset<A> {
+    type Target = BTreeMap<Hash<{ SCRIPT }>, NonEmptyKeyValuePairs<AssetName, A>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'d, C: cbor::HasProtocolVersion, A: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d, C> for Multiasset<A> {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.decode_with(ctx).map(Self)
+    }
+}
+
+/// Write a map the way cardano-ledger does: definite-length up to 23 entries, indefinite-length
+/// (header plus break byte) above.
+impl<C, A: cbor::Encode<C>> cbor::Encode<C> for Multiasset<A> {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        cbor::encode_variable_length_map(e, self.iter(), ctx)
+    }
+}

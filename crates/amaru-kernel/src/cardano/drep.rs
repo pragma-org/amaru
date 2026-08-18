@@ -19,7 +19,7 @@ use crate::{
     size::{KEY, SCRIPT},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum DRep {
     Key(Hash<{ KEY }>),
     Script(Hash<{ SCRIPT }>),
@@ -27,7 +27,7 @@ pub enum DRep {
     NoConfidence,
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for DRep {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for DRep {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             let variant = d.u16()?;
@@ -55,7 +55,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for DRep {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for DRep {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for DRep {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

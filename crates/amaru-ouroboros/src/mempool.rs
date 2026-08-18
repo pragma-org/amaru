@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Tip, Transaction, TransactionId};
+use amaru_kernel::{Point, Transaction, TransactionId};
 use amaru_ouroboros_traits::{MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_pure_stage::StageRef;
 
@@ -37,7 +37,7 @@ pub enum MempoolMsg {
     WaitForAtLeast { seq_no: MempoolSeqNo, caller: StageRef<()> },
     Insert { tx: Box<Transaction>, origin: TxOrigin, caller: StageRef<TxInsertResult> },
     InsertBatch { txs: Vec<Transaction>, origin: TxOrigin, caller: StageRef<Vec<TxInsertResult>> },
-    NewTip(Tip),
+    NewTip(Point),
     SubscribeCapacity { caller: StageRef<()> },
 }
 

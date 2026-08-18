@@ -14,7 +14,7 @@
 
 use std::{cmp::Ordering, time::Duration};
 
-use amaru_kernel::{BlockHeader, BlockHeight, IsHeader, Point, Tip};
+use amaru_kernel::{BlockHeight, Header, IsHeader, Point};
 use amaru_observability::{TraceContext, debug, debug_span, info};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
@@ -32,9 +32,9 @@ use crate::{
 /// view and notifying dependent stages.
 ///
 /// It is a leaf stage in the consensus pipeline (receives `AdoptChainMsg`
-/// containing a `Tip` + `max_block_height` hint, typically produced by
+/// containing a `Point` + `max_block_height` hint, typically produced by
 /// `validate_block`). It only adopts when the candidate is *strictly better*
-/// than the current best (height first, then `cmp_tip` on loaded `BlockHeader`s,
+/// than the current best (height first, then `cmp_tip` on loaded `Header`s,
 /// which breaks ties via op-cert sequence number among other factors).
 ///
 /// On adoption:
@@ -77,7 +77,7 @@ use crate::{
 /// The stage holds `StageRef`s to exactly three external actors (downstream
 /// manager, block_source, mempool) and the k parameter; it never spawns
 /// children or wires additional stages. Initial `current_best_tip` is
-/// supplied at construction (commonly `Tip::origin()`); the in-memory copy
+/// supplied at construction (commonly `Point::Origin`); the in-memory copy
 /// is the source of truth for quick height guards and is kept in sync with
 /// the store only on successful adoption paths.
 ///
@@ -85,7 +85,7 @@ use crate::{
 /// `test_setup.rs`): `HeaderTree` + `InMemConsensusStore` + `ResourceHeaderStore`,
 /// exhaustive `te_*` effect tracers for every `LoadHeaderEffect`,
 /// `RollForwardChainEffect`, `SwitchToForkEffect`, `FindAncestorOnBestChainEffect`,
-/// `FindAnchorAtHeightEffect`, `SetAnchorHashEffect`, `clock`, `send`, etc.,
+/// `FindAnchorAtHeightEffect`, `SetAnchorPointEffect`, `clock`, `send`, etc.,
 /// plus `assert_trace` + post-run store assertions + log scrubbing.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AdoptChain {
@@ -93,7 +93,7 @@ pub struct AdoptChain {
     block_source: StageRef<BlockSourceMsg>,
     mempool: StageRef<MempoolMsg>,
     consensus_security_param: u64,
-    current_best_tip: Tip,
+    current_best_tip: Point,
     max_block_height: BlockHeight,
     last_printed: Instant,
     suppressed: u32,
@@ -105,7 +105,7 @@ impl AdoptChain {
         block_source: StageRef<BlockSourceMsg>,
         mempool: StageRef<MempoolMsg>,
         consensus_security_param: u64,
-        current_best_tip: Tip,
+        current_best_tip: Point,
     ) -> Self {
         Self {
             downstream,
@@ -122,13 +122,13 @@ impl AdoptChain {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AdoptChainMsg {
-    tip: Tip,
+    tip: Point,
     max_block_height: BlockHeight,
     trace_context: TraceContext,
 }
 
 impl AdoptChainMsg {
-    pub fn new(tip: Tip, max_block_height: BlockHeight) -> Self {
+    pub fn new(tip: Point, max_block_height: BlockHeight) -> Self {
         Self { tip, max_block_height, trace_context: Default::default() }
     }
 
@@ -165,7 +165,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             })
             .await;
 
-        let current_best = if state.current_best_tip.point() == Point::Origin {
+        let current_best = if state.current_best_tip == Point::Origin {
             None
         } else {
             Some(
@@ -249,8 +249,8 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
 /// Adopt the tip: update the best chain fragment and best chain hash in a single store transaction.
 async fn adopt_tip(
     store: &Store,
-    incoming_header: &BlockHeader,
-    current_best: &BlockHeader,
+    incoming_header: &Header,
+    current_best: &Header,
 ) -> Result<AdoptTipResult, StoreError> {
     if incoming_header.parent() == Some(current_best.hash()) {
         store.roll_forward_chain(&incoming_header.point()).await?;
@@ -284,13 +284,13 @@ enum AdoptTipResult {
 /// Returns the clock reading used for that prune (also suitable for adoption logging).
 async fn drag_anchor_forward(
     store: &Store,
-    tip: &Tip,
+    tip: &Point,
     consensus_security_param: u64,
     eff: &Effects<AdoptChainMsg>,
 ) -> Result<Instant, StoreError> {
     let target_height = tip.block_height() - consensus_security_param;
     if let Some(new_anchor) = store.find_anchor_at_height(target_height).await {
-        store.set_anchor_hash(&new_anchor).await?;
+        store.set_anchor_point(&new_anchor).await?;
     }
     let now = eff.clock().await;
     eff.external(Performance::prune_below(target_height, now)).await;

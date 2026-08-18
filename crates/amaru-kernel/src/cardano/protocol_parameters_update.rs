@@ -18,7 +18,8 @@ use crate::{
     CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber, cbor,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(map)]
 pub struct ProtocolParamUpdate {
     #[n(0)]
@@ -81,6 +82,24 @@ pub struct ProtocolParamUpdate {
     pub drep_inactivity_period: Option<u64>,
     #[n(33)]
     pub minfee_refscript_cost_per_byte: Option<RationalNumber>,
+}
+
+impl ProtocolParamUpdate {
+    // Check whether the update contains any parameter that is considered part of the 'security group'.
+    // Those parameters require approval from the SPO to be changed. Others are only in the hands of
+    // DReps & Constitutional Committee.
+    pub fn any_in_security_group(&self) -> bool {
+        self.minfee_a.is_some()
+            || self.minfee_b.is_some()
+            || self.max_block_body_size.is_some()
+            || self.max_block_header_size.is_some()
+            || self.max_transaction_size.is_some()
+            || self.ada_per_utxo_byte.is_some()
+            || self.max_block_ex_units.is_some()
+            || self.max_value_size.is_some()
+            || self.governance_action_deposit.is_some()
+            || self.minfee_refscript_cost_per_byte.is_some()
+    }
 }
 
 pub fn display_protocol_parameters_update(update: &ProtocolParamUpdate, prefix: &str) -> Result<String, fmt::Error> {

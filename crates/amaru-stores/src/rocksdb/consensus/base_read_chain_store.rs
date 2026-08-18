@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    BlockHeader, Hash, HeaderHash, IsHeader, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, Tip, from_cbor, size,
+    Hash, Header, HeaderHash, IsHeader, NetworkPoint, NetworkTip, Point, PoolId, RawBlock, Slot, from_cbor, size,
     size::HEADER,
 };
 use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError};
@@ -33,12 +33,12 @@ impl<T> BaseReadChainStore for RocksDBStore<T>
 where
     T: DbOps + Send + Sync,
 {
-    fn load_header(&self, hash: &HeaderHash) -> Option<BlockHeader> {
+    fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).ok().flatten().and_then(|bytes| from_cbor(bytes.as_ref()))
     }
 
-    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(BlockHeader, Option<bool>)> {
+    fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let prefix = [&HEADER_PREFIX[..], &hash[..], &[0]].concat();
         let head_len = prefix.len() - 1;
         let mut results = self.db.multi_get(&[&prefix[..head_len], &prefix], ReadOptions::default()).into_iter();
@@ -65,50 +65,37 @@ where
         result
     }
 
-    fn get_anchor_hash(&self) -> HeaderHash {
+    fn get_anchor_point(&self) -> Point {
         self.db
             .get_pinned(&ANCHOR_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
-            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
-            .unwrap_or(ORIGIN_HASH)
+            .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
+            .unwrap_or(Point::Origin)
     }
 
-    fn get_anchor_tip(&self) -> Tip {
-        let anchor_hash = self.get_anchor_hash();
-        if anchor_hash == ORIGIN_HASH {
-            return Tip::origin();
-        }
-        self.db
-            .get_pinned(&[&HEADER_PREFIX[..], &anchor_hash[..]].concat(), ReadOptions::default())
-            .ok()
-            .flatten()
-            .and_then(|bytes| from_cbor::<BlockHeader>(bytes.as_ref()))
-            .map(|h| h.tip())
-            .unwrap_or_else(Tip::origin)
-    }
-
-    fn get_best_chain_hash(&self) -> HeaderHash {
+    fn get_best_chain_tip(&self) -> Point {
         self.db
             .get_pinned(&BEST_CHAIN_PREFIX, ReadOptions::default())
             .ok()
             .flatten()
-            .and_then(|bytes| if bytes.len() == HEADER { Some(Hash::from(bytes.as_ref())) } else { None })
-            .unwrap_or(ORIGIN_HASH)
+            .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
+            .unwrap_or(Point::Origin)
     }
 
-    fn load_from_best_chain(&self, point: &Point) -> Option<HeaderHash> {
-        let slot = u64::from(point.slot_or_default()).to_be_bytes();
-        self.db.get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), ReadOptions::default()).ok().flatten().and_then(
-            |bytes| {
-                if bytes.len() == HEADER {
-                    let hash = Hash::from(bytes.as_ref());
-                    if *hash == *point.hash() { Some(hash) } else { None }
-                } else {
-                    None
-                }
-            },
-        )
+    fn is_on_best_chain(&self, point: NetworkPoint) -> bool {
+        match point {
+            NetworkPoint::Origin => true,
+            NetworkPoint::Specific(slot, hash) => {
+                let slot = u64::from(slot).to_be_bytes();
+                self.db
+                    .get_pinned(&[&CHAIN_PREFIX[..], &slot[..]].concat(), ReadOptions::default())
+                    .ok()
+                    .flatten()
+                    .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
+                    .is_some_and(|stored| stored.hash() == hash)
+            }
+        }
     }
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
@@ -118,19 +105,7 @@ where
         let prefix = [&CHAIN_PREFIX[..], &slot.to_be_bytes()].concat();
         let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
 
-        if let Some(Ok((k, v))) = iter.next() {
-            #[expect(clippy::unwrap_used)]
-            let slot_bytes: [u8; 8] = k[CHAIN_PREFIX.len()..CHAIN_PREFIX.len() + 8].try_into().unwrap();
-            let slot = u64::from_be_bytes(slot_bytes);
-            if v.len() == HEADER {
-                let hash = <HeaderHash>::from(v.as_ref());
-                Some(Point::Specific(slot.into(), hash))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        if let Some(Ok((_k, v))) = iter.next() { from_cbor::<NetworkTip>(v.as_ref()).map(Point::from) } else { None }
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
@@ -155,18 +130,14 @@ where
     }
 
     /// Return the latest opcert sequence number for the given pool id, and header we wish to validate.
-    fn get_latest_opcert_sequence_number(
-        &self,
-        pool_id: &PoolId,
-        header: &BlockHeader,
-    ) -> Result<Option<u64>, StoreError> {
+    fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         let Some(parent) = header.parent() else {
             return Ok(None); // no previous header referencing an opcert sequence number
         };
         let Some(as_of_slot) = self.load_header(&parent).map(|h| h.slot()) else {
             return Ok(None);
         };
-        let anchor_slot = self.load_header(&self.get_anchor_hash()).map(|h| h.slot()).unwrap_or(Slot::from(0));
+        let anchor_slot = self.get_anchor_point().slot_or_default();
 
         let prefix = [&OPCERT_PREFIX[..], &pool_id[..]].concat();
 
@@ -220,8 +191,10 @@ where
         opts.set_iterate_range(PrefixRange(prefix.as_slice()));
         for item in self.db.iterator_opt(IteratorMode::From(&seek, Direction::Reverse), opts) {
             let (key, value) = item.map_err(|e| StoreError::ReadError { error: e.to_string() })?;
-            let (slot, hash) = decode_opcert_key(&key)?;
-            if self.load_from_best_chain(&Point::Specific(slot, hash)).is_some() {
+            let (_slot, hash) = decode_opcert_key(&key)?;
+            if let Some(header) = self.load_header(&hash)
+                && self.is_on_best_chain(header.point().into())
+            {
                 return Ok(from_cbor(&value));
             }
         }
@@ -249,7 +222,7 @@ pub(crate) fn decode_opcert_key(key: &[u8]) -> Result<(Slot, HeaderHash), StoreE
     Ok((Slot::from(u64::from_be_bytes(slot_bytes)), Hash::from(hash)))
 }
 
-pub(crate) fn opcert_key(header: &BlockHeader) -> Vec<u8> {
+pub(crate) fn opcert_key(header: &Header) -> Vec<u8> {
     let slot = u64::from(header.slot()).to_be_bytes();
     [&OPCERT_PREFIX[..], &header.pool_id()[..], &slot[..], &header.hash()[..]].concat()
 }
@@ -258,7 +231,7 @@ pub(crate) fn opcert_key(header: &BlockHeader) -> Vec<u8> {
 /// If the point is Origin, the slot is 0 by definition.
 fn next_best_chain_start_slot(point: &Point) -> u64 {
     match point {
-        Point::Specific(slot, _) => u64::from(*slot) + 1,
+        Point::Specific(slot, _, _) => u64::from(*slot) + 1,
         Point::Origin => 0,
     }
 }

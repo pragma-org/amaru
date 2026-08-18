@@ -17,10 +17,16 @@ use std::{fmt, ops::Deref, str::FromStr};
 use crate::{Bytes, cbor};
 
 /// A list of bytes with a fixed size, known at compile time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(into = "String")]
 #[serde(try_from = "String")]
 pub struct FixedBytes<const N: usize>([u8; N]);
+
+impl<const N: usize> fmt::Debug for FixedBytes<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("FixedBytes").field(&hex::encode(self.0.as_slice())).finish()
+    }
+}
 
 impl<const N: usize> FixedBytes<N> {
     pub fn as_slice(&self) -> &[u8] {
@@ -38,7 +44,7 @@ impl<const N: usize> FixedBytes<N> {
         Ok(Self(inner))
     }
 
-    pub const fn empty() -> Self {
+    pub const fn zeroes() -> Self {
         Self([0u8; N])
     }
 }
@@ -64,6 +70,12 @@ impl<const N: usize> TryFrom<Vec<u8>> for FixedBytes<N> {
 
     fn try_from(xs: Vec<u8>) -> Result<Self, Self::Error> {
         Self::checked(&xs)
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for FixedBytes<N> {
+    fn from(array: [u8; N]) -> Self {
+        Self(array)
     }
 }
 
@@ -107,9 +119,9 @@ impl<const N: usize> fmt::Display for FixedBytes<N> {
     }
 }
 
-impl<'b, C, const N: usize> cbor::Decode<'b, C> for FixedBytes<N> {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Self::checked(&cbor::decode_bytes(d)?).map_err(|e| cbor::decode::Error::message(e.to_string()))
+impl<'b, C: cbor::HasProtocolVersion, const N: usize> cbor::Decode<'b, C> for FixedBytes<N> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Self::checked(&cbor::decode_bytes_with(d, ctx)?).map_err(|e| cbor::decode::Error::message(e.to_string()))
     }
 }
 

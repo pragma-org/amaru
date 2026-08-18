@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Peer, Point, Tip};
+use amaru_kernel::{NetworkPoint, Peer, Point};
 use amaru_observability::debug_span;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::SampleAncestorPointsResult;
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
+use amaru_pure_stage::{DeserializerGuards, Effects, OrTerminateWith, StageRef, Void};
 use tracing::Instrument;
 
 use crate::{
@@ -29,7 +29,7 @@ use crate::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_CHAIN_SYNC, ProtocolState, StageState, miniprotocol,
         outcome,
     },
-    store_effects::Store,
+    store_effects::StoreEffect,
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -85,7 +85,7 @@ impl ChainSyncInitiatorMsg {
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSyncInitiator {
-    upstream: Option<Tip>,
+    upstream: Option<Point>,
     peer: Peer,
     conn_id: ConnectionId,
     muxer: StageRef<MuxMessage>,
@@ -130,17 +130,20 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<<InitiatorState as ProtocolState<Initiator>>::Action>, Self)> {
         let message_type = input.message_type().to_string();
+        let input = input.into_consensus(eff).await;
 
         async move {
             use InitiatorAction::*;
             let action = match &input {
                 InitiatorResult::Initialize => {
-                    self.me = eff.contramap(eff.me(), format!("{}-handler", eff.me().name()), Inputs::Local).await;
-                    match intersect_points(&Store::new(eff.clone())).await? {
+                    self.me = eff.me_ref().contramap(Inputs::Local);
+                    match intersect_points(eff).await? {
                         SampleAncestorPointsResult::BestChainTipNotFound => {
                             return Err(anyhow::anyhow!("no best chain tip found"));
                         }
-                        SampleAncestorPointsResult::Found(points) => Some(Intersect(points)),
+                        SampleAncestorPointsResult::Found(points) => {
+                            Some(Intersect(points.into_iter().map(NetworkPoint::from).collect()))
+                        }
                     }
                 }
                 InitiatorResult::IntersectFound(_, tip)
@@ -177,15 +180,15 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
 }
 
 #[tracing::instrument(level = "debug", skip_all)]
-async fn intersect_points(store: &Store) -> anyhow::Result<SampleAncestorPointsResult> {
-    let points = store.sample_ancestor_points().await?;
+async fn intersect_points(eff: &Effects<Inputs<InitiatorMessage>>) -> anyhow::Result<SampleAncestorPointsResult> {
+    let points = eff.external(StoreEffect::sample_ancestor_points()).await?;
     tracing::info!(?points, "intersect points");
     Ok(points)
 }
 
 #[derive(Debug)]
 pub enum InitiatorAction {
-    Intersect(Vec<Point>),
+    Intersect(Vec<NetworkPoint>),
     RequestNext,
     Done,
 }
@@ -193,10 +196,10 @@ pub enum InitiatorAction {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorResult {
     Initialize,
-    IntersectFound(Point, Tip),
-    IntersectNotFound(Tip),
-    RollForward(HeaderContent, Tip),
-    RollBackward(Point, Tip),
+    IntersectFound(Point, Point),
+    IntersectNotFound(Point),
+    RollForward(HeaderContent, Point),
+    RollBackward(Point, Point),
     /// Chainsync session ended (connection teardown or mini-protocol stage death).
     ///
     /// Emitted by the connection stage (not by the protocol state machine) so `track_peers`
@@ -217,6 +220,56 @@ impl InitiatorResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum InitiatorFromNetwork {
+    Initialize,
+    IntersectFound(NetworkPoint, Point),
+    IntersectNotFound(Point),
+    RollForward(HeaderContent, Point),
+    RollBackward(NetworkPoint, Point),
+    /// Chainsync session ended (connection teardown or mini-protocol stage death).
+    ///
+    /// Emitted by the connection stage (not by the protocol state machine) so `track_peers`
+    /// can purge per-connection state. Correlates with `Initialize` via [`ConnectionId`].
+    Terminated,
+}
+
+impl InitiatorFromNetwork {
+    pub fn message_type(&self) -> &str {
+        match self {
+            InitiatorFromNetwork::Initialize => "Initialize",
+            InitiatorFromNetwork::IntersectFound(_, _) => "IntersectFound",
+            InitiatorFromNetwork::IntersectNotFound(_) => "IntersectNotFound",
+            InitiatorFromNetwork::RollForward(_, _) => "RollForward",
+            InitiatorFromNetwork::RollBackward(_, _) => "RollBackward",
+            InitiatorFromNetwork::Terminated => "Terminated",
+        }
+    }
+
+    async fn into_consensus(self, eff: &Effects<Inputs<InitiatorMessage>>) -> InitiatorResult {
+        match self {
+            InitiatorFromNetwork::Initialize => InitiatorResult::Initialize,
+            InitiatorFromNetwork::IntersectFound(point, tip) => {
+                InitiatorResult::IntersectFound(to_point(eff, point).await, tip)
+            }
+            InitiatorFromNetwork::IntersectNotFound(tip) => InitiatorResult::IntersectNotFound(tip),
+            InitiatorFromNetwork::RollForward(content, tip) => InitiatorResult::RollForward(content, tip),
+            InitiatorFromNetwork::RollBackward(point, tip) => {
+                InitiatorResult::RollBackward(to_point(eff, point).await, tip)
+            }
+            InitiatorFromNetwork::Terminated => InitiatorResult::Terminated,
+        }
+    }
+}
+
+async fn to_point(eff: &Effects<Inputs<InitiatorMessage>>, point: NetworkPoint) -> Point {
+    eff.external(StoreEffect::load_point(point.hash()))
+        .or_terminate_with(eff, async move |_| {
+            tracing::error!("rollback to header {} not found in store", point.hash());
+        })
+        .await
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum InitiatorState {
     Idle,
@@ -229,11 +282,11 @@ pub enum InitiatorState {
 impl ProtocolState<Initiator> for InitiatorState {
     type WireMsg = Message;
     type Action = InitiatorAction;
-    type Out = InitiatorResult;
+    type Out = InitiatorFromNetwork;
     type Error = Void;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        Ok((outcome().result(InitiatorResult::Initialize), *self))
+        Ok((outcome().result(InitiatorFromNetwork::Initialize), *self))
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
@@ -251,19 +304,19 @@ impl ProtocolState<Initiator> for InitiatorState {
                 outcome()
                     .send(Message::RequestNext(PIPELINE_DEPTH))
                     .want_next()
-                    .result(InitiatorResult::IntersectFound(point, tip)),
+                    .result(InitiatorFromNetwork::IntersectFound(point, tip)),
                 CanAwait(1),
             ),
             (Intersect, Message::IntersectNotFound(tip)) => {
-                (outcome().result(InitiatorResult::IntersectNotFound(tip)), Idle)
+                (outcome().result(InitiatorFromNetwork::IntersectNotFound(tip)), Idle)
             }
             (CanAwait(n), Message::AwaitReply) => (outcome().want_next(), MustReply(*n)),
             (CanAwait(n) | MustReply(n), Message::RollForward(content, tip)) => (
-                outcome().result(InitiatorResult::RollForward(content, tip)),
+                outcome().result(InitiatorFromNetwork::RollForward(content, tip)),
                 if *n == 0 { Idle } else { CanAwait(*n - 1) },
             ),
             (CanAwait(n) | MustReply(n), Message::RollBackward(point, tip)) => (
-                outcome().result(InitiatorResult::RollBackward(point, tip)),
+                outcome().result(InitiatorFromNetwork::RollBackward(point, tip)),
                 if *n == 0 { Idle } else { CanAwait(*n - 1) },
             ),
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
@@ -302,11 +355,11 @@ pub mod tests {
 
     pub fn spec() -> ProtoSpec<InitiatorState, Message, Initiator> {
         // canonical states and messages
-        let find_intersect = || FindIntersect(vec![Point::Origin]);
-        let intersect_found = || IntersectFound(Point::Origin, Tip::origin());
-        let intersect_not_found = || IntersectNotFound(Tip::origin());
-        let roll_forward = || RollForward(HeaderContent::with_bytes(vec![], EraName::Conway), Tip::origin());
-        let roll_backward = || RollBackward(Point::Origin, Tip::origin());
+        let find_intersect = || FindIntersect(vec![NetworkPoint::Origin]);
+        let intersect_found = || IntersectFound(NetworkPoint::Origin, Point::Origin);
+        let intersect_not_found = || IntersectNotFound(Point::Origin);
+        let roll_forward = || RollForward(HeaderContent::with_bytes(vec![], EraName::Conway), Point::Origin);
+        let roll_backward = || RollBackward(NetworkPoint::Origin, Point::Origin);
 
         let mut spec = ProtoSpec::default();
         spec.init(Idle, find_intersect(), Intersect);

@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::{ConnectionId, MempoolMsg, TxOrigin};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void, register_data_deserializer};
@@ -142,7 +142,7 @@ pub enum ConnectionMessage {
         interval: std::time::Duration,
         reply_to: StageRef<ShareResult>,
     },
-    NewTip(Tip, TraceContext),
+    NewTip(Point, TraceContext),
     /// A supervised mini-protocol or mux stage terminated.
     ChildDied(ChildId),
 }
@@ -160,7 +160,7 @@ impl ConnectionMessage {
         }
     }
 
-    pub fn new_tip(tip: Tip) -> Self {
+    pub fn new_tip(tip: Point) -> Self {
         ConnectionMessage::NewTip(tip, TraceContext::none())
     }
 }
@@ -274,7 +274,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
     let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role)).await;
 
-    let handshake_result = eff.contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake).await;
+    let handshake_result = eff.me_ref().contramap(ConnectionMessage::Handshake);
 
     let handshake = match role {
         Role::Initiator => {
@@ -307,7 +307,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
         }
     };
 
-    let handler = eff.contramap(&handshake, "handshake_bytes", Inputs::Network).await;
+    let handler = handshake.contramap(Inputs::Network);
 
     let protocol = match role {
         Role::Initiator => PROTO_HANDSHAKE.erase(),
@@ -464,6 +464,7 @@ pub fn register_deserializers() -> DeserializerGuards {
 mod tests {
     use amaru_kernel::PREPROD_ERA_HISTORY;
     use amaru_pure_stage::{Effect, StageGraph, simulation::SimulationBuilder};
+    use tokio::runtime::Runtime;
 
     use super::*;
 
@@ -498,7 +499,7 @@ mod tests {
 
     fn new_tip_in_disconnected_state_reschedules(connection_state: State) {
         assert_message_reschedules_in_disconnected_state(connection_state, |_| {
-            ConnectionMessage::new_tip(Tip::origin())
+            ConnectionMessage::new_tip(Point::Origin)
         });
     }
 
@@ -514,7 +515,8 @@ mod tests {
         let msg = make_msg(&mut network);
         network.preload(&connection_stage, [msg]).unwrap();
 
-        let mut running = network.run();
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
         let start_time = running.now();
 
         let stage_name = connection_stage.name().clone();

@@ -15,8 +15,8 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, HeaderHash, IsHeader, NetworkName, Peer, Point, Tip,
-    make_header, num::CheckedSub,
+    ConsensusParameters, Epoch, EraHistory, Header, HeaderHash, IsHeader, NetworkName, Peer, Point, make_header,
+    num::CheckedSub,
 };
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{
@@ -27,7 +27,7 @@ use amaru_protocols::{
     chainsync::{self, InitiatorMessage},
     manager::ManagerMessage,
     store_effects::{
-        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadTipEffect, ResourceHeaderStore,
+        GetNoncesEffect, HasHeaderEffect, LoadHeaderEffect, LoadPointEffect, ResourceHeaderStore,
         StoreValidatedHeaderEffect,
     },
 };
@@ -36,7 +36,7 @@ use amaru_pure_stage::{
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Handle, Runtime};
+use tokio::runtime::{Handle, Runtime};
 
 use super::{NewTip, TrackPeers, TrackPeersMsg, stage};
 use crate::{
@@ -90,7 +90,7 @@ pub fn te_clock(instant: Instant) -> TraceEntry {
     TraceEntry::Clock(instant)
 }
 
-pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
+pub fn build_store(headers: &[Header]) -> Arc<InMemoryChainStore> {
     let store = Arc::new(InMemoryChainStore::new());
     for header in headers {
         store.store_header(header).unwrap();
@@ -100,7 +100,7 @@ pub fn build_store(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
 
 /// Like [`build_store`] but also persists nonces for each header, mimicking a header that has
 /// already been fully validated (as opposed to a legacy import without nonces).
-pub fn build_store_with_nonces(headers: &[BlockHeader]) -> Arc<InMemoryChainStore> {
+pub fn build_store_with_nonces(headers: &[Header]) -> Arc<InMemoryChainStore> {
     let store = build_store(headers);
     for header in headers {
         store.put_nonces(&header.hash(), &Nonces::for_tests()).unwrap();
@@ -115,7 +115,7 @@ pub struct TestPrep {
     pub handler: StageRef<InitiatorMessage>,
     pub conn_id: ConnectionId,
     /// Three linked headers: [h1, h2, h3] with h1 parent None, h2 parent h1, h3 parent h2.
-    pub headers: [BlockHeader; 3],
+    pub headers: [Header; 3],
     pub start_times: StartTimes,
 }
 
@@ -142,7 +142,7 @@ pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
         max_peer_lead,
         start_times.epoch.checked_sub(Epoch::TWO).unwrap(),
     );
-    let rt = Builder::new_current_thread().build().unwrap();
+    let rt = crate::stages::test_utils::test_runtime();
     let handler = StageRef::<InitiatorMessage>::named_for_tests("handler");
     let conn_id = ConnectionId::initial();
     let h1 = make_block_header(1, 1, None);
@@ -152,16 +152,16 @@ pub fn test_prep_with_max_peer_lead(max_peer_lead: u64) -> TestPrep {
     TestPrep { state, rt, handler, conn_id, headers: [h1, h2, h3], start_times }
 }
 
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(make_header(block_number, slot, parent))
+pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {
+    make_header(block_number, slot, parent)
 }
 
-pub fn te_validate_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
+pub fn te_validate_header(at_stage: &str, header: Header) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateHeaderEffect::new(&header))))
 }
 
-pub fn te_load_tip(at_stage: &str, hash: HeaderHash) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadTipEffect::new(hash))))
+pub fn te_load_point(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadPointEffect::new(hash))))
 }
 
 pub fn te_get_nonces(at_stage: &str, hash: HeaderHash) -> TraceEntry {
@@ -175,7 +175,7 @@ pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
 pub fn te_record_rollback(
     at_stage: &str,
     peer: Peer,
-    point: Tip,
+    point: Point,
     parent: Option<HeaderHash>,
     at: Instant,
 ) -> TraceEntry {
@@ -185,7 +185,7 @@ pub fn te_record_rollback(
     ))
 }
 
-pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEntry {
+pub fn te_store_validated_header(at_stage: &str, header: Header) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(StoreValidatedHeaderEffect::new(header, Nonces::for_tests())),
@@ -195,7 +195,7 @@ pub fn te_store_validated_header(at_stage: &str, header: BlockHeader) -> TraceEn
 pub fn te_record_header_announcement(
     at_stage: &str,
     peer: Peer,
-    header: Tip,
+    header: Point,
     parent: Option<HeaderHash>,
     at: Instant,
     slot_start_to_header_micros: u64,
@@ -213,7 +213,7 @@ pub fn te_record_header_announcement(
 }
 
 /// Slot-start → header reception interval matching [`TrackPeers`] test era history.
-pub fn slot_start_to_header_micros(header: &Tip, received_at: Instant) -> u64 {
+pub fn slot_start_to_header_micros(header: &Point, received_at: Instant) -> u64 {
     let slot_start = EraHistory::default().slot_to_relative_time_unchecked_horizon(header.slot()).unwrap_or_default();
     received_at.duration_since_global_epoch().saturating_sub(slot_start).as_micros() as u64
 }
@@ -226,7 +226,7 @@ pub fn tm_volatile_tip(at_stage: &str) -> TraceMatch<'static> {
     tm_external_effect::<VolatileTipEffect>(at_stage)
 }
 
-pub fn new_tip(tip: Tip, parent: Point) -> NewTip {
+pub fn new_tip(tip: Point, parent: Point) -> NewTip {
     NewTip { tip, parent, trace_context: Default::default() }
 }
 
@@ -241,10 +241,10 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<chainsync::HeaderContent>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<NewTip>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<(Tip, Point)>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<(Point, Point)>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetNoncesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),
@@ -289,7 +289,7 @@ pub fn setup_with_ledger_tip_until_sleeping(
     state: TrackPeers,
     msg: impl IntoIterator<Item = TrackPeersMsg>,
     store: Arc<InMemoryChainStore>,
-    ledger_tip: Tip,
+    ledger_tip: Point,
 ) -> (SimulationRunning, DeserializerGuards, Logs) {
     setup_base_until_sleeping(rt, state, msg, store, |running| {
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
@@ -347,7 +347,7 @@ fn setup_inner(
                 crate::performance::Performance::new(),
             ));
             resources.put::<ResourceHeaderStore>(store.clone());
-            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip().point()));
+            let block_validation = Arc::new(MockBlockValidator::new(store.get_best_chain_tip()));
             resources.put::<ResourceBlockValidation>(block_validation.clone());
             resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
             let era_history = NetworkName::Preprod.as_era_history().expect("preprod era for tests").clone();

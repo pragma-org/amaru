@@ -42,7 +42,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
     // ledger tip is always on the recorded best chain. When it is not, the two databases describe
     // different chains and truncating the best chain would silently discard headers. This is
     // checked before any mutation so that a rejected chain database is left untouched.
-    if has_best_chain && chain_store.load_from_best_chain(&tip).is_none() {
+    if has_best_chain && !chain_store.is_on_best_chain(tip.into()) {
         bail!(
             "the chain database is inconsistent with the ledger: its best chain, ending at \
              {best_chain_hash}, does not contain the ledger tip {tip}. This happens when \
@@ -51,7 +51,7 @@ pub fn realign_chain_store_to(chain_store: &dyn ChainStore, tip: Point, clear: C
         );
     }
 
-    chain_store.set_anchor_hash(&tip.hash())?;
+    chain_store.set_anchor_point(&tip)?;
     chain_store.set_block_valid(&tip.hash(), true)?;
     if has_best_chain {
         chain_store.switch_to_fork(&tip, &[])?;
@@ -91,7 +91,7 @@ fn clear_validation_after_tip(chain_store: &dyn ChainStore, tip: Point, clear: C
 mod tests {
     use std::sync::Arc;
 
-    use amaru_kernel::{BlockHeader, IsHeader, make_header};
+    use amaru_kernel::{Header, IsHeader, make_header};
     use amaru_ouroboros::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
 
     use super::*;
@@ -116,15 +116,15 @@ mod tests {
         for header in [&h0, &h1, &h2, &h3] {
             chain_store.roll_forward_chain(&header.point()).unwrap();
         }
-        chain_store.set_anchor_hash(&h0.hash()).unwrap();
+        chain_store.set_anchor_point(&h0.point()).unwrap();
 
         realign_chain_store_to(chain_store.as_ref(), h1.point(), ClearValidity::ValidOnly).unwrap();
 
         assert_eq!(chain_store.get_anchor_hash(), h1.hash(), "the anchor must move to the ledger tip");
         assert_eq!(chain_store.get_best_chain_hash(), h1.hash(), "the best chain must end at the ledger tip");
-        assert!(chain_store.load_from_best_chain(&h1.point()).is_some(), "the ledger tip stays on the best chain");
-        assert!(chain_store.load_from_best_chain(&h2.point()).is_none(), "h2 must leave the best chain");
-        assert!(chain_store.load_from_best_chain(&h3.point()).is_none(), "h3 must leave the best chain");
+        assert!(chain_store.is_on_best_chain(h1.point().into()), "the ledger tip stays on the best chain");
+        assert!(!chain_store.is_on_best_chain(h2.point().into()), "h2 must leave the best chain");
+        assert!(!chain_store.is_on_best_chain(h3.point().into()), "h3 must leave the best chain");
 
         assert_eq!(validity(chain_store.as_ref(), &h0), Some(true), "blocks before the ledger tip stay validated");
         assert_eq!(validity(chain_store.as_ref(), &h1), Some(true), "the ledger tip stays validated");
@@ -150,13 +150,13 @@ mod tests {
         for header in [&h0, &h1, &h2, &h3] {
             chain_store.roll_forward_chain(&header.point()).unwrap();
         }
-        chain_store.set_anchor_hash(&h0.hash()).unwrap();
+        chain_store.set_anchor_point(&h0.point()).unwrap();
 
         realign_chain_store_to(chain_store.as_ref(), h1.point(), ClearValidity::All).unwrap();
 
         assert_eq!(chain_store.get_anchor_hash(), h1.hash());
         assert_eq!(chain_store.get_best_chain_hash(), h1.hash());
-        assert!(chain_store.load_from_best_chain(&h2.point()).is_none());
+        assert!(!chain_store.is_on_best_chain(h2.point().into()));
         assert_eq!(validity(chain_store.as_ref(), &h0), Some(true));
         assert_eq!(validity(chain_store.as_ref(), &h1), Some(true));
         assert_eq!(validity(chain_store.as_ref(), &h2), None);
@@ -179,7 +179,7 @@ mod tests {
 
         assert_eq!(chain_store.get_anchor_hash(), h0.hash());
         assert_eq!(chain_store.get_best_chain_hash(), h0.hash());
-        assert!(chain_store.load_from_best_chain(&h0.point()).is_some(), "the ledger tip starts the best chain");
+        assert!(chain_store.is_on_best_chain(h0.point().into()), "the ledger tip starts the best chain");
         assert_eq!(validity(chain_store.as_ref(), &h0), Some(true));
     }
 
@@ -199,7 +199,7 @@ mod tests {
         for header in [&h0, &h1] {
             chain_store.roll_forward_chain(&header.point()).unwrap();
         }
-        chain_store.set_anchor_hash(&h0.hash()).unwrap();
+        chain_store.set_anchor_point(&h0.point()).unwrap();
 
         let error =
             realign_chain_store_to(chain_store.as_ref(), h1a.point(), ClearValidity::All).unwrap_err().to_string();
@@ -212,11 +212,11 @@ mod tests {
         }
     }
 
-    fn header(block_height: u64, slot: u64, parent: Option<&BlockHeader>) -> BlockHeader {
-        BlockHeader::from(make_header(block_height, slot, parent.map(BlockHeader::hash)))
+    fn header(block_height: u64, slot: u64, parent: Option<&Header>) -> Header {
+        make_header(block_height, slot, parent.map(Header::hash))
     }
 
-    fn validity(chain_store: &dyn ChainStore, header: &BlockHeader) -> Option<bool> {
+    fn validity(chain_store: &dyn ChainStore, header: &Header) -> Option<bool> {
         chain_store.load_header_with_validity(&header.hash()).and_then(|(_, validity)| validity)
     }
 }

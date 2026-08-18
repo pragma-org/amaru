@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use amaru_kernel::{BlockHeight, Peer, Point, Tip};
+use amaru_kernel::{BlockHeight, Peer, Point};
 use amaru_pure_stage::{Effects, StageRef};
 use tracing::field;
 
@@ -31,7 +31,7 @@ use crate::stages::peer_selection::PeerSelectionMsg;
 /// supplied at construction).
 ///
 /// ## State
-/// - `adopted_tip: Tip`: The node's current adopted tip. Updated only via
+/// - `adopted_tip: Point`: The node's current adopted tip. Updated only via
 ///   `AdoptedTip` messages. Serves as the base for pruning.
 /// - `max_tip_distance: u64`: Window size (in block heights). Used **solely**
 ///   by `prune()` to discard tracking entries whose height is < `adopted_h - max_tip_distance`.
@@ -74,7 +74,7 @@ use crate::stages::peer_selection::PeerSelectionMsg;
 /// The `stage()` function is the amaru_pure_stage handler.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BlockSource {
-    adopted_tip: Tip,
+    adopted_tip: Point,
     max_tip_distance: u64,
     by_point: BTreeMap<Point, BlockValidity>,
     invalid_peer_sink: StageRef<PeerSelectionMsg>,
@@ -99,13 +99,13 @@ impl BlockValidity {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BlockSourceMsg {
-    BlockReceived { peer: Peer, tip: Tip },
+    BlockReceived { peer: Peer, tip: Point },
     Validation { valid: bool, point: Point },
-    AdoptedTip(Tip),
+    AdoptedTip(Point),
 }
 
 impl BlockSource {
-    pub fn new(adopted_tip: Tip, max_tip_distance: u64, invalid_peer_sink: StageRef<PeerSelectionMsg>) -> Self {
+    pub fn new(adopted_tip: Point, max_tip_distance: u64, invalid_peer_sink: StageRef<PeerSelectionMsg>) -> Self {
         Self { adopted_tip, max_tip_distance, by_point: BTreeMap::new(), invalid_peer_sink }
     }
 
@@ -119,12 +119,10 @@ impl BlockSource {
         span.record("retained", retained);
     }
 
-    async fn on_block_received(&mut self, peer: Peer, tip: Tip, eff: &Effects<BlockSourceMsg>) {
+    async fn on_block_received(&mut self, peer: Peer, point: Point, eff: &Effects<BlockSourceMsg>) {
         use BlockValidity::*;
 
-        let point = tip.point();
-        let block_height = tip.block_height();
-        tracing::debug!(%peer, %point, %block_height, "block received");
+        tracing::debug!(%peer, %point, "block received");
         match self.by_point.get_mut(&point) {
             Some(Invalid(_height)) => {
                 tracing::info!(%peer, %point, "received known invalid block from new peer");
@@ -137,7 +135,7 @@ impl BlockSource {
                 // do nothing
             }
             None => {
-                self.by_point.insert(point, Pending(block_height, BTreeSet::from([peer])));
+                self.by_point.insert(point, Pending(point.block_height(), BTreeSet::from([peer])));
             }
         }
         self.prune();
@@ -160,7 +158,7 @@ impl BlockSource {
         self.prune();
     }
 
-    fn on_adopted_tip(&mut self, tip: Tip) {
+    fn on_adopted_tip(&mut self, tip: Point) {
         self.adopted_tip = tip;
         self.prune();
     }

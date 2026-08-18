@@ -1,0 +1,31 @@
+{
+  "title": "vote cast by a stake pool on a motion of no confidence",
+  "description": "Stake pools carry a threshold on the action that dissolves the committee.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "82582035d11e5dcaf28ddff61718afe2a1b07afc12b8d1bcd20f0f017930b88db1c34e00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "ConstitutionalCommittee", 6]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d901028182582035d11e5dcaf28ddff61718afe2a1b07afc12b8d1bcd20f0f017930b88db1c34e000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18204581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840494852f86ea27c9a68db028e9b8c998a4be893712dc4a29d4f5dedc4f8030a41e46d2d0bf451b1aa91773a672254a91009db5c610d9471b01b056e0facdaa00cf5f6",
+  "expected": "Pass"
+}

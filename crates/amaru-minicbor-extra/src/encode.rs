@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::convert::Infallible;
+
 use minicbor as cbor;
 use minicbor::{Encoder, data::Tag};
 use num::One;
@@ -90,6 +92,60 @@ pub fn encode_bytestring<'a, W: minicbor::encode::Write>(
         e.end()?;
     }
     Ok(e)
+}
+
+/// Encode a map using a variable-length encoding; maps smaller than 24 elements are serialized as
+/// definite maps, whereas larger maps uses indefinite maps to avoid encoding larger length.
+pub fn encode_variable_length_map<'iter, C, K, V, W>(
+    e: &mut Encoder<W>,
+    map: impl ExactSizeIterator<Item = (&'iter K, &'iter V)>,
+    ctx: &mut C,
+) -> Result<(), minicbor::encode::Error<W::Error>>
+where
+    K: minicbor::Encode<C> + 'iter,
+    V: minicbor::Encode<C> + 'iter,
+    W: minicbor::encode::Write,
+{
+    let as_indef = map.len() > 23;
+
+    if as_indef {
+        e.begin_map()?;
+    } else {
+        e.map(map.len() as u64)?;
+    }
+
+    for (k, v) in map {
+        e.encode_with(k, ctx)?;
+        e.encode_with(v, ctx)?;
+    }
+
+    if as_indef {
+        e.end()?;
+    }
+
+    Ok(())
+}
+
+/// Count serialized bytes for a given value, without allocating.
+pub fn count_bytes<T: minicbor::Encode<()>>(value: &T) -> usize {
+    let mut encoder = cbor::Encoder::new(ByteCounter::default());
+    encoder.encode(value).unwrap_or_else(|_| unreachable!("writing to a ByteCounter cannot fail"));
+    encoder.into_writer().length
+}
+
+/// A CBOR sink that only counts bytes
+#[derive(Default)]
+pub struct ByteCounter {
+    pub length: usize,
+}
+
+impl cbor::encode::Write for ByteCounter {
+    type Error = Infallible;
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.length += buf.len();
+        Ok(())
+    }
 }
 
 #[cfg(test)]

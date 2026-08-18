@@ -64,22 +64,22 @@ pub fn serialize_memoized_script<S: serde::ser::Serializer>(
     s.end()
 }
 
-impl<'b, C> minicbor::Decode<'b, C> for MemoizedScript {
-    fn decode(d: &mut minicbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+impl<'b, C: crate::cbor::HasProtocolVersion> minicbor::Decode<'b, C> for MemoizedScript {
+    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
             match d.u8()? {
-                0 => Ok(Self::NativeScript(d.decode()?)),
-                1 => Ok(Self::PlutusV1Script(d.decode()?)),
-                2 => Ok(Self::PlutusV2Script(d.decode()?)),
-                3 => Ok(Self::PlutusV3Script(d.decode()?)),
+                0 => Ok(Self::NativeScript(d.decode_with(ctx)?)),
+                1 => Ok(Self::PlutusV1Script(d.decode_with(ctx)?)),
+                2 => Ok(Self::PlutusV2Script(d.decode_with(ctx)?)),
+                3 => Ok(Self::PlutusV3Script(d.decode_with(ctx)?)),
                 _ => Err(minicbor::decode::Error::message("invalid variant for MemoizedScript enum")),
             }
         })
     }
 }
 
-impl<C> minicbor::Encode<C> for MemoizedScript {
+impl<C: crate::cbor::HasProtocolVersion> minicbor::Encode<C> for MemoizedScript {
     fn encode<W: minicbor::encode::Write>(
         &self,
         e: &mut minicbor::Encoder<W>,
@@ -133,6 +133,10 @@ impl BorrowedScript<'_> {
     /// A `BorrowedScript::Native` is treated `unreachable` since there are no redeemers for NativeScript
     /// and they are not flat-encoded bytes.
     pub fn to_bytes(&self) -> Result<Vec<u8>, cbor::decode::Error> {
+        // Conformance: plutus-ledger-api extracts the flat payload with cborg's `decodeBytes`, which
+        // rejects indefinite-length byte strings; accepting them here would change phase-2 validation
+        // outcomes.
+        #[allow(clippy::disallowed_methods)]
         fn decode_cbor_bytes(cbor: &[u8]) -> Result<Vec<u8>, cbor::decode::Error> {
             cbor::decode::Decoder::new(cbor).bytes().map(|b| b.to_vec())
         }

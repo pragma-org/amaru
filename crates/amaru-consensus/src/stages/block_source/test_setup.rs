@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeight, Tip};
+use amaru_kernel::{BlockHeight, Point};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -33,10 +33,10 @@ pub struct TestPrep {
     pub rt: Runtime,
 }
 
-pub fn test_prep(adopted_tip: Tip, max_tip_distance: u64) -> TestPrep {
+pub fn test_prep(adopted_tip: Point, max_tip_distance: u64) -> TestPrep {
     let invalid_sink = StageRef::named_for_tests("invalid_sink");
     let state = BlockSource::new(adopted_tip, max_tip_distance, invalid_sink);
-    TestPrep { state, rt: Builder::new_current_thread().build().unwrap() }
+    TestPrep { state, rt: crate::stages::test_utils::test_runtime() }
 }
 
 pub fn register_guards() -> DeserializerGuards {
@@ -45,7 +45,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerSelectionMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::Peer>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<BlockHeight>().boxed(),
     ]
@@ -71,8 +71,8 @@ pub fn setup(prep: &TestPrep, msgs: &[BlockSourceMsg]) -> (SimulationRunning, De
     let bs = network.wire_up(bs, prep.state.clone());
     network.preload(&bs, msgs.iter().cloned()).expect("preload");
 
-    let mut running = network.run();
-    running.run_until_blocked_incl_effects(prep.rt.handle());
+    let mut running = network.run(prep.rt.handle());
+    running.run_until_blocked_incl_effects();
 
     (running, guards, logs.logs())
 }

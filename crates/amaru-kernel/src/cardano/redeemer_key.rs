@@ -17,6 +17,7 @@ use crate::{RedeemerTag, cbor};
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode,
 )]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct RedeemerKey {
     #[n(0)]
     pub tag: RedeemerTag,

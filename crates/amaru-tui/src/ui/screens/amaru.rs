@@ -302,13 +302,18 @@ mod tests {
                 Vec::default(),
             ),
         );
-        model.block_rate.record(model.created_at + Duration::from_secs(1), 1);
-        model.block_rate.record(model.created_at + Duration::from_secs(4), 1);
-        model.transaction_rate.record(model.created_at + Duration::from_secs(2), 9);
-        model.transaction_rate.record(model.created_at + Duration::from_secs(4), 3);
+        model.block_rate.record(1);
+        model.transaction_rate.record(9);
+        model.block_rate.sample(model.created_at + Duration::from_secs(1));
+        model.transaction_rate.sample(model.created_at + Duration::from_secs(1));
+
+        model.block_rate.record(1);
+        model.transaction_rate.record(3);
+        model.block_rate.sample(model.created_at + Duration::from_secs(4));
+        model.transaction_rate.sample(model.created_at + Duration::from_secs(4));
 
         assert_eq!(blocks_per_second(&model), 1.0 / 3.0);
-        assert_eq!(transactions_per_second(&model), 1.5);
+        assert_eq!(transactions_per_second(&model), 1.0);
     }
 
     #[test]

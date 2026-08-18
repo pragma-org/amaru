@@ -125,7 +125,7 @@ define_schemas! {
                 /// Fetch a range of blocks starting from the specified tip
                 FETCH {
                     tags: cpu
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
             }
@@ -144,13 +144,13 @@ define_schemas! {
                 /// Received a new tip from an upstream peer
                 SELECT_FROM_TIP {
                     tags: cpu
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Received a block validation result
                 SELECT_FROM_BLOCK_VALIDATION {
                     tags: cpu
-                    required point: amaru_kernel::Tip
+                    required point: amaru_kernel::Point
                     required valid: bool
                     required header_hash: amaru_kernel::HeaderHash
                 }
@@ -165,7 +165,7 @@ define_schemas! {
                 tags: cpu
                 /// Received a new tip to roll forward
                 PROCESS {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required peer: amaru_kernel::Peer
                     optional header_hash: amaru_kernel::HeaderHash
                 }
@@ -175,7 +175,7 @@ define_schemas! {
                 /// Received a header to rollback
                 PROCESS {
                     required current: amaru_kernel::Point
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required peer: amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
                 }
@@ -200,7 +200,7 @@ define_schemas! {
                 }
                 /// Forward to a downstream peer
                 FORWARD {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                     required peer: amaru_kernel::Peer
                 }
@@ -209,13 +209,18 @@ define_schemas! {
                 tags: cpu
                 /// Validate a block by applying it to the current ledger
                 VALIDATE {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                     optional valid: bool
                 }
+                /// Skip a block validation when it is not better than the current ledger tip
+                public SKIP {
+                    required current: amaru_kernel::Point
+                    required tip: amaru_kernel::Point
+                }
                 /// Adopt a block as the next block in the best chain
                 ADOPT {
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Mismatched body hash after download, the peer is adversarial
@@ -286,6 +291,9 @@ define_schemas! {
                     required fork_point: amaru_kernel::Point
                     required fork_length: usize
                     required rollback_length: usize
+                    optional outcome: String
+                    // In case of an error, this says if the stable was impacted
+                    optional stable_modified: bool
                 }
                 /// Forward ledger state with new volatile state
                 public PUSH {}
@@ -421,73 +429,19 @@ define_schemas! {
             transaction {
                 /// Validate a single transaction
                 public VALIDATE {
-                    required transaction_id: amaru_kernel::TransactionId,
-                }
-                /// Register a stake credential
-                public CERTIFICATE_STAKE_REGISTRATION {
-                    required credential: String
-                }
-                /// Delegate stake to a pool
-                public CERTIFICATE_STAKE_DELEGATION {
-                    required credential: String
-                    required pool_id: amaru_kernel::PoolId
-                }
-                /// Unregister a stake credential
-                public CERTIFICATE_STAKE_DEREGISTRATION {
-                    required credential: String
-                }
-                /// Register a DRep
-                public CERTIFICATE_DREP_REGISTRATION {
-                    required drep: String
-                    required deposit: amaru_kernel::Lovelace
-                    optional anchor_url: String
-                }
-                /// Update DRep anchor
-                public CERTIFICATE_DREP_UPDATE {
-                    required drep: String
-                    optional anchor_url: String
-                }
-                /// Unregister a DRep
-                public CERTIFICATE_DREP_RETIREMENT {
-                    required drep: String
-                    required refund: amaru_kernel::Lovelace
-                }
-                /// Delegate vote to DRep
-                public CERTIFICATE_VOTE_DELEGATION {
-                    required credential: String
-                    optional drep: String
-                }
-                /// Register a pool
-                public CERTIFICATE_POOL_REGISTRATION {
-                    required pool_id: amaru_kernel::PoolId
-                }
-                /// Retire a pool
-                public CERTIFICATE_POOL_RETIREMENT {
-                    required pool_id: amaru_kernel::PoolId
-                    required epoch: amaru_kernel::Epoch
-                }
-                /// Delegate cold key to committee
-                public CERTIFICATE_COMMITTEE_DELEGATE {
-                    required cc_member: String
-                    required delegate: String
-                }
-                /// Resign from committee
-                public CERTIFICATE_COMMITTEE_RESIGN {
-                    required cc_member: String
-                    optional anchor_url: String
+                    required id: amaru_kernel::TransactionId,
                 }
                 /// Found a transaction while applying a block
                 public FOUND {
                     required point: amaru_kernel::Point
-                    required block_height: u64
-                    required tx_index: usize
-                    required tx_id: amaru_kernel::TransactionId
+                    required index: usize
+                    required id: amaru_kernel::TransactionId
                 }
             }
             block_validation_context {
                 /// Create validation context for a block
                 public CREATE {
-                    required block_body_hash: amaru_kernel::HeaderHash
+                    required block_id: amaru_kernel::HeaderHash
                     required block_number: u64
                     required block_body_size: u64
                     optional total_inputs: u64
@@ -496,7 +450,7 @@ define_schemas! {
             transaction_validation_context {
                 /// Create validation context for a transaction
                 public CREATE {
-                    required transaction_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                 }
             }
             validation_context {
@@ -530,10 +484,7 @@ define_schemas! {
                 }
                 committee {
                     /// Resolve committee members from the volatile db or the stable one
-                    public HYDRATE {
-                        optional from_volatile: u64
-                        optional from_db: u64
-                    }
+                    public HYDRATE {}
                 }
                 proposals {
                     /// Resolve proposals from the volatile db or the stable one
@@ -681,7 +632,6 @@ define_schemas! {
                 /// Found a non-empty block while applying it to the ledger
                 public FOUND {
                     required point: amaru_kernel::Point
-                    required block_height: u64
                     required tx_count: usize
                 }
             }
@@ -876,7 +826,7 @@ define_schemas! {
                 /// Received a rollback while fetching bootstrap headers
                 public ROLLBACK {
                     required point: amaru_kernel::Point
-                    required tip: amaru_kernel::Tip
+                    required tip: amaru_kernel::Point
                 }
             }
             governance_activity {
@@ -1330,6 +1280,8 @@ define_schemas! {
                 votes {
                     /// Record governance votes
                     public ADD {}
+                    /// Remove now-obsolete governance votes
+                    public REMOVE {}
                 }
                 slots {
                     /// Point-read a slot/block-issuer entry
@@ -1396,30 +1348,30 @@ define_schemas! {
             transaction {
                 /// Transaction received by the mempool stage, before validation.
                 public RECEIVED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required origin: String
                 }
                 /// Transaction validated and inserted into the mempool.
                 public ACCEPTED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required seq_no: u64
                     required origin: String
                 }
                 /// Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}.
                 public REJECTED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required reason: String
                     optional validation_error: String
                 }
                 /// Transaction removed from the mempool. Reason ∈ {invalid_after_tip}.
                 /// TODO: split the reason into invalid after tip + present in applied block
                 public EVICTED {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required reason: String
                 }
                 /// Detail trace carrying upstream peer attribution for a received tx.
                 RECEIVED_DETAIL {
-                    required tx_id: amaru_kernel::TransactionId
+                    required id: amaru_kernel::TransactionId
                     required peer: amaru_kernel::Peer
                 }
                 /// Detail trace for a tip-driven revalidation pass.
@@ -1654,7 +1606,7 @@ define_schemas! {
                     REPLY_TX_IDS {
                         required peer: amaru_kernel::Peer
                         required count: usize
-                        required tx_ids: &[amaru_kernel::TransactionId]
+                        required ids: &[amaru_kernel::TransactionId]
                     }
                     /// Send transaction bodies to the peer in a ReplyTxs. Advertised ids whose
                     /// tx was evicted before the fetch are listed in `omitted`.
@@ -1700,7 +1652,7 @@ define_schemas! {
                     /// without ever fetching its body.
                     SKIP_FETCH {
                         required peer: amaru_kernel::Peer
-                        required tx_id: amaru_kernel::TransactionId
+                        required id: amaru_kernel::TransactionId
                     }
                     /// Request tx ids from the peer, acknowledging processed ones.
                     REQUEST_TX_IDS {
@@ -1713,7 +1665,7 @@ define_schemas! {
                     REQUEST_TXS {
                         required peer: amaru_kernel::Peer
                         required count: usize
-                        required tx_ids: &[amaru_kernel::TransactionId]
+                        required ids: &[amaru_kernel::TransactionId]
                     }
                     /// Mempool near capacity: fetching is deferred until capacity frees up.
                     AWAITING_CAPACITY {

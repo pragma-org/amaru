@@ -18,7 +18,7 @@ use amaru_kernel::{
     CertificatePointer, Epoch, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Pots, ProposalPointer, StakeCredential,
 };
 use amaru_ledger::{
-    context::PreparationContext,
+    context::{PreparationContext, ProposalState},
     epoch_transition::GovernanceActivity,
     state::volatile::{AnchoredVolatileFragment, VolatileDB, VolatileFragment, VolatileSequence},
     store::{self, ReadStore},
@@ -103,19 +103,19 @@ impl Scenario {
             // The context will always reach to the stable store for committee members, since the
             // volatile can only know they're gone after a an epoch transition, while everything
             // else requires a stable store view.
-            fn cc_member(
+            fn iter_cc_members(
                 &self,
-                credential: &StakeCredential,
-            ) -> store::Result<Option<store::columns::cc_members::Row>> {
+            ) -> store::Result<impl Iterator<Item = (store::columns::cc_members::Key, store::columns::cc_members::Row)>>
+            {
                 match self.0 {
-                    Scenario::Committee | Scenario::Mixed => Ok(None),
+                    Scenario::Committee | Scenario::Mixed => Ok(std::iter::empty()),
                     Scenario::Utxo
                     | Scenario::Pools
                     | Scenario::Accounts
                     | Scenario::Withdrawals
                     | Scenario::DReps
                     | Scenario::Proposals
-                    | Scenario::Votes => unimplemented!("ReadStore.cc_member({credential:?}"),
+                    | Scenario::Votes => unimplemented!("ReadStore.iter_cc_members() for {:?}", self.0),
                 }
             }
 
@@ -130,7 +130,7 @@ impl Scenario {
                     | Scenario::Committee
                     | Scenario::DReps
                     | Scenario::Proposals
-                    | Scenario::Votes => unimplemented!("ReadStore.account({credential:?}"),
+                    | Scenario::Votes => unimplemented!("ReadStore.account({credential:?} for {:?}", self.0),
                 }
             }
 
@@ -250,16 +250,13 @@ impl Scenario {
                 fragment.withdrawals.iter().for_each(|account| ctx.require_account(Cow::Borrowed(account)));
             }
             Self::Committee => {
-                std::iter::empty()
-                    .chain(fragment.committee.produced.keys())
-                    .chain(fragment.committee.consumed.iter())
-                    .for_each(|cc_member| ctx.require_committee_member(cc_member));
+                fragment.committee.registered.keys().for_each(|cc_member| ctx.require_committee_member(cc_member));
             }
             Self::DReps => {
                 std::iter::empty()
                     .chain(fragment.dreps.registered.keys())
                     .chain(fragment.dreps.unregistered.iter())
-                    .for_each(|drep| ctx.require_drep(drep));
+                    .for_each(|drep| ctx.require_drep(Cow::Borrowed(drep)));
             }
             Self::Proposals => { /* Nothing to do, because we generate Information proposals */ }
             Self::Votes => {
@@ -275,8 +272,12 @@ impl Scenario {
 
     // Create a volatile database, pre-filled with data along the given dimension
     pub fn new_volatile_db(self, rng: &mut impl Rng, scale: &BenchScale) -> VolatileDB {
-        let mut db =
-            VolatileDB::new(Epoch::from(0), MAINNET_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let mut db = VolatileDB::new(
+            Epoch::from(0),
+            MAINNET_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+            GovernanceActivity::default(),
+            None,
+        );
 
         (0..scale.volatile_size).for_each(|ix| {
             let mut fragment = VolatileFragment::default();
@@ -373,14 +374,15 @@ fn step_fragment_withdrawals(fragment: &mut VolatileFragment, rng: &mut impl ran
     Scenario::Withdrawals.per_item_size()
 }
 
+#[allow(clippy::unwrap_used)]
 fn step_fragment_committee(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng, ix: usize) -> usize {
     let cold_credential = fixture::stake_credential(rng);
 
     if ix.is_multiple_of(2) {
         let hot_credential = fixture::stake_credential(rng);
-        fragment.committee.produce(cold_credential, hot_credential);
+        fragment.committee.bind_left(cold_credential, Some(hot_credential.into())).unwrap();
     } else {
-        fragment.committee.consume(cold_credential);
+        fragment.committee.bind_left(cold_credential, None).unwrap();
     }
 
     Scenario::Committee.per_item_size()
@@ -402,7 +404,14 @@ fn step_fragment_dreps(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng
 fn step_fragment_proposals(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng, _ix: usize) -> usize {
     let proposal_id = fixture::comparable_proposal_id(rng);
 
-    fragment.proposals.insert(proposal_id, Arc::new((fixture::proposal(rng), ProposalPointer::default())));
+    fragment.proposals.insert(
+        proposal_id,
+        Arc::new(ProposalState {
+            proposed_in: ProposalPointer::default(),
+            valid_until: Epoch::default(),
+            proposal: fixture::proposal(rng),
+        }),
+    );
 
     Scenario::Proposals.per_item_size()
 }

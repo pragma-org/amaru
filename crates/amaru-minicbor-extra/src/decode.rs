@@ -62,6 +62,7 @@ pub fn decode_bytes<'b>(d: &mut cbor::Decoder<'b>) -> Result<Cow<'b, [u8]>, deco
         return Ok(Cow::Owned(bytes));
     }
 
+    #[allow(clippy::disallowed_methods)]
     Ok(Cow::Borrowed(d.bytes()?))
 }
 
@@ -208,7 +209,7 @@ pub fn check_tagged_array_length(label: usize, actual: Option<u64>, expected: u6
 ///     |d| d.u8(),
 ///     |d, state, field| {
 ///         match field {
-///             0 => state.0 = Some(decode_address(d.bytes()?),
+///             0 => state.0 = Some(decode_address(&decode_bytes(d)?),
 ///             1 => state.1 = Some(d.decode()?),
 ///             2 => state.2 = decode_datum()?,
 ///             3 => state.3 = decode_reference_script()?,
@@ -220,9 +221,21 @@ pub fn check_tagged_array_length(label: usize, actual: Option<u64>, expected: u6
 /// ```
 pub fn heterogeneous_map<K, S>(
     d: &mut cbor::Decoder<'_>,
-    mut state: S,
+    state: S,
     decode_key: impl Fn(&mut cbor::Decoder<'_>) -> Result<K, cbor::decode::Error>,
     mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut S, K) -> Result<(), cbor::decode::Error>,
+) -> Result<S, cbor::decode::Error> {
+    heterogeneous_map_with(d, &mut (), state, |d, _| decode_key(d), |d, _, st, k| decode_value(d, st, k))
+}
+
+/// Like [`heterogeneous_map`], but threading a decoding context through both the key and the
+/// value decoders, for maps whose keys themselves need the context to decode.
+pub fn heterogeneous_map_with<C, K, S>(
+    d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
+    mut state: S,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>, &mut C) -> Result<K, cbor::decode::Error>,
+    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut C, &mut S, K) -> Result<(), cbor::decode::Error>,
 ) -> Result<S, cbor::decode::Error> {
     let len = d.map()?;
 
@@ -232,8 +245,8 @@ pub fn heterogeneous_map<K, S>(
             break;
         }
 
-        let k = decode_key(d)?;
-        decode_value(d, &mut state, k)?;
+        let k = decode_key(d, ctx)?;
+        decode_value(d, ctx, &mut state, k)?;
 
         n += 1;
     }

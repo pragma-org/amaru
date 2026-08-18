@@ -19,8 +19,14 @@ use std::{
 
 use crate::cbor;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BlockHeight(u64);
+
+impl BlockHeight {
+    pub fn into_u64(self) -> u64 {
+        self.0
+    }
+}
 
 impl From<u64> for BlockHeight {
     fn from(value: u64) -> Self {

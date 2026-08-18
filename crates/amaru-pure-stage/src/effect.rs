@@ -32,7 +32,7 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    BLACKHOLE_NAME, BoxFuture, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
+    BLACKHOLE_NAME, BoxFuture, DurationDist, Instant, Name, Resources, ScheduleId, SendData, StageBuildRef, StageRef,
     effect_box::{EffectBox, airlock_effect},
     serde::{NoDebug, SendDataValue, never, to_cbor},
     simulation::Transition,
@@ -169,8 +169,8 @@ impl<M> Effects<M> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
     pub fn send<Msg: SendData>(&self, target: &StageRef<Msg>, msg: Msg) -> BoxFuture<'static, ()> {
-        let call = target.extra().cloned();
-        airlock_effect(&self.effect, StageEffect::Send(target.name().clone(), call, Box::new(msg)), |_eff| Some(()))
+        let (name, call, payload) = target.materialize_send(msg);
+        airlock_effect(&self.effect, StageEffect::Send(name, call, payload), |_eff| Some(()))
     }
 
     /// Obtain the current simulation time.
@@ -210,15 +210,21 @@ impl<M> Effects<M> {
         timeout: Duration,
         msg: impl FnOnce(StageRef<Resp>) -> Req + Send + 'static,
     ) -> BoxFuture<'static, Option<Resp>> {
-        if target.extra().is_some() {
-            panic!("cannot answer a call with a call ({} -> {})", self.me.name(), target.name());
+        let peeled = target.peel();
+        if peeled.leftover.is_some() {
+            panic!("cannot answer a call with a call ({} -> {})", self.me.name(), peeled.name);
         }
-        let msg = Box::new(move |name: Name, extra: Arc<dyn Any + Send + Sync>| {
-            Box::new(msg(StageRef::new(name).with_extra(extra))) as Box<dyn SendData>
+        let inject = peeled.transform;
+        let msg = Box::new(move |reply_name: Name, extra: Arc<dyn Any + Send + Sync>| {
+            let req = Box::new(msg(StageRef::new(reply_name).with_extra(extra))) as Box<dyn SendData>;
+            match inject {
+                Some(inject) => inject(req),
+                None => req,
+            }
         }) as CallFn;
         airlock_effect(
             &self.effect,
-            StageEffect::Call(target.name().clone(), timeout, CallExtra::CallFn(NoDebug::new(msg))),
+            StageEffect::Call(peeled.name, timeout, CallExtra::CallFn(NoDebug::new(msg))),
             |eff| match eff {
                 Some(StageResponse::CallResponse(resp)) => {
                     if resp.typetag_name() == type_name::<CallTimeout>() {
@@ -377,35 +383,6 @@ impl<M> Effects<M> {
     }
 
     #[expect(clippy::future_not_send)]
-    pub async fn contramap<Original: SendData, Mapped: SendData>(
-        &self,
-        stage: impl AsRef<StageRef<Original>>,
-        new_name: impl AsRef<str>,
-        transform: impl Fn(Mapped) -> Original + Send + 'static,
-    ) -> StageRef<Mapped> {
-        let new_name = Name::from(new_name.as_ref());
-        let transform = Box::new(move |mapped: Box<dyn SendData>| {
-            let mapped = mapped.cast::<Mapped>().expect("internal message type error");
-            let original = transform(*mapped);
-            Box::new(original) as Box<dyn SendData>
-        });
-        let name = airlock_effect(
-            &self.effect,
-            StageEffect::Contramap {
-                original: stage.as_ref().name().clone(),
-                new_name,
-                transform: NoDebug::new(transform),
-            },
-            |eff| match eff {
-                Some(StageResponse::ContramapResponse(name)) => Some(name),
-                _ => None,
-            },
-        )
-        .await;
-        StageRef::new(name)
-    }
-
-    #[expect(clippy::future_not_send)]
     pub async fn wire_up<Msg, St, T: SendData>(
         &self,
         stage: crate::StageBuildRef<Msg, St, (TransitionFactory, T)>,
@@ -465,7 +442,21 @@ impl CanSupervise {
 ///
 /// The [`run`](ExternalEffect::run) method is used to perform the effect unless a
 /// simulator chooses differently. The latter can be done by downcasting to the concrete type.
+///
+/// Prefer implementing [`ExternalEffectAPI`]: a blanket impl provides [`ExternalEffect`]
+/// and wires [`simulated_duration_dist`](Self::simulated_duration_dist) to
+/// [`ExternalEffectAPI::SIMULATED_DURATION`].
 pub trait ExternalEffect: SendData {
+    /// Distribution of simulated time this effect occupies in
+    /// [`crate::simulation::SimulationRunning`].
+    ///
+    /// The Tokio runtime ignores this. Types that implement [`ExternalEffectAPI`] inherit
+    /// [`ExternalEffectAPI::SIMULATED_DURATION`]. Direct implementors default to
+    /// [`DurationDist::Zero`].
+    fn simulated_duration_dist(&self) -> DurationDist {
+        DurationDist::ZERO
+    }
+
     /// Run the effect in production mode.
     ///
     /// Implementations typically retrieve shared services via typed lookups
@@ -473,37 +464,6 @@ pub trait ExternalEffect: SendData {
     ///
     /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
-
-    /// Helper method for implementers of ExternalEffect.
-    fn wrap(
-        f: impl Future<Output = <Self as ExternalEffectAPI>::Response> + Send + 'static,
-    ) -> BoxFuture<'static, Box<dyn SendData>>
-    where
-        Self: Sized + ExternalEffectAPI,
-    {
-        Box::pin(async move {
-            let response = f.await;
-            Box::new(response) as Box<dyn SendData>
-        })
-    }
-
-    /// Helper method for implementers of ExternalEffect that have a synchronous response.
-    fn wrap_sync(response: <Self as ExternalEffectAPI>::Response) -> BoxFuture<'static, Box<dyn SendData>>
-    where
-        Self: Sized + ExternalEffectAPI,
-    {
-        Box::pin(future::ready(Box::new(response) as Box<dyn SendData>))
-    }
-
-    /// Helper method for implementers of ExternalEffect that have a synchronous response.
-    fn wrap_sync_f(
-        response: impl FnOnce() -> <Self as ExternalEffectAPI>::Response,
-    ) -> BoxFuture<'static, Box<dyn SendData>>
-    where
-        Self: Sized + ExternalEffectAPI,
-    {
-        Box::pin(future::ready(Box::new(response()) as Box<dyn SendData>))
-    }
 }
 
 impl Display for dyn ExternalEffect {
@@ -516,9 +476,83 @@ impl Display for dyn ExternalEffect {
 /// Separate trait for fixing the response type of an external effect.
 ///
 /// This cannot be included in [`ExternalEffect`] because it would require a type parameter, which
-/// in turn would make that trait non-object-safe.
-pub trait ExternalEffectAPI: ExternalEffect {
+/// in turn would make that trait non-object-safe. Implement this trait only: a blanket impl
+/// supplies [`ExternalEffect`].
+pub trait ExternalEffectAPI: SendData {
     type Response: SendData + DeserializeOwned;
+
+    /// Type-level declaration of the simulated duration distribution.
+    ///
+    /// A blanket [`ExternalEffect`] impl reports this as
+    /// [`ExternalEffect::simulated_duration_dist`]. Use [`DurationDist::UntilResolved`] when
+    /// the simulation (not a sampled `δ`) decides when the effect Future completes.
+    const SIMULATED_DURATION: DurationDist = DurationDist::ZERO;
+
+    /// Instance view of [`Self::SIMULATED_DURATION`]. Override only if the distribution
+    /// depends on the effect value; keep it equal to the const so [`Self::wrap`] stays honest.
+    fn simulated_duration_dist(&self) -> DurationDist {
+        Self::SIMULATED_DURATION
+    }
+
+    /// Run the effect in production mode.
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
+
+    /// Helper for implementers of [`ExternalEffect::run`].
+    ///
+    /// Pass a closure so this method can assert
+    /// [`ExternalEffect::simulated_duration_dist`] matches [`Self::SIMULATED_DURATION`]
+    /// before `self` is moved into the future.
+    fn wrap<F, Fut>(self, f: F) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized,
+        F: FnOnce(Self) -> Fut + Send + 'static,
+        Fut: Future<Output = Self::Response> + Send + 'static,
+    {
+        assert_simulated_duration(&self);
+        Box::pin(async move {
+            let response = f(self).await;
+            Box::new(response) as Box<dyn SendData>
+        })
+    }
+
+    /// Helper for implementers of [`ExternalEffect::run`] with a synchronous response.
+    fn wrap_sync(&self, response: Self::Response) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized,
+    {
+        assert_simulated_duration(self);
+        Box::pin(future::ready(Box::new(response) as Box<dyn SendData>))
+    }
+
+    /// Helper for implementers of [`ExternalEffect::run`] with a synchronous response.
+    fn wrap_sync_f(&self, response: impl FnOnce() -> Self::Response) -> BoxFuture<'static, Box<dyn SendData>>
+    where
+        Self: Sized,
+    {
+        assert_simulated_duration(self);
+        Box::pin(future::ready(Box::new(response()) as Box<dyn SendData>))
+    }
+}
+
+impl<T: ExternalEffectAPI> ExternalEffect for T {
+    fn simulated_duration_dist(&self) -> DurationDist {
+        ExternalEffectAPI::simulated_duration_dist(self)
+    }
+
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        ExternalEffectAPI::run(self, resources)
+    }
+}
+
+fn assert_simulated_duration<E: ExternalEffectAPI>(effect: &E) {
+    debug_assert_eq!(
+        effect.simulated_duration_dist(),
+        E::SIMULATED_DURATION,
+        "{}: ExternalEffect::simulated_duration_dist() must return ExternalEffectAPI::SIMULATED_DURATION ({:?}), got {:?}",
+        type_name::<E>(),
+        E::SIMULATED_DURATION,
+        effect.simulated_duration_dist(),
+    );
 }
 
 impl dyn ExternalEffect {
@@ -549,14 +583,12 @@ impl serde::Serialize for dyn ExternalEffect {
     }
 }
 
-impl ExternalEffect for () {
+impl ExternalEffectAPI for () {
+    type Response = ();
+
     fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async { Box::new(()) as Box<dyn SendData> })
     }
-}
-
-impl ExternalEffectAPI for () {
-    type Response = ();
 }
 
 /// Generic deserialization result of external effects.
@@ -639,11 +671,6 @@ pub enum StageEffect<T> {
     Terminate,
     AddStage(Name),
     WireStage(Name, NoDebug<TransitionFactory>, T, T),
-    Contramap {
-        original: Name,
-        new_name: Name,
-        transform: NoDebug<Box<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + 'static>>,
-    },
 }
 
 pub type TransitionFactory = Box<dyn FnOnce(EffectBox) -> Transition + Send + 'static>;
@@ -658,7 +685,6 @@ pub enum StageResponse {
     CancelScheduleResponse(bool),
     ExternalResponse(#[serde(with = "crate::serde::serialize_send_data")] Box<dyn SendData>),
     AddStageResponse(Name),
-    ContramapResponse(Name),
 }
 
 impl StageResponse {
@@ -689,10 +715,6 @@ impl StageResponse {
                 "type": "add_stage",
                 "name": name,
             }),
-            StageResponse::ContramapResponse(name) => serde_json::json!({
-                "type": "contramap",
-                "name": name,
-            }),
         }
     }
 }
@@ -713,7 +735,6 @@ impl Display for StageResponse {
                 write!(f, "{}", msg.as_send_data_value().borrow())
             }
             StageResponse::AddStageResponse(name) => write!(f, "add_stage {name}"),
-            StageResponse::ContramapResponse(name) => write!(f, "contramap {name}"),
         }
     }
 }
@@ -758,10 +779,6 @@ impl StageEffect<Box<dyn SendData>> {
             StageEffect::WireStage(name, transition, initial_state, tombstone) => (
                 StageEffect::WireStage(name.clone(), transition, (), ()),
                 Effect::WireStage { at_stage: at_name, name, initial_state, tombstone },
-            ),
-            StageEffect::Contramap { original, new_name, transform } => (
-                StageEffect::Contramap { original: original.clone(), new_name: new_name.clone(), transform },
-                Effect::Contramap { at_stage: at_name, original, new_name },
             ),
         }
     }
@@ -822,11 +839,6 @@ pub enum Effect {
         initial_state: Box<dyn SendData>,
         #[serde(with = "crate::serde::serialize_send_data")]
         tombstone: Box<dyn SendData>,
-    },
-    Contramap {
-        at_stage: Name,
-        original: Name,
-        new_name: Name,
     },
 }
 
@@ -900,12 +912,6 @@ impl Effect {
                 "initial_state": format!("{initial_state}"),
                 "tombstone": format!("{tombstone}"),
             }),
-            Effect::Contramap { at_stage, original, new_name } => serde_json::json!({
-                "type": "contramap",
-                "at_stage": at_stage,
-                "original": original,
-                "new_name": new_name,
-            }),
         }
     }
 }
@@ -935,9 +941,6 @@ impl Display for Effect {
             Effect::AddStage { at_stage, name } => write!(f, "add_stage {at_stage} {name}"),
             Effect::WireStage { at_stage, name, initial_state, tombstone } => {
                 write!(f, "wire_stage {at_stage} {name} {initial_state} {tombstone}")
-            }
-            Effect::Contramap { at_stage, original, new_name } => {
-                write!(f, "contramap {at_stage} {original} -> {new_name}")
             }
         }
     }
@@ -1004,14 +1007,6 @@ impl Effect {
         }
     }
 
-    pub fn contramap(at_stage: impl AsRef<str>, original: impl AsRef<str>, new_name: impl AsRef<str>) -> Self {
-        Self::Contramap {
-            at_stage: Name::from(at_stage.as_ref()),
-            original: Name::from(original.as_ref()),
-            new_name: Name::from(new_name.as_ref()),
-        }
-    }
-
     /// Get the stage name of this effect.
     pub fn at_stage(&self) -> &Name {
         match self {
@@ -1026,7 +1021,6 @@ impl Effect {
             Effect::Terminate { at_stage, .. } => at_stage,
             Effect::AddStage { at_stage, .. } => at_stage,
             Effect::WireStage { at_stage, .. } => at_stage,
-            Effect::Contramap { at_stage, .. } => at_stage,
         }
     }
 
@@ -1271,12 +1265,6 @@ impl PartialEq for Effect {
                         && name == other_name
                         && initial_state == other_initial_state
                         && tombstone == other_tombstone
-                }
-                _ => false,
-            },
-            Effect::Contramap { at_stage, original, new_name } => match other {
-                Effect::Contramap { at_stage: other_at_stage, original: other_original, new_name: other_new_name } => {
-                    at_stage == other_at_stage && original == other_original && new_name == other_new_name
                 }
                 _ => false,
             },

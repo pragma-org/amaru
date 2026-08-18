@@ -18,13 +18,14 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, Ballot, BallotId, CertificatePointer, DRep, DRepRegistration, Epoch, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProtocolParameters, Slot, StakeCredential, Tip,
+    Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
     TransactionInput,
 };
 
 use crate::{
-    state::volatile::{Bind, Empty, Resettable},
+    context::ProposalState,
+    state::volatile::{Bind, Empty},
     store::{self, columns::*},
 };
 
@@ -58,16 +59,16 @@ pub struct VolatileFragment {
     pub accounts: DiffBind<StakeCredential, (PoolId, CertificatePointer), (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Box<Anchor>, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
-    pub committee: DiffSet<StakeCredential, StakeCredential>,
+    pub committee: DiffBind<StakeCredential, ConstitutionalCommitteeMemberStatus, Epoch, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
-    pub proposals: BTreeMap<ProposalId, Arc<(Proposal, ProposalPointer)>>,
+    pub proposals: BTreeMap<ProposalId, Arc<ProposalState>>,
     pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
     pub donations: Lovelace,
 }
 
 impl VolatileFragment {
-    pub fn anchor(self, tip: Tip, issuer: PoolId) -> AnchoredVolatileFragment {
+    pub fn anchor(self, tip: Point, issuer: PoolId) -> AnchoredVolatileFragment {
         AnchoredVolatileFragment { anchor: (tip, issuer), fragment: self }
     }
 }
@@ -77,12 +78,12 @@ impl VolatileFragment {
 /// A [`VolatileFragment`] anchored to a specific point and block issuer.
 #[derive(Debug, Clone)]
 pub struct AnchoredVolatileFragment {
-    pub anchor: (Tip, PoolId),
+    pub anchor: (Point, PoolId),
     pub fragment: VolatileFragment,
 }
 
 impl AnchoredVolatileFragment {
-    pub fn tip(&self) -> Tip {
+    pub fn tip(&self) -> Point {
         self.anchor.0
     }
 
@@ -91,14 +92,12 @@ impl AnchoredVolatileFragment {
     }
 
     pub fn point(&self) -> Point {
-        self.tip().point()
+        self.tip()
     }
 
     #[allow(clippy::type_complexity)]
     pub fn into_store_update(
         self,
-        epoch: Epoch,
-        protocol_parameters: &ProtocolParameters,
     ) -> StoreUpdate<
         impl Iterator<Item = accounts::Key>,
         store::Columns<
@@ -120,8 +119,6 @@ impl AnchoredVolatileFragment {
             impl Iterator<Item = ()>,
         >,
     > {
-        let gov_action_lifetime = protocol_parameters.gov_action_lifetime;
-
         let Self {
             fragment:
                 VolatileFragment {
@@ -141,7 +138,7 @@ impl AnchoredVolatileFragment {
         } = self;
 
         StoreUpdate {
-            point: tip.point(),
+            point: tip,
             issuer,
             fees,
             donations,
@@ -151,8 +148,8 @@ impl AnchoredVolatileFragment {
                 pools: add_pools(pools.registered.into_iter()),
                 accounts: add_accounts(accounts.registered.into_iter()),
                 dreps: add_dreps(dreps.registered.into_iter()),
-                cc_members: add_committee(committee.produced.into_iter()),
-                proposals: add_proposals(proposals.into_iter(), epoch + gov_action_lifetime),
+                cc_members: add_committee(committee.registered.into_iter()),
+                proposals: add_proposals(proposals.into_iter()),
                 votes: votes.produced.into_iter(),
             },
             remove: store::Columns {
@@ -160,7 +157,13 @@ impl AnchoredVolatileFragment {
                 pools: pools.unregistered.into_iter(),
                 accounts: accounts.unregistered.into_iter(),
                 dreps: remove_dreps(dreps.unregistered.into_iter(), dreps_deregistrations),
-                cc_members: committee.consumed.into_iter(),
+                cc_members: {
+                    debug_assert!(
+                        committee.unregistered.is_empty(),
+                        "committee can only ever produce bind left or right"
+                    );
+                    std::iter::empty()
+                },
                 proposals: std::iter::empty(),
                 votes: {
                     debug_assert!(votes.consumed.is_empty());
@@ -176,9 +179,8 @@ impl AnchoredVolatileFragment {
     pub fn fixture(slot: u64, pool_id: u8) -> Self {
         use amaru_kernel::{BlockHeight, Hash};
 
-        let point = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]));
+        let tip = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]), BlockHeight::from(slot));
         let pool = Hash::new([pool_id; 28]);
-        let tip = Tip::new(point, BlockHeight::from(slot));
 
         Self { anchor: (tip, pool), fragment: VolatileFragment::default() }
     }
@@ -256,19 +258,18 @@ pub(crate) fn remove_dreps(
 // ------------------------------------------------------------------------ Constitutional Committee
 
 pub(crate) fn add_committee(
-    iterator: impl Iterator<Item = (StakeCredential, StakeCredential)>,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<ConstitutionalCommitteeMemberStatus, Epoch, Empty>)>,
 ) -> impl Iterator<Item = (cc_members::Key, cc_members::Value)> {
-    iterator.map(|(credential, hot_credential)| (credential, (Resettable::Set(hot_credential), Resettable::Unchanged)))
+    iterator.map(|(credential, bind)| (credential, (bind.left, bind.right)))
 }
 
 // --------------------------------------------------------------------------------------- Proposals
 
 pub(crate) fn add_proposals(
-    iterator: impl Iterator<Item = (ProposalId, Arc<(Proposal, ProposalPointer)>)>,
-    expiration: Epoch,
+    iterator: impl Iterator<Item = (ProposalId, Arc<ProposalState>)>,
 ) -> impl Iterator<Item = (proposals::Key, proposals::Value)> {
-    iterator.map(move |(proposal_id, value)| {
-        let (proposal, proposed_in) = Arc::unwrap_or_clone(value);
-        (proposal_id, proposals::Value { proposed_in, valid_until: expiration, proposal })
+    iterator.map(|(proposal_id, value)| {
+        let ProposalState { proposed_in, valid_until, proposal } = Arc::unwrap_or_clone(value);
+        (proposal_id, proposals::Value { proposed_in, valid_until, proposal })
     })
 }

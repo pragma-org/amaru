@@ -15,6 +15,7 @@
 use crate::{ExUnits, PlutusData, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct RedeemerValue {
     #[n(0)]
     pub data: PlutusData,

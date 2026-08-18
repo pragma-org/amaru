@@ -22,7 +22,6 @@ use amaru_ouroboros::{
 };
 use amaru_ouroboros_traits::TxSubmissionMempool;
 use amaru_pure_stage::StageRef;
-use tokio::runtime::Builder;
 use tracing::Level;
 
 use crate::stages::{
@@ -86,8 +85,8 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
     mempool.insert(tx_1.clone(), TxOrigin::Local);
     mempool.insert(tx_2.clone(), TxOrigin::Local);
     let prep = TestPrep {
-        msg: MempoolMsg::NewTip(amaru_kernel::Tip::origin()),
-        rt: Builder::new_current_thread().build().unwrap(),
+        msg: MempoolMsg::NewTip(amaru_kernel::Point::Origin),
+        rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
         validator: Arc::new(reject_tx_1),
     };
@@ -107,7 +106,7 @@ pub fn make_insert_batch_example() -> TestPrep {
 
     TestPrep {
         msg: MempoolMsg::InsertBatch { txs, origin: TxOrigin::Local, caller },
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         mempool: Arc::new(InMemoryMempool::<Transaction>::default()),
         validator: Arc::new(reject_tx_1),
     }

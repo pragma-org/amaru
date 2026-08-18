@@ -67,7 +67,7 @@ impl Ord for BigInt {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for BigInt {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for BigInt {
     #[expect(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let datatype = d.datatype()?;
@@ -97,7 +97,7 @@ impl<'b, C> cbor::Decode<'b, C> for BigInt {
     }
 }
 
-impl<C> cbor::Encode<C> for BigInt {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for BigInt {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

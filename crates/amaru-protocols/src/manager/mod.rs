@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
-use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point, Tip};
+use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
 use amaru_observability::{TraceContext, debug_span};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
@@ -97,7 +97,7 @@ pub enum ManagerMessage {
     /// Server-side peer-sharing: ask peer selection for addresses to return to `peer`.
     ShareRequest { peer: Peer, amount: u8, reply_to: StageRef<SharePeersReply> },
     /// Advertise this new tip to all downstream peers.
-    NewTip(Tip, TraceContext),
+    NewTip(Point, TraceContext),
     /// INTERNAL message sent by the connector stage after a connection attempt completes.
     ConnectionResult(Peer, Result<ConnectionId, ConnectError>),
     /// INTERNAL message sent from the connection stage only!
@@ -139,7 +139,7 @@ impl ManagerMessage {
         }
     }
 
-    pub fn new_tip(tip: Tip) -> Self {
+    pub fn new_tip(tip: Point) -> Self {
         ManagerMessage::NewTip(tip, TraceContext::none())
     }
 }

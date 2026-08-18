@@ -20,7 +20,7 @@ use std::{
     },
 };
 
-use amaru_kernel::{NetworkName, Point};
+use amaru_kernel::{NetworkName, NetworkPoint};
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
 use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
 use aws_sdk_s3::{
@@ -250,7 +250,10 @@ fn parse_snapshot_key(key: &str, prefix: &str) -> Option<S3Snapshot> {
     let filename = key.strip_prefix(prefix)?;
     let point = filename.strip_suffix(ARCHIVE_EXTENSION)?;
 
-    if point.contains('/') || point.split('.').count() != 2 || matches!(Point::try_from(point).ok()?, Point::Origin) {
+    if point.contains('/')
+        || point.split('.').count() != 2
+        || matches!(NetworkPoint::try_from(point).ok()?, NetworkPoint::Origin)
+    {
         return None;
     }
 

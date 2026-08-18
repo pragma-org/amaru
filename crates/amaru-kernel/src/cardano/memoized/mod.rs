@@ -26,6 +26,3 @@ pub use script::*;
 
 mod transaction_output;
 pub use transaction_output::*;
-
-mod value;
-pub use value::*;

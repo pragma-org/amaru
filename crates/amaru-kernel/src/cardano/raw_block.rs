@@ -68,6 +68,12 @@ impl RawBlock {
         network_block.decode_block()
     }
 
+    /// Decode only the header from the stored network-block bytes.
+    pub fn decode_header(&self) -> Result<crate::Header, decode::Error> {
+        let network_block: NetworkBlock = minicbor::decode(&self.0)?;
+        network_block.decode_header()
+    }
+
     /// Return an iterator over standalone CBOR-encoded transactions extracted from the block.
     pub fn transactions(&self) -> Result<RawBlockTransactions, decode::Error> {
         let network_block = NetworkBlock::try_from(self.clone())?;
@@ -181,17 +187,16 @@ impl RawBlockTransactions {
 
 #[cfg(test)]
 mod tests {
-    use amaru_minicbor_extra::{from_cbor, to_cbor};
 
     use crate::{
-        Block, BlockHeader, PREPROD_ERA_HISTORY, Transaction,
+        Block, PREPROD_ERA_HISTORY, Transaction,
         cardano::network_block::{NetworkBlock, make_block_with_header},
-        include_cbor, make_header,
+        from_cbor, include_cbor, make_header, to_cbor,
     };
 
     #[test]
     fn decode_returns_inner_block() {
-        let header = BlockHeader::from(make_header(1, 42, None));
+        let header = make_header(1, 42, None);
         let era_history = &*PREPROD_ERA_HISTORY;
 
         // make a network block from a block

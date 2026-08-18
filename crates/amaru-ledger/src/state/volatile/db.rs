@@ -12,17 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{iter, mem};
+use std::{
+    collections::{BTreeMap, btree_map::Entry},
+    mem,
+};
 
 use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    Point, PoolId, Pots, ProposalId, ProposalKind, ProposalsRoots, ProtocolParameters, StakeCredential,
-    TransactionInput,
+    Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
+    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
+    StakeCredential, TransactionInput, size::SCRIPT,
 };
 
 use crate::{
+    context::ProposalStateSlim,
     epoch_transition::{
-        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
     state::{
         AnchoredVolatileFragment, StateError,
@@ -65,11 +69,17 @@ pub struct VolatileDB {
     /// at flush, never rolled back, and read through [`Self::governance_activity`] to fold in any
     /// pending dormant-epoch bump from the volatile overlay.
     governance_activity: GovernanceActivity,
+
+    /// Cached guardrails script of the enacted constitution; `None` when the constitution names
+    /// none. Same lifecycle as `protocol_parameters`, and read through [`Self::guardrail_script`]
+    /// so that a constitution enacted at a boundary is seen by the blocks validated before the
+    /// overlay is flushed.
+    guardrail_script: Option<Hash<SCRIPT>>,
 }
 
 impl Default for VolatileDB {
     fn default() -> Self {
-        Self::new(Epoch::default(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default())
+        Self::new(Epoch::default(), PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default(), None)
     }
 }
 
@@ -136,20 +146,35 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
-    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
-        // Resolve a CC member across the volatile layers, precedence `current -> overlay (enactment) ->
-        // draining`. A boundary add/remove sits above the closing epoch but below the new epoch's
-        // blocks, mirroring pool reaping. `Unknown` means consult the stable store.
-        Self::CCMember::fold(
-            iter::once(self.current.resolve_cc_member(credential))
-                .chain(iter::once_with(|| self.overlay.committee_verdict(credential)))
-                .chain(iter::once_with(|| self.draining.resolve_cc_member(credential))),
-        )
+    type CCMembers<'a> = BTreeMap<&'a StakeCredential, Existence<CommitteeMemberBind<'a>>>;
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
+        let mut cc_members: BTreeMap<&'a StakeCredential, Vec<Existence<CommitteeMemberBind<'a>>>> = BTreeMap::new();
+
+        let current = self.current.resolve_cc_members();
+        let overlay = self.overlay.cc_members();
+        let drainin = self.draining.resolve_cc_members();
+
+        // Re-aggregate the binds per cold-credential
+        for (cold_credential, cc_member) in current.chain(overlay).chain(drainin) {
+            match cc_members.entry(cold_credential) {
+                Entry::Vacant(entry) => {
+                    entry.insert(vec![cc_member]);
+                }
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().push(cc_member);
+                }
+            }
+        }
+
+        // Return the folded result for each member
+        cc_members
+            .into_iter()
+            .map(|(cold_credential, binds)| (cold_credential, Existence::fold(binds.into_iter())))
+            .collect()
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<ProposalKind>;
+    type Proposal = Existence<ProposalStateSlim>;
     /// Resolve a governance proposal across the volatile layers, precedence `current -> overlay
     /// (pruning) -> draining`. A proposal pruned at the boundary is `Gone`; `Unknown` means consult
     /// the stable store.
@@ -227,13 +252,19 @@ impl VolatileSequence for VolatileDB {
 
 impl VolatileDB {
     /// Construct an empty volatile DB whose overlay is anchored to the given epoch.
-    pub fn new(epoch: Epoch, protocol_parameters: ProtocolParameters, governance_activity: GovernanceActivity) -> Self {
+    pub fn new(
+        epoch: Epoch,
+        protocol_parameters: ProtocolParameters,
+        governance_activity: GovernanceActivity,
+        guardrail_script: Option<Hash<SCRIPT>>,
+    ) -> Self {
         Self {
             current: VolatileSeries::default(),
             draining: VolatileSeries::default(),
             overlay: StateOverlay::new(epoch),
             protocol_parameters,
             governance_activity,
+            guardrail_script,
         }
     }
 
@@ -298,6 +329,12 @@ impl VolatileDB {
         }
     }
 
+    /// The guardrails script every proposal's policy must name, preferring the constitution
+    /// enacted by an in-flight epoch transition over the cached base.
+    pub fn guardrail_script(&self) -> Option<Hash<SCRIPT>> {
+        self.overlay.pending_constitution().map_or(self.guardrail_script, |constitution| constitution.guardrail_script)
+    }
+
     /// The governance roots, overlaying the pending boundary roots over the stable `base`.
     pub fn proposals_roots(&self) -> Option<&ProposalsRoots> {
         self.overlay.pending_proposals_roots()
@@ -306,6 +343,10 @@ impl VolatileDB {
     /// Whether the rewards for the in-flight epoch are still to be computed.
     pub fn rewards_not_ready(&self) -> bool {
         matches!(self.overlay.rewards(), RewardsState::NotReady)
+    }
+
+    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
+        self.overlay.take_computed_rewards()
     }
 
     /// Ensure that the 'draining' sequence is empty before we cross an epoch boundary. Note that
@@ -368,12 +409,13 @@ impl VolatileDB {
             })
     }
 
-    /// Flush the pending epoch transition to the stable store. Returns the freshly-enacted
-    /// `(protocol_parameters, governance_activity)` when a governance transition was applied.
+    /// Flush the pending epoch transition to the stable store, refreshing the cached globals from
+    /// whatever that transition enacted.
     pub fn apply_transition(&mut self, db: &impl Store) -> Result<(), StateError> {
-        if let Some((protocol_parameters, governance_activity)) = self.overlay.apply(db)? {
+        if let Some((protocol_parameters, governance_activity, guardrail_script)) = self.overlay.apply(db)? {
             self.protocol_parameters = protocol_parameters;
             self.governance_activity = governance_activity;
+            self.guardrail_script = guardrail_script;
         }
 
         Ok(())
@@ -398,6 +440,7 @@ impl VolatileDB {
             overlay,
             protocol_parameters: self.protocol_parameters.clone(),
             governance_activity: self.governance_activity,
+            guardrail_script: self.guardrail_script,
         }
     }
 
@@ -500,14 +543,15 @@ mod tests {
     };
 
     use amaru_kernel::{
-        ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, SafeRatio, Slot,
-        StakeCredential, any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        BlockHeight, ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, SafeRatio,
+        Slot, SortedPairs, StakeCredential, any_modern_output, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
 
     use super::*;
     use crate::{
+        AccountState,
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
         state::volatile::{Bind, Resettable},
     };
@@ -579,7 +623,7 @@ mod tests {
 
         // Rollback to slot 5 (before the first element at slot 10)
         // This represents rolling back to a point in the stable DB
-        let rollback_point = Point::Specific(Slot::from(5), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(5), Hash::new([0u8; 32]), BlockHeight::from(5));
 
         let result = db.rollback_to(&rollback_point);
 
@@ -595,7 +639,7 @@ mod tests {
         let mut db = VolatileDB::fixture();
 
         // Rollback to slot 30 (the last element)
-        let rollback_point = Point::Specific(Slot::from(30), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(30), Hash::new([0u8; 32]), BlockHeight::from(30));
 
         // This should succeed, keeping all 3 elements
         let result = db.rollback_to(&rollback_point);
@@ -610,7 +654,7 @@ mod tests {
         let mut db = VolatileDB::fixture();
 
         // Rollback to slot 20 (middle element)
-        let rollback_point = Point::Specific(Slot::from(20), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(20), Hash::new([0u8; 32]), BlockHeight::from(20));
 
         let result = db.rollback_to(&rollback_point);
 
@@ -625,7 +669,7 @@ mod tests {
         let mut db = VolatileDB::fixture();
 
         // Rollback to slot 25 (between 20 and 30)
-        let rollback_point = Point::Specific(Slot::from(25), Hash::new([0u8; 32]));
+        let rollback_point = Point::Specific(Slot::from(25), Hash::new([0u8; 32]), BlockHeight::from(25));
 
         let result = db.rollback_to(&rollback_point);
 
@@ -894,7 +938,8 @@ mod tests {
     #[test]
     fn clear_empties_the_window_but_keeps_the_epoch_anchor() {
         let epoch = Epoch::from(42);
-        let mut db = VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let mut db =
+            VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default(), None);
         let block1 = AnchoredVolatileFragment::fixture(10, 1);
         let block2 = AnchoredVolatileFragment::fixture(20, 2);
         db.push_back(block1);
@@ -915,7 +960,8 @@ mod tests {
     #[test]
     fn clear_rewinds_the_retained_window_across_an_epoch_boundary() {
         let epoch = Epoch::from(42);
-        let mut db = VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default());
+        let mut db =
+            VolatileDB::new(epoch, PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(), GovernanceActivity::default(), None);
         let block1 = AnchoredVolatileFragment::fixture(10, 1);
         let block2 = AnchoredVolatileFragment::fixture(20, 2);
         db.push_back(block1);
@@ -1149,8 +1195,9 @@ mod tests {
     #[test]
     fn reward_balance_folds_in_the_pending_overlay_credit_during_the_straddle() {
         let mut db = VolatileDB::default();
-        let accounts = BTreeMap::from([(cred(1), 5_000_000)]);
-        let computed = Rewards::<Computed>::new(0, 0, accounts.values().sum(), accounts, Default::default());
+        let accounts = SortedPairs::default().and_push(cred(1), AccountState::default().with_rewards(5_000_000));
+        let computed =
+            Rewards::<Computed>::new(0, 0, accounts.values().map(|st| st.rewards).sum(), accounts, Default::default());
         let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
 
         // The pending boundary credit is added on top of the stable base.
@@ -1238,7 +1285,7 @@ mod tests {
         db.pop_front();
         assert_eq!(db.resolve_donations(), 370_000, "a stabilized block's donation reached the stable pot");
 
-        db.rollback_to(&Point::Specific(Slot::from(20), Hash::new([0u8; 32]))).unwrap();
+        db.rollback_to(&Point::Specific(Slot::from(20), Hash::new([0u8; 32]), BlockHeight::from(20))).unwrap();
         assert_eq!(db.resolve_donations(), 300_000, "the rolled-back block's donation is discarded");
     }
 
@@ -1248,7 +1295,7 @@ mod tests {
         db.push_back(AnchoredVolatileFragment::fixture(10, 1));
         db.simple_transition(7_000_000);
         assert_eq!(db.resolve_treasury(&Pots::default()), Pots::default().treasury + 7_000_000);
-        db.rollback_to(&Point::Specific(Slot::from(10), Hash::new([0u8; 32]))).unwrap();
+        db.rollback_to(&Point::Specific(Slot::from(10), Hash::new([0u8; 32]), BlockHeight::from(10))).unwrap();
         assert_eq!(db.resolve_treasury(&Pots::default()), Pots::default().treasury);
     }
 
@@ -1260,7 +1307,7 @@ mod tests {
     #[test_case(None, None => Existence::Unknown; "untouched everywhere defers to the stable store")]
     fn resolve_committee_precedence(draining: Option<CommitteeAct>, current: Option<CommitteeAct>) -> Existence<bool> {
         let mut db = VolatileDB::default();
-        let computed = Rewards::<Computed>::new(0, 0, 0, BTreeMap::new(), Default::default());
+        let computed = Rewards::<Computed>::new(0, 0, 0, SortedPairs::default(), Default::default());
         let effective = Rewards::<Effective>::new(computed, BTreeSet::new());
         if let Some(act) = draining {
             db.push_back(committee_block(10, act));
@@ -1271,10 +1318,10 @@ mod tests {
             db.push_back(committee_block(20, act));
         }
 
-        match db.resolve_cc_member(&cred(1)) {
-            Existence::Exists(Bind { left, .. }) => Existence::Exists(matches!(left, Resettable::Set { .. })),
-            Existence::Gone => Existence::Gone,
-            Existence::Unknown => Existence::Unknown,
+        match db.resolve_cc_members().get(&cred(1)) {
+            Some(Existence::Exists(Bind { left, .. })) => Existence::Exists(matches!(left, Resettable::Set { .. })),
+            Some(Existence::Gone) => Existence::Gone,
+            Some(Existence::Unknown) | None => Existence::Unknown,
         }
     }
 
@@ -1291,8 +1338,8 @@ mod tests {
         })));
 
         assert!(matches!(
-            db.resolve_cc_member(&cred(1)),
-            Existence::Exists(Bind { value: Some(term_limit),.. }) if *term_limit == expected_term_limit
+            db.resolve_cc_members().get(&cred(1)),
+            Some(Existence::Exists(Bind { right: Resettable::Set(term_limit), .. })) if **term_limit == expected_term_limit
         ));
 
         // Removed at the boundary: a tombstone that shadows the stale stable entry.
@@ -1302,12 +1349,57 @@ mod tests {
             removed: BTreeSet::from([cred(1)]),
             threshold: SafeRatio::zero(),
         })));
-        assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Gone));
+        assert!(matches!(db.resolve_cc_members().get(&cred(1)), Some(Existence::Gone)));
 
         // No-confidence keeps members, so membership defers down, but the term goes inactive.
         let mut db = VolatileDB::default();
         db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::NoConfidence)));
-        assert!(matches!(db.resolve_cc_member(&cred(1)), Existence::Unknown));
+        assert!(!db.resolve_cc_members().contains_key(&cred(1)));
+    }
+
+    /// A credential named in a pending `UpdateCommittee` may authorize a hot key before enactment.
+    #[test]
+    fn resolve_committee_keeps_a_hot_key_declared_before_the_electing_boundary() {
+        let mut db = VolatileDB::default();
+        let expected_term_limit = Epoch::from(99);
+
+        db.push_back(committee_block(10, CommitteeAct::Auth));
+        db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::ChangeMembers {
+            added: BTreeMap::from([(cred(1), expected_term_limit)]),
+            removed: BTreeSet::new(),
+            threshold: SafeRatio::zero(),
+        })));
+
+        let cc_members = db.resolve_cc_members();
+
+        let Some(Existence::Exists(Bind { left, right, .. })) = cc_members.get(&cred(1)) else {
+            panic!("elected member resolved to nothing");
+        };
+
+        assert_eq!(left, &Resettable::Set(&cred(2).into()), "the hot key declared while the proposal was pending");
+        assert_eq!(right, &Resettable::Set(&expected_term_limit), "the term the boundary granted");
+    }
+
+    #[test]
+    fn resolve_committee_lets_a_resignation_clear_a_hot_key_across_the_boundary() {
+        let mut db = VolatileDB::default();
+
+        db.push_back(committee_block(10, CommitteeAct::Auth));
+        db.simple_transition(committee_update(Some(ConstitutionalCommitteeUpdate::ChangeMembers {
+            added: BTreeMap::from([(cred(1), Epoch::from(99))]),
+            removed: BTreeSet::new(),
+            threshold: SafeRatio::zero(),
+        })));
+        db.push_back(committee_block(20, CommitteeAct::Resign));
+
+        let cc_members = db.resolve_cc_members();
+
+        let Some(Existence::Exists(Bind { left, right, .. })) = cc_members.get(&cred(1)) else {
+            panic!("resigned member resolved to nothing; the seat outlives the authorization");
+        };
+
+        assert_eq!(left, &Resettable::Reset);
+        assert_eq!(right, &Resettable::Set(&Epoch::from(99)));
     }
 
     // HELPERS
@@ -1344,8 +1436,13 @@ mod tests {
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
     /// observable state (its pending reward credit surfaces through `resolve_account`).
     fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
-        let computed =
-            Rewards::<Computed>::new(0, 0, amount, BTreeMap::from([(credential, amount)]), Default::default());
+        let computed = Rewards::<Computed>::new(
+            0,
+            0,
+            amount,
+            SortedPairs::default().and_push(credential, AccountState::default().with_rewards(amount)),
+            Default::default(),
+        );
         Rewards::<Effective>::new(computed, BTreeSet::new())
     }
 
@@ -1367,9 +1464,10 @@ mod tests {
     fn committee_block(slot: u64, act: CommitteeAct) -> AnchoredVolatileFragment {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         match act {
-            CommitteeAct::Auth => block.fragment.committee.produce(cred(1), cred(2)),
-            CommitteeAct::Resign => block.fragment.committee.consume(cred(1)),
+            CommitteeAct::Auth => block.fragment.committee.bind_left(cred(1), Some(cred(2).into())),
+            CommitteeAct::Resign => block.fragment.committee.bind_left(cred(1), None),
         }
+        .unwrap();
         block
     }
 

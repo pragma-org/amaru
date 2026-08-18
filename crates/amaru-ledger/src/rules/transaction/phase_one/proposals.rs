@@ -16,12 +16,12 @@ use std::collections::BTreeSet;
 
 use amaru_kernel::{
     Address, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
-    ProposalKind, ProposalPointer, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
+    ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
     RequiredScript, StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
-use crate::context::{AccountsSlice, BalanceSlice, ProposalsSlice, WitnessSlice};
+use crate::context::{AccountsSlice, BalanceSlice, ProposalState, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -49,8 +49,14 @@ pub enum InvalidProposals {
     #[error("conflicting committee update: members appear in both add and remove sets")]
     ConflictingCommitteeUpdate,
 
-    #[error("hardfork version {new:?} cannot follow current version {current:?}")]
-    HardforkCantFollow { current: ProtocolVersion, new: ProtocolVersion },
+    #[error(
+        "hardfork version {new_version:?} cannot follow version {last_proposed_version:?} while current version is {current_version:?}"
+    )]
+    HardforkCantFollow {
+        last_proposed_version: ProtocolVersion,
+        new_version: ProtocolVersion,
+        current_version: ProtocolVersion,
+    },
 
     #[error("malformed parameter change proposal: {reason}")]
     MalformedProposal { reason: String },
@@ -61,6 +67,9 @@ pub enum InvalidProposals {
     #[error("invalid previous governance action id: {parent:?}")]
     InvalidPrevGovActionId { parent: Option<ProposalId> },
 
+    #[error("invalid guardrails script hash: provided {provided:?}, expected {expected:?}")]
+    InvalidGuardrailsScriptHash { provided: Option<Hash<SCRIPT>>, expected: Option<Hash<SCRIPT>> },
+
     #[error("era history error: {0}")]
     EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
@@ -70,6 +79,7 @@ pub(crate) fn execute<C>(
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
+    guardrail_script: Option<Hash<SCRIPT>>,
     transaction: (TransactionId, TransactionPointer),
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
@@ -77,7 +87,15 @@ where
     C: ProposalsSlice + AccountsSlice + WitnessSlice + BalanceSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
-        validate_proposal(context, &proposal, network, protocol_parameters, era_history, transaction.1)?;
+        validate_proposal(
+            context,
+            &proposal,
+            network,
+            protocol_parameters,
+            era_history,
+            guardrail_script,
+            transaction.1,
+        )?;
 
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
             context.require_script_witness(RequiredScript {
@@ -91,8 +109,11 @@ where
         context.produce_lovelace(proposal.deposit);
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
-        let id = ProposalId { transaction_id: *transaction.0, action_index: proposal_index as u32 };
-        context.acknowledge(id, pointer, proposal)
+        let id = ProposalId { transaction_id: *transaction.0, proposal_index: proposal_index as u32 };
+        let valid_until = era_history.slot_to_epoch(transaction.1.slot, transaction.1.slot)?
+            + protocol_parameters.gov_action_lifetime;
+
+        context.acknowledge(id, ProposalState { proposed_in: pointer, valid_until, proposal })
     }
 
     Ok(())
@@ -119,6 +140,7 @@ fn validate_proposal<C>(
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
+    guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
 ) -> Result<(), InvalidProposals>
 where
@@ -131,13 +153,22 @@ where
         });
     }
 
-    let kind = ProposalKind::from(&proposal.gov_action);
-    if !matches!(kind, ProposalKind::Orphan) {
-        let parent = proposal.parent();
-        let follows_root = parent == context.roots().root_of(kind);
-        let follows_in_flight = matches!(parent, Some(id) if context.exists(id, Some(kind)));
-        if !follows_root && !follows_in_flight {
-            return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
+    let kind = ProposalSlim::from(&proposal.gov_action);
+
+    match kind {
+        ProposalSlim::Orphan(..) => {}
+        ProposalSlim::HardFork(..)
+        | ProposalSlim::Constitution
+        | ProposalSlim::ConstitutionalCommittee
+        | ProposalSlim::ProtocolParameters(..) => {
+            let parent = proposal.parent();
+            let follows_root = parent == context.roots().root_of(kind);
+            let follows_in_flight = parent
+                .and_then(|id| ProposalsSlice::lookup(context, id))
+                .is_some_and(|in_flight| in_flight.action.same_lineage(kind));
+            if !follows_root && !follows_in_flight {
+                return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
+            }
         }
     }
 
@@ -159,7 +190,7 @@ where
     }
 
     match &proposal.gov_action {
-        GovernanceAction::TreasuryWithdrawals(wdrls, _) => {
+        GovernanceAction::TreasuryWithdrawals(wdrls, policy) => {
             let mut any_positive = false;
             let mut missing = BTreeSet::new();
 
@@ -182,6 +213,8 @@ where
                     _ => return Err(InvalidProposals::MalformedReturnAddress),
                 }
             }
+
+            check_guardrails_script_hash(guardrail_script, *policy)?;
 
             if !any_positive {
                 return Err(InvalidProposals::TreasuryWithdrawalsAllZeros);
@@ -211,20 +244,57 @@ where
 
         GovernanceAction::NoConfidence(_) | GovernanceAction::NewConstitution(..) => {}
 
-        GovernanceAction::HardForkInitiation(_, new_version) => {
-            if !new_version.can_follow(protocol_parameters.protocol_version) {
+        GovernanceAction::HardForkInitiation(parent, new_version) => {
+            let current_version = protocol_parameters.protocol_version;
+
+            let last_proposed_version = pending_hard_fork_version(context, parent.as_ref()).unwrap_or(current_version);
+
+            if new_version.major() > current_version.major() + 1 || !new_version.can_follow(last_proposed_version) {
                 return Err(InvalidProposals::HardforkCantFollow {
-                    current: protocol_parameters.protocol_version,
-                    new: *new_version,
+                    last_proposed_version,
+                    new_version: *new_version,
+                    current_version,
                 });
             }
         }
 
-        GovernanceAction::ParameterChange(_, ppu, _) => {
+        GovernanceAction::ParameterChange(_, ppu, policy) => {
             ppu_well_formed(ppu)?;
+            check_guardrails_script_hash(guardrail_script, *policy)?;
         }
 
         GovernanceAction::Information => {}
+    }
+
+    Ok(())
+}
+
+/// The protocol version a hard fork proposal must follow. A proposal chaining onto another hard
+/// fork still in flight follows *that* proposal's version rather than the one currently in effect.
+fn pending_hard_fork_version<C>(context: &C, parent: Option<&ProposalId>) -> Option<ProtocolVersion>
+where
+    C: ProposalsSlice,
+{
+    if parent == context.roots().hard_fork.as_ref() {
+        return None;
+    }
+
+    match parent.and_then(|id| context.lookup(id)).map(|in_flight| in_flight.action) {
+        Some(ProposalSlim::HardFork(previous_version)) => Some(previous_version),
+        // The lineage check in `validate_proposal` runs first, and rejects any parent that is
+        // neither the hard fork root nor a hard fork proposal still in flight.
+        parent => unreachable!("hardfork proposal follows neither its root nor an in-flight hardfork: {parent:?}"),
+    }
+}
+
+/// Only `TreasuryWithdrawals` and `ParameterChange` proposals require the guardrails script hash.
+/// They must match exactly, including in the case that the protocol hasn't enacted a constitution.
+fn check_guardrails_script_hash(
+    expected: Option<Hash<SCRIPT>>,
+    provided: Option<Hash<SCRIPT>>,
+) -> Result<(), InvalidProposals> {
+    if provided != expected {
+        return Err(InvalidProposals::InvalidGuardrailsScriptHash { provided, expected });
     }
 
     Ok(())

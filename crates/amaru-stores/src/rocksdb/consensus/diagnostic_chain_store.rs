@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, Hash, HeaderHash, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER};
+use amaru_kernel::{Hash, Header, HeaderHash, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER};
 use amaru_ouroboros_traits::{DiagnosticChainStore, Nonces};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
@@ -24,7 +24,7 @@ use crate::rocksdb::consensus::{
 
 impl DiagnosticChainStore for RocksDBStore {
     #[allow(clippy::panic)]
-    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
         Box::new(self.db.prefix_iterator(HEADER_PREFIX).filter_map(|item| match item {
             Ok((_k, v)) => from_cbor(v.as_ref()),
             Err(err) => panic!("error iterating over headers: {}", err),

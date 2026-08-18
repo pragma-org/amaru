@@ -15,20 +15,22 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, EraHistory, HeaderHash, Peer, RawBlock,
+    BlockHeight, EraHistory, Header, HeaderHash, Peer, Point, RawBlock,
     cardano::network_block::{make_block_with_header, make_encoded_block, make_network_block},
 };
-use amaru_ouroboros_traits::{MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros_traits::{
+    BaseReadChainStore, MissingBlocks, StoreError, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_protocols::store_effects::{
     AncestorsBetweenEffect, FindMissingBlocksEffect, GetAnchorHashEffect, GetChildrenEffect, HasBlockEffect,
-    LoadHeaderEffect, LoadHeaderWithValidityEffect, LoadTipEffect, ResourceHeaderStore, StoreBlockEffect,
+    LoadHeaderEffect, LoadHeaderWithValidityEffect, LoadPointEffect, ResourceHeaderStore, StoreBlockEffect,
     UnvalidatedAncestorHashesEffect,
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
     simulation::SimulationRunning, trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 
 use super::*;
 use crate::stages::{
@@ -41,18 +43,17 @@ pub fn test_peer() -> Peer {
     Peer::new("test-peer")
 }
 
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
+pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> Header {
     let header = amaru_kernel::make_header(block_number, slot, parent);
-    let block = make_block_with_header(&header.into());
-    block.header.into()
+    make_block_with_header(&header).header
 }
 
 /// Simple header chain for fetch_blocks tests: h0 (genesis) -> h1 -> h2.
 #[derive(Clone)]
 pub struct HeaderChain {
-    pub h0: BlockHeader,
-    pub h1: BlockHeader,
-    pub h2: BlockHeader,
+    pub h0: Header,
+    pub h1: Header,
+    pub h2: Header,
 }
 
 impl HeaderChain {
@@ -80,27 +81,27 @@ pub struct TestPrep {
 }
 
 impl TestPrep {
-    pub fn store_headers(&self, headers: &[&BlockHeader]) {
+    pub fn store_headers(&self, headers: &[&Header]) {
         for h in headers {
             self.store.store_header(h).unwrap();
         }
     }
 
-    pub fn store_block(&self, header: &BlockHeader) {
+    pub fn store_block(&self, header: &Header) {
         let raw = Self::raw_block(header);
         self.store.store_block(&header.hash(), &raw).unwrap();
     }
 
-    pub fn raw_block(header: &BlockHeader) -> RawBlock {
+    pub fn raw_block(header: &Header) -> RawBlock {
         make_encoded_block(header, &EraHistory::default())
     }
 
-    pub fn network_block(header: &BlockHeader) -> NetworkBlock {
+    pub fn network_block(header: &Header) -> NetworkBlock {
         make_network_block(header, &EraHistory::default())
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {
-        self.store.set_anchor_hash(&hash).unwrap();
+        self.store.set_anchor_point(&self.store.load_point(&hash).unwrap_or(Point::Origin)).unwrap();
     }
 
     pub fn set_validity(&self, hash: HeaderHash, valid: bool) {
@@ -136,7 +137,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<HasBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<UnvalidatedAncestorHashesEffect>().boxed(),
@@ -147,7 +148,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SelectPeersForFetchEffect>().boxed(),
         amaru_pure_stage::register_data_deserializer::<crate::performance::FetchPeerSet>().boxed(),
         amaru_pure_stage::register_data_deserializer::<(Vec<HeaderHash>, bool)>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Tip>>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<Vec<amaru_kernel::Point>>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Result<Option<MissingBlocks>, StoreError>>().boxed(),
     ]
 }
@@ -166,7 +167,7 @@ pub fn test_prep() -> TestPrep {
 
     TestPrep {
         state,
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         cleanup_replies,
         headers: HeaderChain::new(),
         store: Arc::new(InMemoryChainStore::new()),

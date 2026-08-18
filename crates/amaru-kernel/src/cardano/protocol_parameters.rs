@@ -288,7 +288,7 @@ fn decode_rationale(d: &mut cbor::Decoder<'_>) -> Result<RationalNumber, cbor::d
     })
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let min_fee_a = d.u64()?;
@@ -402,7 +402,7 @@ fn encode_rationale<W: cbor::encode::Write>(
     Ok(())
 }
 
-impl<C> cbor::encode::Encode<C> for ProtocolParameters {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for ProtocolParameters {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

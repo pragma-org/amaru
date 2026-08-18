@@ -167,4 +167,4 @@ singleEraSummary :: EraHistory -> Either Error FixtureEraSummary
 singleEraSummary EraHistory{eras = [singleEra]} =
     Right singleEra
 singleEraSummary EraHistory{} =
-    Left (UnsupportedFixture "only single-era Conway phase-one fixtures are supported")
+    Left (UnsupportedFixture "only single-era Conway fixtures are supported")

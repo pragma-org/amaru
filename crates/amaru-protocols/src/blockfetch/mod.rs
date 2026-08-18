@@ -16,7 +16,7 @@ mod initiator;
 pub(crate) mod messages;
 mod responder;
 
-use amaru_kernel::{Peer, Point};
+use amaru_kernel::{NetworkPoint, Peer};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
 // Re-export types
@@ -36,7 +36,7 @@ where
     use State::*;
 
     let mut spec = ProtoSpec::default();
-    let request_range = || Message::RequestRange { from: Point::Origin, through: Point::Origin };
+    let request_range = || Message::RequestRange { from: NetworkPoint::Origin, through: NetworkPoint::Origin };
     let no_blocks = || Message::NoBlocks;
     let client_done = || Message::ClientDone;
     let batch_done = || Message::BatchDone;
@@ -80,12 +80,12 @@ pub async fn register_blockfetch_initiator<M: amaru_pure_stage::SendData>(
         MuxMessage::Register {
             protocol: PROTO_N2N_BLOCK_FETCH.erase(),
             frame: Frame::OneCborItem,
-            handler: eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Network).await,
+            handler: blockfetch.contramap(Inputs::Network),
             max_buffer: 2_500_000,
         },
     )
     .await;
-    eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Local).await
+    blockfetch.contramap(Inputs::Local)
 }
 
 pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
@@ -102,10 +102,10 @@ pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
         MuxMessage::Register {
             protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
             frame: Frame::OneCborItem,
-            handler: eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Network).await,
+            handler: blockfetch.contramap(Inputs::Network),
             max_buffer: 2_500_000,
         },
     )
     .await;
-    eff.contramap(&blockfetch, "blockfetch_handler", Inputs::Local).await
+    blockfetch.contramap(Inputs::Local)
 }

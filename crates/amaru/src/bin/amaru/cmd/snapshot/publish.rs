@@ -19,7 +19,7 @@ use amaru::{
     bootstrap::validate_publishable_snapshot_archive,
     lifecycle::{Runnable, RuntimeKind},
 };
-use amaru_kernel::{NetworkName, Point, utils::path::relative_path};
+use amaru_kernel::{NetworkName, NetworkPoint, utils::path::relative_path};
 use amaru_observability::info;
 use clap::Parser;
 
@@ -167,7 +167,7 @@ fn snapshot_point_from_archive_name(archive_name: &str) -> Result<&str, Box<dyn 
     let point = archive_name
         .strip_suffix(ARCHIVE_EXTENSION)
         .ok_or_else(|| format!("snapshot archive must end with {ARCHIVE_EXTENSION}: {archive_name}"))?;
-    if point.split('.').count() != 2 || !matches!(Point::try_from(point), Ok(Point::Specific(_, _))) {
+    if point.split('.').count() != 2 || !matches!(NetworkPoint::try_from(point), Ok(NetworkPoint::Specific(_, _))) {
         return Err(format!("invalid snapshot archive point in filename: {archive_name}").into());
     }
     Ok(point)

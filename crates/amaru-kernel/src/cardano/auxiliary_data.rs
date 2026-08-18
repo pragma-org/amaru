@@ -106,7 +106,7 @@ impl Default for AuxiliaryData {
 //
 //   )
 // ```
-impl<'b, C> cbor::Decode<'b, C> for AuxiliaryData {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for AuxiliaryData {
     // NOTE: AuxiliaryData post-Alonzo decoding
     //
     // Even when decoding post-Alonzo auxiliary data, the choice of decoder is determined
@@ -139,7 +139,7 @@ impl<'b, C> cbor::Decode<'b, C> for AuxiliaryData {
 
 /// Auxiliary data is always re-encoded in the Conway form, whichever era's form it was decoded from,
 /// with empty entries omitted.
-impl<C> cbor::Encode<C> for AuxiliaryData {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AuxiliaryData {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -190,7 +190,10 @@ impl AuxiliaryData {
     /// Decode some auxiliary data using the Shelley-era codecs.
     ///
     /// /!\ Does not compute the underlying hash digest. This is a responsibility of the caller.
-    fn decode_shelley<'b, C>(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    fn decode_shelley<'b, C: cbor::HasProtocolVersion>(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut C,
+    ) -> Result<Self, cbor::decode::Error> {
         let metadata = d.decode_with(ctx)?;
         Ok(Self { metadata, ..Self::default() })
     }
@@ -198,7 +201,10 @@ impl AuxiliaryData {
     /// Decode some auxiliary data using the Allegra-era codecs
     ///
     /// /!\ Does not compute the underlying hash digest. This is a responsibility of the caller.
-    fn decode_allegra<'b, C>(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    fn decode_allegra<'b, C: cbor::HasProtocolVersion>(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut C,
+    ) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
             let metadata = d.decode_with(ctx)?;
@@ -210,7 +216,10 @@ impl AuxiliaryData {
     /// Decode some auxiliary data using the Alonzo-era codecs
     ///
     /// /!\ Does not compute the underlying hash digest. This is a responsibility of the caller.
-    fn decode_alonzo<'b, C>(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    fn decode_alonzo<'b, C: cbor::HasProtocolVersion>(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut C,
+    ) -> Result<Self, cbor::decode::Error> {
         if d.tag()? != cbor::TAG_MAP_259 {
             return Err(cbor::decode::Error::tag_mismatch(cbor::TAG_MAP_259));
         }

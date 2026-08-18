@@ -14,14 +14,14 @@
 
 use std::{collections::BTreeSet, time::Duration};
 
-use amaru_kernel::{Peer, Tip};
+use amaru_kernel::{Peer, Point};
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, ScheduleId, ScheduleIds, StageGraph, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
     trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 
 use super::*;
 pub use crate::stages::test_utils::TraceMatch;
@@ -132,7 +132,7 @@ pub fn test_prep_with_snapshot(static_names: &[&str], snapshot_names: &[&str]) -
     let state = PeerSelection::new(manager, 3, 10, COOLDOWN_SECS);
     TestPrep {
         state,
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         static_peers,
         snapshot_candidates,
         ledger_candidates: BTreeSet::new(),
@@ -256,8 +256,8 @@ fn setup_preload_with_mode(
             running.use_virtual_child_stages(true);
 
             running
-                .override_external_effect::<VolatileTipEffect>(usize::MAX, |_| OverrideResult::handled(Tip::origin()));
-            running.override_external_effect::<TipEffect>(usize::MAX, |_| OverrideResult::handled(Tip::origin()));
+                .override_external_effect::<VolatileTipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
+            running.override_external_effect::<TipEffect>(usize::MAX, |_| OverrideResult::handled(Point::Origin));
             running.override_external_effect::<RegisteredRelaySocketAddrsEffect>(usize::MAX, |_| {
                 OverrideResult::handled(Ok(BTreeSet::new()))
             });

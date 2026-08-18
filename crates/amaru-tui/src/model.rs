@@ -201,6 +201,10 @@ mod tests {
             at,
             wall_time: std::time::SystemTime::UNIX_EPOCH,
             fields: fields.into_iter().map(|(name, value)| (name.into(), value)).collect(),
+            parents: Vec::new(),
+            span_name: None,
+            id: None,
+            parent_id: None,
         }
     }
 
@@ -320,29 +324,8 @@ mod tests {
     #[test]
     fn records_throughput_from_roll_forwards_transaction_validations_and_system_samples_from_metrics() {
         let mut model = Model::new(Config::default(), fixture_startup_context());
-        let at = Instant::now();
+        let at = model.created_at + Duration::from_secs(1);
 
-        model.handle_message(Message::Telemetry(telemetry_at!(at, ledger::state::ROLL_FORWARD,)));
-        model.handle_message(Message::Telemetry(telemetry_at!(
-            at,
-            ledger::tip::UPDATE,
-            ledger::tip::UPDATE::FIELD_SLOT => 100u64,
-            ledger::tip::UPDATE::FIELD_HEADER_HASH => "abc",
-            ledger::tip::UPDATE::FIELD_BLOCK_HEIGHT => 42u64,
-            ledger::tip::UPDATE::FIELD_TX_COUNT => 7u64,
-            ledger::tip::UPDATE::FIELD_EPOCH => 1u64,
-            ledger::tip::UPDATE::FIELD_SLOT_IN_EPOCH => 10u64,
-            ledger::tip::UPDATE::FIELD_DENSITY => 0.5f64,
-            ledger::tip::UPDATE::FIELD_CURRENT_KES_PERIOD => 2u64,
-            ledger::tip::UPDATE::FIELD_REMAINING_KES_PERIODS => 3u64,
-        )));
-        for index in 0..7 {
-            model.handle_message(Message::Telemetry(telemetry_at!(
-                at + Duration::from_millis(index),
-                ledger::transaction::VALIDATE,
-                ledger::transaction::VALIDATE::FIELD_TRANSACTION_ID => format!("tx-{index}"),
-            )));
-        }
         model.handle_message(metric(
             at,
             MetricsEvent::SystemMetrics(SystemMetrics {
@@ -362,9 +345,54 @@ mod tests {
                 open_files: 5,
             }),
         ));
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            at + Duration::from_millis(500),
+            ledger::state::ROLL_FORWARD,
+        )));
+        model.handle_message(Message::Telemetry(telemetry_at!(
+            at + Duration::from_millis(500),
+            ledger::tip::UPDATE,
+            ledger::tip::UPDATE::FIELD_SLOT => 100u64,
+            ledger::tip::UPDATE::FIELD_HEADER_HASH => "abc",
+            ledger::tip::UPDATE::FIELD_BLOCK_HEIGHT => 42u64,
+            ledger::tip::UPDATE::FIELD_TX_COUNT => 7u64,
+            ledger::tip::UPDATE::FIELD_EPOCH => 1u64,
+            ledger::tip::UPDATE::FIELD_SLOT_IN_EPOCH => 10u64,
+            ledger::tip::UPDATE::FIELD_DENSITY => 0.5f64,
+            ledger::tip::UPDATE::FIELD_CURRENT_KES_PERIOD => 2u64,
+            ledger::tip::UPDATE::FIELD_REMAINING_KES_PERIODS => 3u64,
+        )));
+        for index in 0..7 {
+            model.handle_message(Message::Telemetry(telemetry_at!(
+                at + Duration::from_millis(500 + index),
+                ledger::transaction::VALIDATE,
+                ledger::transaction::VALIDATE::FIELD_ID => format!("tx-{index}"),
+            )));
+        }
+        model.handle_message(metric(
+            at + Duration::from_secs(1),
+            MetricsEvent::SystemMetrics(SystemMetrics {
+                runtime_seconds: 2,
+                cpu_percent: 12.5,
+                process_memory_bytes: 18_000,
+                process_memory_live_resident: 9_000,
+                process_memory_available_virtual: 12_000,
+                memory_used_bytes: 100_000,
+                memory_total_bytes: 200_000,
+                disk_read_bytes: 300,
+                disk_write_bytes: 400,
+                disk_live_read_bytes: 30,
+                disk_live_write_bytes: 40,
+                host_live_read_bytes: 300,
+                host_live_write_bytes: 500,
+                open_files: 5,
+            }),
+        ));
 
         assert_eq!(model.recent_blocks_count(), 1);
         assert_eq!(model.recent_transactions_count(), 7);
+        assert_eq!(model.blocks_per_second(), 1.0);
+        assert_eq!(model.transactions_per_second(), 7.0);
         assert_eq!(model.system_sample.as_ref().map(|sample| sample.process_memory_bytes), Some(18_000));
         assert_eq!(model.system_sample.as_ref().map(|sample| sample.memory_total_bytes), Some(200_000));
         assert_eq!(model.system_sample.as_ref().map(|sample| sample.host_live_read_bytes), Some(300));

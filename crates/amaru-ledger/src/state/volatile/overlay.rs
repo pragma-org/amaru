@@ -15,15 +15,15 @@
 use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    ConstitutionalCommitteeUpdate, Epoch, Lovelace, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
-    RatificationStatus, StakeCredential, TreasuryDelta,
+    Constitution, ConstitutionalCommitteeUpdate, Epoch, Hash, Lovelace, PoolId, ProposalId, ProposalsRoots,
+    ProtocolParameters, RatificationStatus, StakeCredential, TreasuryDelta, size::SCRIPT,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
 
 use crate::{
     epoch_transition::{
-        Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
+        Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
     state::{
         StateError,
@@ -194,10 +194,14 @@ impl StateOverlay {
 
     /// Flush an overlay to disk.
     ///
-    /// Returns the freshly-enacted `(protocol_parameters, governance_activity)` when a governance
-    /// transition was applied, so the caller can refresh its cached copy. Returns `None` when there
-    /// was no governance update to apply, in which case the cached values are left untouched.
-    pub fn apply(&mut self, db: &impl Store) -> Result<Option<(ProtocolParameters, GovernanceActivity)>, StateError> {
+    /// Returns the freshly-enacted `(protocol_parameters, governance_activity, guardrail_script)`
+    /// when a governance transition was applied, so the caller can refresh its cached copies.
+    /// Returns `None` when there was no governance update to apply, in which case the cached values
+    /// are left untouched.
+    pub fn apply(
+        &mut self,
+        db: &impl Store,
+    ) -> Result<Option<(ProtocolParameters, GovernanceActivity, Option<Hash<SCRIPT>>)>, StateError> {
         let updated = info_span!(ledger::epoch_transition::APPLY, epoch = self.epoch).in_scope(|| {
             use EpochTransitionProgress::*;
 
@@ -344,6 +348,11 @@ impl StateOverlay {
         self.governance_updates.as_ref().map(|update| &update.protocol_parameters)
     }
 
+    /// The constitution enacted by an in-flight epoch transition, if that transition enacts one.
+    pub fn pending_constitution(&self) -> Option<&Constitution> {
+        self.governance_updates.as_ref().and_then(|update| update.new_constitution.as_ref())
+    }
+
     /// Whether the in-flight governance transition (if any) corresponds to a dormant epoch; used to
     /// bump the cached governance activity held by `State`.
     pub fn is_dormant_epoch(&self) -> bool {
@@ -359,27 +368,30 @@ impl StateOverlay {
         self.pools_updates.as_ref().is_some_and(|updates| updates.retired().contains(&pool_id))
     }
 
-    /// The committee membership verdict from the pending boundary transition. `ChangeMembers` adds
-    /// (a fresh member, no stable row yet) and removes (a tombstone); `NoConfidence` keeps members,
-    /// so it defers to the layers below. `Unknown` outside the straddle window.
-    pub fn committee_verdict<'a>(&'a self, credential: &StakeCredential) -> Existence<CommitteeMemberBind<'a>> {
+    /// The cold credentials this pending boundary transition can resolve to a member for, that is,
+    /// the ones it elects. A removal short-circuits to `Gone`, so naming it here would only yield a
+    /// candidate to discard.
+    pub fn cc_members<'a>(&'a self) -> impl Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
-            Some(ConstitutionalCommitteeUpdate::ChangeMembers { added, removed, .. }) => {
-                if removed.contains(credential) {
-                    Existence::Gone
-                } else if let Some(epoch) = added.get(credential) {
-                    // freshly elected; no hot key yet and no stable row to fall back to
-                    Existence::Exists(Bind {
-                        left: Resettable::Reset,
-                        right: Resettable::Unchanged,
-                        value: Some(epoch),
-                    })
-                } else {
-                    Existence::Unknown
-                }
-            }
-            Some(ConstitutionalCommitteeUpdate::NoConfidence) | None => Existence::Unknown,
+            Some(ConstitutionalCommitteeUpdate::ChangeMembers { added, removed, .. }) => Some(
+                std::iter::empty()
+                    .chain(added.iter().map(|(cold_credential, valid_until)| {
+                        (
+                            cold_credential,
+                            // NOTE: newly elected member preserve hot credential delegations (resp. resignations)
+                            //
+                            // It is important for `left` to NOT be `Resettable::Reset` here, as it
+                            // would invalidate a delegation (resp. resignation) registered ahead of
+                            // time, as allowed by the ledger rules.
+                            Existence::Exists(Bind { right: Resettable::Set(valid_until), ..Bind::default() }),
+                        )
+                    }))
+                    .chain(removed.iter().map(|cold_credential| (cold_credential, Existence::Gone))),
+            ),
+            Some(ConstitutionalCommitteeUpdate::NoConfidence) | None => None,
         }
+        .into_iter()
+        .flatten()
     }
 
     /// Whether the proposal is pruned by the pending boundary transition (ratified, expired, or
@@ -424,6 +436,10 @@ impl StateOverlay {
     pub fn rewards(&self) -> &RewardsState {
         &self.rewards
     }
+
+    pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
+        self.rewards.take_computed_rewards()
+    }
 }
 
 #[cfg(test)]
@@ -433,7 +449,7 @@ mod test {
     use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, TreasuryDelta};
 
     use super::*;
-    use crate::epoch_transition::Computed;
+    use crate::{AccountState, epoch_transition::Computed};
 
     #[test]
     fn test_rollback() {
@@ -481,7 +497,11 @@ mod test {
             1_000,
             7,
             142,
-            BTreeMap::from([(credential(1), 100), (credential(2), 42)]),
+            BTreeMap::from([
+                (credential(1), AccountState::default().with_rewards(100)),
+                (credential(2), AccountState::default().with_rewards(42)),
+            ])
+            .into(),
             Default::default(),
         );
         Rewards::<Effective>::new(computed, BTreeSet::from([credential(2)]))

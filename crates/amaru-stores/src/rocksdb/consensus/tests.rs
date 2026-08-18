@@ -21,10 +21,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, BlockHeight, Hash, HeaderHash, IsHeader, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId, RawBlock,
-    Slot, Tip, any_header_hash, any_header_with_parent, any_headers_chain,
-    cardano::block_header::{any_pool_id, make_block_header_with_op_cert_seq},
-    make_header, make_header_with_op_cert_seq,
+    BlockHeight, Hash, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId,
+    RawBlock, Slot, any_hash28, any_header, any_header_hash, any_header_with_parent, any_headers_chain, make_header,
+    make_header_with_op_cert_seq,
     size::HEADER,
     utils::tests::{random_bytes, run_strategy},
 };
@@ -55,7 +54,7 @@ fn both_rw_and_ro_can_be_open_on_same_dir() {
 #[test]
 fn rocksdb_chain_store_can_get_header_it_puts() {
     with_db(|db| {
-        let header = BlockHeader::from(make_header(1, 0, None));
+        let header = make_header(1, 0, None);
         db.store_header(&header).unwrap();
         let header2 = db.load_header(&header.hash()).unwrap();
         assert_eq!(header, header2);
@@ -102,11 +101,11 @@ fn best_chain_hash_when_store_is_empty() {
 }
 
 #[test]
-fn store_best_chain_hash() {
+fn store_best_chain_tip() {
     with_db(|db| {
-        let best_chain = run_strategy(any_header_hash());
-        db.set_best_chain_hash(&best_chain).unwrap();
-        assert_eq!(db.get_best_chain_hash(), best_chain);
+        let tip = run_strategy(any_header()).point();
+        db.set_best_chain_tip(&tip).unwrap();
+        assert_eq!(db.get_best_chain_tip(), tip);
     })
 }
 
@@ -118,37 +117,37 @@ fn anchor_hash_when_store_is_empty() {
 }
 
 #[test]
-fn store_anchor_hash() {
+fn store_anchor_point() {
     with_db(|db| {
-        let anchor = run_strategy(any_header_hash());
-        db.set_anchor_hash(&anchor).unwrap();
-        assert_eq!(db.get_anchor_hash(), anchor);
+        let anchor = run_strategy(any_header()).point();
+        db.set_anchor_point(&anchor).unwrap();
+        assert_eq!(db.get_anchor_point(), anchor);
     })
 }
 
 #[test]
 fn anchor_tip_when_store_is_empty() {
     with_db(|db| {
-        assert_eq!(db.get_anchor_tip(), Tip::origin());
+        assert_eq!(db.get_anchor_point(), Point::Origin);
     })
 }
 
 #[test]
-fn anchor_tip_returns_origin_when_anchor_header_is_not_stored() {
+fn anchor_tip_returns_stored_point_without_loading_header() {
     with_db(|db| {
-        let anchor = run_strategy(any_header_hash());
-        db.set_anchor_hash(&anchor).unwrap();
-        assert_eq!(db.get_anchor_tip(), Tip::origin());
+        let anchor = run_strategy(any_header()).point();
+        db.set_anchor_point(&anchor).unwrap();
+        assert_eq!(db.get_anchor_point(), anchor);
     })
 }
 
 #[test]
 fn anchor_tip_returns_tip_of_stored_anchor_header() {
     with_db(|db| {
-        let header = BlockHeader::from(make_header(1, 0, None));
+        let header = make_header(1, 0, None);
         db.store_header(&header).unwrap();
-        db.set_anchor_hash(&header.hash()).unwrap();
-        assert_eq!(db.get_anchor_tip(), header.tip());
+        db.set_anchor_point(&header.point()).unwrap();
+        assert_eq!(db.get_anchor_point(), header.point());
     })
 }
 
@@ -190,10 +189,10 @@ fn store_parent_children_relationship_for_first_header() {
 #[test]
 fn load_all_headers() {
     with_db_path(|(db, path)| {
-        let mut headers: Vec<BlockHeader> = vec![];
+        let mut headers: Vec<Header> = vec![];
         for i in 0..10usize {
             let parent = if i == 0 { None } else { Some(headers[i - 1].hash()) };
-            let header = make_header(i as u64, i as u64 * 10, parent).into();
+            let header = make_header(i as u64, i as u64 * 10, parent);
             db.store_header(&header).unwrap();
             headers.push(header);
         }
@@ -201,7 +200,7 @@ fn load_all_headers() {
 
         let db = initialise_test_ro_store(path).unwrap();
 
-        let mut result: Vec<BlockHeader> = db.load_headers().collect();
+        let mut result: Vec<Header> = db.load_headers().collect();
         result.sort();
         assert_eq!(result, headers);
     })
@@ -296,22 +295,22 @@ fn test_retrieve_best_chain() {
 
         // set the chain anchor to the 5th header
         // and the tip to the last header
-        db.set_anchor_hash(&chain[4].hash()).unwrap();
-        db.set_best_chain_hash(&chain[14].hash()).unwrap();
+        db.set_anchor_point(&chain[4].point()).unwrap();
+        db.set_best_chain_tip(&chain[14].point()).unwrap();
         let result = db.retrieve_best_chain();
         assert_eq!(result, chain[4..].iter().map(|h| h.hash()).collect::<Vec<_>>());
     })
 }
 
 #[test]
-fn load_from_best_chain_root_header() {
+fn is_on_best_chain_root_header() {
     with_db(|store| {
         let chain = populate_db(store.clone());
         let root = run_strategy(any_header_with_parent(chain[0].hash()));
 
         store.roll_forward_chain(&root.point()).expect("should roll forward successfully");
 
-        assert_eq!(store.load_from_best_chain(&root.point()), Some(root.hash()));
+        assert!(store.is_on_best_chain((root.point()).into()));
         assert_eq!(store.get_best_chain_hash(), root.hash());
     });
 }
@@ -324,7 +323,7 @@ fn update_best_chain_to_block_slot_given_new_block_is_valid() {
 
         store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
 
-        assert_eq!(store.load_from_best_chain(&new_tip.point()), Some(new_tip.hash()));
+        assert!(store.is_on_best_chain((new_tip.point()).into()));
         assert_eq!(store.get_best_chain_hash(), new_tip.hash());
     });
 }
@@ -343,9 +342,9 @@ fn switch_to_fork_switches_to_fork_and_updates_tip() {
             .expect("should replace the best chain successfully");
 
         assert_eq!(store.get_best_chain_hash(), headers.h3a.hash());
-        assert_eq!(store.load_from_best_chain(&headers.h3.point()), None);
-        assert_eq!(store.load_from_best_chain(&headers.h2a.point()), Some(headers.h2a.hash()));
-        assert_eq!(store.load_from_best_chain(&headers.h3a.point()), Some(headers.h3a.hash()));
+        assert!(!store.is_on_best_chain((headers.h3.point()).into()));
+        assert!(store.is_on_best_chain((headers.h2a.point()).into()));
+        assert!(store.is_on_best_chain((headers.h3a.point()).into()));
     });
 }
 
@@ -385,8 +384,8 @@ fn switch_to_fork_preserves_state_when_fork_point_is_not_on_best_chain() {
 
         assert_eq!(store.get_best_chain_hash(), best_chain_before, "best tip must not move");
         assert_eq!(store.retrieve_best_chain(), chain_before, "chain index must be unchanged");
-        assert_eq!(store.load_from_best_chain(&headers.h3.point()), Some(headers.h3.hash()));
-        assert_eq!(store.load_from_best_chain(&headers.h3a.point()), None);
+        assert!(store.is_on_best_chain((headers.h3.point()).into()));
+        assert!(!store.is_on_best_chain((headers.h3a.point()).into()));
     });
 }
 
@@ -398,7 +397,7 @@ fn ancestors_between_returns_the_path_in_parent_to_child_order() {
 
         let path = store.ancestors_between(&headers.h0.point(), headers.h3.hash()).unwrap();
 
-        assert_eq!(path, vec![headers.h1.tip(), headers.h2.tip(), headers.h3.tip()]);
+        assert_eq!(path, vec![headers.h1.point(), headers.h2.point(), headers.h3.point()]);
     });
 }
 
@@ -447,7 +446,7 @@ fn ancestors_between_follows_a_fork_rather_than_the_best_chain() {
 
         let path = store.ancestors_between(&headers.h1.point(), headers.h3a.hash()).unwrap();
 
-        assert_eq!(path, vec![headers.h2a.tip(), headers.h3a.tip()]);
+        assert_eq!(path, vec![headers.h2a.point(), headers.h3a.point()]);
     });
 }
 
@@ -466,7 +465,7 @@ fn ancestors_between_reports_a_from_on_another_branch() {
         for header in [&headers.h2a, &headers.h3a] {
             store.store_header(header).unwrap();
         }
-        let sibling = BlockHeader::from(make_header(3, 3, Some(headers.h0.hash())));
+        let sibling = make_header(3, 3, Some(headers.h0.hash()));
         store.store_header(&sibling).unwrap();
         assert_ne!(sibling.hash(), headers.h2.hash());
         assert!(sibling.slot() > headers.h1.slot() && sibling.slot() < headers.h3a.slot());
@@ -480,7 +479,7 @@ fn find_ancestor_on_best_chain_returns_none_when_start_header_is_not_in_store() 
     with_db(|store| {
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
 
         let absent = run_strategy(any_header_hash());
         assert_eq!(
@@ -498,7 +497,7 @@ fn find_ancestor_on_best_chain_handles_one_block_fork_off_non_tip() {
     with_db(|store| {
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
         store.store_header(&headers.h2a).unwrap();
 
         let result = store.find_ancestor_on_best_chain(headers.h2a.hash()).unwrap();
@@ -565,8 +564,8 @@ fn next_best_chain_returns_first_point_on_chain_given_origin() {
 #[test]
 fn next_best_chain_returns_slot_zero_point_given_origin() {
     with_db(|store| {
-        let h0 = BlockHeader::from(make_header(1, 0, None));
-        let h1 = BlockHeader::from(make_header(2, 1, Some(h0.hash())));
+        let h0 = make_header(1, 0, None);
+        let h1 = make_header(2, 1, Some(h0.hash()));
         let chain = vec![h0, h1];
         append_best_chain(store.clone(), &chain);
 
@@ -580,7 +579,7 @@ fn next_best_chain_returns_slot_zero_point_given_origin() {
 fn next_best_chain_returns_none_given_point_is_not_on_chain() {
     with_db(|store| {
         let _chain = populate_db(store.clone());
-        let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
+        let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()), BlockHeight::from(100));
 
         assert!(store.next_best_chain(&invalid_point).is_none());
     });
@@ -645,7 +644,7 @@ fn find_anchor_at_height_returns_first_header_at_or_above_target() {
         let chain = populate_db(store.clone());
 
         let result = store.find_anchor_at_height(BlockHeight::from(5));
-        assert_eq!(result, Some(chain[4].hash()));
+        assert_eq!(result, Some(chain[4].point()));
     });
 }
 
@@ -682,7 +681,7 @@ fn find_anchor_at_height_walks_from_origin_when_anchor_is_origin() {
         assert_eq!(store.get_anchor_hash(), ORIGIN_HASH);
 
         let result = store.find_anchor_at_height(BlockHeight::from(3));
-        assert_eq!(result, Some(chain[2].hash()));
+        assert_eq!(result, Some(chain[2].point()));
     });
 }
 
@@ -728,7 +727,7 @@ fn find_ancestor_on_best_chain_returns_best_chain_intersection_and_forward_path(
         // fork:              -> h2a -> h3a(start)
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
         for header in [&headers.h2a, &headers.h3a] {
             store.store_header(header).unwrap();
         }
@@ -749,7 +748,7 @@ fn find_ancestor_on_best_chain_returns_none_when_start_is_already_on_best_chain(
     with_db(|store| {
         let headers = make_forked_headers();
         append_best_chain(store.clone(), headers.main());
-        store.set_anchor_hash(&headers.h0.hash()).unwrap();
+        store.set_anchor_point(&headers.h0.point()).unwrap();
 
         let result = store.find_ancestor_on_best_chain(headers.h3.hash()).unwrap();
         assert_eq!(result, FindAncestorOnBestChainResult::NotFound);
@@ -803,7 +802,7 @@ fn test_intersect_points_includes_best_point_and_are_spaced_with_a_factor_2() {
     with_db(|store| {
         let mut parent = None;
         for slot in 0..=100 {
-            let header = BlockHeader::from(make_header(slot + 1, slot, parent));
+            let header = make_header(slot + 1, slot, parent);
             store.store_header(&header).unwrap();
             store.roll_forward_chain(&header.point()).unwrap();
             parent = Some(header.hash());
@@ -878,12 +877,12 @@ fn read_snapshot_keeps_original_best_chain_view_after_store_changes() {
             let best_chain_hash = snapshot.get_best_chain_hash();
             let tip = snapshot.load_header(&best_chain_hash).expect("tip should exist in snapshot");
             let next_slot = u64::from(tip.slot()) + 1;
-            let new_tip = BlockHeader::from(make_header(next_slot, next_slot, Some(tip.hash())));
+            let new_tip = make_header(next_slot, next_slot, Some(tip.hash()));
 
             store.store_header(&new_tip).expect("should store header successfully");
             store.roll_forward_chain(&new_tip.point()).expect("should roll forward successfully");
             assert_eq!(snapshot.get_best_chain_hash(), best_chain_hash);
-            assert_eq!(snapshot.load_from_best_chain(&new_tip.point()), None);
+            assert!(!snapshot.is_on_best_chain((new_tip.point()).into()));
             assert!(snapshot.next_best_chain(&tip.point()).is_none());
         },
     );
@@ -911,7 +910,7 @@ fn read_snapshot_exposes_direct_read_operations() {
                 for header in [&headers.h2a, &headers.h3a] {
                     store.store_header(header).unwrap();
                 }
-                store.set_anchor_hash(&headers.h0.hash()).unwrap();
+                store.set_anchor_point(&headers.h0.point()).unwrap();
                 store.put_nonces(&headers.h2.hash(), &nonces).unwrap();
                 store.store_block(&headers.h3.hash(), &block).unwrap();
                 store.set_block_valid(&headers.h2.hash(), true).unwrap();
@@ -952,18 +951,19 @@ fn read_snapshot_supports_best_chain_traversal() {
         {
             let chain = chain.clone();
             move |store| {
-                store.set_anchor_hash(&chain[0].hash()).unwrap();
+                store.set_anchor_point(&chain[0].point()).unwrap();
                 append_best_chain(store.clone(), &chain);
             }
         },
         {
             let chain = chain.clone();
             move |store, snapshot| {
-                let invalid_point = Point::Specific(100.into(), run_strategy(any_header_hash()));
+                let invalid_point =
+                    Point::Specific(100.into(), run_strategy(any_header_hash()), BlockHeight::from(100));
 
-                assert_eq!(store.retrieve_best_chain(), chain.iter().map(BlockHeader::hash).collect::<Vec<_>>());
-                assert_eq!(snapshot.load_from_best_chain(&chain[0].point()), Some(chain[0].hash()));
-                assert_eq!(snapshot.load_from_best_chain(&invalid_point), None);
+                assert_eq!(store.retrieve_best_chain(), chain.iter().map(Header::hash).collect::<Vec<_>>());
+                assert!(snapshot.is_on_best_chain((chain[0].point()).into()));
+                assert!(!snapshot.is_on_best_chain((invalid_point).into()));
                 assert_eq!(snapshot.next_best_chain(&Point::Origin), Some(chain[0].point()));
                 assert_eq!(snapshot.next_best_chain(&chain[5].point()), Some(chain[6].point()));
                 assert_eq!(snapshot.next_best_chain(&chain[9].point()), None);
@@ -974,8 +974,8 @@ fn read_snapshot_supports_best_chain_traversal() {
 
 #[test]
 fn read_snapshot_supports_best_chain_traversal_from_origin_to_slot_zero() {
-    let h0 = BlockHeader::from(make_header(1, 0, None));
-    let h1 = BlockHeader::from(make_header(2, 1, Some(h0.hash())));
+    let h0 = make_header(1, 0, None);
+    let h1 = make_header(2, 1, Some(h0.hash()));
     let chain = vec![h0, h1];
 
     with_read_db(
@@ -1004,26 +1004,35 @@ fn read_snapshot_supports_find_intersect_point_queries() {
             let chain = chain.clone();
             move |store| {
                 append_best_chain(store.clone(), &chain);
-                store.set_anchor_hash(&chain[5].hash()).unwrap();
+                store.set_anchor_point(&chain[5].point()).unwrap();
             }
         },
         {
             let chain = chain.clone();
             move |store, _snapshot| {
-                let unknown = Point::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
+                let unknown = NetworkPoint::Specific(Slot::from(999), Hash::new([0xff; HEADER]));
 
                 // intersect one point
-                assert_eq!(store.find_intersect_point(vec![chain[5].point()]), Some(chain[5].point()));
+                assert_eq!(
+                    store.find_intersect_point(vec![chain[5].point().to_network_point()]),
+                    Some(chain[5].point())
+                );
                 // intersect the most recent point
                 assert_eq!(
-                    store.find_intersect_point(vec![chain[3].point(), chain[7].point()]),
+                    store.find_intersect_point(vec![
+                        chain[3].point().to_network_point(),
+                        chain[7].point().to_network_point()
+                    ]),
                     Some(chain[7].point())
                 );
                 // intersect the most recent point
-                assert_eq!(store.find_intersect_point(vec![chain[2].point()]), Some(chain[2].point()));
+                assert_eq!(
+                    store.find_intersect_point(vec![chain[2].point().to_network_point()]),
+                    Some(chain[2].point())
+                );
                 // intersect with no points
                 assert_eq!(store.find_intersect_point(vec![]), None);
-                // intersect with an unknown pointThe thing is not comparable.
+                // intersect with an unknown point
                 assert_eq!(store.find_intersect_point(vec![unknown]), None);
             }
         },
@@ -1035,7 +1044,7 @@ fn find_intersect_point_returns_origin_when_best_chain_is_non_empty() {
     with_db(|store| {
         let _chain = populate_db(store.clone());
 
-        assert_eq!(store.find_intersect_point(vec![Point::Origin]), Some(Point::Origin));
+        assert_eq!(store.find_intersect_point(vec![NetworkPoint::Origin]), Some(Point::Origin));
     });
 }
 
@@ -1053,7 +1062,7 @@ fn read_snapshot_supports_ancestor_fork_and_sampling_queries() {
                 for header in [&headers.h2a, &headers.h3a] {
                     store.store_header(header).unwrap();
                 }
-                store.set_anchor_hash(&headers.h0.hash()).unwrap();
+                store.set_anchor_point(&headers.h0.point()).unwrap();
                 store.set_block_valid(&headers.h1.hash(), true).unwrap();
 
                 append_best_chain(store.clone(), &chain[4..]);
@@ -1104,7 +1113,7 @@ fn read_snapshot_supports_missing_block_queries() {
             let chain = chain.clone();
             let block = block.clone();
             move |store| {
-                store.set_anchor_hash(&chain[0].hash()).unwrap();
+                store.set_anchor_point(&chain[0].point()).unwrap();
                 append_best_chain(store.clone(), &chain);
                 store.store_block(&chain[6].hash(), &block).unwrap();
             }
@@ -1150,7 +1159,7 @@ fn read_snapshot_supports_child_tips_all() {
             move |store, _snapshot| {
                 let mut tips = store.child_tips(&headers.h0.hash(), ChildTipsMode::All);
                 tips.sort();
-                let mut expected = vec![headers.h3.tip(), headers.h3a.tip()];
+                let mut expected = vec![headers.h3.point(), headers.h3a.point()];
                 expected.sort();
                 assert_eq!(tips, expected, "\nheaders\n{headers}");
             }
@@ -1179,7 +1188,7 @@ fn read_snapshot_supports_child_tips_skip_invalid() {
             move |store, _snapshot| {
                 assert_eq!(
                     store.child_tips(&headers.h0.hash(), ChildTipsMode::SkipInvalid),
-                    vec![headers.h3a.tip()],
+                    vec![headers.h3a.point()],
                     "\nheaders\n{headers}"
                 );
             }
@@ -1190,14 +1199,14 @@ fn read_snapshot_supports_child_tips_skip_invalid() {
 #[test]
 fn opcert_sequence_number_is_none_for_an_unknown_pool() {
     with_db(|db| {
-        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
-        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header1 = make_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
         db.store_header(&header1).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
-        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.set_anchor_point(&header1.point()).unwrap();
         db.store_header(&header2).unwrap();
 
-        let unknown_pool_id = run_strategy(any_pool_id());
+        let unknown_pool_id = run_strategy(any_hash28());
         assert_eq!(db.get_latest_opcert_sequence_number(&unknown_pool_id, &header2).unwrap(), None);
     })
 }
@@ -1205,12 +1214,12 @@ fn opcert_sequence_number_is_none_for_an_unknown_pool() {
 #[test]
 fn storing_a_header_records_its_opcert_sequence_number() {
     with_db(|db| {
-        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
-        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
-        let header3 = make_block_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
+        let header1 = make_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header3 = make_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
         db.store_header(&header1).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
-        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.set_anchor_point(&header1.point()).unwrap();
         db.store_header(&header1).unwrap();
         db.store_header(&header2).unwrap();
         db.store_header(&header3).unwrap();
@@ -1233,12 +1242,12 @@ fn storing_a_header_records_its_opcert_sequence_number() {
 #[test]
 fn storing_a_validated_header_records_its_opcert_sequence_number() {
     with_db(|db| {
-        let header1 = make_block_header_with_op_cert_seq(1, 1, None, 3);
-        let header2 = make_block_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
-        let header3 = make_block_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
+        let header1 = make_header_with_op_cert_seq(1, 1, None, 3);
+        let header2 = make_header_with_op_cert_seq(2, 2, Some(header1.hash()), 4);
+        let header3 = make_header_with_op_cert_seq(3, 3, Some(header2.hash()), 5);
         db.store_validated_header(&header1, &Nonces::for_tests()).unwrap();
         db.roll_forward_chain(&header1.point()).unwrap();
-        db.set_anchor_hash(&header1.hash()).unwrap();
+        db.set_anchor_point(&header1.point()).unwrap();
         db.store_validated_header(&header2, &Nonces::for_tests()).unwrap();
         db.store_validated_header(&header3, &Nonces::for_tests()).unwrap();
         let pool_id = header1.pool_id();
@@ -1260,15 +1269,15 @@ fn storing_a_validated_header_records_its_opcert_sequence_number() {
 fn pools_can_be_initialized_with_opcert_sequence_numbers() {
     with_db(|db| {
         // mirror bootstrap + first-start initialization (build_node.rs)
-        let tip = BlockHeader::from(make_header(1, 100, None));
+        let tip = make_header(1, 100, None);
         db.store_header(&tip).unwrap();
-        db.set_anchor_hash(&tip.hash()).unwrap();
+        db.set_anchor_point(&tip.point()).unwrap();
         db.roll_forward_chain(&tip.point()).unwrap();
 
-        let pool_id: PoolId = run_strategy(any_pool_id());
+        let pool_id: PoolId = run_strategy(any_hash28());
         db.put_opcert_seed(&OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)])), &tip.point()).unwrap();
 
-        let next = BlockHeader::from(make_header(2, 110, Some(tip.hash())));
+        let next = make_header(2, 110, Some(tip.hash()));
         db.store_header(&next).unwrap();
         assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &next).unwrap(), Some(5));
         assert_eq!(db.get_latest_opcert_sequence_number(&pool_id, &tip).unwrap(), None);
@@ -1278,14 +1287,14 @@ fn pools_can_be_initialized_with_opcert_sequence_numbers() {
 #[test]
 fn a_header_entry_supersedes_an_older_seed_entry() {
     with_db(|db| {
-        let seed_header = BlockHeader::from(make_header(1, 100, None));
-        let header = BlockHeader::from(make_header_with_op_cert_seq(2, 200, Some(seed_header.hash()), 6));
-        let next = BlockHeader::from(make_header(3, 300, Some(header.hash())));
+        let seed_header = make_header(1, 100, None);
+        let header = make_header_with_op_cert_seq(2, 200, Some(seed_header.hash()), 6);
+        let next = make_header(3, 300, Some(header.hash()));
         let pool_id = header.pool_id();
         let seed = OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 5)]));
         db.store_header(&seed_header).unwrap();
         db.roll_forward_chain(&seed_header.point()).unwrap();
-        db.set_anchor_hash(&seed_header.hash()).unwrap();
+        db.set_anchor_point(&seed_header.point()).unwrap();
         db.put_opcert_seed(&seed, &seed_header.point()).unwrap();
         db.store_header(&header).unwrap();
         db.store_header(&next).unwrap();
@@ -1300,14 +1309,14 @@ fn opcert_lookup_follows_forks() {
     with_db(|db| {
         // root 1 -> fork_a 5 -> next_a
         //        -> fork_b 2 -> next_b
-        let root = BlockHeader::from(make_header_with_op_cert_seq(1, 10, None, 1));
-        let fork_a = BlockHeader::from(make_header_with_op_cert_seq(2, 20, Some(root.hash()), 5));
-        let fork_b = BlockHeader::from(make_header_with_op_cert_seq(2, 25, Some(root.hash()), 2));
-        let next_a = BlockHeader::from(make_header(3, 30, Some(fork_a.hash())));
-        let next_b = BlockHeader::from(make_header(3, 35, Some(fork_b.hash())));
+        let root = make_header_with_op_cert_seq(1, 10, None, 1);
+        let fork_a = make_header_with_op_cert_seq(2, 20, Some(root.hash()), 5);
+        let fork_b = make_header_with_op_cert_seq(2, 25, Some(root.hash()), 2);
+        let next_a = make_header(3, 30, Some(fork_a.hash()));
+        let next_b = make_header(3, 35, Some(fork_b.hash()));
         db.store_header(&root).unwrap();
         db.roll_forward_chain(&root.point()).unwrap();
-        db.set_anchor_hash(&root.hash()).unwrap();
+        db.set_anchor_point(&root.point()).unwrap();
         for h in [&fork_a, &fork_b, &next_a, &next_b] {
             db.store_header(h).unwrap();
         }
@@ -1479,14 +1488,53 @@ fn can_convert_v1_sample_db_to_v4() {
     assert_eq!(get_version(&store).unwrap(), 2, "sample DB should be v2");
     migrate_to_v3(&store).expect("Migration to v3 should succeed");
     assert_eq!(get_version(&store).unwrap(), 3, "sample DB should be v3");
+    let best = store.db.get(BEST_CHAIN_PREFIX).unwrap().expect("v3 best chain");
+    let anchor = store.db.get(ANCHOR_PREFIX).unwrap().expect("v3 anchor");
+    assert_eq!(best.len(), HEADER, "v3 best chain is a 32-byte header hash");
+    assert_eq!(best, anchor, "v3 resets best chain to the anchor hash");
     migrate_to_v4(&store).expect("Migration to v4 should succeed");
     assert_eq!(get_version(&store).unwrap(), 4, "sample DB should be v4");
 
-    let header: Option<HeaderHash> = <RocksDBStore as BaseReadChainStore>::load_from_best_chain(
-        &store,
-        &Point::Specific(5.into(), Hash::from_str(SAMPLE_HASH).unwrap()),
-    );
-    assert!(header.is_some(), "Sample data should be preserved");
+    let chain_key = [&CHAIN_PREFIX[..], &5u64.to_be_bytes()[..]].concat();
+    let stored = store.db.get(chain_key).unwrap().expect("sample chain entry at slot 5");
+    let stored_hash = HeaderHash::from(&stored[..]);
+    assert_eq!(stored_hash, HeaderHash::from_str(SAMPLE_HASH).unwrap(), "Sample data should be preserved");
+}
+
+#[test]
+fn migrate_to_v3_writes_best_chain_as_header_hash() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+
+    let anchor = make_header(1, 10, None);
+    let tip = make_header(2, 20, Some(anchor.hash()));
+    store.store_header(&anchor).unwrap();
+    store.store_header(&tip).unwrap();
+
+    // Shape a v2 database: tip, anchor, and chain index are raw 32-byte hashes.
+    store.db.put(BEST_CHAIN_PREFIX, tip.hash().as_ref()).unwrap();
+    store.db.put(ANCHOR_PREFIX, anchor.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &10u64.to_be_bytes()[..]].concat(), anchor.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat(), tip.hash().as_ref()).unwrap();
+    set_version(&store, 2).unwrap();
+
+    migrate_to_v3(&store).unwrap();
+
+    assert_eq!(get_version(&store).unwrap(), 3);
+
+    let best = store.db.get(BEST_CHAIN_PREFIX).unwrap().unwrap();
+    assert_eq!(best.len(), HEADER, "v3 best chain must be a 32-byte header hash");
+    assert_eq!(HeaderHash::from(&best[..]), anchor.hash());
+
+    let stored_anchor = store.db.get(ANCHOR_PREFIX).unwrap().unwrap();
+    assert_eq!(stored_anchor.len(), HEADER);
+    assert_eq!(HeaderHash::from(&stored_anchor[..]), anchor.hash());
+
+    let validity = store.db.get([&HEADER_PREFIX[..], &anchor.hash()[..], &[0]].concat()).unwrap();
+    assert_eq!(validity.as_deref(), Some([1u8].as_slice()), "v3 marks the new tip valid");
+
+    let chain_tip = store.db.get([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat()).unwrap().unwrap();
+    assert_eq!(chain_tip.len(), HEADER, "v3 must not rewrite the chain index as a Point");
 }
 
 #[test]
@@ -1494,8 +1542,8 @@ fn migrate_to_v4_backfills_opcert_entries_from_stored_headers() {
     let tempdir = tempfile::tempdir().unwrap();
     let store = initialise_test_rw_store(tempdir.path());
 
-    let header1 = BlockHeader::from(make_header_with_op_cert_seq(1, 10, None, 1));
-    let header2 = BlockHeader::from(make_header_with_op_cert_seq(2, 20, Some(header1.hash()), 2));
+    let header1 = make_header_with_op_cert_seq(1, 10, None, 1);
+    let header2 = make_header_with_op_cert_seq(2, 20, Some(header1.hash()), 2);
     store.store_header(&header1).unwrap();
     store.store_header(&header2).unwrap();
 
@@ -1529,6 +1577,69 @@ fn migrate_to_v5_requires_rebootstrap_from_snapshot() {
     assert!(error.contains("amaru node rm --wipe-all-dbs"), "missing rm command: {error}");
     assert!(error.contains("amaru node bootstrap"), "missing bootstrap command: {error}");
     assert_eq!(get_version(&store).unwrap(), 4, "failed migration must not bump the version");
+}
+
+#[test]
+fn migrate_to_v6_rewrites_legacy_hash_encodings() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+
+    let h0 = make_header(1, 10, None);
+    let h1 = make_header(2, 20, Some(h0.hash()));
+    store.store_header(&h0).unwrap();
+    store.store_header(&h1).unwrap();
+
+    store.db.put(BEST_CHAIN_PREFIX, h1.hash().as_ref()).unwrap();
+    store.db.put(ANCHOR_PREFIX, h0.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &10u64.to_be_bytes()[..]].concat(), h0.hash().as_ref()).unwrap();
+    store.db.put([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat(), h1.hash().as_ref()).unwrap();
+    set_version(&store, 5).unwrap();
+
+    migrate_to_v6(&store).unwrap();
+
+    assert_eq!(get_version(&store).unwrap(), 6);
+    assert_eq!(store.get_best_chain_tip(), h1.point());
+    assert_eq!(store.get_anchor_point(), h0.point());
+    assert!(store.is_on_best_chain(h0.point().into()));
+    assert!(store.is_on_best_chain(h1.point().into()));
+    assert_eq!(store.next_best_chain(&h0.point()), Some(h1.point()));
+
+    let best_raw = store.db.get(BEST_CHAIN_PREFIX).unwrap().unwrap();
+    assert_ne!(best_raw.len(), HEADER, "best tip must be stored as NetworkTip CBOR");
+    let chain_raw = store.db.get([&CHAIN_PREFIX[..], &20u64.to_be_bytes()[..]].concat()).unwrap().unwrap();
+    assert_ne!(chain_raw.len(), HEADER, "chain entries must be stored as NetworkTip CBOR");
+}
+
+#[test]
+fn migrate_to_v6_is_idempotent_for_point_encodings() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let header = make_header(1, 10, None);
+    store.store_header(&header).unwrap();
+    store.set_anchor_point(&header.point()).unwrap();
+    store.roll_forward_chain(&header.point()).unwrap();
+    set_version(&store, 5).unwrap();
+
+    migrate_to_v6(&store).unwrap();
+    migrate_to_v6(&store).unwrap();
+
+    assert_eq!(get_version(&store).unwrap(), 6);
+    assert_eq!(store.get_anchor_point(), header.point());
+    assert_eq!(store.get_best_chain_tip(), header.point());
+    assert!(store.is_on_best_chain(header.point().into()));
+}
+
+#[test]
+fn migrate_to_v6_fails_when_header_is_missing() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = initialise_test_rw_store(tempdir.path());
+    let hash = run_strategy(any_header_hash());
+    store.db.put(BEST_CHAIN_PREFIX, hash.as_ref()).unwrap();
+    set_version(&store, 5).unwrap();
+
+    let err = migrate_to_v6(&store).expect_err("missing header must fail the rewrite");
+    assert!(matches!(err, StoreError::ReadError { .. }), "expected ReadError, got: {err:?}");
+    assert_eq!(get_version(&store).unwrap(), 5, "failed migration must not bump the version");
 }
 
 #[test]
@@ -1615,12 +1726,12 @@ const SAMPLE_HASH: &str = "4b1f95026700f5b3df8432b3f93b023f3cbdf13c85704e0f71b00
 
 #[derive(Clone)]
 struct ForkedHeaders {
-    h0: BlockHeader,
-    h1: BlockHeader,
-    h2: BlockHeader,
-    h3: BlockHeader,
-    h2a: BlockHeader,
-    h3a: BlockHeader,
+    h0: Header,
+    h1: Header,
+    h2: Header,
+    h3: Header,
+    h2a: Header,
+    h3a: Header,
 }
 
 impl Display for ForkedHeaders {
@@ -1636,11 +1747,11 @@ impl Display for ForkedHeaders {
 }
 
 impl ForkedHeaders {
-    fn main(&self) -> [&BlockHeader; 4] {
+    fn main(&self) -> [&Header; 4] {
         [&self.h0, &self.h1, &self.h2, &self.h3]
     }
 
-    fn all(&self) -> [&BlockHeader; 6] {
+    fn all(&self) -> [&Header; 6] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h2a, &self.h3a]
     }
 }
@@ -1649,37 +1760,37 @@ impl ForkedHeaders {
 ///          -> h2a -> h3a
 ///
 fn make_forked_headers() -> ForkedHeaders {
-    let h0 = BlockHeader::from(make_header(1, 1, None));
-    let h1 = BlockHeader::from(make_header(2, 2, Some(h0.hash())));
-    let h2 = BlockHeader::from(make_header(3, 3, Some(h1.hash())));
-    let h3 = BlockHeader::from(make_header(4, 4, Some(h2.hash())));
-    let h2a = BlockHeader::from(make_header(3, 10, Some(h1.hash())));
-    let h3a = BlockHeader::from(make_header(4, 11, Some(h2a.hash())));
+    let h0 = make_header(1, 1, None);
+    let h1 = make_header(2, 2, Some(h0.hash()));
+    let h2 = make_header(3, 3, Some(h1.hash()));
+    let h3 = make_header(4, 4, Some(h2.hash()));
+    let h2a = make_header(3, 10, Some(h1.hash()));
+    let h3a = make_header(4, 11, Some(h2a.hash()));
 
     ForkedHeaders { h0, h1, h2, h3, h2a, h3a }
 }
 
-fn make_linear_headers(len: usize) -> Vec<BlockHeader> {
+fn make_linear_headers(len: usize) -> Vec<Header> {
     let mut headers = Vec::with_capacity(len);
     for i in 0..len {
-        let parent = headers.last().map(BlockHeader::hash);
-        headers.push(BlockHeader::from(make_header((i + 1) as u64, (i + 1) as u64, parent)));
+        let parent = headers.last().map(Header::hash);
+        headers.push(make_header((i + 1) as u64, (i + 1) as u64, parent));
     }
     headers
 }
 
-fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a BlockHeader>) {
+fn append_best_chain<'a>(store: Arc<dyn ChainStore>, headers: impl IntoIterator<Item = &'a Header>) {
     for header in headers {
         store.store_header(header).unwrap();
         store.roll_forward_chain(&header.point()).unwrap();
     }
 }
 
-fn populate_db(store: Arc<dyn ChainStore>) -> Vec<BlockHeader> {
+fn populate_db(store: Arc<dyn ChainStore>) -> Vec<Header> {
     let chain = run_strategy(any_headers_chain(10));
 
     // Set the anchor to the first header in the chain
-    store.set_anchor_hash(&chain[0].hash()).expect("should set anchor hash successfully");
+    store.set_anchor_point(&chain[0].point()).expect("should set anchor hash successfully");
 
     for header in chain.iter() {
         store.roll_forward_chain(&header.point()).expect("should roll forward successfully");

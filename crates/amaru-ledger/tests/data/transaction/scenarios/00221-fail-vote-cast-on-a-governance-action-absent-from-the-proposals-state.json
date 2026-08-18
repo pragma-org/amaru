@@ -1,0 +1,44 @@
+{
+  "title": "vote cast on a governance action absent from the proposals state",
+  "description": "A registered DRep naming a proposal id that no proposal in state carries.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258207ae12fe7076ec75319e0ecac782bcb6d828bb6a4baa49eada7116b47a80d449200",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "dreps": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 500000000,
+        "registeredAt": {
+          "transaction": {
+            "slot": 0,
+            "transactionIndex": 0
+          },
+          "certificateIndex": 0
+        },
+        "validUntil": 1000
+      }
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Information", 6]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258207ae12fe7076ec75319e0ecac782bcb6d828bb6a4baa49eada7116b47a80d4492000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a1825820bbd665a051206b767522b19427cced4e0420a050852f7ba1c875c9ec1e4983e1008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258405c8b74a8926ec66661779cff7512c53ef14cc243fb20907a1a62c841f9fdaef6d409301c96944bdbd5f355b077894b773717722e8fd7764a1c5fd1020f56540ff5f6",
+  "expected": {
+    "predicate": "GovActionsDoNotExist"
+  }
+}

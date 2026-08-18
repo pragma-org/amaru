@@ -94,10 +94,10 @@ pub async fn register_peer_sharing_initiator<M: amaru_pure_stage::SendData>(
         MuxMessage::Register {
             protocol: PROTO_N2N_PEER_SHARE.erase(),
             frame: Frame::OneCborItem,
-            handler: eff.contramap(&ps, "peer_sharing_network", Inputs::<PeerSharingMessage>::Network).await,
+            handler: ps.contramap(Inputs::<PeerSharingMessage>::Network),
             max_buffer: MAX_MESSAGE_BYTES,
         },
     )
     .await;
-    eff.contramap(&ps, "peer_sharing_local", Inputs::<PeerSharingMessage>::Local).await
+    ps.contramap(Inputs::<PeerSharingMessage>::Local)
 }

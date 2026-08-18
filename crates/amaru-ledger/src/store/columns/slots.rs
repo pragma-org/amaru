@@ -25,7 +25,7 @@ pub type Value = Row;
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Row {
     pub slot_leader: PoolId,
 }
@@ -36,7 +36,7 @@ impl Row {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for Row {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Row {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -47,7 +47,7 @@ impl<C> cbor::encode::Encode<C> for Row {
     }
 }
 
-impl<'a, C> cbor::decode::Decode<'a, C> for Row {
+impl<'a, C: cbor::HasProtocolVersion> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let slot_leader = d.decode_with(ctx)?;
         Ok(Row::new(slot_leader))

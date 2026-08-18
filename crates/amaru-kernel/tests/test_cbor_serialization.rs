@@ -18,7 +18,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{Block, EraName, Transaction, TransactionBody, cbor, from_cbor_no_leftovers, to_cbor};
+use amaru_kernel::{
+    Block, EraName, ProtocolVersion, Transaction, TransactionBody, cbor,
+    cbor::{from_cbor_no_leftovers_with, to_cbor_with},
+    protocol_version::PROTOCOL_VERSION_11,
+};
 use serde::Deserialize;
 
 /// See the README at crates/amaru/tests/conformance/serialization/cbor-fixture-generator/README.md
@@ -302,10 +306,11 @@ enum Outcome {
 ///
 fn check_round_trip<T>(bytes: &[u8], exact_re_encoding: bool) -> Result<(), cbor::decode::Error>
 where
-    T: for<'b> cbor::Decode<'b, ()> + cbor::Encode<()>,
+    T: for<'b> cbor::Decode<'b, ProtocolVersion> + cbor::Encode<ProtocolVersion>,
 {
-    let value: T = from_cbor_no_leftovers(bytes)?;
-    let re_encoded = to_cbor(&value);
+    let mut version = PROTOCOL_VERSION_11;
+    let value: T = from_cbor_no_leftovers_with(bytes, &mut version)?;
+    let re_encoded = to_cbor_with(&value, &mut version);
 
     if exact_re_encoding && re_encoded != bytes {
         return Err(cbor::decode::Error::message(format!(
@@ -315,8 +320,8 @@ where
         )));
     }
 
-    let re_decoded: T = from_cbor_no_leftovers(&re_encoded)?;
-    if to_cbor(&re_decoded) != re_encoded {
+    let re_decoded: T = from_cbor_no_leftovers_with(&re_encoded, &mut version)?;
+    if to_cbor_with(&re_decoded, &mut version) != re_encoded {
         return Err(cbor::decode::Error::message("re-encoding is not a fixed point"));
     }
 

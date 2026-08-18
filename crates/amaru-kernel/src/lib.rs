@@ -44,14 +44,15 @@ pub use data_structures::{
     non_empty_set::{IntoNonEmptySetError, NonEmptySet},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
+    sorted_pairs::SortedPairs,
 };
 
 pub mod cbor {
     pub use amaru_minicbor_extra::{
         TAG_MAP_259, TAG_SET_258, WithSize, allow_tag, check_tagged_array_length, collect_array_item_bytes,
-        collect_map_value_bytes, decode_break, decode_bytes, decode_string, expect_tag, from_cbor,
-        from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_map, lazy,
-        missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
+        collect_map_value_bytes, count_bytes, decode_break, decode_bytes, decode_string, encode_variable_length_map,
+        expect_tag, from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array,
+        heterogeneous_map, heterogeneous_map_with, lazy, missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -59,7 +60,7 @@ pub mod cbor {
         decode, decode_with, display, encode, encode_with, len, len_with, to_vec, to_vec_with,
     };
 
-    pub use super::utils::cbor::Skip;
+    pub use super::utils::cbor::{HasProtocolVersion, Skip, decode_bytes_with};
 }
 pub use cbor::{from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, to_cbor};
 
@@ -67,8 +68,8 @@ pub mod cardano;
 pub use cardano::{
     account::Account,
     address::{
-        self, Address, AddressPointer, ByronAddress, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
-        StakePayload,
+        self, Address, AddressPointer, AddressType, ByronAddress, ShelleyAddress, ShelleyDelegationPart,
+        ShelleyPaymentPart, StakePayload,
     },
     anchor::{self, Anchor},
     asset_name::{AssetName, EMPTY_ASSET_NAME},
@@ -76,7 +77,6 @@ pub use cardano::{
     ballot::Ballot,
     ballot_id::BallotId,
     block::{Block, TransactionIndex},
-    block_header::BlockHeader,
     block_height::BlockHeight,
     bootstrap_witness::BootstrapWitness,
     bytes::{self, Bytes},
@@ -118,7 +118,7 @@ pub use cardano::{
     max_string::MaxString128,
     memoized::{
         self, BorrowedScript, MemoizedDatum, MemoizedNativeScript, MemoizedPlutusData, MemoizedScript,
-        MemoizedTransactionOutput, MemoizedValue, deserialize_script, serialize_memoized_script, serialize_script,
+        MemoizedTransactionOutput, deserialize_script, serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
     multiasset::{self, Multiasset},
@@ -126,6 +126,8 @@ pub use cardano::{
     network::{self, Network},
     network_magic::{self, NetworkMagic},
     network_name::{self, NetworkName, PEER_SNAPSHOT_NETWORKS},
+    network_point::NetworkPoint,
+    network_tip::NetworkTip,
     non_zero_int::NonZeroInt,
     nonce::{Nonce, parse_nonce},
     operational_cert::OperationalCert,
@@ -144,8 +146,8 @@ pub use cardano::{
     proposal::Proposal,
     proposal_enum::{self, ProposalEnum},
     proposal_id::{self, ProposalId},
-    proposal_kind::{self, ProposalKind},
     proposal_pointer::ProposalPointer,
+    proposal_slim::{self, ProposalSlim},
     proposal_state::ProposalState,
     proposals_roots::{self, ProposalsRoots, ProposalsRootsRc},
     protocol_parameters::{
@@ -177,8 +179,8 @@ pub use cardano::{
     stake_address::{self, PlutusStakeAddress, StakeAddress},
     stake_credential::{BorrowedStakeCredential, StakeCredential, parse_reward_account},
     stake_credential_kind::StakeCredentialKind,
+    stake_entry::{self, StakeEntry},
     time_range::TimeRange,
-    tip::Tip,
     transaction::Transaction,
     transaction_body::TransactionBody,
     transaction_id::TransactionId,
@@ -205,13 +207,10 @@ pub use cardano::{
     anchor::any_anchor,
     ballot::any_ballot,
     ballot_id::{any_ballot_id, any_voter},
-    block_header::{
-        any_fake_header, any_header, any_header_hash, any_header_with_parent, any_header_with_some_parent,
-        any_headers_chain, any_headers_chain_with_root, make_header, make_header_with_op_cert_seq,
-    },
     block_height::any_block_height,
     certificate_pointer::any_certificate_pointer,
     constitution::any_constitution,
+    constitutional_committee_member_status::any_constitutional_committee_member_status,
     constitutional_committee_status::any_constitutional_committee_status,
     constitutional_committee_update::any_constitutional_committee_update,
     drep::any_drep,
@@ -222,12 +221,18 @@ pub use cardano::{
     era_name::any_era_name,
     era_params::any_era_params,
     hash::{any_hash28, any_hash32},
+    header::{
+        any_fake_header, any_header, any_header_hash, any_header_with_parent, any_header_with_some_parent,
+        any_headers_chain, any_headers_chain_with_root, make_header, make_header_with_op_cert_seq,
+    },
     lovelace::any_lovelace,
     memoized::{any_datum, any_legacy_output, any_modern_output},
     native_script::any_native_script,
     network::any_network,
     network_magic::any_network_magic,
     network_name::any_network_name,
+    network_point::{any_network_point, any_specific_network_point},
+    network_tip::any_network_tip,
     orphan_proposal::any_orphan_proposal,
     plutus_data::any_plutus_data,
     point::{any_point, any_specific_point},
@@ -246,7 +251,6 @@ pub use cardano::{
     rational_number::any_rational_number,
     reward_account::any_reward_account,
     stake_credential::any_stake_credential,
-    tip::any_tip,
     transaction_input::any_transaction_input,
     transaction_pointer::any_transaction_pointer,
     vote::{VOTE_ABSTAIN, VOTE_NO, VOTE_YES, any_vote, any_vote_ref},

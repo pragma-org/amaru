@@ -35,6 +35,30 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20260820 _[unreleased; planned for 2026-08-20]_
+
+### Added
+
+- **amaru-pure-stage**: simulate how long an `ExternalEffect` occupies time (`DurationDist`: zero, constant, uniform, or until the effect future resolves). Sampled durations are scheduled when the effect is issued; `SimulationBuilder::run` now takes a Tokio `Handle` so a still-pending `run()` can be forced at that deadline. ([#1224](https://github.com/pragma-org/amaru/pull/1224))
+
+### Changed
+
+- **amaru-pure-stage**: `contramap` is now a method on `StageRef`. It no longer allocates a runtime name or adapter entry; the injection runs in the sending stage and traces record the transformed message sent to the original stage. `StageGraph::contramap` and `Effects::contramap` are removed. `Sender::send` now returns `SendError` instead of the original message (the payload cannot be recovered after a contramap injection). ([#762](https://github.com/pragma-org/amaru/issues/762))
+
+### Fixed
+
+- **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.
+- **amaru-plutus**: encode `CostModels` as a map from language to cost model (#1219).
+- **amaru-ledger**: compute the size of a value using the same encoding as the Haskell node.
+- **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])
+- **amaru-ledger**: reduce churn allocations during stake distribution and rewards calculations.
+- **amaru-ledger**: prevent CC action of resigned members.
+- **amaru-ledger**: resolve and control CC member cold credentials following ratification or in-flight proposals.
+- **amaru-ledger**: disallow voters not relevant to the target proposals.
+- **amaru**: use definite decoding for Conway bytes
+- **amaru-ledger**: preserve dormant-epoch state during bootstrap and avoid extending the expiry of already-expired DReps.
+- **amaru-ledger**: reject votes cast on governance actions that have expired. ([#1143][], [#926][])
+- **amaru-stores**: prune obsolete votes when removing expired/ratified/evicted proposals.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
@@ -53,20 +77,26 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-stores**: bump chain DB schema to version 6. Existing v5 databases can be migrated: best-chain tip, anchor, and per-slot chain index values are rewritten from a header hash to a CBOR `NetworkTip` (`[network_point, block_height]`). The ledger `@tip` remains a `NetworkPoint`.
 - **amaru / amaru-tui**: product observability setup no longer types against TUI-specific capture types; the TUI installs the shared observability capture layer.
 - **scripts/run-until**: drives the `amaru-node` `run_until` example (observer-based stop). The example installs OTLP via `amaru_node::Telemetry` when `AMARU_WITH_OPEN_TELEMETRY` is set, so e2e metrics still flow to the collector.
 - **amaru-node**: `Telemetry::install` embedder helper for fmt / JSON / OTLP (metrics + traces + logs) using the same env knobs as the product binary.
 - **amaru-observability**: structured logging for complex values: schema transport preserves JSON primitives and encodes other values as CBOR (`record_bytes`); JSON traces get nested objects/arrays, OTEL logs get nested `AnyValue` maps/lists, OTEL spans upgrade homogeneous CBOR arrays to `Value::Array` (with CBOR diagnostic fallback otherwise), and console logs use CBOR diagnostic notation. ([#1182](https://github.com/pragma-org/amaru/pull/1182))
 - **amaru**: stake-distribution conformance tests no longer partition `#[ignore]` vs active cases from `ledger.<network>.db` at build time (watching that live DB rebuilt `amaru` on every node write). Fixture directories are still watched so tests regenerate when snapshots change; each test soft-skips with a warning when the matching local ledger snapshot is missing.
 - **amaru-ledger**: validate the governance actions a transaction votes on actually exist, counting proposals submitted earlier in the same block. ([#1139][], [#924][])
+- **amaru-ledger**: reject a governance proposal whose policy is not the enacted constitution's guardrails script. ([#931][])
 
 ### Fixed
 
+- **amaru-observability**: restore wrapping-span identity on every product tracing stack (console, JSON, OTEL, TUI) and stop double-quoting CBOR string scalars such as header hashes. Each event inlines only its wrapping span's fields; `parents` is a name array; child lines refer to the parent by id. Console uses a Java-style abbreviated path (`e.t:g.r`). Encoding is specified in EDR-033. ([#1208](https://github.com/pragma-org/amaru/issues/1208))
 - **amaru-node**: when OTLP is enabled, `Telemetry` starts the same process/build gauges as the product binary (`process_*`, `cardano_node_metrics_cardano_*`) so embedders such as `run_until` satisfy the e2e metrics contract.
 - **amaru-consensus**: make `select_chain` handle already-validated tips idempotently so concurrent startup recovery cannot terminate the stage. ([#1124](https://github.com/pragma-org/amaru/pull/1124))
 - **amaru**: store nonces with both packaged bootstrap headers so the "nonces present ⇔ header validated" invariant holds after bootstrap. ([#1124](https://github.com/pragma-org/amaru/pull/1124))
 - **amaru-ledger**: reject governance proposals whose previous action does not match the enacted root nor an in-flight proposal of the same purpose. ([#1090][], [#932][])
 - **amaru-kernel**: fix the decoding of data types that were not conforming to the specification ([#1172](https://github.com/pragma-org/amaru/issues/1172))
+- **amaru-ledger**: a transaction marked invalid that carries no Plutus script is no longer accepted. ([#894][])
+- **amaru-pure-stage**: avoid constructing short string errors when failing to cast types in pure-stage.
+- **amaru**: fix a switch to fork when fork length was than one block. (#1162, #1190).
 
 ## [v10.11.20260807](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260807)
 
@@ -289,6 +319,7 @@ Other guiding principles:
 [#888]: https://github.com/pragma-org/amaru/issues/888
 [#890]: https://github.com/pragma-org/amaru/issues/890
 [#892]: https://github.com/pragma-org/amaru/issues/892
+[#894]: https://github.com/pragma-org/amaru/issues/894
 [#895]: https://github.com/pragma-org/amaru/issues/895
 [#896]: https://github.com/pragma-org/amaru/issues/896
 [#899]: https://github.com/pragma-org/amaru/issues/899
@@ -296,9 +327,12 @@ Other guiding principles:
 [#909]: https://github.com/pragma-org/amaru/issues/909
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
+[#923]: https://github.com/pragma-org/amaru/issues/923
 [#924]: https://github.com/pragma-org/amaru/issues/924
+[#926]: https://github.com/pragma-org/amaru/issues/926
 [#928]: https://github.com/pragma-org/amaru/issues/928
 [#929]: https://github.com/pragma-org/amaru/issues/929
+[#931]: https://github.com/pragma-org/amaru/issues/931
 [#932]: https://github.com/pragma-org/amaru/issues/932
 [#942]: https://github.com/pragma-org/amaru/pull/942
 [#951]: https://github.com/pragma-org/amaru/pull/951
@@ -351,4 +385,6 @@ Other guiding principles:
 [#1101]: https://github.com/pragma-org/amaru/pull/1101
 [#1109]: https://github.com/pragma-org/amaru/pull/1109
 [#1118]: https://github.com/pragma-org/amaru/pull/1118
+[#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
+[#1143]: https://github.com/pragma-org/amaru/pull/1143

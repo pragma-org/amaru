@@ -137,7 +137,6 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 }
 
 #[expect(clippy::print_stdout)]
-#[expect(clippy::unwrap_used)]
 pub fn print_best_chain(db: &impl DiagnosticChainStore) {
     println!();
     let best_chain = db.retrieve_best_chain();
@@ -146,7 +145,7 @@ pub fn print_best_chain(db: &impl DiagnosticChainStore) {
     println!();
     println!("The best chain length is: {}", best_chain.len());
     println!("The best chain anchor is: {}", db.get_anchor_hash());
-    println!("The best chain tip is: {}", db.load_tip(&db.get_best_chain_hash()).unwrap().point());
+    println!("The best chain tip is: {}", db.get_best_chain_tip());
 }
 
 #[expect(clippy::print_stdout)]
@@ -191,6 +190,6 @@ fn valid_str(valid: Option<bool>) -> &'static str {
 pub fn print_children(db: &impl ReadChainStore, hash: HeaderHash) {
     for child in db.child_tips(&hash, ChildTipsMode::All) {
         let (_header, valid) = db.load_header_with_validity(&child.hash()).unwrap();
-        println!("{} {}", child.point(), valid_str(valid))
+        println!("{} {}", child, valid_str(valid))
     }
 }

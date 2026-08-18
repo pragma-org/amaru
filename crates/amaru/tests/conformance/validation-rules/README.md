@@ -1,8 +1,8 @@
 # Conformance tests
 
-This tool validates phase-one conformance fixtures against the Haskell ledger implementation, so that Amaru's ledger rules can be compared against the reference node.
+This tool validates the transaction conformance fixtures against the Haskell ledger implementation, so that Amaru's ledger rules can be compared against the reference node.
 
-The fixtures live in [amaru-ledger/tests/data/phase-one](../../../../amaru-ledger/tests/data/phase-one), split into `pass` and `fail` cases.
+The fixtures live in [amaru-ledger/tests/data/transaction](../../../../amaru-ledger/tests/data/transaction). Each one under `scenarios` declares its own outcome through its `expected` field.
 
 ## Prerequisites
 
@@ -40,11 +40,11 @@ cabal run exe:conformance -- --help
 
 ### Example
 
-To validate a single phase-one fixture:
+To validate a single fixture:
 
 ```console
 cabal run -v0 exe:conformance -- validate-phase-one \
-  --test-case ../../../../amaru-ledger/tests/data/phase-one/fail/00050-unknown-spent-input.json
+  --test-case ../../../../amaru-ledger/tests/data/transaction/scenarios/00050-fail-unknown-spent-input.json
 ```
 
 The command prints the test case label and either the expected outcome (`PASS` or the expected predicate failure), or a validation mismatch error.

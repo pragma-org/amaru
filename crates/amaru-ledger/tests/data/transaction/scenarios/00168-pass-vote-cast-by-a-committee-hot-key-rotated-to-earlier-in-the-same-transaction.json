@@ -1,0 +1,35 @@
+{
+  "title": "vote cast by a committee hot key rotated to earlier in the same transaction",
+  "description": "A member holding a term and an authorized hot credential authorizes a different one, then votes with that new credential in the same transaction.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "82582072135ac58592606cb0d744b7542555e5a96d9c54eac690d054621db90d40b7ae00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "status": "8200581c2e06285720a42375de8c91a3f9f27d89516f93a2f60ad638ef30eea6",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Orphan", 6]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a600d901028182582072135ac58592606cb0d744b7542555e5a96d9c54eac690d054621db90d40b7ae000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d9010281830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec0f0013a18200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253ceca18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102828258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b44546fd1f70cc8405b827d2c37c7cea2cd309ddbe1a330df35c11b9a7287f3c66acc0f213a47c6d2df5db8975ff3fca7089e2285a5c5c1d10a9629380a24f0b825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b5858402b80d1356ee87029a2bd258750f0446e1518a451f3ab1c8a7f2a3e33bd00cafc50647ef4eab498da461cfdc31530ed507c7c1ab30a3e2c1ea7fc80be66a08008f5f6",
+  "expected": "Pass"
+}

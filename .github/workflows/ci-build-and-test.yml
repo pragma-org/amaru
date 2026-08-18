@@ -110,9 +110,6 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/stage-peer-snapshots
       - uses: ./.github/actions/cache
-      - name: benches headers_tree
-        shell: bash
-        run: cargo bench --bench headers_tree --features="test-utils profiling"
       - name: benches volatile_db
         shell: bash
         run: cargo bench --bench volatile_db
@@ -166,6 +163,6 @@ jobs:
           echo ""
           echo "If schemas changed, also run:"
           echo ""
-          echo "  cargo run --bin amaru -- dump-traces-schema 2> docs/traces-schema.json"
+          echo "  cargo run --bin amaru -- dev traces dump 1> docs/traces-schema.json"
           echo ""
           echo "Then commit the updated files."

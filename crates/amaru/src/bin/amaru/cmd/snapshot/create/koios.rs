@@ -14,7 +14,7 @@
 
 use std::{error::Error, str::FromStr};
 
-use amaru_kernel::{Epoch, Hash, NetworkName, Point, Slot};
+use amaru_kernel::{Epoch, Hash, NetworkName, NetworkPoint, Slot};
 use amaru_observability::info;
 use serde::Deserialize;
 
@@ -100,10 +100,10 @@ pub(super) async fn fetch_last_block_for_epoch(
         .next()
         .ok_or_else(|| format!("Koios returned no blocks for epoch {epoch}"))?;
 
-    let point = Point::Specific(Slot::from(block.abs_slot), Hash::from_str(&block.hash)?);
+    let point = NetworkPoint::Specific(Slot::from(block.abs_slot), Hash::from_str(&block.hash)?);
 
     let parent_block = fetch_block_by_hash(client, network, &block.parent_hash).await?;
-    let parent_point = Point::from_str(&format!("{}.{}", parent_block.abs_slot, parent_block.hash))?;
+    let parent_point = NetworkPoint::Specific(Slot::from(parent_block.abs_slot), Hash::from_str(&parent_block.hash)?);
 
     info!(cli::last_block::RESOLVE, %epoch, %point);
 

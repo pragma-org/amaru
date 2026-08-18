@@ -101,7 +101,9 @@ impl<'distr> RatificationContext<'distr> {
                     let members = snapshot
                         .iter_cc_members()?
                         .filter_map(|(cold_credential, row)| {
-                            row.valid_until.map(|valid_until| (cold_credential, (row.hot_credential, valid_until)))
+                            row.valid_until.map(|valid_until| {
+                                (cold_credential, (row.status.and_then(|s| s.try_into().ok()), valid_until))
+                            })
                         })
                         .collect();
 

@@ -31,7 +31,9 @@ use amaru_ledger::{
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_metrics::Meter;
 use amaru_network::connection::TokioConnections;
-use amaru_ouroboros::{ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool};
+use amaru_ouroboros::{
+    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
+};
 use amaru_plutus::arena_pool::ArenaPool;
 use amaru_protocols::{
     manager::ManagerMessage,
@@ -130,7 +132,7 @@ pub fn build_node(
     let chain_store = make_chain_store(config)?;
 
     // Make the ledger state and get its tip
-    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
+    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
     state.set_observers(config.observers.clone());
     let ledger_tip = state.tip().into_owned();
     tracing::info!(
@@ -148,7 +150,7 @@ pub fn build_node(
     // This also makes sure that the chain store tip and anchors are exactly aligned to the
     // ledger tip.
     initialize_chain_store(chain_store.clone(), ledger_tip)?;
-    let ledger_tip = chain_store.load_tip(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
+    let ledger_tip = chain_store.load_point(&ledger_tip.hash()).ok_or(anyhow!("ledger tip header not found"))?;
 
     // The best hash for blocks that were possibly downloaded and validated before a restart,
     // i.e. before the volatile ledger was dropped.
@@ -283,8 +285,10 @@ pub fn make_block_validator(
 pub fn make_state(
     config: &LedgerConfig,
     on_startup: Option<StartupHook<RocksDB>>,
+    chain_store: Arc<dyn BaseReadChainStore>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
     let store = RocksDB::new(&config.ledger_store)?;
+    store.set_chain_store(chain_store);
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
     Ok(State::new(
         store,

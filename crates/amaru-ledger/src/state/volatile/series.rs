@@ -15,14 +15,17 @@
 use std::{collections::VecDeque, mem};
 
 use amaru_kernel::{
-    Lovelace, MemoizedTransactionOutput, Point, PoolId, ProposalId, ProposalKind, StakeCredential, TransactionInput,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, Pots, ProposalId, StakeCredential, TransactionInput,
 };
 use amaru_observability::debug_span;
 
-use crate::state::{
-    AnchoredVolatileFragment,
-    volatile::{
-        AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+use crate::{
+    context::ProposalStateSlim,
+    state::{
+        AnchoredVolatileFragment,
+        volatile::{
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+        },
     },
 };
 
@@ -65,18 +68,22 @@ impl VolatileState for VolatileSeries {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMember<'a> = Existence<CommitteeMemberBind<'a>>;
-    fn resolve_cc_member<'a>(&'a self, credential: &StakeCredential) -> Self::CCMember<'a> {
-        self.aggregate.resolve_cc_member(credential)
+    type CCMembers<'a> = Box<dyn Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> + 'a>;
+    fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
+        Box::new(self.aggregate.resolve_cc_members())
     }
 
     // ----------------------------------------------------------------------------------- Proposals
-    type Proposal = Existence<ProposalKind>;
-    fn resolve_proposal(&self, id: &ProposalId) -> Existence<ProposalKind> {
+    type Proposal = Existence<ProposalStateSlim>;
+    fn resolve_proposal(&self, id: &ProposalId) -> Self::Proposal {
         self.aggregate.resolve_proposal(id)
     }
 
     // ---------------------------------------------------------------------------------------- Pots
+    fn resolve_treasury(&self, pots: &Pots) -> Lovelace {
+        pots.treasury
+    }
+
     fn resolve_donations(&self) -> Lovelace {
         self.aggregate.donations()
     }
@@ -282,7 +289,11 @@ mod tests {
         ) {
             let mut series = series_from(&diffs);
 
-            let point = Point::Specific(Slot::from(rollback_ix as u64), Hash::new([0u8; 32]));
+            let point = Point::Specific(
+                Slot::from(rollback_ix as u64),
+                Hash::new([0u8; 32]),
+                amaru_kernel::BlockHeight::from(rollback_ix as u64),
+            );
             series.rollback_to(&point).unwrap();
 
             let remaining = &diffs[..=rollback_ix];

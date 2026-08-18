@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Lovelace, PoolId, ProposalId,
-    ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind,
+    AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Hash, Lovelace, PoolId, ProposalId,
+    ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind, size::SCRIPT,
 };
 use amaru_observability::{debug, debug_span};
 use num::BigUint;
@@ -221,17 +221,19 @@ pub fn update_or_retire_pools<'store>(
 pub fn apply_governance_updates<'store>(
     db: &impl TransactionalContext<'store>,
     updates: &GovernanceUpdates,
-) -> Result<(ProtocolParameters, GovernanceActivity), StoreError> {
+) -> Result<(ProtocolParameters, GovernanceActivity, Option<Hash<SCRIPT>>), StoreError> {
     debug_span!(stores::ledger::overlay::APPLY_GOVERNANCE_UPDATES,).in_scope(|| {
         db.set_proposals_roots(&updates.roots)?;
 
-        if let Some(new_constitution) = updates.new_constitution.as_ref() {
-            db.set_constitution(new_constitution)?;
-        }
+        let guardrail_script = match updates.new_constitution.as_ref() {
+            Some(new_constitution) => {
+                db.set_constitution(new_constitution)?;
+                new_constitution.guardrail_script
+            }
+            None => db.constitution()?.guardrail_script,
+        };
 
-        if let Some(committee_update) = updates.constitutional_committee.as_ref() {
-            update_constitutional_committee(db, committee_update)?;
-        }
+        update_constitutional_committee(db, updates.constitutional_committee.as_ref())?;
 
         db.set_protocol_parameters(&updates.protocol_parameters)?;
 
@@ -257,46 +259,46 @@ pub fn apply_governance_updates<'store>(
             db.set_governance_activity(governance_activity)?;
         }
 
-        db.remove_proposals(updates.pruned_proposals.keys())?;
+        db.remove_proposals(&updates.pruned_proposals)?;
 
-        Ok((updates.protocol_parameters.clone(), governance_activity))
+        Ok((updates.protocol_parameters.clone(), governance_activity, guardrail_script))
     })
 }
 
 /// Flush updates to the constitutional committee.
 pub fn update_constitutional_committee<'store>(
     db: &impl TransactionalContext<'store>,
-    committee_update: &ConstitutionalCommitteeUpdate,
+    committee_update: Option<&ConstitutionalCommitteeUpdate>,
 ) -> Result<(), StoreError> {
     debug_span!(
         stores::ledger::overlay::UPDATE_CONSTITUTIONAL_COMMITTEE,
-        no_confidence = matches!(committee_update, ConstitutionalCommitteeUpdate::NoConfidence)
+        no_confidence = matches!(committee_update, Some(ConstitutionalCommitteeUpdate::NoConfidence))
     )
     .in_scope(|| {
         match committee_update {
-            ConstitutionalCommitteeUpdate::NoConfidence => {
+            Some(ConstitutionalCommitteeUpdate::NoConfidence) => {
                 db.update_constitutional_committee(
                     &ConstitutionalCommitteeStatus::NoConfidence,
                     BTreeMap::new(),
                     BTreeSet::new(),
                 )?;
 
+                // NOTE: CC members and no-confidence mode
+                //
+                // A no-confidence mode erases the committee. On the Haskell's side, while it does
+                // not immediately lead to removal of the cold<->hot bindings, this happens shortly
+                // after, in the same transition.
+                //
+                // So effectively, a no-confidence state erase everything we know about committee
+                // members.
                 db.with_cc_members(|iterator| {
-                    // NOTE: CC members and no-confidence mode
-                    //
-                    // CC members are not deleted when entering no confidence
-                    // mode. They are simply marked as inactive.
-                    //
-                    // In particular, their hot<->cold bindings are preserved.
                     for (_, mut row) in iterator {
-                        if let Some(cc_member) = row.borrow_mut() {
-                            cc_member.valid_until = None;
-                        }
+                        *row.borrow_mut() = None;
                     }
-                })
+                })?;
             }
 
-            ConstitutionalCommitteeUpdate::ChangeMembers { removed, added, threshold } => {
+            Some(ConstitutionalCommitteeUpdate::ChangeMembers { removed, added, threshold }) => {
                 let unsafe_u64 = |lbl: &str, n: &BigUint| {
                     n.try_into().unwrap_or_else(|e| unreachable!("threshold {lbl}={n} larger than u64?!: {e}"))
                 };
@@ -310,8 +312,25 @@ pub fn update_constitutional_committee<'store>(
 
                 // The committee is a handful of members, so cloning the added/removed sets to hand
                 // owned values to the store is negligible and lets the caller borrow the update.
-                db.update_constitutional_committee(&committee_status, added.clone(), removed.clone())
+                db.update_constitutional_committee(&committee_status, added.clone(), removed.clone())?;
             }
+
+            None => {}
         }
+
+        // Prune CC members status from any non-elected member. This is the equivalent operation of
+        // the Haskell's node intersection between the Committee and CommitteeState maps.
+        //
+        // Importantly, expired members are not pruned but kept until manually removed via a
+        // governance action.
+        db.with_cc_members(|iterator| {
+            for (_, mut row) in iterator {
+                if let Some(cc_member) = row.borrow()
+                    && cc_member.valid_until.is_none()
+                {
+                    *row.borrow_mut() = None;
+                }
+            }
+        })
     })
 }

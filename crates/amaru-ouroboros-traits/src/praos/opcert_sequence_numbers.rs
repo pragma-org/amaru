@@ -19,6 +19,7 @@ use amaru_kernel::{PoolId, cbor, cbor as minicbor};
 #[derive(
     Debug, PartialEq, Eq, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode,
 )]
+#[cbor(context_bound = "cbor::HasProtocolVersion")]
 #[cbor(transparent)]
 pub struct OpcertSequenceNumbers {
     #[n(0)]

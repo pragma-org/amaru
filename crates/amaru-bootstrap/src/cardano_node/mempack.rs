@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{
     Address, AssetName, Bytes, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
-    MemoizedValue, Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress,
-    ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, Value, from_cbor,
+    Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress, ShelleyDelegationPart,
+    ShelleyPaymentPart, StakeCredential, Value, from_cbor,
 };
 
 const MAX_VARUINT64_BYTES: usize = 10;
@@ -85,8 +85,6 @@ fn make_transaction_output(
     datum: MemoizedDatum,
     script: Option<MemoizedScript>,
 ) -> Result<MemoizedTransactionOutput, String> {
-    let value = MemoizedValue::new(value)?;
-
     Ok(MemoizedTransactionOutput::new(is_legacy, address, value, datum, script))
 }
 
@@ -450,7 +448,7 @@ fn decode_multiasset_rep(rep: &[u8], asset_count: usize) -> Result<Multiasset<Po
         policies.insert(policy_id, NonEmptyKeyValuePairs::try_from(assets).map_err(|e| e.to_string())?);
     }
 
-    Ok(policies)
+    Ok(policies.into())
 }
 
 #[cfg(test)]
@@ -473,7 +471,7 @@ mod tests {
 
         assert!(output.is_legacy);
         assert_eq!(output.address, address);
-        assert_eq!(output.value.as_ref(), &Value::Coin(42));
+        assert_eq!(output.value, Value::Coin(42));
         assert_eq!(cbor::to_vec(output).unwrap()[0], 0x9f);
     }
 
@@ -493,7 +491,7 @@ mod tests {
 
         assert!(!output.is_legacy);
         assert_eq!(output.address, address);
-        assert_eq!(output.value.as_ref(), &Value::Coin(99));
+        assert_eq!(output.value, Value::Coin(99));
         assert!(matches!(output.datum, MemoizedDatum::Inline(_)));
         assert_eq!(cbor::to_vec(output).unwrap()[0], 0xbf);
     }

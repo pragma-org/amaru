@@ -19,7 +19,7 @@ use super::InvalidBlockDetails;
 /// This validation checks that the purported block body size matches the actual block body size.
 /// The validation of the bounds happens in the networking layer
 pub fn block_body_size_valid(block: &Block) -> Result<(), InvalidBlockDetails> {
-    let announced_size = block.header.header_body.block_body_size;
+    let announced_size = block.header.body().block_body_size;
     let actual_size = block.body_len();
 
     if announced_size != actual_size {

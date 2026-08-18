@@ -14,7 +14,7 @@
 
 use std::{iter::successors, sync::Arc};
 
-use amaru_kernel::{BlockHeader, HeaderHash, IsHeader, PoolId, RawBlock, Slot};
+use amaru_kernel::{Header, HeaderHash, IsHeader, PoolId, RawBlock, Slot};
 
 use crate::{Nonces, ReadChainStore};
 
@@ -25,7 +25,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
     ///
     /// NOTE: This can be very expensive for large stores and is only
     /// used for diagnostics and testing purposes.
-    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_>;
+    fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_>;
 
     /// Load all nonces in the store.
     fn load_nonces(&self) -> Box<dyn Iterator<Item = (HeaderHash, Nonces)> + '_>;
@@ -36,8 +36,8 @@ pub trait DiagnosticChainStore: ReadChainStore {
     fn ancestors_with_validity<'a>(
         &'a self,
         start: HeaderHash,
-    ) -> Box<dyn Iterator<Item = (BlockHeader, Option<bool>)> + 'a> {
-        let anchor_point = self.get_anchor_tip().point();
+    ) -> Box<dyn Iterator<Item = (Header, Option<bool>)> + 'a> {
+        let anchor_point = self.get_anchor_point();
 
         let header_opt = self.load_header_with_validity(&start);
 
@@ -52,8 +52,8 @@ pub trait DiagnosticChainStore: ReadChainStore {
 
     /// Return the ancestors of the header, including the header itself.
     /// Stop if the followed chain reaches past the anchor.
-    fn ancestors<'a>(&'a self, start: BlockHeader) -> Box<dyn Iterator<Item = BlockHeader> + 'a> {
-        let anchor_point = self.get_anchor_tip().point();
+    fn ancestors<'a>(&'a self, start: Header) -> Box<dyn Iterator<Item = Header> + 'a> {
+        let anchor_point = self.get_anchor_point();
 
         Box::new(successors(Some(start), move |h| {
             if h.slot() <= anchor_point.slot_or_default() {
@@ -115,7 +115,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
 
     /// Retrieve all blocks headers from the chain store starting from anchor to the best chain tip.
     #[expect(clippy::expect_used)]
-    fn get_best_chain_block_headers(&self) -> Vec<BlockHeader> {
+    fn get_best_chain_block_headers(&self) -> Vec<Header> {
         self.retrieve_best_chain()
             .iter()
             .map(|h| self.load_header(h).expect("missing header for the best chain"))
@@ -124,7 +124,7 @@ pub trait DiagnosticChainStore: ReadChainStore {
 }
 
 impl<T: DiagnosticChainStore + ?Sized> DiagnosticChainStore for Arc<T> {
-    fn load_headers(&self) -> Box<dyn Iterator<Item = BlockHeader> + '_> {
+    fn load_headers(&self) -> Box<dyn Iterator<Item = Header> + '_> {
         self.as_ref().load_headers()
     }
 

@@ -41,7 +41,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Block, Epoch, MemoizedTransactionOutput, Point, Tip, TransactionInput, TransactionRef};
+use amaru_kernel::{Block, Epoch, IsHeader, MemoizedTransactionOutput, Point, TransactionInput, TransactionRef};
 
 use crate::{
     state::volatile::{AnchoredVolatileFragment, DiffSet, VolatileFragment},
@@ -68,8 +68,9 @@ pub struct AdoptedBlock<'a> {
 }
 
 impl<'a> AdoptedBlock<'a> {
-    pub fn from_block(point: Point, epoch: Epoch, block: &'a Block, fragment: &'a VolatileFragment) -> Self {
-        let block_height = block.header.header_body.block_number;
+    pub fn from_block(epoch: Epoch, block: &'a Block, fragment: &'a VolatileFragment) -> Self {
+        let block_height = block.header.block_height().into_u64();
+        let point = block.point();
         Self { point, epoch, block_height, block, utxo: &fragment.utxo }
     }
 
@@ -104,14 +105,14 @@ pub struct UndoneBlock<'a> {
 
 impl<'a> UndoneBlock<'a> {
     pub fn from_anchored(fragment: &'a AnchoredVolatileFragment, epoch: Epoch) -> Self {
-        let tip: Tip = fragment.tip();
-        let point = tip.point();
+        let tip: Point = fragment.tip();
+        let point = tip;
         let block_height = u64::from(tip.block_height());
         Self { point, epoch, block_height, utxo: &fragment.fragment.utxo }
     }
 }
 
-/// Tip-relative block lifecycle delivered to [`LedgerObservers::on_block`].
+/// Point-relative block lifecycle delivered to [`LedgerObservers::on_block`].
 ///
 /// Borrowed so the ledger does not force an extra clone of payload data.
 #[derive(Debug, Clone, Copy)]

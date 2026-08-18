@@ -109,7 +109,7 @@ impl ToPlutusData<3> for TransactionInput {
 
 impl ToPlutusData<3> for MemoizedTransactionOutput {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(0, [self.address, self.value.as_ref(), self.datum, self.script])
+        constr_v3!(0, [self.address, self.value, self.datum, self.script])
     }
 }
 
@@ -275,7 +275,7 @@ impl ToPlutusData<3> for Constitution {
 
 impl ToPlutusData<3> for ProposalId {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(0, [self.transaction_id, self.action_index])
+        constr_v3!(0, [self.transaction_id, self.proposal_index])
     }
 }
 
@@ -414,16 +414,17 @@ impl ToPlutusData<3> for ProtocolParamUpdate {
 }
 
 impl ToPlutusData<3> for CostModels {
-    // TODO: this has to be validated against the Haskell logic, this is a "best guess"
+    /// The ledger flattens the cost models into a map from language identifier to a cost model:
+    /// 0 (V1), 1 (V2), 2 (V3), in ascending order.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(
-            0,
-            [
-                <Option<_> as ToPlutusData<3>>::to_plutus_data(&self.plutus_v1)?,
-                <Option<_> as ToPlutusData<3>>::to_plutus_data(&self.plutus_v2)?,
-                <Option<_> as ToPlutusData<3>>::to_plutus_data(&self.plutus_v3)?,
-            ]
-        )
+        let CostModels { plutus_v1, plutus_v2, plutus_v3 } = self;
+        let mut models = BTreeMap::new();
+        for (language, model) in [(0u64, plutus_v1), (1, plutus_v2), (2, plutus_v3)] {
+            if let Some(costs) = model {
+                models.insert(language, costs.clone());
+            }
+        }
+        <BTreeMap<_, _> as ToPlutusData<3>>::to_plutus_data(&models)
     }
 }
 

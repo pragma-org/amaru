@@ -17,6 +17,7 @@ use std::fmt;
 use crate::{RationalNumber, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct ExUnitPrices {
     #[n(0)]
     pub mem_price: RationalNumber,

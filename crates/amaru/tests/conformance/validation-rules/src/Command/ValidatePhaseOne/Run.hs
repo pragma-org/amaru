@@ -30,6 +30,7 @@ import Cardano.Ledger.Conway.Rules
     , ConwayCertsPredFailure (..)
     , ConwayDelegPredFailure (..)
     , ConwayGovCertPredFailure (..)
+    , ConwayGovPredFailure (..)
     , ConwayLedgerPredFailure (..)
     , ConwayUtxoPredFailure (..)
     , ConwayUtxowPredFailure (..)
@@ -51,6 +52,9 @@ import Cardano.Ledger.Shelley.LedgerState
     , LedgerState (..)
     , NewEpochState (..)
     , UTxOState (utxosUtxo)
+    )
+import Cardano.Ledger.Shelley.Rules
+    ( ShelleyPoolPredFailure (..)
     )
 import Cardano.Ledger.Shelley.StabilityWindow
     ( computeRandomnessStabilisationWindow
@@ -217,7 +221,7 @@ validateTestCase TestCase{network, eraHistory, protocolParameters, initialState,
         (ExpectedDecodingFailure, Left _) ->
             Right "DecodingFailure"
         (ExpectedDecodingFailure, Right _) ->
-            Left (ValidationMismatch "decoded successfully" "DecodingFailure")
+            Left (ValidationMismatch "DecodingFailure" "decoded successfully")
         (_, Left decodeError) ->
             Left decodeError
         (_, Right decodedTransaction) ->
@@ -260,16 +264,16 @@ validateDecodedTransaction network eraHistory protocolParameters initialState po
         (ExpectedPass, []) ->
             Right "PASS"
         (ExpectedPass, predicates) ->
-            Left (ValidationMismatch (renderActualPredicates predicates) "PASS")
+            Left (ValidationMismatch "PASS" (renderActualPredicates predicates))
         (ExpectedFailure predicateName, predicates)
             | predicateName `elem` predicates ->
                 Right predicateName
             | null predicates ->
-                Left (ValidationMismatch "Pass" predicateName)
+                Left (ValidationMismatch predicateName "PASS")
             | otherwise ->
-                Left (ValidationMismatch (renderActualPredicates predicates) predicateName)
+                Left (ValidationMismatch predicateName (renderActualPredicates predicates))
         (ExpectedDecodingFailure, _) ->
-            Left (ValidationMismatch "decoded successfully" "DecodingFailure")
+            Left (ValidationMismatch "DecodingFailure" "decoded successfully")
 
 manualRefScriptSizeFailure
     :: ProtocolParameters
@@ -330,16 +334,26 @@ renderActualPredicates :: [Text] -> Text
 renderActualPredicates predicates =
     "[" <> Text.intercalate ", " predicates <> "]"
 
--- Phase-one conformance validates structure only, not Plutus script *execution*. 'applyTx' runs
--- both phases, so we drop the phase-two script-result failure ('ValidationTagMismatch'). Context
--- collection failures such as 'OutsideForecast' happen before execution and are kept.
 normalizeApplyTxError :: Bool -> Maybe Text -> ApplyTxError ConwayEra -> [Text]
 normalizeApplyTxError emptyInputs expectedHint (ConwayApplyTxError failures) =
-    map (normalizeLedgerFailure emptyInputs expectedHint) (filter (not . isScriptExecutionFailure) (NonEmpty.toList failures))
+    map (normalizeLedgerFailure emptyInputs expectedHint) (filter isBlockValidationFailure (NonEmpty.toList failures))
 
-isScriptExecutionFailure :: ConwayLedgerPredFailure ConwayEra -> Bool
-isScriptExecutionFailure failure =
-    "ValidationTagMismatch" `Text.isInfixOf` showText failure
+-- Amaru's phase-one rules validate a transaction as part of a block, so failures 'applyTx' raises
+-- that block application would not are dropped.
+isBlockValidationFailure :: ConwayLedgerPredFailure ConwayEra -> Bool
+isBlockValidationFailure =
+    not . isMempoolOnlyFailure
+
+-- 'applyTx' additionally runs the MEMPOOL rule, which only gates mempool admission. Below
+-- protocol version 11 it stands in for the GOV rule's 'UnelectedCommitteeVoters' predicate, so a
+-- vote by an unelected committee member is refused from the mempool while a block carrying it is
+-- still accepted. From protocol version 11 the GOV predicate takes over and is reported normally.
+isMempoolOnlyFailure :: ConwayLedgerPredFailure ConwayEra -> Bool
+isMempoolOnlyFailure = \case
+    ConwayMempoolFailure message ->
+        "Unelected committee members are not allowed to cast votes" `Text.isPrefixOf` message
+    _ ->
+        False
 
 normalizeLedgerFailure :: Bool -> Maybe Text -> ConwayLedgerPredFailure ConwayEra -> Text
 normalizeLedgerFailure emptyInputs expectedHint = \case
@@ -347,8 +361,14 @@ normalizeLedgerFailure emptyInputs expectedHint = \case
         normalizeUtxowFailure expectedHint failure
     ConwayCertsFailure failure ->
         normalizeCertsFailure expectedHint failure
+    ConwayGovFailure failure ->
+        normalizeGovFailure failure
     ConwayTxRefScriptsSizeTooBig{} ->
         "ConwayTxRefScriptsSizeTooBig"
+    ConwayWdrlNotDelegatedToDRep{} ->
+        "ConwayWdrlNotDelegatedToDRep"
+    ConwayTreasuryValueMismatch{} ->
+        "ConwayTreasuryValueMismatch"
     ConwayMempoolFailure message
         | "All inputs are spent." `Text.isPrefixOf` message ->
             if emptyInputs then "InputSetEmptyUTxO" else "BadInputsUTxO"
@@ -362,13 +382,15 @@ normalizeUtxowFailure expectedHint = \case
     InvalidWitnessesUTXOW{} ->
         "InvalidWitnessesUTXOW"
     MissingVKeyWitnessesUTXOW{} ->
-        "MissingVKeyWitnessesUTXOW"
+        "MissingVerificationKeyWitnessesUTXOW"
     MissingTxBodyMetadataHash{} ->
         "MissingTxBodyMetadataHash"
     MissingTxMetadata{} ->
         "MissingTxMetadata"
     ConflictingMetadataHash{} ->
         "ConflictingMetadataHash"
+    MalformedReferenceScripts{} ->
+        "MalformedReferenceScripts"
     otherFailure ->
         "unsupported:" <> showText expectedHint <> ":" <> showText otherFailure
 
@@ -394,6 +416,12 @@ normalizeUtxoFailure = \case
         "OutputTooBigUTxO"
     InsufficientCollateral{} ->
         "InsufficientCollateral"
+    IncorrectTotalCollateralField{} ->
+        "IncorrectTotalCollateralField"
+    TooManyCollateralInputs{} ->
+        "TooManyCollateralInputs"
+    ScriptsNotPaidUTxO{} ->
+        "ScriptsNotPaidUTxO"
     WrongNetworkInTxBody{} ->
         "WrongNetworkInTxBody"
     OutsideForecast{} ->
@@ -407,6 +435,8 @@ normalizeUtxoFailure = \case
     UtxosFailure failure
         | "TimeTranslationPastHorizon" `Text.isInfixOf` showText failure ->
             "OutsideForecast"
+        | "ValidationTagMismatch" `Text.isInfixOf` showText failure ->
+            "ValidationTagMismatch"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
@@ -414,8 +444,8 @@ normalizeCertsFailure :: Maybe Text -> ConwayCertsPredFailure ConwayEra -> Text
 normalizeCertsFailure expectedHint = \case
     CertFailure failure ->
         normalizeCertFailure expectedHint failure
-    otherFailure ->
-        "unsupported:" <> showText otherFailure
+    WithdrawalsNotInRewardsCERTS{} ->
+        "WithdrawalsNotInRewardsCERTS"
 
 normalizeCertFailure :: Maybe Text -> ConwayCertPredFailure ConwayEra -> Text
 normalizeCertFailure expectedHint = \case
@@ -423,8 +453,8 @@ normalizeCertFailure expectedHint = \case
         normalizeDelegFailure expectedHint failure
     GovCertFailure failure ->
         normalizeGovCertFailure failure
-    otherFailure ->
-        "unsupported:" <> showText otherFailure
+    PoolFailure failure ->
+        normalizePoolFailure failure
 
 normalizeDelegFailure :: Maybe Text -> ConwayDelegPredFailure ConwayEra -> Text
 normalizeDelegFailure expectedHint = \case
@@ -447,5 +477,47 @@ normalizeGovCertFailure :: ConwayGovCertPredFailure ConwayEra -> Text
 normalizeGovCertFailure = \case
     ConwayDRepAlreadyRegistered{} ->
         "DRepAlreadyRegistered"
+    ConwayCommitteeIsUnknown{} ->
+        "CommitteeIsUnknown"
+    ConwayCommitteeHasPreviouslyResigned{} ->
+        "CommitteeHasPreviouslyResigned"
+    otherFailure ->
+        "unsupported:" <> showText otherFailure
+
+normalizePoolFailure :: ShelleyPoolPredFailure ConwayEra -> Text
+normalizePoolFailure = \case
+    StakePoolNotRegisteredOnKeyPOOL{} ->
+        "StakePoolNotRegisteredOnKeyPOOL"
+    StakePoolRetirementWrongEpochPOOL{} ->
+        "StakePoolRetirementWrongEpochPOOL"
+    StakePoolCostTooLowPOOL{} ->
+        "StakePoolCostTooLowPOOL"
+    otherFailure ->
+        "unsupported:" <> showText otherFailure
+
+normalizeGovFailure :: ConwayGovPredFailure ConwayEra -> Text
+normalizeGovFailure = \case
+    ProposalReturnAccountDoesNotExist{} ->
+        "ProposalReturnAccountDoesNotExist"
+    TreasuryWithdrawalReturnAccountsDoNotExist{} ->
+        "TreasuryWithdrawalReturnAccountsDoNotExist"
+    InvalidPrevGovActionId{} ->
+        "InvalidPrevGovActionId"
+    ZeroTreasuryWithdrawals{} ->
+        "TreasuryWithdrawalsAllZeros"
+    VotersDoNotExist{} ->
+        "VotersDoNotExist"
+    GovActionsDoNotExist{} ->
+        "GovActionsDoNotExist"
+    InvalidGuardrailsScriptHash{} ->
+        "InvalidGuardrailsScriptHash"
+    VotingOnExpiredGovAction{} ->
+        "VotingOnExpiredGovAction"
+    DisallowedVoters{} ->
+        "DisallowedVoters"
+    ProposalCantFollow{} ->
+        "ProposalCantFollow"
+    UnelectedCommitteeVoters{} ->
+        "VotersDoNotExist"
     otherFailure ->
         "unsupported:" <> showText otherFailure

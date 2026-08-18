@@ -21,13 +21,14 @@ use std::{
 
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalKind,
-    ProposalPointer, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 use thiserror::Error;
 
+pub use crate::store::columns::cc_members::Row as CCMember;
 use crate::{state::volatile, store::StoreError};
 
 mod default;
@@ -134,6 +135,9 @@ pub enum DelegateError<S, T> {
 
     #[error("unknown target entity: {0:?}")] // TODO: Use Display
     UnknownTarget(T),
+
+    #[error("member has already resigned")]
+    AlreadyResigned,
 }
 
 impl<S: fmt::Debug, T: fmt::Debug> From<volatile::BindError<S>> for DelegateError<S, T> {
@@ -274,7 +278,9 @@ pub trait DRepsSlice {
 
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
 pub trait PrepareDRepsSlice<'a> {
-    fn require_drep(&'_ mut self, credential: &'a StakeCredential);
+    /// Require a DRep registration. Borrowed when a certificate names the credential directly, owned
+    /// when it has to be built from a `Voter`, which carries a bare hash rather than a credential.
+    fn require_drep(&'_ mut self, credential: Cow<'a, StakeCredential>);
 
     /// Require the DRep targeted by a vote delegation. The credential is constructed from the `DRep`
     /// at resolution (and `Abstain`/`NoConfidence` drop out), so the borrowed `DRep` is collected.
@@ -284,19 +290,21 @@ pub trait PrepareDRepsSlice<'a> {
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct CCMember {
-    /// The authorized hot credential, if the member has declared one.
-    pub hot_credential: Option<StakeCredential>,
-    /// The term expiry; `None` once the member is inactive (no-confidence).
-    pub valid_until: Option<Epoch>,
-}
-
 /// An interface for interacting with a subset of the Constitutional Committee members state.
 pub trait CommitteeSlice {
     /// The committee member at this point in the block: the block-start record with the in-block
     /// hot-key change folded in, or `None` once it has resigned.
-    fn lookup(&self, cc_member: &StakeCredential) -> Option<CCMember>;
+    fn lookup_by_cold_credential(&self, cc_member: &StakeCredential) -> Option<CCMember>;
+
+    /// Every member currently authorizing this hot credential, which is the identity a vote carries.
+    /// Empty when none does, including when one authorized it earlier but has since rotated to
+    /// another hot key or resigned.
+    ///
+    /// Set-valued because a hot credential is not unique to a member.
+    fn lookup_by_hot_credential<'iter>(
+        &'iter self,
+        hot_credential: &'iter StakeCredential,
+    ) -> impl Iterator<Item = CCMember> + 'iter;
 
     fn delegate_cold_key(
         &mut self,
@@ -306,14 +314,20 @@ pub trait CommitteeSlice {
 
     fn resign(
         &mut self,
-        cc_member: StakeCredential,
-        anchor: Option<Box<Anchor>>,
-    ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
+        cold_credential: StakeCredential,
+        _anchor: Option<Box<Anchor>>,
+    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>>;
 }
 
 /// An interface to help constructing the concrete CommitteeSlice ahead of time.
 pub trait PrepareCommitteeSlice<'a> {
     fn require_committee_member(&'_ mut self, cc_member: &'a StakeCredential);
+
+    /// Require the member authorizing the hot credential a vote was cast with. Unlike
+    /// [`Self::require_committee_member`] this isn't a store key, so it can only be resolved by
+    /// scanning the members reachable at block start; the credential is collected here and matched at
+    /// resolution.
+    fn require_committee_voter(&'_ mut self, hot_credential: StakeCredential);
 }
 
 // Governance Proposals
@@ -327,15 +341,29 @@ pub struct ProposalState {
     pub proposal: Proposal,
 }
 
+/// [`ProposalState`] with its payload reduced to a [`ProposalSlim`], as the volatile window and the
+/// validation context carry it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProposalStateSlim {
+    pub action: ProposalSlim,
+    pub valid_until: Epoch,
+}
+
+impl From<&ProposalState> for ProposalStateSlim {
+    fn from(state: &ProposalState) -> Self {
+        Self { action: ProposalSlim::from(&state.proposal.gov_action), valid_until: state.valid_until }
+    }
+}
+
 pub trait ProposalsSlice {
-    /// Check whether a proposal exists. If the `kind` is specified, it must also match and be part
-    /// of the same lineage.
-    fn exists(&self, id: &ProposalId, kind: Option<ProposalKind>) -> bool;
+    /// A slim view of a known proposal, whether it comes from the ledger state or was acknowledged
+    /// earlier in the block.
+    fn lookup(&self, id: &ProposalId) -> Option<ProposalStateSlim>;
 
     /// The current governance roots, i.e. the latest enacted action per category.
     fn roots(&self) -> &ProposalsRoots;
 
-    fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
+    fn acknowledge(&mut self, id: ProposalId, state: ProposalState);
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
 }

@@ -15,13 +15,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, Tip, Transaction, TransactionBody, WitnessSet,
-    cardano::transaction_ref::TransactionRef,
-    cbor::{self, WithSize},
-    size::{BLOCK_BODY, HEADER},
+    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, Transaction, TransactionBody, TransactionRef, WitnessSet,
+    cbor, cbor::WithSize, size::BLOCK_BODY, traits::is_header::IsHeader,
 };
 
 #[derive(Debug, Clone, PartialEq, cbor::Encode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct Block {
     #[cbor(skip)]
     original_body_size: u64,
@@ -31,9 +30,6 @@ pub struct Block {
 
     #[cbor(skip)]
     hash: Hash<BLOCK_BODY>,
-
-    #[cbor(skip)]
-    header_hash: HeaderHash,
 
     #[n(0)]
     pub header: Header,
@@ -75,14 +71,11 @@ impl Block {
     }
 
     pub fn header_hash(&self) -> HeaderHash {
-        self.header_hash
+        self.header.hash()
     }
 
-    pub fn tip(&self) -> Tip {
-        Tip::new(
-            Point::Specific(self.header.header_body.slot.into(), self.header_hash),
-            self.header.header_body.block_number.into(),
-        )
+    pub fn point(&self) -> Point {
+        self.header.point()
     }
 
     /// Compare two `Block`s by their CBOR-encoded forms.
@@ -180,7 +173,7 @@ impl<'a> IntoIterator for &'a Block {
 // previous eras in normal operation (albeit, to be confirmed...), we will require to re-validate
 // that a given chain is indeed at least well-formed, and that means drilling through headers to
 // ensure they form a chain. So at least *some level* of multi-era decoding is necessary.
-impl<'b, C> cbor::Decode<'b, C> for Block {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(Block::CBOR_FIELD_COUNT)?;
@@ -225,7 +218,6 @@ impl<'b, C> cbor::Decode<'b, C> for Block {
                     + invalid_transactions_bytes.len()) as u64,
                 original_header_size: header_bytes.len() as u64,
                 hash: Hasher::<{ 8 * BLOCK_BODY }>::hash(&block_body_hash[..]),
-                header_hash: Hasher::<{ 8 * HEADER }>::hash(header_bytes),
                 header,
                 transaction_bodies,
                 transaction_witnesses,
@@ -241,7 +233,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::EraName;
+    use crate::{EraName, size::HEADER};
 
     macro_rules! fixture {
         ($id:expr) => {{
@@ -278,10 +270,10 @@ mod tests {
             Ok((era_version, block)) => {
                 assert_eq!(era_version, EraName::Conway);
 
-                assert_eq!(hex::encode(&block.hash[..]), hex::encode(&block.header.header_body.block_body_hash[..]),);
+                assert_eq!(hex::encode(&block.hash[..]), hex::encode(&block.header.body().block_body_hash[..]),);
 
-                assert_eq!(block.header_hash, id);
-                assert_eq!(block.header.header_body.slot, slot);
+                assert_eq!(block.header.hash(), id);
+                assert_eq!(block.header.slot().as_u64(), slot);
             }
         }
     }

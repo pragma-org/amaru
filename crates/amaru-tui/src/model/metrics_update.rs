@@ -22,6 +22,8 @@ use crate::events::{MetricRecord, SystemSample};
 impl Model {
     pub(crate) fn record_metrics(&mut self, record: MetricRecord) {
         if let MetricsEvent::SystemMetrics(metrics) = record.event {
+            self.block_rate.sample(record.at);
+            self.transaction_rate.sample(record.at);
             self.system_sample = Some(SystemSample {
                 at: record.at,
                 cpu_percent: metrics.cpu_percent,
@@ -40,12 +42,12 @@ impl Model {
         }
     }
 
-    pub(crate) fn push_recent_transaction_count(&mut self, at: Instant, tx_count: u64) {
-        self.transaction_rate.record(at, tx_count);
+    pub(crate) fn push_recent_transaction_count(&mut self, tx_count: u64) {
+        self.transaction_rate.record(tx_count);
     }
 
-    pub(crate) fn push_recent_block(&mut self, at: Instant) {
-        self.block_rate.record(at, 1);
+    pub(crate) fn push_recent_block(&mut self) {
+        self.block_rate.record(1);
     }
 
     pub(crate) fn push_recent_rollback(&mut self, rollback_length: usize, at: Instant) {

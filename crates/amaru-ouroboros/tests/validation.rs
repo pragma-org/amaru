@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeader, ConsensusParameters, Epoch, EraHistory, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
+    ConsensusParameters, Epoch, EraHistory, Header, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
     hash::Hash,
 };
 use amaru_ouroboros::{kes, praos, praos::header::AssertHeaderError};
@@ -34,6 +34,7 @@ fn init() {
 /// Each test case specifies:
 ///  - If the rules are supposed to succeed.
 ///  - Or if one of them is supposed to fail. In that case the error type is specified.
+///  - Or if the header is malformed and CBOR decoding is supposed to fail.
 ///
 /// The fixtures in `tests/data/header-test-cases.json` have been generated from some
 /// `ouroboros-consensus` Haskell code. They carry the generation context, the hex-encoded
@@ -48,8 +49,30 @@ fn validation_conforms_to_header_test_cases() {
 
     for case in cases.iter_mut() {
         let context = &case.context;
-        let block_header = case.header.get_header().expect("cannot extract header from bytes");
-        let raw_header_body = cbor::to_cbor(block_header.header_body());
+        let block_header = match (case.header.get_header(), &case.expected) {
+            (Ok(_), Expected::DecodeError(expected)) => {
+                panic!(
+                    "[{}] {}\nexpected header decoding to fail with {:?}, but it succeeded",
+                    case.title, case.description, expected
+                )
+            }
+            (Ok(header), _) => header,
+            (Err(error), Expected::DecodeError(expected)) => {
+                let actual = error.to_string();
+                assert!(
+                    actual.contains(expected),
+                    "[{}] {}\nexpected decoding error to contain {:?}, got {:?}",
+                    case.title,
+                    case.description,
+                    expected,
+                    actual
+                );
+                continue;
+            }
+            (Err(error), _) => {
+                panic!("[{}] {}\ncannot decode header: {error}", case.title, case.description)
+            }
+        };
 
         let pool_id = block_header.pool_id();
         let era_history = NetworkName::Preprod.as_era_history().expect("era");
@@ -60,7 +83,7 @@ fn validation_conforms_to_header_test_cases() {
             .and_then(|e| e.checked_sub(Epoch::TWO))
             .expect("test vector epoch should be >= 2");
         let summaries = pool_summaries(context, &case.ledger_state, pool_id, target);
-        let result = validate_header(context, &block_header, &raw_header_body, &summaries, era_history, slot);
+        let result = validate_header(context, &block_header, &summaries, era_history, slot);
 
         match (&case.expected, result) {
             (Expected::Pass, Ok(())) => (),
@@ -88,6 +111,7 @@ fn validation_conforms_to_header_test_cases() {
                     case.title, case.description, expected, context
                 )
             }
+            (Expected::DecodeError(_), _) => unreachable!("decode errors are handled before validation"),
         }
     }
 }
@@ -133,15 +157,14 @@ fn pool_summaries(
 #[allow(clippy::result_large_err)]
 fn validate_header(
     context: &GeneratorContext,
-    block_header: &BlockHeader,
-    raw_header_body: &[u8],
+    header: &Header,
     summaries: &PoolSummaries,
     era_history: &EraHistory,
     slot: Slot,
 ) -> Result<(), ValidationError> {
     use rayon::prelude::*;
 
-    let pool_id = block_header.pool_id();
+    let pool_id = header.pool_id();
     let last_opcert_sequence_number = context.operational_certificate_counters.get(&pool_id).copied();
     let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
 
@@ -150,16 +173,9 @@ fn validate_header(
         .map_err(|e| ValidationError::Assert(Box::new(AssertHeaderError::PoolError(e))))?
         .ok_or(ValidationError::UnknownPool)?;
 
-    praos::header::assert_all(
-        consensus_parameters,
-        block_header.header(),
-        raw_header_body,
-        last_opcert_sequence_number,
-        &pool_summary,
-        &context.nonce,
-    )
-    .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))
-    .map_err(|e| ValidationError::Assert(Box::new(e)))
+    praos::header::assert_all(consensus_parameters, header, last_opcert_sequence_number, &pool_summary, &context.nonce)
+        .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))
+        .map_err(|e| ValidationError::Assert(Box::new(e)))
 }
 
 fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
@@ -197,6 +213,7 @@ struct HeaderTestCase {
 enum Expected {
     Pass,
     Error(String),
+    DecodeError(String),
 }
 
 /// Context from which a header has been generated.
@@ -271,8 +288,8 @@ struct HeaderWrapper {
 }
 
 impl HeaderWrapper {
-    fn get_header(&mut self) -> Result<BlockHeader, ()> {
-        cbor::decode(self.bytes.as_slice()).map_err(|_| ())
+    fn get_header(&mut self) -> Result<Header, cbor::decode::Error> {
+        cbor::decode(self.bytes.as_slice())
     }
 }
 

@@ -24,7 +24,7 @@ use amaru_consensus::stages::{
     track_peers::{self, TrackPeers, TrackPeersMsg},
     validate_block::{self, ValidateBlock, ValidateBlockMsg},
 };
-use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Tip};
+use amaru_kernel::{Epoch, EraHistory, GlobalParameters, HeaderHash, Point};
 use amaru_observability::debug_span;
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
@@ -50,7 +50,7 @@ pub fn build_stage_graph(
     config: &Config,
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
-    ledger_tip: Tip,
+    ledger_tip: Point,
     recovery_best_hash: HeaderHash,
     max_epoch: Epoch,
     stage_graph: &mut impl StageGraph,
@@ -73,29 +73,23 @@ pub fn build_stage_graph(
         ),
     );
 
-    let peer_selection_notify =
-        stage_graph.contramap(&peer_selection_ref, "peer_selection_notify", |n: PeerSelectionNotify| match n {
-            PeerSelectionNotify::Connected {
-                peer,
-                conn_id,
-                direction,
-                full_duplex_capable,
-                full_duplex,
-                advertisable,
-            } => PeerSelectionMsg::Connected(
+    let peer_selection_notify = peer_selection_ref.contramap(|n: PeerSelectionNotify| match n {
+        PeerSelectionNotify::Connected { peer, conn_id, direction, full_duplex_capable, full_duplex, advertisable } => {
+            PeerSelectionMsg::Connected(
                 peer,
                 peer_selection::Connection::new(conn_id, full_duplex_capable, full_duplex),
                 direction,
                 advertisable,
-            ),
-            PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry } => {
-                PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
-            }
-            PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
-            PeerSelectionNotify::ShareRequest { peer, amount, reply_to } => {
-                PeerSelectionMsg::ShareRequest { peer, amount, reply_to }
-            }
-        });
+            )
+        }
+        PeerSelectionNotify::Disconnected { peer, conn_id, direction, will_retry } => {
+            PeerSelectionMsg::Disconnected(peer, conn_id, direction, will_retry)
+        }
+        PeerSelectionNotify::ConnectFailed { peer } => PeerSelectionMsg::ConnectFailed(peer),
+        PeerSelectionNotify::ShareRequest { peer, amount, reply_to } => {
+            PeerSelectionMsg::ShareRequest { peer, amount, reply_to }
+        }
+    });
 
     let track_peers = stage_graph.stage("track_peers", track_peers::stage);
     let select_chain = stage_graph.stage("select_chain", select_chain::stage);
@@ -133,10 +127,11 @@ pub fn build_stage_graph(
             adopt_chain.without_state(),
             select_chain.sender(),
             block_source_sender.clone(),
-            ledger_tip.point(),
+            k,
+            ledger_tip,
         ),
     );
-    let validate_block_input = stage_graph.contramap(validate_block, "validate_block_input", |msg| {
+    let validate_block_input = validate_block.contramap(|msg| {
         let DownloadedBlock { tip, parent, max_block_height, trace_context } = msg;
         ValidateBlockMsg::new(tip, parent, max_block_height).with_trace_context(&trace_context)
     });
@@ -156,11 +151,11 @@ pub fn build_stage_graph(
     stage_graph
         .preload(
             &fetch_blocks,
-            [FetchBlocksMsg::RecoverStoredBlocks { from: ledger_tip.point(), to: recovery_best_hash, trace_context }],
+            [FetchBlocksMsg::RecoverStoredBlocks { from: ledger_tip, to: recovery_best_hash, trace_context }],
         )
         .expect("fetch blocks recovery message must be preloaded");
 
-    let fetch_blocks_input = stage_graph.contramap(fetch_blocks, "fetch_blocks_input", |msg| {
+    let fetch_blocks_input = fetch_blocks.contramap(|msg| {
         let select_chain::NewBestTip { tip, parent, trace_context } = msg;
         FetchBlocksMsg::NewTip { tip, parent, trace_context }
     });
@@ -170,7 +165,7 @@ pub fn build_stage_graph(
     stage_graph
         .preload(&select_chain, [SelectChainMsg::Initialize(recovery_best_hash)])
         .expect("initialization message must be preloaded");
-    let select_chain_input = stage_graph.contramap(select_chain, "select_chain_input", |msg| {
+    let select_chain_input = select_chain.contramap(|msg| {
         let track_peers::NewTip { tip, parent, trace_context } = msg;
         SelectChainMsg::TipFromUpstream { tip, parent, trace_context }
     });
@@ -180,7 +175,7 @@ pub fn build_stage_graph(
         TrackPeers::new(era_history.clone(), peer_selection_ref, select_chain_input, max_peer_lead, max_epoch),
     );
     let track_peers_stake_dist_sender = stage_graph.input(&track_peers_wired);
-    let track_peers_input = stage_graph.contramap(track_peers_wired, "track_peers_input", TrackPeersMsg::FromUpstream);
+    let track_peers_input = track_peers_wired.contramap(TrackPeersMsg::FromUpstream);
 
     // Keep branch's peer_selection initialization preload (core to the peer_selection work)
     #[expect(clippy::expect_used)]

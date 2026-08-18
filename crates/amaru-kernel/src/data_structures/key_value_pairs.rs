@@ -94,28 +94,24 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.map(self.len() as u64)?;
-        for (k, v) in self.iter() {
-            k.encode(e, ctx)?;
-            v.encode(e, ctx)?;
-        }
-        Ok(())
+        cbor::encode_variable_length_map(e, self.iter().map(|(k, v)| (k, v)), ctx)
     }
 }
 
 impl<'b, C, K, V> cbor::Decode<'b, C> for KeyValuePairs<K, V>
 where
-    K: for<'k> cbor::Decode<'k, ()> + Eq,
+    K: for<'k> cbor::Decode<'k, C> + Eq,
     V: for<'v> cbor::Decode<'v, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let mut inner = Vec::new();
 
-        cbor::heterogeneous_map(
+        cbor::heterogeneous_map_with(
             d,
+            ctx,
             &mut inner,
-            |d| d.decode::<K>(),
-            |d, st, k| {
+            |d, ctx| d.decode_with::<C, K>(ctx),
+            |d, ctx, st, k| {
                 // Check for absence of duplicate key.
                 //
                 // FIXME(cbor):

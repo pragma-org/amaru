@@ -19,8 +19,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, EraHistory, ExUnits, GlobalParameters, Hash, HeaderHash, NetworkName, ProtocolParameters, Slot,
-    TransactionId, TransactionIndex, TransactionPointer, cardano::transaction_ref::TransactionRef, size::BLOCK_BODY,
+    Block, EraHistory, ExUnits, GlobalParameters, Hash, IsHeader, NetworkName, Point, ProtocolParameters,
+    TransactionId, TransactionIndex, TransactionPointer, TransactionRef,
+    size::{BLOCK_BODY, SCRIPT},
 };
 use amaru_observability::debug_span;
 use amaru_plutus::arena_pool::ArenaPool;
@@ -82,12 +83,12 @@ pub enum InvalidBlockDetails {
 #[derive(Debug)]
 pub enum BlockValidation<A, E> {
     Valid(A),
-    Invalid(Slot, HeaderHash, InvalidBlockDetails),
+    Invalid(Point, InvalidBlockDetails),
     Err(E),
 }
 
 pub enum BlockValidationResidual<E> {
-    Invalid(Slot, HeaderHash, InvalidBlockDetails),
+    Invalid(Point, InvalidBlockDetails),
     Err(E),
 }
 
@@ -181,9 +182,7 @@ impl<A, E> Try for BlockValidation<A, E> {
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             Self::Valid(result) => ControlFlow::Continue(result),
-            Self::Invalid(slot, id, violation) => {
-                ControlFlow::Break(BlockValidationResidual::Invalid(slot, id, violation))
-            }
+            Self::Invalid(tip, violation) => ControlFlow::Break(BlockValidationResidual::Invalid(tip, violation)),
             Self::Err(err) => ControlFlow::Break(BlockValidationResidual::Err(err)),
         }
     }
@@ -192,7 +191,7 @@ impl<A, E> Try for BlockValidation<A, E> {
 impl<A, E> FromResidual for BlockValidation<A, E> {
     fn from_residual(residual: BlockValidationResidual<E>) -> Self {
         match residual {
-            BlockValidationResidual::Invalid(slot, id, violation) => BlockValidation::Invalid(slot, id, violation),
+            BlockValidationResidual::Invalid(tip, violation) => BlockValidation::Invalid(tip, violation),
             BlockValidationResidual::Err(err) => BlockValidation::Err(err),
         }
     }
@@ -211,6 +210,7 @@ pub fn execute<C, S: From<C>>(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     governance_activity: GovernanceActivity,
+    guardrail_script: Option<Hash<SCRIPT>>,
     block: &Block,
 ) -> BlockValidation<(), anyhow::Error>
 where
@@ -219,13 +219,12 @@ where
     let block_span = debug_span!(ledger::rules::EXECUTE);
     let _block_guard = block_span.enter();
 
-    let slot = Slot::from(block.header.header_body.slot);
-
-    let header_hash = block.header_hash();
+    let tip = block.point();
+    let slot = block.header.slot();
 
     let with_block_context = |result| match result {
         Ok(out) => BlockValidation::Valid(out),
-        Err(err) => BlockValidation::Invalid(slot, header_hash, err),
+        Err(err) => BlockValidation::Invalid(tip, err),
     };
 
     let preflight_span = debug_span!(ledger::rules::phase_one::BLOCK);
@@ -258,22 +257,21 @@ where
     for (i, transaction, tx_size) in block {
         let transaction_id = transaction.tx_id();
 
-        if let Err(violation) =
-            debug_span!(ledger::transaction::VALIDATE, transaction_id = transaction_id).in_scope(|| {
-                validate_transaction(
-                    context,
-                    arena_pool,
-                    network,
-                    protocol_params,
-                    era_history,
-                    global_parameters,
-                    governance_activity,
-                    TransactionPointer { slot, transaction_index: i as usize },
-                    transaction,
-                    tx_size,
-                )
-            })
-        {
+        if let Err(violation) = debug_span!(ledger::transaction::VALIDATE, id = transaction_id).in_scope(|| {
+            validate_transaction(
+                context,
+                arena_pool,
+                network,
+                protocol_params,
+                era_history,
+                global_parameters,
+                governance_activity,
+                guardrail_script,
+                TransactionPointer { slot, transaction_index: i as usize },
+                transaction,
+                tx_size,
+            )
+        }) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_id,
                 transaction_index: i,
@@ -303,6 +301,7 @@ pub fn validate_transaction<C>(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     governance_activity: GovernanceActivity,
+    guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
     transaction: TransactionRef<'_>,
     tx_size: u64,
@@ -317,6 +316,7 @@ where
         protocol_params,
         era_history,
         governance_activity,
+        guardrail_script,
         pointer,
         transaction.is_expected_valid,
         transaction.body.clone(),

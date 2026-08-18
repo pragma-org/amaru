@@ -21,7 +21,7 @@ pub struct Reward {
     pub amount: Lovelace,
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Reward {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Reward {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let kind = d.decode_with(ctx)?;

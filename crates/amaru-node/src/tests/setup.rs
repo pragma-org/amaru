@@ -19,10 +19,9 @@ use amaru_consensus::{
         ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
         ResourcePoolSummaries, ResourceTxValidation, ValidateHeaderEffect,
     },
-    headers_tree::data_generation::Action,
     stages::test_utils::start_in_era,
 };
-use amaru_kernel::{BlockHeight, ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Tip, Transaction};
+use amaru_kernel::{ConsensusParameters, IsHeader, NetworkName, NonEmptyVec, Transaction};
 use amaru_metrics::Meter;
 use amaru_ouroboros::{
     BaseReadChainStore, ConnectionsResource, DiagnosticChainStore, MockBlockValidator, MockCanValidateTxs, Nonces,
@@ -42,7 +41,7 @@ use tracing_subscriber::EnvFilter;
 use crate::{
     stages::{build_node::build_node, build_stage_graph::NodeStages},
     tests::{
-        configuration::NodeTestConfig, in_memory_connection_provider::InMemoryConnectionProvider, node::Node,
+        Action, configuration::NodeTestConfig, in_memory_connection_provider::InMemoryConnectionProvider, node::Node,
         nodes::Nodes,
     },
 };
@@ -50,7 +49,11 @@ use crate::{
 /// Create simulated nodes based on a list of configurations.
 /// The random generator is used to generate the test data that is injected into upstream nodes.
 ///
-pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyhow::Result<Nodes> {
+pub fn create_nodes(
+    rng: &mut RandStdRng,
+    configs: Vec<NodeTestConfig>,
+    tokio_handle: &tokio::runtime::Handle,
+) -> anyhow::Result<Nodes> {
     let connections: ConnectionsResource = Arc::new(InMemoryConnectionProvider::default());
     let mut nodes = vec![];
 
@@ -66,7 +69,7 @@ pub fn create_nodes(rng: &mut RandStdRng, configs: Vec<NodeTestConfig>) -> anyho
         let config = config.with_connections(connections.clone());
         let test_node_stages = create_node(&config, &mut stage_graph)?;
 
-        let mut running = stage_graph.run();
+        let mut running = stage_graph.run(tokio_handle);
         // Don't validate the generated headers, we just want to check the mini-protocols communication.
         running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
             OverrideResult::handled(Ok(Nonces::for_tests()))
@@ -174,21 +177,28 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
                     tracing::error!("Cannot rollforward chain: {e:?}. The seed is {seed}");
                 })
                 .await;
-            Tip::new(header.point(), BlockHeight::from(header.slot().as_u64()))
+            header.point()
         }
         Action::Rollback { rollback_point, .. } => {
             tracing::info!(point = %rollback_point, "rollback");
+            let Some(rollback) = store.load_header(&rollback_point.hash()).await.map(|h| h.point()) else {
+                tracing::error!(
+                    "Cannot rollback the chain to {}: header not in store. The seed is {seed}",
+                    rollback_point
+                );
+                return state;
+            };
             store
-                .switch_to_fork(rollback_point, &NonEmptyVec::singleton(*rollback_point))
+                .switch_to_fork(&rollback, &NonEmptyVec::singleton(rollback))
                 .or_terminate_with(&eff, |e| async move {
                     tracing::error!("Cannot rollback the chain to {}: {e:?}. The seed is {seed}", &rollback_point,);
                 })
                 .await;
-            Tip::new(*rollback_point, BlockHeight::from(rollback_point.slot_or_default().as_u64()))
+            rollback
         }
     };
     store
-        .set_best_chain_hash(&msg.hash())
+        .set_best_chain_tip(&tip)
         .or_terminate_with(&eff, |e| async move {
             tracing::error!("Cannot set the best chain: {e:?}. The seed is {seed}");
         })
@@ -200,7 +210,7 @@ async fn actions_stage(state: ActionsState, msg: Action, eff: Effects<Action>) -
 /// Add resources depending on the simulation configuration.
 /// For example this function can be used to set a different chain store for the initiator and the responder.
 fn set_resources(node_config: &NodeTestConfig, stage_graph: &mut impl StageGraph) -> anyhow::Result<()> {
-    let block_validation = Arc::new(MockBlockValidator::new(node_config.chain_store.get_best_chain_tip().point()));
+    let block_validation = Arc::new(MockBlockValidator::new(node_config.chain_store.get_best_chain_tip()));
     stage_graph.resources().put::<ResourceHeaderStore>(node_config.chain_store.clone());
     stage_graph.resources().put::<Arc<dyn DiagnosticChainStore>>(node_config.chain_store.clone());
     stage_graph.resources().put::<ResourceBlockValidation>(block_validation.clone());

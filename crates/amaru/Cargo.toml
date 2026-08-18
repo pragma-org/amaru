@@ -81,11 +81,11 @@ amaru-pure-stage.workspace = true
 amaru-stores.workspace = true
 amaru-tui.workspace = true
 
+[target.'cfg(not(windows))'.dependencies]
+tikv-jemallocator.workspace = true
+
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true
-
-[target.'cfg(not(target_family="windows"))'.dependencies]
-tikv-jemallocator.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rlimit = "0.10.2"

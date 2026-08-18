@@ -33,7 +33,7 @@ impl ShelleyAddress {
     }
 
     /// Gets a numeric id describing the type of the address
-    pub fn typeid(&self) -> u8 {
+    fn typeid(&self) -> u8 {
         match (&self.1, &self.2) {
             (ShelleyPaymentPart::Key(_), ShelleyDelegationPart::Key(_)) => 0b0000,
             (ShelleyPaymentPart::Script(_), ShelleyDelegationPart::Key(_)) => 0b0001,
@@ -46,7 +46,7 @@ impl ShelleyAddress {
         }
     }
 
-    pub fn to_header(&self) -> u8 {
+    fn as_header(&self) -> u8 {
         let type_id = self.typeid();
         let type_id = type_id << 4;
         let network = u8::from(self.0);
@@ -62,7 +62,7 @@ impl ShelleyAddress {
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
-        let header = self.to_header();
+        let header = self.as_header();
         let payment = self.1.to_vec();
         let delegation = self.2.to_vec();
 

@@ -15,8 +15,7 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    ConstitutionalCommitteeUpdate, DRep, OrphanProposal, PoolId, PoolVotingThresholds, ProposalEnum,
-    ProtocolParamUpdate, Vote,
+    ConstitutionalCommitteeUpdate, DRep, OrphanProposal, PoolId, PoolVotingThresholds, ProposalEnum, Vote,
     rational_number::{SafeRatio, into_safe_ratio, safe_ratio},
 };
 use num::Zero;
@@ -40,7 +39,7 @@ pub fn voting_threshold(
 ) -> Option<SafeRatio> {
     match proposal {
         ProposalEnum::ProtocolParameters(params_update, _) => {
-            if any_update_in_security_group(params_update) {
+            if params_update.any_in_security_group() {
                 Some(into_safe_ratio(&voting_thresholds.security_voting_threshold))
             } else {
                 Some(SafeRatio::zero())
@@ -67,22 +66,6 @@ pub fn voting_threshold(
 
         ProposalEnum::Orphan(OrphanProposal::NicePoll) => None,
     }
-}
-
-// Check whether the update contains any parameter that is considered part of the 'security group'.
-// Those parameters require approval from the SPO to be changed. Others are only in the hands of
-// DReps & Constitutional Committee.
-fn any_update_in_security_group(update: &ProtocolParamUpdate) -> bool {
-    update.minfee_a.is_some()
-        || update.minfee_b.is_some()
-        || update.max_block_body_size.is_some()
-        || update.max_block_header_size.is_some()
-        || update.max_transaction_size.is_some()
-        || update.ada_per_utxo_byte.is_some()
-        || update.max_block_ex_units.is_some()
-        || update.max_value_size.is_some()
-        || update.governance_action_deposit.is_some()
-        || update.minfee_refscript_cost_per_byte.is_some()
 }
 
 // Tally

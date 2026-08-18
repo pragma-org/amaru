@@ -14,13 +14,14 @@
 
 use std::rc::Rc;
 
-use crate::{ProposalId, ProposalKind, cbor};
+use crate::{ProposalId, ProposalSlim, cbor};
 
 pub type ProposalsRoots = GenericProposalsRoots<ProposalId>;
 
 pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ProposalId>>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenericProposalsRoots<T> {
     pub protocol_parameters: Option<T>,
     pub hard_fork: Option<T>,
@@ -37,13 +38,13 @@ impl<T> Default for GenericProposalsRoots<T> {
 impl<T> GenericProposalsRoots<T> {
     /// The enacted root for the given proposal's purpose, or `None` for orphan proposals (treasury
     /// withdrawals, info actions) that never chain.
-    pub fn root_of(&self, kind: impl Into<ProposalKind>) -> Option<&T> {
+    pub fn root_of(&self, kind: impl Into<ProposalSlim>) -> Option<&T> {
         match kind.into() {
-            ProposalKind::ProtocolParameters => self.protocol_parameters.as_ref(),
-            ProposalKind::HardFork => self.hard_fork.as_ref(),
-            ProposalKind::ConstitutionalCommittee => self.constitutional_committee.as_ref(),
-            ProposalKind::Constitution => self.constitution.as_ref(),
-            ProposalKind::Orphan => None,
+            ProposalSlim::ProtocolParameters(..) => self.protocol_parameters.as_ref(),
+            ProposalSlim::HardFork(..) => self.hard_fork.as_ref(),
+            ProposalSlim::ConstitutionalCommittee => self.constitutional_committee.as_ref(),
+            ProposalSlim::Constitution => self.constitution.as_ref(),
+            ProposalSlim::Orphan(..) => None,
         }
     }
 }
@@ -70,7 +71,7 @@ impl<T> From<GenericProposalsRoots<T>> for GenericProposalsRoots<Rc<T>> {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for GenericProposalsRoots<ProposalId> {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GenericProposalsRoots<ProposalId> {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -90,7 +91,7 @@ impl<C> cbor::encode::Encode<C> for GenericProposalsRoots<ProposalId> {
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ProposalId> {
+impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ProposalId> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         // NOTE: This type is only ever created by *us*, so it is okay-ish to not check for the map
         // keys values and expect keys in the right order.

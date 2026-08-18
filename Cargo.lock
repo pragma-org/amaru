@@ -175,7 +175,6 @@ dependencies = [
  "async-trait",
  "criterion",
  "hex",
- "itertools 0.15.0",
  "opentelemetry",
  "parking_lot",
  "pprof",
@@ -217,6 +216,7 @@ dependencies = [
  "clap_builder",
  "console",
  "criterion",
+ "crossbeam-utils",
  "digest 0.10.7",
  "digest 0.11.3",
  "ed25519 2.2.3",
@@ -367,6 +367,7 @@ dependencies = [
  "anyhow",
  "divan",
  "hex",
+ "itertools 0.15.0",
  "num",
  "proptest",
  "rand 0.9.5",
@@ -515,6 +516,7 @@ dependencies = [
  "hex",
  "inventory",
  "opentelemetry",
+ "opentelemetry_sdk",
  "quote",
  "serde",
  "serde_json",
@@ -648,6 +650,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "parking_lot",
+ "poolshark",
  "pretty_assertions",
  "rand 0.9.5",
  "serde",
@@ -663,7 +666,6 @@ dependencies = [
 name = "amaru-sim"
 version = "0.1.2"
 dependencies = [
- "amaru-consensus",
  "amaru-deps",
  "amaru-kernel",
  "amaru-node",
@@ -681,6 +683,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -698,6 +701,7 @@ dependencies = [
  "amaru-plutus",
  "anyhow",
  "hex",
+ "parking_lot",
  "proptest",
  "rand 0.9.5",
  "rocksdb",
@@ -2042,6 +2046,15 @@ name = "crossbeam-epoch"
 version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803d13fb3b09d88be9f4dbc29062c66b19bf7170867ceb746d2a8689bf6c7a26"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -3673,6 +3686,7 @@ dependencies = [
  "cc",
  "libc",
  "libz-sys",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]
@@ -4038,6 +4052,12 @@ dependencies = [
  "cfg-if",
  "libc",
 ]
+
+[[package]]
+name = "nohash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0f889fb66f7acdf83442c35775764b51fed3c606ab9cee51500dbde2cf528ca"
 
 [[package]]
 name = "nom"
@@ -4594,6 +4614,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
 dependencies = [
  "plotters-backend",
+]
+
+[[package]]
+name = "poolshark"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76d7d4c131ef23790ea2b6f5cd3f7eee5f41b0ba98f52d8cb880aaa7ee56dfc0"
+dependencies = [
+ "ahash",
+ "crossbeam-queue",
+ "indexmap 2.14.0",
+ "nohash",
+ "poolshark_derive",
+ "serde",
+ "serde_derive",
+ "triomphe",
+]
+
+[[package]]
+name = "poolshark_derive"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e4b0a2610b718322d012c67426a17a7c21734cec3693ebc8e68f3e28119dba3"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -6172,9 +6218,9 @@ dependencies = [
 
 [[package]]
 name = "tikv-jemalloc-sys"
-version = "0.7.1+5.3.1-0-g81034ce1f1373e37dc865038e1bc8eeecf559ce8"
+version = "0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a2825c78386b4ae0314074867860ba9577875de945f05992c38815cbec327f0"
+checksum = "cd8aa5b2ab86a2cefa406d889139c162cbb230092f7d1d7cbc1716405d852a3b"
 dependencies = [
  "cc",
  "libc",
@@ -6182,9 +6228,9 @@ dependencies = [
 
 [[package]]
 name = "tikv-jemallocator"
-version = "0.7.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "249f09e49ab1609436f34c776e84231bead18d6a955f119f939bdc1d847561bd"
+checksum = "0359b4327f954e0567e69fb191cf1436617748813819c94b8cd4a431422d053a"
 dependencies = [
  "libc",
  "tikv-jemalloc-sys",
@@ -6551,6 +6597,16 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "triomphe"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b40688ea6389c8171614b25491f71d4a27946e0c7ce2da1c6de27e25abf1a0ae"
+dependencies = [
+ "serde",
+ "stable_deref_trait",
 ]
 
 [[package]]

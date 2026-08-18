@@ -14,18 +14,19 @@ readme = "../../README.md"
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
+autotests = false
 
 [[test]]
-name = "state_rollback"
-path = "tests/state_rollback.rs"
+name = "state"
+path = "tests/lib.rs"
 required-features = ["rocksdb"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 anyhow.workspace = true
 hex.workspace = true
+parking_lot.workspace = true
 rand = { workspace = true, optional = true }
-rocksdb = { workspace = true, optional = true }
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
@@ -37,6 +38,10 @@ amaru-ouroboros-traits = { workspace = true, features = [] }
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true
+[target.'cfg(windows)'.dependencies]
+rocksdb = { workspace = true, optional = true }
+[target.'cfg(not(windows))'.dependencies]
+rocksdb = { workspace = true, optional = true, features = ["jemalloc"] }
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

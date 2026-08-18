@@ -77,8 +77,8 @@ fn run_sim(graph: impl Fn(&mut SimulationBuilder)) -> Vec<E> {
     let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone()).with_epoch_clock();
     graph(&mut network);
 
-    let mut sim = network.run();
-    sim.run_until_blocked_incl_effects(rt.handle()).assert_terminated("trigger");
+    let mut sim = network.run(rt.handle());
+    sim.run_until_blocked_incl_effects().assert_terminated("trigger");
 
     guard.defuse();
 
@@ -495,7 +495,7 @@ fn caller_already_terminated() {
                         parent
                     })
                     .await;
-                let me = eff.contramap(eff.me_ref(), "parent", Msg::Ref).await;
+                let me = eff.me_ref().contramap(Msg::Ref);
                 let callee = eff.wire_up(callee, me).await;
 
                 eff.send(&caller, callee).await;
@@ -521,9 +521,7 @@ fn caller_already_terminated() {
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::add_stage("trigger-1", "callee")),
         E::resume("trigger-1", Resp::AddStageResponse(n("callee-3"))),
-        E::suspend(Eff::contramap("trigger-1", "trigger-1", "parent")),
-        E::resume("trigger-1", Resp::ContramapResponse(n("parent-4"))),
-        E::suspend(Eff::wire_stage("trigger-1", "callee-3", sdv(sr::<StageRef<u32>>("parent-4")), None)),
+        E::suspend(Eff::wire_stage("trigger-1", "callee-3", sdv(sr::<StageRef<u32>>("trigger-1")), None)),
         E::resume("trigger-1", Resp::Unit),
         E::suspend(Eff::send("trigger-1", "caller-2", sdv(sr::<StageRef<u32>>("callee-3")))),
         E::resume("trigger-1", Resp::Unit),
@@ -532,12 +530,12 @@ fn caller_already_terminated() {
         E::input("caller-2", sdv(sr::<StageRef<u32>>("callee-3"))),
         E::resume("caller-2", Resp::Unit),
         E::suspend(Eff::call("caller-2", "callee-3", dur(1000), b(sr::<u32>("caller-2")))),
-        E::state("callee-3", sdv(sr::<StageRef<u32>>("parent-4"))),
+        E::state("callee-3", sdv(sr::<StageRef<u32>>("trigger-1"))),
         E::input("callee-3", b(sr::<u32>("caller-2"))),
         E::resume("callee-3", Resp::Unit),
         E::suspend(Eff::send("callee-3", "caller-2", sdv(5u32))),
         E::resume("callee-3", Resp::Unit),
-        E::suspend(Eff::send("callee-3", "parent-4", b(sr::<u32>("caller-2")))),
+        E::suspend(Eff::send("callee-3", "trigger-1", b(Msg::Ref(sr::<u32>("caller-2"))))),
         E::input("trigger-1", b(Msg::Ref(sr::<u32>("caller-2")))),
         E::resume("trigger-1", Resp::Unit),
         E::state("trigger-1", b(sr::<u32>("caller-2"))),

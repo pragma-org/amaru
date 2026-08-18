@@ -15,11 +15,16 @@
 use crate::{Bytes, ToBytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(transparent)]
 pub struct PlutusScript<const VERSION: usize>(#[n(0)] pub Bytes);
 
 /// Unwrap the CBOR bytestring envelope to get the raw flat-encoded program bytes.
 impl<const V: usize> ToBytes for PlutusScript<V> {
+    // Conformance: plutus-ledger-api extracts the flat payload with cborg's `decodeBytes`, which
+    // rejects indefinite-length byte strings; accepting them here would change phase-2 validation
+    // outcomes.
+    #[allow(clippy::disallowed_methods)]
     fn to_bytes(&self) -> Result<&[u8], cbor::decode::Error> {
         cbor::Decoder::new(&self.0).bytes()
     }

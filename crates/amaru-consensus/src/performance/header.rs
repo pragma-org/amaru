@@ -21,7 +21,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Tip};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
 use amaru_observability::debug;
 use amaru_pure_stage::Instant;
@@ -275,7 +275,7 @@ impl HeaderPerformance {
     pub fn apply_header_received(
         &mut self,
         peer: Peer,
-        tip: Tip,
+        tip: Point,
         received_at: Instant,
         slot_start_to_header_micros: u64,
     ) {
@@ -328,7 +328,7 @@ impl HeaderPerformance {
 
     /// A fork has been detected: start tracking the time it takes to switch to it. If a previous
     /// fork switch is still in progress, return it as superseded telemetry.
-    pub fn apply_fork_started(&mut self, tip: Tip, started_at: Instant) -> Vec<HeaderTelemetry> {
+    pub fn apply_fork_started(&mut self, tip: Point, started_at: Instant) -> Vec<HeaderTelemetry> {
         let mut out = Vec::new();
         if let Some(previous) = self.fork_switch.take() {
             out.push(fork_telemetry(&previous.hash, ForkSwitchOutcome::Superseded, started_at, previous.started_at));

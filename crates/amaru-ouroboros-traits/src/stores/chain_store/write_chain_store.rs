@@ -12,24 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, HeaderHash, Point, RawBlock};
+use amaru_kernel::{Header, HeaderHash, Point, RawBlock};
 
 use crate::{Nonces, OpcertSequenceNumbers, StoreError};
 
 /// Write interface for the ChainStore
 pub trait WriteChainStore: Send + Sync {
-    fn store_header(&self, header: &BlockHeader) -> Result<(), StoreError>;
+    fn store_header(&self, header: &Header) -> Result<(), StoreError>;
 
     /// Store a header together with its evolved nonces in a single store operation.
     ///
     /// Both are written atomically so that the presence of nonces for a header always means that
     /// this header was fully validated.
-    fn store_validated_header(&self, header: &BlockHeader, nonces: &Nonces) -> Result<(), StoreError>;
+    fn store_validated_header(&self, header: &Header, nonces: &Nonces) -> Result<(), StoreError>;
 
-    /// TODO: use a set_anchor_tip function instead
-    fn set_anchor_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+    fn set_anchor_point(&self, point: &Point) -> Result<(), StoreError>;
 
-    fn set_best_chain_hash(&self, hash: &HeaderHash) -> Result<(), StoreError>;
+    fn set_best_chain_tip(&self, tip: &Point) -> Result<(), StoreError>;
 
     fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> Result<(), StoreError>;
 
@@ -43,8 +42,8 @@ pub trait WriteChainStore: Send + Sync {
     fn put_opcert_seed(&self, counters: &OpcertSequenceNumbers, at: &Point) -> Result<(), StoreError>;
 
     /// Replace the current best chain from the given fork point with the provided
-    /// forward path and set the best chain hash in one store operation.
-    /// The best chain hash is set to the hash of the last forward point.
+    /// forward path and set the best-chain tip in one store operation.
+    /// The best-chain tip is set to the last forward point.
     fn switch_to_fork(&self, fork_point: &Point, forward_points: &[Point]) -> Result<(), StoreError>;
 
     /// Roll forward the best chain to the given point and set the best chain hash to that point.

@@ -14,15 +14,146 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{BlockHeader, BlockHeight, GlobalParameters, HeaderHash, NonEmptyVec, Point, RawBlock, Tip};
+use amaru_kernel::{BlockHeight, GlobalParameters, Header, HeaderHash, NetworkPoint, NonEmptyVec, Point, RawBlock};
 use amaru_observability::TraceContext;
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
     Nonces, SampleAncestorPointsResult, StoreError,
 };
-use amaru_pure_stage::{
-    BoxFuture, DeserializerGuards, Effects, ExternalEffect, ExternalEffectAPI, Resources, SendData, Void,
-};
+use amaru_pure_stage::{BoxFuture, DeserializerGuards, Effects, ExternalEffectAPI, Resources, SendData, Void};
+
+/// Factory for chain-store external effects.
+///
+/// Stages can construct an effect and pass it to `eff.external(...)`:
+///
+/// ```ignore
+/// let point = eff.external(StoreEffect::load_point(hash)).await;
+/// ```
+///
+/// [`Store`] remains available for existing call sites.
+pub struct StoreEffect;
+
+impl StoreEffect {
+    pub fn load_header(hash: HeaderHash) -> LoadHeaderEffect {
+        LoadHeaderEffect::new(hash)
+    }
+
+    pub fn load_header_with_validity(hash: HeaderHash) -> LoadHeaderWithValidityEffect {
+        LoadHeaderWithValidityEffect::new(hash)
+    }
+
+    pub fn get_children(hash: HeaderHash) -> GetChildrenEffect {
+        GetChildrenEffect::new(hash)
+    }
+
+    pub fn get_anchor_hash() -> GetAnchorHashEffect {
+        GetAnchorHashEffect::new()
+    }
+
+    pub fn get_best_chain_hash() -> GetBestChainHashEffect {
+        GetBestChainHashEffect::new()
+    }
+
+    pub fn get_best_chain_tip() -> GetBestChainTipEffect {
+        GetBestChainTipEffect::new()
+    }
+
+    pub fn load_block(hash: HeaderHash) -> LoadBlockEffect {
+        LoadBlockEffect::new(hash)
+    }
+
+    pub fn has_block(hash: HeaderHash) -> HasBlockEffect {
+        HasBlockEffect::new(hash)
+    }
+
+    pub fn get_nonces(hash: HeaderHash) -> GetNoncesEffect {
+        GetNoncesEffect::new(hash)
+    }
+
+    pub fn has_header(hash: HeaderHash) -> HasHeaderEffect {
+        HasHeaderEffect::new(hash)
+    }
+
+    pub fn is_on_best_chain(point: impl Into<NetworkPoint>) -> IsOnBestChainEffect {
+        IsOnBestChainEffect::new(point.into())
+    }
+
+    pub fn next_best_chain(point: Point) -> NextBestChainEffect {
+        NextBestChainEffect::new(point)
+    }
+
+    pub fn next_best_chain_header(point: Point) -> NextBestChainHeaderEffect {
+        NextBestChainHeaderEffect::new(point)
+    }
+
+    pub fn set_block_valid(hash: HeaderHash, valid: bool) -> SetBlockValidEffect {
+        SetBlockValidEffect::new(hash, valid)
+    }
+
+    pub fn set_anchor_point(point: Point) -> SetAnchorPointEffect {
+        SetAnchorPointEffect::new(point)
+    }
+
+    pub fn set_best_chain_tip(tip: Point) -> SetBestChainTipEffect {
+        SetBestChainTipEffect::new(tip)
+    }
+
+    pub fn store_validated_header(header: Header, nonces: Nonces) -> StoreValidatedHeaderEffect {
+        StoreValidatedHeaderEffect::new(header, nonces)
+    }
+
+    pub fn store_block(hash: HeaderHash, block: RawBlock) -> StoreBlockEffect {
+        StoreBlockEffect::new(&hash, block)
+    }
+
+    pub fn put_nonces(header: HeaderHash, nonces: Nonces) -> PutNoncesEffect {
+        PutNoncesEffect::new(header, nonces)
+    }
+
+    pub fn switch_to_fork(fork_point: Point, forward_points: NonEmptyVec<Point>) -> SwitchToForkEffect {
+        SwitchToForkEffect::new(fork_point, forward_points)
+    }
+
+    pub fn roll_forward_chain(point: Point) -> RollForwardChainEffect {
+        RollForwardChainEffect::new(point)
+    }
+
+    pub fn load_point(hash: HeaderHash) -> LoadPointEffect {
+        LoadPointEffect::new(hash)
+    }
+
+    pub fn unvalidated_ancestor_hashes(start: HeaderHash) -> UnvalidatedAncestorHashesEffect {
+        UnvalidatedAncestorHashesEffect::new(start)
+    }
+
+    pub fn ancestors_between(from: Point, to: HeaderHash) -> AncestorsBetweenEffect {
+        AncestorsBetweenEffect::new(from, to)
+    }
+
+    pub fn find_ancestor_on_best_chain(start: HeaderHash) -> FindAncestorOnBestChainEffect {
+        FindAncestorOnBestChainEffect::new(start)
+    }
+
+    pub fn find_common_ancestor(hash_a: HeaderHash, hash_b: HeaderHash) -> FindCommonAncestorEffect {
+        FindCommonAncestorEffect::new(hash_a, hash_b)
+    }
+
+    pub fn find_intersect_point(points: Vec<NetworkPoint>) -> FindIntersectPointEffect {
+        FindIntersectPointEffect::new(points)
+    }
+
+    pub fn sample_ancestor_points() -> SampleAncestorPointsEffect {
+        SampleAncestorPointsEffect::new()
+    }
+
+    pub fn find_anchor_at_height(target_height: BlockHeight) -> FindAnchorAtHeightEffect {
+        FindAnchorAtHeightEffect::new(target_height)
+    }
+
+    pub fn find_missing_blocks(start: HeaderHash, limit: usize) -> FindMissingBlocksEffect {
+        FindMissingBlocksEffect::new(start, limit)
+    }
+}
 
 /// Implementation of ChainStore using amaru_pure_stage::Effects.
 #[derive(Clone, Debug)]
@@ -41,87 +172,84 @@ impl Store {
         self
     }
 
-    pub fn load_header(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<BlockHeader>> {
-        self.effects.external(LoadHeaderEffect::new(*hash))
+    pub fn load_header(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Header>> {
+        self.effects.external(StoreEffect::load_header(*hash))
     }
 
-    pub fn load_header_with_validity(
-        &self,
-        hash: &HeaderHash,
-    ) -> BoxFuture<'static, Option<(BlockHeader, Option<bool>)>> {
-        self.effects.external(LoadHeaderWithValidityEffect::new(*hash))
+    pub fn load_header_with_validity(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<(Header, Option<bool>)>> {
+        self.effects.external(StoreEffect::load_header_with_validity(*hash))
     }
 
     pub fn get_children(&self, hash: &HeaderHash) -> BoxFuture<'static, Vec<HeaderHash>> {
-        self.effects.external(GetChildrenEffect::new(*hash))
+        self.effects.external(StoreEffect::get_children(*hash))
     }
 
     pub fn get_anchor_hash(&self) -> BoxFuture<'static, HeaderHash> {
-        self.effects.external(GetAnchorHashEffect::new())
+        self.effects.external(StoreEffect::get_anchor_hash())
     }
 
     pub fn get_best_chain_hash(&self) -> BoxFuture<'static, HeaderHash> {
-        self.effects.external(GetBestChainHashEffect::new())
+        self.effects.external(StoreEffect::get_best_chain_hash())
     }
 
-    pub fn get_best_chain_tip(&self) -> BoxFuture<'static, Tip> {
-        self.effects.external(GetBestChainTipEffect::new())
+    pub fn get_best_chain_tip(&self) -> BoxFuture<'static, Point> {
+        self.effects.external(StoreEffect::get_best_chain_tip())
     }
 
     pub fn load_block(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<Option<RawBlock>, StoreError>> {
-        self.effects.external(LoadBlockEffect::new(*hash))
+        self.effects.external(StoreEffect::load_block(*hash))
     }
 
     pub fn has_block(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<bool, StoreError>> {
-        self.effects.external(HasBlockEffect::new(*hash))
+        self.effects.external(StoreEffect::has_block(*hash))
     }
 
     pub fn get_nonces(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Nonces>> {
-        self.effects.external(GetNoncesEffect::new(*hash))
+        self.effects.external(StoreEffect::get_nonces(*hash))
     }
 
     pub fn has_header(&self, hash: &HeaderHash) -> BoxFuture<'static, bool> {
-        self.effects.external(HasHeaderEffect::new(*hash))
+        self.effects.external(StoreEffect::has_header(*hash))
     }
 
-    pub fn load_from_best_chain(&self, point: &Point) -> BoxFuture<'static, Option<HeaderHash>> {
-        self.effects.external(LoadFromBestChainEffect::new(*point))
+    pub fn is_on_best_chain(&self, point: impl Into<NetworkPoint>) -> BoxFuture<'static, bool> {
+        self.effects.external(StoreEffect::is_on_best_chain(point))
     }
 
     pub fn next_best_chain(&self, point: &Point) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(NextBestChainEffect::new(*point))
+        self.effects.external(StoreEffect::next_best_chain(*point))
     }
 
     pub fn next_best_chain_header(&self, point: &Point) -> BoxFuture<'static, Result<NextBestChainHeader, StoreError>> {
-        self.effects.external(NextBestChainHeaderEffect::new(*point))
+        self.effects.external(StoreEffect::next_best_chain_header(*point))
     }
 
     pub fn set_block_valid(&self, hash: &HeaderHash, valid: bool) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetBlockValidEffect::new(*hash, valid))
+        self.effects.external(StoreEffect::set_block_valid(*hash, valid))
     }
 
-    pub fn set_anchor_hash(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetAnchorHashEffect::new(*hash))
+    pub fn set_anchor_point(&self, point: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(StoreEffect::set_anchor_point(*point))
     }
 
-    pub fn set_best_chain_hash(&self, hash: &HeaderHash) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SetBestChainHashEffect::new(*hash))
+    pub fn set_best_chain_tip(&self, tip: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
+        self.effects.external(StoreEffect::set_best_chain_tip(*tip))
     }
 
     pub fn store_validated_header(
         &self,
-        header: &BlockHeader,
+        header: &Header,
         nonces: &Nonces,
     ) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(StoreValidatedHeaderEffect::new(header.clone(), nonces.clone()))
+        self.effects.external(StoreEffect::store_validated_header(header.clone(), nonces.clone()))
     }
 
     pub fn store_block(&self, hash: &HeaderHash, block: &RawBlock) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(StoreBlockEffect::new(hash, block.clone()))
+        self.effects.external(StoreEffect::store_block(*hash, block.clone()))
     }
 
     pub fn put_nonces(&self, header: &HeaderHash, nonces: &Nonces) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(PutNoncesEffect::new(*header, nonces.clone()))
+        self.effects.external(StoreEffect::put_nonces(*header, nonces.clone()))
     }
 
     pub fn switch_to_fork(
@@ -129,30 +257,30 @@ impl Store {
         fork_point: &Point,
         forward_points: &NonEmptyVec<Point>,
     ) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(SwitchToForkEffect::new(*fork_point, forward_points.clone()))
+        self.effects.external(StoreEffect::switch_to_fork(*fork_point, forward_points.clone()))
     }
 
     pub fn roll_forward_chain(&self, point: &Point) -> BoxFuture<'static, Result<(), StoreError>> {
-        self.effects.external(RollForwardChainEffect::new(*point))
+        self.effects.external(StoreEffect::roll_forward_chain(*point))
     }
 
-    pub fn load_tip(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Tip>> {
-        self.effects.external(LoadTipEffect::new(*hash).with_trace_context(&self.trace_context))
+    pub fn load_point(&self, hash: &HeaderHash) -> BoxFuture<'static, Option<Point>> {
+        self.effects.external(StoreEffect::load_point(*hash).with_trace_context(&self.trace_context))
     }
 
     pub fn unvalidated_ancestor_hashes(&self, start: HeaderHash) -> BoxFuture<'static, (Vec<HeaderHash>, bool)> {
-        self.effects.external(UnvalidatedAncestorHashesEffect::new(start))
+        self.effects.external(StoreEffect::unvalidated_ancestor_hashes(start))
     }
 
-    pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Tip>>> {
-        self.effects.external(AncestorsBetweenEffect::new(from, to).with_trace_context(&self.trace_context))
+    pub fn ancestors_between(&self, from: Point, to: HeaderHash) -> BoxFuture<'static, Option<Vec<Point>>> {
+        self.effects.external(StoreEffect::ancestors_between(from, to).with_trace_context(&self.trace_context))
     }
 
     pub fn find_ancestor_on_best_chain(
         &self,
         start: HeaderHash,
     ) -> BoxFuture<'static, Result<FindAncestorOnBestChainResult, StoreError>> {
-        self.effects.external(FindAncestorOnBestChainEffect::new(start))
+        self.effects.external(StoreEffect::find_ancestor_on_best_chain(start))
     }
 
     pub fn find_common_ancestor(
@@ -160,19 +288,19 @@ impl Store {
         hash_a: HeaderHash,
         hash_b: HeaderHash,
     ) -> BoxFuture<'static, Result<FindCommonAncestorResult, StoreError>> {
-        self.effects.external(FindCommonAncestorEffect::new(hash_a, hash_b))
+        self.effects.external(StoreEffect::find_common_ancestor(hash_a, hash_b))
     }
 
-    pub fn find_intersect_point(&self, points: Vec<Point>) -> BoxFuture<'static, Option<Point>> {
-        self.effects.external(FindIntersectPointEffect::new(points))
+    pub fn find_intersect_point(&self, points: Vec<NetworkPoint>) -> BoxFuture<'static, Option<Point>> {
+        self.effects.external(StoreEffect::find_intersect_point(points))
     }
 
     pub fn sample_ancestor_points(&self) -> BoxFuture<'static, Result<SampleAncestorPointsResult, StoreError>> {
-        self.effects.external(SampleAncestorPointsEffect::new())
+        self.effects.external(StoreEffect::sample_ancestor_points())
     }
 
-    pub fn find_anchor_at_height(&self, target_height: BlockHeight) -> BoxFuture<'static, Option<HeaderHash>> {
-        self.effects.external(FindAnchorAtHeightEffect::new(target_height))
+    pub fn find_anchor_at_height(&self, target_height: BlockHeight) -> BoxFuture<'static, Option<Point>> {
+        self.effects.external(StoreEffect::find_anchor_at_height(target_height))
     }
 
     pub fn find_missing_blocks(
@@ -180,7 +308,7 @@ impl Store {
         start: HeaderHash,
         limit: usize,
     ) -> BoxFuture<'static, Result<MissingBlocksResult, StoreError>> {
-        self.effects.external(FindMissingBlocksEffect::new(start, limit))
+        self.effects.external(StoreEffect::find_missing_blocks(start, limit))
     }
 }
 
@@ -193,15 +321,15 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_effect_deserializer::<StoreValidatedHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<StoreBlockEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<SetAnchorHashEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<SetBestChainHashEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SetAnchorPointEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<SetBestChainTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<PutNoncesEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<HasHeaderEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<IsOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<NextBestChainHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<LoadPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SetBlockValidEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetChildrenEffect>().boxed(),
@@ -226,20 +354,22 @@ pub fn register_deserializers() -> DeserializerGuards {
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct StoreValidatedHeaderEffect {
-    header: BlockHeader,
+    header: Header,
     nonces: Nonces,
 }
 
 impl StoreValidatedHeaderEffect {
-    pub fn new(header: BlockHeader, nonces: Nonces) -> Self {
+    pub fn new(header: Header, nonces: Nonces) -> Self {
         Self { header, nonces }
     }
 }
 
-impl ExternalEffect for StoreValidatedHeaderEffect {
+impl ExternalEffectAPI for StoreValidatedHeaderEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("StoreValidatedHeaderEffect requires a chain store")
@@ -247,10 +377,6 @@ impl ExternalEffect for StoreValidatedHeaderEffect {
             store.store_validated_header(&self.header, &self.nonces)
         })
     }
-}
-
-impl ExternalEffectAPI for StoreValidatedHeaderEffect {
-    type Response = Result<(), StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -265,10 +391,12 @@ impl StoreBlockEffect {
     }
 }
 
-impl ExternalEffect for StoreBlockEffect {
+impl ExternalEffectAPI for StoreBlockEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("StoreBlockEffect requires a chain store").clone();
             store.store_block(&self.hash, &self.block)
@@ -276,60 +404,52 @@ impl ExternalEffect for StoreBlockEffect {
     }
 }
 
-impl ExternalEffectAPI for StoreBlockEffect {
-    type Response = Result<(), StoreError>;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SetAnchorHashEffect {
-    hash: HeaderHash,
+pub struct SetAnchorPointEffect {
+    point: Point,
 }
 
-impl SetAnchorHashEffect {
-    pub fn new(hash: HeaderHash) -> Self {
-        Self { hash }
+impl SetAnchorPointEffect {
+    pub fn new(point: Point) -> Self {
+        Self { point }
     }
 }
 
-impl ExternalEffect for SetAnchorHashEffect {
+impl ExternalEffectAPI for SetAnchorPointEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
-                resources.get::<ResourceHeaderStore>().expect("SetAnchorHashEffect requires a chain store").clone();
-            store.set_anchor_hash(&self.hash)
+                resources.get::<ResourceHeaderStore>().expect("SetAnchorPointEffect requires a chain store").clone();
+            store.set_anchor_point(&self.point)
         })
     }
 }
 
-impl ExternalEffectAPI for SetAnchorHashEffect {
-    type Response = Result<(), StoreError>;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SetBestChainHashEffect {
-    hash: HeaderHash,
+pub struct SetBestChainTipEffect {
+    tip: Point,
 }
 
-impl SetBestChainHashEffect {
-    pub fn new(hash: HeaderHash) -> Self {
-        Self { hash }
+impl SetBestChainTipEffect {
+    pub fn new(tip: Point) -> Self {
+        Self { tip }
     }
 }
 
-impl ExternalEffect for SetBestChainHashEffect {
+impl ExternalEffectAPI for SetBestChainTipEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
-                resources.get::<ResourceHeaderStore>().expect("SetBestChainHashEffect requires a chain store").clone();
-            store.set_best_chain_hash(&self.hash)
+                resources.get::<ResourceHeaderStore>().expect("SetBestChainTipEffect requires a chain store").clone();
+            store.set_best_chain_tip(&self.tip)
         })
     }
-}
-
-impl ExternalEffectAPI for SetBestChainHashEffect {
-    type Response = Result<(), StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -344,18 +464,16 @@ impl PutNoncesEffect {
     }
 }
 
-impl ExternalEffect for PutNoncesEffect {
+impl ExternalEffectAPI for PutNoncesEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources.get::<ResourceHeaderStore>().expect("PutNoncesEffect requires a chain store").clone();
             store.put_nonces(&self.hash, &self.nonces)
         })
     }
-}
-
-impl ExternalEffectAPI for PutNoncesEffect {
-    type Response = Result<(), StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -369,44 +487,40 @@ impl HasHeaderEffect {
     }
 }
 
-impl ExternalEffect for HasHeaderEffect {
+impl ExternalEffectAPI for HasHeaderEffect {
+    type Response = bool;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources.get::<ResourceHeaderStore>().expect("HasHeaderEffect requires a chain store").clone();
             store.has_header(&self.hash)
         })
     }
 }
 
-impl ExternalEffectAPI for HasHeaderEffect {
-    type Response = bool;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LoadFromBestChainEffect {
-    point: Point,
+pub struct IsOnBestChainEffect {
+    point: NetworkPoint,
 }
 
-impl LoadFromBestChainEffect {
-    pub fn new(point: Point) -> Self {
+impl IsOnBestChainEffect {
+    pub fn new(point: NetworkPoint) -> Self {
         Self { point }
     }
 }
 
-impl ExternalEffect for LoadFromBestChainEffect {
+impl ExternalEffectAPI for IsOnBestChainEffect {
+    type Response = bool;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
-                resources.get::<ResourceHeaderStore>().expect("LoadFromBestChainEffect requires a chain store").clone();
-            store.load_from_best_chain(&self.point)
+                resources.get::<ResourceHeaderStore>().expect("IsOnBestChainEffect requires a chain store").clone();
+            store.is_on_best_chain(self.point)
         })
     }
-}
-
-impl ExternalEffectAPI for LoadFromBestChainEffect {
-    type Response = Option<HeaderHash>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -420,19 +534,17 @@ impl NextBestChainEffect {
     }
 }
 
-impl ExternalEffect for NextBestChainEffect {
+impl ExternalEffectAPI for NextBestChainEffect {
+    type Response = Option<Point>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("NextBestChainEffect requires a chain store").clone();
             store.next_best_chain(&self.point)
         })
     }
-}
-
-impl ExternalEffectAPI for NextBestChainEffect {
-    type Response = Option<Point>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -446,10 +558,12 @@ impl NextBestChainHeaderEffect {
     }
 }
 
-impl ExternalEffect for NextBestChainHeaderEffect {
+impl ExternalEffectAPI for NextBestChainHeaderEffect {
+    type Response = Result<NextBestChainHeader, StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("NextBestChainHeaderEffect requires a chain store")
@@ -457,10 +571,6 @@ impl ExternalEffect for NextBestChainHeaderEffect {
             store.next_best_chain_header(&self.point)
         })
     }
-}
-
-impl ExternalEffectAPI for NextBestChainHeaderEffect {
-    type Response = Result<NextBestChainHeader, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -474,10 +584,12 @@ impl LoadHeaderEffect {
     }
 }
 
-impl ExternalEffect for LoadHeaderEffect {
+impl ExternalEffectAPI for LoadHeaderEffect {
+    type Response = Option<Header>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("LoadHeaderEffect requires a chain store").clone();
             store.load_header(&self.hash)
@@ -485,17 +597,13 @@ impl ExternalEffect for LoadHeaderEffect {
     }
 }
 
-impl ExternalEffectAPI for LoadHeaderEffect {
-    type Response = Option<BlockHeader>;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LoadTipEffect {
+pub struct LoadPointEffect {
     hash: HeaderHash,
     trace_context: TraceContext,
 }
 
-impl LoadTipEffect {
+impl LoadPointEffect {
     pub fn new(hash: HeaderHash) -> Self {
         Self { hash, trace_context: Default::default() }
     }
@@ -506,19 +614,17 @@ impl LoadTipEffect {
     }
 }
 
-impl ExternalEffect for LoadTipEffect {
+impl ExternalEffectAPI for LoadPointEffect {
+    type Response = Option<Point>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let _guard = self.trace_context.attach();
-            let store = resources.get::<ResourceHeaderStore>().expect("LoadTipEffect requires a chain store").clone();
-            store.load_tip(&self.hash)
+            let store = resources.get::<ResourceHeaderStore>().expect("LoadPointEffect requires a chain store").clone();
+            store.load_point(&self.hash)
         })
     }
-}
-
-impl ExternalEffectAPI for LoadTipEffect {
-    type Response = Option<Tip>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -532,10 +638,12 @@ impl LoadHeaderWithValidityEffect {
     }
 }
 
-impl ExternalEffect for LoadHeaderWithValidityEffect {
+impl ExternalEffectAPI for LoadHeaderWithValidityEffect {
+    type Response = Option<(Header, Option<bool>)>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("LoadHeaderWithValidityEffect requires a chain store")
@@ -543,10 +651,6 @@ impl ExternalEffect for LoadHeaderWithValidityEffect {
             store.load_header_with_validity(&self.hash)
         })
     }
-}
-
-impl ExternalEffectAPI for LoadHeaderWithValidityEffect {
-    type Response = Option<(BlockHeader, Option<bool>)>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -561,19 +665,17 @@ impl SetBlockValidEffect {
     }
 }
 
-impl ExternalEffect for SetBlockValidEffect {
+impl ExternalEffectAPI for SetBlockValidEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("SetBlockValidEffect requires a chain store").clone();
             store.set_block_valid(&self.hash, self.valid)
         })
     }
-}
-
-impl ExternalEffectAPI for SetBlockValidEffect {
-    type Response = Result<(), StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -587,19 +689,17 @@ impl GetChildrenEffect {
     }
 }
 
-impl ExternalEffect for GetChildrenEffect {
+impl ExternalEffectAPI for GetChildrenEffect {
+    type Response = Vec<HeaderHash>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("GetChildrenEffect requires a chain store").clone();
             store.get_children(&self.hash)
         })
     }
-}
-
-impl ExternalEffectAPI for GetChildrenEffect {
-    type Response = Vec<HeaderHash>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -612,19 +712,17 @@ impl GetAnchorHashEffect {
     }
 }
 
-impl ExternalEffect for GetAnchorHashEffect {
+impl ExternalEffectAPI for GetAnchorHashEffect {
+    type Response = HeaderHash;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("GetAnchorHashEffect requires a chain store").clone();
             store.get_anchor_hash()
         })
     }
-}
-
-impl ExternalEffectAPI for GetAnchorHashEffect {
-    type Response = HeaderHash;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -637,19 +735,17 @@ impl GetBestChainHashEffect {
     }
 }
 
-impl ExternalEffect for GetBestChainHashEffect {
+impl ExternalEffectAPI for GetBestChainHashEffect {
+    type Response = HeaderHash;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("GetBestChainHashEffect requires a chain store").clone();
             store.get_best_chain_hash()
         })
     }
-}
-
-impl ExternalEffectAPI for GetBestChainHashEffect {
-    type Response = HeaderHash;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -662,19 +758,17 @@ impl GetBestChainTipEffect {
     }
 }
 
-impl ExternalEffect for GetBestChainTipEffect {
+impl ExternalEffectAPI for GetBestChainTipEffect {
+    type Response = Point;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("GetBestChainTipEffect requires a chain store").clone();
             store.get_best_chain_tip()
         })
     }
-}
-
-impl ExternalEffectAPI for GetBestChainTipEffect {
-    type Response = Tip;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -688,18 +782,16 @@ impl LoadBlockEffect {
     }
 }
 
-impl ExternalEffect for LoadBlockEffect {
+impl ExternalEffectAPI for LoadBlockEffect {
+    type Response = Result<Option<RawBlock>, StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources.get::<ResourceHeaderStore>().expect("LoadBlockEffect requires a chain store").clone();
             store.load_block(&self.hash)
         })
     }
-}
-
-impl ExternalEffectAPI for LoadBlockEffect {
-    type Response = Result<Option<RawBlock>, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -713,18 +805,16 @@ impl HasBlockEffect {
     }
 }
 
-impl ExternalEffect for HasBlockEffect {
+impl ExternalEffectAPI for HasBlockEffect {
+    type Response = Result<bool, StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources.get::<ResourceHeaderStore>().expect("HasBlockEffect requires a chain store").clone();
             store.has_block(&self.hash)
         })
     }
-}
-
-impl ExternalEffectAPI for HasBlockEffect {
-    type Response = Result<bool, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -738,18 +828,16 @@ impl GetNoncesEffect {
     }
 }
 
-impl ExternalEffect for GetNoncesEffect {
+impl ExternalEffectAPI for GetNoncesEffect {
+    type Response = Option<Nonces>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources.get::<ResourceHeaderStore>().expect("GetNoncesEffect requires a chain store").clone();
             store.get_nonces(&self.hash)
         })
     }
-}
-
-impl ExternalEffectAPI for GetNoncesEffect {
-    type Response = Option<Nonces>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -764,19 +852,17 @@ impl SwitchToForkEffect {
     }
 }
 
-impl ExternalEffect for SwitchToForkEffect {
+impl ExternalEffectAPI for SwitchToForkEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("SwitchToForkEffect requires a chain store").clone();
             store.switch_to_fork(&self.fork_point, &self.forward_points)
         })
     }
-}
-
-impl ExternalEffectAPI for SwitchToForkEffect {
-    type Response = Result<(), StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -790,19 +876,17 @@ impl RollForwardChainEffect {
     }
 }
 
-impl ExternalEffect for RollForwardChainEffect {
+impl ExternalEffectAPI for RollForwardChainEffect {
+    type Response = Result<(), StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("RollForwardChainEffect requires a chain store").clone();
             store.roll_forward_chain(&self.point)
         })
     }
-}
-
-impl ExternalEffectAPI for RollForwardChainEffect {
-    type Response = Result<(), StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -816,10 +900,12 @@ impl UnvalidatedAncestorHashesEffect {
     }
 }
 
-impl ExternalEffect for UnvalidatedAncestorHashesEffect {
+impl ExternalEffectAPI for UnvalidatedAncestorHashesEffect {
+    type Response = (Vec<HeaderHash>, bool);
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("UnvalidatedAncestorHashesEffect requires a chain store")
@@ -827,10 +913,6 @@ impl ExternalEffect for UnvalidatedAncestorHashesEffect {
             store.unvalidated_ancestor_hashes(self.start)
         })
     }
-}
-
-impl ExternalEffectAPI for UnvalidatedAncestorHashesEffect {
-    type Response = (Vec<HeaderHash>, bool);
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -851,20 +933,18 @@ impl AncestorsBetweenEffect {
     }
 }
 
-impl ExternalEffect for AncestorsBetweenEffect {
+impl ExternalEffectAPI for AncestorsBetweenEffect {
+    type Response = Option<Vec<Point>>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let _guard = self.trace_context.attach();
             let store =
                 resources.get::<ResourceHeaderStore>().expect("AncestorsBetweenEffect requires a chain store").clone();
             store.ancestors_between(&self.from, self.to)
         })
     }
-}
-
-impl ExternalEffectAPI for AncestorsBetweenEffect {
-    type Response = Option<Vec<Tip>>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -878,10 +958,12 @@ impl FindAncestorOnBestChainEffect {
     }
 }
 
-impl ExternalEffect for FindAncestorOnBestChainEffect {
+impl ExternalEffectAPI for FindAncestorOnBestChainEffect {
+    type Response = Result<FindAncestorOnBestChainResult, StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("FindAncestorOnBestChainEffect requires a chain store")
@@ -889,10 +971,6 @@ impl ExternalEffect for FindAncestorOnBestChainEffect {
             store.find_ancestor_on_best_chain(self.start)
         })
     }
-}
-
-impl ExternalEffectAPI for FindAncestorOnBestChainEffect {
-    type Response = Result<FindAncestorOnBestChainResult, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -906,10 +984,12 @@ impl FindAnchorAtHeightEffect {
     }
 }
 
-impl ExternalEffect for FindAnchorAtHeightEffect {
+impl ExternalEffectAPI for FindAnchorAtHeightEffect {
+    type Response = Option<Point>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("FindAnchorAtHeightEffect requires a chain store")
@@ -917,10 +997,6 @@ impl ExternalEffect for FindAnchorAtHeightEffect {
             store.find_anchor_at_height(self.target_height)
         })
     }
-}
-
-impl ExternalEffectAPI for FindAnchorAtHeightEffect {
-    type Response = Option<HeaderHash>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -935,10 +1011,12 @@ impl FindCommonAncestorEffect {
     }
 }
 
-impl ExternalEffect for FindCommonAncestorEffect {
+impl ExternalEffectAPI for FindCommonAncestorEffect {
+    type Response = Result<FindCommonAncestorResult, StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("FindCommonAncestorEffect requires a chain store")
@@ -948,36 +1026,30 @@ impl ExternalEffect for FindCommonAncestorEffect {
     }
 }
 
-impl ExternalEffectAPI for FindCommonAncestorEffect {
-    type Response = Result<FindCommonAncestorResult, StoreError>;
-}
-
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FindIntersectPointEffect {
-    points: Vec<Point>,
+    points: Vec<NetworkPoint>,
 }
 
 impl FindIntersectPointEffect {
-    pub fn new(points: Vec<Point>) -> Self {
+    pub fn new(points: Vec<NetworkPoint>) -> Self {
         Self { points }
-    }
-}
-
-impl ExternalEffect for FindIntersectPointEffect {
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
-            let store = resources
-                .get::<ResourceHeaderStore>()
-                .expect("FindIntersectPointEffect requires a chain store")
-                .clone();
-            store.find_intersect_point(self.points)
-        })
     }
 }
 
 impl ExternalEffectAPI for FindIntersectPointEffect {
     type Response = Option<Point>;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("FindIntersectPointEffect requires a chain store")
+                .clone();
+            store.find_intersect_point(self.points.clone())
+        })
+    }
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -990,10 +1062,12 @@ impl SampleAncestorPointsEffect {
     }
 }
 
-impl ExternalEffect for SampleAncestorPointsEffect {
+impl ExternalEffectAPI for SampleAncestorPointsEffect {
+    type Response = Result<SampleAncestorPointsResult, StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store = resources
                 .get::<ResourceHeaderStore>()
                 .expect("SampleAncestorPointsEffect requires a chain store")
@@ -1001,10 +1075,6 @@ impl ExternalEffect for SampleAncestorPointsEffect {
             store.sample_ancestor_points()
         })
     }
-}
-
-impl ExternalEffectAPI for SampleAncestorPointsEffect {
-    type Response = Result<SampleAncestorPointsResult, StoreError>;
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -1019,17 +1089,15 @@ impl FindMissingBlocksEffect {
     }
 }
 
-impl ExternalEffect for FindMissingBlocksEffect {
+impl ExternalEffectAPI for FindMissingBlocksEffect {
+    type Response = Result<MissingBlocksResult, StoreError>;
+
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        Self::wrap_sync({
+        self.wrap_sync({
             let store =
                 resources.get::<ResourceHeaderStore>().expect("FindMissingBlocksEffect requires a chain store").clone();
             store.find_missing_blocks(self.start, self.limit)
         })
     }
-}
-
-impl ExternalEffectAPI for FindMissingBlocksEffect {
-    type Response = Result<MissingBlocksResult, StoreError>;
 }

@@ -92,18 +92,13 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.map(self.len() as u64)?;
-        for (k, v) in self.iter() {
-            k.encode(e, ctx)?;
-            v.encode(e, ctx)?;
-        }
-        Ok(())
+        cbor::encode_variable_length_map(e, self.iter().map(|(k, v)| (k, v)), ctx)
     }
 }
 
 impl<'b, C, K, V> cbor::decode::Decode<'b, C> for NonEmptyKeyValuePairs<K, V>
 where
-    K: for<'k> cbor::Decode<'k, ()> + Eq,
+    K: for<'k> cbor::Decode<'k, C> + Eq,
     V: for<'v> cbor::Decode<'v, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {

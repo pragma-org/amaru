@@ -15,7 +15,7 @@
 use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeader, HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction, TransactionId, any_headers_chain_with_root,
+    HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction, TransactionId, any_headers_chain_with_root,
     cardano::network_block::make_network_block, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
@@ -107,8 +107,8 @@ fn initialize_chain_store(chain_length: usize, chain_store: &dyn ChainStore) -> 
     // Use the same root header for both initiator and responder
     let origin_hash: HeaderHash =
         amaru_kernel::Hash::from_str("4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301")?;
-    let root_header = BlockHeader::from(make_header(100_000_000, 100_000_000, Some(origin_hash)));
-    chain_store.set_anchor_hash(&root_header.hash())?;
+    let root_header = make_header(100_000_000, 100_000_000, Some(origin_hash));
+    chain_store.set_anchor_point(&root_header.point())?;
     let mut headers = run_strategy(any_headers_chain_with_root(
         chain_length - 1, // -1 since we already have the root header
         root_header.point(),

@@ -21,13 +21,13 @@ use std::{
 };
 
 use amaru_kernel::{
-    Account, Ballot, BallotId, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
+    Account, Ballot, BallotId, BlockHeight, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots, Proposal,
-    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
+    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
     RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, StakeAddress, StakeCredential,
     StakePayload, TransactionPointer, Vote, Voter,
-    cbor::{self, lazy::LazyDecoder},
+    cbor::{self, HasProtocolVersion, lazy::LazyDecoder},
     protocol_version, reward_account_to_stake_credential, size,
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
 };
@@ -64,13 +64,10 @@ enum InitialSnapshotFormatError {
 
     #[error("snapshot protocol version {}.{} is too old; minimum supported version is {}.{}", snapshot_version.major(), snapshot_version.minor(), minimum_version.major(), minimum_version.minor()
     )]
-    ProtocolVersionTooOld {
-        snapshot_version: amaru_kernel::ProtocolVersion,
-        minimum_version: amaru_kernel::ProtocolVersion,
-    },
+    ProtocolVersionTooOld { snapshot_version: ProtocolVersion, minimum_version: ProtocolVersion },
 }
 
-fn format_pool_state_decode_error(error: Box<dyn std::error::Error>) -> String {
+fn format_pool_state_decode_error(error: cbor::decode::Error) -> String {
     let error = error.to_string();
 
     if error.contains("node pool vrf key hashes") && error.contains("Invalid hash size") {
@@ -195,8 +192,13 @@ fn decode_initial_snapshot(
         Ok(governance_activity)
     })?;
 
-    let (pools, pools_updates, pools_retirements) =
-        decoder.with_decoder(|d| Ok(decode_node_pool_state(d, network)?)).map_err(format_pool_state_decode_error)?;
+    // In order to properly decode the pool state we need to access the protocol version which
+    // we can only get later.
+    let raw_pool_state: Vec<u8> = decoder.with_decoder(|d| {
+        let start = d.position();
+        d.skip()?;
+        Ok(d.input()[start..d.position()].to_vec())
+    })?;
 
     let accounts =
         decoder.with_decoder(|d| Ok(decode_node_accounts(d)?)).map_err(|err| format!("decode accounts: {err}"))?;
@@ -247,6 +249,10 @@ fn decode_initial_snapshot(
             minimum_version: e.minimum_version,
         },
     )?;
+
+    let (pools, pools_updates, pools_retirements) =
+        decode_node_pool_state(&mut cbor::Decoder::new(&raw_pool_state), network, protocol_parameters.protocol_version)
+            .map_err(format_pool_state_decode_error)?;
 
     decoder.skip()?; // Previous Protocol Params
     decoder.skip()?; // Future Protocol Params
@@ -475,7 +481,7 @@ fn save_point(
     transaction.save(
         era_history,
         protocol_parameters,
-        governance_activity,
+        Some(governance_activity),
         point,
         None,
         Default::default(),
@@ -520,8 +526,13 @@ fn import_block_issuers(
                 era_history,
                 // TODO: Unused when storing block issuers; require API change.
                 &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                GovernanceActivity::default(),
-                &Point::Specific(fake_slot.into(), Hash::new([0; 32])),
+                None,
+                // NOTE: Synthetic keys for historical issuer counts
+                //
+                // These are not chain points. Each increment of `fake_slot` is a unique store key
+                // used only to record that a pool issued a block. Height uses the same counter so
+                // the constructed `Point` is complete and distinct.
+                &Point::Specific(fake_slot.into(), Hash::new([0; 32]), BlockHeight::from(fake_slot)),
                 Some(&pool),
                 store::Columns {
                     utxo: iter::empty(),
@@ -582,7 +593,7 @@ fn import_dreps(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -629,7 +640,7 @@ fn import_proposals(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -641,7 +652,7 @@ fn import_proposals(
             proposals: proposals
                 .iter()
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
-                    let proposal_index = proposal.id.action_index as usize;
+                    let proposal_index = proposal.id.proposal_index as usize;
                     Ok((
                         proposal.id,
                         proposals::Value {
@@ -652,7 +663,7 @@ fn import_proposals(
                                 },
                                 proposal_index,
                             },
-                            valid_until: proposal.proposed_in + protocol_parameters.gov_action_lifetime,
+                            valid_until: proposal.expires_after,
                             proposal: proposal.procedure.clone(),
                         },
                     ))
@@ -762,7 +773,7 @@ fn import_stake_pools(
         era_history,
         // TODO: Unused when storing block issuers; require API change.
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -882,7 +893,7 @@ fn import_accounts(
         transaction.save(
             era_history,
             protocol_parameters,
-            GovernanceActivity::default(),
+            None,
             point,
             None,
             store::Columns {
@@ -908,7 +919,7 @@ fn import_accounts(
         transaction.save(
             era_history,
             protocol_parameters,
-            GovernanceActivity::default(),
+            None,
             point,
             None,
             Default::default(),
@@ -1012,7 +1023,7 @@ fn import_constitutional_committee(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -1023,14 +1034,7 @@ fn import_constitutional_committee(
             proposals: iter::empty(),
             votes: iter::empty(),
             cc_members: cc_members.into_iter().map(|(cold_cred, valid_until)| {
-                let hot_cred = match hot_cold_delegations.remove(&cold_cred) {
-                    Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot_cred)) => {
-                        Resettable::Set(hot_cred)
-                    }
-                    None | Some(ConstitutionalCommitteeMemberStatus::Resigned(..)) => Resettable::Reset,
-                };
-
-                (cold_cred, (hot_cred, Resettable::Set(valid_until)))
+                (cold_cred, (Resettable::from(hot_cold_delegations.remove(&cold_cred)), Resettable::Set(valid_until)))
             }),
         },
         Default::default(),
@@ -1097,7 +1101,7 @@ fn import_votes(
     transaction.save(
         era_history,
         protocol_parameters,
-        GovernanceActivity::default(),
+        None,
         point,
         None,
         store::Columns {
@@ -1122,7 +1126,7 @@ pub fn decode_stake_snapshot(d: &mut cbor::Decoder<'_>) -> Result<BTreeSet<Stake
     d.array()?;
 
     struct Stake;
-    impl<'d, C> cbor::decode::Decode<'d, C> for Stake {
+    impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Stake {
         fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
             d.skip()?;
             Ok(Stake)
@@ -1149,7 +1153,7 @@ struct GovActionState {
     expires_after: Epoch,
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
+impl<'d, C: HasProtocolVersion> cbor::decode::Decode<'d, C> for GovActionState {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(7)?;
@@ -1169,21 +1173,22 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
 pub fn decode_node_pool_state(
     d: &mut cbor::Decoder<'_>,
     network: NetworkName,
+    protocol_version: ProtocolVersion,
 ) -> Result<(BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>), cbor::decode::Error>
 {
     d.array()?;
 
-    let mut node_network = network;
     let _pool_vrf_key_hashes: BTreeMap<Hash<{ size::VRF_KEY }>, u64> =
         d.decode().map_err(|err| contextualize_decode_error("node pool vrf key hashes", err))?;
-    let pools = decode_node_pool_map(d, &mut node_network, "node pools", |d, network| {
-        let params: NodePoolStateParams = d.decode_with(network)?;
+    let pools = decode_node_pool_map(d, network, protocol_version, "node pools", |d, (network, protocol_version)| {
+        let params: NodePoolStateParams = d.decode_with(&mut (*network, *protocol_version))?;
         Ok(params)
     })?;
-    let pools_updates = decode_node_pool_map(d, &mut node_network, "node pool updates", |d, network| {
-        let params: NodePoolUpdateParams = d.decode_with(network)?;
-        Ok(params)
-    })?;
+    let pools_updates =
+        decode_node_pool_map(d, network, protocol_version, "node pool updates", |d, (network, protocol_version)| {
+            let params: NodePoolUpdateParams = d.decode_with(&mut (*network, *protocol_version))?;
+            Ok(params)
+        })?;
     let pools_retirements: BTreeMap<PoolId, Epoch> =
         d.decode().map_err(|err| contextualize_decode_error("node pool retirements", err))?;
 
@@ -1196,13 +1201,18 @@ pub fn decode_node_pool_state(
 
 fn decode_node_pool_map<T>(
     d: &mut cbor::Decoder<'_>,
-    network: &mut NetworkName,
+    network: NetworkName,
+    protocol_version: ProtocolVersion,
     field_name: &'static str,
-    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut NetworkName) -> Result<T, cbor::decode::Error>,
+    mut decode_value: impl FnMut(
+        &mut cbor::Decoder<'_>,
+        &mut (NetworkName, ProtocolVersion),
+    ) -> Result<T, cbor::decode::Error>,
 ) -> Result<BTreeMap<PoolId, T>, cbor::decode::Error> {
     let len = d.map().map_err(|err| contextualize_decode_error(field_name, err))?;
     let mut entries = BTreeMap::new();
     let mut index = 0_u64;
+    let mut protocol_version = protocol_version;
 
     loop {
         match len {
@@ -1215,11 +1225,11 @@ fn decode_node_pool_map<T>(
         }
 
         let key_offset = d.position();
-        let pool_id: PoolId = d.decode_with(network).map_err(|err| {
+        let pool_id: PoolId = d.decode_with(&mut protocol_version).map_err(|err| {
             contextualize_decode_error(format!("{field_name} key at entry {index} offset {key_offset}"), err)
         })?;
         let value_offset = d.position();
-        let value = decode_value(d, network).map_err(|err| {
+        let value = decode_value(d, &mut (network, protocol_version)).map_err(|err| {
             contextualize_decode_error(format!("{field_name} value at entry {index} offset {value_offset}"), err)
         })?;
         entries.insert(pool_id, value);
@@ -1369,24 +1379,33 @@ fn skip_node_pool_delegators(d: &mut cbor::Decoder<'_>) -> Result<(), cbor::deco
     Ok(())
 }
 
-impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolParams {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut NetworkName) -> Result<Self, cbor::decode::Error> {
+impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodePoolParams {
+    fn decode(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut (NetworkName, ProtocolVersion),
+    ) -> Result<Self, cbor::decode::Error> {
+        let (_, mut protocol_version) = *ctx;
         let len = d.array().map_err(|err| contextualize_decode_error("node pool entry", err))?;
 
-        let vrf = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool vrf", err))?;
-        let pledge = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool pledge", err))?;
-        let cost = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool cost", err))?;
-        let margin = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool margin", err))?;
+        let vrf =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool vrf", err))?;
+        let pledge =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool pledge", err))?;
+        let cost =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool cost", err))?;
+        let margin =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool margin", err))?;
         let reward_account = {
             let reward_account: NodeRewardAccount =
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool reward account", err))?;
             reward_account.0
         };
         let SerialisedAsSet(owners) =
-            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool owners", err))?;
-        let relays = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool relays", err))?;
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool owners", err))?;
+        let relays =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool relays", err))?;
         let (metadata, consumed, break_consumed) = decode_optional_node_pool_metadata(d, len, 7, |d| {
-            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool metadata", err))
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool metadata", err))
         })?;
 
         skip_remaining_array_fields(d, len, consumed, break_consumed)
@@ -1396,28 +1415,46 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolParams {
     }
 }
 
-impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateParams {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut NetworkName) -> Result<Self, cbor::decode::Error> {
+impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodePoolUpdateParams {
+    fn decode(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut (NetworkName, ProtocolVersion),
+    ) -> Result<Self, cbor::decode::Error> {
+        let (_, mut protocol_version) = *ctx;
+
         let len = d.array().map_err(|err| contextualize_decode_error("node pool update entry", err))?;
 
-        let _operator: PoolId =
-            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update operator", err))?;
+        let _operator: PoolId = d
+            .decode_with(&mut protocol_version)
+            .map_err(|err| contextualize_decode_error("node pool update operator", err))?;
 
-        let vrf = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update vrf", err))?;
-        let pledge = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update pledge", err))?;
-        let cost = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update cost", err))?;
-        let margin = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update margin", err))?;
+        let vrf = d
+            .decode_with(&mut protocol_version)
+            .map_err(|err| contextualize_decode_error("node pool update vrf", err))?;
+        let pledge = d
+            .decode_with(&mut protocol_version)
+            .map_err(|err| contextualize_decode_error("node pool update pledge", err))?;
+        let cost = d
+            .decode_with(&mut protocol_version)
+            .map_err(|err| contextualize_decode_error("node pool update cost", err))?;
+        let margin = d
+            .decode_with(&mut protocol_version)
+            .map_err(|err| contextualize_decode_error("node pool update margin", err))?;
         let reward_account = {
             let reward_account: NodeRewardAccount =
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update reward account", err))?;
             reward_account.0
         };
-        let SerialisedAsSet(owners) =
-            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update owners", err))?;
-        let relays = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update relays", err))?;
+        let SerialisedAsSet(owners) = d
+            .decode_with(&mut protocol_version)
+            .map_err(|err| contextualize_decode_error("node pool update owners", err))?;
+        let relays = d
+            .decode_with(&mut protocol_version)
+            .map_err(|err| contextualize_decode_error("node pool update relays", err))?;
         let (metadata, consumed, break_consumed) = decode_optional_node_pool_metadata(d, len, 8, |d| {
-            let metadata: NodePoolUpdateMetadata =
-                d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update metadata", err))?;
+            let metadata: NodePoolUpdateMetadata = d
+                .decode_with(&mut protocol_version)
+                .map_err(|err| contextualize_decode_error("node pool update metadata", err))?;
             Ok(metadata.0)
         })?;
 
@@ -1428,13 +1465,20 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateParams {
     }
 }
 
-impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolStateParams {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut NetworkName) -> Result<Self, cbor::decode::Error> {
+impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodePoolStateParams {
+    fn decode(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut (NetworkName, ProtocolVersion),
+    ) -> Result<Self, cbor::decode::Error> {
+        let (_, mut protocol_version) = *ctx;
         let len = d.array().map_err(|err| contextualize_decode_error("node pool entry", err))?;
 
-        let vrf = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool vrf", err))?;
-        let pledge = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool pledge", err))?;
-        let cost = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool cost", err))?;
+        let vrf =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool vrf", err))?;
+        let pledge =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool pledge", err))?;
+        let cost =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool cost", err))?;
         let margin = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool margin", err))?;
         let reward_account = {
             let reward_account: NodeRewardAccount =
@@ -1442,10 +1486,11 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolStateParams {
             reward_account.0
         };
         let SerialisedAsSet(owners) =
-            d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool owners", err))?;
-        let relays = d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool relays", err))?;
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool owners", err))?;
+        let relays =
+            d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool relays", err))?;
         let (metadata, consumed, _) = decode_optional_node_pool_metadata(d, len, 7, |d| {
-            d.decode_with(ctx)
+            d.decode_with(&mut protocol_version)
                 .map(|SerialisedAsArray(option)| option)
                 .map_err(|err| contextualize_decode_error("node pool metadata", err))
         })?;
@@ -1478,9 +1523,9 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolStateParams {
 
 struct NodePoolUpdateMetadata(Option<PoolMetadata>);
 
-impl<'b> cbor::decode::Decode<'b, NetworkName> for NodePoolUpdateMetadata {
+impl<'b> cbor::decode::Decode<'b, ProtocolVersion> for NodePoolUpdateMetadata {
     #[allow(clippy::wildcard_enum_match_arm)]
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut NetworkName) -> Result<Self, cbor::decode::Error> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut ProtocolVersion) -> Result<Self, cbor::decode::Error> {
         match d.datatype()? {
             cbor::data::Type::Null => {
                 d.skip()?;
@@ -1529,7 +1574,7 @@ impl NodeAccount {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for NodeAccount {
+impl<'b, C: HasProtocolVersion> cbor::decode::Decode<'b, C> for NodeAccount {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         let rewards = d.decode_with(ctx)?;
@@ -1543,20 +1588,24 @@ impl<'b, C> cbor::decode::Decode<'b, C> for NodeAccount {
 
 struct NodeRewardAccount(RewardAccount);
 
-impl<'b> cbor::decode::Decode<'b, NetworkName> for NodeRewardAccount {
+impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodeRewardAccount {
     #[allow(clippy::wildcard_enum_match_arm)]
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut NetworkName) -> Result<Self, cbor::decode::Error> {
+    fn decode(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut (NetworkName, ProtocolVersion),
+    ) -> Result<Self, cbor::decode::Error> {
+        let (network_name, protocol_version) = ctx;
+        let network: Network = (*network_name).into();
         match d.datatype()? {
             cbor::data::Type::Bytes | cbor::data::Type::BytesIndef => {
-                let reward_account: RewardAccount = d.decode_with(ctx)?;
+                let reward_account: RewardAccount = d.decode_with(protocol_version)?;
                 reward_account_to_stake_credential(&reward_account)
                     .ok_or_else(|| cbor::decode::Error::message("unexpected malformed node reward account bytes"))?;
 
                 Ok(Self(reward_account))
             }
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
-                let credential = d.decode_with(ctx)?;
-                let network: Network = (*ctx).into();
+                let credential = d.decode_with(protocol_version)?;
                 let payload = match credential {
                     StakeCredential::AddrKeyhash(hash) => StakePayload::Key(hash),
                     StakeCredential::ScriptHash(hash) => StakePayload::Script(hash),
@@ -1573,7 +1622,7 @@ impl<'b> cbor::decode::Decode<'b, NetworkName> for NodeRewardAccount {
 mod tests {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{Bytes, Epoch, Hash, NetworkName, StakeCredential, cbor, to_cbor};
+    use amaru_kernel::{Bytes, Epoch, Hash, NetworkName, StakeCredential, cbor, protocol_version, to_cbor};
 
     use super::{
         NodeRewardAccount, decode_initial_snapshot_prefix, decode_optional_node_pool_metadata,
@@ -1656,9 +1705,10 @@ mod tests {
             Bytes::from(hex::decode("e0e3af434a5516854f20191807cc5ea85b57b4fd0f050f3eab28af19ee").unwrap());
         let bytes = cbor::to_vec(&reward_account).unwrap();
         let mut decoder = cbor::Decoder::new(bytes.as_slice());
-        let mut network = NetworkName::Mainnet;
+        let network = NetworkName::Mainnet;
+        let protocol_version = protocol_version::MINIMUM_SUPPORTED;
 
-        let decoded: NodeRewardAccount = decoder.decode_with(&mut network).unwrap();
+        let decoded: NodeRewardAccount = decoder.decode_with(&mut (network, protocol_version)).unwrap();
 
         assert_eq!(decoded.0, reward_account);
     }
@@ -1670,9 +1720,10 @@ mod tests {
         ));
         let bytes = cbor::to_vec(credential).unwrap();
         let mut decoder = cbor::Decoder::new(bytes.as_slice());
-        let mut network = NetworkName::Mainnet;
+        let network = NetworkName::Mainnet;
+        let protocol_version = protocol_version::MINIMUM_SUPPORTED;
 
-        let decoded: NodeRewardAccount = decoder.decode_with(&mut network).unwrap();
+        let decoded: NodeRewardAccount = decoder.decode_with(&mut (network, protocol_version)).unwrap();
 
         assert_eq!(
             decoded.0,

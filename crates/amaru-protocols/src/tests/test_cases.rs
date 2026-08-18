@@ -214,8 +214,7 @@ async fn start_initiator_with_configuration(
     let chainsync_stage = initiator_network.stage("chainsync", test_chainsync_stage);
     let store_fetched_blocks_stage = initiator_network.stage("store_fetched_blocks", store_fetched_blocks);
     let fetcher_ref: StageRef<StoreFetchedBlocksMessage> = store_fetched_blocks_stage.sender();
-    let blocks_ref =
-        initiator_network.contramap(&fetcher_ref, "store_fetched_blocks-blocks", StoreFetchedBlocksMessage::Blocks);
+    let blocks_ref = fetcher_ref.contramap(StoreFetchedBlocksMessage::Blocks);
 
     // wire up stages
     let notify = Arc::new(Notify::new());
@@ -263,8 +262,7 @@ async fn start_responder_with_failing_accept(
     let chainsync_stage = responder_network.stage("chainsync", test_chainsync_stage);
     let store_fetched_blocks_stage = responder_network.stage("store_fetched_blocks", store_fetched_blocks);
     let fetcher_ref: StageRef<StoreFetchedBlocksMessage> = store_fetched_blocks_stage.sender();
-    let blocks_ref =
-        responder_network.contramap(&fetcher_ref, "store_fetched_blocks-blocks", StoreFetchedBlocksMessage::Blocks);
+    let blocks_ref = fetcher_ref.contramap(StoreFetchedBlocksMessage::Blocks);
     let notify = Arc::new(Notify::new());
 
     // Create the manager stage - it will handle ManagerMessage::Listen and create the supervised accept stage

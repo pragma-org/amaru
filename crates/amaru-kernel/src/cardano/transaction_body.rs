@@ -153,7 +153,7 @@ impl Default for TransactionBody {
     }
 }
 
-impl<C> cbor::Encode<C> for TransactionBody {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for TransactionBody {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -204,7 +204,7 @@ impl<C> cbor::Encode<C> for TransactionBody {
 //
 // Ultimately, we have to suppose multi-era decoders, and promote transactions into a common
 // model.
-impl<'b, C> cbor::Decode<'b, C> for TransactionBody {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for TransactionBody {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         #[derive(Default)]
         struct RequiredFields {

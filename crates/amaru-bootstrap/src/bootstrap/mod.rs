@@ -22,8 +22,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeader, Epoch, GlobalParameters, Hash, HeaderHash, IsHeader, NetworkName, Nonce, Peer, Point, RawBlock, Slot,
-    StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
+    Epoch, GlobalParameters, Hash, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Nonce, Peer, Point,
+    RawBlock, Slot, StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub,
+    utils::string::display_collection,
 };
 use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
 use amaru_observability::{error, info};
@@ -104,9 +105,9 @@ fn resolve_snapshot_path(snapshots_dir: &Path, snapshot: &Snapshot) -> Option<Pa
 }
 
 fn snapshot_hash(snapshot: &Snapshot) -> Result<HeaderHash, Box<dyn Error>> {
-    match Point::try_from(snapshot.point.as_str())? {
-        Point::Specific(_, hash) => Ok(hash),
-        Point::Origin => Err("bootstrap snapshots must not use origin".into()),
+    match NetworkPoint::try_from(snapshot.point.as_str())? {
+        NetworkPoint::Specific(_, hash) => Ok(hash),
+        NetworkPoint::Origin => Err("bootstrap snapshots must not use origin".into()),
     }
 }
 
@@ -208,7 +209,7 @@ fn select_bootstrap_snapshots(
 pub async fn fetch_headers_from_points(
     peer_address: &str,
     network: NetworkName,
-    points: &[Point],
+    points: &[NetworkPoint],
     headers_per_point: usize,
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     if points.is_empty() || headers_per_point == 0 {
@@ -226,7 +227,7 @@ pub async fn fetch_headers_from_points(
 async fn fetch_headers_from_point(
     peer_address: &str,
     network: NetworkName,
-    point: Point,
+    point: NetworkPoint,
     headers_per_point: usize,
 ) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let peer_client = PeerClient::connect(peer_address, network.to_network_magic().as_u64()).await.map_err(|err| {
@@ -251,8 +252,7 @@ async fn fetch_headers_from_point(
 
         match next {
             NextResponse::RollForward(content, tip) => {
-                let block_header: BlockHeader =
-                    from_cbor(&content.cbor).ok_or("failed to decode fetched block header")?;
+                let block_header: Header = from_cbor(&content.cbor).ok_or("failed to decode fetched block header")?;
                 let slot = u64::from(block_header.slot());
                 headers.push(content.cbor);
 
@@ -478,8 +478,7 @@ pub async fn bootstrap(
 pub async fn import_packaged_blocks(db: &RocksDBStore, blocks: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for block in blocks {
         let header_cbor = extract_block_header_cbor(&block)?;
-        let block_header: BlockHeader =
-            from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+        let block_header: Header = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
         let hash = block_header.hash();
 
         info!(bootstrap::header::IMPORT, header = %hash);
@@ -520,10 +519,14 @@ fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str)
 
     let block = hex::decode(hex_block)?;
     let header_cbor = extract_block_header_cbor(&block)?;
-    let header: BlockHeader = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
-    let expected_point = Point::try_from(expected_point)?;
-    if header.point() != expected_point {
-        return Err(format!("packaged bootstrap block is {}, expected {expected_point}", header.point()).into());
+    let header: Header = from_cbor(header_cbor).ok_or("failed to decode packaged bootstrap block header")?;
+    let expected_point = NetworkPoint::try_from(expected_point)?;
+    if header.point().to_network_point() != expected_point {
+        return Err(format!(
+            "packaged bootstrap block is {}, expected {expected_point}",
+            header.point().to_network_point()
+        )
+        .into());
     }
 
     Ok(block)
@@ -581,7 +584,7 @@ pub fn store_chain_state(epoch: Epoch, db: &dyn ChainStore, chain_state: ChainSt
 
 pub async fn import_headers(db: &RocksDBStore, headers: Vec<Vec<u8>>) -> Result<(), Box<dyn Error>> {
     for header in headers {
-        let block_header: BlockHeader = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
+        let block_header: Header = from_cbor(&header).ok_or("failed to decode packaged bootstrap header")?;
         let hash = block_header.hash();
 
         info!(bootstrap::header::IMPORT, header = %hash);
@@ -794,7 +797,7 @@ mod tests {
         time::Duration,
     };
 
-    use amaru_kernel::{Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Slot};
+    use amaru_kernel::{BlockHeight, Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, HeaderHash, Slot};
     use tar::{Builder, Header};
     use tempfile::tempdir;
 
@@ -860,6 +863,7 @@ mod tests {
         let parsed_snapshot = ParsedStateSnapshot {
             slot: 12,
             hash: HeaderHash::from([0_u8; 32]),
+            block_height: BlockHeight::from(12),
             era_history,
             ledger_data_begin: 0,
             ledger_data_end: 0,

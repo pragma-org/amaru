@@ -17,13 +17,19 @@
 use std::{any::type_name, collections::BTreeSet, fmt, io, sync::Arc, time::Duration};
 
 use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, Slot};
+use amaru_observability::{CborConsoleEventFormat, console_field_formatter};
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Instant, Name, Resources, SendData, StageGraph, TerminationReason,
     simulation::{SimulationBuilder, SimulationRunning},
     trace_buffer::{TraceBuffer, TraceEntry},
 };
 use parking_lot::Mutex;
-use tokio::runtime::Handle;
+use tokio::runtime::{Builder, Handle, Runtime};
+
+/// Current-thread runtime with IO and time, required to force pending external effects.
+pub fn test_runtime() -> Runtime {
+    Builder::new_current_thread().enable_all().build().expect("current-thread tokio runtime")
+}
 use tracing::{Level, subscriber::DefaultGuard};
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -280,9 +286,13 @@ where
     let writer = BufferWriter::new();
     let mut logs = writer.clone();
 
+    // Use the CBOR-aware console stack (EDR-033) so schema events render their typed fields
+    // as readable values instead of raw CBOR byte arrays.
     let sub = tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_ansi(false)
+        .event_format(CborConsoleEventFormat::new().with_ansi(false))
+        .fmt_fields(console_field_formatter())
         .with_writer(move || writer.clone())
         .set_default();
     logs.set_guard(sub);
@@ -297,13 +307,13 @@ where
 
     let network = build_network(network);
 
-    let mut running = network.run();
+    let mut running = network.run(rt);
     running.use_virtual_child_stages(true);
     setup_overrides(&mut running);
 
     match mode {
         SimulationRunMode::UntilBlocked => {
-            running.run_until_blocked_incl_effects(rt);
+            running.run_until_blocked_incl_effects();
         }
         SimulationRunMode::UntilSleeping => {
             while let amaru_pure_stage::simulation::Blocked::Busy { .. } = running.run_until_sleeping_or_blocked() {

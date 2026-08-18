@@ -16,7 +16,7 @@ SCHEMAS_FILE="${DOCS_DIR}/traces-schema.json"
 trap "rm -f ${SCHEMAS_JSON}" EXIT
 
 # Ensure the amaru binary is up to date
-cargo run --quiet --profile $BUILD_PROFILE --locked --bin amaru -- dump-traces-schema 2> "${SCHEMAS_JSON}" || {
+cargo run --quiet --profile $BUILD_PROFILE --locked --bin amaru -- dev traces dump 1> "${SCHEMAS_JSON}" || {
   echo "Error generating schemas:" >&2
   cat "${SCHEMAS_JSON}" >&2
   exit 1

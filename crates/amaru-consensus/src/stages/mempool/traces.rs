@@ -24,9 +24,9 @@ use crate::effects::{Metrics, MetricsOps};
 
 /// Add traces for a transaction that is candidate for mempool insertion.
 pub(super) fn emit_tx_received(tx_id: &TransactionId, origin: &TxOrigin) {
-    debug_record!(mempool::transaction::RECEIVED, tx_id = tx_id, origin = tx_origin_label(origin));
+    debug_record!(mempool::transaction::RECEIVED, id = tx_id, origin = tx_origin_label(origin));
     if let TxOrigin::Remote(peer) = origin {
-        debug_record!(mempool::transaction::RECEIVED_DETAIL, tx_id = tx_id, peer = peer);
+        debug_record!(mempool::transaction::RECEIVED_DETAIL, id = tx_id, peer = peer);
     }
 }
 
@@ -54,7 +54,7 @@ pub(super) async fn record_insert(
         TxInsertResult::Accepted { tx_id, seq_no } => {
             trace_record!(
                 mempool::transaction::ACCEPTED,
-                tx_id = tx_id,
+                id = tx_id,
                 seq_no = seq_no.0,
                 origin = tx_origin_label(origin)
             );
@@ -66,13 +66,13 @@ pub(super) async fn record_insert(
                     let validation_error = err.to_string();
                     trace_record!(
                         mempool::transaction::REJECTED,
-                        tx_id = tx_id,
+                        id = tx_id,
                         reason = reason_label,
                         validation_error = validation_error
                     );
                 }
                 TxRejectReason::Duplicate | TxRejectReason::MempoolFull => {
-                    trace_record!(mempool::transaction::REJECTED, tx_id = tx_id, reason = reason_label);
+                    trace_record!(mempool::transaction::REJECTED, id = tx_id, reason = reason_label);
                 }
             }
         }
@@ -98,7 +98,7 @@ pub(super) async fn record_revalidation(
     let evicted_count = outcome.evicted_tx_ids.len() as u64;
 
     for tx_id in &outcome.evicted_tx_ids {
-        trace_record!(mempool::transaction::EVICTED, tx_id = tx_id, reason = "invalid_after_tip".to_string());
+        trace_record!(mempool::transaction::EVICTED, id = tx_id, reason = "invalid_after_tip".to_string());
     }
     if evicted_count > 0 {
         emit_metrics(

@@ -17,14 +17,18 @@ pub mod rocksdb;
 
 #[cfg(test)]
 pub mod tests {
-    use std::{collections::BTreeMap, str::FromStr};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        str::FromStr,
+    };
 
     #[cfg(not(target_os = "windows"))]
     use amaru_kernel::any_proposal_id;
     use amaru_kernel::{
-        Anchor, DRepRegistration, Epoch, EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, Slot, StakeCredential,
-        TransactionInput, any_certificate_pointer, any_hash28, any_lovelace, any_pool_params, any_stake_credential,
+        Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, DRepRegistration, Epoch, EraHistory, Hash,
+        Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
+        Point, PoolId, PoolParams, RationalNumber, Slot, StakeCredential, TransactionInput, any_certificate_pointer,
+        any_hash28, any_lovelace, any_pool_params, any_stake_credential,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -101,7 +105,7 @@ pub mod tests {
         };
 
         let drep = match &account_row.drep {
-            Some(drep_pair) => Resettable::Set(drep_pair.clone()),
+            Some(drep_pair) => Resettable::Set(*drep_pair),
             None => Resettable::Reset,
         };
 
@@ -166,15 +170,14 @@ pub mod tests {
             amaru_ledger::store::columns::cc_members::tests::any_row().new_tree(runner).unwrap().current();
 
         // Ensure hot_credential is always Some
-        cc_member_row.hot_credential.get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current());
+        cc_member_row.status.get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current().into());
 
-        let hot_credential = cc_member_row.hot_credential.unwrap();
+        let member_status = cc_member_row.status.unwrap();
 
-        let cc_members_iter =
-            std::iter::once((cc_member_key, (Resettable::Set(hot_credential), Resettable::Unchanged)));
+        let cc_members_iter = std::iter::once((cc_member_key, (Resettable::Set(member_status), Resettable::Unchanged)));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
-        let point = Point::Specific(slot, Hash::from([0u8; 32]));
+        let point = Point::Specific(slot, Hash::from([0u8; 32]), BlockHeight::from(u64::from(slot)));
         let slot_leader = any_hash28().new_tree(runner).unwrap().current();
 
         {
@@ -183,7 +186,7 @@ pub mod tests {
             context.save(
                 &PREPROD_ERA_HISTORY,
                 &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-                GovernanceActivity::default(),
+                Some(GovernanceActivity::default()),
                 &point,
                 Some(&slot_leader),
                 Columns {
@@ -199,6 +202,16 @@ pub mod tests {
                 std::iter::empty(),
             )?;
 
+            // A bootstrapped ledger always has a constitution, and an enacted governance update
+            // reads it back to report the guardrails script in force.
+            context.set_constitution(&Constitution {
+                anchor: Anchor {
+                    url: MaxString128::from_str("https://example.com").unwrap(),
+                    content_hash: Hash::from([0u8; 32]),
+                },
+                guardrail_script: None,
+            })?;
+
             context.commit()?;
         }
 
@@ -206,7 +219,7 @@ pub mod tests {
             let context = store.create_transaction();
             let mut result = None;
             context.with_accounts(|mut accounts| {
-                result = accounts.find(|(key, _)| *key == account_key).and_then(|(_, row)| row.borrow().clone());
+                result = accounts.find(|(key, _)| *key == account_key).and_then(|(_, row)| *row.borrow());
             })?;
             let value =
                 result.ok_or_else(|| StoreError::Internal("Failed to retrieve account after seeding".into()))?;
@@ -313,7 +326,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),
@@ -344,7 +357,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),
@@ -374,7 +387,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),
@@ -417,7 +430,7 @@ pub mod tests {
         context.save(
             &PREPROD_ERA_HISTORY,
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            GovernanceActivity::default(),
+            Some(GovernanceActivity::default()),
             &point,
             None,
             Columns::empty(),
@@ -429,6 +442,53 @@ pub mod tests {
         let maybe_drep_row = store.iter_dreps()?.find(|(key, _)| *key == fixture.drep_key);
 
         assert!(maybe_drep_row.is_none(), "DRep row should have been deleted after deregistration");
+
+        Ok(())
+    }
+
+    /// Enacting an `UpdateCommittee` that removes a member drops that cold credential's row, and with
+    /// it the hot-key authorization. Haskell does this by intersecting `csCommitteeCreds` with the
+    /// members of the newly enacted committee, on every epoch transition:
+    ///
+    /// ```haskell
+    /// updateCommitteeState committee (CommitteeState creds) =
+    ///   CommitteeState $ Map.intersection creds members
+    ///   where
+    ///     members = foldMap' committeeMembers committee
+    /// ```
+    ///
+    /// A surviving authorization still satisfies the `VotersDoNotExist` check, which deliberately
+    /// filters on neither the term nor election, so the removed member could keep voting.
+    pub fn test_remove_cc_member_at_epoch_boundary(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
+        let committee =
+            ConstitutionalCommitteeStatus::Trusted { threshold: RationalNumber { numerator: 1, denominator: 2 } };
+
+        let status = fixture.cc_member_row.status.expect("fixture seeds a non empty status");
+        let term = Epoch::from(100);
+
+        let context = store.create_transaction();
+        context.update_constitutional_committee(
+            &committee,
+            BTreeMap::from([(fixture.cc_member_key, term)]),
+            BTreeSet::new(),
+        )?;
+        context.commit()?;
+
+        assert_eq!(
+            store.cc_member(&fixture.cc_member_key)?,
+            Some(cc_members::Row { status: Some(status), valid_until: Some(term) }),
+            "an elected member holds both a term and its authorization"
+        );
+
+        let context = store.create_transaction();
+        context.update_constitutional_committee(
+            &committee,
+            BTreeMap::new(),
+            BTreeSet::from([fixture.cc_member_key]),
+        )?;
+        context.commit()?;
+
+        assert_eq!(store.cc_member(&fixture.cc_member_key)?, None, "a removed member keeps no authorization");
 
         Ok(())
     }

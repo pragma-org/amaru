@@ -20,7 +20,20 @@ pub struct BallotId {
     pub voter: Voter,
 }
 
-impl<C> cbor::encode::Encode<C> for BallotId {
+impl BallotId {
+    /// Returns the CBOR prefix resulting from encoding this ballot with a given proposal id but an
+    /// unknown voter.
+    pub fn encode_prefix<W: cbor::encode::Write>(
+        proposal: &ProposalId,
+        e: &mut cbor::Encoder<W>,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.encode(proposal)?;
+        Ok(())
+    }
+}
+
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for BallotId {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -28,12 +41,12 @@ impl<C> cbor::encode::Encode<C> for BallotId {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.encode_with(self.proposal, ctx)?;
-        e.encode_with(&self.voter, ctx)?;
+        e.encode_with(self.voter, ctx)?;
         Ok(())
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for BallotId {
+impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for BallotId {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;

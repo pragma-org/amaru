@@ -89,14 +89,14 @@ pub async fn register_tx_submission(
         let tx_submission = eff.stage("tx_submission", initiator::initiator()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
-        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<initiator::InitiatorLocalIn>::Network).await
+        tx_submission.contramap(Inputs::<initiator::InitiatorLocalIn>::Network)
     } else {
         let (state, stage) =
             responder::TxSubmissionResponder::new(peer, muxer.clone(), params, origin, mempool_stage, era_history);
         let tx_submission = eff.stage("tx_submission", responder::responder()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
-        eff.contramap(&tx_submission, "tx_submission_handler", Inputs::<ResponderLocalIn>::Network).await
+        tx_submission.contramap(Inputs::<ResponderLocalIn>::Network)
     };
 
     eff.send(

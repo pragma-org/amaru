@@ -327,16 +327,11 @@ impl TxSubmissionInitiator {
 
         // Ask the mempool to notify us when it has reached the expected sequence number,
         // so that we can reply to the peer with the requested tx ids.
-        // Note: on the first `request_tx_ids_blocking` request we receive, we instantiate the callback
-        // stage ref with a contramap to the mempool stage. If we were to create one contramapped
-        // stage for each call we would have a memory leak because those references are not garbage
-        // collected.
+        // Instantiate the callback once and reuse it — the closure is cheap to keep.
         if self.wait_for_at_least_callback.is_blackhole() {
             self.wait_for_at_least_callback = eff
-                .contramap(eff.me_ref(), "tx_submission_wait_for_at_least_callback", |_: ()| {
-                    Inputs::<InitiatorLocalIn>::Local(InitiatorLocalIn::WaitForAtLeastReached)
-                })
-                .await;
+                .me_ref()
+                .contramap(|_: ()| Inputs::<InitiatorLocalIn>::Local(InitiatorLocalIn::WaitForAtLeastReached));
         }
         debug!(
             protocols::tx_submission::initiator::WAIT_FOR_AT_LEAST,
@@ -429,7 +424,7 @@ impl TxSubmissionInitiator {
         mempool: &dyn AsyncMempool,
         tx_ids: Vec<TransactionId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
-        tracing::debug!(tx_ids = display_collection(tx_ids.iter().map(|id| id.short())), "received RequestTxs");
+        tracing::debug!(ids = display_collection(tx_ids.iter().map(|id| id.short())), "received RequestTxs");
         // Return an error if the peer asked for a tx_id that was not advertised.
         let unavailable: Vec<&TransactionId> =
             tx_ids.iter().filter(|id| !self.window.iter().any(|(wid, _)| wid == *id)).collect();
@@ -506,7 +501,7 @@ impl TxSubmissionInitiator {
             protocols::tx_submission::initiator::REPLY_TX_IDS,
             peer = self.peer,
             count = ids.len(),
-            tx_ids = ids.as_slice()
+            ids = ids.as_slice()
         );
     }
 

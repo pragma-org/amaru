@@ -158,7 +158,7 @@ mod tests {
 
     use amaru::bootstrap::validate_publishable_snapshot_archive;
     use amaru_kernel::{
-        BlockHeader, Epoch, IsHeader, PREPROD_ERA_HISTORY, cardano::network_block::make_encoded_block,
+        Epoch, Header, IsHeader, PREPROD_ERA_HISTORY, cardano::network_block::make_encoded_block,
         extract_block_header_cbor, from_cbor, make_header,
     };
     use tar::Archive;
@@ -175,15 +175,15 @@ mod tests {
         fs::write(source.join("state"), b"state").unwrap();
         fs::write(source.join("tables"), b"utxo").unwrap();
         fs::write(source.join("meta"), b"meta").unwrap();
-        let block = make_encoded_block(&BlockHeader::from(make_header(1, 42, None)), &PREPROD_ERA_HISTORY).to_vec();
-        let header: BlockHeader = from_cbor(extract_block_header_cbor(&block).unwrap()).unwrap();
+        let block = make_encoded_block(&make_header(1, 42, None), &PREPROD_ERA_HISTORY).to_vec();
+        let header: Header = from_cbor(extract_block_header_cbor(&block).unwrap()).unwrap();
         let target =
             EpochTarget { epoch: Epoch::from(1), slot: header.slot(), hash: header.hash(), parent_point: None };
         let archive_path = temp_dir.path().join("snapshot.tar.zst");
         let packaged_blocks = serde_json::to_vec(&vec![hex::encode(block)]).unwrap();
 
         write_snapshot_archive(&source, &archive_path, &target, &packaged_blocks).unwrap();
-        validate_publishable_snapshot_archive(&archive_path, &header.point().to_string()).unwrap();
+        validate_publishable_snapshot_archive(&archive_path, &header.point().to_network_point().to_string()).unwrap();
 
         let root = format!("{}.{}", target.slot, target.hash);
         let decoder = Decoder::new(fs::File::open(&archive_path).unwrap()).unwrap();

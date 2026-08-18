@@ -110,8 +110,8 @@ certain mutations are applied to the system.
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, SafeRatio, StakeCredential, expect_stake_credential,
-    floor_to_lovelace, safe_ratio,
+    Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, SafeRatio, SortedPairs, StakeCredential,
+    expect_stake_credential, floor_to_lovelace, safe_ratio,
 };
 use amaru_observability::info;
 use num::{
@@ -131,7 +131,7 @@ impl PoolState {
         safe_ratio(self.stake, total_stake)
     }
 
-    pub fn owner_stake(&self, accounts: &BTreeMap<StakeCredential, AccountState>) -> Lovelace {
+    pub fn owner_stake(&self, accounts: &SortedPairs<StakeCredential, AccountState>) -> Lovelace {
         self.parameters.owners.iter().fold(0, |total, owner| {
             match accounts.get(&StakeCredential::AddrKeyhash(*owner)) {
                 Some(account) if account.pool == Some(self.parameters.id) => total + account.balance,
@@ -324,8 +324,8 @@ pub struct RewardsSummary {
     /// Various protocol money pots pertaining to the epoch at the beginning of the rewards calculation.
     pots: Pots,
 
-    /// Per-account rewards, determined from their relative stake and their delegatee.
-    accounts: BTreeMap<StakeCredential, Lovelace>,
+    /// Per-account state including their rewards.
+    accounts: SortedPairs<StakeCredential, AccountState>,
 
     /// Credentials credited a leader reward, as named by the stake distribution's pool parameters.
     leader_recipients: BTreeSet<StakeCredential>,
@@ -368,21 +368,21 @@ impl RewardsSummary {
 
         let total_stake: Lovelace = global_parameters.max_lovelace_supply - pots.reserves;
 
-        let mut delegators: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
-
         let mut leader_recipients: BTreeSet<StakeCredential> = BTreeSet::new();
 
         let mut pools: BTreeMap<PoolId, PoolRewards> = BTreeMap::new();
 
-        let mut effective_rewards = stake_summary.pools.iter().fold(0, |effective_rewards, (pool_id, pool)| {
+        let StakeSummary { stake_distribution, mut accounts } = stake_summary;
+
+        let mut effective_rewards = stake_distribution.pools.iter().fold(0, |effective_rewards, (pool_id, pool)| {
             let pool_rewards = RewardsSummary::apply_leader_rewards(
-                &mut delegators,
+                &mut accounts,
                 &mut leader_recipients,
                 &mut blocks_per_pool,
                 blocks_count,
                 available_rewards,
+                stake_distribution.active_stake,
                 total_stake,
-                &stake_summary,
                 pool,
                 protocol_parameters,
             );
@@ -394,26 +394,19 @@ impl RewardsSummary {
             rewards
         });
 
-        let StakeSummary { stake_distribution, accounts } = stake_summary;
-
-        effective_rewards += accounts.into_iter().fold(0, |effective_rewards, (credential, account)| {
+        for (credential, account) in accounts.iter_mut() {
             let opt_pool = account.pool.as_ref().and_then(|pool_id| stake_distribution.pools.get(pool_id));
-
-            let member_rewards = if let Some(pool) = opt_pool {
+            effective_rewards += if let Some(pool) = opt_pool {
                 RewardsSummary::apply_member_rewards(
-                    &mut delegators,
+                    (credential, account),
                     pool,
                     pools.get(&pool.parameters.id),
                     total_stake,
-                    credential,
-                    account,
                 )
             } else {
                 0
             };
-
-            effective_rewards + member_rewards
-        });
+        }
 
         info!(
             ledger::rewards::SUMMARIZE,
@@ -435,7 +428,7 @@ impl RewardsSummary {
             available_rewards,
             effective_rewards,
             pots,
-            accounts: delegators,
+            accounts,
             leader_recipients,
         }
     }
@@ -497,17 +490,15 @@ impl RewardsSummary {
     }
 
     fn apply_member_rewards(
-        accounts: &mut BTreeMap<StakeCredential, Lovelace>,
+        (credential, account): (&StakeCredential, &mut AccountState),
         pool: &PoolState,
         pool_rewards: Option<&PoolRewards>,
         total_stake: Lovelace,
-        credential: StakeCredential,
-        st: AccountState,
     ) -> Lovelace {
         if let Some(PoolRewards { pot, .. }) = pool_rewards {
-            let member_rewards = pool.member_rewards(&credential, *pot, st.balance, total_stake);
+            let member_rewards = pool.member_rewards(credential, *pot, account.balance, total_stake);
             if member_rewards > 0 {
-                accounts.entry(credential).and_modify(|rewards| *rewards += member_rewards).or_insert(member_rewards);
+                account.rewards += member_rewards;
             }
             member_rewards
         } else {
@@ -517,22 +508,22 @@ impl RewardsSummary {
 
     #[expect(clippy::too_many_arguments)]
     fn apply_leader_rewards(
-        accounts: &mut BTreeMap<StakeCredential, Lovelace>,
+        accounts: &mut SortedPairs<StakeCredential, AccountState>,
         leader_recipients: &mut BTreeSet<StakeCredential>,
         blocks_per_pool: &mut BTreeMap<PoolId, u64>,
         blocks_count: u64,
         available_rewards: Lovelace,
+        active_stake: Lovelace,
         total_stake: Lovelace,
-        stake_summary: &StakeSummary,
         pool: &PoolState,
         protocol_parameters: &ProtocolParameters,
     ) -> PoolRewards {
-        let owner_stake = pool.owner_stake(&stake_summary.accounts);
+        let owner_stake = pool.owner_stake(accounts);
 
         let rewards_pot = pool.pool_rewards(
             safe_ratio(blocks_per_pool.remove(&pool.parameters.id).unwrap_or_default(), blocks_count),
             available_rewards,
-            stake_summary.active_stake,
+            active_stake,
             total_stake,
             owner_stake,
             protocol_parameters,
@@ -541,18 +532,22 @@ impl RewardsSummary {
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
         if rewards_leader > 0 {
-            // NOTE: the reward account needs not be a registered account
-            //
-            // Nothing above consults the reward account: the pledge is checked against the pool's
-            // *owners* and the performance against its *delegators*. So a pool can perfectly well
-            // earn a leader reward payable to a credential that has no account, in which case the
-            // reward is unclaimed and goes to the treasury instead. That is settled at the epoch
-            // boundary, against the recipients recorded here: the pool may change or drop its
-            // reward account before the payout, so the registry as it stands then no longer knows
-            // who was owed the reward.
             let credential = expect_stake_credential(&pool.parameters.reward_account);
             leader_recipients.insert(credential);
-            accounts.entry(credential).and_modify(|rewards| *rewards += rewards_leader).or_insert(rewards_leader);
+            if let Some(st) = accounts.get_mut(&credential) {
+                st.rewards += rewards_leader;
+            } else {
+                // NOTE: the reward account needs not be a registered account
+                //
+                // Nothing above consults the reward account: the pledge is checked against the pool's
+                // *owners* and the performance against its *delegators*. So a pool can perfectly well
+                // earn a leader reward payable to a credential that has no account, in which case the
+                // reward is unclaimed and goes to the treasury instead. That is settled at the epoch
+                // boundary, against the recipients recorded here: the pool may change or drop its
+                // reward account before the payout, so the registry as it stands then no longer knows
+                // who was owed the reward.
+                accounts.insert(credential, AccountState::default().with_rewards(rewards_leader))
+            }
         }
 
         PoolRewards { leader: rewards_leader, pot: rewards_pot }
@@ -569,7 +564,7 @@ impl RewardsSummary {
     }
 
     /// Rewards owed to each credential, whether or not that credential still has an account.
-    pub fn accounts(&self) -> &BTreeMap<StakeCredential, Lovelace> {
+    pub fn accounts(&self) -> &SortedPairs<StakeCredential, AccountState> {
         &self.accounts
     }
 
@@ -604,7 +599,7 @@ mod test {
     #[test]
     fn a_leader_reward_is_credited_to_an_unregistered_reward_account() {
         let pool = pool(1);
-        let (accounts, _) = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
+        let (accounts, _) = apply_leader_rewards(&pool, stake_summary(&pool, BTreeMap::new()));
         assert!(accounts.contains_key(&credential(1)));
     }
 
@@ -615,10 +610,10 @@ mod test {
         let pool = pool(1);
         let delegators = BTreeMap::from([(
             credential(1),
-            AccountState { balance: STAKE, pool: Some(pool.parameters.id), drep: None },
+            AccountState { balance: STAKE, pool: Some(pool.parameters.id), ..Default::default() },
         )]);
 
-        let (accounts, _) = apply_leader_rewards(&pool, &stake_distribution(&pool, delegators));
+        let (accounts, _) = apply_leader_rewards(&pool, stake_summary(&pool, delegators));
 
         assert!(accounts.contains_key(&credential(1)));
     }
@@ -629,7 +624,7 @@ mod test {
     #[test]
     fn a_leader_reward_records_its_recipient() {
         let pool = pool(1);
-        let (_, leader_recipients) = apply_leader_rewards(&pool, &stake_distribution(&pool, BTreeMap::new()));
+        let (_, leader_recipients) = apply_leader_rewards(&pool, stake_summary(&pool, BTreeMap::new()));
         assert_eq!(leader_recipients, BTreeSet::from([credential(1)]));
     }
 
@@ -638,27 +633,28 @@ mod test {
     #[test]
     fn a_pool_earning_no_leader_reward_records_no_recipient() {
         let pool = pool(1);
-        let stake_distribution = stake_distribution(&pool, BTreeMap::new());
+        let mut summary = stake_summary(&pool, BTreeMap::new());
 
-        let mut accounts = BTreeMap::new();
         let mut leader_recipients = BTreeSet::new();
         let mut blocks_per_pool = BTreeMap::new();
 
+        let active_stake = summary.active_stake;
+
         let rewards = RewardsSummary::apply_leader_rewards(
-            &mut accounts,
+            &mut summary.accounts,
             &mut leader_recipients,
             &mut blocks_per_pool,
             1,
             1_000_000_000,
+            active_stake,
             STAKE,
-            &stake_distribution,
             &pool,
             &MAINNET_DEFAULT_PROTOCOL_PARAMETERS,
         );
 
         assert_eq!(rewards.leader, 0, "a pool with no block should earn no leader reward");
         assert!(leader_recipients.is_empty());
-        assert!(accounts.is_empty());
+        assert!(summary.accounts.values().all(|st| st.rewards == 0));
     }
 
     // HELPERS
@@ -694,7 +690,7 @@ mod test {
         }
     }
 
-    fn stake_distribution(pool: &PoolState, accounts: BTreeMap<StakeCredential, AccountState>) -> StakeSummary {
+    fn stake_summary(pool: &PoolState, accounts: BTreeMap<StakeCredential, AccountState>) -> StakeSummary {
         StakeSummary {
             stake_distribution: StakeDistribution {
                 epoch: Epoch::from(0),
@@ -706,7 +702,7 @@ mod test {
                 pools: BTreeMap::from([(pool.parameters.id, pool.clone())]),
                 dreps: BTreeMap::new(),
             },
-            accounts,
+            accounts: SortedPairs::from(accounts),
         }
     }
 
@@ -714,25 +710,27 @@ mod test {
     /// recipients were recorded.
     fn apply_leader_rewards(
         pool: &PoolState,
-        stake_distribution: &StakeSummary,
-    ) -> (BTreeMap<StakeCredential, Lovelace>, BTreeSet<StakeCredential>) {
-        let mut accounts = BTreeMap::new();
+        mut stake_summary: StakeSummary,
+    ) -> (SortedPairs<StakeCredential, AccountState>, BTreeSet<StakeCredential>) {
         let mut leader_recipients = BTreeSet::new();
         let mut blocks_per_pool = BTreeMap::from([(pool.parameters.id, 1)]);
 
+        let active_stake = stake_summary.active_stake;
+
         let rewards = RewardsSummary::apply_leader_rewards(
-            &mut accounts,
+            &mut stake_summary.accounts,
             &mut leader_recipients,
             &mut blocks_per_pool,
             1,
             1_000_000_000,
+            active_stake,
             STAKE,
-            stake_distribution,
             pool,
             &MAINNET_DEFAULT_PROTOCOL_PARAMETERS,
         );
 
         assert!(rewards.leader > 0, "the fixture should reward the leader");
-        (accounts, leader_recipients)
+
+        (stake_summary.accounts, leader_recipients)
     }
 }

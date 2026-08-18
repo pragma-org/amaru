@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{BlockHeader, EraName, Point, Tip, cbor, to_cbor, utils::debug_bytes};
+use amaru_kernel::{EraName, Header, NetworkPoint, NetworkTip, Point, cbor, to_cbor, utils::debug_bytes};
 use amaru_pure_stage::DeserializerGuards;
 
 pub fn register_deserializers() -> DeserializerGuards {
@@ -23,11 +23,11 @@ pub fn register_deserializers() -> DeserializerGuards {
 pub enum Message {
     RequestNext(u8),
     AwaitReply,
-    RollForward(HeaderContent, Tip),
-    RollBackward(Point, Tip),
-    FindIntersect(Vec<Point>),
-    IntersectFound(Point, Tip),
-    IntersectNotFound(Tip),
+    RollForward(HeaderContent, Point),
+    RollBackward(NetworkPoint, Point),
+    FindIntersect(Vec<NetworkPoint>),
+    IntersectFound(NetworkPoint, Point),
+    IntersectNotFound(Point),
     Done,
 }
 
@@ -65,7 +65,7 @@ impl std::fmt::Debug for HeaderContent {
 }
 
 impl HeaderContent {
-    pub fn new(header: &BlockHeader, era: EraName) -> Self {
+    pub fn new(header: &Header, era: EraName) -> Self {
         Self { variant: era, byron_prefix: None, cbor: to_cbor(header) }
     }
 
@@ -94,13 +94,13 @@ impl cbor::Encode<()> for Message {
             Message::RollForward(content, tip) => {
                 e.array(3)?.u16(2)?;
                 e.encode(content)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::RollBackward(point, tip) => {
                 e.array(3)?.u16(3)?;
                 e.encode(point)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::FindIntersect(points) => {
@@ -114,12 +114,12 @@ impl cbor::Encode<()> for Message {
             Message::IntersectFound(point, tip) => {
                 e.array(3)?.u16(5)?;
                 e.encode(point)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::IntersectNotFound(tip) => {
                 e.array(2)?.u16(6)?;
-                e.encode(tip)?;
+                e.encode(NetworkTip::from(tip))?;
                 Ok(())
             }
             Message::Done => {
@@ -147,13 +147,13 @@ impl<'b> cbor::Decode<'b, ()> for Message {
             2 => {
                 cbor::check_tagged_array_length(2, len, 3)?;
                 let content = d.decode()?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::RollForward(content, tip))
             }
             3 => {
                 cbor::check_tagged_array_length(3, len, 3)?;
                 let point = d.decode()?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::RollBackward(point, tip))
             }
             4 => {
@@ -164,12 +164,12 @@ impl<'b> cbor::Decode<'b, ()> for Message {
             5 => {
                 cbor::check_tagged_array_length(5, len, 3)?;
                 let point = d.decode()?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::IntersectFound(point, tip))
             }
             6 => {
                 cbor::check_tagged_array_length(6, len, 2)?;
-                let tip = d.decode()?;
+                let tip = Point::from(d.decode::<NetworkTip>()?);
                 Ok(Message::IntersectNotFound(tip))
             }
             7 => {
@@ -197,6 +197,9 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
                 let (a, b): (u8, u64) = d.decode()?;
 
                 d.tag()?;
+                // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
+                // which rejects indefinite-length byte strings, so we reject them too.
+                #[allow(clippy::disallowed_methods)]
                 let bytes = d.bytes()?;
 
                 Ok(HeaderContent { variant, byron_prefix: Some((a, b)), cbor: Vec::from(bytes) })
@@ -210,6 +213,9 @@ impl<'b> cbor::Decode<'b, ()> for HeaderContent {
             | EraName::Dijkstra => {
                 cbor::check_tagged_array_length(variant.header_variant().into(), len, 2)?;
                 d.tag()?;
+                // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
+                // which rejects indefinite-length byte strings, so we reject them too.
+                #[allow(clippy::disallowed_methods)]
                 let bytes = d.bytes()?;
                 Ok(HeaderContent { variant, byron_prefix: None, cbor: Vec::from(bytes) })
             }
@@ -251,7 +257,7 @@ impl cbor::Encode<()> for HeaderContent {
 /// Roundtrip property tests for chainsync messages.
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{any_era_name, any_point, any_tip, prop_cbor_roundtrip};
+    use amaru_kernel::{any_era_name, any_network_point, any_point, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
@@ -298,31 +304,31 @@ mod tests {
     }
 
     prop_compose! {
-        fn roll_forward_message()(header_content in any_header_content(), tip in any_tip()) -> Message {
+        fn roll_forward_message()(header_content in any_header_content(), tip in any_point()) -> Message {
             RollForward(header_content, tip)
         }
     }
 
     prop_compose! {
-        fn roll_backward_message()(point in any_point(), tip in any_tip()) -> Message {
+        fn roll_backward_message()(point in any_network_point(), tip in any_point()) -> Message {
             RollBackward(point, tip)
         }
     }
 
     prop_compose! {
-        fn find_intersect_message()(points in proptest::collection::vec(any_point(), 0..3)) -> Message {
+        fn find_intersect_message()(points in proptest::collection::vec(any_network_point(), 0..3)) -> Message {
             FindIntersect(points)
         }
     }
 
     prop_compose! {
-        fn intersect_found_message()(point in any_point(), tip in any_tip()) -> Message {
+        fn intersect_found_message()(point in any_network_point(), tip in any_point()) -> Message {
             IntersectFound(point, tip)
         }
     }
 
     prop_compose! {
-        fn intersect_not_found_message()(tip in any_tip()) -> Message {
+        fn intersect_not_found_message()(tip in any_point()) -> Message {
             IntersectNotFound(tip)
         }
     }

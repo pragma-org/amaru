@@ -423,11 +423,8 @@ impl PeerSelection {
     async fn start_peer_sharing(&mut self, peer: Peer, eff: &Effects<PeerSelectionMsg>) {
         if self.share_reply.is_blackhole() {
             self.share_reply = eff
-                .contramap(&eff.me(), "share_reply", |r: ShareResult| PeerSelectionMsg::SharePeersResult {
-                    peer: r.peer,
-                    peers: r.peers,
-                })
-                .await;
+                .me_ref()
+                .contramap(|ShareResult { peer, peers }| PeerSelectionMsg::SharePeersResult { peer, peers });
         }
         eff.send(
             &self.manager,

@@ -40,7 +40,7 @@ pub enum Certificate {
     UpdateDRepCert(StakeCredential, Option<Box<Anchor>>),
 }
 
-impl<C> cbor::encode::Encode<C> for Certificate {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Certificate {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -187,7 +187,7 @@ impl<C> cbor::encode::Encode<C> for Certificate {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Certificate {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Certificate {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             let variant = d.u16()?;

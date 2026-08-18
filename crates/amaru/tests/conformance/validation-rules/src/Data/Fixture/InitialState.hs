@@ -8,6 +8,8 @@ module Data.Fixture.InitialState
     , GovernanceActivity (..)
     , InitialState (..)
     , PoolDelegation (..)
+    , Pots (..)
+    , ProposalEntry (..)
     , RegisteredDRep (..)
     , VoteDelegation (..)
     , buildNewEpochState
@@ -16,13 +18,23 @@ module Data.Fixture.InitialState
 import Relude
 
 import Cardano.Ledger.Api.Governance
-    ( curPParamsGovStateL
+    ( cgsProposalsL
+    , curPParamsGovStateL
     , emptyGovState
     , prevPParamsGovStateL
     )
 import Cardano.Ledger.Api.PParams
     ( PParams
+    , emptyPParamsUpdate
     , ppPoolDepositL
+    , ppuMaxBBSizeL
+    )
+import Cardano.Ledger.BaseTypes
+    ( ProtVer (..)
+    , addEpochInterval
+    )
+import Cardano.Ledger.Binary.Version
+    ( mkVersion
     )
 import Cardano.Ledger.Coin
     ( Coin (..)
@@ -33,6 +45,29 @@ import Cardano.Ledger.Compactible
     )
 import Cardano.Ledger.Conway
     ( ConwayEra
+    )
+import Cardano.Ledger.Conway.Governance
+    ( Committee (..)
+    , GovAction (HardForkInitiation, InfoAction, NewConstitution, NoConfidence, ParameterChange, UpdateCommittee)
+    , GovActionId (GovActionId)
+    , GovActionIx (GovActionIx)
+    , GovActionState (..)
+    , GovPurposeId (GovPurposeId)
+    , GovRelation (..)
+    , ProposalProcedure (..)
+    , Proposals
+    , cgsCommitteeL
+    , cgsConstitutionL
+    , constitutionGuardrailsScriptHashL
+    , fromPrevGovActionIds
+    , gasDeposit
+    , pRootsL
+    , proposalsAddAction
+    )
+import qualified Cardano.Ledger.Conway.Governance as ConwayGov
+import Cardano.Ledger.Conway.PParams
+    ( ppGovActionDepositL
+    , ppGovActionLifetimeL
     )
 import Cardano.Ledger.Conway.State
     ( ConwayAccountState (..)
@@ -53,9 +88,10 @@ import Cardano.Ledger.DRep
 import Cardano.Ledger.Hashes
     ( GenDelegs (GenDelegs)
     , KeyHash
+    , ScriptHash
     )
 import Cardano.Ledger.Keys
-    ( KeyRole (DRepRole, StakePool, Staking)
+    ( KeyRole (ColdCommitteeRole, DRepRole, StakePool, Staking)
     )
 import qualified Cardano.Ledger.Slot as LedgerSlot
 import Cardano.Ledger.Shelley.LedgerState
@@ -67,32 +103,48 @@ import Cardano.Ledger.Shelley.LedgerState
     )
 import Cardano.Ledger.State
     ( ChainAccountState (..)
+    , CommitteeAuthorization (..)
+    , CommitteeState (CommitteeState)
     , DState (..)
     , PState (..)
     , StakePoolState
     , spsDepositL
     )
 import Cardano.Ledger.TxIn
-    ( TxIn
+    ( TxId (..)
+    , TxIn
     )
 import Command.ValidatePhaseOne.Error
     ( Error (..)
     )
 import Data.Aeson
     ( FromJSON (parseJSON)
+    , Object
+    , Value (Array)
+    , withArray
     , withObject
+    , withText
     , (.:)
     , (.:?)
     , (.!=)
+    )
+import Data.Aeson.Key
+    ( Key
+    )
+import Data.Aeson.Types
+    ( Parser
     )
 import Data.Default.Class
     ( Default (def)
     )
 import Data.Fixture.Common
-    ( compactCoin
+    ( boundedRatio
+    , compactCoin
     , compactCoinOrError
     , parseCborHex
     , parsePoolId
+    , parseScriptHash
+    , showText
     )
 import Data.Fixture.EraHistory
     ( EraHistory
@@ -102,7 +154,8 @@ import Data.Fixture.Point
     ( Point
     )
 import Data.Maybe.Strict
-    ( StrictMaybe (SNothing)
+    ( StrictMaybe (SJust, SNothing)
+    , maybeToStrictMaybe
     )
 import Lens.Micro
     ( (.~)
@@ -111,13 +164,19 @@ import Lens.Micro
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 data InitialState = InitialState
     { utxo :: ![UtxoEntry]
     , pools :: ![KeyHash StakePool]
     , accounts :: ![Account]
     , dreps :: ![RegisteredDRep]
+    , committee :: ![CommitteeMember]
+    , proposals :: ![ProposalEntry]
+    , proposalsRoots :: !(GovRelation StrictMaybe)
+    , pots :: !Pots
     , governanceActivity :: !GovernanceActivity
+    , guardrailScript :: !(Maybe ScriptHash)
     }
     deriving (Generic)
 
@@ -129,7 +188,12 @@ instance FromJSON InitialState where
                 <*> (objectValue .:? "pools" .!= [] >>= traverse parsePoolId)
                 <*> objectValue .:? "accounts" .!= []
                 <*> objectValue .:? "dreps" .!= []
-                <*> objectValue .: "governanceActivity"
+                <*> objectValue .:? "committee" .!= []
+                <*> objectValue .:? "proposals" .!= []
+                <*> (objectValue .:? "proposalsRoots" >>= maybe (pure def) parseProposalsRoots)
+                <*> objectValue .:? "pots" .!= def
+                <*> objectValue .:? "governanceActivity" .!= def
+                <*> (objectValue .:? "guardrailScript" >>= traverse parseScriptHash)
 
 data UtxoEntry = UtxoEntry
     { input :: !TxIn
@@ -202,6 +266,23 @@ instance FromJSON RegisteredDRep where
                 <*> objectValue .: "registeredAt"
                 <*> objectValue .: "validUntil"
 
+-- | A seeded constitutional committee row keyed by cold credential. `status = null` means the
+-- member has not authorized any hot credential yet. `validUntil = null` means the member currently
+-- holds no elected seat, even if they still have an authorization recorded.
+data CommitteeMember = CommitteeMember
+    { coldCredential :: !(Credential ColdCommitteeRole)
+    , status :: !(Maybe CommitteeAuthorization)
+    , validUntil :: !(Maybe Word64)
+    }
+
+instance FromJSON CommitteeMember where
+    parseJSON =
+        withObject "CommitteeMember" $ \objectValue ->
+            CommitteeMember
+                <$> (objectValue .: "coldCredential" >>= parseCborHex "ColdCommitteeCredential")
+                <*> (objectValue .:? "status" >>= traverse parseCommitteeAuthorization)
+                <*> objectValue .:? "validUntil"
+
 data CertificatePointer = CertificatePointer
     { transaction :: !Point
     , certificateIndex :: !Word64
@@ -217,13 +298,149 @@ data GovernanceActivity = GovernanceActivity
 
 instance FromJSON GovernanceActivity
 
+instance Default GovernanceActivity where
+    def = GovernanceActivity 0
+
+data ProposalEntry = ProposalEntry
+    { proposalId :: !GovActionId
+    , proposalAction :: !ProposalAction
+    , proposalValidUntil :: !(Maybe Word64)
+    }
+
+-- | What a fixture states about a seeded proposal's governance action: the action itself, or
+-- only the lineage it belongs to.
+data ProposalAction
+    = ProposalFull !(GovAction ConwayEra)
+    | ProposalSlim !ProposalSlim
+
+data GroupKind
+    = SecurityGroup
+    | OtherGroup
+
+data OrphanKind
+    = Information
+    | TreasuryWithdrawals
+
+-- | The purposes proposals chain along. @Orphan@ covers the actions that chain to nothing.
+data ProposalSlim
+    = ProtocolParametersSlim !GroupKind
+    | HardForkSlim !ProtVer
+    | ConstitutionalCommitteeSlim
+    | ConstitutionSlim
+    | OrphanSlim !OrphanKind
+
+instance FromJSON ProposalSlim where
+    parseJSON =
+        withText "ProposalSlim" $ \text ->
+            case text of
+                "ProtocolParameters" ->
+                    pure $ ProtocolParametersSlim OtherGroup
+                "ProtocolParameters(security-group)" ->
+                    pure $ ProtocolParametersSlim SecurityGroup
+                "ConstitutionalCommittee" ->
+                    pure ConstitutionalCommitteeSlim
+                "Constitution" ->
+                    pure ConstitutionSlim
+                "Orphan" ->
+                    pure $ OrphanSlim (Information)
+                "Information" ->
+                    pure $ OrphanSlim (Information)
+                "TreasuryWithdrawals" ->
+                    pure $ OrphanSlim (TreasuryWithdrawals)
+                other ->
+                    case parseHardForkSlim other of
+                        Right proposalSlim ->
+                            pure proposalSlim
+                        Left err ->
+                            fail (toString err)
+     where
+       parseHardForkSlim :: Text -> Either Text ProposalSlim
+       parseHardForkSlim text = do
+           versionText <-
+               maybe
+                   (Left ("failed to parse proposal from string: " <> text))
+                   Right
+                   (Text.stripSuffix ")" =<< Text.stripPrefix "HardFork(" text)
+           protocolVersion <- parseProtocolVersion versionText
+           pure (HardForkSlim protocolVersion)
+
+
+instance FromJSON ProposalEntry where
+    parseJSON value =
+        case value of
+            Array _ ->
+                parseSlimEntry value
+            _ ->
+                parseFullEntry value
+      where
+        parseSlimEntry =
+            withArray "ProposalEntry" $ \values ->
+                case toList values of
+                    [idValue, lineageValue, validUntilValue] -> do
+                        entryId <- parseProposalId idValue
+                        lineage <- parseJSON lineageValue
+                        validUntil <- parseJSON validUntilValue
+                        pure
+                            ProposalEntry
+                                { proposalId = entryId
+                                , proposalAction = ProposalSlim lineage
+                                , proposalValidUntil = Just validUntil
+                                }
+                    _ ->
+                        fail "expected a [id, kind, validUntil] triple"
+        parseFullEntry =
+            withObject "ProposalEntry" $ \objectValue ->
+                ProposalEntry
+                    <$> (objectValue .: "id" >>= parseProposalId)
+                    <*> (ProposalFull <$> (objectValue .: "govAction" >>= parseCborHex "GovAction"))
+                    <*> objectValue .:? "validUntil"
+
+data Pots = Pots
+    { treasury :: !Integer
+    , reserves :: !Integer
+    }
+
+instance FromJSON Pots where
+    parseJSON =
+        withObject "Pots" $ \objectValue ->
+            Pots
+                <$> objectValue .:? "treasury" .!= 0
+                <*> objectValue .:? "reserves" .!= 0
+
+instance Default Pots where
+    def = Pots 0 0
+
+parseProposalId :: Value -> Parser GovActionId
+parseProposalId =
+    withObject "ProposalId" $ \objectValue -> do
+        transactionId <- objectValue .: "transactionId" :: Parser TxId
+        proposalIndex <- objectValue .: "proposalIndex"
+        pure (GovActionId transactionId (GovActionIx proposalIndex))
+
+-- | The latest enacted governance action id per purpose. An absent purpose has no root,
+-- so a proposal claiming it as parent must supply an empty parent to be accepted.
+parseProposalsRoots :: Value -> Parser (GovRelation StrictMaybe)
+parseProposalsRoots =
+    withObject "ProposalsRoots" $ \objectValue -> do
+        grPParamUpdate <- parseRoot objectValue "protocolParameters"
+        grHardFork <- parseRoot objectValue "hardFork"
+        grCommittee <- parseRoot objectValue "constitutionalCommittee"
+        grConstitution <- parseRoot objectValue "constitution"
+        pure GovRelation{grPParamUpdate, grHardFork, grCommittee, grConstitution}
+  where
+    parseRoot :: Object -> Key -> Parser (StrictMaybe (GovPurposeId purpose))
+    parseRoot objectValue key =
+        objectValue .:? key
+            >>= maybe (pure SNothing) (fmap (SJust . GovPurposeId) . parseProposalId)
+
 buildNewEpochState
     :: PParams ConwayEra
     -> EraHistory
     -> InitialState
     -> Point
     -> Either Error (NewEpochState ConwayEra)
-buildNewEpochState pparams eraHistory InitialState{utxo, pools, accounts, dreps, governanceActivity} point = do
+buildNewEpochState pparams eraHistory initialState point = do
+    let InitialState{utxo, pools, accounts, dreps, committee, proposals, proposalsRoots, pots, governanceActivity, guardrailScript} = initialState
     accountEntries <- traverse toLedgerAccountEntry accounts
     dRepEntries <- traverse toLedgerDRepEntry dreps
     currentEpoch <- pointEpochNo eraHistory point
@@ -252,11 +469,34 @@ buildNewEpochState pparams eraHistory InitialState{utxo, pools, accounts, dreps,
                     }
                     <- dRepEntries
                 ]
+    let electedCommitteeMembers =
+            Map.fromList
+                [ (coldCredential, phaseOneEpochNo memberValidUntil)
+                | CommitteeMember{coldCredential, validUntil = Just memberValidUntil} <- committee
+                ]
+    let committeeAuthorizations =
+            Map.fromList
+                [ (coldCredential, authorization)
+                | CommitteeMember{coldCredential, status = Just authorization} <- committee
+                ]
     let poolStates =
             Map.fromList
                 [ (poolId, defaultStakePoolState (Coin (poolDepositAmount pparams)))
                 | poolId <- pools
                 ]
+
+    let proposalStates = map (toGovActionState pparams currentEpoch) proposals
+
+    let orphanAuthorizations =
+            ((Map.keysSet committeeAuthorizations) `Set.difference` (Map.keysSet electedCommitteeMembers))
+            <>
+            Set.fromList
+              [ coldCredential
+              | CommitteeMember{ coldCredential, status = Nothing, validUntil = Nothing } <- committee
+              ]
+
+    seededProposals <- buildProposals proposalsRoots proposalStates orphanAuthorizations
+
     let deposited =
             Coin
                 ( sum
@@ -270,12 +510,26 @@ buildNewEpochState pparams eraHistory InitialState{utxo, pools, accounts, dreps,
                         , let Coin dRepDepositValue = fromCompact registeredDRepDeposit
                         ]
                     + (fromIntegral (length pools) * poolDepositAmount pparams)
+                    + sum
+                        [ proposalDepositValue
+                        | proposalState <- proposalStates
+                        , let Coin proposalDepositValue = gasDeposit proposalState
+                        ]
                 )
+
     let govState =
             emptyGovState
                 & curPParamsGovStateL .~ pparams
                 & prevPParamsGovStateL .~ pparams
-    let chainAccountState = ChainAccountState {casTreasury = Coin 0, casReserves = Coin 0}
+                & cgsCommitteeL
+                    .~ ( if Map.null electedCommitteeMembers
+                            then SNothing
+                            else SJust (def{committeeMembers = electedCommitteeMembers})
+                       )
+                & cgsProposalsL .~ seededProposals
+                & cgsConstitutionL . constitutionGuardrailsScriptHashL .~ maybeToStrictMaybe guardrailScript
+    let chainAccountState =
+            ChainAccountState {casTreasury = Coin (treasury pots), casReserves = Coin (reserves pots)}
     let utxoState =
             UTxOState
                 { utxosUtxo = UTxO (Map.fromList [(input entry, output entry) | entry <- utxo])
@@ -290,7 +544,7 @@ buildNewEpochState pparams eraHistory InitialState{utxo, pools, accounts, dreps,
                 { conwayCertVState =
                     VState
                         { vsDReps = dRepStates
-                        , vsCommitteeState = def
+                        , vsCommitteeState = CommitteeState committeeAuthorizations
                         , vsNumDormantEpochs = phaseOneEpochNo (consecutiveDormantEpochs governanceActivity)
                         }
                 , conwayCertPState =
@@ -372,6 +626,139 @@ toLedgerDRepEntry RegisteredDRep{credential, deposit, validUntil} = do
             , registeredDRepValidUntil = validUntil
             }
 
+-- | A fixture describes a seeded proposal by its id and its governance action, which is
+-- all the GOV rule consults when it resolves a new proposal's parent. The deposit, return
+-- address and anchor are filler. A fixture that states no expiry gets one derived from
+-- @govActionLifetime@, so that the proposal counts as still in flight.
+toGovActionState :: PParams ConwayEra -> LedgerSlot.EpochNo -> ProposalEntry -> GovActionState ConwayEra
+toGovActionState pparams currentEpoch ProposalEntry{proposalId, proposalAction, proposalValidUntil} =
+    GovActionState
+        { gasId = proposalId
+        , gasCommitteeVotes = mempty
+        , gasDRepVotes = mempty
+        , gasStakePoolVotes = mempty
+        , gasProposalProcedure =
+            ProposalProcedure
+                { pProcDeposit = pparams ^. ppGovActionDepositL
+                , pProcReturnAddr = def
+                , pProcGovAction = toGovAction proposalAction
+                , pProcAnchor = def
+                }
+        , gasProposedIn = currentEpoch
+        , gasExpiresAfter =
+            maybe
+                (addEpochInterval currentEpoch (pparams ^. ppGovActionLifetimeL))
+                phaseOneEpochNo
+                proposalValidUntil
+        }
+
+-- | A fixture naming only a slim constrains nothing beyond the purpose its proposal chains
+-- along, so a minimal action of that purpose stands in. The stand-in hard fork sits at the
+-- current protocol version, the weakest parent a chaining proposal can still follow.
+toGovAction :: ProposalAction -> GovAction ConwayEra
+toGovAction = \case
+    ProposalFull govAction ->
+        govAction
+    ProposalSlim (ProtocolParametersSlim OtherGroup) ->
+        ParameterChange SNothing emptyPParamsUpdate SNothing
+    ProposalSlim (ProtocolParametersSlim SecurityGroup) ->
+        ParameterChange SNothing (emptyPParamsUpdate & ppuMaxBBSizeL .~ SJust 1) SNothing
+    ProposalSlim (HardForkSlim version) ->
+        HardForkInitiation SNothing version
+    ProposalSlim ConstitutionalCommitteeSlim ->
+        NoConfidence SNothing
+    ProposalSlim ConstitutionSlim ->
+        NewConstitution SNothing def
+    ProposalSlim (OrphanSlim TreasuryWithdrawals) ->
+        ConwayGov.TreasuryWithdrawals (Map.singleton def (Coin 1)) SNothing
+    ProposalSlim (OrphanSlim Information) ->
+        InfoAction
+
+buildProposals
+    :: GovRelation StrictMaybe
+    -> [GovActionState ConwayEra]
+    -> Set (Credential ColdCommitteeRole)
+    -> Either Error (Proposals ConwayEra)
+buildProposals roots states orphans = do
+    syntheticProposal <- buildOrphanCommitteeProposal roots states orphans
+    foldlM addAction (def & pRootsL .~ fromPrevGovActionIds roots) (states <> maybeToList syntheticProposal)
+  where
+    addAction acc proposalState =
+        maybe (Left (unplaceable proposalState)) Right (proposalsAddAction proposalState acc)
+    unplaceable proposalState =
+        UnsupportedFixture
+            ( "initial proposal "
+                <> showText (gasId proposalState)
+                <> " does not follow an enacted root or an earlier initial proposal"
+            )
+
+buildOrphanCommitteeProposal
+    :: GovRelation StrictMaybe
+    -> [GovActionState ConwayEra]
+    -> Set (Credential ColdCommitteeRole)
+    -> Either Error (Maybe (GovActionState ConwayEra))
+buildOrphanCommitteeProposal roots states orphans
+    | Set.null orphans =
+        pure Nothing
+    | otherwise = do
+        committeeThreshold <- first UnsupportedFixture (boundedRatio "synthetic committee threshold" 1)
+        syntheticId <- nextSyntheticGovActionId states
+        pure
+            ( Just
+                GovActionState
+                    { gasId = syntheticId
+                    , gasCommitteeVotes = mempty
+                    , gasDRepVotes = mempty
+                    , gasStakePoolVotes = mempty
+                    , gasProposalProcedure =
+                        templateProposalProcedure
+                            { pProcGovAction =
+                                UpdateCommittee
+                                    (grCommittee roots)
+                                    mempty
+                                    orphanMembers
+                                    committeeThreshold
+                            }
+                    , gasProposedIn = proposedIn
+                    , gasExpiresAfter = expiresAfter
+                    }
+            )
+  where
+    templateProposalProcedure =
+        maybe
+            ProposalProcedure
+                { pProcDeposit = Coin 0
+                , pProcReturnAddr = def
+                , pProcGovAction = InfoAction
+                , pProcAnchor = def
+                }
+            gasProposalProcedure
+            (listToMaybe states)
+
+    proposedIn =
+        maybe (phaseOneEpochNo 0) gasProposedIn (listToMaybe states)
+
+    expiresAfter =
+        maybe (phaseOneEpochNo maxBound) gasExpiresAfter (listToMaybe states)
+
+    orphanMembers =
+        Map.fromSet (const expiresAfter) orphans
+
+nextSyntheticGovActionId :: [GovActionState ConwayEra] -> Either Error GovActionId
+nextSyntheticGovActionId states =
+    maybe
+        (Left (UnsupportedFixture "failed to allocate a synthetic governance action id for orphan committee authorizations"))
+        Right
+        (find (`Set.notMember` usedIdentifiers) candidates)
+  where
+    usedIdentifiers =
+        Set.fromList (map gasId states)
+
+    candidates =
+        [ GovActionId (TxId def) (GovActionIx proposalIndex)
+        | proposalIndex <- [0 .. maxBound]
+        ]
+
 defaultStakePoolState :: Coin -> StakePoolState
 defaultStakePoolState depositCoin =
     def
@@ -390,3 +777,33 @@ phaseOneEpochNo =
 toDRepCredential :: Credential Staking -> Credential DRepRole
 toDRepCredential =
     coerce
+
+parseCommitteeAuthorization :: Value -> Parser CommitteeAuthorization
+parseCommitteeAuthorization =
+    withText "CommitteeAuthorization" $ \text ->
+        if text == "resigned" then
+            pure (CommitteeMemberResigned empty)
+        else
+            parseCborHex "CommitteeAuthorization" text <|> (CommitteeHotCredential <$> parseCborHex "HotCommitteeCredential" text)
+
+parseProtocolVersion :: Text -> Either Text ProtVer
+parseProtocolVersion versionText =
+    case Text.splitOn "." versionText of
+        [majorText, minorText] -> do
+            majorWord <- parseWord64 "hard fork version major" majorText
+            minorWord <- parseWord64 "hard fork version minor" minorText
+            majorVersion <-
+                maybe
+                    (Left ("hard fork version major is out of bounds: " <> showText majorWord))
+                    Right
+                    (mkVersion majorWord)
+            pure (ProtVer majorVersion (fromIntegral minorWord))
+        _ ->
+            Left ("failed to parse hard fork version: " <> versionText <> "; expected <major>.<minor>")
+
+parseWord64 :: Text -> Text -> Either Text Word64
+parseWord64 contextLabel rawText =
+    maybe
+        (Left ("failed to parse " <> contextLabel <> ": " <> rawText))
+        Right
+        (readMaybe (toString rawText))

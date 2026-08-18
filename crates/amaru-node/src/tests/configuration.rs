@@ -14,13 +14,13 @@
 
 use std::{
     fmt::{Debug, Formatter},
+    str::FromStr,
     sync::Arc,
 };
 
-use amaru_consensus::headers_tree::data_generation::Action;
 use amaru_kernel::{
-    BlockHeader, Epoch, EraHistory, IsHeader, NetworkName, Peer, Point, ProtocolParameters, Transaction, TransactionId,
-    cardano::network_block::make_encoded_block,
+    Anchor, Constitution, Epoch, EraHistory, Header, IsHeader, MaxString128, NetworkName, Peer, Point,
+    ProtocolParameters, Transaction, TransactionId, cardano::network_block::make_encoded_block,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -37,6 +37,7 @@ use parking_lot::Mutex;
 use crate::{
     stages::config::{Config, StoreType},
     tests::{
+        Action,
         configuration::NodeType::{NodeUnderTest, UpstreamNode},
         in_memory_connection_provider::InMemoryConnectionProvider,
         test_data::{create_transactions, create_transactions_in_mempool},
@@ -231,7 +232,7 @@ impl NodeTestConfig {
     /// - Set the chain anchor and best tip to the first header of the chain.
     ///
     #[expect(clippy::unwrap_used)]
-    pub fn with_validated_blocks(self, headers: Vec<BlockHeader>) -> Self {
+    pub fn with_validated_blocks(self, headers: Vec<Header>) -> Self {
         let _span = self.enter_span();
         for header in headers.iter() {
             tracing::info!(
@@ -246,16 +247,16 @@ impl NodeTestConfig {
 
         if let Some(header) = headers.first() {
             tracing::info!("set the anchor to {}", header.point());
-            self.chain_store.set_anchor_hash(&header.hash()).unwrap();
+            self.chain_store.set_anchor_point(&header.point()).unwrap();
             tracing::info!("set the tip to {}", header.point());
-            self.chain_store.set_best_chain_hash(&header.hash()).unwrap();
+            self.chain_store.set_best_chain_tip(&header.point()).unwrap();
         }
         self
     }
 
     /// Create a node configuration from the simulation configuration.
     /// This sets the ledger and chain store + the upstream peer that is
-    /// eventually used to initialize the HeadersTree for chain selection.
+    /// used as the initial best-chain tip of the chain store.
     pub fn make_node_configuration(&self) -> anyhow::Result<Config> {
         let mut config = Config {
             upstream_peers: self.upstream_peers.iter().map(|p| p.name.clone()).collect(),
@@ -289,7 +290,7 @@ impl NodeTestConfig {
             tx.save(
                 self.era_history(),
                 pp,
-                governance_activity,
+                Some(governance_activity),
                 &chain_anchor,
                 None,
                 Columns::empty(),
@@ -298,6 +299,15 @@ impl NodeTestConfig {
             )?;
             tx.set_protocol_parameters(pp)?;
             tx.set_governance_activity(governance_activity)?;
+            // A bootstrapped ledger always has a constitution; these tests never propose one, so
+            // any anchor will do and there is no guardrails script to enforce.
+            tx.set_constitution(&Constitution {
+                anchor: Anchor {
+                    url: MaxString128::from_str("https://example.com").map_err(anyhow::Error::msg)?,
+                    content_hash: [0; 32].into(),
+                },
+                guardrail_script: None,
+            })?;
             tx.commit()?;
             // initial_stake_distributions needs snapshots at most_recent, most_recent - 1, and
             // most_recent - 2; take three so that for_epoch(0) and for_epoch(1) both succeed.

@@ -14,14 +14,18 @@
 
 use std::{fmt, ops::Deref, str::FromStr};
 
-use amaru_minicbor_extra::decode_bytes;
-
 use crate::cbor;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 #[serde(into = "String")]
 #[serde(try_from = "String")]
 pub struct Bytes(cbor::bytes::ByteVec);
+
+impl fmt::Debug for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Bytes").field(&hex::encode(self.0.as_slice())).finish()
+    }
+}
 
 impl<C> cbor::Encode<C> for Bytes {
     fn encode<W: cbor::encode::Write>(
@@ -33,9 +37,9 @@ impl<C> cbor::Encode<C> for Bytes {
     }
 }
 
-impl<'d, C> cbor::Decode<'d, C> for Bytes {
-    fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Ok(Bytes(cbor::bytes::ByteVec::from(decode_bytes(d)?.into_owned())))
+impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for Bytes {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(Bytes(cbor::bytes::ByteVec::from(cbor::decode_bytes_with(d, ctx)?.into_owned())))
     }
 }
 

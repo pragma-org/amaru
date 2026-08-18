@@ -17,6 +17,7 @@ use crate::{BoundedBytes, Ed25519Signature, VerificationKey, cbor};
 pub const CHAIN_CODE_SIZE: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct BootstrapWitness {
     #[n(0)]
     pub public_key: VerificationKey,

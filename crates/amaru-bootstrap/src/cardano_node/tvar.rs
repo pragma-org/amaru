@@ -31,7 +31,6 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
-    epoch_transition::GovernanceActivity,
     store::{self, Store, TransactionalContext},
 };
 use amaru_observability::info;
@@ -66,7 +65,7 @@ where
         let mut decoder = minicbor::Decoder::new(&state_head);
         (parse_state_snapshot(&mut decoder, global_parameters)?, None)
     };
-    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash);
+    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
     let new_epoch_state_offset = parsed_snapshot.ledger_data_begin;
 
     info!(bootstrap::snapshot::IMPORT_TVAR, point = point, new_epoch_state_offset = new_epoch_state_offset);
@@ -157,7 +156,9 @@ where
                 }
 
                 let mut probe = d.probe();
-                let io = probe.bytes().and_then(|input| probe.bytes().map(|output| (input.to_vec(), output.to_vec())));
+                let io = cbor::decode_bytes(&mut probe).and_then(|input| {
+                    cbor::decode_bytes(&mut probe).map(|output| (input.into_owned(), output.into_owned()))
+                });
 
                 if let Ok((input, output)) = io {
                     chunk_size += 1;
@@ -185,7 +186,7 @@ where
             transaction.save(
                 era_history,
                 &protocol_parameters,
-                GovernanceActivity::default(),
+                None,
                 point,
                 None,
                 store::Columns {

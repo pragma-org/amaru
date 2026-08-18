@@ -140,6 +140,7 @@ fn log_toggle_label(model: &Model) -> &'static str {
 
 fn log_record_line(record: &TelemetryRecord) -> Line<'static> {
     let fields = crate::model::render_fields(record);
+    let label = record.log_label();
     let mut spans = vec![
         Span::styled(format_log_wall_time(record.wall_time), muted()),
         Span::raw(" "),
@@ -147,7 +148,7 @@ fn log_record_line(record: &TelemetryRecord) -> Line<'static> {
         Span::raw(" "),
         Span::styled(record.target.clone(), style_for_target(&record.target).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
-        Span::styled(record.primary_label().to_string(), super::super::theme::emphasis_white()),
+        Span::styled(label, super::super::theme::emphasis_white()),
     ];
 
     if !fields.is_empty() {

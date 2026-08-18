@@ -643,6 +643,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::block`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `skip` | `TRACE` | public | Skip a block validation when it is not better than the current ledger tip | current, tip |  |
+
+<details><summary>span: `skip`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `current` | `string` | ✓ |
+| `tip` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::consensus::perf::fork`
 
 | name | level | public | description | required fields | optional fields |
@@ -733,13 +748,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `create` | `TRACE` | public | Create validation context for a block | block_body_hash, block_number, block_body_size | total_inputs |
+| `create` | `TRACE` | public | Create validation context for a block | block_id, block_number, block_body_size | total_inputs |
 
 <details><summary>span: `create`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `block_body_hash` | `string` | ✓ |
+| `block_id` | `string` | ✓ |
 | `block_number` | `integer` | ✓ |
 | `block_body_size` | `integer` | ✓ |
 | `total_inputs` | `integer` |  |
@@ -936,14 +951,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `found` | `TRACE` | public | Found a non-empty block while applying it to the ledger | point, block_height, tx_count |  |
+| `found` | `TRACE` | public | Found a non-empty block while applying it to the ledger | point, tx_count |  |
 
 <details><summary>span: `found`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `point` | `string` | ✓ |
-| `block_height` | `integer` | ✓ |
 | `tx_count` | `integer` | ✓ |
 
 </details>
@@ -1332,7 +1346,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `push` | `TRACE` | public | Forward ledger state with new volatile state |  |  |
 | `roll_backward` | `TRACE` | public | Roll backward to a specific point |  |  |
 | `roll_forward` | `TRACE` | public | Roll forward with a new block |  |  |
-| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length, rollback_length |  |
+| `switch_to_fork` | `TRACE` | public | Switching to an alternative chain fork | fork_point, fork_length, rollback_length | outcome, stable_modified |
 
 <details><summary>span: `switch_to_fork`</summary>
 
@@ -1341,6 +1355,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `fork_point` | `string` | ✓ |
 | `fork_length` | `integer` | ✓ |
 | `rollback_length` | `integer` | ✓ |
+| `outcome` | `string` |  |
+| `stable_modified` | `boolean` |  |
 
 </details>
 
@@ -1370,125 +1386,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `certificate_committee_delegate` | `TRACE` | public | Delegate cold key to committee | cc_member, delegate |  |
-| `certificate_committee_resign` | `TRACE` | public | Resign from committee | cc_member | anchor_url |
-| `certificate_drep_registration` | `TRACE` | public | Register a DRep | drep, deposit | anchor_url |
-| `certificate_drep_retirement` | `TRACE` | public | Unregister a DRep | drep, refund |  |
-| `certificate_drep_update` | `TRACE` | public | Update DRep anchor | drep | anchor_url |
-| `certificate_pool_registration` | `TRACE` | public | Register a pool | pool_id |  |
-| `certificate_pool_retirement` | `TRACE` | public | Retire a pool | pool_id, epoch |  |
-| `certificate_stake_delegation` | `TRACE` | public | Delegate stake to a pool | credential, pool_id |  |
-| `certificate_stake_deregistration` | `TRACE` | public | Unregister a stake credential | credential |  |
-| `certificate_stake_registration` | `TRACE` | public | Register a stake credential | credential |  |
-| `certificate_vote_delegation` | `TRACE` | public | Delegate vote to DRep | credential | drep |
-| `found` | `TRACE` | public | Found a transaction while applying a block | point, block_height, tx_index, tx_id |  |
-| `validate` | `TRACE` | public | Validate a single transaction | transaction_id |  |
-
-<details><summary>span: `certificate_committee_delegate`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `cc_member` | `string` | ✓ |
-| `delegate` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `certificate_committee_resign`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `cc_member` | `string` | ✓ |
-| `anchor_url` | `string` |  |
-
-</details>
-
-<details><summary>span: `certificate_drep_registration`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `drep` | `string` | ✓ |
-| `deposit` | `integer` | ✓ |
-| `anchor_url` | `string` |  |
-
-</details>
-
-<details><summary>span: `certificate_drep_retirement`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `drep` | `string` | ✓ |
-| `refund` | `integer` | ✓ |
-
-</details>
-
-<details><summary>span: `certificate_drep_update`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `drep` | `string` | ✓ |
-| `anchor_url` | `string` |  |
-
-</details>
-
-<details><summary>span: `certificate_pool_registration`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `pool_id` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `certificate_pool_retirement`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `pool_id` | `string` | ✓ |
-| `epoch` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `certificate_stake_delegation`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `credential` | `string` | ✓ |
-| `pool_id` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `certificate_stake_deregistration`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `credential` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `certificate_stake_registration`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `credential` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `certificate_vote_delegation`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `credential` | `string` | ✓ |
-| `drep` | `string` |  |
-
-</details>
+| `found` | `TRACE` | public | Found a transaction while applying a block | point, index, id |  |
+| `validate` | `TRACE` | public | Validate a single transaction | id |  |
 
 <details><summary>span: `found`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `point` | `string` | ✓ |
-| `block_height` | `integer` | ✓ |
-| `tx_index` | `integer` | ✓ |
-| `tx_id` | `string` | ✓ |
+| `index` | `integer` | ✓ |
+| `id` | `string` | ✓ |
 
 </details>
 
@@ -1496,7 +1403,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `transaction_id` | `string` | ✓ |
+| `id` | `string` | ✓ |
 
 </details>
 
@@ -1504,13 +1411,13 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `create` | `TRACE` | public | Create validation context for a transaction | transaction_id |  |
+| `create` | `TRACE` | public | Create validation context for a transaction | id |  |
 
 <details><summary>span: `create`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `transaction_id` | `string` | ✓ |
+| `id` | `string` | ✓ |
 
 </details>
 
@@ -1533,16 +1440,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `hydrate` | `TRACE` | public | Resolve committee members from the volatile db or the stable one |  | from_volatile, from_db |
-
-<details><summary>span: `hydrate`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `from_volatile` | `integer` |  |
-| `from_db` | `integer` |  |
-
-</details>
+| `hydrate` | `TRACE` | public | Resolve committee members from the volatile db or the stable one |  |  |
 
 ## target: `amaru::ledger::validation_context::dreps`
 
@@ -1638,16 +1536,16 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `accepted` | `TRACE` | public | Transaction validated and inserted into the mempool. | tx_id, seq_no, origin |  |
-| `evicted` | `TRACE` | public | Transaction removed from the mempool. Reason ∈ {invalid_after_tip}. TODO: split the reason into invalid after tip + present in applied block | tx_id, reason |  |
-| `received` | `TRACE` | public | Transaction received by the mempool stage, before validation. | tx_id, origin |  |
-| `rejected` | `TRACE` | public | Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}. | tx_id, reason | validation_error |
+| `accepted` | `TRACE` | public | Transaction validated and inserted into the mempool. | id, seq_no, origin |  |
+| `evicted` | `TRACE` | public | Transaction removed from the mempool. Reason ∈ {invalid_after_tip}. TODO: split the reason into invalid after tip + present in applied block | id, reason |  |
+| `received` | `TRACE` | public | Transaction received by the mempool stage, before validation. | id, origin |  |
+| `rejected` | `TRACE` | public | Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}. | id, reason | validation_error |
 
 <details><summary>span: `accepted`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `tx_id` | `string` | ✓ |
+| `id` | `string` | ✓ |
 | `seq_no` | `integer` | ✓ |
 | `origin` | `string` | ✓ |
 
@@ -1657,7 +1555,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tx_id` | `string` | ✓ |
+| `id` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 
 </details>
@@ -1666,7 +1564,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tx_id` | `string` | ✓ |
+| `id` | `string` | ✓ |
 | `origin` | `string` | ✓ |
 
 </details>
@@ -1675,7 +1573,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | field | type | required |
 | --- | --- | --- |
-| `tx_id` | `string` | ✓ |
+| `id` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 | `validation_error` | `string` |  |
 
@@ -2249,6 +2147,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `add` | `TRACE` | public | Record governance votes |  |  |
+| `remove` | `TRACE` | public | Remove now-obsolete governance votes |  |  |
 
 ## Updating This Documentation
 

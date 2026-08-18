@@ -23,15 +23,15 @@ pub mod tests {
     };
 
     use amaru_kernel::{
-        Account, Bytes, CertificatePointer, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
+        Account, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
         DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
-        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalKind,
+        PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalSlim,
         ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, Transaction,
         TransactionInput, TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
     };
     use amaru_ledger::{
         self,
-        context::{AccountState, DefaultValidationContext},
+        context::{AccountState, DefaultValidationContext, ProposalStateSlim},
         epoch_transition::GovernanceActivity,
         rules::transaction,
         snapshot,
@@ -66,6 +66,7 @@ pub mod tests {
     }
 
     #[derive(cbor::Decode)]
+    #[cbor(context_bound = "cbor::HasProtocolVersion")]
     #[allow(dead_code)]
     struct TestVector {
         #[n(0)]
@@ -88,7 +89,7 @@ pub mod tests {
         PassEpoch(u64),
     }
 
-    impl<'b, C> cbor::decode::Decode<'b, C> for TestVectorEvent {
+    impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for TestVectorEvent {
         fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
             d.array()?;
             let variant = d.u16()?;
@@ -116,6 +117,7 @@ pub mod tests {
         pparams_hash: &'b cbor::bytes::ByteSlice,
         dormant_epochs: Epoch,
         treasury: Lovelace,
+        constitution: Constitution,
     }
 
     fn decode_ledger_state<'b>(d: &mut cbor::Decoder<'b>) -> Result<DecodedLedgerState<'b>, cbor::decode::Error> {
@@ -202,7 +204,7 @@ pub mod tests {
         ];
         let proposals = d.decode()?;
         let cc_state = d.decode::<SerialisedAsArray<_>>()?.0;
-        d.skip()?; // constitution
+        let constitution: Constitution = d.decode()?;
         let pparams_hash = d.decode()?;
         d.skip()?; // previous_pparams_hash
         d.skip()?; // future_pparams
@@ -228,6 +230,7 @@ pub mod tests {
             pparams_hash,
             dormant_epochs,
             treasury,
+            constitution,
         })
     }
 
@@ -287,18 +290,26 @@ pub mod tests {
                 (credential, snapshot::account_state(account, 0, &point, &protocol_parameters))
             })
             .collect();
+
         let dreps: BTreeMap<StakeCredential, DRepRegistration> = decoded
             .dreps
             .into_iter()
             .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))
             .collect();
+
         let committee = snapshot::committee_members(decoded.cc_state, &decoded.cc_members);
+
         let proposals = decoded
             .proposals
             .into_iter()
-            .map(|st| (st.id, ProposalKind::from(&st.procedure.gov_action)))
+            .map(|st| {
+                let action = ProposalSlim::from(&st.procedure.gov_action);
+                (st.id, ProposalStateSlim { action, valid_until: st.expires_after })
+            })
             .collect::<BTreeMap<_, _>>();
+
         let [root_params, root_hard_fork, root_cc, root_constitution] = decoded.roots;
+
         let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
 
         let mut validation_context = DefaultValidationContext::new(
@@ -312,7 +323,9 @@ pub mod tests {
             decoded.treasury,
         );
 
-        let arena_pool = ArenaPool::new(1, 1024);
+        let arena_pool = ArenaPool::new(1, 1_024_000);
+        let global_parameters =
+            NetworkName::Preprod.as_global_parameters().ok_or("missing global parameters for preprod")?;
 
         for (ix, event) in record.events.into_iter().enumerate() {
             let (tx_bytes, success, slot): (Bytes, bool, u64) = match event {
@@ -339,6 +352,7 @@ pub mod tests {
             // While the exact bytes aren't the same (the header should be 0x83 instead of 0x84), the is_valid boolean is exactly one byte.
             // So, by subtracting one, we get the expected value.
             let tx_size = (tx_bytes.len() - 1) as u64;
+
             // Run the transaction against the imported ledger state
             let result = transaction::phase_one::execute(
                 &mut validation_context,
@@ -347,13 +361,29 @@ pub mod tests {
                 &protocol_parameters,
                 era_history,
                 governance_activity,
+                decoded.constitution.guardrail_script,
                 pointer,
-                true,
-                tx.body,
+                tx.is_expected_valid,
+                tx.body.clone(),
                 &tx_witness_set,
                 tx_auxiliary_data,
                 tx_size,
-            );
+            )
+            .map_err(|e| e.to_string())
+            .and_then(|_consumed_inputs| {
+                transaction::phase_two::execute(
+                    &mut validation_context,
+                    &arena_pool,
+                    &protocol_parameters,
+                    era_history,
+                    global_parameters,
+                    pointer,
+                    tx.is_expected_valid,
+                    &tx.body,
+                    &tx_witness_set,
+                )
+                .map_err(|e| e.to_string())
+            });
 
             match result {
                 Ok(_) if !success => return Err("Expected failure, got success".into()),

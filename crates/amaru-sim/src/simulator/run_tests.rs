@@ -14,9 +14,9 @@
 
 use std::{fs::create_dir_all, iter::once, path::Path, sync::Arc, time::SystemTime};
 
-use amaru_consensus::headers_tree::data_generation::{Action, GeneratedActions, shrink};
-use amaru_kernel::{BlockHeader, Peer};
+use amaru_kernel::{Header, Peer};
 use amaru_node::tests::{
+    Action,
     configuration::{
         NodeTestConfig,
         NodeType::{DownstreamNode, NodeUnderTest, UpstreamNode},
@@ -30,6 +30,7 @@ use rayon::prelude::*;
 use crate::simulator::{
     Args, RunConfig, TestResult,
     checks::check_chain_property,
+    data_generation::{GeneratedActions, shrink},
     generate_actions,
     report::{create_symlink_dir, display_actions_statistics, persist_args, persist_generated_data, persist_traces},
 };
@@ -104,7 +105,9 @@ fn run_test_nb(run_config: &RunConfig, test_run_dir: &Path, test_number: u32) ->
 pub fn run_test(run_config: &RunConfig, actions: &GeneratedActions) -> TestResult {
     let test = |actions: &GeneratedActions| {
         let mut rng = run_config.rng();
-        let mut nodes = create_nodes(&mut rng, node_configs(run_config, actions)).expect("failed to create nodes");
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let mut nodes =
+            create_nodes(&mut rng, node_configs(run_config, actions), rt.handle()).expect("failed to create nodes");
 
         nodes.run(&mut rng);
         check_chain_property(nodes, actions)
@@ -178,7 +181,7 @@ fn get_peer_actions(actions: &GeneratedActions, peer: &Peer) -> Vec<Action> {
 }
 
 /// Extract all the block headers forwarded by a given peer
-fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<BlockHeader> {
+fn get_headers(actions: &GeneratedActions, peer: &Peer) -> Vec<Header> {
     get_peer_actions(actions, peer)
         .into_iter()
         .filter_map(|action| match action {

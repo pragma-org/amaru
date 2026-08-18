@@ -105,19 +105,22 @@ emit() {
   tmp="$(mktemp)"
   local fixture_seed=$((SEED + idx))
   local rc=0
-  # Twiddle (cuddle's randomisation between definite- and indefinite-length encodings) is wanted
-  # for positives and harmful for negatives.
+  # Twiddle (cuddle's randomisation between definite- and indefinite-length encodings) is
+  # disabled in both modes.
   #
-  # For positives it is the point: the node accepts either form, so amaru must too, and a sample
-  # amaru rejects is a real divergence worth recording.
+  # For positives, twiddled samples are CDDL-valid but not Conway-valid: cardano-ledger only
+  # accepts indefinite-length byte strings from protocol version 12 (Dijkstra) onwards, while the
+  # suite targets the node's behaviour at Conway (protocol versions 9-11), where they are decode
+  # errors. CDDL `bytes` cannot express that restriction, so it is enforced here by generating
+  # definite-length encodings only. Revisit when the conformance target moves to Dijkstra.
   #
-  # For negatives this could just take the form of a definite-length encoding change that amaru supports.
+  # For negatives, a twiddle could just be a definite-length encoding change that amaru supports.
   if [ "$mode" = "negative" ]; then
     "$CUDDLE_BIN" gen --seed "$fixture_seed" -f binary -o "$tmp" \
       --no-twiddle --negative "$kind" "$CDDL_FILE" >/dev/null 2>&1 || rc=$?
   else
     "$CUDDLE_BIN" gen --seed "$fixture_seed" -f binary -o "$tmp" \
-      "$kind" "$CDDL_FILE" >/dev/null 2>&1 || rc=$?
+      --no-twiddle "$kind" "$CDDL_FILE" >/dev/null 2>&1 || rc=$?
   fi
   if [ "$rc" -ne 0 ]; then
     rm -f "$tmp"

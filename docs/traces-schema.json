@@ -128,7 +128,7 @@
         },
         "tip": {
           "type": "string",
-          "description": "Custom type: amaru_kernel::Tip"
+          "description": "Custom type: amaru_kernel::Point"
         }
       },
       "required": [
@@ -1145,6 +1145,30 @@
       "description": "Finished uploading a snapshot archive",
       "public": true
     },
+    "amaru::consensus::block::SKIP": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "current",
+        "tip"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "skip",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Skip a block validation when it is not better than the current ledger tip",
+      "public": true
+    },
     "amaru::consensus::perf::fork::SWITCH": {
       "type": "object",
       "properties": {
@@ -1319,7 +1343,7 @@
     "amaru::ledger::block_validation_context::CREATE": {
       "type": "object",
       "properties": {
-        "block_body_hash": {
+        "block_id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::HeaderHash"
         },
@@ -1334,7 +1358,7 @@
         }
       },
       "required": [
-        "block_body_hash",
+        "block_id",
         "block_number",
         "block_body_size"
       ],
@@ -1773,16 +1797,12 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Point"
         },
-        "block_height": {
-          "type": "integer"
-        },
         "tx_count": {
           "type": "integer"
         }
       },
       "required": [
         "point",
-        "block_height",
         "tx_count"
       ],
       "optional": [],
@@ -2932,6 +2952,12 @@
         },
         "rollback_length": {
           "type": "integer"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "stable_modified": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -2939,7 +2965,10 @@
         "fork_length",
         "rollback_length"
       ],
-      "optional": [],
+      "optional": [
+        "outcome",
+        "stable_modified"
+      ],
       "additionalProperties": false,
       "name": "switch_to_fork",
       "level": "TRACE",
@@ -3001,248 +3030,6 @@
       "description": "Updated view of the locally adopted chain tip and its derived ledger health.",
       "public": true
     },
-    "amaru::ledger::transaction::CERTIFICATE_COMMITTEE_DELEGATE": {
-      "type": "object",
-      "properties": {
-        "cc_member": {
-          "type": "string"
-        },
-        "delegate": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "cc_member",
-        "delegate"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificate_committee_delegate",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Delegate cold key to committee",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_COMMITTEE_RESIGN": {
-      "type": "object",
-      "properties": {
-        "cc_member": {
-          "type": "string"
-        },
-        "anchor_url": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "cc_member"
-      ],
-      "optional": [
-        "anchor_url"
-      ],
-      "additionalProperties": false,
-      "name": "certificate_committee_resign",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Resign from committee",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_DREP_REGISTRATION": {
-      "type": "object",
-      "properties": {
-        "drep": {
-          "type": "string"
-        },
-        "deposit": {
-          "type": "integer"
-        },
-        "anchor_url": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "drep",
-        "deposit"
-      ],
-      "optional": [
-        "anchor_url"
-      ],
-      "additionalProperties": false,
-      "name": "certificate_drep_registration",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Register a DRep",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_DREP_RETIREMENT": {
-      "type": "object",
-      "properties": {
-        "drep": {
-          "type": "string"
-        },
-        "refund": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "drep",
-        "refund"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificate_drep_retirement",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Unregister a DRep",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_DREP_UPDATE": {
-      "type": "object",
-      "properties": {
-        "drep": {
-          "type": "string"
-        },
-        "anchor_url": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "drep"
-      ],
-      "optional": [
-        "anchor_url"
-      ],
-      "additionalProperties": false,
-      "name": "certificate_drep_update",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Update DRep anchor",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_POOL_REGISTRATION": {
-      "type": "object",
-      "properties": {
-        "pool_id": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::PoolId"
-        }
-      },
-      "required": [
-        "pool_id"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificate_pool_registration",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Register a pool",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_POOL_RETIREMENT": {
-      "type": "object",
-      "properties": {
-        "pool_id": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::PoolId"
-        },
-        "epoch": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Epoch"
-        }
-      },
-      "required": [
-        "pool_id",
-        "epoch"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificate_pool_retirement",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Retire a pool",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_STAKE_DELEGATION": {
-      "type": "object",
-      "properties": {
-        "credential": {
-          "type": "string"
-        },
-        "pool_id": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::PoolId"
-        }
-      },
-      "required": [
-        "credential",
-        "pool_id"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificate_stake_delegation",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Delegate stake to a pool",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_STAKE_DEREGISTRATION": {
-      "type": "object",
-      "properties": {
-        "credential": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "credential"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificate_stake_deregistration",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Unregister a stake credential",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_STAKE_REGISTRATION": {
-      "type": "object",
-      "properties": {
-        "credential": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "credential"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificate_stake_registration",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Register a stake credential",
-      "public": true
-    },
-    "amaru::ledger::transaction::CERTIFICATE_VOTE_DELEGATION": {
-      "type": "object",
-      "properties": {
-        "credential": {
-          "type": "string"
-        },
-        "drep": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "credential"
-      ],
-      "optional": [
-        "drep"
-      ],
-      "additionalProperties": false,
-      "name": "certificate_vote_delegation",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Delegate vote to DRep",
-      "public": true
-    },
     "amaru::ledger::transaction::FOUND": {
       "type": "object",
       "properties": {
@@ -3250,22 +3037,18 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Point"
         },
-        "block_height": {
+        "index": {
           "type": "integer"
         },
-        "tx_index": {
-          "type": "integer"
-        },
-        "tx_id": {
+        "id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::TransactionId"
         }
       },
       "required": [
         "point",
-        "block_height",
-        "tx_index",
-        "tx_id"
+        "index",
+        "id"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -3278,13 +3061,13 @@
     "amaru::ledger::transaction::VALIDATE": {
       "type": "object",
       "properties": {
-        "transaction_id": {
+        "id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::TransactionId"
         }
       },
       "required": [
-        "transaction_id"
+        "id"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -3297,13 +3080,13 @@
     "amaru::ledger::transaction_validation_context::CREATE": {
       "type": "object",
       "properties": {
-        "transaction_id": {
+        "id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::TransactionId"
         }
       },
       "required": [
-        "transaction_id"
+        "id"
       ],
       "optional": [],
       "additionalProperties": false,
@@ -3337,19 +3120,9 @@
     },
     "amaru::ledger::validation_context::committee::HYDRATE": {
       "type": "object",
-      "properties": {
-        "from_volatile": {
-          "type": "integer"
-        },
-        "from_db": {
-          "type": "integer"
-        }
-      },
+      "properties": {},
       "required": [],
-      "optional": [
-        "from_volatile",
-        "from_db"
-      ],
+      "optional": [],
       "additionalProperties": false,
       "name": "hydrate",
       "level": "TRACE",
@@ -3500,7 +3273,7 @@
     "amaru::mempool::transaction::ACCEPTED": {
       "type": "object",
       "properties": {
-        "tx_id": {
+        "id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::TransactionId"
         },
@@ -3512,7 +3285,7 @@
         }
       },
       "required": [
-        "tx_id",
+        "id",
         "seq_no",
         "origin"
       ],
@@ -3527,7 +3300,7 @@
     "amaru::mempool::transaction::EVICTED": {
       "type": "object",
       "properties": {
-        "tx_id": {
+        "id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::TransactionId"
         },
@@ -3536,7 +3309,7 @@
         }
       },
       "required": [
-        "tx_id",
+        "id",
         "reason"
       ],
       "optional": [],
@@ -3550,7 +3323,7 @@
     "amaru::mempool::transaction::RECEIVED": {
       "type": "object",
       "properties": {
-        "tx_id": {
+        "id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::TransactionId"
         },
@@ -3559,7 +3332,7 @@
         }
       },
       "required": [
-        "tx_id",
+        "id",
         "origin"
       ],
       "optional": [],
@@ -3573,7 +3346,7 @@
     "amaru::mempool::transaction::REJECTED": {
       "type": "object",
       "properties": {
-        "tx_id": {
+        "id": {
           "type": "string",
           "description": "Custom type: amaru_kernel::TransactionId"
         },
@@ -3585,7 +3358,7 @@
         }
       },
       "required": [
-        "tx_id",
+        "id",
         "reason"
       ],
       "optional": [
@@ -4864,6 +4637,18 @@
       "level": "TRACE",
       "target": "amaru::stores::ledger::votes",
       "description": "Record governance votes",
+      "public": true
+    },
+    "amaru::stores::ledger::votes::REMOVE": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::votes",
+      "description": "Remove now-obsolete governance votes",
       "public": true
     }
   }

@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use crate::{
     Hash, cbor,
     size::{KEY, POOL_COLD_KEY, SCRIPT},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Voter {
     ConstitutionalCommitteeScript(Hash<{ SCRIPT }>),
     ConstitutionalCommitteeKey(Hash<{ KEY }>),
@@ -26,7 +28,19 @@ pub enum Voter {
     StakePoolKey(Hash<{ POOL_COLD_KEY }>),
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Voter {
+impl fmt::Display for Voter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ConstitutionalCommitteeScript(hash) => write!(f, "constitutional-committee(script({hash}))"),
+            Self::ConstitutionalCommitteeKey(hash) => write!(f, "constitutional-committee(key({hash}))"),
+            Self::DRepScript(hash) => write!(f, "drep(script({hash}))"),
+            Self::DRepKey(hash) => write!(f, "drep(key({hash}))"),
+            Self::StakePoolKey(hash) => write!(f, "stake-pool(key({hash}))"),
+        }
+    }
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Voter {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
@@ -43,7 +57,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Voter {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for Voter {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Voter {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

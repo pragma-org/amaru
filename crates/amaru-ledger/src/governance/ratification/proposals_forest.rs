@@ -1349,7 +1349,7 @@ mod tests {
 
     /// Make a simple proposal id based on a hash created from just one byte
     fn make_id(byte: u8) -> ProposalId {
-        ProposalId { transaction_id: Hash::new([byte; 32]), action_index: 0 }
+        ProposalId { transaction_id: Hash::new([byte; 32]), proposal_index: 0 }
     }
 
     /// Make a proposal with an optional parent

@@ -1,0 +1,35 @@
+{
+  "title": "vote cast by a committee member on a treasury withdrawal",
+  "description": "The committee has a say over every action but the two aimed at itself.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820e0483612e52e41bc15ffa584e258708d4067331695749d8aa434cebc2fd3fb9c00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "committee": [
+      {
+        "coldCredential": "8200581cecc3093b061a9ed426cd9956161fc48d4ed1ac58dc4aaed7e1ce1830",
+        "status": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "validUntil": 200
+      }
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "TreasuryWithdrawals", 6]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d9010281825820e0483612e52e41bc15ffa584e258708d4067331695749d8aa434cebc2fd3fb9c000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840f1dc314797f86be5e3af6ebe2bd5d51f74165412ebd238ad14a12bb971790f31b4c8c0e6ce5d8365e908c77aad8033050436bdb6d1e1c37ff4c8bf875b085308f5f6",
+  "expected": "Pass"
+}

@@ -18,7 +18,7 @@ build = "build/build.rs"
 include = ["src/**/*", "config/**", "Cargo.toml", "build.rs"]
 
 [features]
-test-utils = []
+test-utils = ["amaru-kernel/test-utils"]
 
 [build-dependencies]
 amaru-kernel.workspace = true

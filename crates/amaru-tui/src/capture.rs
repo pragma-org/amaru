@@ -30,6 +30,10 @@ pub fn from_observability(record: ObsTelemetryRecord) -> TelemetryRecord {
         at: record.duration.map(|d| record.at.checked_sub(d).unwrap_or(record.at)).unwrap_or(record.at),
         wall_time: record.wall_time,
         fields: convert_fields(record.fields),
+        parents: record.parents,
+        span_name: record.span_name,
+        id: record.id,
+        parent_id: record.parent_id,
     }
 }
 
@@ -64,14 +68,14 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
 
         tracing::subscriber::with_default(subscriber, || {
-            info!(ledger::transaction::VALIDATE, transaction_id = TransactionId::new(NULL_HASH32),);
+            info!(ledger::transaction::VALIDATE, id = TransactionId::new(NULL_HASH32));
         });
 
         let record = from_observability(rx.recv().expect("telemetry event"));
         assert_eq!(record.target, ledger::transaction::VALIDATE::TARGET);
         assert_eq!(record.name, ledger::transaction::VALIDATE::NAME);
         assert_eq!(
-            record.fields.get(ledger::transaction::VALIDATE::FIELD_TRANSACTION_ID),
+            record.fields.get(ledger::transaction::VALIDATE::FIELD_ID),
             Some(&FieldValue::String(TransactionId::new(NULL_HASH32).to_string()))
         );
         assert!(!record.fields.keys().any(|k| k.starts_with("amaru.tag.")));
@@ -109,5 +113,30 @@ mod tests {
         );
         assert_eq!(record.fields.get(ledger::tip::UPDATE::FIELD_EPOCH), Some(&FieldValue::U64(1)));
         let _ = Message::Telemetry(record);
+    }
+
+    #[test]
+    fn event_inside_nested_spans_keeps_parents() {
+        let (tx, rx) = sync_channel(4);
+        let subscriber = tracing_subscriber::registry().with(TelemetryCaptureLayer::new(tx));
+
+        tracing::subscriber::with_default(subscriber, || {
+            let outer = info_span!(ledger::epoch_transition::COMPUTE, from = Epoch::new(599), into = Epoch::new(600),);
+            let _outer = outer.enter();
+            let inner = info_span!(ledger::governance::RATIFY_PROPOSALS, epoch = Epoch::new(598),);
+            let _inner = inner.enter();
+            info!(ledger::ratification::SUMMARIZE, is_dormant_epoch = false);
+        });
+
+        let records: Vec<_> = rx.try_iter().map(from_observability).collect();
+        let event = records.iter().find(|r| r.name == ledger::ratification::SUMMARIZE::NAME).expect("summarize event");
+        assert_eq!(event.parents, vec![ledger::epoch_transition::COMPUTE::NAME.to_string()]);
+        assert_eq!(event.span_name.as_deref(), Some(ledger::governance::RATIFY_PROPOSALS::NAME));
+        let expected_ancestors =
+            amaru_observability::format_abbreviated_span_path([ledger::epoch_transition::COMPUTE::NAME]);
+        assert_eq!(event.parents_label().as_deref(), Some(expected_ancestors.as_str()));
+        let expected_path = format!("{expected_ancestors}:{}", ledger::governance::RATIFY_PROPOSALS::NAME);
+        assert_eq!(event.span_path_label().as_deref(), Some(expected_path.as_str()));
+        assert!(event.parent_id.is_some());
     }
 }

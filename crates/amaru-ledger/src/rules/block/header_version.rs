@@ -20,7 +20,7 @@ pub fn block_header_version_valid(
     block: &Block,
     protocol_params: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails> {
-    let header_major = block.header.header_body.protocol_version.major();
+    let header_major = block.header.body().protocol_version.major();
     let max_major = protocol_params.protocol_version.major() + 1;
     if header_major > max_major {
         return Err(InvalidBlockDetails::HeaderProtVerTooHigh { header_major, max_major });

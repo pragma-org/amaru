@@ -12,24 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// TODO: duplicate module with stages::adopt_chain::test_setup?
+
 use std::sync::Arc;
 
-use amaru_kernel::{
-    BlockHeader, EraHistory, HeaderHash, IsHeader, Point, Tip,
-    cardano::block_header::make_block_header_with_op_cert_seq, make_header,
-};
+use amaru_kernel::{EraHistory, Header, HeaderHash, IsHeader, Point, make_header, make_header_with_op_cert_seq};
 use amaru_ouroboros_traits::{
-    MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
+    BaseReadChainStore, MockBlockValidator, WriteChainStore, has_stake_pools::MockHasStakePools,
+    in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::store_effects::{
-    GetAnchorHashEffect, LoadBlockEffect, LoadFromBestChainEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
+    GetAnchorHashEffect, IsOnBestChainEffect, LoadBlockEffect, LoadHeaderEffect, LoadHeaderWithValidityEffect,
     ResourceHeaderStore,
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason, simulation::SimulationRunning,
     trace_buffer::TraceEntry,
 };
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 
 use super::*;
 pub use crate::stages::test_utils::assert_trace;
@@ -44,10 +44,6 @@ use crate::{
     },
 };
 
-pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash>) -> BlockHeader {
-    BlockHeader::from(make_header(block_number, slot, parent))
-}
-
 /// Header tree for testing validate_block2 control flow.
 /// Structure matches select_chain_new + adopt_chain for consistency:
 /// - h0: genesis (block 1, slot 1, no parent)
@@ -58,30 +54,30 @@ pub fn make_block_header(block_number: u64, slot: u64, parent: Option<HeaderHash
 ///       - h3a: block 4, slot 11, parent h2a (fork tip)
 #[derive(Clone)]
 pub struct HeaderTree {
-    pub h0: BlockHeader,
-    pub h1: BlockHeader,
-    pub h2: BlockHeader,
-    pub h3: BlockHeader,
-    pub h2a: BlockHeader,
-    pub h3a: BlockHeader,
+    pub h0: Header,
+    pub h1: Header,
+    pub h2: Header,
+    pub h3: Header,
+    pub h2a: Header,
+    pub h3a: Header,
 }
 
 impl HeaderTree {
     pub fn new() -> Self {
-        let h0 = make_block_header(1, 1, None);
-        let h1 = make_block_header(2, 2, Some(h0.hash()));
-        let h2 = make_block_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
-        let h3 = make_block_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
-        let h2a = make_block_header(3, 10, Some(h1.hash()));
-        let h3a = make_block_header(4, 11, Some(h2a.hash()));
+        let h0 = make_header(1, 1, None);
+        let h1 = make_header(2, 2, Some(h0.hash()));
+        let h2 = make_header_with_op_cert_seq(3, 3, Some(h1.hash()), 1);
+        let h3 = make_header_with_op_cert_seq(4, 4, Some(h2.hash()), 1);
+        let h2a = make_header(3, 10, Some(h1.hash()));
+        let h3a = make_header(4, 11, Some(h2a.hash()));
         Self { h0, h1, h2, h3, h2a, h3a }
     }
 
-    pub fn main(&self) -> [&BlockHeader; 4] {
+    pub fn main(&self) -> [&Header; 4] {
         [&self.h0, &self.h1, &self.h2, &self.h3]
     }
 
-    pub fn all(&self) -> [&BlockHeader; 6] {
+    pub fn all(&self) -> [&Header; 6] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h2a, &self.h3a]
     }
 }
@@ -107,25 +103,25 @@ impl TestPrep {
         self.block_validator.with_tip(current);
     }
 
-    pub fn store_headers(&self, headers: &[&BlockHeader]) {
+    pub fn store_headers(&self, headers: &[&Header]) {
         for h in headers {
             self.store.store_header(h).unwrap();
         }
     }
 
-    pub fn store_blocks(&self, headers: &[&BlockHeader]) {
+    pub fn store_blocks(&self, headers: &[&Header]) {
         for h in headers {
             let raw = amaru_kernel::cardano::network_block::make_encoded_block(h, &EraHistory::default());
             self.store.store_block(&h.hash(), &raw).unwrap();
         }
     }
 
-    pub fn store_block(&self, header: &BlockHeader) {
+    pub fn store_block(&self, header: &Header) {
         self.store_blocks(&[header]);
     }
 
     pub fn set_anchor(&self, hash: HeaderHash) {
-        self.store.set_anchor_hash(&hash).unwrap();
+        self.store.set_anchor_point(&self.store.load_point(&hash).unwrap_or(Point::Origin)).unwrap();
     }
 
     pub fn set_validity(&self, hash: HeaderHash, valid: bool) {
@@ -144,14 +140,14 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<AdoptChainMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<BlockSourceMsg>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Tip>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Point>().boxed(),
         amaru_pure_stage::register_data_deserializer::<amaru_kernel::cardano::network_block::NetworkBlock>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<Option<(BlockHeader, Option<bool>)>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<Option<(Header, Option<bool>)>>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Option<HeaderHash>>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadBlockEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LoadHeaderWithValidityEffect>().boxed(),
-        amaru_pure_stage::register_effect_deserializer::<LoadFromBestChainEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<IsOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetAnchorHashEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SwitchToForkEffect>().boxed(),
@@ -166,11 +162,11 @@ pub fn test_prep() -> TestPrep {
     let block_source = StageRef::named_for_tests("block_source");
     let block_validator = Arc::new(MockBlockValidator::new(Point::Origin));
 
-    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), Point::Origin);
+    let state = ValidateBlock::new(manager.clone(), select_chain.clone(), block_source.clone(), 10, Point::Origin);
 
     TestPrep {
         state,
-        rt: Builder::new_current_thread().build().unwrap(),
+        rt: crate::stages::test_utils::test_runtime(),
         headers: HeaderTree::new(),
         store: Arc::new(InMemoryChainStore::new()),
         block_validator,
@@ -178,6 +174,10 @@ pub fn test_prep() -> TestPrep {
 }
 
 pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, DeserializerGuards, Logs) {
+    setup_many(prep, vec![msg])
+}
+
+pub fn setup_many(prep: &TestPrep, msgs: Vec<ValidateBlockMsg>) -> (SimulationRunning, DeserializerGuards, Logs) {
     let guards = register_guards();
 
     run_simulation(
@@ -186,7 +186,7 @@ pub fn setup(prep: &TestPrep, msg: ValidateBlockMsg) -> (SimulationRunning, Dese
         |mut network| {
             let vb = network.stage("vb", stage);
             let vb = network.wire_up(vb, prep.state.clone());
-            network.preload(&vb, [msg]).unwrap();
+            network.preload(&vb, msgs).unwrap();
             network
         },
         |resources| {
@@ -205,8 +205,12 @@ pub fn te_validate_block(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(&point))))
 }
 
-pub fn te_rollback_ledger(at_stage: &str, point: &Point) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(point))))
+pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
+}
+
+pub fn te_switch_to_fork(at_stage: &str, tip: &Point) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(tip))))
 }
 
 pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: impl amaru_pure_stage::SendData) -> TraceEntry {

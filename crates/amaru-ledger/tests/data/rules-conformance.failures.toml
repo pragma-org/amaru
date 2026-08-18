@@ -1,65 +1,41 @@
 "allegra/fail-utxow-invalidmetadata/0" = "decode error: text exceeds 64 bytes: got 669"
-"alonzo/fail-utxos-invalid-transaction-marked-as-valid/0" = "Expected failure, got success"
-"alonzo/fail-utxos-plutusv2-invalid-transaction-marked-as-valid/0" = "Expected failure, got success"
-"alonzo/fail-utxos-plutusv2-valid-transaction-marked-as-invalid/0" = "Expected failure, got success"
-"alonzo/fail-utxos-plutusv3-invalid-transaction-marked-as-valid/0" = "Expected failure, got success"
-"alonzo/fail-utxos-plutusv3-valid-transaction-marked-as-invalid/0" = "Expected failure, got success"
-"alonzo/fail-utxos-valid-transaction-marked-as-invalid/0" = "Expected failure, got success"
-"alonzo/fail-utxow-not-validating-cert-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-not-validating-mint-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-not-validating-spend-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-not-validating-withdrawal-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv2-not-validating-cert-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv2-not-validating-mint-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv2-not-validating-spend-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv2-not-validating-withdrawal-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv3-not-validating-cert-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv3-not-validating-mint-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv3-not-validating-spend-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv3-not-validating-withdrawal-script/0" = "Expected failure, got success"
-"alonzo/fail-utxow-plutusv3-unspendableutxonodatumhash/0" = "Expected failure, got success"
 "conway/fail-certs-withdrawing-from-an-unregistered-reward-account/0" = "Expected success, got failure: value not preserved: balance = (-20, [])"
 "conway/fail-deleg-delegate-unregistered-stake-credentials/0" = "Expected failure, got success"
 "conway/fail-deleg-delegate-vote-of-unregistered-stake-credentials/0" = "Expected failure, got success"
 "conway/fail-deleg-with-non-zero-reward-balance/0" = "Expected failure, got success"
-"conway/fail-gov-committee-member-can-not-vote-on-noconfidence-action/0" = "Expected failure, got success"
-"conway/fail-gov-committee-member-can-not-vote-on-updatecommittee-action/0" = "Expected failure, got success"
-"conway/fail-gov-committee-member-mixed-with-other-voters-can-not-vote-on-updatecommittee-action/0" = "Expected failure, got success"
 # InvalidPrevGovActionId is implemented, but the enacted root this vector depends on is set by a
 # PassEpoch event that this harness skips, so the empty prev-gov-action-id can't be rejected here.
 "conway/fail-gov-empty-prevgovid-after-the-first-constitution-was-enacted/0" = "Expected failure, got success"
 "conway/fail-gov-expired-gov-actions/0" = "Expected failure, got success"
-"conway/fail-gov-policy-is-respected-by-proposals/0" = "Expected failure, got success"
-"conway/fail-gov-votersdonotexist/0" = "Expected failure, got success"
-"conway/fail-govcert-resigning-a-non-cc-key/0" = "Expected failure, got success"
-"conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected failure, got success"
-"conway/fail-utxos-delegtxcert-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-delegtxcert-v2/0" = "Expected failure, got success"
+"conway/fail-gov-policy-is-respected-by-proposals/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided Some(Hash<28>("232fdf92265c01c8869aec72869c35d83eedd0ff1d139f2c680a0f37")), expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
+# Every vector in the gov-policy family enacts a new constitution mid-sequence, through a proposal,
+# votes and two epoch transitions. The harness skips PassTick/PassEpoch and does not ratify, so the
+# enacted guardrails script stays the one in the initial state and no policy in these transactions
+# can match it.
+#
+# This transaction is marked invalid, so proposal validation is skipped entirely along with the
+# script witness it would have required, and the policy carried by the witness set reads as
+# extraneous before the guardrails check is ever reached.
+"conway/fail-utxos-alwaysfails-plutus-govpolicy-does-not-validate/0" = "Expected success, got failure: invalid transaction scripts: extraneous script witnesses: extra [e4ed1d2a73cfad8751a777ff93ad6763603d633c47f2a0480acc6db9]"
+# This one no longer even reaches its own defect: the transaction it expects to fail now fails at
+# the guardrails check, leaving less of the shared context mutated than the value preservation of a
+# later transaction was recorded against.
+"conway/fail-utxos-failing-native-script-govpolicy/0" = "Expected success, got failure: value not preserved: balance = (123, [])"
 "conway/fail-utxos-fails-when-using-inline-datums-for-plutusv1/0" = "Expected failure, got success"
 "conway/fail-utxos-proposalprocedures-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-proposalprocedures-v2/0" = "Expected failure, got success"
-"conway/fail-utxos-regdepositdelegtxcert-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-regdepositdelegtxcert-v2/0" = "Expected failure, got success"
-"conway/fail-utxos-regdreptxcert-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-regdreptxcert-v2/0" = "Expected failure, got success"
-"conway/fail-utxos-resigncommitteecoldtxcert-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-resigncommitteecoldtxcert-v2/0" = "Expected failure, got success"
 "conway/fail-utxos-treasurydonation-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-treasurydonation-v2/0" = "Expected failure, got success"
-"conway/fail-utxos-unregdreptxcert-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-updatedreptxcert-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-updatedreptxcert-v2/0" = "Expected failure, got success"
-"conway/fail-utxos-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-v2/0" = "Expected failure, got success"
 "conway/fail-utxos-votingprocedures-v1/0" = "Expected failure, got success"
 "conway/fail-utxos-votingprocedures-v2/0" = "Expected failure, got success"
 "conway/pass-deleg-delegate-retire-and-re-register-pool/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 901, must satisfy 44 < epoch <= 62"
 "conway/pass-deleg-deregistering-returns-the-deposit/0" = "Expected success, got failure: invalid withdrawals: attempted to withdraw a different amount than the full account balance: balance 0 withdrawal: 3"
-"conway/pass-enact-cc-re-election/0" = 'Expected success, got failure: invalid certificates: invalid cc member hot credential delegation: unknown source entity: AddrKeyhash(Hash<28>("8ed8575d4f9cc0a89bc1616ab75923ae07b19d23e8bd69586f3b76b1"))'
 "conway/pass-gov-fails-for-empty-withdrawals/0" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [5e7d655d8036173ee03b3548d5b7b023f21366eabc4045653d4c3efd]"
-"conway/pass-gov-hardfork-is-the-second-one-has-a-govpurposeid-hardfork-minorfollow/0" = "Expected success, got failure: invalid proposals: hardfork version (10, 2) cannot follow current version (10, 0)"
 "conway/pass-govcert-registering-a-resigned-cc-member-hotkey/0" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7]"
 "conway/pass-ratify-rewards-contribute-to-active-voting-stake-even-in-the-absence-of-stakedistr/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 918, must satisfy 45 < epoch <= 50"
 "conway/pass-ratify-stakepool-rewards-contribute-to-active-voting-stake-even-in-the-absence-of-e489f777/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 918, must satisfy 45 < epoch <= 50"
-"conway/pass-utxos-updating-costmodels-and-setting-the-govpolicy-afterwards-succeeds/0" = "Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: V3"
-"conway/pass-utxos-updating-costmodels-with-alwaysfails-govpolicy-does-not-validate/0" = "Expected success, got failure: invalid transaction scripts: no cost model in protocol parameters for language used by transaction: V3"
+"conway/pass-utxos-alwayssucceeds-plutus-govpolicy-validates/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided Some(Hash<28>("71d5fb4f7ac68b9df1d234fc0f6ae0aad3c9dff1b0cb9451a51679fb")), expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
+"conway/pass-utxos-updating-costmodels-and-setting-the-govpolicy-afterwards-succeeds/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided None, expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
+"conway/pass-utxos-updating-costmodels-with-alwaysfails-govpolicy-does-not-validate/0" = 'Expected success, got failure: invalid proposals: invalid guardrails script hash: provided None, expected Some(Hash<28>("fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"))'
+# This test requires crossing an epoch boundary where the state of the CC member can be reset after ratification of a governance proposal
+"conway/pass-enact-cc-re-election/0" = "Expected success, got failure: invalid certificates: invalid cc member hot credential delegation: member has already resigned"

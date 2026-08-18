@@ -1,0 +1,40 @@
+{
+  "title": "gov hardfork initiation chains two majors upgrades",
+  "description": "A hard fork initiation proposal to protocol version 11.0 chaining to an in-flight hard fork proposal at version 10.0, from a starting state in 9.0",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": {
+      "version": { "major": 9, "minor": 0 }
+    }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b0000001748c64080ff"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000
+      }
+    ],
+    "dreps": [],
+    "proposals": [
+      [{ "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3", "proposalIndex": 0 }, "HardFork(10.0)", 6]
+    ]
+  },
+  "point": {
+    "slot": 100,
+    "transactionIndex": 0
+  },
+  "transaction": "84bf00d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff021a00030d400f0014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88301825820a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee300820b00827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840f5156eafce4d1e1b7d8435c6347948a120f1ee0863b96d31ea9ef25dba2a7fb400814b811028d7fd8d284788fe7d93e4e6dfad0aea68b5f23d3fb510d206d00ef5f6",
+  "expected": {
+    "predicate": "ProposalCantFollow"
+  }
+}

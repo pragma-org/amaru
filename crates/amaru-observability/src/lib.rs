@@ -25,16 +25,21 @@ pub mod registry;
 // Include the schemas module which uses define_schemas! to generate
 // the amaru module with all schema constants and validation macros
 mod schemas;
+pub mod span_encode;
 pub mod telemetry_capture;
 mod trace_context;
 
 // Re-export the macros for convenient use
 pub use amaru_observability_macros::{define_schemas, trace_event as __trace_event, trace_record, trace_span};
 pub use field::{
-    DecodedField, as_str_value, cbor_to_any_value, cbor_to_decoded_field, cbor_to_trace_value, encode_cbor,
+    DecodedField, TAG_FIELD_PREFIX, as_str_value, cbor_to_any_value, cbor_to_decoded_field, cbor_to_trace_value,
+    encode_cbor, is_tag_field_name,
 };
 pub use json_format::{CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, SpanJsonFields};
-pub use layers::{CborAwareMakeVisitor, CborDiagVisitor, CborToStringVisit, console_field_formatter};
+pub use layers::{
+    CborAwareMakeVisitor, CborConsoleEventFormat, CborDiagVisitor, CborToStringVisit, HideTagFields,
+    console_field_formatter,
+};
 pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;
 pub use otel_trace_arrays::CborTraceArrayLayer;
@@ -42,6 +47,10 @@ pub use record_fields::RecordFields;
 pub use schemas::*;
 /// Re-export for schema macros that require `Serialize` on complex field types.
 pub use serde;
+pub use span_encode::{
+    abbreviate_span_name, ancestor_span_names, format_abbreviated_span_path, write_abbreviated_span_name,
+    write_abbreviated_span_path,
+};
 pub use telemetry_capture::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
 pub use trace_context::TraceContext;
 pub use tracing;
@@ -118,5 +127,19 @@ macro_rules! debug_record {
 macro_rules! info_record {
     ($($rest:tt)*) => {
         $crate::trace_record!(INFO, $($rest)*)
+    };
+}
+
+#[macro_export]
+macro_rules! error_record {
+    ($($rest:tt)*) => {
+        $crate::trace_record!(ERROR, $($rest)*)
+    };
+}
+
+#[macro_export]
+macro_rules! warn_record {
+    ($($rest:tt)*) => {
+        $crate::trace_record!(WARN, $($rest)*)
     };
 }

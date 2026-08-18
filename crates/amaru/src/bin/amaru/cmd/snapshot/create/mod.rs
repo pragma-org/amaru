@@ -22,7 +22,7 @@ use std::{
 
 use amaru::default_snapshots_dir;
 use amaru_kernel::{
-    BlockHeader, Epoch, HeaderHash, IsHeader, NetworkName, Point, Slot, from_cbor,
+    Epoch, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Slot, from_cbor,
     num::{CheckedAdd, CheckedSub},
     utils::{self, path::relative_path},
 };
@@ -132,8 +132,8 @@ pub struct Args {
 
 #[derive(Debug, Clone)]
 struct SnapshotPoint {
-    point: Point,
-    parent_point: Point,
+    point: NetworkPoint,
+    parent_point: NetworkPoint,
 }
 
 impl Display for SnapshotPoint {
@@ -149,10 +149,12 @@ impl FromStr for SnapshotPoint {
         let mut split = s.split("::");
 
         let point =
-            split.next().ok_or_else(|| "missing snapshot point".to_string()).and_then(|s| s.parse::<Point>())?;
+            split.next().ok_or_else(|| "missing snapshot point".to_string()).and_then(|s| s.parse::<NetworkPoint>())?;
 
-        let parent_point =
-            split.next().ok_or_else(|| "missing parent snapshot point".to_string()).and_then(|s| s.parse::<Point>())?;
+        let parent_point = split
+            .next()
+            .ok_or_else(|| "missing parent snapshot point".to_string())
+            .and_then(|s| s.parse::<NetworkPoint>())?;
 
         Ok(Self { point, parent_point })
     }
@@ -164,7 +166,7 @@ struct EpochTarget {
     slot: Slot,
     hash: HeaderHash,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "header_parent")]
-    parent_point: Option<Point>,
+    parent_point: Option<NetworkPoint>,
 }
 
 impl EpochTarget {
@@ -462,7 +464,7 @@ fn packaged_blocks_from_iter(
             continue;
         }
 
-        let header: BlockHeader = from_cbor(&block.header_cbor)
+        let header: Header = from_cbor(&block.header_cbor)
             .ok_or_else(|| format!("failed to decode target block header {} from immutable blocks", target.hash))?;
         if header.hash() != target.hash {
             return Err(
@@ -474,8 +476,8 @@ fn packaged_blocks_from_iter(
         }
         if let Some(parent_point) = target.parent_point {
             let expected_parent = match parent_point {
-                Point::Origin => None,
-                Point::Specific(_, hash) => Some(hash),
+                NetworkPoint::Origin => None,
+                NetworkPoint::Specific(_, hash) => Some(hash),
             };
             if header.parent_hash() != expected_parent {
                 return Err(format!(
@@ -502,7 +504,7 @@ fn packaged_blocks_from_iter(
 mod tests {
     use std::{error::Error, fs, path::Path};
 
-    use amaru_kernel::{BlockHeader, Epoch, HeaderHash, IsHeader, Point, Slot, make_header, to_cbor};
+    use amaru_kernel::{Epoch, Header, HeaderHash, IsHeader, NetworkPoint, Slot, make_header, to_cbor};
     use amaru_mithril::ImmutableBlock;
     use tempfile::TempDir;
 
@@ -515,11 +517,11 @@ mod tests {
         packaged_blocks_from_iter,
     };
 
-    fn immutable_block(header: &BlockHeader, raw_block: &[u8]) -> ImmutableBlock {
+    fn immutable_block(header: &Header, raw_block: &[u8]) -> ImmutableBlock {
         ImmutableBlock { hash: header.hash(), header_cbor: to_cbor(header), raw_block: raw_block.to_vec() }
     }
 
-    fn target_for(header: &BlockHeader, parent_point: Point) -> EpochTarget {
+    fn target_for(header: &Header, parent_point: NetworkPoint) -> EpochTarget {
         EpochTarget {
             epoch: Epoch::from(1),
             slot: header.slot(),
@@ -595,9 +597,9 @@ mod tests {
     #[test]
     fn packages_only_the_exact_snapshot_block() {
         let parent_hash = HeaderHash::from([1; 32]);
-        let parent_point = Point::Specific(Slot::from(41), parent_hash);
-        let target_header = BlockHeader::from(make_header(2, 42, Some(parent_hash)));
-        let child_header = BlockHeader::from(make_header(3, 43, Some(target_header.hash())));
+        let parent_point = NetworkPoint::Specific(Slot::from(41), parent_hash);
+        let target_header = make_header(2, 42, Some(parent_hash));
+        let child_header = make_header(3, 43, Some(target_header.hash()));
         let target = target_for(&target_header, parent_point);
         let blocks = vec![
             Ok::<_, Box<dyn Error>>(immutable_block(&target_header, b"target")),
@@ -613,17 +615,17 @@ mod tests {
     #[test]
     fn rejects_snapshot_block_with_inconsistent_metadata() {
         let parent_hash = HeaderHash::from([1; 32]);
-        let header = BlockHeader::from(make_header(2, 42, Some(parent_hash)));
+        let header = make_header(2, 42, Some(parent_hash));
         let block = immutable_block(&header, b"target");
 
-        let mut target = target_for(&header, Point::Specific(Slot::from(41), parent_hash));
+        let mut target = target_for(&header, NetworkPoint::Specific(Slot::from(41), parent_hash));
         target.slot = Slot::from(43);
         assert!(
             packaged_blocks_from_iter(vec![Ok::<_, Box<dyn Error>>(block)], &target, Path::new("immutable")).is_err()
         );
 
         target.slot = header.slot();
-        target.parent_point = Some(Point::Specific(Slot::from(41), HeaderHash::from([2; 32])));
+        target.parent_point = Some(NetworkPoint::Specific(Slot::from(41), HeaderHash::from([2; 32])));
         assert!(
             packaged_blocks_from_iter(
                 vec![Ok::<_, Box<dyn Error>>(immutable_block(&header, b"target"))],
@@ -633,8 +635,8 @@ mod tests {
             .is_err()
         );
 
-        target.parent_point = Some(Point::Specific(Slot::from(41), parent_hash));
-        let mismatched_header = BlockHeader::from(make_header(3, 42, Some(parent_hash)));
+        target.parent_point = Some(NetworkPoint::Specific(Slot::from(41), parent_hash));
+        let mismatched_header = make_header(3, 42, Some(parent_hash));
         let mismatched = ImmutableBlock { hash: target.hash, ..immutable_block(&mismatched_header, b"other") };
         assert!(
             packaged_blocks_from_iter(vec![Ok::<_, Box<dyn Error>>(mismatched)], &target, Path::new("immutable"))

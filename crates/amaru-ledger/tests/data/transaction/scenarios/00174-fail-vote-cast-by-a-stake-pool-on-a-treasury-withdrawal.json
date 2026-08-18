@@ -1,0 +1,33 @@
+{
+  "title": "vote cast by a stake pool on a treasury withdrawal",
+  "description": "Stake pools have no say over the treasury.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258203f22e2c1a5f357e51f16fd0ada42da2168a2e202a0d0ddff4d93827404422ca000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ],
+    "proposals": [
+      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "TreasuryWithdrawals", 6]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258203f22e2c1a5f357e51f16fd0ada42da2168a2e202a0d0ddff4d93827404422ca0000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18204581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840a2c1e78d1d9c8fca939b1d07434defeb851136c5f26bbf93596cf4e6cc97ce28e24306087e0a6bbd136b2e637f45ebb565504951c254f4ce36f74a2c6127550bf5f6",
+  "expected": {
+    "predicate": "DisallowedVoters"
+  }
+}

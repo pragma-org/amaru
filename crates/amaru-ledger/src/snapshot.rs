@@ -55,7 +55,7 @@ pub fn account_state(
 /// has no elected members.
 pub fn committee_members(
     cc: Option<ConstitutionalCommittee>,
-    hot_cold_delegations: &BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
+    statuses: &BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
 ) -> BTreeMap<StakeCredential, CCMember> {
     let members = match cc {
         Some(ConstitutionalCommittee { members, .. }) => members,
@@ -65,37 +65,31 @@ pub fn committee_members(
     members
         .into_iter()
         .map(|(cold_credential, valid_until)| {
-            let hot_credential = match hot_cold_delegations.get(&cold_credential) {
-                Some(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential(hot)) => Some(*hot),
-                None | Some(ConstitutionalCommitteeMemberStatus::Resigned(..)) => None,
-            };
-            (cold_credential, CCMember { hot_credential, valid_until: Some(valid_until) })
+            (
+                cold_credential,
+                CCMember { status: statuses.get(&cold_credential).copied(), valid_until: Some(valid_until) },
+            )
         })
         .collect()
 }
 
 /// A governance proposal's block-start state from a snapshot. `proposed_in` is synthesized to the
 /// start of its proposing epoch, the only position a NewEpochState records.
+///
+/// The expiry is the one the snapshot recorded, not `proposed_in + gov_action_lifetime`: the two
+/// agree only if the lifetime never changed since the action was submitted.
 pub fn proposal_state(
     proposal: NewEpochProposalState,
     era_history: &EraHistory,
-    protocol_parameters: &ProtocolParameters,
 ) -> Result<(ProposalId, ProposalState), EraHistoryError> {
-    let NewEpochProposalState { id, procedure, proposed_in, .. } = proposal;
+    let NewEpochProposalState { id, procedure, proposed_in, expires_after, .. } = proposal;
 
     let proposed_in_pointer = ProposalPointer {
         transaction: TransactionPointer { slot: era_history.epoch_bounds(proposed_in)?.start, transaction_index: 0 },
-        proposal_index: id.action_index as usize,
+        proposal_index: id.proposal_index as usize,
     };
 
-    Ok((
-        id,
-        ProposalState {
-            proposed_in: proposed_in_pointer,
-            valid_until: proposed_in + protocol_parameters.gov_action_lifetime,
-            proposal: procedure,
-        },
-    ))
+    Ok((id, ProposalState { proposed_in: proposed_in_pointer, valid_until: expires_after, proposal: procedure }))
 }
 
 /// The governance roots, the latest enacted action per category, as of the snapshot.

@@ -140,7 +140,7 @@ pub fn read_stable_blocks_after_point(
 ) -> ImmutableResult<impl Iterator<Item = ImmutableResult<Vec<u8>>>> {
     let chunks = stable_immutable_chunks_from_point(immutable_dir, network, point)?;
     let mut blocks = immutable_raw_blocks_iter(immutable_dir, chunks);
-    if let Point::Specific(slot, _) = point {
+    if let Point::Specific(slot, _, _) = point {
         consume_through_point(&mut blocks, point, slot.as_u64())?;
     }
     Ok(blocks)
@@ -177,7 +177,7 @@ fn stable_immutable_chunks_from_point(
     let stable_chunk_count = chunks.len().saturating_sub(1);
     let first_chunk = match point {
         Point::Origin => None,
-        Point::Specific(slot, _) => Some(chunk_for_slot(network, slot.as_u64())?),
+        Point::Specific(slot, _, _) => Some(chunk_for_slot(network, slot.as_u64())?),
     };
     Ok(chunks
         .into_iter()
@@ -192,7 +192,8 @@ fn consume_through_point(blocks: &mut ImmutableRawBlocksIter, point: Point, targ
         .map(|block| {
             let block = block?;
             let parsed = parse_header_slot_and_hash(&block)?;
-            let block_point = Point::Specific(parsed.slot.into(), parsed.header_hash.into());
+            let block_point =
+                Point::Specific(parsed.slot.into(), parsed.header_hash.into(), parsed.block_height.into());
             Ok((block_point, parsed.slot))
         })
         .find(|candidate: &ImmutableResult<(Point, u64)>| match candidate {
@@ -334,7 +335,7 @@ mod tests {
         encoder.u64(slot).unwrap();
         let bytes = encoder.into_writer();
         let hash = Hasher::<256>::hash(&bytes[header_start..]);
-        (Point::Specific(slot.into(), hash), bytes)
+        (Point::Specific(slot.into(), hash, slot.into()), bytes)
     }
 
     fn write_chunk(immutable_dir: &Path, chunk_number: u64, blocks: &[Vec<u8>]) {
@@ -418,7 +419,7 @@ mod tests {
     #[test]
     fn rejects_a_point_with_an_unknown_hash() {
         let (dir, blocks) = immutable_store();
-        let point = Point::Specific(blocks[1].0.slot_or_default(), [0; 32].into());
+        let point = Point::Specific(blocks[1].0.slot_or_default(), [0; 32].into(), blocks[1].0.block_height());
 
         assert!(read_stable_blocks_after_point(dir.path(), NetworkName::Preprod, point).is_err());
     }

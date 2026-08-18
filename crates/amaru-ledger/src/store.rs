@@ -19,6 +19,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use amaru_kernel::StakeEntry;
 use amaru_kernel::{
     CertificatePointer,
     Constitution,
@@ -369,6 +370,16 @@ pub trait ReadStore {
         Err::<std::iter::Empty<(utxo::Key, utxo::Value)>, _>(default_read_store_error("ReadStore.iter_utxos()"))
     }
 
+    /// A non-allocating and specialized version of iter_utxos bespoke to the stake distribution
+    /// calculations.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn iter_stake_distribution(&self) -> Result<impl Iterator<Item = StakeEntry>>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn iter_stake_distribution(&self) -> Result<impl Iterator<Item = StakeEntry>> {
+        Err::<std::iter::Empty<StakeEntry>, _>(default_read_store_error("ReadStore.iter_stake_distribution()"))
+    }
+
     /// Get details about all slot leaders
     #[cfg(not(any(test, feature = "test-utils")))]
     fn iter_block_issuers(&self) -> Result<impl Iterator<Item = (slots::Key, slots::Value)>>;
@@ -565,13 +576,16 @@ pub trait TransactionalContext<'a>: ReadStore {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
+    ///
+    /// `governance_activity` is `None` for saves that carry no governance state (e.g. a raw UTxO
+    /// import): such saves leave the persisted dormant-epoch counter untouched.
     #[expect(clippy::too_many_arguments)]
     #[cfg(not(any(test, feature = "test-utils")))]
     fn save(
         &self,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
-        governance_activity: GovernanceActivity,
+        governance_activity: Option<GovernanceActivity>,
         point: &Point,
         issuer: Option<&pools::Key>,
         add: Columns<
@@ -601,7 +615,7 @@ pub trait TransactionalContext<'a>: ReadStore {
         &self,
         _era_history: &EraHistory,
         _protocol_parameters: &ProtocolParameters,
-        _governance_activity: GovernanceActivity,
+        _governance_activity: Option<GovernanceActivity>,
         point: &Point,
         _issuer: Option<&pools::Key>,
         _add: Columns<
@@ -713,11 +727,11 @@ pub trait TransactionalContext<'a>: ReadStore {
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn remove_proposals<'iter>(&self, proposals: impl Iterator<Item = &'iter ProposalId>) -> Result<()>;
+    fn remove_proposals<T>(&self, proposals: &BTreeMap<ProposalId, T>) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn remove_proposals<'iter>(&self, proposals: impl Iterator<Item = &'iter ProposalId>) -> Result<()> {
-        unimplemented!("TransactionalContext.remove_proposals({:?})", proposals.collect::<Vec<_>>());
+    fn remove_proposals<T>(&self, proposals: &BTreeMap<ProposalId, T>) -> Result<()> {
+        unimplemented!("TransactionalContext.remove_proposals({:?})", proposals.keys().collect::<Vec<_>>());
     }
 
     /// Prune all recently unregistered accounts from the database that are no longer required to
@@ -789,15 +803,6 @@ pub trait TransactionalContext<'a>: ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn with_dreps(&self, _with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<()> {
         unimplemented!("TransactionalContext.with_dreps()");
-    }
-
-    /// Provide an access to iterate over dreps, similar to 'with_pools'.
-    #[cfg(not(any(test, feature = "test-utils")))]
-    fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<()>;
-
-    #[cfg(any(test, feature = "test-utils"))]
-    fn with_proposals(&self, _with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<()> {
-        unimplemented!("TransactionalContext.with_proposals()");
     }
 
     /// Provide an access to iterate over cc members, similar to 'with_pools'.

@@ -17,6 +17,7 @@ use thiserror::Error;
 use crate::{Ed25519Signature, VerificationKey, cbor, ed25519};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct VerificationKeyWitness {
     #[n(0)]
     pub verification_key: VerificationKey,
