@@ -31,7 +31,6 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
-    epoch_transition::GovernanceActivity,
     store::{self, Store, TransactionalContext},
 };
 use amaru_observability::info;
@@ -187,7 +186,7 @@ where
             transaction.save(
                 era_history,
                 &protocol_parameters,
-                GovernanceActivity::default(),
+                None,
                 point,
                 None,
                 store::Columns {

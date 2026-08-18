@@ -781,7 +781,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         &self,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
-        mut governance_activity: GovernanceActivity,
+        governance_activity: Option<GovernanceActivity>,
         point: &Point,
         issuer: Option<&scolumns::pools::Key>,
         add: Columns<
@@ -824,7 +824,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 }
 
                 let drep_validity = current_epoch + protocol_parameters.drep_expiry
-                    - governance_activity.consecutive_dormant_epochs as u64;
+                    - governance_activity.map_or(0, |ga| ga.consecutive_dormant_epochs) as u64;
 
                 utxo::add(&self.db, add.utxo)?;
                 pools::add(&self.db, add.pools)?;
@@ -847,26 +847,32 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 accounts::remove(&self.db, remove.accounts, current_epoch)?;
                 dreps::remove(&self.db, remove.dreps)?;
 
-                // When a proposal is seen during a dormant period, we flush the current dormant
-                // epochs counter on each drep.
-                if governance_activity.consecutive_dormant_epochs > 0
-                    && proposals_count > 0
-                    && !self.host.incremental_save
-                {
-                    self.with_dreps(|iterator| {
-                        for (_, mut entry) in iterator {
-                            if let Some(row) = entry.borrow_mut() {
-                                let actual_expiry =
-                                    row.valid_until + governance_activity.consecutive_dormant_epochs as u64;
-                                if actual_expiry >= current_epoch {
-                                    row.valid_until = actual_expiry;
+                if let Some(mut governance_activity) = governance_activity {
+                    // When a proposal is seen during a dormant period, we flush the current dormant
+                    // epochs counter on each drep.
+                    let reactivating = governance_activity.consecutive_dormant_epochs > 0
+                        && proposals_count > 0
+                        && !self.host.incremental_save;
+                    if reactivating {
+                        self.with_dreps(|iterator| {
+                            for (_, mut entry) in iterator {
+                                if let Some(row) = entry.borrow_mut() {
+                                    let actual_expiry =
+                                        row.valid_until + governance_activity.consecutive_dormant_epochs as u64;
+                                    if actual_expiry >= current_epoch {
+                                        row.valid_until = actual_expiry;
+                                    }
                                 }
                             }
-                        }
-                    })?;
+                        })?;
 
-                    governance_activity.consecutive_dormant_epochs = 0;
-                    self.set_governance_activity(governance_activity)?;
+                        governance_activity.consecutive_dormant_epochs = 0;
+                    }
+
+                    // Bootstrap import bypasses the epoch-transition path that otherwise persists this counter.
+                    if reactivating || self.host.incremental_save {
+                        self.set_governance_activity(governance_activity)?;
+                    }
                 }
             }
         }

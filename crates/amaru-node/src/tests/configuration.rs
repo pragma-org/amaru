@@ -290,7 +290,7 @@ impl NodeTestConfig {
             tx.save(
                 self.era_history(),
                 pp,
-                governance_activity,
+                Some(governance_activity),
                 &chain_anchor,
                 None,
                 Columns::empty(),
