@@ -65,12 +65,12 @@ mod register {
             MuxMessage::Register {
                 protocol: PROTO_N2N_CHAIN_SYNC.erase(),
                 frame: Frame::OneCborItem,
-                handler: eff.contramap(&chainsync, "chainsync_bytes", Inputs::Network).await,
+                handler: chainsync.contramap(Inputs::Network),
                 max_buffer: 5760 * usize::from(PIPELINE_DEPTH),
             },
         )
         .await;
-        eff.contramap(&chainsync, "chainsync_handler", Inputs::Local).await
+        chainsync.contramap(Inputs::Local)
     }
 
     pub async fn register_chainsync_responder(
@@ -89,11 +89,11 @@ mod register {
             MuxMessage::Register {
                 protocol: PROTO_N2N_CHAIN_SYNC.responder().erase(),
                 frame: Frame::OneCborItem,
-                handler: eff.contramap(&chainsync, "chainsync_bytes", Inputs::Network).await,
+                handler: chainsync.contramap(Inputs::Network),
                 max_buffer: 5760,
             },
         )
         .await;
-        eff.contramap(&chainsync, "chainsync_bytes", Inputs::Local).await
+        chainsync.contramap(Inputs::Local)
     }
 }

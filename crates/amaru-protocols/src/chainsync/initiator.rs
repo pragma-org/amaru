@@ -136,7 +136,7 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
             use InitiatorAction::*;
             let action = match &input {
                 InitiatorResult::Initialize => {
-                    self.me = eff.contramap(eff.me(), format!("{}-handler", eff.me().name()), Inputs::Local).await;
+                    self.me = eff.me_ref().contramap(Inputs::Local);
                     match intersect_points(eff).await? {
                         SampleAncestorPointsResult::BestChainTipNotFound => {
                             return Err(anyhow::anyhow!("no best chain tip found"));

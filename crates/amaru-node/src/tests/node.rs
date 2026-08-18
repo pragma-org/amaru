@@ -18,7 +18,12 @@ use std::{
     sync::Arc,
 };
 
-use amaru_protocols::{manager::ManagerMessage, mux::HandlerMessage, protocol::PROTO_N2N_CHAIN_SYNC};
+use amaru_protocols::{
+    chainsync::{InitiatorMessage, ResponderMessage},
+    manager::ManagerMessage,
+    mux::HandlerMessage,
+    protocol::{Inputs, PROTO_N2N_CHAIN_SYNC, Role},
+};
 use amaru_pure_stage::{
     Effect, Resources, StageGraphRunning,
     simulation::{Blocked, SimulationRunning},
@@ -70,13 +75,19 @@ impl Node {
     /// This function installs a breakpoint that will be triggered when the node is initialized.
     /// We currently consider that it is initialized if the chainsync protocol has been registered.
     fn install_breakpoint_for_initialization(&mut self) {
+        use HandlerMessage::Registered;
+        use Inputs::Network;
+
         self.running.breakpoint("chainsync_registered", move |eff| {
-            if let Effect::Send { msg, .. } = eff {
-                if let Ok(handler_msg) = msg.cast_ref::<HandlerMessage>() {
-                    matches!(handler_msg, HandlerMessage::Registered(proto) if *proto == PROTO_N2N_CHAIN_SYNC.erase() || *proto == PROTO_N2N_CHAIN_SYNC.responder().erase())
-                } else {
-                    false
-                }
+            let Effect::Send { msg, .. } = eff else {
+                return false;
+            };
+            if let Ok(Network(Registered(proto))) = msg.cast_ref::<Inputs<InitiatorMessage>>() {
+                *proto == PROTO_N2N_CHAIN_SYNC.erase()
+            } else if let Ok(Network(Registered(proto))) = msg.cast_ref::<Inputs<ResponderMessage>>() {
+                *proto == PROTO_N2N_CHAIN_SYNC.responder().erase()
+            } else if let Ok(Registered(proto)) = msg.cast_ref::<HandlerMessage>() {
+                proto.for_role(Role::Initiator) == PROTO_N2N_CHAIN_SYNC.erase()
             } else {
                 false
             }

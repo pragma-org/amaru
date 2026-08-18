@@ -327,16 +327,11 @@ impl TxSubmissionInitiator {
 
         // Ask the mempool to notify us when it has reached the expected sequence number,
         // so that we can reply to the peer with the requested tx ids.
-        // Note: on the first `request_tx_ids_blocking` request we receive, we instantiate the callback
-        // stage ref with a contramap to the mempool stage. If we were to create one contramapped
-        // stage for each call we would have a memory leak because those references are not garbage
-        // collected.
+        // Instantiate the callback once and reuse it — the closure is cheap to keep.
         if self.wait_for_at_least_callback.is_blackhole() {
             self.wait_for_at_least_callback = eff
-                .contramap(eff.me_ref(), "tx_submission_wait_for_at_least_callback", |_: ()| {
-                    Inputs::<InitiatorLocalIn>::Local(InitiatorLocalIn::WaitForAtLeastReached)
-                })
-                .await;
+                .me_ref()
+                .contramap(|_: ()| Inputs::<InitiatorLocalIn>::Local(InitiatorLocalIn::WaitForAtLeastReached));
         }
         debug!(
             protocols::tx_submission::initiator::WAIT_FOR_AT_LEAST,

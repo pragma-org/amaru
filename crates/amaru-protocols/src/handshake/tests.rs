@@ -73,7 +73,7 @@ fn test_against_node() {
         ),
     );
 
-    let handshake_bytes = network.contramap(handshake, "handshake_bytes", Inputs::Network);
+    let handshake_bytes = handshake.contramap(Inputs::Network);
 
     network
         .preload(
@@ -142,7 +142,7 @@ fn test_against_node_with_tokio() {
         ),
     );
 
-    let handshake_bytes = network.contramap(handshake, "handshake_bytes", Inputs::Network);
+    let handshake_bytes = handshake.contramap(Inputs::Network);
 
     network
         .preload(

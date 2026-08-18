@@ -68,13 +68,13 @@ pub async fn register_keepalive(
         let keepalive = eff.stage("keepalive", initiator::initiator()).await;
         let keepalive = eff.supervise(keepalive, tombstone);
         let keepalive = eff.wire_up(keepalive, (state, stage)).await;
-        eff.contramap(&keepalive, "keepalive_handler", Inputs::<initiator::InitiatorMessage>::Network).await
+        keepalive.contramap(Inputs::<initiator::InitiatorMessage>::Network)
     } else {
         let (state, stage) = responder::KeepAliveResponder::new(muxer.clone());
         let keepalive = eff.stage("keepalive", responder::responder()).await;
         let keepalive = eff.supervise(keepalive, tombstone);
         let keepalive = eff.wire_up(keepalive, (state, stage)).await;
-        eff.contramap(&keepalive, "keepalive_handler", Inputs::<Void>::Network).await
+        keepalive.contramap(Inputs::<Void>::Network)
     };
 
     eff.send(

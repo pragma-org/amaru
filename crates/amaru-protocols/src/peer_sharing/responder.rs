@@ -70,12 +70,12 @@ pub async fn register_peer_sharing_responder<M: amaru_pure_stage::SendData>(
         MuxMessage::Register {
             protocol: PROTO_N2N_PEER_SHARE.responder().erase(),
             frame: Frame::OneCborItem,
-            handler: eff.contramap(&ps, "peer_sharing_responder_network", Inputs::<ResponderMessage>::Network).await,
+            handler: ps.contramap(Inputs::<ResponderMessage>::Network),
             max_buffer: MAX_MESSAGE_BYTES,
         },
     )
     .await;
-    eff.contramap(&ps, "peer_sharing_responder_local", Inputs::<ResponderMessage>::Local).await
+    ps.contramap(Inputs::<ResponderMessage>::Local)
 }
 
 /// Local messages into the responder stage.
@@ -139,11 +139,9 @@ impl StageState<State, Responder> for PeerSharingResponder {
                     let reply_to = match self.reply_bridge.clone() {
                         Some(bridge) => bridge,
                         None => {
-                            let bridge = eff
-                                .contramap(&eff.me(), "share_peers_reply", |r: SharePeersReply| {
-                                    Inputs::Local(ResponderMessage::SharePeers { peers: r.peers })
-                                })
-                                .await;
+                            let bridge = eff.me_ref().contramap(|r: SharePeersReply| {
+                                Inputs::Local(ResponderMessage::SharePeers { peers: r.peers })
+                            });
                             self.reply_bridge = Some(bridge.clone());
                             bridge
                         }
