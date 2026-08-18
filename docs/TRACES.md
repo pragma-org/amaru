@@ -434,6 +434,129 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::cli::dev`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `run` | `TRACE` | public | A developer command started, with the arguments it resolved. Command names the subcommand, e.g. "dev chain prune". | command, network | chain_dir, ledger_dir, headers_dir, input, start, block, parent, peer_address, epoch, count, from_point, only_blocks, only_validation_results, hint |
+
+<details><summary>span: `run`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `command` | `string` | ✓ |
+| `network` | `string` | ✓ |
+| `chain_dir` | `string` |  |
+| `ledger_dir` | `string` |  |
+| `headers_dir` | `string` |  |
+| `input` | `string` |  |
+| `start` | `string` |  |
+| `block` | `string` |  |
+| `parent` | `string` |  |
+| `peer_address` | `string` |  |
+| `epoch` | `string` |  |
+| `count` | `integer` |  |
+| `from_point` | `string` |  |
+| `only_blocks` | `boolean` |  |
+| `only_validation_results` | `boolean` |  |
+| `hint` | `string` |  |
+
+</details>
+
+## target: `amaru::cli::dev::chain`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `anchor_updated` | `TRACE` | public | The chain store anchor was moved to a new hash | new_anchor |  |
+| `migration_not_needed` | `TRACE` | public | The chain database is already at the current version |  |  |
+| `moving_best_chain` | `TRACE` | public | The best chain hash is being moved back before removing points |  |  |
+| `open_failed` | `TRACE` | public | The chain database could not be opened | error |  |
+| `parent_not_found` | `TRACE` | public | A header on the path back to the best chain has no stored parent | header_hash |  |
+| `point_removed` | `TRACE` | public | A point is being removed from the chain store | point |  |
+| `points_to_remove` | `TRACE` | public | The number of stored points selected for removal | points |  |
+| `prune_boundary` | `TRACE` | public | The pruning boundary derived from the oldest ledger snapshot | oldest_ledger_epoch, boundary_slot |  |
+| `validation_cleared` | `TRACE` | public | The stored validation status of a block is being cleared | header_hash |  |
+
+<details><summary>span: `anchor_updated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `new_anchor` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `open_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `parent_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `point_removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `points_to_remove`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `points` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `prune_boundary`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `oldest_ledger_epoch` | `integer` | ✓ |
+| `boundary_slot` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `validation_cleared`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::cli::dev::ledger`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `snapshot_not_found` | `TRACE` | public | A ledger snapshot to remove does not exist | epoch |  |
+| `snapshot_removed` | `TRACE` | public | A ledger snapshot was removed | epoch |  |
+
+<details><summary>span: `snapshot_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `snapshot_removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::cli::last_block`
 
 | name | level | public | description | required fields | optional fields |
@@ -469,6 +592,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `download` | `TRACE` | public | Synchronize the cardano-node database from Mithril | from_chunk, target_dir |  |
+| `download_chunks` | `TRACE` | public | Immutable chunks are being fetched from Mithril | tip, from_chunk |  |
+| `ingest_completed` | `TRACE` | public | Finished replaying downloaded blocks into the stores | processed, duration_seconds, processed_per_seconds |  |
 | `skip_download` | `TRACE` | public | Local cardano-node database is recent enough; skipping Mithril download | from_chunk, required_chunk, target_dir, reason |  |
 
 <details><summary>span: `download`</summary>
@@ -477,6 +602,25 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `from_chunk` | `integer` | ✓ |
 | `target_dir` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `download_chunks`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `from_chunk` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `ingest_completed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `processed` | `integer` | ✓ |
+| `duration_seconds` | `number` | ✓ |
+| `processed_per_seconds` | `number` | ✓ |
 
 </details>
 
@@ -498,6 +642,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `bootstrap` | `TRACE` | public | Bootstrap a node from published snapshots | chain_dir, ledger_dir, network | epoch |
 | `rm` | `TRACE` | public | Remove ledger and chain database from disk | chain_dir, ledger_dir, network |  |
 | `rollback` | `TRACE` | public | Roll the node databases back after a failure | chain_dir, ledger_dir, network, mode | epoch, ledger_tip, best_chain, anchor |
+| `run` | `TRACE` | public | The effective configuration a node run starts with | chain_dir, ledger_dir, listen_address, max_extra_ledger_snapshots, migrate_chain_db, network, peer_address, peer_snapshot, peer_snapshot_relays, pid_file, submit_api_address, trace_buffer_min_entries, trace_buffer_max_size, trace_dump_path, peer_removal_cooldown_secs, mempool_max_bytes, tx_submission_max_window, tx_submission_fetch_batch_bytes, tx_submission_inflight_timeout_ms, tx_submission_insert_timeout_ms | era_history, global_parameters |
+| `submit_api_shutdown_failed` | `TRACE` | public | The submit API did not stop cleanly during shutdown. Reason ∈ {join_error, timeout}. | reason | error |
 
 <details><summary>span: `bootstrap`</summary>
 
@@ -532,6 +678,44 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `ledger_tip` | `string` |  |
 | `best_chain` | `string` |  |
 | `anchor` | `string` |  |
+
+</details>
+
+<details><summary>span: `run`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `chain_dir` | `string` | ✓ |
+| `ledger_dir` | `string` | ✓ |
+| `listen_address` | `string` | ✓ |
+| `max_extra_ledger_snapshots` | `string` | ✓ |
+| `migrate_chain_db` | `boolean` | ✓ |
+| `network` | `string` | ✓ |
+| `peer_address` | `string` | ✓ |
+| `peer_snapshot` | `string` | ✓ |
+| `peer_snapshot_relays` | `integer` | ✓ |
+| `pid_file` | `string` | ✓ |
+| `submit_api_address` | `string` | ✓ |
+| `trace_buffer_min_entries` | `integer` | ✓ |
+| `trace_buffer_max_size` | `integer` | ✓ |
+| `trace_dump_path` | `string` | ✓ |
+| `peer_removal_cooldown_secs` | `integer` | ✓ |
+| `mempool_max_bytes` | `string` | ✓ |
+| `tx_submission_max_window` | `integer` | ✓ |
+| `tx_submission_fetch_batch_bytes` | `integer` | ✓ |
+| `tx_submission_inflight_timeout_ms` | `integer` | ✓ |
+| `tx_submission_insert_timeout_ms` | `integer` | ✓ |
+| `era_history` | `string` |  |
+| `global_parameters` | `string` |  |
+
+</details>
+
+<details><summary>span: `submit_api_shutdown_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `error` | `string` |  |
 
 </details>
 
@@ -2760,6 +2944,39 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::setup::file_descriptors`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `too_low` | `TRACE` | public | The soft limit on open files is below what Amaru needs | current_soft_fd_limit, current_hard_fd_limit, expected_min, hint |  |
+| `unknown` | `TRACE` | public | The open-file limit could not be queried | expected_min |  |
+
+<details><summary>span: `too_low`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `current_soft_fd_limit` | `integer` | ✓ |
+| `current_hard_fd_limit` | `integer` | ✓ |
+| `expected_min` | `integer` | ✓ |
+| `hint` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `unknown`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `expected_min` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::setup::lifecycle`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `consensus_died` | `TRACE` | public | The consensus pipeline stopped while the node was still running |  |  |
+| `termination_signal` | `TRACE` | public | A termination signal was received; the node is shutting down |  |  |
+
 ## target: `amaru::setup::observability`
 
 | name | level | public | description | required fields | optional fields |
@@ -2773,6 +2990,59 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `with_open_telemetry` | `boolean` | ✓ |
 | `with_json_traces` | `boolean` | ✓ |
 | `with_colors` | `boolean` | ✓ |
+
+</details>
+
+## target: `amaru::setup::peer_snapshot`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `empty` | `TRACE` | public | A peer snapshot was loaded but holds no relay addresses | path, point, pools |  |
+| `loaded` | `TRACE` | public | A peer snapshot was loaded at startup | path, point, pools, relays, node_to_client_version, configs_commit |  |
+| `missing` | `TRACE` | public | No embedded peer snapshot exists for the selected network | network |  |
+
+<details><summary>span: `empty`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `pools` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `loaded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `pools` | `integer` | ✓ |
+| `relays` | `integer` | ✓ |
+| `node_to_client_version` | `integer` | ✓ |
+| `configs_commit` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `missing`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `network` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::setup::pid`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `write_failed` | `TRACE` | public | The PID file could not be created or written | error |  |
+
+<details><summary>span: `write_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
 
 </details>
 
@@ -2791,6 +3061,30 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `provided_by_user` | `boolean` | ✓ |
 | `provided_invalid` | `boolean` |  |
 | `error` | `string` |  |
+
+</details>
+
+## target: `amaru::setup::trace_buffer`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `dump_failed` | `TRACE` | public | The stage trace buffer could not be written to disk | path, error |  |
+| `dumped` | `TRACE` | public | The stage trace buffer was written to disk | path |  |
+
+<details><summary>span: `dump_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `dumped`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `path` | `string` | ✓ |
 
 </details>
 

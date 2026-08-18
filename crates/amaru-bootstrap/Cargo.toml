@@ -31,7 +31,6 @@ serde_json = { workspace = true, features = ["std"] }
 tar.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "rt", "rt-multi-thread", "time"] }
-tracing.workspace = true
 zstd.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐

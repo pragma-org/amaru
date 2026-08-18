@@ -40,6 +40,9 @@ use amaru_node::{
         config::{Config, LedgerConfig, MaxExtraLedgerSnapshots, StoreType},
     },
 };
+#[cfg(unix)]
+use amaru_observability::error;
+use amaru_observability::{info, info_record, info_span, warn};
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::tx_submission::ResponderParams;
 use amaru_pure_stage::{Sender, trace_buffer::TraceBuffer};
@@ -49,9 +52,6 @@ use clap::{self, ArgAction, Parser};
 use parking_lot::Mutex;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
-#[cfg(unix)]
-use tracing::error;
-use tracing::{info, warn};
 
 use crate::pid::optional_pid_file;
 
@@ -450,9 +450,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> Result<(), B
         term.await;
         if !exit_for_term.is_cancelled() {
             consensus_died_flag.store(true, Ordering::SeqCst);
-            tracing::error!(
-                "Consensus died, this should not happen! Please report this incl. preceding logs to the Amaru team."
-            );
+            error!(setup::lifecycle::CONSENSUS_DIED);
             exit_for_term.cancel();
         }
     });
@@ -466,8 +464,12 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> Result<(), B
     if let Some(handle) = submit_api_handle {
         match tokio::time::timeout(SUBMIT_API_JOIN_TIMEOUT, handle).await {
             Ok(Ok(())) => {}
-            Ok(Err(err)) => warn!(error = %err, "submit API task ended with join error"),
-            Err(_) => warn!("submit API did not shut down within timeout"),
+            Ok(Err(err)) => {
+                warn!(cli::node::SUBMIT_API_SHUTDOWN_FAILED, reason = "join_error", error = %err);
+            }
+            Err(_) => {
+                warn!(cli::node::SUBMIT_API_SHUTDOWN_FAILED, reason = "timeout");
+            }
         }
     }
 
@@ -509,8 +511,12 @@ fn dump_trace_buffer_to_file(path: Option<&Path>, trace_buffer: &Arc<Mutex<Trace
         Ok(())
     })();
     match result {
-        Ok(()) => tracing::info!(path = %path.display(), "wrote stage trace buffer dump"),
-        Err(e) => tracing::error!(path = %path.display(), error = %e, "failed to write stage trace buffer dump"),
+        Ok(()) => {
+            info!(setup::trace_buffer::DUMPED, path = path.display().to_string());
+        }
+        Err(e) => {
+            error!(setup::trace_buffer::DUMP_FAILED, path = path.display().to_string(), error = %e);
+        }
     }
 }
 
@@ -562,10 +568,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
             }
             None => {
                 if PEER_SNAPSHOT_NETWORKS.contains(&network) {
-                    warn!(
-                        network = %network,
-                        "no embedded peer snapshot for this network; continuing without snapshot peers"
-                    );
+                    warn!(setup::peer_snapshot::MISSING, network = network);
                 }
                 BTreeSet::new()
             }
@@ -582,53 +585,48 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     let mempool = MempoolConfig::default();
     let tx_submission_params = ResponderParams::default();
 
-    info!(
-        _command = "node run",
-        chain_dir = %chain_dir.to_string_lossy(),
-        ledger_dir = %ledger_dir.to_string_lossy(),
-        listen_address = args.listen_address,
-        max_extra_ledger_snapshots = %args.max_extra_ledger_snapshots,
+    let era_history_path = args.era_history.map(|file| file.display().to_string());
+    let global_parameters_json = matches!(network, NetworkName::Testnet(..))
+        .then(|| serde_json::to_string(&global_parameters).expect("failed to serialise GlobalParameters to string?"));
+
+    let _span = info_span!(
+        cli::node::RUN,
+        chain_dir = chain_dir.to_string_lossy(),
+        ledger_dir = ledger_dir.to_string_lossy(),
+        listen_address = &args.listen_address,
+        max_extra_ledger_snapshots = args.max_extra_ledger_snapshots.to_string(),
         migrate_chain_db = args.migrate_chain_db,
-        network = %args.network,
-        era_history = args.era_history
-            .map(|file| Box::new(file.display().to_string()) as Box<dyn tracing::Value>)
-            .unwrap_or_else(|| Box::new(tracing::field::Empty)),
-        global_parameters = if matches!(network, NetworkName::Testnet(..)) {
-            Box::new(serde_json::to_string(&global_parameters).expect("failed to serialise GlobalParameters to string?")) as Box<dyn tracing::Value>
-        } else {
-            Box::new(tracing::field::Empty)
-        },
-        peer_address = %peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
-        peer_snapshot = %args
-            .peer_snapshot
-            .as_deref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| {
-                if peer_snapshot_peers.is_empty() {
-                    "none".to_string()
-                } else {
-                    format!(
-                        "embedded{}",
-                        embedded_configs_commit()
-                            .map(|sha| format!("@{sha}"))
-                            .unwrap_or_default()
-                    )
-                }
-            }),
+        network = args.network,
+        peer_address = peer_address.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+        peer_snapshot = args.peer_snapshot.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| {
+            if peer_snapshot_peers.is_empty() {
+                "none".to_string()
+            } else {
+                format!("embedded{}", embedded_configs_commit().map(|sha| format!("@{sha}")).unwrap_or_default())
+            }
+        }),
         peer_snapshot_relays = peer_snapshot_peers.len(),
-        pid_file = %args.pid_file.unwrap_or_default().to_string_lossy(),
-        submit_api_address = %args.submit_api_address.as_deref().unwrap_or("disabled"),
-        trace_buffer_min_entries,
-        trace_buffer_max_size,
-        trace_dump_path = %trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
+        pid_file = args.pid_file.clone().unwrap_or_default().display().to_string(),
+        submit_api_address = args.submit_api_address.as_deref().unwrap_or("disabled"),
+        trace_buffer_min_entries = trace_buffer_min_entries,
+        trace_buffer_max_size = trace_buffer_max_size,
+        trace_dump_path =
+            trace_dump_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "disabled".to_string()),
         peer_removal_cooldown_secs = args.peer_removal_cooldown_secs,
-        mempool_max_bytes = ?mempool.max_bytes,
+        mempool_max_bytes = format!("{:?}", mempool.max_bytes),
         tx_submission_max_window = tx_submission_params.max_window.get(),
         tx_submission_fetch_batch_bytes = tx_submission_params.fetch_batch_bytes.get(),
-        tx_submission_inflight_timeout_ms = tx_submission_params.inflight_fetch_timeout.as_duration().as_millis() as u64,
+        tx_submission_inflight_timeout_ms =
+            tx_submission_params.inflight_fetch_timeout.as_duration().as_millis() as u64,
         tx_submission_insert_timeout_ms = tx_submission_params.mempool_insert_timeout.as_duration().as_millis() as u64,
-        "running"
-    );
+    )
+    .entered();
+    if let Some(era_history) = era_history_path.as_deref() {
+        info_record!(cli::node::RUN, era_history = era_history);
+    }
+    if let Some(global_parameters) = global_parameters_json.as_deref() {
+        info_record!(cli::node::RUN, global_parameters = global_parameters);
+    }
 
     Ok(Config {
         ledger_config: LedgerConfig {
@@ -663,20 +661,20 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
 fn log_loaded_snapshot(path: Option<&Path>, snapshot: &amaru_node::peer_snapshot::PeerSnapshot) {
     if snapshot.peers.is_empty() {
         warn!(
-            path = %path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
-            point = %snapshot.point,
-            pools = snapshot.pool_count,
-            "peer snapshot loaded but contains no relays"
+            setup::peer_snapshot::EMPTY,
+            path = path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
+            point = snapshot.point,
+            pools = snapshot.pool_count
         );
     } else {
         info!(
-            path = %path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
-            point = %snapshot.point,
+            setup::peer_snapshot::LOADED,
+            path = path.map(|p| p.display().to_string()).unwrap_or_else(|| "embedded".into()),
+            point = snapshot.point,
             node_to_client_version = snapshot.node_to_client_version,
             pools = snapshot.pool_count,
             relays = snapshot.peers.len(),
-            configs_commit = embedded_configs_commit().unwrap_or("unknown"),
-            "loaded peer snapshot"
+            configs_commit = embedded_configs_commit().unwrap_or("unknown")
         );
     }
 }
@@ -701,10 +699,11 @@ fn pre_flight_checks() -> Result<(), PreFlightError> {
         Ok((current_soft_fd_limit, current_hard_fd_limit)) => {
             if current_soft_fd_limit < EXPECTED_MIN_FOR_SOFT_FD_LIMIT {
                 error!(
-                    %current_soft_fd_limit,
-                    %current_hard_fd_limit,
-                    %EXPECTED_MIN_FOR_SOFT_FD_LIMIT,
-                    "Increase the limit for open files before starting Amaru (see ulimit -n).",
+                    setup::file_descriptors::TOO_LOW,
+                    current_soft_fd_limit = current_soft_fd_limit,
+                    current_hard_fd_limit = current_hard_fd_limit,
+                    expected_min = EXPECTED_MIN_FOR_SOFT_FD_LIMIT,
+                    hint = "Increase the limit for open files before starting Amaru (see ulimit -n)."
                 );
                 Err(PreFlightError::NotEnoughFileDescriptors(EXPECTED_MIN_FOR_SOFT_FD_LIMIT, current_soft_fd_limit))
             } else {
@@ -712,7 +711,7 @@ fn pre_flight_checks() -> Result<(), PreFlightError> {
             }
         }
         Err(_err) => {
-            warn!(%EXPECTED_MIN_FOR_SOFT_FD_LIMIT, "Unable to query rlimit for max open files.");
+            warn!(setup::file_descriptors::UNKNOWN, expected_min = EXPECTED_MIN_FOR_SOFT_FD_LIMIT);
             Ok(())
         }
     }

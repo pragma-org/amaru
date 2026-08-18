@@ -20,9 +20,9 @@ use amaru::{
 };
 use amaru_kernel::{NetworkName, Point};
 use amaru_ledger::store::{HistoricalStores, ReadStore};
+use amaru_observability::info;
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDbConfig};
 use clap::Parser;
-use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -52,10 +52,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "dev ledger states list",
-        ledger_dir = %ledger_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+        cli::dev::RUN,
+        command = "dev ledger states list",
+        network = args.network,
+        ledger_dir = ledger_dir.to_string_lossy()
     );
 
     let era_history = args.network.as_era_history();

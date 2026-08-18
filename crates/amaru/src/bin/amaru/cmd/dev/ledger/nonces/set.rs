@@ -19,10 +19,10 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{Epoch, HeaderHash, NetworkName, Nonce, parse_nonce};
+use amaru_observability::info;
 use amaru_ouroboros::{Nonces, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
-use tracing::info;
 
 use crate::cmd::PointOrHash;
 
@@ -86,11 +86,11 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
-        _command = "dev ledger nonces set",
-        chain_dir = %chain_dir.to_string_lossy(),
-        network = %args.network,
-        block = %*args.block,
-        "running",
+        cli::dev::RUN,
+        command = "dev ledger nonces set",
+        network = args.network,
+        chain_dir = chain_dir.to_string_lossy(),
+        block = args.block.to_string()
     );
 
     let db = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;

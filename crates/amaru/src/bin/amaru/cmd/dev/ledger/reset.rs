@@ -25,8 +25,8 @@ use amaru::{
 };
 use amaru_kernel::{Epoch, NetworkName};
 use amaru_node::reset_ledger_to_epoch;
+use amaru_observability::info;
 use clap::Parser;
-use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -62,12 +62,12 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "dev ledger reset",
-        epoch = %args.epoch,
-        ledger_dir = %ledger_dir.to_string_lossy(),
-        network = %args.network,
-        hint = "prefer `amaru node rollback --epoch` which also realigns the chain store",
-        "running",
+        cli::dev::RUN,
+        command = "dev ledger reset",
+        network = args.network,
+        epoch = args.epoch.to_string(),
+        ledger_dir = ledger_dir.to_string_lossy(),
+        hint = "prefer `amaru node rollback --epoch` which also realigns the chain store"
     );
 
     reset_ledger_to_epoch(&ledger_dir, args.epoch)?;

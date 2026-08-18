@@ -13,12 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{NetworkPoint, Peer, Slot};
-use amaru_observability::{debug_span, error};
+use amaru_observability::{Instrument, debug_span, error};
 use pallas_network::miniprotocols::{
     Point as PallasPoint,
     chainsync::{Client, ClientError, HeaderContent, NextResponse},
 };
-use tracing::Instrument;
 
 // TODO: Avoid Pallas points here and use our own chain sync client.
 fn to_pallas_point(point: NetworkPoint) -> PallasPoint {

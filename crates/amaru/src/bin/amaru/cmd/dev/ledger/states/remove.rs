@@ -20,9 +20,9 @@ use amaru::{
 };
 use amaru_kernel::{Epoch, NetworkName};
 use amaru_ledger::state::MIN_LEDGER_SNAPSHOTS;
+use amaru_observability::{info, warn};
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
-use tracing::{info, warn};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -56,10 +56,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "dev ledger states remove",
-        ledger_dir = %ledger_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+        cli::dev::RUN,
+        command = "dev ledger states remove",
+        network = args.network,
+        ledger_dir = ledger_dir.to_string_lossy()
     );
 
     let existing = RocksDB::snapshots(&ledger_dir)?;
@@ -78,10 +78,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let epoch_dir = ledger_dir.join(format!("{epoch}"));
         if epoch_dir.exists() {
             fs::remove_dir_all(&epoch_dir).map_err(|e| format!("failed to remove {}: {e}", epoch_dir.display()))?;
-            info!(epoch = u64::from(*epoch), "removed snapshot");
+            info!(cli::dev::ledger::SNAPSHOT_REMOVED, epoch = u64::from(*epoch));
             removed += 1;
         } else {
-            warn!(epoch = u64::from(*epoch), "snapshot not found, skipping");
+            warn!(cli::dev::ledger::SNAPSHOT_NOT_FOUND, epoch = u64::from(*epoch));
         }
     }
 

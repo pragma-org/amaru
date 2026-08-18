@@ -20,7 +20,7 @@ use std::{
     process::{self, Command},
 };
 
-use tracing::{debug, warn};
+use amaru_observability::{debug, warn};
 
 pub struct ProcessIdHandle {
     path: PathBuf,
@@ -100,8 +100,12 @@ pub fn process_exists(pid: u32) -> bool {
 pub fn optional_pid_file(maybe_path: Option<impl AsRef<Path>>) -> Option<ProcessIdHandle> {
     maybe_path.and_then(|path| {
         ProcessIdHandle::new(path)
-            .inspect(|pid_file| debug!("created PID File {}, current PID: {}", pid_file, pid_file.pid()))
-            .inspect_err(|e| warn!("failed to create or write to PID file: {} ", e))
+            .inspect(|pid_file| {
+                debug!(setup::pid::CREATED, path = pid_file.to_string(), pid = pid_file.pid());
+            })
+            .inspect_err(|e| {
+                warn!(setup::pid::WRITE_FAILED, error = %e);
+            })
             .ok()
     })
 }

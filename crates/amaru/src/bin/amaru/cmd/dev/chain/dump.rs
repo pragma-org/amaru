@@ -20,10 +20,10 @@ use amaru::{
 };
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{HeaderHash, IsHeader, NetworkName, to_cbor, utils::string::ListToString};
+use amaru_observability::info;
 use amaru_ouroboros::{ChildTipsMode, DiagnosticChainStore, ReadChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
-use tracing::info;
 
 use crate::cmd::PointOrHash;
 
@@ -80,12 +80,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
-    info!(
-        _command = "dev chain dump",
-        chain_dir = %chain_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
-    );
+    info!(cli::dev::RUN, command = "dev chain dump", network = args.network, chain_dir = chain_dir.to_string_lossy());
 
     let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;
 

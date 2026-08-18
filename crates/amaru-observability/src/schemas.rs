@@ -1293,6 +1293,111 @@ define_schemas! {
                 required description: String
                 optional cause: String
             }
+            dev {
+                tags: cli
+                /// A developer command started, with the arguments it resolved.
+                /// Command names the subcommand, e.g. "dev chain prune".
+                public RUN {
+                    required command: String
+                    required network: amaru_kernel::NetworkName
+                    optional chain_dir: String
+                    optional ledger_dir: String
+                    optional headers_dir: String
+                    optional input: String
+                    optional start: String
+                    optional block: String
+                    optional parent: String
+                    optional peer_address: String
+                    optional epoch: String
+                    optional count: usize
+                    optional from_point: String
+                    optional only_blocks: bool
+                    optional only_validation_results: bool
+                    /// Extra guidance for the operator, when a better command exists
+                    optional hint: String
+                }
+                chain {
+                    /// The pruning boundary derived from the oldest ledger snapshot
+                    public PRUNE_BOUNDARY {
+                        required oldest_ledger_epoch: u64
+                        required boundary_slot: u64
+                    }
+                    /// The chain store anchor was moved to a new hash
+                    public ANCHOR_UPDATED {
+                        required new_anchor: amaru_kernel::HeaderHash
+                    }
+                    /// The chain database is already at the current version
+                    public MIGRATION_NOT_NEEDED {}
+                    /// The chain database could not be opened
+                    public OPEN_FAILED {
+                        required error: String
+                    }
+                    /// The number of stored points selected for removal
+                    public POINTS_TO_REMOVE {
+                        required points: usize
+                    }
+                    /// The best chain hash is being moved back before removing points
+                    public MOVING_BEST_CHAIN {}
+                    /// A header on the path back to the best chain has no stored parent
+                    public PARENT_NOT_FOUND {
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
+                    /// A point is being removed from the chain store
+                    public POINT_REMOVED {
+                        required point: amaru_kernel::Point
+                    }
+                    /// The stored validation status of a block is being cleared
+                    public VALIDATION_CLEARED {
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
+                }
+                ledger {
+                    /// A ledger snapshot was removed
+                    public SNAPSHOT_REMOVED {
+                        required epoch: u64
+                    }
+                    /// A ledger snapshot to remove does not exist
+                    public SNAPSHOT_NOT_FOUND {
+                        required epoch: u64
+                    }
+                }
+            }
+            node {
+                tags: setup
+                /// The effective configuration a node run starts with
+                public RUN {
+                    required chain_dir: String
+                    required ledger_dir: String
+                    required listen_address: String
+                    required max_extra_ledger_snapshots: String
+                    required migrate_chain_db: bool
+                    required network: amaru_kernel::NetworkName
+                    required peer_address: String
+                    required peer_snapshot: String
+                    required peer_snapshot_relays: usize
+                    required pid_file: String
+                    required submit_api_address: String
+                    required trace_buffer_min_entries: usize
+                    required trace_buffer_max_size: usize
+                    required trace_dump_path: String
+                    required peer_removal_cooldown_secs: u64
+                    required mempool_max_bytes: String
+                    required tx_submission_max_window: u16
+                    required tx_submission_fetch_batch_bytes: u64
+                    required tx_submission_inflight_timeout_ms: u64
+                    required tx_submission_insert_timeout_ms: u64
+                    /// Path to an era history override, when one was given
+                    optional era_history: String
+                    /// Serialised global parameters, for test networks only
+                    optional global_parameters: String
+                }
+                /// The submit API did not stop cleanly during shutdown.
+                /// Reason ∈ {join_error, timeout}.
+                public SUBMIT_API_SHUTDOWN_FAILED {
+                    required reason: String
+                    optional error: String
+                }
+            }
             chain_db {
                 /// Chain database already exists
                 public EXIST {
@@ -1339,6 +1444,17 @@ define_schemas! {
                 public DOWNLOAD {
                     required from_chunk: u64
                     required target_dir: String
+                }
+                /// Immutable chunks are being fetched from Mithril
+                public DOWNLOAD_CHUNKS {
+                    required tip: amaru_kernel::Point
+                    required from_chunk: u64
+                }
+                /// Finished replaying downloaded blocks into the stores
+                public INGEST_COMPLETED {
+                    required processed: u64
+                    required duration_seconds: f64
+                    required processed_per_seconds: f64
                 }
                 /// Local cardano-node database is recent enough; skipping Mithril download
                 public SKIP_DOWNLOAD {
@@ -2357,6 +2473,69 @@ define_schemas! {
             }
         }
         setup {
+            lifecycle {
+                /// A termination signal was received; the node is shutting down
+                public TERMINATION_SIGNAL {}
+                /// The consensus pipeline stopped while the node was still running
+                public CONSENSUS_DIED {}
+            }
+            pid {
+                /// The PID file for this node instance was created
+                CREATED {
+                    required path: String
+                    required pid: u32
+                }
+                /// The PID file could not be created or written
+                public WRITE_FAILED {
+                    required error: String
+                }
+            }
+            file_descriptors {
+                /// The soft limit on open files is below what Amaru needs
+                public TOO_LOW {
+                    required current_soft_fd_limit: u64
+                    required current_hard_fd_limit: u64
+                    required expected_min: u64
+                    /// Operator-facing instruction on how to raise the limit
+                    required hint: String
+                }
+                /// The open-file limit could not be queried
+                public UNKNOWN {
+                    required expected_min: u64
+                }
+            }
+            trace_buffer {
+                /// The stage trace buffer was written to disk
+                public DUMPED {
+                    required path: String
+                }
+                /// The stage trace buffer could not be written to disk
+                public DUMP_FAILED {
+                    required path: String
+                    required error: String
+                }
+            }
+            peer_snapshot {
+                /// A peer snapshot was loaded at startup
+                public LOADED {
+                    required path: String
+                    required point: amaru_kernel::NetworkPoint
+                    required pools: usize
+                    required relays: usize
+                    required node_to_client_version: u64
+                    required configs_commit: String
+                }
+                /// A peer snapshot was loaded but holds no relay addresses
+                public EMPTY {
+                    required path: String
+                    required point: amaru_kernel::NetworkPoint
+                    required pools: usize
+                }
+                /// No embedded peer snapshot exists for the selected network
+                public MISSING {
+                    required network: amaru_kernel::NetworkName
+                }
+            }
             observability {
                 /// Observability stack initialization
                 public INIT {
