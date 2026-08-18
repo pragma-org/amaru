@@ -44,29 +44,6 @@ impl<K: Ord, V> SortedPairs<K, V> {
         self
     }
 
-    /// Concatenate two pairs together.
-    ///
-    /// Panics if the first key of the right-hand side is not strictly after the last key of the
-    /// left-hand side.
-    pub fn append(mut self, mut rhs: Self) -> Self
-    where
-        K: fmt::Debug,
-    {
-        if let Some((lhs_last, _)) = self.0.last()
-            && let Some((rhs_first, _)) = rhs.0.first()
-        {
-            assert!(
-                rhs_first > lhs_last,
-                "invariant violation (SortedPairs.append): rhs' first element ({:?}) is not after lhs' last element ({:?})",
-                rhs_first,
-                lhs_last,
-            );
-        }
-
-        self.0.append(&mut rhs.0);
-        self
-    }
-
     /// Returns true if the pairs contains a value for the specified key.
     ///
     /// The key may be any borrowed form of the pairs’ key type, but the ordering on the borrowed form must match the ordering on the key type.
@@ -146,6 +123,8 @@ impl<K: Ord, V> SortedPairs<K, V> {
 
     /// Add a new key/value pair after existing keys.
     ///
+    /// # Panics
+    ///
     /// Panics if the key is not strictly after the last inserted one.
     pub fn push(&mut self, k: K, v: V)
     where
@@ -157,7 +136,6 @@ impl<K: Ord, V> SortedPairs<K, V> {
                 "invariant violation (SortedPairs.push): pushed element ({k:?}) is not after last element ({last:?})",
             );
         }
-
         self.0.push((k, v));
     }
 
@@ -182,11 +160,42 @@ impl<K: Ord, V> SortedPairs<K, V> {
     }
 }
 
+impl<K: Ord, V> From<Vec<(K, V)>> for SortedPairs<K, V> {
+    fn from(mut vec: Vec<(K, V)>) -> Self {
+        vec.sort_unstable_by(|(lhs, _), (rhs, _)| lhs.cmp(rhs));
+        Self(vec)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::{collection::btree_map, prelude::*};
 
     use crate::SortedPairs;
+
+    #[test]
+    fn from_vec() {
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        enum Foo {
+            A(usize),
+            B(usize),
+        }
+
+        let mut vec = Vec::with_capacity(4);
+        vec.push((Foo::B(0), ()));
+        vec.push((Foo::B(1), ()));
+        vec.push((Foo::A(2), ()));
+        vec.push((Foo::A(3), ()));
+
+        assert_eq!(
+            SortedPairs::from(vec),
+            SortedPairs::with_capacity(4)
+                .and_push(Foo::A(2), ())
+                .and_push(Foo::A(3), ())
+                .and_push(Foo::B(0), ())
+                .and_push(Foo::B(1), ())
+        )
+    }
 
     proptest! {
         #[test]
