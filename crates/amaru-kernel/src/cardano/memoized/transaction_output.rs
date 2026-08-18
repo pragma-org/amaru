@@ -14,8 +14,6 @@
 
 use std::collections::BTreeMap;
 
-use amaru_minicbor_extra::decode_bytes;
-
 use crate::{
     Address, AssetName, Hash, Legacy, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, ShelleyDelegationPart,
     StakeCredential, Value, cbor, serialize_memoized_script, size::CREDENTIAL, to_cbor, utils::cbor::SerialisedAsCbor,
@@ -103,7 +101,7 @@ impl MemoizedTransactionOutput {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedTransactionOutput {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let data_type = d.datatype()?;
         let start_pos = d.position();
@@ -121,7 +119,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
     }
 }
 
-fn decode_legacy_output<C>(
+fn decode_legacy_output<C: cbor::HasProtocolVersion>(
     d: &mut cbor::Decoder<'_>,
     ctx: &mut C,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
@@ -130,7 +128,7 @@ fn decode_legacy_output<C>(
     Ok(MemoizedTransactionOutput {
         original_size: 0,
         is_legacy: true,
-        address: decode_address(&decode_bytes(d)?)?,
+        address: decode_address(&cbor::decode_bytes_with(d, ctx)?)?,
         value: d.decode_with(ctx)?,
         datum: match len {
             Some(2) => MemoizedDatum::None,
@@ -158,7 +156,7 @@ fn decode_legacy_output<C>(
     })
 }
 
-fn decode_modern_output<C>(
+fn decode_modern_output<C: cbor::HasProtocolVersion>(
     d: &mut cbor::Decoder<'_>,
     ctx: &mut C,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
@@ -168,7 +166,7 @@ fn decode_modern_output<C>(
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = Some(decode_address(&decode_bytes(d)?)?),
+                0 => state.0 = Some(decode_address(&cbor::decode_bytes_with(d, ctx)?)?),
                 1 => state.1 = Some(d.decode_with(ctx)?),
                 2 => state.2 = d.decode_with(ctx)?,
                 3 => {
@@ -195,7 +193,7 @@ fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> 
     Address::from_bytes(address_bytes).ok_or_else(|| cbor::decode::Error::message("invalid address"))
 }
 
-impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for MemoizedTransactionOutput {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

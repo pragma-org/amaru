@@ -20,7 +20,7 @@ pub struct BallotId {
     pub voter: Voter,
 }
 
-impl<C> cbor::encode::Encode<C> for BallotId {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for BallotId {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -33,7 +33,7 @@ impl<C> cbor::encode::Encode<C> for BallotId {
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for BallotId {
+impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for BallotId {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;

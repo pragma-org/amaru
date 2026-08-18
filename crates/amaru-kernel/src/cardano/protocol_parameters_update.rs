@@ -19,6 +19,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(map)]
 pub struct ProtocolParamUpdate {
     #[n(0)]

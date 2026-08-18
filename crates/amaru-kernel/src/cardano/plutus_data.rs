@@ -48,7 +48,7 @@ pub enum PlutusData {
 // 3. Constr fields follow the same rules as arrays.
 // 4. Bytes are encoded as definite length if less than 64 bytes, and with indefinite in chunks of
 //    up-to 64 bytes when larger.
-impl<C> cbor::encode::Encode<C> for PlutusData {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PlutusData {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -88,7 +88,7 @@ impl<C> cbor::encode::Encode<C> for PlutusData {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for PlutusData {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PlutusData {
     #[expect(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         match d.datatype()? {
@@ -150,7 +150,7 @@ pub struct PlutusDataSet {
     inner: NonEmptyVec<MemoizedPlutusData>,
 }
 
-impl<C> cbor::Encode<C> for PlutusDataSet {
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for PlutusDataSet {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -160,7 +160,7 @@ impl<C> cbor::Encode<C> for PlutusDataSet {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for PlutusDataSet {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for PlutusDataSet {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let (inner, bytes) = cbor::tee(d, |d| NonEmptyVec::<MemoizedPlutusData>::decode(d, ctx))?;
         Ok(Self { original_bytes: Bytes::from(bytes.to_vec()), inner })

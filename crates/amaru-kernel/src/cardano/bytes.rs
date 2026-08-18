@@ -14,8 +14,6 @@
 
 use std::{fmt, ops::Deref, str::FromStr};
 
-use amaru_minicbor_extra::decode_bytes;
-
 use crate::cbor;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
@@ -39,9 +37,9 @@ impl<C> cbor::Encode<C> for Bytes {
     }
 }
 
-impl<'d, C> cbor::Decode<'d, C> for Bytes {
-    fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        Ok(Bytes(cbor::bytes::ByteVec::from(decode_bytes(d)?.into_owned())))
+impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for Bytes {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(Bytes(cbor::bytes::ByteVec::from(cbor::decode_bytes_with(d, ctx)?.into_owned())))
     }
 }
 

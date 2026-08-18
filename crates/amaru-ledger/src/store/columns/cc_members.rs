@@ -33,7 +33,7 @@ pub struct Row {
     pub valid_until: Option<Epoch>,
 }
 
-impl<C> cbor::encode::Encode<C> for Row {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Row {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -46,7 +46,7 @@ impl<C> cbor::encode::Encode<C> for Row {
     }
 }
 
-impl<'a, C> cbor::decode::Decode<'a, C> for Row {
+impl<'a, C: cbor::HasProtocolVersion> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Row { status: d.decode_with(ctx)?, valid_until: d.decode_with(ctx)? })

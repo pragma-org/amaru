@@ -643,6 +643,21 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::block`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `skip` | `TRACE` | public | Skip a block validation when it is not better than the current ledger tip | current, tip |  |
+
+<details><summary>span: `skip`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `current` | `string` | ✓ |
+| `tip` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::consensus::perf::fork`
 
 | name | level | public | description | required fields | optional fields |

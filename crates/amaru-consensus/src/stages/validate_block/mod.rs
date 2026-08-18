@@ -16,14 +16,19 @@ use std::collections::BTreeMap;
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point};
 use amaru_metrics::LedgerMetrics;
-use amaru_observability::{TraceContext, debug_span};
+use amaru_observability::{TraceContext, debug, debug_span};
 use amaru_ouroboros_traits::ForkSwitchOutcome;
+use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
 use tracing::Instrument;
 
 use crate::{
     effects::{Ledger, LedgerOps, Metrics, MetricsOps},
-    stages::{adopt_chain::AdoptChainMsg, block_source::BlockSourceMsg, select_chain::SelectChainMsg},
+    stages::{
+        adopt_chain::AdoptChainMsg,
+        block_source::BlockSourceMsg,
+        select_chain::{SelectChainMsg, cmp_tip},
+    },
 };
 
 /// ValidateBlock stage: thin validation dispatcher + result router for the consensus pipeline.
@@ -40,6 +45,8 @@ use crate::{
 ///     `BlockSourceMsg::Validation { valid: true, point: msg.tip }`, and
 ///     `AdoptChainMsg::new(msg.tip, state.max_block_height)` to manager; update `state.current = msg.tip`.
 ///   - `Err`: log warn, send `...Result(msg.tip, false)` + `Validation { valid: false, ... }` (no adopt, no current update).
+/// - If `msg.tip` is not better than the current tip (using the [`cmp_tip`] function) the message is
+///   dropped.
 /// - Otherwise: ask the ledger to switch to the fork ending at `msg.tip` (`Ledger::switch_to_fork`,
 ///   a `SwitchToForkEffect`) and route its `ForkSwitchOutcome`:
 ///   - `Completed`: same signals as a successful extension.
@@ -194,6 +201,22 @@ pub async fn stage(
                 }
             }
         } else {
+            // fetch_blocks streams the blocks of a new best candidate one by one, each with its own
+            // tip. Only a tip that is strictly better than the current one (per the chain-selection
+            // order) can be accepted as a candidate for a fork switch on the ledger.
+            //
+            // NOTE: the headers are loaded from the store on demand rather than kept in the stage
+            // state. This branch is neither on the sync hot path nor on the caught-up common path
+            // (both extend `current` and take the branch above), while a header held in the state
+            // would add ~1.5kB to every stage state snapshot serialized into the TraceBuffer.
+            let store = Store::new(eff.clone());
+            let message_header = store.load_header(&tip.hash()).await;
+            let current_header = store.load_header(&state.current.hash()).await;
+            if cmp_tip(message_header.as_ref(), current_header.as_ref()) != std::cmp::Ordering::Greater {
+                debug!(consensus::block::SKIP, current = state.current, tip = tip);
+                return state;
+            }
+
             tracing::info!(parent = %msg.parent, current = %state.current, "switching the ledger to a new fork");
             let result = ledger
                 .switch_to_fork(&tip)

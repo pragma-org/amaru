@@ -24,7 +24,7 @@ pub struct Account {
     pub drep: Option<DRep>,
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Account {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Account {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Account {

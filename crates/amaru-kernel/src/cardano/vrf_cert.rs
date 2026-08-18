@@ -17,6 +17,7 @@ use crate::{Bytes, cardano::fixed_bytes::FixedBytes, cbor};
 pub const VRF_PROOF: usize = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct VrfCert {
     #[n(0)]
     pub output: Bytes,

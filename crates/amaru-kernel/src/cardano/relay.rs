@@ -80,7 +80,7 @@ impl fmt::Display for Relay {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for Relay {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Relay {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             let variant = d.u16()?;
@@ -103,7 +103,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Relay {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for Relay {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Relay {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

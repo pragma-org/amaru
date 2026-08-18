@@ -30,6 +30,7 @@ use crate::cbor;
     cbor::Encode,
     cbor::Decode,
 )]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(index_only)]
 pub enum Network {
     #[n(0)]

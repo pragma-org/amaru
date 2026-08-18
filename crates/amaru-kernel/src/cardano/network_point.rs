@@ -157,11 +157,15 @@ impl<'b> cbor::decode::Decode<'b, ()> for NetworkPoint {
             Some(0) => Ok(NetworkPoint::Origin),
             Some(2) => {
                 let slot = d.decode()?;
-                let hash = cbor::decode_bytes(d)?;
+                // Conformance: the Haskell node decodes the header hash of a point with cborg's
+                // `decodeByteArray`, which rejects indefinite-length byte strings, so we reject
+                // them too.
+                #[allow(clippy::disallowed_methods)]
+                let hash = d.bytes()?;
                 if hash.len() != HEADER {
                     return Err(cbor::decode::Error::message("header hash must be 32 bytes"));
                 }
-                Ok(NetworkPoint::Specific(slot, Hash::from(&hash[..])))
+                Ok(NetworkPoint::Specific(slot, Hash::from(hash)))
             }
             _ => Err(cbor::decode::Error::message("can't decode NetworkPoint from array of size")),
         }
@@ -287,6 +291,14 @@ mod tests {
                 }
                 _ => panic!("expected a specific network point"),
             }
+        }
+
+        #[test]
+        fn reject_indefinite_length_hash() {
+            // [42, (_ h'fefc9c037c3f9c8b4fb78a9b0f137b5e', h'd0803c3d46bd2d0e40c59fa90ca002c1')]
+            let bytes =
+                hex::decode("82182a5f50fefc9c037c3f9c8b4fb78a9b0f137b5e50d0803c3d46bd2d0e40c59fa90ca002c1ff").unwrap();
+            assert!(crate::from_cbor::<NetworkPoint>(&bytes).is_none());
         }
     }
 }

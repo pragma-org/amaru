@@ -33,7 +33,7 @@ impl<A> Deref for Multiasset<A> {
     }
 }
 
-impl<'d, C, A: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d, C> for Multiasset<A> {
+impl<'d, C: cbor::HasProtocolVersion, A: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d, C> for Multiasset<A> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.decode_with(ctx).map(Self)
     }

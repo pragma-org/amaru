@@ -42,7 +42,7 @@ pub struct PoolParams {
     pub metadata: Option<PoolMetadata>,
 }
 
-impl<C> cbor::encode::Encode<C> for PoolParams {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PoolParams {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -62,7 +62,7 @@ impl<C> cbor::encode::Encode<C> for PoolParams {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PoolParams {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(9)?;

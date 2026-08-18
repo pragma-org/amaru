@@ -71,7 +71,7 @@ impl<T> From<GenericProposalsRoots<T>> for GenericProposalsRoots<Rc<T>> {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for GenericProposalsRoots<ProposalId> {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GenericProposalsRoots<ProposalId> {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -91,7 +91,7 @@ impl<C> cbor::encode::Encode<C> for GenericProposalsRoots<ProposalId> {
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ProposalId> {
+impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ProposalId> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         // NOTE: This type is only ever created by *us*, so it is okay-ish to not check for the map
         // keys values and expect keys in the right order.

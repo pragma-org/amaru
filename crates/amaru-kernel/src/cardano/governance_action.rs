@@ -28,7 +28,7 @@ pub enum GovernanceAction {
     Information,
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for GovernanceAction {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for GovernanceAction {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         // NOTE: the array length is not asserted here; see the equivalent note on `Certificate`.
         cbor::heterogeneous_array(d, |d, _assert_len| {
@@ -80,7 +80,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for GovernanceAction {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for GovernanceAction {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GovernanceAction {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

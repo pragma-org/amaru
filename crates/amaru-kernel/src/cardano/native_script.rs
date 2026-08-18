@@ -30,7 +30,7 @@ pub enum NativeScript {
 //
 // This instance should not exist / be public. We shoul only authorize decoding
 // MemoizedNativeScript. Ideally, there shouldn't even be two types.
-impl<'b, C> cbor::decode::Decode<'b, C> for NativeScript {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for NativeScript {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             let variant = d.u32()?;
@@ -66,7 +66,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for NativeScript {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for NativeScript {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for NativeScript {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,

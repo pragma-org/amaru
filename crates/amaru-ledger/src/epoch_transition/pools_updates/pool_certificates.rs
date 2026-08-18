@@ -21,7 +21,7 @@ use amaru_kernel::{Epoch, PoolParams, cbor};
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct PoolCertificates(Vec<PoolCertificate>);
 
-impl<C> cbor::encode::Encode<C> for PoolCertificates {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PoolCertificates {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -39,7 +39,7 @@ impl<C> cbor::encode::Encode<C> for PoolCertificates {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for PoolCertificates {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PoolCertificates {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let mut certificates = Vec::new();
         for item in &mut d.array_iter()? {
@@ -138,7 +138,7 @@ impl From<Epoch> for PoolCertificate {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for PoolCertificate {
+impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PoolCertificate {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -162,7 +162,7 @@ impl<C> cbor::encode::Encode<C> for PoolCertificate {
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for PoolCertificate {
+impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PoolCertificate {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let len = d
             .array()?

@@ -1145,6 +1145,30 @@
       "description": "Finished uploading a snapshot archive",
       "public": true
     },
+    "amaru::consensus::block::SKIP": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "current",
+        "tip"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "skip",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Skip a block validation when it is not better than the current ledger tip",
+      "public": true
+    },
     "amaru::consensus::perf::fork::SWITCH": {
       "type": "object",
       "properties": {

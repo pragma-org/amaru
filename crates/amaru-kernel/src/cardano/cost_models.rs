@@ -17,6 +17,7 @@ use std::fmt;
 use crate::{CostModel, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 #[cbor(map)]
 pub struct CostModels {
     #[n(0)]

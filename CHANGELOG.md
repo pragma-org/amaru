@@ -56,6 +56,8 @@ Other guiding principles:
 - **amaru-ledger**: prevent CC action of resigned members.
 - **amaru-ledger**: resolve and control CC member cold credentials following ratification or in-flight proposals.
 - **amaru-ledger**: disallow voters not relevant to the target proposals.
+- **amaru**: use definite decoding for Conway bytes
+- **amaru-ledger**: preserve dormant-epoch state during bootstrap and avoid extending the expiry of already-expired DReps.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 

@@ -60,7 +60,7 @@ impl fmt::Display for StakeCredential {
     }
 }
 
-impl<'b, C> cbor::Decode<'b, C> for StakeCredential {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for StakeCredential {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;

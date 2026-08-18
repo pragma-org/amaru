@@ -17,6 +17,7 @@ use std::{fmt, ops::Add};
 use crate::cbor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode, cbor::Decode)]
+#[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct ExUnits {
     #[n(0)]
     pub mem: u64,
