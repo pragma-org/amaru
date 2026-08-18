@@ -176,15 +176,15 @@ fn decode_stake_snapshot_lazy(
             Ok(())
         },
     )?;
-    decoder.skip_map()?;
+    decoder.skip()?;
 
     Ok(accounts)
 }
 
 fn skip_stake_snapshot_lazy(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
     decoder.begin_array()?;
-    decoder.skip_map()?;
-    decoder.skip_map()
+    decoder.skip()?;
+    decoder.skip()
 }
 
 fn import_reward_updates_lazy(
@@ -362,7 +362,7 @@ fn decode_initial_snapshot(
 
     let remaining_state_progress = with_progress(0, "{spinner:.green} Reading remaining ledger state");
 
-    decoder.skip_map()?; // dsPtrs
+    decoder.skip()?; // dsPtrs
     decoder.skip()?; // dsFutureGenDelegs
     decoder.skip()?; // dsGenDelegs
 
@@ -439,7 +439,7 @@ fn decode_initial_snapshot(
         .map_err(|err| format!("decode ratify state: {err}"))?;
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
-    decoder.skip_map()?;
+    decoder.skip()?;
 
     // Epoch State / Ledger State / UTxO State / utxosDonation
     let donations: u64 = decoder.decode()?;
@@ -738,7 +738,7 @@ fn import_block_issuers(
 
 fn skip_embedded_utxo(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
     decoder.begin_array()?;
-    decoder.skip_map()
+    decoder.skip()
 }
 
 fn import_dreps(
