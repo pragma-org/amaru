@@ -190,6 +190,7 @@ fn skip_stake_snapshot_lazy(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn
 fn import_reward_updates_lazy(
     decoder: &mut LazyDecoder<'_>,
     db: &impl Store,
+    account_size: usize,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let (progress, unclaimed_rewards) = decoder.stream_map(
@@ -202,7 +203,7 @@ fn import_reward_updates_lazy(
         |length| {
             (
                 with_progress(
-                    length.unwrap_or_default() as usize,
+                    length.map(|size| size as usize).unwrap_or(account_size),
                     "{spinner:.green} Applying reward updates {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
                 ),
                 0_u64,
@@ -447,6 +448,7 @@ fn decode_initial_snapshot(
     // Epoch State / Snapshots
     decoder.begin_array()?;
     let mark_snapshot = decode_stake_snapshot_lazy(decoder, &accounts.credentials)?;
+    let account_size = accounts.credentials.len();
     accounts.credentials = Vec::new();
     skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Set
     skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Go
@@ -478,7 +480,7 @@ fn decode_initial_snapshot(
     let (delta_treasury, delta_reserves, unclaimed_rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
         let delta_reserves: i64 = decoder.decode()?;
-        let unclaimed_rewards = import_reward_updates_lazy(decoder, db, with_progress)?;
+        let unclaimed_rewards = import_reward_updates_lazy(decoder, db, account_size, with_progress)?;
         let delta_fees: i64 = decoder.decode()?;
         decoder.skip()?;
         (delta_treasury, delta_reserves, unclaimed_rewards, delta_fees)
