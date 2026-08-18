@@ -15,8 +15,6 @@
         "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
       }
     ],
-    "pools": [],
-    "accounts": [],
     "dreps": [
       {
         "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
@@ -31,14 +29,10 @@
         "validUntil": 1000
       }
     ],
-    "committee": [],
     "proposals": [
       [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Information", 1],
       [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 1 }, "Information", 0]
-    ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
-    }
+    ]
   },
   "point": {
     "slot": 432000,
