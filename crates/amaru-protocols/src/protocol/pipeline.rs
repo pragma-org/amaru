@@ -36,8 +36,8 @@ pub enum SwitchCredit {
 /// Result of trying to admit a node request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Admit<Req> {
-    /// Reserved instance `0..n` and advanced `send_idx`.
-    Instance(usize),
+    /// Reserved instance `0..n` and advanced `send_idx`. The request is returned for the handler to apply.
+    Instance(usize, Req),
     /// All instances reserved; request stored as the replaceable slack slot.
     Slack,
     /// Slack was occupied; the previous unsent request is returned.
@@ -181,7 +181,7 @@ impl<Req> Pipeline<Req> {
             let i = self.send_idx;
             self.idle[i] = false;
             self.send_idx = (self.send_idx + 1) % self.n;
-            return Admit::Instance(i);
+            return Admit::Instance(i, req);
         }
         match self.pending.replace(req) {
             None => Admit::Slack,
@@ -279,8 +279,8 @@ mod tests {
     #[test]
     fn first_two_admits_reserve_distinct_instances() {
         let mut p = n2();
-        assert_eq!(p.try_admit("A"), Admit::Instance(0));
-        assert_eq!(p.try_admit("B"), Admit::Instance(1));
+        assert_eq!(p.try_admit("A"), Admit::Instance(0, "A"));
+        assert_eq!(p.try_admit("B"), Admit::Instance(1, "B"));
         assert_eq!(p.send_idx(), 0);
         assert_eq!(p.try_admit("C"), Admit::Slack);
         assert_eq!(p.try_admit("D"), Admit::ReplacedSlack("C"));
@@ -290,7 +290,7 @@ mod tests {
     fn no_want_next_until_registered_and_left() {
         let mut p = n2();
         assert!(!p.should_want_next());
-        assert_eq!(p.try_admit("A"), Admit::Instance(0));
+        assert_eq!(p.try_admit("A"), Admit::Instance(0, "A"));
         assert_eq!(p.on_credit(0, SwitchCredit::Left).unwrap(), CursorHint::None);
         p.mark_registered();
         assert_eq!(p.on_credit(0, SwitchCredit::Stay).unwrap(), CursorHint::WantNext);
@@ -304,8 +304,8 @@ mod tests {
     fn entered_advances_recv_and_flushes_slack() {
         let mut p = n2();
         p.mark_registered();
-        assert_eq!(p.try_admit("A"), Admit::Instance(0));
-        assert_eq!(p.try_admit("B"), Admit::Instance(1));
+        assert_eq!(p.try_admit("A"), Admit::Instance(0, "A"));
+        assert_eq!(p.try_admit("B"), Admit::Instance(1, "B"));
         assert_eq!(p.try_admit("C"), Admit::Slack);
         p.on_credit(0, SwitchCredit::Left).unwrap();
         p.on_credit(1, SwitchCredit::Left).unwrap();
@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(p.on_credit(0, SwitchCredit::Entered).unwrap(), CursorHint::WantNext);
         assert_eq!(p.recv_idx(), 1);
         assert_eq!(p.take_slack_if_ready(), Some("C"));
-        assert_eq!(p.try_admit("C"), Admit::Instance(0));
+        assert_eq!(p.try_admit("C"), Admit::Instance(0, "C"));
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn close_after_one_reservation_injects_the_unused_instance() {
         let mut p = n2();
-        assert_eq!(p.try_admit("A"), Admit::Instance(0));
+        assert_eq!(p.try_admit("A"), Admit::Instance(0, "A"));
         assert_eq!(p.on_close(), CloseHint::Drain);
         p.on_credit(0, SwitchCredit::Left).unwrap();
         p.on_credit(0, SwitchCredit::Entered).unwrap();
@@ -348,8 +348,8 @@ mod tests {
     #[test]
     fn close_drops_slack_then_drains_reserved() {
         let mut p = n2();
-        assert_eq!(p.try_admit("A"), Admit::Instance(0));
-        assert_eq!(p.try_admit("B"), Admit::Instance(1));
+        assert_eq!(p.try_admit("A"), Admit::Instance(0, "A"));
+        assert_eq!(p.try_admit("B"), Admit::Instance(1, "B"));
         assert_eq!(p.try_admit("C"), Admit::Slack);
         assert_eq!(p.on_close(), CloseHint::Drain);
         assert_eq!(p.take_slack_if_ready(), None);

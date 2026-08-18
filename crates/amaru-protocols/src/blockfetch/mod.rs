@@ -14,6 +14,7 @@
 
 mod initiator;
 pub(crate) mod messages;
+mod pipelined;
 mod responder;
 pub mod typestate;
 
@@ -23,6 +24,10 @@ use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
 // Re-export types
 pub use initiator::{BlockFetchInitiator, BlockFetchMessage, Blocks, initiator};
 pub use messages::Message;
+pub use pipelined::{
+    BLOCKFETCH_MAX_BLOCK_WIRE_BYTES, BLOCKFETCH_PIPELINE_N, blockfetch_pipeline_max_buffer,
+    register_blockfetch_initiator_pipelined,
+};
 pub use responder::{BlockFetchResponder, StreamBlocks, responder};
 
 use crate::{
@@ -54,7 +59,10 @@ where
 }
 
 pub fn register_deserializers() -> DeserializerGuards {
-    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
+    vec![initiator::register_deserializers(), pipelined::register_deserializers(), responder::register_deserializers()]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
