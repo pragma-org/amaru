@@ -109,6 +109,6 @@ impl Display for TransactionValidationError {
 
 impl From<anyhow::Error> for TransactionValidationError {
     fn from(error: anyhow::Error) -> Self {
-        TransactionValidationError(error.to_string())
+        TransactionValidationError(format!("{error:#}"))
     }
 }
