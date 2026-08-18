@@ -140,6 +140,93 @@ define_schemas! {
                     tags: cpu
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
+                    optional parent: amaru_kernel::Point
+                }
+                /// Startup recovery found an inconsistent stored chain.
+                /// Reason ∈ {ledger_tip_is_origin, broken_chain}.
+                public RECOVER_INCONSISTENT {
+                    required from: amaru_kernel::Point
+                    required to: amaru_kernel::HeaderHash
+                    required reason: String
+                }
+                /// Failed to check whether a stored block exists during startup recovery
+                public RECOVER_FAILED {
+                    required error: String
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+                /// A header required for block fetching could not be loaded from the store
+                public HEADER_NOT_FOUND {
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+                /// Begin replaying stored blocks up to the given tip during startup recovery
+                REPLAY {
+                    tags: setup
+                    required tip: amaru_kernel::Point
+                }
+                /// Resubmit one stored block for validation during startup recovery
+                REPLAY_BLOCK {
+                    tags: setup
+                    required point: amaru_kernel::Point
+                }
+                /// No missing-block boundary found for the new tip; nothing to fetch
+                NO_BOUNDARY {}
+                /// Failed to compute the set of missing blocks
+                public FIND_MISSING_FAILED {
+                    required error: String
+                }
+                /// The batch of missing blocks is empty; resume fetching from the tip
+                public NOTHING_TO_FETCH {
+                    required tip: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
+                }
+                /// Request a batch of missing blocks from peers
+                REQUEST {
+                    required from: amaru_kernel::Point
+                    required through: amaru_kernel::Point
+                    required length: usize
+                }
+                /// No covering peer set was selected; falling back to all initiating connections
+                WEAK_PEER_SELECTION {
+                    required weak: bool
+                }
+                /// Failed to decode a block received from a peer
+                public DECODE_FAILED {
+                    required peer: amaru_kernel::Peer
+                    required error: String
+                }
+                /// Received a block from a peer
+                RECEIVED {
+                    required point: amaru_kernel::Point
+                }
+                /// Received a block while no batch is active (straggler)
+                STRAGGLER {
+                    required peer: amaru_kernel::Peer
+                }
+                /// Received a block whose parent does not match the batch boundary
+                PARENT_MISMATCH {
+                    required expected: amaru_kernel::HeaderHash
+                    required actual: amaru_kernel::HeaderHash
+                }
+                /// Received a block out of order: its point is not the next missing point
+                public POINT_MISMATCH {
+                    optional expected: amaru_kernel::Point
+                    required actual: amaru_kernel::Point
+                }
+                /// Failed to persist a downloaded block
+                public STORE_FAILED {
+                    required error: String
+                }
+                /// Block fetching paused because no upstream peers are available
+                public PAUSED {
+                    required req_id: u64
+                }
+                /// Retry block fetching after a no-peers pause
+                RETRY {
+                    required req_id: u64
+                }
+                /// Timed out waiting for requested blocks
+                public TIMEOUT {
+                    required req_id: u64
                 }
             }
             node {
@@ -235,9 +322,11 @@ define_schemas! {
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Mismatched body hash after download, the peer is adversarial
-                MISMATCHED_HASH {
+                public MISMATCHED_HASH {
                     required peer: amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
+                    optional expected: amaru_kernel::Hash<32>
+                    optional actual: amaru_kernel::Hash<32>
                 }
             }
             tip {
