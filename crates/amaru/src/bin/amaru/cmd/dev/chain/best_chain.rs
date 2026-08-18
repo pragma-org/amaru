@@ -20,10 +20,10 @@ use amaru::{
 };
 use amaru_consensus::effects::find_best_candidate;
 use amaru_kernel::{NetworkName, utils::string::ListToString};
+use amaru_observability::info;
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use clap::Parser;
-use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -53,10 +53,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let chain_dir = args.chain_dir.unwrap_or_else(|| default_chain_dir(args.network).into());
 
     info!(
-        _command = "dev chain best-chain",
-        chain_dir = %chain_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+        cli::dev::RUN,
+        command = "dev chain best-chain",
+        network = args.network,
+        chain_dir = chain_dir.to_string_lossy()
     );
 
     let db = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain_dir))?;

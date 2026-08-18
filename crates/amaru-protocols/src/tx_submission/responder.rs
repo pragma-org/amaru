@@ -13,24 +13,24 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque, btree_map::Entry},
     fmt::Display,
     num::NonZeroU32,
     sync::Arc,
 };
 
-use amaru_kernel::{cbor::WithOriginalBytes, to_cbor, EraHistory, Peer, Transaction, TransactionId};
-use amaru_observability::{debug, debug_span, error, trace, warn, Instrument};
-use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 use ProtocolError::*;
 use TerminationCause::*;
+use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, cbor::WithOriginalBytes, to_cbor};
+use amaru_observability::{Instrument, debug, debug_span, error, trace, warn};
+use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
     mux::MuxMessage,
     protocol::{
-        miniprotocol, outcome, Inputs, Miniprotocol, Outcome, ProtocolState, Responder, StageState, PROTO_N2N_TX_SUB,
+        Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, Responder, StageState, miniprotocol, outcome,
     },
     tx_submission::{
         Blocking, EraTaggedTxId, Message, ProtocolError, ResponderParams, State, TerminationCause, TxSizeMismatch,
@@ -798,8 +798,8 @@ mod tests {
     use amaru_kernel::{EraHistory, EraName, Transaction};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros_traits::{
-        mempool::overriding_mempool::OverridingMempool, MempoolSeqNo, TransactionValidationError, TxInsertResult,
-        TxOrigin, TxRejectReason,
+        MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+        mempool::overriding_mempool::OverridingMempool,
     };
 
     use super::*;

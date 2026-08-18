@@ -111,6 +111,22 @@ Run `make help` for all targets.
 - For effects/stages: follow pure_stage patterns
 - See crates/amaru-consensus/src/stages/ for examples
 
+### Tracing and Observability (EDR 007, EDR 026)
+
+- Production code emits traces through `amaru-observability`, never the `tracing` macros directly:
+  `info!/warn!/error!/debug!/trace!` for events, `debug_span!`/`info_span!` for spans, `*_record!` to fill
+  span fields later. Each takes a schema path declared in `crates/amaru-observability/src/schemas.rs`.
+- Adding or changing a schema means regenerating the docs: `./scripts/generate-traces-doc`, then
+  `make validate-trace-schemas`. Schemas with no call site fail CI, so declare them in the same commit.
+- Type each schema field with the most precise type available (`amaru_kernel::Point`, `HeaderHash`, `Peer`, …).
+  `String` is for genuinely textual data: error Display output, enumerated `reason`/`outcome` values, labels.
+- Prefer merging near-identical log lines into one schema with a discriminating `reason`/`outcome` field over
+  declaring a separate schema per message.
+- `public` schemas always emit and join the documented trace contract; private ones (the default) only emit
+  under `AMARU_TRACE_EMIT_PRIVATE`. Every `warn!`/`error!` site needs a public schema so operators still see it.
+- `tracing` remains for structural code only: subscribers, `Layer`/`FormatEvent` impls, `Span`/`Instrument`
+  plumbing, and `tracing::enabled!` guards. Test code and `amaru-pure-stage`/`amaru-sim` keep using it directly.
+
 ### Headers and Licensing
 
 - All .rs files start with:

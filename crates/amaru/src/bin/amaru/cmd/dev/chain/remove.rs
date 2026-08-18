@@ -19,6 +19,7 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{IsHeader, NetworkName, Point};
+use amaru_observability::{error, info, warn};
 use amaru_ouroboros::{ChainStore, ChildTipsMode, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
@@ -71,28 +72,31 @@ async fn run(args: Args) -> anyhow::Result<()> {
         anyhow::bail!("cannot combine both --only-blocks and --only-validation-results");
     }
 
-    tracing::info!(
-        _command = "dev chain remove",
-        chain_dir = %chain_dir.to_string_lossy(),
-         %network, %from_point, %only_blocks, %only_validation_results,
-        "running",
+    info!(
+        cli::dev::RUN,
+        command = "dev chain remove",
+        network = network,
+        chain_dir = chain_dir.to_string_lossy(),
+        from_point = from_point.to_string(),
+        only_blocks = only_blocks,
+        only_validation_results = only_validation_results
     );
 
     let rocks_db = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
     let chain_store: &dyn ChainStore = &rocks_db;
 
     let points = chain_store.child_tips(&from_point.hash(), ChildTipsMode::All);
-    tracing::info!(points = %points.len(), "points to remove");
+    info!(cli::dev::chain::POINTS_TO_REMOVE, points = points.len());
 
     let best_chain_hash = chain_store.get_best_chain_hash();
     if points.iter().any(|p| p.hash() == best_chain_hash) || chain_store.load_header(&best_chain_hash).is_none() {
-        tracing::warn!("moving back best chain hash");
+        warn!(cli::dev::chain::MOVING_BEST_CHAIN);
         let mut current = chain_store
             .load_header(&from_point.hash())
             .ok_or_else(|| anyhow!("cannot find from_point {} in store", from_point))?;
         loop {
             let Some(parent) = current.parent().and_then(|h| chain_store.load_header(&h)) else {
-                tracing::error!("no parent found for {}", current.hash());
+                error!(cli::dev::chain::PARENT_NOT_FOUND, header_hash = current.hash());
                 anyhow::bail!("no parent found for best chain hash");
             };
             if chain_store.is_on_best_chain(parent.point().into()) {
@@ -104,7 +108,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     }
 
     for point in points {
-        tracing::info!(point = %point, "removing point");
+        info!(cli::dev::chain::POINT_REMOVED, point = point);
         if only_validation_results {
             rocks_db.remove_block_valid(&point.hash())?;
         } else if only_blocks {

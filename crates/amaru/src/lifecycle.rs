@@ -27,11 +27,11 @@ use std::{
 };
 
 use amaru_metrics::Meter;
+use amaru_observability::warn;
 use anyhow::{Context, anyhow};
 use parking_lot::Mutex;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
 
 use crate::exit::SignalState;
 
@@ -186,7 +186,7 @@ impl ShutdownHandle {
     fn request_graceful(&self) {
         if !self.cancel.is_cancelled() {
             emit_signal_stderr("amaru: termination signal received — shutting down");
-            warn!("termination signal received — shutting down");
+            warn!(setup::lifecycle::TERMINATION_SIGNAL);
             self.cancel.cancel();
         }
         let hooks = self.abort_hooks.lock();

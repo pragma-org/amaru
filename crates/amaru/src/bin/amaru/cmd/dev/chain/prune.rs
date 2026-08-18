@@ -19,11 +19,11 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
 };
 use amaru_kernel::{IsHeader, NetworkName};
+use amaru_observability::info;
 use amaru_ouroboros::{BaseReadChainStore, DiagnosticChainStore, WriteChainStore};
 use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use clap::Parser;
-use tracing::info;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -62,11 +62,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let ledger_dir = args.ledger_dir.unwrap_or_else(|| default_ledger_dir(args.network).into());
 
     info!(
-        _command = "dev chain prune",
-        chain_dir = %chain_dir.to_string_lossy(),
-        ledger_dir = %ledger_dir.to_string_lossy(),
-        network = %args.network,
-        "running",
+        cli::dev::RUN,
+        command = "dev chain prune",
+        network = args.network,
+        chain_dir = chain_dir.to_string_lossy(),
+        ledger_dir = ledger_dir.to_string_lossy()
     );
 
     let era_history = args
@@ -84,9 +84,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let boundary_slot = epoch_bounds.start;
 
     info!(
+        cli::dev::chain::PRUNE_BOUNDARY,
         oldest_ledger_epoch = u64::from(oldest_epoch),
-        boundary_slot = u64::from(boundary_slot),
-        "determined safe pruning boundary",
+        boundary_slot = u64::from(boundary_slot)
     );
 
     let chain_store = RocksDBStore::open(&RocksDbConfig::new(chain_dir))?;
@@ -124,7 +124,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
             anyhow::bail!("header {new_anchor} missing while updating prune anchor");
         };
         chain_store.set_anchor_point(&point)?;
-        info!(%new_anchor, "updated anchor hash");
+        info!(cli::dev::chain::ANCHOR_UPDATED, new_anchor = new_anchor);
     }
 
     let pruned = to_remove.len();

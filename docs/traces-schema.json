@@ -822,6 +822,280 @@
       "description": "Run db-analyser to produce a ledger snapshot",
       "public": true
     },
+    "amaru::cli::dev::RUN": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkName"
+        },
+        "chain_dir": {
+          "type": "string"
+        },
+        "ledger_dir": {
+          "type": "string"
+        },
+        "headers_dir": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
+        "block": {
+          "type": "string"
+        },
+        "parent": {
+          "type": "string"
+        },
+        "peer_address": {
+          "type": "string"
+        },
+        "epoch": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "from_point": {
+          "type": "string"
+        },
+        "only_blocks": {
+          "type": "boolean"
+        },
+        "only_validation_results": {
+          "type": "boolean"
+        },
+        "hint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "network"
+      ],
+      "optional": [
+        "chain_dir",
+        "ledger_dir",
+        "headers_dir",
+        "input",
+        "start",
+        "block",
+        "parent",
+        "peer_address",
+        "epoch",
+        "count",
+        "from_point",
+        "only_blocks",
+        "only_validation_results",
+        "hint"
+      ],
+      "additionalProperties": false,
+      "name": "run",
+      "level": "TRACE",
+      "target": "amaru::cli::dev",
+      "description": "A developer command started, with the arguments it resolved. Command names the subcommand, e.g. \"dev chain prune\".",
+      "public": true
+    },
+    "amaru::cli::dev::chain::ANCHOR_UPDATED": {
+      "type": "object",
+      "properties": {
+        "new_anchor": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "new_anchor"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "anchor_updated",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The chain store anchor was moved to a new hash",
+      "public": true
+    },
+    "amaru::cli::dev::chain::MIGRATION_NOT_NEEDED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "migration_not_needed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The chain database is already at the current version",
+      "public": true
+    },
+    "amaru::cli::dev::chain::MOVING_BEST_CHAIN": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "moving_best_chain",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The best chain hash is being moved back before removing points",
+      "public": true
+    },
+    "amaru::cli::dev::chain::OPEN_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "open_failed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The chain database could not be opened",
+      "public": true
+    },
+    "amaru::cli::dev::chain::PARENT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "parent_not_found",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "A header on the path back to the best chain has no stored parent",
+      "public": true
+    },
+    "amaru::cli::dev::chain::POINTS_TO_REMOVE": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "points"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "points_to_remove",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The number of stored points selected for removal",
+      "public": true
+    },
+    "amaru::cli::dev::chain::POINT_REMOVED": {
+      "type": "object",
+      "properties": {
+        "point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "point"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "point_removed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "A point is being removed from the chain store",
+      "public": true
+    },
+    "amaru::cli::dev::chain::PRUNE_BOUNDARY": {
+      "type": "object",
+      "properties": {
+        "oldest_ledger_epoch": {
+          "type": "integer"
+        },
+        "boundary_slot": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "oldest_ledger_epoch",
+        "boundary_slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "prune_boundary",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The pruning boundary derived from the oldest ledger snapshot",
+      "public": true
+    },
+    "amaru::cli::dev::chain::VALIDATION_CLEARED": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validation_cleared",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::chain",
+      "description": "The stored validation status of a block is being cleared",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::SNAPSHOT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "snapshot_not_found",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger",
+      "description": "A ledger snapshot to remove does not exist",
+      "public": true
+    },
+    "amaru::cli::dev::ledger::SNAPSHOT_REMOVED": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "snapshot_removed",
+      "level": "TRACE",
+      "target": "amaru::cli::dev::ledger",
+      "description": "A ledger snapshot was removed",
+      "public": true
+    },
     "amaru::cli::last_block::RESOLVE": {
       "type": "object",
       "properties": {
@@ -889,6 +1163,55 @@
       "level": "TRACE",
       "target": "amaru::cli::mithril",
       "description": "Synchronize the cardano-node database from Mithril",
+      "public": true
+    },
+    "amaru::cli::mithril::DOWNLOAD_CHUNKS": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "from_chunk": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tip",
+        "from_chunk"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "download_chunks",
+      "level": "TRACE",
+      "target": "amaru::cli::mithril",
+      "description": "Immutable chunks are being fetched from Mithril",
+      "public": true
+    },
+    "amaru::cli::mithril::INGEST_COMPLETED": {
+      "type": "object",
+      "properties": {
+        "processed": {
+          "type": "integer"
+        },
+        "duration_seconds": {
+          "type": "number"
+        },
+        "processed_per_seconds": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "processed",
+        "duration_seconds",
+        "processed_per_seconds"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ingest_completed",
+      "level": "TRACE",
+      "target": "amaru::cli::mithril",
+      "description": "Finished replaying downloaded blocks into the stores",
       "public": true
     },
     "amaru::cli::mithril::SKIP_DOWNLOAD": {
@@ -1026,6 +1349,133 @@
       "level": "TRACE",
       "target": "amaru::cli::node",
       "description": "Roll the node databases back after a failure",
+      "public": true
+    },
+    "amaru::cli::node::RUN": {
+      "type": "object",
+      "properties": {
+        "chain_dir": {
+          "type": "string"
+        },
+        "ledger_dir": {
+          "type": "string"
+        },
+        "listen_address": {
+          "type": "string"
+        },
+        "max_extra_ledger_snapshots": {
+          "type": "string"
+        },
+        "migrate_chain_db": {
+          "type": "boolean"
+        },
+        "network": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkName"
+        },
+        "peer_address": {
+          "type": "string"
+        },
+        "peer_snapshot": {
+          "type": "string"
+        },
+        "peer_snapshot_relays": {
+          "type": "integer"
+        },
+        "pid_file": {
+          "type": "string"
+        },
+        "submit_api_address": {
+          "type": "string"
+        },
+        "trace_buffer_min_entries": {
+          "type": "integer"
+        },
+        "trace_buffer_max_size": {
+          "type": "integer"
+        },
+        "trace_dump_path": {
+          "type": "string"
+        },
+        "peer_removal_cooldown_secs": {
+          "type": "integer"
+        },
+        "mempool_max_bytes": {
+          "type": "string"
+        },
+        "tx_submission_max_window": {
+          "type": "integer"
+        },
+        "tx_submission_fetch_batch_bytes": {
+          "type": "integer"
+        },
+        "tx_submission_inflight_timeout_ms": {
+          "type": "integer"
+        },
+        "tx_submission_insert_timeout_ms": {
+          "type": "integer"
+        },
+        "era_history": {
+          "type": "string"
+        },
+        "global_parameters": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "chain_dir",
+        "ledger_dir",
+        "listen_address",
+        "max_extra_ledger_snapshots",
+        "migrate_chain_db",
+        "network",
+        "peer_address",
+        "peer_snapshot",
+        "peer_snapshot_relays",
+        "pid_file",
+        "submit_api_address",
+        "trace_buffer_min_entries",
+        "trace_buffer_max_size",
+        "trace_dump_path",
+        "peer_removal_cooldown_secs",
+        "mempool_max_bytes",
+        "tx_submission_max_window",
+        "tx_submission_fetch_batch_bytes",
+        "tx_submission_inflight_timeout_ms",
+        "tx_submission_insert_timeout_ms"
+      ],
+      "optional": [
+        "era_history",
+        "global_parameters"
+      ],
+      "additionalProperties": false,
+      "name": "run",
+      "level": "TRACE",
+      "target": "amaru::cli::node",
+      "description": "The effective configuration a node run starts with",
+      "public": true
+    },
+    "amaru::cli::node::SUBMIT_API_SHUTDOWN_FAILED": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "name": "submit_api_shutdown_failed",
+      "level": "TRACE",
+      "target": "amaru::cli::node",
+      "description": "The submit API did not stop cleanly during shutdown. Reason ∈ {join_error, timeout}.",
       "public": true
     },
     "amaru::cli::snapshot::CREATE": {
@@ -6011,6 +6461,78 @@
       "description": "Running binary build/version identity (package version, git commit, target).",
       "public": true
     },
+    "amaru::setup::file_descriptors::TOO_LOW": {
+      "type": "object",
+      "properties": {
+        "current_soft_fd_limit": {
+          "type": "integer"
+        },
+        "current_hard_fd_limit": {
+          "type": "integer"
+        },
+        "expected_min": {
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "current_soft_fd_limit",
+        "current_hard_fd_limit",
+        "expected_min",
+        "hint"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "too_low",
+      "level": "TRACE",
+      "target": "amaru::setup::file_descriptors",
+      "description": "The soft limit on open files is below what Amaru needs",
+      "public": true
+    },
+    "amaru::setup::file_descriptors::UNKNOWN": {
+      "type": "object",
+      "properties": {
+        "expected_min": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expected_min"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unknown",
+      "level": "TRACE",
+      "target": "amaru::setup::file_descriptors",
+      "description": "The open-file limit could not be queried",
+      "public": true
+    },
+    "amaru::setup::lifecycle::CONSENSUS_DIED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "consensus_died",
+      "level": "TRACE",
+      "target": "amaru::setup::lifecycle",
+      "description": "The consensus pipeline stopped while the node was still running",
+      "public": true
+    },
+    "amaru::setup::lifecycle::TERMINATION_SIGNAL": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "termination_signal",
+      "level": "TRACE",
+      "target": "amaru::setup::lifecycle",
+      "description": "A termination signal was received; the node is shutting down",
+      "public": true
+    },
     "amaru::setup::observability::INIT": {
       "type": "object",
       "properties": {
@@ -6035,6 +6557,109 @@
       "level": "TRACE",
       "target": "amaru::setup::observability",
       "description": "Observability stack initialization",
+      "public": true
+    },
+    "amaru::setup::peer_snapshot::EMPTY": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkPoint"
+        },
+        "pools": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "point",
+        "pools"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "empty",
+      "level": "TRACE",
+      "target": "amaru::setup::peer_snapshot",
+      "description": "A peer snapshot was loaded but holds no relay addresses",
+      "public": true
+    },
+    "amaru::setup::peer_snapshot::LOADED": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "point": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkPoint"
+        },
+        "pools": {
+          "type": "integer"
+        },
+        "relays": {
+          "type": "integer"
+        },
+        "node_to_client_version": {
+          "type": "integer"
+        },
+        "configs_commit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "point",
+        "pools",
+        "relays",
+        "node_to_client_version",
+        "configs_commit"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "loaded",
+      "level": "TRACE",
+      "target": "amaru::setup::peer_snapshot",
+      "description": "A peer snapshot was loaded at startup",
+      "public": true
+    },
+    "amaru::setup::peer_snapshot::MISSING": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::NetworkName"
+        }
+      },
+      "required": [
+        "network"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "missing",
+      "level": "TRACE",
+      "target": "amaru::setup::peer_snapshot",
+      "description": "No embedded peer snapshot exists for the selected network",
+      "public": true
+    },
+    "amaru::setup::pid::WRITE_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "write_failed",
+      "level": "TRACE",
+      "target": "amaru::setup::pid",
+      "description": "The PID file could not be created or written",
       "public": true
     },
     "amaru::setup::trace::FILTER": {
@@ -6070,6 +6695,46 @@
       "level": "TRACE",
       "target": "amaru::setup::trace",
       "description": "Resolution of a trace filter from the environment",
+      "public": true
+    },
+    "amaru::setup::trace_buffer::DUMPED": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dumped",
+      "level": "TRACE",
+      "target": "amaru::setup::trace_buffer",
+      "description": "The stage trace buffer was written to disk",
+      "public": true
+    },
+    "amaru::setup::trace_buffer::DUMP_FAILED": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "dump_failed",
+      "level": "TRACE",
+      "target": "amaru::setup::trace_buffer",
+      "description": "The stage trace buffer could not be written to disk",
       "public": true
     },
     "amaru::stores::batch::COMMIT": {
