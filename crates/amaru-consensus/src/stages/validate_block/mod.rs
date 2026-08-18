@@ -204,6 +204,11 @@ pub async fn stage(
             // fetch_blocks streams the blocks of a new best candidate one by one, each with its own
             // tip. Only a tip that is strictly better than the current one (per the chain-selection
             // order) can be accepted as a candidate for a fork switch on the ledger.
+            //
+            // NOTE: the headers are loaded from the store on demand rather than kept in the stage
+            // state. This branch is neither on the sync hot path nor on the caught-up common path
+            // (both extend `current` and take the branch above), while a header held in the state
+            // would add ~1.5kB to every stage state snapshot serialized into the TraceBuffer.
             let store = Store::new(eff.clone());
             let message_header = store.load_header(&tip.hash()).await;
             let current_header = store.load_header(&state.current.hash()).await;
