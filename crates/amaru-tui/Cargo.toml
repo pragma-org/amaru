@@ -21,7 +21,7 @@ amaru-metrics.workspace = true
 amaru-observability.workspace = true
 clap.workspace = true
 crossterm.workspace = true
-ratatui.workspace = true
+ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
 signal-hook.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

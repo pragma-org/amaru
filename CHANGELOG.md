@@ -48,6 +48,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.
+- **amaru-tui**: show the most recent `INFO` log messages.
 - **amaru-plutus**: encode `CostModels` as a map from language to cost model (#1219).
 - **amaru-ledger**: compute the size of a value using the same encoding as the Haskell node.
 - **amaru-ledger**: validate voters in a transaction actually exist in ledger state. ([#1138][], [#923][])

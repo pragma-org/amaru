@@ -73,16 +73,23 @@ pub(in crate::ui) fn render_logs(frame: &mut Frame<'_>, area: Rect, model: &Mode
     render_log_controls(frame, layout[0], model, views);
     render_horizontal_separator(frame, layout[1], model.interaction_mode, focused);
 
-    let logs = model.filtered_logs();
-    let visible = layout[2].height as usize;
-    let scroll = model.log_scroll.min(logs.len().saturating_sub(visible));
-    let end = logs.len().saturating_sub(scroll);
-    let start = end.saturating_sub(visible);
-    let lines = logs[start..end].iter().map(|record| log_record_line(record.as_ref())).collect::<Vec<_>>();
-
-    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let lines = model.filtered_logs().iter().map(|record| log_record_line(record.as_ref())).collect::<Vec<_>>();
+    let (paragraph, total, position) = log_paragraph(lines, layout[2], model.log_scroll);
     frame.render_widget(paragraph, layout[2]);
-    render_scrollbar(frame, layout[2], logs.len(), visible, start, model.interaction_mode);
+    render_scrollbar(frame, layout[2], total, layout[2].height as usize, position, model.interaction_mode);
+}
+
+fn log_paragraph(
+    lines: Vec<Line<'static>>,
+    area: Rect,
+    scroll_from_bottom: usize,
+) -> (Paragraph<'static>, usize, usize) {
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let total = paragraph.line_count(area.width);
+    let position = total.saturating_sub(area.height as usize).saturating_sub(scroll_from_bottom);
+    let vertical_scroll = u16::try_from(position).unwrap_or(u16::MAX);
+
+    (paragraph.scroll((vertical_scroll, 0)), total, position)
 }
 
 fn render_log_controls(frame: &mut Frame<'_>, area: Rect, model: &Model, views: &mut Views) {
@@ -157,4 +164,25 @@ fn log_record_line(record: &TelemetryRecord) -> Line<'static> {
     }
 
     Line::from(spans)
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{buffer::Buffer, widgets::Widget};
+
+    use super::*;
+
+    #[test]
+    fn keeps_the_newest_log_visible_when_an_older_log_wraps() {
+        let area = Rect::new(0, 0, 10, 2);
+        let lines = vec![Line::from("old-entry old-entry"), Line::from("new-entry")];
+        let (paragraph, total, position) = log_paragraph(lines, area, 0);
+        let mut buffer = Buffer::empty(area);
+
+        paragraph.render(area, &mut buffer);
+
+        assert_eq!(total, 3);
+        assert_eq!(position, 1);
+        assert_eq!(buffer.cell((0, 1)).map(|cell| cell.symbol()), Some("n"));
+    }
 }
