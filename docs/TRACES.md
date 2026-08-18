@@ -641,7 +641,19 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `mismatched_hash` | `TRACE` | public | Mismatched body hash after download, the peer is adversarial | peer, header_hash | expected, actual |
 | `skip` | `TRACE` | public | Skip a block validation when it is not better than the current ledger tip | current, tip |  |
+
+<details><summary>span: `mismatched_hash`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `expected` | `string` |  |
+| `actual` | `string` |  |
+
+</details>
 
 <details><summary>span: `skip`</summary>
 
@@ -649,6 +661,107 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `current` | `array` | ✓ |
 | `tip` | `array` | ✓ |
+
+</details>
+
+## target: `amaru::consensus::blocks`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `decode_failed` | `TRACE` | public | Failed to decode a block received from a peer | peer, error |  |
+| `find_missing_failed` | `TRACE` | public | Failed to compute the set of missing blocks | error |  |
+| `header_not_found` | `TRACE` | public | A header required for block fetching could not be loaded from the store | header_hash |  |
+| `nothing_to_fetch` | `TRACE` | public | The batch of missing blocks is empty; resume fetching from the tip | tip, parent |  |
+| `paused` | `TRACE` | public | Block fetching paused because no upstream peers are available | req_id |  |
+| `point_mismatch` | `TRACE` | public | Received a block out of order: its point is not the next missing point | actual | expected |
+| `recover_failed` | `TRACE` | public | Failed to check whether a stored block exists during startup recovery | error, header_hash |  |
+| `recover_inconsistent` | `TRACE` | public | Startup recovery found an inconsistent stored chain. Reason ∈ {ledger_tip_is_origin, broken_chain}. | from, to, reason |  |
+| `store_failed` | `TRACE` | public | Failed to persist a downloaded block | error |  |
+| `timeout` | `TRACE` | public | Timed out waiting for requested blocks | req_id |  |
+
+<details><summary>span: `decode_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `find_missing_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `header_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `nothing_to_fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `paused`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `req_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `point_mismatch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `actual` | `string` | ✓ |
+| `expected` | `string` |  |
+
+</details>
+
+<details><summary>span: `recover_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `recover_inconsistent`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `from` | `string` | ✓ |
+| `to` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `store_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `timeout`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `req_id` | `integer` | ✓ |
 
 </details>
 

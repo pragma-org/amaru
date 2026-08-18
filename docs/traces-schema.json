@@ -1276,6 +1276,41 @@
       "description": "Finished uploading a snapshot archive",
       "public": true
     },
+    "amaru::consensus::block::MISMATCHED_HASH": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "expected": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<32>"
+        },
+        "actual": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<32>"
+        }
+      },
+      "required": [
+        "peer",
+        "header_hash"
+      ],
+      "optional": [
+        "expected",
+        "actual"
+      ],
+      "additionalProperties": false,
+      "name": "mismatched_hash",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Mismatched body hash after download, the peer is adversarial",
+      "public": true
+    },
     "amaru::consensus::block::SKIP": {
       "type": "object",
       "properties": {
@@ -1350,6 +1385,220 @@
       "level": "TRACE",
       "target": "amaru::consensus::block",
       "description": "Skip a block validation when it is not better than the current ledger tip",
+      "public": true
+    },
+    "amaru::consensus::blocks::DECODE_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "decode_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to decode a block received from a peer",
+      "public": true
+    },
+    "amaru::consensus::blocks::FIND_MISSING_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "find_missing_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to compute the set of missing blocks",
+      "public": true
+    },
+    "amaru::consensus::blocks::HEADER_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "header_not_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "A header required for block fetching could not be loaded from the store",
+      "public": true
+    },
+    "amaru::consensus::blocks::NOTHING_TO_FETCH": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "parent": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "tip",
+        "parent"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "nothing_to_fetch",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "The batch of missing blocks is empty; resume fetching from the tip",
+      "public": true
+    },
+    "amaru::consensus::blocks::PAUSED": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "req_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "paused",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Block fetching paused because no upstream peers are available",
+      "public": true
+    },
+    "amaru::consensus::blocks::POINT_MISMATCH": {
+      "type": "object",
+      "properties": {
+        "actual": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "expected": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "actual"
+      ],
+      "optional": [
+        "expected"
+      ],
+      "additionalProperties": false,
+      "name": "point_mismatch",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Received a block out of order: its point is not the next missing point",
+      "public": true
+    },
+    "amaru::consensus::blocks::RECOVER_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "error",
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recover_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to check whether a stored block exists during startup recovery",
+      "public": true
+    },
+    "amaru::consensus::blocks::RECOVER_INCONSISTENT": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "to": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "recover_inconsistent",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Startup recovery found an inconsistent stored chain. Reason ∈ {ledger_tip_is_origin, broken_chain}.",
+      "public": true
+    },
+    "amaru::consensus::blocks::STORE_FAILED": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "store_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Failed to persist a downloaded block",
+      "public": true
+    },
+    "amaru::consensus::blocks::TIMEOUT": {
+      "type": "object",
+      "properties": {
+        "req_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "req_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "timeout",
+      "level": "TRACE",
+      "target": "amaru::consensus::blocks",
+      "description": "Timed out waiting for requested blocks",
       "public": true
     },
     "amaru::consensus::chain_db_migration::EXECUTE": {

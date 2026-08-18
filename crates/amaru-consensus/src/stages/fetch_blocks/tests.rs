@@ -59,9 +59,9 @@ fn test_new_tip_load_header_fails() {
             te_terminated("fb-1", TerminationReason::Voluntary),
         ],
     );
-    logs.assert_and_remove(Level::ERROR, &["failed to load initial header"])
+    logs.assert_and_remove(Level::ERROR, &["blocks.header_not_found"])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -88,7 +88,8 @@ fn test_new_tip_no_blocks_to_fetch() {
             te_state("fb-1", &prep.state_with_block_height(3)),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["no blocks to fetch"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["blocks.nothing_to_fetch"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -131,11 +132,11 @@ fn test_recover_stored_blocks_validates_downloaded_unvalidated_blocks() {
             te_state("fb-1", &expected),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["recovering stored blocks"])
-        .assert_and_remove(Level::DEBUG, &["validating stored block"])
-        .assert_and_remove(Level::DEBUG, &["validating stored block"])
-        .assert_and_remove(Level::INFO, &["no blocks to fetch"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.replay"])
+        .assert_and_remove(Level::DEBUG, &["blocks.replay_block"])
+        .assert_and_remove(Level::DEBUG, &["blocks.replay_block"])
+        .assert_and_remove(Level::INFO, &["blocks.nothing_to_fetch"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// On a restart, headers usually run ahead of downloaded blocks, so the replay covers a prefix and
@@ -213,12 +214,12 @@ fn test_recover_stored_blocks_fetches_the_whole_gap_after_the_replayed_prefix() 
             }),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["recovering stored blocks"])
-        .assert_and_remove(Level::DEBUG, &["validating stored block"])
-        .assert_and_remove(Level::DEBUG, &["requesting blocks"])
-        .assert_and_remove(Level::DEBUG, &["no covering peers selected"])
-        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.replay"])
+        .assert_and_remove(Level::DEBUG, &["blocks.replay_block"])
+        .assert_and_remove(Level::DEBUG, &["blocks.request", "length=2"])
+        .assert_and_remove(Level::DEBUG, &["blocks.weak_peer_selection", "weak=true"])
+        .assert_and_remove(Level::WARN, &["blocks.timeout"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -281,10 +282,10 @@ fn test_new_tip_blocks_to_fetch() {
             te_state("fb-1", &state_after_timeout),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
-        .assert_and_remove(Level::DEBUG, &["no covering peers selected"])
-        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.fetch", "length=2"])
+        .assert_and_remove(Level::DEBUG, &["blocks.fetch", "weak=true"])
+        .assert_and_remove(Level::WARN, &["blocks.timeout"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -340,7 +341,8 @@ fn test_block_received() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["received block"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["blocks.received"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -404,7 +406,8 @@ fn test_block2_received() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["received block"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["blocks.received"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -436,9 +439,9 @@ fn test_new_tip_find_missing_blocks_error() {
         ],
     );
 
-    logs.assert_and_remove(Level::ERROR, &["failed to load initial header"])
+    logs.assert_and_remove(Level::ERROR, &["blocks.header_not_found"])
         .assert_and_remove(Level::INFO, &["terminated"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -461,11 +464,9 @@ fn test_block_point_mismatch() {
 
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &prep.state).into()]);
 
-    logs.assert_and_remove(Level::WARN, &["block point mismatch"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.received"])
+        .assert_and_remove(Level::WARN, &["blocks.point_mismatch"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -480,7 +481,9 @@ fn test_block_straggler_no_outstanding_missing() {
 
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &prep.state).into()]);
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.received"])
+        .assert_and_remove(Level::DEBUG, &["blocks.straggler", r#"peer="test-peer""#])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -500,7 +503,7 @@ fn test_timeout_stale_is_ignored() {
 
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &prep.state).into()]);
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -545,7 +548,8 @@ fn test_timeout_records_fetch_failure_for_asked_peers() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::WARN, &["timeout fetching blocks"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::WARN, &["blocks.timeout"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -601,9 +605,9 @@ fn test_strong_selection_passes_peers_to_manager() {
         ],
     );
     // Sim advances the 5s timeout after the request; ignore that tail.
-    logs.assert_and_remove(Level::DEBUG, &["requesting blocks"])
-        .assert_and_remove(Level::WARN, &["timeout fetching blocks"])
-        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_and_remove(Level::DEBUG, &["blocks.fetch", "length=2"])
+        .assert_and_remove(Level::WARN, &["blocks.timeout"])
+        .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 fn te_state_match_fetch_peers(
@@ -646,7 +650,8 @@ fn test_timeout_skips_fetch_failure_for_contributors() {
             te_send("fb-1", "upstream", SelectChainMsg::fetch_next_from(prep.headers.h0.point())).into(),
         ],
     );
-    logs.assert_and_remove(Level::WARN, &["timeout fetching blocks"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::WARN, &["blocks.timeout"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -688,7 +693,7 @@ fn test_no_blocks_records_fetch_failure() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -711,7 +716,7 @@ fn test_peers_asked_stores_peer_set() {
         state
     };
     assert_trace_contains(&running, &[te_input("fb-1", &msg).into(), te_state("fb-1", &expected).into()]);
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 /// Regression: `NoBlocks` may arrive before `PeersAsked` (no cross-stage order). A late
@@ -752,7 +757,7 @@ fn test_peers_asked_does_not_resurrect_no_blocks_peer() {
             te_state("fb-1", &expected).into(),
         ],
     );
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -779,7 +784,8 @@ fn test_no_peers_available_pauses_without_error() {
         &running,
         &[te_state("fb-1", &prep.state), te_input("fb-1", &msg), te_state("fb-1", &state_after_pause)],
     );
-    logs.assert_and_remove(Level::INFO, &["block fetching paused due to no upstream peers"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::INFO, &["blocks.paused"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -819,7 +825,8 @@ fn test_timeout_after_no_peers_pause_retries_without_error() {
             te_state("fb-1", &state_after_timeout),
         ],
     );
-    logs.assert_and_remove(Level::DEBUG, &["retrying block fetch after no-peers pause"]).assert_no_remaining_at([
+    logs.assert_and_remove(Level::DEBUG, &["blocks.retry", "req_id=1"]).assert_no_remaining_at([
+        Level::DEBUG,
         Level::INFO,
         Level::WARN,
         Level::ERROR,
@@ -841,7 +848,7 @@ fn test_no_peers_available_stale_is_ignored() {
 
     assert_trace(&running, &[te_state("fb-1", &prep.state), te_input("fb-1", &msg), te_state("fb-1", &prep.state)]);
 
-    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+    logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
