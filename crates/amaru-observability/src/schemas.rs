@@ -236,29 +236,97 @@ define_schemas! {
             }
             chain {
                 /// Find chain intersection point with peer
-                FIND_INTERSECTION {
+                public FIND_INTERSECTION {
                     tags: bootstrap
                     required peer: amaru_kernel::Peer
                     required intersection_slot: amaru_kernel::Slot
                 }
                 /// Received a new tip from an upstream peer
-                SELECT_FROM_TIP {
+                public SELECT_FROM_TIP {
                     tags: cpu
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Received a block validation result
-                SELECT_FROM_BLOCK_VALIDATION {
+                public SELECT_FROM_BLOCK_VALIDATION {
                     tags: cpu
                     required point: amaru_kernel::Point
                     required valid: bool
                     required header_hash: amaru_kernel::HeaderHash
                 }
                 /// Some blocks have been fetched for the current chain, decide what to do next
-                FETCH_NEXT {
+                public FETCH_NEXT {
                     tags: cpu
                     required point: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
+                }
+                /// A tip announced by an upstream peer was not adopted.
+                /// Reason ∈ {already_validated, already_invalid, already_tracked, invalid_ancestor}.
+                public TIP_IGNORED {
+                    required tip: amaru_kernel::Point
+                    required reason: String
+                    optional parent: amaru_kernel::Point
+                }
+                /// A tip announced by an upstream peer is new and starts or extends a chain.
+                /// Outcome ∈ {new_tip, from_origin, extend, fork}.
+                public TIP_ACCEPTED {
+                    required tip: amaru_kernel::Point
+                    required outcome: String
+                    optional parent: amaru_kernel::Point
+                }
+                /// A block was validated successfully, so the chains awaiting it advance past it.
+                ///
+                /// The operator-facing counterpart is `consensus::tip::ADOPT`; this records the
+                /// bookkeeping chain selection does with the result.
+                BLOCK_VALIDATED {
+                    required tip: amaru_kernel::Point
+                    /// How many tracked chains had their pending prefix advanced past this block
+                    required advanced: usize
+                    /// Whether the node is still catching up, where per-block timings are not
+                    /// a meaningful network-health signal
+                    required syncing: bool
+                }
+                /// A new candidate was chosen as the best tip.
+                /// Reason ∈ {better_chain, previous_invalidated}.
+                public BEST_TIP_CANDIDATE {
+                    required tip: amaru_kernel::Point
+                    required reason: String
+                    optional previous: amaru_kernel::Point
+                }
+                /// The best tip candidate was invalidated and forks depending on it were dropped
+                public BEST_TIP_INVALIDATED {
+                    required removed: usize
+                }
+                /// Chain forks were removed because they depend on an invalid block
+                public FORKS_REMOVED {
+                    required removed: usize
+                }
+                /// No valid candidate remains; the best chain falls back to origin
+                public FALLBACK_TO_ORIGIN {}
+                /// Failed to select a new best candidate after an invalidation
+                public FIND_BEST_CANDIDATE_FAILED {
+                    required error: String
+                }
+                /// Where block fetching resumes from, once per request.
+                /// Outcome ∈ {resume_from_best_tip, already_at_best_tip, no_best_tip}; only
+                /// `resume_from_best_tip` sends a tip downstream and carries its `parent`.
+                public RESUME_FETCH {
+                    required outcome: String
+                    required point: amaru_kernel::Point
+                    required best_tip: amaru_kernel::Point
+                    optional parent: amaru_kernel::Point
+                }
+                /// A header needed for chain selection could not be loaded from the store.
+                /// Role ∈ {tip, best_candidate, best_candidate_parent, parent, validation_target}.
+                public HEADER_NOT_FOUND {
+                    required role: String
+                    required header_hash: amaru_kernel::HeaderHash
+                    optional tip: amaru_kernel::Point
+                }
+                /// Failed to persist the validation result of a block
+                public STORE_VALIDATION_FAILED {
+                    required error: String
+                    required valid: bool
                 }
             }
             roll_forward {
