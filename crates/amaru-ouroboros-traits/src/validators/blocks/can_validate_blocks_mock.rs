@@ -51,9 +51,9 @@ impl MockBlockValidatorInner {
     }
 
     /// Record a point as validated and make it the ledger tip.
-    fn apply(&mut self, point: Point) {
-        self.contains.insert(point);
-        self.tip = point;
+    fn apply(&mut self, tip: Point) {
+        self.contains.insert(tip);
+        self.tip = tip;
     }
 }
 
@@ -120,16 +120,16 @@ impl CanValidateBlocks for MockBlockValidator {
         &self,
         block: amaru_kernel::Block,
     ) -> Result<Result<LedgerMetrics, BlockValidationError>, BlockValidationError> {
-        let point = block.point();
+        let tip = block.point();
         let mut inner = self.inner.lock();
-        if inner.ledger_fails.contains(&point) {
+        if inner.ledger_fails.contains(&tip) {
             return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed")));
         }
-        if inner.validate_fails.contains(&point) {
+        if inner.validate_fails.contains(&tip) {
             return Ok(Err(BlockValidationError::new(anyhow::anyhow!("mock validation failed"))));
         }
-        inner.contains.insert(point);
-        inner.tip = point;
+        inner.contains.insert(tip);
+        inner.tip = tip;
         Ok(Ok(Default::default()))
     }
 
@@ -141,6 +141,19 @@ impl CanValidateBlocks for MockBlockValidator {
         if inner.ledger_fails.contains(to) {
             return Err(BlockValidationError::new(anyhow::anyhow!("mock ledger failed")));
         }
+
+        // When the current tip height is known, enforce the same precondition as the real ledger:
+        // the fork must replace the current chain at equal height or extend it by exactly one block.
+        let current_height = inner.tip.block_height();
+        let new_height = to.block_height();
+        if new_height.as_u64() < current_height.as_u64() || new_height.as_u64() > current_height.as_u64() + 1 {
+            return Err(BlockValidationError::new(anyhow::anyhow!(
+                "cannot switch to a fork ending at height {} while the ledger tip is at height {}: the fork \
+                 must have the same height as the current chain or extend it by exactly one block",
+                new_height.as_u64(),
+                current_height.as_u64()
+            )));
+        };
 
         // A rolled back switch restores the pre-switch state: nothing to mutate.
         if let Some(failed) = inner.rolled_back_switches.get(to).copied() {

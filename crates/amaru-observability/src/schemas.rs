@@ -213,6 +213,11 @@ define_schemas! {
                     required header_hash: amaru_kernel::HeaderHash
                     optional valid: bool
                 }
+                /// Skip a block validation when it is not better than the current ledger tip
+                public SKIP {
+                    required current: amaru_kernel::Point
+                    required tip: amaru_kernel::Point
+                }
                 /// Adopt a block as the next block in the best chain
                 ADOPT {
                     required tip: amaru_kernel::Point

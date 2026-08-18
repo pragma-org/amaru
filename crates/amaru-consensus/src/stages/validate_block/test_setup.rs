@@ -205,7 +205,11 @@ pub fn te_validate_block(at_stage: &str, point: Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateBlockEffect::new(&point))))
 }
 
-pub fn te_rollback_ledger(at_stage: &str, tip: &Point) -> TraceEntry {
+pub fn te_load_header(at_stage: &str, hash: HeaderHash) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(LoadHeaderEffect::new(hash))))
+}
+
+pub fn te_switch_to_fork(at_stage: &str, tip: &Point) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(tip))))
 }
 
