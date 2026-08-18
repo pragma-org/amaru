@@ -45,10 +45,9 @@ pub struct PoolsEpochTransitionUpdates {
     /// keys of pools whose activating re-registration changed VRF
     vrf_released: BTreeSet<pools_vrf::Key>,
 
-    /// VRF key hashes of retired pools (post-activation of any pending re-registration), one entry
-    /// per retiring pool. A `Vec` rather than a set: occupancy counts can exceed one, so two
-    /// retiring pools sharing a grandfathered key must decrement it twice.
-    vrf_retired: Vec<pools_vrf::Key>,
+    /// How many retiring pools' post-activation VRF key hashes land on each key, and so how many
+    /// times the transition decrements its occupancy.
+    vrf_retired: BTreeMap<pools_vrf::Key, u64>,
 }
 
 impl PoolsEpochTransitionUpdates {
@@ -83,13 +82,20 @@ impl PoolsEpochTransitionUpdates {
         &self.vrf_released
     }
 
-    /// VRF key hashes whose occupancy the transition decrements, one entry per retiring pool.
+    /// VRF key hashes whose occupancy the transition decrements, each with the number of retiring
+    /// pools holding it.
     ///
-    /// Keys that [`Self::vrf_released`] also names are skipped: releasing deletes the entry,s
-    /// which subsumes any number of decrements of it. A single pool never puts the same
-    /// key in both, but two pools sharing one can.
-    pub fn vrf_retired(&self) -> impl Iterator<Item = &pools_vrf::Key> {
-        self.vrf_retired.iter().filter(|vrf| !self.vrf_released.contains(vrf))
+    /// Keys that [`Self::vrf_released`] also names are skipped: releasing deletes the entry, which
+    /// subsumes any number of decrements of it. A single pool never puts the same key in both, but
+    /// two pools sharing one can.
+    pub fn vrf_retired(&self) -> impl Iterator<Item = (&pools_vrf::Key, u64)> {
+        self.vrf_retired.iter().filter(|(vrf, _)| !self.vrf_released.contains(*vrf)).map(|(vrf, by)| (vrf, *by))
+    }
+
+    /// How many times the transition decrements the given VRF key hash's occupancy; `0` for a key
+    /// it releases outright.
+    pub fn vrf_decrements(&self, vrf: &pools_vrf::Key) -> u64 {
+        if self.vrf_released.contains(vrf) { 0 } else { self.vrf_retired.get(vrf).copied().unwrap_or(0) }
     }
 
     /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
@@ -234,9 +240,9 @@ impl PoolsEpochTransitionUpdates {
         match pool.pending_certificates.last_registration() {
             Some(params) if params.vrf != current_vrf => {
                 self.vrf_released.insert(current_vrf);
-                self.vrf_retired.push(params.vrf);
+                *self.vrf_retired.entry(params.vrf).or_default() += 1;
             }
-            _ => self.vrf_retired.push(current_vrf),
+            _ => *self.vrf_retired.entry(current_vrf).or_default() += 1,
         }
     }
 }
@@ -446,12 +452,12 @@ mod tests {
                 for released in pools_updates.vrf_released() {
                     occupancy.remove(released);
                 }
-                for retired in pools_updates.vrf_retired() {
+                for (retired, held) in pools_updates.vrf_retired() {
                     match occupancy.get_mut(retired) {
-                        Some(1) => {
+                        Some(count) if *count > held => *count -= held,
+                        Some(..) => {
                             occupancy.remove(retired);
                         }
-                        Some(count) => *count -= 1,
                         None => prop_assert!(false, "decrement of an unclaimed key: {}", retired),
                     }
                 }
@@ -581,7 +587,8 @@ mod tests {
         pools_updates.retire_pool(Epoch::from(0), &pool_b, pending_b);
 
         assert!(pools_updates.vrf_released().contains(&shared));
-        assert_eq!(pools_updates.vrf_retired().copied().collect::<Vec<_>>(), vec![activating]);
+        assert_eq!(pools_updates.vrf_retired().collect::<Vec<_>>(), vec![(&activating, 1)]);
+        assert_eq!(pools_updates.vrf_decrements(&shared), 0);
     }
 
     fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {

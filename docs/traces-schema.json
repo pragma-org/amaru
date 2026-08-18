@@ -4487,6 +4487,12 @@
           "type": "string",
           "description": "Custom type: amaru_kernel::Hash<32>"
         },
+        "held": {
+          "type": "integer"
+        },
+        "stored": {
+          "type": "integer"
+        },
         "reason": {
           "type": "string"
         }
@@ -4494,6 +4500,8 @@
       "required": [],
       "optional": [
         "vrf",
+        "held",
+        "stored",
         "reason"
       ],
       "additionalProperties": false,

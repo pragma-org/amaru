@@ -389,10 +389,7 @@ impl StateOverlay {
     /// epoch-boundary transition; `0` outside the straddle window. Whether the decrements actually
     /// free the key depends on the stable occupancy count.
     pub fn vrf_decrements(&self, vrf: &pools_vrf::Key) -> u64 {
-        self.pools_updates
-            .as_ref()
-            .map(|updates| updates.vrf_retired().filter(|retired| *retired == vrf).count() as u64)
-            .unwrap_or(0)
+        self.pools_updates.as_ref().map(|updates| updates.vrf_decrements(vrf)).unwrap_or(0)
     }
 
     /// The cold credentials this pending boundary transition can resolve to a member for, that is,

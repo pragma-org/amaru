@@ -2097,7 +2097,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `claim` | `TRACE` | public | Mark a VRF key hash as in use (set occupancy to 1) |  |  |
-| `decrement` | `TRACE` | public | Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero |  | vrf, reason |
+| `decrement` | `TRACE` | public | Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero |  | vrf, held, stored, reason |
 | `get` | `TRACE` | public | Point-read a VRF key hash occupancy entry |  |  |
 | `release` | `TRACE` | public | Delete a superseded VRF key hash occupancy entry |  | vrf, reason |
 | `seed` | `TRACE` | public | Import a VRF key hash occupancy entry from a snapshot at bootstrap |  |  |
@@ -2107,6 +2107,8 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `vrf` | `string` |  |
+| `held` | `integer` |  |
+| `stored` | `integer` |  |
 | `reason` | `string` |  |
 
 </details>

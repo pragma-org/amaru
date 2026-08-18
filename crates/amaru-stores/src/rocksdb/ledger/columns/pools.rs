@@ -120,8 +120,8 @@ pub fn update_or_retire<DB>(
             pools_vrf::release(db, vrf)?;
         }
 
-        for vrf in pools_updates.vrf_retired() {
-            pools_vrf::decrement(db, vrf)?;
+        for (vrf, held) in pools_updates.vrf_retired() {
+            pools_vrf::decrement(db, vrf, held)?;
         }
 
         Ok(())

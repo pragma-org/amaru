@@ -68,21 +68,40 @@ pub fn release<DB>(db: &Transaction<'_, DB>, vrf: &Key) -> Result<(), StoreError
     })
 }
 
-/// Decrement the occupancy count of a retiring pool's VRF key hash, dropping the entry at zero.
-/// An absent key means the stored count stood below the number of pools holding it.
-pub fn decrement<DB>(db: &Transaction<'_, DB>, vrf: &Key) -> Result<(), StoreError> {
+/// Drop `by` retiring pools' hold on a VRF key hash, deleting the entry once nothing holds it.
+///
+/// A stored count below `by` means occupancy was tracked lower than the number of pools
+/// actually holding the key. The entry still goes, but the shortfall is reported: it means an earlier claim was lost.
+pub fn decrement<DB>(db: &Transaction<'_, DB>, vrf: &Key, by: Value) -> Result<(), StoreError> {
     trace_span!(stores::ledger::pools_vrf::DECREMENT).in_scope(|| {
         let key = as_key(&PREFIX, vrf);
         match db.get(&key).map_err(|err| StoreError::Internal(err.into()))? {
             None => {
-                error!(stores::ledger::pools_vrf::DECREMENT, ?vrf, reason = "vrf key hash not in use");
+                error!(
+                    stores::ledger::pools_vrf::DECREMENT,
+                    ?vrf,
+                    held = by,
+                    stored = 0,
+                    reason = "vrf key hash not in use"
+                );
             }
             Some(bytes) => {
-                let count = unsafe_decode::<Value>(&bytes);
-                if count <= 1 {
-                    db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
-                } else {
-                    db.put(key, as_value(count - 1)).map_err(|err| StoreError::Internal(err.into()))?;
+                let stored = unsafe_decode::<Value>(&bytes);
+                if stored < by {
+                    error!(
+                        stores::ledger::pools_vrf::DECREMENT,
+                        ?vrf,
+                        held = by,
+                        stored,
+                        reason = "occupancy below the number of pools holding the key"
+                    );
+                }
+
+                match stored.checked_sub(by).filter(|remaining| *remaining > 0) {
+                    Some(remaining) => {
+                        db.put(key, as_value(remaining)).map_err(|err| StoreError::Internal(err.into()))?
+                    }
+                    None => db.delete(key).map_err(|err| StoreError::Internal(err.into()))?,
                 }
             }
         }

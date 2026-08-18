@@ -1234,6 +1234,8 @@ define_schemas! {
                     /// Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero
                     public DECREMENT {
                         optional vrf: amaru_kernel::Hash<32>
+                        optional held: u64
+                        optional stored: u64
                         optional reason: String
                     }
                     /// Import a VRF key hash occupancy entry from a snapshot at bootstrap
