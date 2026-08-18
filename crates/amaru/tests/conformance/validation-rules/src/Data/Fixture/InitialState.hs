@@ -121,6 +121,7 @@ import Data.Aeson
     ( FromJSON (parseJSON)
     , Object
     , Value (Array)
+    , withArray
     , withObject
     , withText
     , (.:)
@@ -368,14 +369,25 @@ instance FromJSON ProposalEntry where
     parseJSON value =
         case value of
             Array _ ->
-                parseSlimPair value
+                parseSlimEntry value
             _ ->
                 parseFullEntry value
       where
-        parseSlimPair =
-            parseJSON >=> \(idValue, lineage) -> do
-                entryId <- parseProposalId idValue
-                pure ProposalEntry{proposalId = entryId, proposalAction = ProposalSlim lineage, proposalValidUntil = Nothing}
+        parseSlimEntry =
+            withArray "ProposalEntry" $ \values ->
+                case toList values of
+                    [idValue, lineageValue, validUntilValue] -> do
+                        entryId <- parseProposalId idValue
+                        lineage <- parseJSON lineageValue
+                        validUntil <- parseJSON validUntilValue
+                        pure
+                            ProposalEntry
+                                { proposalId = entryId
+                                , proposalAction = ProposalSlim lineage
+                                , proposalValidUntil = Just validUntil
+                                }
+                    _ ->
+                        fail "expected a [id, kind, validUntil] triple"
         parseFullEntry =
             withObject "ProposalEntry" $ \objectValue ->
                 ProposalEntry

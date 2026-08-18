@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Find schema constants (from dump-traces-schema JSON) never referenced in debug_span! calls.
+# Find schema constants never referenced in debug_span! calls.
 #
 # Private schemas (public: false) are included in the registry so they appear here too.
 
@@ -8,7 +8,7 @@ set -euo pipefail
 BUILD_PROFILE="${BUILD_PROFILE:-test}"
 
 # Get all schema paths from the compiled registry (both public and private)
-all_paths=$(cargo run --quiet --profile $BUILD_PROFILE dump-traces-schema 2>&1 | jq -r '.definitions | keys[]' | sort)
+all_paths=$(cargo run --quiet --profile $BUILD_PROFILE dev traces dump | jq -r '.definitions | keys[]' | sort)
 
 total=$(echo "$all_paths" | wc -l | tr -d ' ')
 unused=0

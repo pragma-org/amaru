@@ -14,7 +14,7 @@
 
 use std::collections::BTreeSet;
 
-use amaru_kernel::{StakeCredential, Voter};
+use amaru_kernel::{BallotId, ProposalId, StakeCredential, Voter, cbor};
 pub use amaru_ledger::store::{
     StoreError,
     columns::votes::{Key, Row, Value},
@@ -22,7 +22,10 @@ pub use amaru_ledger::store::{
 use amaru_observability::trace_span;
 use rocksdb::Transaction;
 
-use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use crate::rocksdb::{
+    common::{PREFIX_LEN, as_key, as_value},
+    from_store, iter_raw, prefix_successor,
+};
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "vote"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x76, 0x6f, 0x74, 0x65];
@@ -54,4 +57,40 @@ pub fn add<DB>(
 
         Ok(voting_dreps)
     })
+}
+
+#[expect(clippy::expect_used)]
+pub fn iter_by_proposal<DB>(
+    db: &Transaction<'_, DB>,
+    proposal: &ProposalId,
+) -> Result<impl Iterator<Item = Key>, StoreError> {
+    let mut prefix = Vec::new();
+    prefix.extend_from_slice(&PREFIX);
+    BallotId::encode_prefix(proposal, &mut cbor::encode::Encoder::new(&mut prefix))
+        .unwrap_or_else(|_| unreachable!("encoding to a mutable Vec cannot fail"));
+
+    let lo = prefix.clone();
+    let hi = prefix_successor(&prefix[..]).expect("successor always exists here");
+
+    iter_raw(
+        |mode, mut opts| {
+            // NOTE: RocksDB iterator and prefixes
+            //
+            // We configure a prefix size of PREFIX_LEN at start; which means that unless we provide
+            // an explicit range here; RocksDB will match only based on the first PREFIX_LEN bytes
+            // of our prefix and as a consequence, will yield entry we precisely don't want to
+            // match!
+            //
+            // By setting an explicit prefix range, we avoid this headache.
+            opts.set_iterate_range(lo..hi);
+            db.iterator_opt(mode, opts)
+        },
+        prefix,
+        |key, _| from_store(&key[PREFIX_LEN..]),
+    )
+}
+
+pub fn remove<DB>(db: &Transaction<'_, DB>, key: Key) -> Result<(), StoreError> {
+    trace_span!(stores::ledger::votes::REMOVE)
+        .in_scope(|| db.delete(as_key(&PREFIX, &key)).map_err(|err| StoreError::Internal(err.into())))
 }

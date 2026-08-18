@@ -163,6 +163,6 @@ jobs:
           echo ""
           echo "If schemas changed, also run:"
           echo ""
-          echo "  cargo run --bin amaru -- dump-traces-schema 2> docs/traces-schema.json"
+          echo "  cargo run --bin amaru -- dev traces dump 1> docs/traces-schema.json"
           echo ""
           echo "Then commit the updated files."

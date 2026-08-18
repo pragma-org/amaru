@@ -27,7 +27,7 @@ use crate::{
     context::{
         AccountState, CCMember, ContextHydratationError, DefaultValidationContext, PreparationContext,
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
-        PrepareUtxoSlice, UnresolvedInputPolicy,
+        PrepareUtxoSlice, ProposalStateSlim, UnresolvedInputPolicy,
     },
     state::volatile::{Bind, Existence, VolatileDB, VolatileState},
     store::ReadStore,
@@ -479,15 +479,17 @@ fn resolve_committee<'block, 'volatile>(
     })
 }
 
-/// The materialized [`ProposalState`] for each existing id, layering the ongoing block over the
-/// volatile DB over the stable store; a `Gone` tombstone (boundary pruning) skips the stale
-/// stable entry. A proposal still in the volatile window was proposed within the last `k` blocks,
-/// so its expiry is derived from its own pointer rather than read from a not-yet-written row.
+/// The [`ProposalStateSlim`] for each existing id, layering the ongoing block over the volatile DB over
+/// the stable store; a `Gone` tombstone (boundary pruning) skips the stale stable entry.
+///
+/// Expiry is read from whichever layer answers, never re-derived: it is stamped once at submission
+/// from the lifetime in force then, so a later change to `gov_action_lifetime` must neither extend
+/// nor shorten an action already on the chain.
 pub fn resolve_proposals(
     volatile: &impl VolatileState<Proposal = <VolatileDB as VolatileState>::Proposal>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = ProposalId>,
-) -> Result<BTreeMap<ProposalId, ProposalSlim>, ContextHydratationError> {
+) -> Result<BTreeMap<ProposalId, ProposalStateSlim>, ContextHydratationError> {
     debug_span!(ledger::validation_context::proposals::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -509,7 +511,13 @@ pub fn resolve_proposals(
                 Existence::Unknown => {
                     if let Some(row) = db.proposal(&id).map_err(ContextHydratationError::ResolveProposals)? {
                         from_db += 1;
-                        proposals.insert(id, ProposalSlim::from(&row.proposal.gov_action));
+                        proposals.insert(
+                            id,
+                            ProposalStateSlim {
+                                action: ProposalSlim::from(&row.proposal.gov_action),
+                                valid_until: row.valid_until,
+                            },
+                        );
                     }
 
                     Ok(proposals)
@@ -689,7 +697,7 @@ mod tests {
         }
 
         #[test]
-        fn all_recently_evicted_cc_members_still_proposal_are_resolved_for_certificates() {
+        fn all_recently_evicted_cc_members_still_in_proposals_are_resolved_for_certificates() {
             let first_cold_credential: StakeCredential = run_strategy(any_stake_credential());
             let second_cold_credential: StakeCredential = run_strategy(any_stake_credential());
 
@@ -718,6 +726,25 @@ mod tests {
 
             assert_eq!(context.get(&first_cold_credential), Some(&CCMember::default()));
             assert_eq!(context.get(&second_cold_credential), Some(&CCMember::default()));
+        }
+
+        #[test]
+        fn stable_hot_delegation_is_resolved_for_votes_without_volatile_entry() {
+            let cold_credential: StakeCredential = run_strategy(any_stake_credential());
+            let hot_credential: StakeCredential = run_strategy(any_stake_credential());
+
+            let mock = Mock {
+                volatile_cc_members: vec![],
+                stable_cc_members: vec![(cold_credential, Some(Epoch::default()), Some(hot_credential.into()))],
+                proposals: vec![],
+            };
+
+            let context = resolve_committee(&mock, &mock, Default::default(), From::from([hot_credential])).unwrap();
+
+            assert_eq!(
+                context.get(&cold_credential),
+                Some(&CCMember { status: Some(hot_credential.into()), valid_until: Some(Epoch::default()) })
+            );
         }
     }
 }

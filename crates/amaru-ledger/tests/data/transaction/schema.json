@@ -340,14 +340,22 @@
     },
     "ProposalEntry": {
       "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
       "items": [
         { "$ref": "#/$defs/ProposalId" },
-        { "$ref": "#/$defs/ProposalKind" }
+        { "$ref": "#/$defs/ProposalKind" },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Last epoch a vote on this proposal still counts, i.e. the epoch it was proposed in plus governanceActionLifetime. Required: every proposal on chain has one."
+        }
       ]
     },
     "ProposalKind": {
       "type": "string",
-      "enum": ["ProtocolParameters", "HardFork", "ConstitutionalCommittee", "Constitution", "Orphan"]
+      "description": "The lineage a proposal chains onto. 'ProtocolParameters(security-group)' marks an update touching the security group, and a hard fork names the version it would enact.",
+      "pattern": "^(ProtocolParameters(\\(security-group\\))?|HardFork\\([0-9]+\\.[0-9]+\\)|ConstitutionalCommittee|Constitution|Orphan|Information|TreasuryWithdrawals)$"
     },
     "ProposalsRoots": {
       "type": "object",

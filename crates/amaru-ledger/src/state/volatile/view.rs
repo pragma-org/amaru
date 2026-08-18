@@ -18,12 +18,10 @@ use std::{
     sync::Arc,
 };
 
-use amaru_kernel::{
-    CertificatePointer, Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalsRootsRc,
-    StakeCredential,
-};
+use amaru_kernel::{CertificatePointer, Lovelace, PoolId, PoolParams, ProposalId, ProposalsRootsRc, StakeCredential};
 
 use crate::{
+    context::ProposalState,
     state::{
         VolatileDB,
         volatile::{DiffBind, DiffEpochReg, VolatileSequence, VolatileState, fragment::add_proposals},
@@ -43,11 +41,9 @@ mod iter_unreachable_accounts;
 /// context.
 #[derive(Debug)]
 pub struct VolatileView<'volatile, 'store, DB: ReadStore> {
-    epoch: Epoch,
-    proposal_lifetime: u64,
     db: &'store DB,
     pools: Option<DiffEpochReg<PoolId, &'volatile (PoolParams, CertificatePointer, Lovelace)>>,
-    proposals: BTreeMap<&'volatile ProposalId, &'volatile Arc<(Proposal, ProposalPointer)>>,
+    proposals: BTreeMap<&'volatile ProposalId, &'volatile Arc<ProposalState>>,
     accounts: Option<AccountVolatileView<'volatile>>,
     volatile_donations: Lovelace,
 }
@@ -87,8 +83,6 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
         };
 
         Self {
-            epoch: volatile.epoch(),
-            proposal_lifetime: volatile.protocol_parameters().gov_action_lifetime,
             db: stable,
             accounts: Some(accounts),
             pools: Some(pools),
@@ -117,10 +111,7 @@ impl<'volatile, 'db, DB: ReadStore> VolatileView<'volatile, 'db, DB> {
     ///
     /// IMPORTANT: Yields proposals in no particular order.
     pub fn iter_proposals(&self) -> Result<impl Iterator<Item = (ProposalId, proposals::Row)>, StoreError> {
-        Ok(self.db.iter_proposals()?.chain(add_proposals(
-            self.proposals.iter().map(|(k, v)| (*(*k), (*v).clone())),
-            self.epoch + self.proposal_lifetime,
-        )))
+        Ok(self.db.iter_proposals()?.chain(add_proposals(self.proposals.iter().map(|(k, v)| (*(*k), (*v).clone())))))
     }
 
     /// Provides an iterator for accounts on top of the stable store, tracking accounts that are "no

@@ -21,7 +21,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-use crate::context::{AccountsSlice, BalanceSlice, ProposalsSlice, WitnessSlice};
+use crate::context::{AccountsSlice, BalanceSlice, ProposalState, ProposalsSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -110,7 +110,10 @@ where
 
         let pointer = ProposalPointer { transaction: transaction.1, proposal_index };
         let id = ProposalId { transaction_id: *transaction.0, proposal_index: proposal_index as u32 };
-        context.acknowledge(id, pointer, proposal)
+        let valid_until = era_history.slot_to_epoch(transaction.1.slot, transaction.1.slot)?
+            + protocol_parameters.gov_action_lifetime;
+
+        context.acknowledge(id, ProposalState { proposed_in: pointer, valid_until, proposal })
     }
 
     Ok(())
@@ -162,7 +165,7 @@ where
             let follows_root = parent == context.roots().root_of(kind);
             let follows_in_flight = parent
                 .and_then(|id| ProposalsSlice::lookup(context, id))
-                .is_some_and(|in_flight| in_flight.same_lineage(kind));
+                .is_some_and(|in_flight| in_flight.action.same_lineage(kind));
             if !follows_root && !follows_in_flight {
                 return Err(InvalidProposals::InvalidPrevGovActionId { parent: parent.cloned() });
             }
@@ -276,7 +279,7 @@ where
         return None;
     }
 
-    match parent.and_then(|id| context.lookup(id)) {
+    match parent.and_then(|id| context.lookup(id)).map(|in_flight| in_flight.action) {
         Some(ProposalSlim::HardFork(previous_version)) => Some(previous_version),
         // The lineage check in `validate_proposal` runs first, and rejects any parent that is
         // neither the hard fork root nor a hard fork proposal still in flight.
