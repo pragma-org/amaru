@@ -14,6 +14,7 @@
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+use amaru_observability::tracing;
 use amaru_pure_stage::{Effects, StageRef};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;

@@ -22,10 +22,9 @@ use std::{
 use ProtocolError::*;
 use TerminationCause::*;
 use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, to_cbor};
-use amaru_observability::{debug, debug_span};
+use amaru_observability::{Instrument, debug, debug_span, error, trace, warn};
 use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     mempool_effects::{AsyncMempool, MemoryPool},
@@ -93,7 +92,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
 
             let action = match input {
                 ResponderResult::Init => {
-                    tracing::trace!("received Init");
+                    trace!(protocols::tx_submission::INITIALIZED);
                     self.initialize_state(&mempool).await
                 }
                 ResponderResult::ReplyTxIds(tx_ids) => match self.process_tx_ids_reply(&mempool, tx_ids).await? {
@@ -325,7 +324,12 @@ impl TxSubmissionResponder {
         if self.unacked.len() + tx_ids.len() > max_window {
             // The peer was told it could send at most `max_window - unacked.len()` ids.
             let requested = max_window - self.unacked.len();
-            tracing::warn!(requested, received = tx_ids.len(), %max_window, "peer over-replied to RequestTxIds");
+            warn!(
+                protocols::tx_submission::responder::OVER_REPLIED,
+                requested = requested as u16,
+                received = tx_ids.len(),
+                max_window = max_window as u16
+            );
             return terminate_outcome(TxIdsNotRequested);
         }
 
@@ -517,7 +521,7 @@ impl TxSubmissionResponder {
             .await
         {
             None => {
-                tracing::error!("mempool stage did not respond to InsertBatch within timeout");
+                error!(protocols::tx_submission::responder::MEMPOOL_TIMEOUT);
                 return terminate(MempoolBatchInsertFailedTimedout);
             }
             Some(results) => {
@@ -548,7 +552,7 @@ impl TxSubmissionResponder {
             .filter(|tx_id| !self.tx_states.get(tx_id).is_some_and(|e| e.status.is_inflight()))
             .collect();
         if !not_requested.is_empty() {
-            tracing::warn!(?not_requested, "peer sent transactions we did not request");
+            warn!(protocols::tx_submission::responder::UNSOLICITED_TXS, not_requested = ?not_requested);
             return terminate(TxNotRequested);
         }
 
@@ -694,16 +698,21 @@ impl TxStatus {
 fn log_insert_result(result: &TxInsertResult) {
     match result {
         TxInsertResult::Accepted { tx_id, .. } => {
-            tracing::debug!("insert transaction {} into the mempool", tx_id);
+            debug!(protocols::tx_submission::responder::RECEIVED_TX, id = tx_id, outcome = "inserted");
         }
         TxInsertResult::Rejected { tx_id, reason: TxRejectReason::Invalid(error) } => {
-            tracing::warn!("received invalid transaction {}: {}", tx_id, error);
+            warn!(
+                protocols::tx_submission::responder::RECEIVED_TX,
+                id = tx_id,
+                outcome = "invalid",
+                error = %error
+            );
         }
         TxInsertResult::Rejected { tx_id, reason: TxRejectReason::MempoolFull } => {
-            tracing::warn!("mempool full, dropping transaction {}", tx_id);
+            warn!(protocols::tx_submission::responder::RECEIVED_TX, id = tx_id, outcome = "mempool_full");
         }
         TxInsertResult::Rejected { tx_id, reason: TxRejectReason::Duplicate } => {
-            tracing::debug!("duplicate transaction {}, skipping", tx_id);
+            debug!(protocols::tx_submission::responder::RECEIVED_TX, id = tx_id, outcome = "duplicate");
         }
     }
 }
@@ -715,13 +724,13 @@ fn one() -> NonZeroU32 {
 
 fn terminate(cause: impl Into<TerminationCause>) -> anyhow::Result<Option<ResponderAction>> {
     let cause = cause.into();
-    tracing::warn!("terminating: {cause}");
+    warn!(protocols::tx_submission::TERMINATING, cause = %cause);
     Ok(Some(ResponderAction::Error(cause)))
 }
 
 fn terminate_outcome(cause: impl Into<TerminationCause>) -> anyhow::Result<FetchOutcome> {
     let cause = cause.into();
-    tracing::warn!("terminating: {cause}");
+    warn!(protocols::tx_submission::TERMINATING, cause = %cause);
     Ok(FetchOutcome::Action(ResponderAction::Error(cause)))
 }
 

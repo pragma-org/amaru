@@ -14,6 +14,7 @@
 
 use std::time::Duration;
 
+use amaru_observability::tracing;
 use amaru_pure_stage::Effects;
 
 use crate::{

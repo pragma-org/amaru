@@ -625,7 +625,6 @@ dependencies = [
  "serde",
  "socket2 0.6.5",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
