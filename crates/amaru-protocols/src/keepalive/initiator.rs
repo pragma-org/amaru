@@ -15,10 +15,9 @@
 use std::time::Duration;
 
 use amaru_kernel::Peer;
-use amaru_observability::{debug, debug_span};
+use amaru_observability::{Instrument, debug, debug_span};
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     keepalive::{

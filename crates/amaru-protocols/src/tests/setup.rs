@@ -24,6 +24,7 @@ use std::{
 
 use amaru_kernel::{NonEmptyBytes, Peer, Transaction, cbor::WithOriginalBytes};
 use amaru_network::connection::TokioConnections;
+use amaru_observability::tracing;
 use amaru_ouroboros_traits::{
     BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource,
     DiagnosticChainStore, HasStakePools, Mempool, MockBlockValidator, MockCanValidateTxs, ResourceMempool,

@@ -2187,6 +2187,86 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::protocols::blockfetch::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `protocol_violation` | `TRACE` | public | The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}. | reason | max_blocks, bytes |
+
+<details><summary>span: `protocol_violation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `max_blocks` | `integer` |  |
+| `bytes` | `integer` |  |
+
+</details>
+
+## target: `amaru::protocols::chainsync::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `rollback_point_not_found` | `TRACE` | public | A rollback target announced by the peer is not in the chain store | header_hash |  |
+
+<details><summary>span: `rollback_point_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::chainsync::responder`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `stopped` | `TRACE` | public | The peer ended the chainsync session |  |  |
+
+## target: `amaru::protocols::connection`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `accept_failed` | `TRACE` | public | An inbound connection could not be accepted. Reason ∈ {aborted, error}. | reason | error |
+| `child_died` | `TRACE` | public | A mini-protocol stage running on a connection died | peer, conn_id, child |  |
+| `handshake_query_reply` | `TRACE` | public | The peer answered a version query instead of negotiating | version_table |  |
+| `handshake_refused` | `TRACE` | public | The peer refused our proposed protocol versions | reason |  |
+
+<details><summary>span: `accept_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `error` | `string` |  |
+
+</details>
+
+<details><summary>span: `child_died`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `child` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `handshake_query_reply`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `version_table` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `handshake_refused`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::protocols::keepalive::peer`
 
 | name | level | public | description | required fields | optional fields |
@@ -2200,6 +2280,44 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `peer` | `string` | ✓ |
 | `conn_id` | `integer` | ✓ |
 | `round_trip_micros` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::manager::blocks`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `fetch_no_peers` | `TRACE` | public | No connection was available to serve a block-fetch request | id |  |
+
+<details><summary>span: `fetch_no_peers`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `id` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::manager::listen`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `failed` | `TRACE` | public | The node could not listen on the configured address | listen_addr, error |  |
+| `started` | `TRACE` | public | The node is accepting inbound connections on an address | listen_addr |  |
+
+<details><summary>span: `failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `listen_addr` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `started`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `listen_addr` | `string` | ✓ |
 
 </details>
 
@@ -2223,8 +2341,17 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- | --- | --- | --- |
 | `accepted` | `TRACE` | public | An inbound connection was accepted from a peer | peer, conn_id |  |
 | `add` | `TRACE` | public | A new peer was added to the manager | peer |  |
+| `close_failed` | `TRACE` | public | Closing the socket of a dead connection failed | peer, error |  |
 | `connect` | `TRACE` | public | Initiating an outbound connection to a peer | peer |  |
+| `connect_discarded` | `TRACE` | public | A connection request for a peer was discarded. Reason ∈ {already_connected_or_scheduled, already_connected, not_added}. | peer, reason |  |
+| `connect_exhausted` | `TRACE` | public | A peer is dropped after exhausting its connection attempts | peer |  |
+| `connect_failed` | `TRACE` | public | An outbound connection attempt failed | peer, error |  |
+| `connected` | `TRACE` | public | An outbound connection to a peer was established | peer, conn_id |  |
 | `connection_died` | `TRACE` | public | A peer connection has died | peer, conn_id, role |  |
+| `connection_died_handled` | `TRACE` | public | A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}. | peer, outcome |  |
+| `disconnecting` | `TRACE` | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
+| `duplicate_terminated` | `TRACE` | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
+| `handshake_completed` | `TRACE` | public | The handshake completed on a connection | peer, conn_id, full_duplex_capable, full_duplex, advertisable |  |
 | `remove` | `TRACE` | public | A peer was removed from the manager | peer |  |
 
 <details><summary>span: `accepted`</summary>
@@ -2244,11 +2371,55 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `close_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
 <details><summary>span: `connect`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connect_discarded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connect_exhausted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connect_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `connected`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
 
 </details>
 
@@ -2262,11 +2433,101 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+<details><summary>span: `connection_died_handled`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `outcome` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `disconnecting`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `direction` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `duplicate_terminated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `handshake_completed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `full_duplex_capable` | `boolean` | ✓ |
+| `full_duplex` | `boolean` | ✓ |
+| `advertisable` | `boolean` | ✓ |
+
+</details>
+
 <details><summary>span: `remove`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::mux`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `empty_segment` | `TRACE` | public | A segment header announcing an empty payload was received | role |  |
+| `failed` | `TRACE` | public | The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}. | role, operation, error |  |
+
+<details><summary>span: `empty_segment`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+| `operation` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::mux::protocol`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `buffer_exceeded` | `TRACE` | public | A protocol message does not fit in the buffer allotted to it | buffered, max_buffer |  |
+| `buffer_overflow` | `TRACE` | public | Reducing a protocol buffer was not enough and the connection was killed | buffer, limit |  |
+
+<details><summary>span: `buffer_exceeded`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `buffered` | `integer` | ✓ |
+| `max_buffer` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `buffer_overflow`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `buffer` | `integer` | ✓ |
+| `limit` | `integer` | ✓ |
 
 </details>
 
@@ -2398,6 +2659,86 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `peers` | `string` | ✓ |
 | `requested` | `integer` | ✓ |
 | `count` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::peer_sharing::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `protocol_violation` | `TRACE` | public | The peer broke the peer-sharing protocol and the connection is terminated. Reason ∈ {no_request_in_flight, too_many_addresses}. | reason | requested, received |
+
+<details><summary>span: `protocol_violation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
+| `requested` | `integer` |  |
+| `received` | `integer` |  |
+
+</details>
+
+## target: `amaru::protocols::tx_submission`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `terminating` | `TRACE` | public | The tx-submission protocol is being torn down; the cause names the rule broken | cause |  |
+
+<details><summary>span: `terminating`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `cause` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::tx_submission::initiator`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `over_acknowledged` | `TRACE` | public | The peer acknowledged more transaction ids than are outstanding | ack, window |  |
+| `unavailable_txs` | `TRACE` | public | The peer asked for transactions that are not in our outstanding window | unavailable |  |
+
+<details><summary>span: `over_acknowledged`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `ack` | `integer` | ✓ |
+| `window` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `unavailable_txs`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `unavailable` | `string` | ✓ |
+
+</details>
+
+## target: `amaru::protocols::tx_submission::responder`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `mempool_timeout` | `TRACE` | public | The mempool did not answer an insertion batch before the timeout |  |  |
+| `over_replied` | `TRACE` | public | The peer replied with more transaction ids than were requested | requested, received, max_window |  |
+| `unsolicited_txs` | `TRACE` | public | The peer sent transaction bodies that were never requested | not_requested |  |
+
+<details><summary>span: `over_replied`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `requested` | `integer` | ✓ |
+| `received` | `integer` | ✓ |
+| `max_window` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `unsolicited_txs`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `not_requested` | `string` | ✓ |
 
 </details>
 

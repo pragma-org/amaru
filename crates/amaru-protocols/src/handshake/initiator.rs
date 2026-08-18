@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug, debug_span};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     handshake::{State, messages::Message},
@@ -76,16 +75,16 @@ impl StageState<State, Initiator> for HandshakeInitiator {
         async move {
             Ok(match input {
                 InitiatorResult::Propose => {
-                    tracing::debug!(?self.our_versions, "proposing versions");
+                    debug!(protocols::handshake::initiator::PROPOSING_VERSIONS, our_versions = format!("{:?}", self.our_versions));
                     (Some(InitiatorAction::Propose(self.our_versions.clone())), self)
                 }
                 InitiatorResult::Conclusion(handshake_result) => {
-                    tracing::debug!(?handshake_result, "conclusion");
+                    debug!(protocols::handshake::initiator::CONCLUSION, handshake_result = format!("{handshake_result:?}"));
                     eff.send(&self.connection, handshake_result).await;
                     (None, self)
                 }
                 InitiatorResult::SimOpen(version_table) => {
-                    tracing::debug!(?version_table, "simultaneous open");
+                    debug!(protocols::handshake::initiator::SIMULTANEOUS_OPEN, version_table = format!("{version_table:?}"));
                     let result = crate::handshake::compute_negotiation_result(
                         crate::protocol::Role::Initiator,
                         self.our_versions.clone(),

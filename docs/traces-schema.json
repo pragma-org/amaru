@@ -4912,6 +4912,150 @@
       "description": "The transaction submission HTTP server stopped with an error",
       "public": true
     },
+    "amaru::protocols::blockfetch::initiator::PROTOCOL_VIOLATION": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "max_blocks": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "max_blocks",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "name": "protocol_violation",
+      "level": "TRACE",
+      "target": "amaru::protocols::blockfetch::initiator",
+      "description": "The peer broke the block-fetch protocol and the connection is terminated. Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}.",
+      "public": true
+    },
+    "amaru::protocols::chainsync::initiator::ROLLBACK_POINT_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "header_hash": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::HeaderHash"
+        }
+      },
+      "required": [
+        "header_hash"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "rollback_point_not_found",
+      "level": "TRACE",
+      "target": "amaru::protocols::chainsync::initiator",
+      "description": "A rollback target announced by the peer is not in the chain store",
+      "public": true
+    },
+    "amaru::protocols::chainsync::responder::STOPPED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "stopped",
+      "level": "TRACE",
+      "target": "amaru::protocols::chainsync::responder",
+      "description": "The peer ended the chainsync session",
+      "public": true
+    },
+    "amaru::protocols::connection::ACCEPT_FAILED": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "error"
+      ],
+      "additionalProperties": false,
+      "name": "accept_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "An inbound connection could not be accepted. Reason ∈ {aborted, error}.",
+      "public": true
+    },
+    "amaru::protocols::connection::CHILD_DIED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "child": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "child"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "child_died",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "A mini-protocol stage running on a connection died",
+      "public": true
+    },
+    "amaru::protocols::connection::HANDSHAKE_QUERY_REPLY": {
+      "type": "object",
+      "properties": {
+        "version_table": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_table"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handshake_query_reply",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "The peer answered a version query instead of negotiating",
+      "public": true
+    },
+    "amaru::protocols::connection::HANDSHAKE_REFUSED": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handshake_refused",
+      "level": "TRACE",
+      "target": "amaru::protocols::connection",
+      "description": "The peer refused our proposed protocol versions",
+      "public": true
+    },
     "amaru::protocols::keepalive::peer::ROUND_TRIP": {
       "type": "object",
       "properties": {
@@ -4936,6 +5080,64 @@
       "level": "TRACE",
       "target": "amaru::protocols::keepalive::peer",
       "description": "Measured round-trip time for a keepalive exchange on an established peer connection.",
+      "public": true
+    },
+    "amaru::protocols::manager::blocks::FETCH_NO_PEERS": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "fetch_no_peers",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::blocks",
+      "description": "No connection was available to serve a block-fetch request",
+      "public": true
+    },
+    "amaru::protocols::manager::listen::FAILED": {
+      "type": "object",
+      "properties": {
+        "listen_addr": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "listen_addr",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::listen",
+      "description": "The node could not listen on the configured address",
+      "public": true
+    },
+    "amaru::protocols::manager::listen::STARTED": {
+      "type": "object",
+      "properties": {
+        "listen_addr": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "listen_addr"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "started",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::listen",
+      "description": "The node is accepting inbound connections on an address",
       "public": true
     },
     "amaru::protocols::manager::message::PROCESS": {
@@ -4996,6 +5198,29 @@
       "description": "A new peer was added to the manager",
       "public": true
     },
+    "amaru::protocols::manager::peer::CLOSE_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "close_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "Closing the socket of a dead connection failed",
+      "public": true
+    },
     "amaru::protocols::manager::peer::CONNECT": {
       "type": "object",
       "properties": {
@@ -5012,6 +5237,29 @@
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
       "description": "Initiating an outbound connection to a peer",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connected",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "An outbound connection to a peer was established",
       "public": true
     },
     "amaru::protocols::manager::peer::CONNECTION_DIED": {
@@ -5040,6 +5288,179 @@
       "description": "A peer connection has died",
       "public": true
     },
+    "amaru::protocols::manager::peer::CONNECTION_DIED_HANDLED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "outcome"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connection_died_handled",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}.",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECT_DISCARDED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_discarded",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A connection request for a peer was discarded. Reason ∈ {already_connected_or_scheduled, already_connected, not_added}.",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECT_EXHAUSTED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        }
+      },
+      "required": [
+        "peer"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_exhausted",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A peer is dropped after exhausting its connection attempts",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::CONNECT_FAILED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "connect_failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "An outbound connection attempt failed",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::DISCONNECTING": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "direction": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "direction"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "disconnecting",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A connection is being closed on request. Direction ∈ {inbound, outbound}.",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::DUPLICATE_TERMINATED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "duplicate_terminated",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "A duplicate connection is terminated after its handshake completed",
+      "public": true
+    },
+    "amaru::protocols::manager::peer::HANDSHAKE_COMPLETED": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "full_duplex_capable": {
+          "type": "boolean"
+        },
+        "full_duplex": {
+          "type": "boolean"
+        },
+        "advertisable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id",
+        "full_duplex_capable",
+        "full_duplex",
+        "advertisable"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "handshake_completed",
+      "level": "TRACE",
+      "target": "amaru::protocols::manager::peer",
+      "description": "The handshake completed on a connection",
+      "public": true
+    },
     "amaru::protocols::manager::peer::REMOVE": {
       "type": "object",
       "properties": {
@@ -5056,6 +5477,94 @@
       "level": "TRACE",
       "target": "amaru::protocols::manager::peer",
       "description": "A peer was removed from the manager",
+      "public": true
+    },
+    "amaru::protocols::mux::EMPTY_SEGMENT": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "empty_segment",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux",
+      "description": "A segment header announcing an empty payload was received",
+      "public": true
+    },
+    "amaru::protocols::mux::FAILED": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "operation",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "failed",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux",
+      "description": "The muxer failed while moving data between a protocol and the network. Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.",
+      "public": true
+    },
+    "amaru::protocols::mux::protocol::BUFFER_EXCEEDED": {
+      "type": "object",
+      "properties": {
+        "buffered": {
+          "type": "integer"
+        },
+        "max_buffer": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "buffered",
+        "max_buffer"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "buffer_exceeded",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux::protocol",
+      "description": "A protocol message does not fit in the buffer allotted to it",
+      "public": true
+    },
+    "amaru::protocols::mux::protocol::BUFFER_OVERFLOW": {
+      "type": "object",
+      "properties": {
+        "buffer": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "buffer",
+        "limit"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "buffer_overflow",
+      "level": "TRACE",
+      "target": "amaru::protocols::mux::protocol",
+      "description": "Reducing a protocol buffer was not enough and the connection was killed",
       "public": true
     },
     "amaru::protocols::peer_selection::CONNECT_INITIAL": {
@@ -5325,6 +5834,147 @@
       "level": "TRACE",
       "target": "amaru::protocols::peer_selection::sharing",
       "description": "Peer-sharing request served for peer.",
+      "public": true
+    },
+    "amaru::protocols::peer_sharing::initiator::PROTOCOL_VIOLATION": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "requested": {
+          "type": "integer"
+        },
+        "received": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [
+        "requested",
+        "received"
+      ],
+      "additionalProperties": false,
+      "name": "protocol_violation",
+      "level": "TRACE",
+      "target": "amaru::protocols::peer_sharing::initiator",
+      "description": "The peer broke the peer-sharing protocol and the connection is terminated. Reason ∈ {no_request_in_flight, too_many_addresses}.",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::TERMINATING": {
+      "type": "object",
+      "properties": {
+        "cause": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cause"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "terminating",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission",
+      "description": "The tx-submission protocol is being torn down; the cause names the rule broken",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::initiator::OVER_ACKNOWLEDGED": {
+      "type": "object",
+      "properties": {
+        "ack": {
+          "type": "integer"
+        },
+        "window": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ack",
+        "window"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "over_acknowledged",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::initiator",
+      "description": "The peer acknowledged more transaction ids than are outstanding",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::initiator::UNAVAILABLE_TXS": {
+      "type": "object",
+      "properties": {
+        "unavailable": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "unavailable"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unavailable_txs",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::initiator",
+      "description": "The peer asked for transactions that are not in our outstanding window",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::MEMPOOL_TIMEOUT": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "mempool_timeout",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "The mempool did not answer an insertion batch before the timeout",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::OVER_REPLIED": {
+      "type": "object",
+      "properties": {
+        "requested": {
+          "type": "integer"
+        },
+        "received": {
+          "type": "integer"
+        },
+        "max_window": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requested",
+        "received",
+        "max_window"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "over_replied",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "The peer replied with more transaction ids than were requested",
+      "public": true
+    },
+    "amaru::protocols::tx_submission::responder::UNSOLICITED_TXS": {
+      "type": "object",
+      "properties": {
+        "not_requested": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "not_requested"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "unsolicited_txs",
+      "level": "TRACE",
+      "target": "amaru::protocols::tx_submission::responder",
+      "description": "The peer sent transaction bodies that were never requested",
       "public": true
     },
     "amaru::setup::build::VERSION": {

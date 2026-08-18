@@ -23,7 +23,6 @@ futures-util.workspace = true
 hex.workspace = true
 minicbor.workspace = true
 serde.workspace = true
-tracing.workspace = true
 
 amaru-kernel = { "workspace" = true, features = ["test-utils"] }
 amaru-metrics.workspace = true

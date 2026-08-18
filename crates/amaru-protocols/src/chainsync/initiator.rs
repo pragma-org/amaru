@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{NetworkPoint, Peer, Point};
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug_record, debug_span, error};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::SampleAncestorPointsResult;
 use amaru_pure_stage::{DeserializerGuards, Effects, OrTerminateWith, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     chainsync::{
@@ -179,11 +178,15 @@ impl StageState<InitiatorState, Initiator> for ChainSyncInitiator {
     }
 }
 
-#[tracing::instrument(level = "debug", skip_all)]
 async fn intersect_points(eff: &Effects<Inputs<InitiatorMessage>>) -> anyhow::Result<SampleAncestorPointsResult> {
-    let points = eff.external(StoreEffect::sample_ancestor_points()).await?;
-    tracing::info!(?points, "intersect points");
-    Ok(points)
+    let span = debug_span!(protocols::chainsync::initiator::INTERSECT_POINTS);
+    async {
+        let points = eff.external(StoreEffect::sample_ancestor_points()).await?;
+        debug_record!(protocols::chainsync::initiator::INTERSECT_POINTS, points = format!("{points:?}"));
+        Ok(points)
+    }
+    .instrument(span)
+    .await
 }
 
 #[derive(Debug)]
@@ -265,7 +268,7 @@ impl InitiatorFromNetwork {
 async fn to_point(eff: &Effects<Inputs<InitiatorMessage>>, point: NetworkPoint) -> Point {
     eff.external(StoreEffect::load_point(point.hash()))
         .or_terminate_with(eff, async move |_| {
-            tracing::error!("rollback to header {} not found in store", point.hash());
+            error!(protocols::chainsync::initiator::ROLLBACK_POINT_NOT_FOUND, header_hash = point.hash());
         })
         .await
 }

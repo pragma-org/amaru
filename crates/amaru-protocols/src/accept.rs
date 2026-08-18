@@ -14,6 +14,7 @@
 
 use std::net::SocketAddr;
 
+use amaru_observability::{debug, error};
 use amaru_pure_stage::{Effects, StageRef};
 
 use crate::{
@@ -28,10 +29,10 @@ pub async fn stage(state: AcceptState, _msg: PullAccept, eff: Effects<PullAccept
             eff.send(&state.manager_stage, ManagerMessage::Accepted(peer, connection_id)).await;
         }
         Err(AcceptError::ConnectionAborted) => {
-            tracing::debug!("failed to accept a connection: connection aborted");
+            debug!(protocols::connection::ACCEPT_FAILED, reason = "aborted");
         }
         Err(AcceptError::Other(err)) => {
-            tracing::error!(?err, "failed to accept a connection");
+            error!(protocols::connection::ACCEPT_FAILED, reason = "error", error = err.to_string());
             return eff.terminate().await;
         }
     }

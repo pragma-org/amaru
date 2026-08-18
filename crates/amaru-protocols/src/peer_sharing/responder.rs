@@ -20,9 +20,8 @@
 use std::net::SocketAddr;
 
 use amaru_kernel::Peer;
-use amaru_observability::debug_span;
+use amaru_observability::{Instrument, debug_span};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
-use tracing::Instrument;
 
 use crate::{
     manager::ManagerMessage,

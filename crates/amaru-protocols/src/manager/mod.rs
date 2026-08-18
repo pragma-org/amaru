@@ -15,10 +15,9 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
-use amaru_observability::{TraceContext, debug_span};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId, MempoolMsg};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
-use tracing::Instrument;
 
 use crate::{
     accept::{self, PullAccept},
@@ -316,10 +315,14 @@ impl Manager {
         let state = self.peers.entry(peer.clone()).or_default();
         match &state.outbound {
             OutboundState::Connected { .. } | OutboundState::Scheduled { .. } => {
-                tracing::info!(%peer, "discarding connection request, already connected or scheduled");
+                info!(
+                    protocols::manager::peer::CONNECT_DISCARDED,
+                    peer = &peer,
+                    reason = "already_connected_or_scheduled"
+                );
             }
             OutboundState::None => {
-                tracing::info!(%peer, "adding peer");
+                info!(protocols::manager::peer::CONNECT, peer = &peer);
                 state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
                 self.connect(peer, true, eff).await;
             }
@@ -329,14 +332,14 @@ impl Manager {
     async fn connect(&mut self, peer: Peer, immediate: bool, eff: &Effects<ManagerMessage>) {
         let (has_inbound, attempts) = match self.peers.get_mut(&peer) {
             Some(PeerState { outbound: OutboundState::Connected { .. }, .. }) => {
-                tracing::debug!(%peer, "discarding connection request, already connected");
+                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer = &peer, reason = "already_connected");
                 return;
             }
             Some(PeerState { outbound: OutboundState::Scheduled { retries }, inbound, .. }) => {
                 (inbound.is_some(), retries)
             }
             None | Some(PeerState { outbound: OutboundState::None, .. }) => {
-                tracing::debug!(%peer, "discarding connection request, not added");
+                debug!(protocols::manager::peer::CONNECT_DISCARDED, peer = &peer, reason = "not_added");
                 return;
             }
         };
@@ -349,7 +352,7 @@ impl Manager {
             let delay = if immediate { Duration::ZERO } else { self.config.reconnect_delay };
             eff.send(&self.connector, connector::ConnectorMsg::Connect { peer, delay }).await;
         } else {
-            tracing::info!(%peer, "no more connection attempts left, removing peer");
+            info!(protocols::manager::peer::CONNECT_EXHAUSTED, peer = &peer);
             if !has_inbound {
                 self.peers.remove(&peer);
             } else if let Some(state) = self.peers.get_mut(&peer) {
@@ -367,11 +370,11 @@ impl Manager {
     ) {
         match result {
             Ok(conn_id) => {
-                tracing::info!(%peer, %conn_id, "connection established");
+                info!(protocols::manager::peer::CONNECTED, peer = &peer, conn_id = conn_id.as_u64());
                 self.start_connection_stage(eff, peer, conn_id, ConnectionDirection::Outbound).await;
             }
             Err(err) => {
-                tracing::info!(%peer, ?err, "connection failed");
+                info!(protocols::manager::peer::CONNECT_FAILED, peer = &peer, error = err.to_string());
                 self.connect(peer, false, eff).await;
             }
         }
@@ -381,7 +384,7 @@ impl Manager {
         let network = Network::new(eff);
         match network.listen(listen_addr).await {
             Ok(listen_addr) => {
-                tracing::info!(%listen_addr, "listening");
+                info!(protocols::manager::listen::STARTED, listen_addr = listen_addr.to_string());
                 let accept_stage = eff.stage("accept", accept::stage).await;
                 let accept_stage = eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
                 let accept_stage =
@@ -389,7 +392,11 @@ impl Manager {
                 eff.send(&accept_stage, PullAccept).await;
             }
             Err(error) => {
-                tracing::error!(%listen_addr, %error, "cannot listen");
+                error!(
+                    protocols::manager::listen::FAILED,
+                    listen_addr = listen_addr.to_string(),
+                    error = error.to_string()
+                );
                 return eff.terminate().await;
             }
         }
@@ -451,7 +458,14 @@ impl Manager {
             Role::Initiator => ConnectionDirection::Outbound,
             Role::Responder => ConnectionDirection::Inbound,
         };
-        tracing::info!(%peer, %conn_id, full_duplex_capable, full_duplex, advertisable, "handshake completed");
+        info!(
+            protocols::manager::peer::HANDSHAKE_COMPLETED,
+            peer = &peer,
+            conn_id = conn_id.as_u64(),
+            full_duplex_capable = full_duplex_capable,
+            full_duplex = full_duplex,
+            advertisable = advertisable
+        );
         let peer_state = self.peers.entry(peer.clone()).or_default();
         let accept_this = match direction {
             ConnectionDirection::Outbound => {
@@ -495,7 +509,7 @@ impl Manager {
                 },
             );
         } else {
-            tracing::info!(%peer, %conn_id, "handshake completed for duplicate connection, terminating it");
+            info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer = &peer, conn_id = conn_id.as_u64());
             eff.send(&stage, ConnectionMessage::Disconnect).await;
         }
     }
@@ -503,11 +517,16 @@ impl Manager {
     #[expect(clippy::expect_used)]
     async fn remove_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
         let Some(entry) = self.peers.remove(&peer) else {
-            tracing::info!(%peer, "disconnect request ignored, not connected");
+            debug!(protocols::manager::peer::DISCONNECT_IGNORED, peer = &peer, reason = "not_connected");
             return;
         };
         if let Some(conn_id) = entry.inbound {
-            tracing::info!(%peer, %conn_id, "disconnecting inbound connection");
+            info!(
+                protocols::manager::peer::DISCONNECTING,
+                peer = &peer,
+                conn_id = conn_id.as_u64(),
+                direction = "inbound"
+            );
             let connection = self.connections.remove(&conn_id).expect("PeerState implies Connection");
             eff.send(
                 &self.peer_selection,
@@ -522,7 +541,12 @@ impl Manager {
             eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
         }
         if let OutboundState::Connected { conn_id } = entry.outbound {
-            tracing::info!(%peer, %conn_id, "disconnecting outbound connection");
+            info!(
+                protocols::manager::peer::DISCONNECTING,
+                peer = &peer,
+                conn_id = conn_id.as_u64(),
+                direction = "outbound"
+            );
             let connection = self.connections.remove(&conn_id).expect("PeerState implies Connection");
             eff.send(
                 &self.peer_selection,
@@ -542,7 +566,7 @@ impl Manager {
         // this is needed to clean up the socket in case the connection stage errored out
         close_connection(eff, &peer, conn_id).await;
         let Some(peer_state) = self.peers.get_mut(&peer) else {
-            tracing::debug!(%peer, "connection died, peer already removed");
+            debug!(protocols::manager::peer::DISCONNECT_IGNORED, peer = &peer, reason = "peer_already_removed");
             return;
         };
         if let Some(Connection { direction, .. }) = self.connections.remove(&conn_id) {
@@ -551,10 +575,18 @@ impl Manager {
                     assert_eq!(peer_state.inbound, Some(conn_id));
                     assert_eq!(role, Role::Responder);
                     if peer_state.outbound == OutboundState::None {
-                        tracing::info!(%peer, "inbound connection died, removing peer");
+                        info!(
+                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
+                            peer = &peer,
+                            outcome = "peer_removed"
+                        );
                         self.peers.remove(&peer);
                     } else {
-                        tracing::info!(%peer, "inbound connection died, but outbound connection exists, keeping peer");
+                        info!(
+                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
+                            peer = &peer,
+                            outcome = "kept_for_outbound"
+                        );
                         peer_state.inbound = None;
                     }
                 }
@@ -568,7 +600,11 @@ impl Manager {
                     if let Some(oldest) = times[const { MAX_OUTBOUND_DEATHS_TRACKED - 1 }].replace(now)
                         && now.saturating_since(oldest) < self.config.three_strike_window
                     {
-                        tracing::info!(%peer, "outbound connection died; three strikes within window, suppressing retries");
+                        info!(
+                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
+                            peer = &peer,
+                            outcome = "retries_suppressed"
+                        );
                         if peer_state.inbound.is_none() {
                             self.peers.remove(&peer);
                         } else {
@@ -576,7 +612,11 @@ impl Manager {
                         }
                         eff.send(&self.peer_selection, PeerSelectionNotify::ConnectFailed { peer: peer.clone() }).await;
                     } else {
-                        tracing::info!(%peer, "outbound connection died, scheduling reconnect");
+                        info!(
+                            protocols::manager::peer::CONNECTION_DIED_HANDLED,
+                            peer = &peer,
+                            outcome = "reconnect_scheduled"
+                        );
                         peer_state.outbound = OutboundState::Scheduled { retries: self.config.connect_retries };
                         self.connect(peer.clone(), false, eff).await;
                     }
@@ -589,7 +629,12 @@ impl Manager {
             .await;
         } else {
             // pre-handshake death (no entry was inserted to connections, and no Connected notify was sent)
-            tracing::debug!(%peer, %conn_id, "connection died before handshake completed");
+            debug!(
+                protocols::manager::peer::DISCONNECT_IGNORED,
+                peer = &peer,
+                reason = "before_handshake",
+                conn_id = conn_id.as_u64()
+            );
             if role == Role::Initiator {
                 self.connect(peer.clone(), false, eff).await;
             }
@@ -606,7 +651,7 @@ impl Manager {
         peers: Option<Vec<Peer>>,
         eff: &Effects<ManagerMessage>,
     ) {
-        tracing::debug!(?from, ?through, ?peers, "fetching blocks");
+        debug!(protocols::manager::blocks::FETCH, from = from, through = through, peers = format!("{peers:?}"));
         let mut contacted = Vec::new();
         match peers {
             None => {
@@ -629,10 +674,10 @@ impl Manager {
             }
         }
         if contacted.is_empty() {
-            tracing::debug!(%id, "no connections available to fetch blocks");
+            debug!(protocols::manager::blocks::FETCH_NO_PEERS, id = id);
             eff.send(&cr, Blocks::NoPeersAvailable(id)).await;
         } else {
-            tracing::debug!(%id, sent = contacted.len(), "fetch blocks request sent to connections");
+            debug!(protocols::manager::blocks::FETCH_SENT, id = id, sent = contacted.len());
             eff.send(&cr, Blocks::PeersAsked(id, contacted)).await;
         }
     }
@@ -647,7 +692,7 @@ impl Manager {
         eff: &Effects<ManagerMessage>,
     ) {
         let Some(conn) = self.connections.values().find(|c| c.may_initiate && c.peer == peer) else {
-            tracing::debug!(%peer, "no initiating connection for peer sharing request");
+            debug!(protocols::manager::sharing::REQUEST_NO_CONNECTION, peer = &peer);
             eff.send(&reply_to, ShareResult { peer, peers: Vec::new() }).await;
             return;
         };
@@ -681,11 +726,21 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 manager.remove_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Disconnect(peer, conn_id) => {
-                tracing::debug!(%peer, %conn_id, "disconnecting specific connection");
+                debug!(
+                    protocols::manager::peer::DISCONNECTING,
+                    peer = &peer,
+                    conn_id = conn_id.as_u64(),
+                    direction = "requested"
+                );
                 if let Some(connection) = manager.connections.get(&conn_id) {
                     eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
                 } else {
-                    tracing::debug!(%peer, %conn_id, "connection not found for disconnect");
+                    debug!(
+                        protocols::manager::peer::DISCONNECT_IGNORED,
+                        peer = &peer,
+                        reason = "connection_not_found",
+                        conn_id = conn_id.as_u64()
+                    );
                 }
             }
             ManagerMessage::ConnectionDied(peer, conn_id, role) => {
@@ -749,7 +804,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
 /// Close the connection and log any errors.
 async fn close_connection(eff: &Effects<ManagerMessage>, peer: &Peer, conn_id: ConnectionId) {
     if let Err(err) = Network::new(eff).close(conn_id).await {
-        tracing::error!(?err, %peer, "failed to close connection");
+        error!(protocols::manager::peer::CLOSE_FAILED, peer = peer, error = err.to_string());
     }
 }
 

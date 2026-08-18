@@ -15,6 +15,7 @@
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use amaru_kernel::{Header, IsHeader, Point, cbor};
+use amaru_observability::tracing;
 use amaru_ouroboros_traits::Nonces;
 use amaru_pure_stage::{Effects, StageRef};
 use tokio::sync::Notify;

@@ -16,6 +16,7 @@ use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{NetworkMagic, PREPROD_ERA_HISTORY, Peer};
 use amaru_network::connection::TokioConnections;
+use amaru_observability::tracing;
 use amaru_ouroboros::ConnectionsResource;
 use amaru_pure_stage::{StageGraph, StageRef, tokio::TokioBuilder};
 use tokio::{runtime::Runtime, time::timeout};

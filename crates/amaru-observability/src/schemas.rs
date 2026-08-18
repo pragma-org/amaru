@@ -1740,6 +1740,26 @@ define_schemas! {
                         required role: String
                     }
                 }
+                /// A mini-protocol stage running on a connection died
+                public CHILD_DIED {
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                    required child: String
+                }
+                /// The peer refused our proposed protocol versions
+                public HANDSHAKE_REFUSED {
+                    required reason: String
+                }
+                /// The peer answered a version query instead of negotiating
+                public HANDSHAKE_QUERY_REPLY {
+                    required version_table: String
+                }
+                /// An inbound connection could not be accepted.
+                /// Reason ∈ {aborted, error}.
+                public ACCEPT_FAILED {
+                    required reason: String
+                    optional error: String
+                }
             }
             manager {
                 message {
@@ -1771,6 +1791,101 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required role: String
+                    }
+                    /// A connection request for a peer was discarded.
+                    /// Reason ∈ {already_connected_or_scheduled, already_connected, not_added}.
+                    public CONNECT_DISCARDED {
+                        required peer: %amaru_kernel::Peer
+                        required reason: String
+                    }
+                    /// A peer is dropped after exhausting its connection attempts
+                    public CONNECT_EXHAUSTED {
+                        required peer: %amaru_kernel::Peer
+                    }
+                    /// An outbound connection to a peer was established
+                    public CONNECTED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                    }
+                    /// An outbound connection attempt failed
+                    public CONNECT_FAILED {
+                        required peer: %amaru_kernel::Peer
+                        required error: String
+                    }
+                    /// The handshake completed on a connection
+                    public HANDSHAKE_COMPLETED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required full_duplex_capable: bool
+                        required full_duplex: bool
+                        required advertisable: bool
+                    }
+                    /// A duplicate connection is terminated after its handshake completed
+                    public DUPLICATE_TERMINATED {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                    }
+                    /// A connection is being closed on request.
+                    /// Direction ∈ {inbound, outbound}.
+                    public DISCONNECTING {
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                        required direction: String
+                    }
+                    /// A disconnect request could not be carried out.
+                    /// Reason ∈ {not_connected, connection_not_found, peer_already_removed,
+                    /// before_handshake}.
+                    DISCONNECT_IGNORED {
+                        required peer: %amaru_kernel::Peer
+                        required reason: String
+                        optional conn_id: u64
+                    }
+                    /// A dead connection was reconciled with the peer's remaining state.
+                    /// Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed,
+                    /// reconnect_scheduled}.
+                    public CONNECTION_DIED_HANDLED {
+                        required peer: %amaru_kernel::Peer
+                        required outcome: String
+                    }
+                    /// Closing the socket of a dead connection failed
+                    public CLOSE_FAILED {
+                        required peer: %amaru_kernel::Peer
+                        required error: String
+                    }
+                }
+                listen {
+                    tags: setup
+                    /// The node is accepting inbound connections on an address
+                    public STARTED {
+                        required listen_addr: String
+                    }
+                    /// The node could not listen on the configured address
+                    public FAILED {
+                        required listen_addr: String
+                        required error: String
+                    }
+                }
+                blocks {
+                    /// Dispatch a block-fetch request to connected peers
+                    FETCH {
+                        required from: amaru_kernel::Point
+                        required through: amaru_kernel::Point
+                        optional peers: String
+                    }
+                    /// A block-fetch request was dispatched to at least one connection
+                    FETCH_SENT {
+                        required id: u64
+                        required sent: usize
+                    }
+                    /// No connection was available to serve a block-fetch request
+                    public FETCH_NO_PEERS {
+                        required id: u64
+                    }
+                }
+                sharing {
+                    /// No initiating connection was available to request shared peers from
+                    REQUEST_NO_CONNECTION {
+                        required peer: %amaru_kernel::Peer
                     }
                 }
             }
@@ -1873,6 +1988,14 @@ define_schemas! {
                     CHAINSYNC_INITIATOR_PROTOCOL {
                         required message_type: String
                     }
+                    /// Sample stored points to propose as chain intersections
+                    INTERSECT_POINTS {
+                        optional points: String
+                    }
+                    /// A rollback target announced by the peer is not in the chain store
+                    public ROLLBACK_POINT_NOT_FOUND {
+                        required header_hash: amaru_kernel::HeaderHash
+                    }
                 }
                 responder {
                     /// Handle chain sync responder stage messages
@@ -1883,6 +2006,8 @@ define_schemas! {
                     CHAINSYNC_RESPONDER_PROTOCOL {
                         required message_type: String
                     }
+                    /// The peer ended the chainsync session
+                    public STOPPED {}
                 }
             }
             blockfetch {
@@ -1895,6 +2020,17 @@ define_schemas! {
                     BLOCKFETCH_INITIATOR_PROTOCOL {
                         required message_type: String
                     }
+                    /// A queued request is dropped because the peer is too slow
+                    DROPPED_SLOW_PEER {
+                        required peer: %amaru_kernel::Peer
+                    }
+                    /// The peer broke the block-fetch protocol and the connection is terminated.
+                    /// Reason ∈ {too_many_blocks, no_pending_request, invalid_cbor}.
+                    public PROTOCOL_VIOLATION {
+                        required reason: String
+                        optional max_blocks: usize
+                        optional bytes: usize
+                    }
                 }
                 responder {
                     /// Handle block fetch responder stage messages
@@ -1904,6 +2040,14 @@ define_schemas! {
                     /// Handle block fetch responder protocol messages
                     BLOCKFETCH_RESPONDER_PROTOCOL {
                         required message_type: String
+                    }
+                    /// A requested block range was refused.
+                    /// Reason ∈ {inverted_range, exceeds_max_blocks}.
+                    RANGE_REFUSED {
+                        required from: %amaru_kernel::NetworkPoint
+                        required through: %amaru_kernel::NetworkPoint
+                        required reason: String
+                        optional max_blocks: usize
                     }
                 }
             }
@@ -1916,6 +2060,18 @@ define_schemas! {
                     /// Handle handshake initiator protocol messages
                     HANDSHAKE_INITIATOR_PROTOCOL {
                         required message_type: String
+                    }
+                    /// The protocol versions we offer to the peer
+                    PROPOSING_VERSIONS {
+                        required our_versions: String
+                    }
+                    /// The outcome of the version negotiation
+                    CONCLUSION {
+                        required handshake_result: String
+                    }
+                    /// Both sides opened a connection at the same time
+                    SIMULTANEOUS_OPEN {
+                        required version_table: String
                     }
                 }
                 responder {
@@ -1970,6 +2126,13 @@ define_schemas! {
                     PEER_SHARING_INITIATOR_PROTOCOL {
                         required message_type: String
                     }
+                    /// The peer broke the peer-sharing protocol and the connection is terminated.
+                    /// Reason ∈ {no_request_in_flight, too_many_addresses}.
+                    public PROTOCOL_VIOLATION {
+                        required reason: String
+                        optional requested: u8
+                        optional received: usize
+                    }
                 }
                 responder {
                     /// Handle peer-sharing responder stage messages
@@ -1983,6 +2146,12 @@ define_schemas! {
                 }
             }
             tx_submission {
+                /// The tx-submission protocol is being torn down; the cause names the rule broken
+                public TERMINATING {
+                    required cause: String
+                }
+                /// The responder side of the protocol was initialized
+                INITIALIZED {}
                 initiator {
                     /// Handle tx-submission initiator stage messages
                     TX_SUBMISSION_INITIATOR_STAGE {
@@ -2017,6 +2186,24 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required seq_no: u64
                         optional req: u16
+                    }
+                    /// The peer requested transaction ids or bodies.
+                    /// Request ∈ {tx_ids_blocking, tx_ids_non_blocking, txs}.
+                    RECEIVED_REQUEST {
+                        required request: String
+                        optional ack: u16
+                        optional req: u16
+                        optional count: usize
+                        optional ids: String
+                    }
+                    /// The peer asked for transactions that are not in our outstanding window
+                    public UNAVAILABLE_TXS {
+                        required unavailable: String
+                    }
+                    /// The peer acknowledged more transaction ids than are outstanding
+                    public OVER_ACKNOWLEDGED {
+                        required ack: u16
+                        required window: usize
                     }
                 }
                 responder {
@@ -2063,6 +2250,25 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required pending: usize
                     }
+                    /// The peer replied with more transaction ids than were requested
+                    public OVER_REPLIED {
+                        required requested: u16
+                        required received: usize
+                        required max_window: u16
+                    }
+                    /// The peer sent transaction bodies that were never requested
+                    public UNSOLICITED_TXS {
+                        required not_requested: String
+                    }
+                    /// The mempool did not answer an insertion batch before the timeout
+                    public MEMPOOL_TIMEOUT {}
+                    /// A transaction received from a peer was handed to the mempool.
+                    /// Outcome ∈ {inserted, invalid, mempool_full, duplicate}.
+                    RECEIVED_TX {
+                        required id: amaru_kernel::TransactionId
+                        required outcome: String
+                        optional error: String
+                    }
                 }
             }
             mux {
@@ -2081,9 +2287,75 @@ define_schemas! {
                     /// Handle received protocol data
                     RECEIVED {
                         optional bytes: u64
+                        optional proto_id: String
                     }
                     /// Want next message for protocol
                     WANT_NEXT {}
+                    /// A protocol segment was handed to the network. High-rate event.
+                    SEND {
+                        required proto_id: String
+                        required bytes: u64
+                    }
+                    /// A protocol segment was queued for sending. High-rate event.
+                    ENQUEUE {
+                        required proto_id: String
+                        required bytes: u64
+                    }
+                    /// A segment is written to the wire. High-rate event.
+                    SEGMENT_SENT {
+                        required proto_id: String
+                        required bytes: u64
+                        required next: u64
+                    }
+                    /// A protocol updated how many bytes it is waiting for. High-rate event.
+                    WANT_UPDATED {
+                        required want: usize
+                    }
+                    /// Bytes were delivered to a protocol buffer. High-rate event.
+                    BYTES_RECEIVED {
+                        required wanted: usize
+                    }
+                    /// A complete message was extracted from a protocol buffer. High-rate event.
+                    MESSAGE_EXTRACTED {
+                        required bytes: usize
+                    }
+                    /// The next delivery to a protocol is deferred until more bytes arrive
+                    DELIVERY_DEFERRED {}
+                    /// Incoming bytes are dropped because the protocol stopped consuming them
+                    IGNORING_BYTES {
+                        required bytes: usize
+                    }
+                    /// A protocol buffer grew past its limit; incoming data is now ignored
+                    BUFFER_IGNORING {
+                        required buffer: usize
+                    }
+                    /// A protocol message does not fit in the buffer allotted to it
+                    public BUFFER_EXCEEDED {
+                        required buffered: usize
+                        required max_buffer: usize
+                    }
+                    /// Reducing a protocol buffer was not enough and the connection was killed
+                    public BUFFER_OVERFLOW {
+                        required buffer: usize
+                        required limit: usize
+                    }
+                }
+                /// The muxer failed while moving data between a protocol and the network.
+                /// Operation ∈ {send, recv_header, decode_header, recv_data, muxing}.
+                public FAILED {
+                    required role: String
+                    required peer: %amaru_kernel::Peer
+                    required operation: String
+                    required error: String
+                }
+                /// A segment header announcing an empty payload was received
+                public EMPTY_SEGMENT {
+                    required role: String
+                    required peer: %amaru_kernel::Peer
+                }
+                /// The muxer is shutting down after a read or write error
+                TERMINATING {
+                    required role: String
                 }
             }
         }
