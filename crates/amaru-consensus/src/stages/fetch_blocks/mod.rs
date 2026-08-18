@@ -15,11 +15,10 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock};
-use amaru_observability::{TraceContext, debug, debug_span, error, info, warn};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
 use amaru_ouroboros_traits::{MissingBlocks, MissingBlocksResult};
 use amaru_protocols::{blockfetch::Blocks, manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, OrTerminateWith, ScheduleId, StageRef, TryInStage};
-use tracing::Instrument;
 
 use crate::{
     performance::{Performance, SelectPeersParams},

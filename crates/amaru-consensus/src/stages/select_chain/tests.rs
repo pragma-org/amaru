@@ -15,12 +15,12 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Point, Slot};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros_traits::{StoreError, overriding_chain_store::OverridingChainStore};
 use amaru_pure_stage::{
     Instant, assert_trace_contains,
     trace_buffer::{TerminationReason, TraceEntry},
 };
-use tracing::Level;
 
 use super::*;
 use crate::stages::{

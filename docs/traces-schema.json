@@ -1140,6 +1140,139 @@
       "description": "Finished uploading a snapshot archive",
       "public": true
     },
+    "amaru::consensus::block::ADOPT_FAILED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "step": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "step",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "adopt_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Adopting a tip as the new best chain failed. Step ∈ {adopt_tip, adopt_first_tip, drag_anchor_forward}.",
+      "public": true
+    },
+    "amaru::consensus::block::APPLY_FAILED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "step": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "step",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "apply_failed",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "A block could not be applied to the ledger. Step ∈ {validate_block, switch_to_fork}.",
+      "public": true
+    },
+    "amaru::consensus::block::HEADER_NOT_FOUND": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "optional": [
+        "tip"
+      ],
+      "additionalProperties": false,
+      "name": "header_not_found",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "A header needed to adopt a tip could not be loaded. Role ∈ {incoming_tip, current_best}.",
+      "public": true
+    },
+    "amaru::consensus::block::INVALID": {
+      "type": "object",
+      "properties": {
+        "failed_tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "parent": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "error": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "failed_tip",
+        "parent",
+        "error",
+        "detail"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "invalid",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "A block was rejected during validation",
+      "public": true
+    },
+    "amaru::consensus::block::INVARIANT_VIOLATED": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "invariant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tip",
+        "invariant"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "invariant_violated",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "The chain store contradicts itself while adopting a tip. Invariant ∈ {header_missing, no_common_ancestor}.",
+      "public": true
+    },
     "amaru::consensus::block::MISMATCHED_HASH": {
       "type": "object",
       "properties": {
@@ -1197,6 +1330,59 @@
       "level": "TRACE",
       "target": "amaru::consensus::block",
       "description": "Skip a block validation when it is not better than the current ledger tip",
+      "public": true
+    },
+    "amaru::consensus::block::SWITCH_FORK": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "parent": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "current",
+        "parent"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "switch_fork",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "The ledger is switching to a different fork",
+      "public": true
+    },
+    "amaru::consensus::block::VALIDATE_FROM_GENESIS": {
+      "type": "object",
+      "properties": {
+        "tip": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "current": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        },
+        "parent": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Point"
+        }
+      },
+      "required": [
+        "tip",
+        "current",
+        "parent"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "validate_from_genesis",
+      "level": "TRACE",
+      "target": "amaru::consensus::block",
+      "description": "Block validation cannot proceed because the parent is the genesis block",
       "public": true
     },
     "amaru::consensus::block_source::KNOWN_INVALID": {
@@ -2124,6 +2310,58 @@
       "level": "TRACE",
       "target": "amaru::consensus::perf::header",
       "description": "Event recorded once per header, when its processing reaches a terminal state. It covers the four network-health processing points of a header's lifecycle: reception of the header, request of its block, reception of its block and local adoption of the block. `outcome` describes the terminal state (including headers rejected on reception, which carry no durations). The optional durations are the intervals between those points: - `block_fetch_wait_micros`: reception of the header to the request of its block - `block_fetch_micros`: request of the block to its reception - `forward_micros`: reception of the header to the adoption of its block",
+      "public": true
+    },
+    "amaru::consensus::performance::QUEUE_LAGGING": {
+      "type": "object",
+      "properties": {
+        "queue_depth": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "queue_depth"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "queue_lagging",
+      "level": "TRACE",
+      "target": "amaru::consensus::performance",
+      "description": "The performance operation queue is growing faster than the worker drains it",
+      "public": true
+    },
+    "amaru::consensus::performance::QUEUE_OVERFLOW": {
+      "type": "object",
+      "properties": {
+        "queue_depth": {
+          "type": "integer"
+        },
+        "threshold": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "queue_depth",
+        "threshold"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "queue_overflow",
+      "level": "TRACE",
+      "target": "amaru::consensus::performance",
+      "description": "The performance operation queue exceeded its hard limit; the node aborts",
+      "public": true
+    },
+    "amaru::consensus::performance::WORKER_PANICKED": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "worker_panicked",
+      "level": "TRACE",
+      "target": "amaru::consensus::performance",
+      "description": "The performance worker thread stopped because it panicked",
       "public": true
     },
     "amaru::consensus::tip::ADOPT": {

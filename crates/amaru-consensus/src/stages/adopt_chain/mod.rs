@@ -15,12 +15,11 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeight, Header, IsHeader, Point};
-use amaru_observability::{TraceContext, debug, debug_span, info};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, error, info, warn};
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
 use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
-use tracing::Instrument;
 
 use crate::{
     performance::Performance,
@@ -152,7 +151,12 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
 
     async {
         if msg.block_height() < state.current_best_tip.block_height() {
-            tracing::debug!(tip = %msg, current_best_tip = %state.current_best_tip, "incoming tip shorter than current best, skipping");
+            debug!(
+                consensus::block::ADOPT_SKIPPED,
+                tip = msg,
+                reason = "shorter_than_best",
+                current_best_tip = state.current_best_tip
+            );
             return state;
         }
 
@@ -161,7 +165,7 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         let incoming_header = store
             .load_header(&msg.hash())
             .or_terminate_with(&eff, async |_| {
-                tracing::warn!(tip = %msg, "failed to load incoming tip");
+                warn!(consensus::block::HEADER_NOT_FOUND, role = "incoming_tip", tip = msg);
             })
             .await;
 
@@ -172,31 +176,31 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                 store
                     .load_header(&state.current_best_tip.hash())
                     .or_terminate_with(&eff, async |_| {
-                        tracing::warn!("failed to load current best");
+                        warn!(consensus::block::HEADER_NOT_FOUND, role = "current_best");
                     })
                     .await,
             )
         };
 
         if cmp_tip(Some(&incoming_header), current_best.as_ref()) != Ordering::Greater {
-            tracing::debug!(tip = %msg, "incoming tip not better than current best, not adopting");
+            debug!(consensus::block::ADOPT_SKIPPED, tip = msg, reason = "not_better_than_best");
             return state;
         }
 
         if let Some(current_best) = current_best.as_ref() {
             let adopt_result = adopt_tip(&store, &incoming_header, current_best)
                 .or_terminate_with(&eff, async |error| {
-                    tracing::error!(error = %error, tip = %msg, "failed to adopt tip");
+                    error!(consensus::block::ADOPT_FAILED, tip = msg, step = "adopt_tip", error = %error);
                 })
                 .await;
             match adopt_result {
                 AdoptTipResult::BestChainRolledForward | AdoptTipResult::BestChainSwitched => {}
                 AdoptTipResult::HeaderNotFound => {
-                    tracing::error!(tip = %msg, "invariant violated: incoming header was loaded but find_ancestor_on_best_chain reports it missing");
+                    error!(consensus::block::INVARIANT_VIOLATED, tip = msg, invariant = "header_missing");
                     return eff.terminate().await;
                 }
                 AdoptTipResult::AncestorOnBestChainNotFound => {
-                    tracing::error!(tip = %msg, "invariant violated: incoming chain shares no ancestor with the best chain");
+                    error!(consensus::block::INVARIANT_VIOLATED, tip = msg, invariant = "no_common_ancestor");
                     return eff.terminate().await;
                 }
             }
@@ -204,14 +208,14 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
             store
                 .roll_forward_chain(&incoming_header.point())
                 .or_terminate_with(&eff, async |error| {
-                    tracing::error!(error = %error, tip = %msg, "failed to adopt first tip");
+                    error!(consensus::block::ADOPT_FAILED, tip = msg, step = "adopt_first_tip", error = %error);
                 })
                 .await;
         }
 
         let now = drag_anchor_forward(&store, &msg, state.consensus_security_param, &eff)
             .or_terminate_with(&eff, async |error| {
-                tracing::error!(error = %error, tip = %msg, "failed to drag anchor forward");
+                error!(consensus::block::ADOPT_FAILED, tip = msg, step = "drag_anchor_forward", error = %error);
             })
             .await;
 
@@ -243,7 +247,9 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         eff.send(&state.block_source, BlockSourceMsg::AdoptedTip(msg)).await;
         state.current_best_tip = msg;
         state
-    }.instrument(span).await
+    }
+    .instrument(span)
+    .await
 }
 
 /// Adopt the tip: update the best chain fragment and best chain hash in a single store transaction.

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{HeaderHash, IsHeader, ORIGIN_HASH};
+use amaru_observability::{debug, debug_record, debug_span};
 use amaru_ouroboros::ReadChainStore;
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, ExternalEffectAPI, Resources, SendData};
@@ -37,13 +38,15 @@ pub fn find_best_candidate(store: &dyn ReadChainStore) -> Result<HeaderHash, Con
         }
         vec![anchor_hash]
     };
-    tracing::debug!(?to_visit, ?best_candidate, "starting best_tip_from_store");
+    let _span = debug_span!(consensus::best_tip_candidate::SEARCH, anchor = anchor_hash).entered();
+    let mut visited = 0usize;
 
     while let Some(hash) = to_visit.pop() {
         let (header, validity) = snapshot.load_header_with_validity(&hash).ok_or(ConsensusError::UnknownPoint(hash))?;
 
+        visited += 1;
         if validity == Some(false) {
-            tracing::debug!(%hash, "skipping invalid");
+            debug!(consensus::best_tip_candidate::SKIP_INVALID, header_hash = hash);
             continue;
         };
 
@@ -52,11 +55,12 @@ pub fn find_best_candidate(store: &dyn ReadChainStore) -> Result<HeaderHash, Con
         if cmp_tip(Some(&header), best_candidate.as_ref()).is_gt() {
             best_candidate = Some(header);
         }
-        tracing::debug!(?children, "extending to_visit");
         to_visit.extend(children);
     }
 
-    Ok(best_candidate.map(|h| h.hash()).unwrap_or(ORIGIN_HASH))
+    let best = best_candidate.map(|h| h.hash()).unwrap_or(ORIGIN_HASH);
+    debug_record!(consensus::best_tip_candidate::SEARCH, visited = visited, best_candidate = best);
+    Ok(best)
 }
 
 impl ExternalEffectAPI for FindBestCandidate {

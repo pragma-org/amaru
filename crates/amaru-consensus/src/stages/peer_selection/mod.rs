@@ -20,14 +20,13 @@ use std::{
 };
 
 use amaru_kernel::{BlockHeight, Peer};
-use amaru_observability::{TraceContext, debug, debug_span, info, warn};
+use amaru_observability::{Instrument, TraceContext, debug, debug_span, info, warn};
 use amaru_ouroboros::{ConnectionDirection, ConnectionId};
 use amaru_protocols::{
     manager::ManagerMessage,
     peer_sharing::{SharePeersReply, ShareResult},
 };
 use amaru_pure_stage::{Effects, Instant, ScheduleId, StageRef};
-use tracing::Instrument;
 
 pub use crate::performance::{DEFAULT_PEER_MIX, PeerMix, PeerMixParseError};
 use crate::{

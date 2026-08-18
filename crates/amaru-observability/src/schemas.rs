@@ -329,6 +329,31 @@ define_schemas! {
                     required valid: bool
                 }
             }
+            performance {
+                /// The performance worker thread stopped because it panicked
+                public WORKER_PANICKED {}
+                /// The performance operation queue is growing faster than the worker drains it
+                public QUEUE_LAGGING {
+                    required queue_depth: u64
+                }
+                /// The performance operation queue exceeded its hard limit; the node aborts
+                public QUEUE_OVERFLOW {
+                    required queue_depth: u64
+                    required threshold: u64
+                }
+            }
+            best_tip_candidate {
+                /// Walk the stored block tree to find the best candidate tip
+                SEARCH {
+                    required anchor: amaru_kernel::HeaderHash
+                    optional visited: usize
+                    optional best_candidate: amaru_kernel::HeaderHash
+                }
+                /// A stored block was skipped while searching because it is invalid
+                SKIP_INVALID {
+                    required header_hash: amaru_kernel::HeaderHash
+                }
+            }
             block_source {
                 /// Forget tracked blocks that fell too far behind the adopted tip
                 PRUNE {
@@ -472,6 +497,9 @@ define_schemas! {
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
                     optional valid: bool
+                    /// Ledger tip the block is applied on top of
+                    optional current: amaru_kernel::Point
+                    optional parent: amaru_kernel::Point
                 }
                 /// Skip a block validation when it is not better than the current ledger tip
                 public SKIP {
@@ -482,6 +510,58 @@ define_schemas! {
                 ADOPT {
                     required tip: amaru_kernel::Point
                     required header_hash: amaru_kernel::HeaderHash
+                }
+                /// A tip was not adopted as the new best chain.
+                /// Reason ∈ {shorter_than_best, not_better_than_best}.
+                ADOPT_SKIPPED {
+                    required tip: amaru_kernel::Point
+                    required reason: String
+                    optional current_best_tip: amaru_kernel::Point
+                }
+                /// Adopting a tip as the new best chain failed.
+                /// Step ∈ {adopt_tip, adopt_first_tip, drag_anchor_forward}.
+                public ADOPT_FAILED {
+                    required tip: amaru_kernel::Point
+                    required step: String
+                    required error: String
+                }
+                /// The chain store contradicts itself while adopting a tip.
+                /// Invariant ∈ {header_missing, no_common_ancestor}.
+                public INVARIANT_VIOLATED {
+                    required tip: amaru_kernel::Point
+                    required invariant: String
+                }
+                /// A header needed to adopt a tip could not be loaded.
+                /// Role ∈ {incoming_tip, current_best}.
+                public HEADER_NOT_FOUND {
+                    required role: String
+                    optional tip: amaru_kernel::Point
+                }
+                /// Block validation cannot proceed because the parent is the genesis block
+                public VALIDATE_FROM_GENESIS {
+                    required tip: amaru_kernel::Point
+                    required current: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
+                }
+                /// A block could not be applied to the ledger.
+                /// Step ∈ {validate_block, switch_to_fork}.
+                public APPLY_FAILED {
+                    required tip: amaru_kernel::Point
+                    required step: String
+                    required error: String
+                }
+                /// A block was rejected during validation
+                public INVALID {
+                    required failed_tip: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
+                    required error: String
+                    /// Human-readable context on where the rejection came from
+                    required detail: String
+                }
+                /// The ledger is switching to a different fork
+                public SWITCH_FORK {
+                    required current: amaru_kernel::Point
+                    required parent: amaru_kernel::Point
                 }
                 /// Mismatched body hash after download, the peer is adversarial
                 public MISMATCHED_HASH {

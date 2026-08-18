@@ -15,13 +15,13 @@
 use std::time::Duration;
 
 use amaru_kernel::{BlockHeight, IsHeader, Peer};
+use amaru_observability::tracing::Level;
 use amaru_ouroboros_traits::MissingBlocks;
 use amaru_protocols::manager::ManagerMessage;
 use amaru_pure_stage::{
     Instant, ScheduleIds, assert_trace_contains, simulation::running::OverrideResult, tm_add_stage,
     trace_buffer::TerminationReason, trace_match::tm_wire_stage_state,
 };
-use tracing::Level;
 
 use super::*;
 use crate::{

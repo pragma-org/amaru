@@ -138,7 +138,6 @@ async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Point) ->
         memory_pool.remove_txs(&invalid_tx_ids).await;
     }
 
-    tracing::debug!(%tip, invalidated_txs = invalid_tx_ids.len(), "revalidated mempool after new tip");
     RevalidationOutcome {
         tip_slot: tip.slot(),
         total_before,

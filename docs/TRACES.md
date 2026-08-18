@@ -641,8 +641,64 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
+| `adopt_failed` | `TRACE` | public | Adopting a tip as the new best chain failed. Step ∈ {adopt_tip, adopt_first_tip, drag_anchor_forward}. | tip, step, error |  |
+| `apply_failed` | `TRACE` | public | A block could not be applied to the ledger. Step ∈ {validate_block, switch_to_fork}. | tip, step, error |  |
+| `header_not_found` | `TRACE` | public | A header needed to adopt a tip could not be loaded. Role ∈ {incoming_tip, current_best}. | role | tip |
+| `invalid` | `TRACE` | public | A block was rejected during validation | failed_tip, parent, error, detail |  |
+| `invariant_violated` | `TRACE` | public | The chain store contradicts itself while adopting a tip. Invariant ∈ {header_missing, no_common_ancestor}. | tip, invariant |  |
 | `mismatched_hash` | `TRACE` | public | Mismatched body hash after download, the peer is adversarial | peer, header_hash | expected, actual |
 | `skip` | `TRACE` | public | Skip a block validation when it is not better than the current ledger tip | current, tip |  |
+| `switch_fork` | `TRACE` | public | The ledger is switching to a different fork | current, parent |  |
+| `validate_from_genesis` | `TRACE` | public | Block validation cannot proceed because the parent is the genesis block | tip, current, parent |  |
+
+<details><summary>span: `adopt_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `step` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `apply_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `step` | `string` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `header_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+| `tip` | `string` |  |
+
+</details>
+
+<details><summary>span: `invalid`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `failed_tip` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+| `error` | `string` | ✓ |
+| `detail` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `invariant_violated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `invariant` | `string` | ✓ |
+
+</details>
 
 <details><summary>span: `mismatched_hash`</summary>
 
@@ -661,6 +717,25 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `current` | `string` | ✓ |
 | `tip` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `switch_fork`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `current` | `string` | ✓ |
+| `parent` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `validate_from_genesis`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `current` | `string` | ✓ |
+| `parent` | `string` | ✓ |
 
 </details>
 
@@ -1078,6 +1153,31 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | `block_fetch_wait_micros` | `integer` |  |
 | `block_fetch_micros` | `integer` |  |
 | `forward_micros` | `integer` |  |
+
+</details>
+
+## target: `amaru::consensus::performance`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `queue_lagging` | `TRACE` | public | The performance operation queue is growing faster than the worker drains it | queue_depth |  |
+| `queue_overflow` | `TRACE` | public | The performance operation queue exceeded its hard limit; the node aborts | queue_depth, threshold |  |
+| `worker_panicked` | `TRACE` | public | The performance worker thread stopped because it panicked |  |  |
+
+<details><summary>span: `queue_lagging`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `queue_depth` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `queue_overflow`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `queue_depth` | `integer` | ✓ |
+| `threshold` | `integer` | ✓ |
 
 </details>
 
