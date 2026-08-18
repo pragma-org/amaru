@@ -16,10 +16,15 @@
 //!
 //! Used by thin programs such as the `run_until` example so OTLP metrics/traces
 //! can be enabled without the product CLI. When OTLP is on, also starts
-//! process/build gauges via [`crate::system_metrics`]. The product binary still
-//! uses its own richer stack in `amaru::observability` (TUI capture layer, local
-//! metrics observer, ANSI colour, throttled OTEL filters, service instance id,
-//! dual `AMARU_LOG` / `AMARU_TRACE` filters, delayed filter warnings).
+//! process/build gauges via [`crate::system_metrics`].
+//!
+//! Console, JSON, and OTEL log/trace layers are the same CBOR-aware formatters
+//! as the product binary (`CborConsoleEventFormat`, `CborJsonEventFormat`,
+//! `CborTraceArrayLayer`, `CborOtelLogBridge`) so schema `record_bytes` fields
+//! decode to numbers and strings where the sink can hold them. The product
+//! stack in `amaru::observability` still adds TUI capture, a local metrics
+//! observer, ANSI colour, throttled OTEL filters, service instance id, dual
+//! `AMARU_LOG` / `AMARU_TRACE` filters, and delayed filter warnings.
 //!
 //! [`Telemetry::install`] and [`Telemetry::shutdown`] are `async` so they must
 //! be driven on a Tokio runtime (`rt.block_on(...)` or `.await` inside an async
@@ -39,9 +44,18 @@ use opentelemetry_sdk::{
 };
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tokio::task::JoinHandle;
-use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::Subscriber;
+use tracing_subscriber::{
+    EnvFilter, Layer, fmt::MakeWriter, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt,
+};
 
-use crate::system_metrics::{BuildIdentity, track_system_metrics};
+use crate::{
+    observability::{
+        CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
+        CborTraceArrayLayer, console_field_formatter,
+    },
+    system_metrics::{BuildIdentity, track_system_metrics},
+};
 
 const DEFAULT_SERVICE_NAME: &str = "amaru";
 const DEFAULT_AMARU_TRACE: &str = "info";
@@ -65,8 +79,8 @@ impl Telemetry {
     /// - `RUST_LOG` — optional extra filter for non-schema logging.
     /// - `OTEL_SERVICE_NAME` — resource service name (default `amaru`).
     ///
-    /// When OTLP is disabled, installs a compact stderr fmt layer only and a
-    /// default empty [`Meter`].
+    /// When OTLP is disabled, installs a CBOR-aware stderr (or JSON stdout)
+    /// layer only and a default empty [`Meter`].
     ///
     /// Must be polled on a Tokio runtime (OTLP batch exporters spawn on it).
     pub async fn install() -> anyhow::Result<Self> {
@@ -123,32 +137,26 @@ impl Telemetry {
             .with_target(true)
             .with_filter(amaru_trace_filter()?);
 
-        let log_bridge = opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(&logs_provider)
-            .with_filter(amaru_trace_filter()?);
+        // Project-owned bridge so CBOR field payloads become nested AnyValue maps/lists
+        // (or scalars) instead of opaque bytes / diagnostic text.
+        let log_bridge = CborOtelLogBridge::new(&logs_provider).with_filter(amaru_trace_filter()?);
 
         let fmt_filter = rust_log_filter();
         if with_json {
-            let fmt = tracing_subscriber::fmt::layer()
-                .json()
-                .with_span_list(false)
-                .with_writer(std::io::stdout)
-                .with_filter(fmt_filter);
             tracing_subscriber::registry()
                 .with(otel_layer)
+                .with(CborTraceArrayLayer::new())
                 .with(log_bridge)
-                .with(fmt)
+                .with(CborJsonSpanLayer::new())
+                .with(json_fmt_layer(std::io::stdout).with_filter(fmt_filter))
                 .try_init()
                 .context("init OTLP+JSON tracing subscriber")?;
         } else {
-            let fmt = tracing_subscriber::fmt::layer()
-                .with_writer(std::io::stderr)
-                .with_ansi(false)
-                .compact()
-                .with_filter(fmt_filter);
             tracing_subscriber::registry()
                 .with(otel_layer)
+                .with(CborTraceArrayLayer::new())
                 .with(log_bridge)
-                .with(fmt)
+                .with(console_fmt_layer(std::io::stderr).with_filter(fmt_filter))
                 .try_init()
                 .context("init OTLP+fmt tracing subscriber")?;
         }
@@ -201,23 +209,45 @@ impl Drop for Telemetry {
 fn init_fmt_subscriber(with_json: bool) -> anyhow::Result<()> {
     let filter = rust_log_filter();
     if with_json {
-        tracing_subscriber::fmt()
-            .json()
-            .with_span_list(false)
-            .with_writer(std::io::stdout)
-            .with_env_filter(filter)
+        tracing_subscriber::registry()
+            .with(CborJsonSpanLayer::new())
+            .with(json_fmt_layer(std::io::stdout).with_filter(filter))
             .try_init()
             .map_err(|e| anyhow!("init JSON tracing subscriber: {e}"))?;
     } else {
-        tracing_subscriber::fmt()
-            .with_writer(std::io::stderr)
-            .with_ansi(false)
-            .compact()
-            .with_env_filter(filter)
+        tracing_subscriber::registry()
+            .with(console_fmt_layer(std::io::stderr).with_filter(filter))
             .try_init()
             .map_err(|e| anyhow!("init fmt tracing subscriber: {e}"))?;
     }
     Ok(())
+}
+
+/// Console sink used by [`Telemetry::install`]: decode CBOR `record_bytes` to
+/// native visit types and hide schema tags (EDR-033).
+fn console_fmt_layer<S, W>(writer: W) -> impl Layer<S>
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+{
+    tracing_subscriber::fmt::layer()
+        .with_writer(writer)
+        .with_ansi(false)
+        .fmt_fields(console_field_formatter())
+        .event_format(CborConsoleEventFormat::new().with_ansi(false))
+}
+
+/// JSON sink used by [`Telemetry::install`]: CBOR scalars become JSON numbers /
+/// strings / bools; maps and arrays become nested JSON.
+fn json_fmt_layer<S, W>(writer: W) -> impl Layer<S>
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+{
+    tracing_subscriber::fmt::layer()
+        .with_writer(writer)
+        .event_format(CborJsonEventFormat::new())
+        .fmt_fields(CborJsonFields::new())
 }
 
 fn build_resource() -> Resource {
@@ -248,4 +278,115 @@ fn env_flag(name: &str) -> bool {
         let v = v.trim().to_ascii_lowercase();
         matches!(v.as_str(), "1" | "true" | "yes" | "on")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{self, Write},
+        sync::{Arc, Mutex},
+    };
+
+    use amaru_kernel::{HeaderHash, Slot};
+    use amaru_observability::info;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    use super::*;
+
+    const SLOT: u64 = 42_000;
+    const HASH_BYTE: u8 = 0xab;
+
+    #[derive(Clone, Default)]
+    struct CaptureWriter {
+        buffer: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl CaptureWriter {
+        fn contents(&self) -> String {
+            String::from_utf8_lossy(&self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner)).into_owned()
+        }
+    }
+
+    impl Write for CaptureWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for CaptureWriter {
+        type Writer = CaptureWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    fn emit_tip_adopt() {
+        let slot = Slot::new(SLOT);
+        let header_hash = HeaderHash::new([HASH_BYTE; 32]);
+        info!(
+            consensus::tip::ADOPT,
+            slot = slot,
+            header_hash = header_hash,
+            block_height = 100_u64,
+            max_block_height = 100_u64,
+            suppressed = 0_u32,
+        );
+    }
+
+    fn header_hash_hex() -> String {
+        HeaderHash::new([HASH_BYTE; 32]).to_string()
+    }
+
+    /// `consensus::tip::ADOPT` is a typical `run_until` event: `slot` and `header_hash`
+    /// travel as CBOR `record_bytes` (they are newtypes, not tracing primitives).
+    #[test]
+    fn json_stack_decodes_cbor_schema_fields_to_primitives() {
+        let writer = CaptureWriter::default();
+        let subscriber =
+            tracing_subscriber::registry().with(CborJsonSpanLayer::new()).with(json_fmt_layer(writer.clone()));
+
+        tracing::subscriber::with_default(subscriber, emit_tip_adopt);
+
+        let output = writer.contents();
+        let line =
+            output.lines().find(|l| l.contains("header_hash")).unwrap_or_else(|| panic!("json line, got: {output}"));
+        let json: serde_json::Value = serde_json::from_str(line).unwrap_or_else(|e| panic!("json ({e}): {line}"));
+        let fields = &json["fields"];
+
+        assert_eq!(fields["slot"], SLOT, "CBOR Slot must be a JSON number, not diagnostic text or bytes: {line}");
+        assert!(fields["slot"].is_number(), "slot must not be a string or byte array: {line}");
+        assert_eq!(
+            fields["header_hash"],
+            header_hash_hex(),
+            "CBOR HeaderHash must be a JSON string of hex, not diagnostic quotes or bytes: {line}"
+        );
+        assert!(fields["header_hash"].is_string(), "header_hash must be a string: {line}");
+        assert_eq!(fields["block_height"], 100);
+        assert_eq!(fields["max_block_height"], 100);
+        assert_eq!(fields["suppressed"], 0);
+    }
+
+    #[test]
+    fn console_stack_decodes_cbor_schema_fields_to_primitives() {
+        let writer = CaptureWriter::default();
+        let subscriber = tracing_subscriber::registry().with(console_fmt_layer(writer.clone()));
+
+        tracing::subscriber::with_default(subscriber, emit_tip_adopt);
+
+        let output = writer.contents();
+        let hash = header_hash_hex();
+        assert!(output.contains(&format!("slot={SLOT}")), "CBOR Slot must print as an unquoted number: {output}");
+        assert!(!output.contains(&format!("slot=\"{SLOT}\"")), "slot must not be diagnostic/quoted text: {output}");
+        assert!(
+            output.contains(&format!("header_hash=\"{hash}\"")),
+            "CBOR HeaderHash must print as a single-quoted hex string: {output}"
+        );
+        assert!(
+            !output.contains(&format!(r#"header_hash="\"{hash}\"""#)),
+            "header_hash must not be diagnostic-quoted then Debug-quoted: {output}"
+        );
+    }
 }
