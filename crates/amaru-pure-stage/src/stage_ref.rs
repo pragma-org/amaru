@@ -14,7 +14,7 @@
 
 use std::{any::Any, fmt, marker::PhantomData, ops::Deref, sync::Arc};
 
-use crate::{BLACKHOLE_NAME, Name};
+use crate::{BLACKHOLE_NAME, Name, SendData};
 
 /// A handle to a stage during the building phase of a [`StageGraph`](crate::StageGraph).
 pub struct StageBuildRef<Msg, St, RefAux> {
@@ -30,7 +30,26 @@ impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     }
 }
 
+/// Injection applied at send/call time so a [`StageRef`] can accept a different message type
+/// than the destination stage.
+///
+/// `next` is only a leftover call-reply payload (`StageRefExtra` / `ScheduleId`), never another
+/// [`Injection`]: [`StageRef::contramap`] composes transforms into a single function.
+pub(crate) struct Injection {
+    pub transform: Arc<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + Sync>,
+    pub next: Option<Arc<dyn Any + Send + Sync>>,
+}
+
+impl Injection {
+    fn from_extra(extra: &Option<Arc<dyn Any + Send + Sync>>) -> Option<&Self> {
+        extra.as_ref().and_then(|extra| extra.downcast_ref::<Self>())
+    }
+}
+
 /// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
+///
+/// [`Self::contramap`] stores a type-injection on this handle. The name remains the original
+/// stage name; the transform is not serialized (`extra` is skipped).
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct StageRef<Msg> {
     name: Name,
@@ -106,6 +125,72 @@ impl<Msg> StageRef<Msg> {
     pub(crate) fn extra(&self) -> Option<&Arc<dyn Any + Send + Sync>> {
         self.extra.as_ref()
     }
+
+    /// View this stage as accepting `Mapped` messages, injecting them into this ref's
+    /// message type at send time.
+    ///
+    /// The returned ref keeps [`name`](Self::name) of `self`. No runtime name is allocated and
+    /// dropping the ref cannot leak. The trace buffer records the already-injected message
+    /// sent to that original name.
+    ///
+    /// The transform is held on the live handle (`extra`) and is skipped by serde. Replaying a
+    /// recorded [`Send`](crate::Effect::Send) is fine (the payload is already injected);
+    /// reconstructing this ref from a snapshot and sending again will not apply the injection.
+    pub fn contramap<Mapped: SendData>(
+        &self,
+        transform: impl Fn(Mapped) -> Msg + Send + Sync + 'static,
+    ) -> StageRef<Mapped>
+    where
+        Msg: SendData,
+    {
+        let (prev, leftover) = match Injection::from_extra(&self.extra) {
+            Some(inj) => (Some(inj.transform.clone()), inj.next.clone()),
+            None => (None, self.extra.clone()),
+        };
+        let transform = Arc::new(move |boxed: Box<dyn SendData>| {
+            #[expect(clippy::expect_used)]
+            let mapped = boxed.cast::<Mapped>().expect("internal message type error");
+            let original = transform(*mapped);
+            match &prev {
+                Some(prev) => prev(Box::new(original)),
+                None => Box::new(original) as Box<dyn SendData>,
+            }
+        });
+        StageRef {
+            name: self.name.clone(),
+            extra: Some(Arc::new(Injection { transform, next: leftover })),
+            _ph: PhantomData,
+        }
+    }
+
+    /// Split off leftover call-reply extra and the composed injection, if any.
+    pub(crate) fn peel(&self) -> Peeled {
+        match Injection::from_extra(&self.extra) {
+            Some(inj) => {
+                Peeled { name: self.name.clone(), leftover: inj.next.clone(), transform: Some(inj.transform.clone()) }
+            }
+            None => Peeled { name: self.name.clone(), leftover: self.extra.clone(), transform: None },
+        }
+    }
+
+    /// Apply any [`contramap`](Self::contramap) injections and split off a leftover call-reply extra.
+    pub(crate) fn materialize_send(&self, msg: Msg) -> (Name, Option<Arc<dyn Any + Send + Sync>>, Box<dyn SendData>)
+    where
+        Msg: SendData,
+    {
+        let peeled = self.peel();
+        let payload = match peeled.transform {
+            Some(transform) => transform(Box::new(msg)),
+            None => Box::new(msg),
+        };
+        (peeled.name, peeled.leftover, payload)
+    }
+}
+
+pub(crate) struct Peeled {
+    pub name: Name,
+    pub leftover: Option<Arc<dyn Any + Send + Sync>>,
+    pub transform: Option<Arc<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + Sync>>,
 }
 
 /// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
@@ -165,4 +250,35 @@ fn stage_ref() {
 
     send(&stage);
     sync(&stage);
+}
+
+#[test]
+fn contramap_keeps_original_name() {
+    let stage = StageRef::<u32>::named_for_tests("dest");
+    let mapped = stage.contramap(|x: u8| u32::from(x));
+    assert_eq!(mapped.name().as_str(), "dest");
+    assert_eq!(mapped.name(), stage.name());
+}
+
+#[test]
+fn contramap_applies_and_composes() {
+    let stage = StageRef::<u32>::named_for_tests("dest");
+    let once = stage.contramap(|x: u16| u32::from(x) + 1);
+    let twice = once.contramap(|x: u8| u16::from(x) * 2);
+    assert_eq!(twice.name().as_str(), "dest");
+
+    let (name, leftover, payload) = twice.materialize_send(3);
+    assert_eq!(name.as_str(), "dest");
+    assert!(leftover.is_none());
+    assert_eq!(*payload.cast::<u32>().unwrap(), 7); // 3 * 2 + 1
+}
+
+#[test]
+fn contramap_preserves_call_extra() {
+    let extra: Arc<dyn Any + Send + Sync> = Arc::new(7u64);
+    let stage = StageRef::<u32>::new("dest".into()).with_extra(extra);
+    let mapped = stage.contramap(|x: u8| u32::from(x));
+    let (_name, leftover, payload) = mapped.materialize_send(1);
+    assert_eq!(*payload.cast::<u32>().unwrap(), 1);
+    assert_eq!(leftover.and_then(|e| e.downcast_ref::<u64>().copied()), Some(7));
 }

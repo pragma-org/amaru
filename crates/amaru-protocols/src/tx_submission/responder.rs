@@ -258,7 +258,7 @@ pub struct TxSubmissionResponder {
     capacity_subscribed: bool,
     /// Lazily-initialised contramap from `()` to `ResponderLocalIn::CapacityAvailable`, used as
     /// the `caller` ref for `MempoolMsg::SubscribeCapacity`. Stays `StageRef::blackhole()` until
-    /// the first time we hit back-pressure (lazy init avoids leaking contramapped refs).
+    /// the first time we hit back-pressure.
     capacity_callback: StageRef<()>,
     /// The origin of the transactions we are fetching.
     origin: TxOrigin,
@@ -582,9 +582,7 @@ impl TxSubmissionResponder {
     /// outstanding. The mempool will deliver a `()` (mapped back to `CapacityAvailable`) the next
     /// time it frees capacity, and the responder re-evaluates the pending fetch then.
     ///
-    /// The contramapped callback ref is initialised lazily and reused — creating a fresh one
-    /// per call would leak refs (they are not garbage collected). Same pattern as the
-    /// initiator's `wait_for_at_least_callback`.
+    /// The contramapped callback ref is initialised lazily and reused.
     async fn subscribe_capacity(&mut self, eff: &Effects<Inputs<ResponderLocalIn>>) {
         if self.capacity_subscribed {
             return;
@@ -592,11 +590,8 @@ impl TxSubmissionResponder {
         let pending = self.tx_states.values().filter(|e| e.status.is_pending()).count();
         debug!(protocols::tx_submission::responder::AWAITING_CAPACITY, peer = self.peer, pending = pending);
         if self.capacity_callback.is_blackhole() {
-            self.capacity_callback = eff
-                .contramap(eff.me_ref(), "tx_submission_capacity_callback", |_: ()| {
-                    Inputs::<ResponderLocalIn>::Local(ResponderLocalIn::CapacityAvailable)
-                })
-                .await;
+            self.capacity_callback =
+                eff.me_ref().contramap(|_: ()| Inputs::<ResponderLocalIn>::Local(ResponderLocalIn::CapacityAvailable));
         }
         self.capacity_subscribed = true;
         eff.send(&self.mempool_stage, MempoolMsg::SubscribeCapacity { caller: self.capacity_callback.clone() }).await;

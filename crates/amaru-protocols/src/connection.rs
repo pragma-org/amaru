@@ -274,7 +274,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
     let muxer = eff.wire_up(muxer, mux::State::new(*conn_id, &[(PROTO_HANDSHAKE.erase(), 5760)], *role)).await;
 
-    let handshake_result = eff.contramap(eff.me(), "handshake_result", ConnectionMessage::Handshake).await;
+    let handshake_result = eff.me_ref().contramap(ConnectionMessage::Handshake);
 
     let handshake = match role {
         Role::Initiator => {
@@ -307,7 +307,7 @@ async fn do_initialize(Params { conn_id, role, magic, .. }: &Params, eff: Effect
         }
     };
 
-    let handler = eff.contramap(&handshake, "handshake_bytes", Inputs::Network).await;
+    let handler = handshake.contramap(Inputs::Network);
 
     let protocol = match role {
         Role::Initiator => PROTO_HANDSHAKE.erase(),

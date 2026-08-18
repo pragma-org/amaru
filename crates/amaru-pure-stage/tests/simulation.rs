@@ -834,3 +834,36 @@ fn virtual_child_stages() {
         trace.iter().rev().any(|e| matches!(e, TraceEntry::State { stage, .. } if stage == parent.name()));
     assert!(has_later_parent_state, "parent should have continued and recorded state after the virtual wire_up");
 }
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum Sum {
+    N(u32),
+}
+
+#[test]
+fn contramap_sends_injected_message_to_original_name() {
+    let mut network = SimulationBuilder::default();
+    let sink = network.stage("sink", async |mut state: Vec<Sum>, msg: Sum, _eff| {
+        state.push(msg);
+        state
+    });
+    let sink = network.wire_up(sink, Vec::new());
+    let as_u32 = sink.contramap(Sum::N);
+    assert_eq!(as_u32.name(), sink.name());
+
+    for i in 0..50 {
+        let _ = as_u32.contramap(move |_: ()| i);
+    }
+
+    network.preload(&as_u32, [7u32]).unwrap();
+    let sender = network.input(&as_u32);
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut running = network.run(rt.handle());
+    running.resume_receive(&sink).unwrap();
+    running.effect().assert_receive(&sink);
+    assert_eq!(running.get_state(&sink), Some(&vec![Sum::N(7)]));
+
+    drop(running);
+    assert_eq!(rt.block_on(sender.send(1)), Err(amaru_pure_stage::SendError::new(sink.name().clone())));
+}

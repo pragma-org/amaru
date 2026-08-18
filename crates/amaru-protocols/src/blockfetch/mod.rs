@@ -80,12 +80,12 @@ pub async fn register_blockfetch_initiator<M: amaru_pure_stage::SendData>(
         MuxMessage::Register {
             protocol: PROTO_N2N_BLOCK_FETCH.erase(),
             frame: Frame::OneCborItem,
-            handler: eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Network).await,
+            handler: blockfetch.contramap(Inputs::Network),
             max_buffer: 2_500_000,
         },
     )
     .await;
-    eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Local).await
+    blockfetch.contramap(Inputs::Local)
 }
 
 pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
@@ -102,10 +102,10 @@ pub async fn register_blockfetch_responder<M: amaru_pure_stage::SendData>(
         MuxMessage::Register {
             protocol: PROTO_N2N_BLOCK_FETCH.responder().erase(),
             frame: Frame::OneCborItem,
-            handler: eff.contramap(&blockfetch, "blockfetch_bytes", Inputs::Network).await,
+            handler: blockfetch.contramap(Inputs::Network),
             max_buffer: 2_500_000,
         },
     )
     .await;
-    eff.contramap(&blockfetch, "blockfetch_handler", Inputs::Local).await
+    blockfetch.contramap(Inputs::Local)
 }

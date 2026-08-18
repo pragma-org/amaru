@@ -14,7 +14,6 @@
 
 #![deny(clippy::future_not_send)]
 
-mod adapter;
 pub mod drop_guard;
 mod duration_dist;
 mod effect;
@@ -42,7 +41,7 @@ pub use effect::{
 pub use output::OutputEffect;
 pub use receiver::Receiver;
 pub use resources::Resources;
-pub use sender::{CallError, Sender};
+pub use sender::{CallError, SendError, Sender};
 pub use serde::{
     DeserializerGuard, DeserializerGuards, serialize_external_effect::register_effect_deserializer,
     serialize_send_data::register_data_deserializer,

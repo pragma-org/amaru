@@ -18,7 +18,6 @@ use anyhow::Context;
 
 use crate::{
     Instant, Name, ScheduleId, SendData, StageResponse,
-    adapter::StageOrAdapter,
     effect::{CallExtra, CallTimeout, StageEffect, TransitionFactory},
     sender::StageRefExtra,
     simulation::{
@@ -42,9 +41,6 @@ pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Na
         .stages
         .get_mut(at_stage)
         .ok_or_else(|| anyhow::anyhow!("stage `{}` was already terminated", at_stage))?;
-    let StageOrAdapter::Stage(data) = data else {
-        panic!("stage is an adapter, which cannot receive");
-    };
     let Some(waiting_for) = data.waiting.as_ref() else {
         return Ok(false);
     };
@@ -60,7 +56,7 @@ pub fn resume_receive_internal(simulation: &mut SimulationRunning, at_stage: &Na
             let (supervised_by, msg) = simulation
                 .terminate_stage(at_stage.clone(), TerminationReason::Supervision(name))
                 .ok_or_else(|| anyhow::anyhow!("stage was already terminated"))?;
-            let Some(StageOrAdapter::Stage(supervisor)) = simulation.stages.get_mut(&supervised_by) else {
+            let Some(supervisor) = simulation.stages.get_mut(&supervised_by) else {
                 tracing::error!(%at_stage, "terminating simulation due to unsupervised stage termination");
                 simulation.terminate.send_replace(true);
                 return Err(UnsupervisedChildTermination(at_stage.clone()).into());
@@ -222,7 +218,7 @@ pub fn resume_call_send_internal(
         );
         if wakeup.is_ok()
             && let Some(real_to) = real_to
-            && let Some(StageOrAdapter::Stage(data_to)) = sim.stages.get_mut(&real_to)
+            && let Some(data_to) = sim.stages.get_mut(&real_to)
         {
             // here we clean up in case the message was not yet delivered to the mailbox;
             // no strong reasons on a theoretical level, but it would be confusing if the
@@ -310,29 +306,6 @@ pub fn resume_wire_stage_internal(
 
     run(data.name.clone(), StageResponse::Unit);
     Ok(transition.into_inner())
-}
-
-pub fn resume_contramap_internal(
-    data: &mut StageData,
-    run: &mut dyn FnMut(Name, StageResponse),
-    orig: Name,
-    name: Name,
-) -> anyhow::Result<Box<dyn Fn(Box<dyn SendData>) -> Box<dyn SendData> + Send + 'static>> {
-    let waiting_for =
-        data.waiting.as_ref().ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", data.name))?;
-
-    if !matches!(waiting_for, StageEffect::Contramap { original, new_name, .. } if original == &orig && name.as_str().starts_with(new_name.as_str()))
-    {
-        anyhow::bail!("stage `{}` was not waiting for a contramap effect, but {:?}", data.name, waiting_for)
-    }
-
-    // it is important that all validations (i.e. `?``) happen before this point
-    let Some(StageEffect::Contramap { transform, .. }) = data.waiting.take() else {
-        panic!("checked above");
-    };
-
-    run(data.name.clone(), StageResponse::ContramapResponse(name));
-    Ok(transform.into_inner())
 }
 
 pub fn resume_schedule_internal(
