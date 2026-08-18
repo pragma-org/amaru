@@ -20,7 +20,9 @@ use amaru_kernel::{
 use amaru_ledger::{
     context::{PreparationContext, ProposalState},
     epoch_transition::GovernanceActivity,
-    state::volatile::{AnchoredVolatileFragment, VolatileDB, VolatileFragment, VolatileSequence},
+    state::volatile::{
+        AnchoredVolatileFragment, DiffLeftBindExt as _, Empty, VolatileDB, VolatileFragment, VolatileSequence,
+    },
     store::{self, ReadStore},
 };
 use rand::Rng;
@@ -335,8 +337,10 @@ fn step_fragment_pools(fragment: &mut VolatileFragment, rng: &mut impl rand::Rng
         let params = fixture::pool_params(rng);
         let deposit = rng.random();
         // Bench pool ids are random, so every registration is a brand-new pool establishing its
-        // current VRF key; hydration then resolves it without reaching for the (mock) store.
+        // current VRF key; hydration then resolves it without reaching for the (mock) store. A
+        // brand-new pool leaves `pools_pending_vrf` untouched, so that field stays unmeasured here.
         fragment.pools_current_vrf.produce(pool_id, params.vrf);
+        fragment.pools_vrf.produce(params.vrf, Empty);
         fragment.pools.register(pool_id, Arc::new((params, CertificatePointer::default(), deposit)));
     } else {
         fragment.pools.unregister(pool_id, Epoch::default() + 1);

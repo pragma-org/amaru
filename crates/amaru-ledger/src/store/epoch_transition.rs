@@ -180,12 +180,7 @@ pub fn update_or_retire_pools<'store>(
     .in_scope(|| {
         // Note that we don't trace anything here since traces already happen in the
         // epoch_transition::pools_update module; when those updates are first computed.
-        db.update_or_retire_pools(
-            pools_updates.updated(),
-            pools_updates.retired(),
-            pools_updates.vrf_released(),
-            pools_updates.vrf_retired(),
-        )
+        db.update_or_retire_pools(pools_updates)
     })
 }
 

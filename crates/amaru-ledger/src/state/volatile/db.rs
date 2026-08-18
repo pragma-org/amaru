@@ -110,6 +110,8 @@ impl VolatileState for VolatileDB {
     type PoolVrfs = VolatilePoolVrfs;
     fn resolve_pool_vrfs(&self, pool_id: PoolId) -> Self::PoolVrfs {
         let opening = self.current.resolve_pool_vrfs(pool_id);
+        let retired_at_boundary = self.overlay.is_pool_retired(pool_id);
+        let activated_at_boundary = self.overlay.activated_pool_vrf(pool_id);
 
         // The pool's effective current VRF key, precedence `current -> overlay -> draining`. The
         // opening epoch establishes one only for a brand-new pool; below it, a boundary
@@ -118,9 +120,9 @@ impl VolatileState for VolatileDB {
         // to a pool the boundary did not touch (the transition folds the whole window), so it
         // flows through untouched.
         let current = opening.current.or_else(|| {
-            if self.overlay.is_pool_retired(pool_id) {
+            if retired_at_boundary {
                 Existence::Gone
-            } else if let Some(vrf) = self.overlay.activated_pool_vrf(pool_id) {
+            } else if let Some(vrf) = activated_at_boundary {
                 Existence::Exists(vrf)
             } else {
                 self.draining.resolve_pool_vrfs(pool_id).current
@@ -133,11 +135,7 @@ impl VolatileState for VolatileDB {
         // whole window, so it would have been activated or discarded too). `Unknown` therefore
         // defers to the stable row, whose pending registrations are all from the open epoch.
         let pending = opening.pending.or_else(|| {
-            if self.overlay.is_pool_retired(pool_id) || self.overlay.activated_pool_vrf(pool_id).is_some() {
-                Existence::Gone
-            } else {
-                Existence::Unknown
-            }
+            if retired_at_boundary || activated_at_boundary.is_some() { Existence::Gone } else { Existence::Unknown }
         });
 
         VolatilePoolVrfs { current, pending }
@@ -147,10 +145,10 @@ impl VolatileState for VolatileDB {
     type VrfKeyHash = VrfOccupancy;
     fn resolve_vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Self::VrfKeyHash {
         // Whether a VRF key hash is in use per the volatile state. An epoch boundary may
-        // also *decrement* a key's occupancy (one decrement per retiring pool), and whether that
-        // frees the key depends on the stable count, which grandfathered pre-pv11 sharing can hold
-        // above 1. Such keys resolve as `Deferred` carrying the decrements, unless a claim within
-        // the closing epoch pinned the count to 1 and settles the verdict.
+        // also *decrement* a key's occupancy, and whether that frees the key depends on the stable
+        // count, which grandfathered pre-pv11 sharing can hold above 1. Such keys resolve as
+        // `Deferred` carrying the decrements, unless a claim within the closing epoch pinned the
+        // count to 1 and settles the verdict.
         match self.current.resolve_vrf_key_hash(vrf) {
             Existence::Exists(()) => VrfOccupancy::Claimed,
             Existence::Gone => VrfOccupancy::Released,
@@ -629,7 +627,7 @@ mod tests {
     use crate::{
         AccountState,
         epoch_transition::{Computed, Effective, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
-        state::volatile::{Bind, Resettable},
+        state::volatile::{Bind, DiffLeftBindExt as _, Empty, Resettable},
         store::columns::pools::Row as Pool,
     };
 
@@ -1645,7 +1643,7 @@ mod tests {
     fn vrf_block(slot: u64, act: VrfAct) -> AnchoredVolatileFragment {
         let mut block = AnchoredVolatileFragment::fixture(slot, slot as u8);
         match act {
-            VrfAct::Claim => block.fragment.pools_vrf.produce(vrf_key(), ()),
+            VrfAct::Claim => block.fragment.pools_vrf.produce(vrf_key(), Empty),
             VrfAct::Release => block.fragment.pools_vrf.consume(vrf_key()),
         }
         block

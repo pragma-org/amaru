@@ -391,7 +391,7 @@ impl StateOverlay {
     pub fn vrf_decrements(&self, vrf: &pools_vrf::Key) -> u64 {
         self.pools_updates
             .as_ref()
-            .map(|updates| updates.vrf_retired().iter().filter(|retired| *retired == vrf).count() as u64)
+            .map(|updates| updates.vrf_retired().filter(|retired| *retired == vrf).count() as u64)
             .unwrap_or(0)
     }
 

@@ -27,7 +27,7 @@ use amaru_kernel::{
     RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor,
 };
 use amaru_ledger::{
-    epoch_transition::GovernanceActivity,
+    epoch_transition::{GovernanceActivity, pools_updates::PoolsEpochTransitionUpdates},
     state::volatile::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
@@ -921,14 +921,15 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         with_prefix_iterator(&self.db, utxo::PREFIX, "utxo", with)
     }
 
-    fn update_or_retire_pools(
+    fn update_or_retire_pools(&self, pools_updates: &PoolsEpochTransitionUpdates) -> Result<(), StoreError> {
+        pools::update_or_retire(&self.db, pools_updates)
+    }
+
+    fn import_vrf_key_hashes(
         &self,
-        updates: &BTreeMap<scolumns::pools::Key, scolumns::pools::Row>,
-        retirements: &BTreeSet<scolumns::pools::Key>,
-        vrf_released: &BTreeSet<scolumns::pools_vrf::Key>,
-        vrf_retired: &[scolumns::pools_vrf::Key],
+        counts: &BTreeMap<scolumns::pools_vrf::Key, scolumns::pools_vrf::Value>,
     ) -> Result<(), StoreError> {
-        pools::update_or_retire(&self.db, updates, retirements, vrf_released, vrf_retired)
+        pools_vrf::import(&self.db, counts)
     }
 
     fn with_pools(&self, with: impl FnMut(scolumns::pools::Iter<'_, '_>)) -> Result<(), StoreError> {

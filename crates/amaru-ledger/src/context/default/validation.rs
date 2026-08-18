@@ -35,7 +35,7 @@ use crate::{
         RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
         blanket_known_scripts,
     },
-    state::volatile::{BindError, Existence, VolatileFragment},
+    state::volatile::{BindError, DiffLeftBindExt as _, Empty, Existence, VolatileFragment, left_verdict},
     store::columns::pools_vrf,
 };
 
@@ -95,8 +95,8 @@ impl DefaultValidationContext {
     /// Whether the VRF key hash is occupied at this point in the block: per the in-block claims
     /// and releases first, falling back to the block-start resolution.
     fn is_vrf_key_hash_in_use(&self, vrf: &pools_vrf::Key) -> bool {
-        match self.state.pools_vrf.get(vrf) {
-            Existence::Exists(()) => true,
+        match left_verdict(self.state.pools_vrf.get(vrf)) {
+            Existence::Exists(Empty) => true,
             Existence::Gone => false,
             Existence::Unknown => self.vrf_key_hashes_in_use.contains(vrf),
         }
@@ -106,11 +106,11 @@ impl DefaultValidationContext {
     /// in-block registrations folded in; `None` when the pool is nowhere registered.
     fn lookup_pool_vrfs(&self, pool_id: PoolId) -> Option<PoolVrfs> {
         let base = self.pools.get(&pool_id);
-        let current = match self.state.pools_current_vrf.get(&pool_id).copied() {
+        let current = match left_verdict(self.state.pools_current_vrf.get(&pool_id)) {
             Existence::Exists(vrf) => Some(vrf),
             Existence::Unknown | Existence::Gone => base.map(|vrfs| vrfs.current),
         }?;
-        let pending = match self.state.pools_pending_vrf.get(&pool_id).copied() {
+        let pending = match left_verdict(self.state.pools_pending_vrf.get(&pool_id)) {
             Existence::Exists(vrf) => Some(vrf),
             Existence::Unknown | Existence::Gone => base.and_then(|vrfs| vrfs.pending),
         };
@@ -197,7 +197,7 @@ impl PoolsSlice for DefaultValidationContext {
         {
             self.state.pools_vrf.consume(pending);
         }
-        self.state.pools_vrf.produce(vrf, ());
+        self.state.pools_vrf.produce(vrf, Empty);
 
         match known_vrfs {
             Some(..) => self.state.pools_pending_vrf.produce(pool_id, vrf),

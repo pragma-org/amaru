@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use amaru_ledger::store::{
     StoreError,
     columns::{
@@ -67,8 +69,7 @@ pub fn release<DB>(db: &Transaction<'_, DB>, vrf: &Key) -> Result<(), StoreError
 }
 
 /// Decrement the occupancy count of a retiring pool's VRF key hash, dropping the entry at zero.
-/// The key being absent is a logic error: every retiring pool's VRF was claimed when it
-/// registered, or the ledger database predates this column and must be re-bootstrapped.
+/// An absent key means the stored count stood below the number of pools holding it.
 pub fn decrement<DB>(db: &Transaction<'_, DB>, vrf: &Key) -> Result<(), StoreError> {
     trace_span!(stores::ledger::pools_vrf::DECREMENT).in_scope(|| {
         let key = as_key(&PREFIX, vrf);
@@ -97,4 +98,22 @@ pub fn seed<DB>(db: &Transaction<'_, DB>, vrf: &Key, count: Value) -> Result<(),
         db.put(as_key(&PREFIX, vrf), as_value(count)).map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     })
+}
+
+/// Clear the column, then set every key in `counts` to its occupancy count.
+pub fn import<DB>(db: &Transaction<'_, DB>, counts: &BTreeMap<Key, Value>) -> Result<(), StoreError> {
+    let stale = db
+        .prefix_iterator(PREFIX)
+        .map(|entry| entry.map(|(key, _)| key).map_err(|err| StoreError::Internal(err.into())))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for key in stale {
+        db.delete(key).map_err(|err| StoreError::Internal(err.into()))?;
+    }
+
+    for (vrf, count) in counts {
+        seed(db, vrf, *count)?;
+    }
+
+    Ok(())
 }

@@ -944,6 +944,7 @@ define_schemas! {
                 public IMPORT {
                     required registered: usize
                     required retiring: usize
+                    required vrf_key_hashes: usize
                 }
             }
             votes {

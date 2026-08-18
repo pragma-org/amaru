@@ -46,7 +46,7 @@ use amaru_kernel::{
 use columns::*;
 use thiserror::Error;
 
-use crate::epoch_transition::GovernanceActivity;
+use crate::epoch_transition::{GovernanceActivity, pools_updates::PoolsEpochTransitionUpdates};
 
 pub mod columns;
 
@@ -763,28 +763,23 @@ pub trait TransactionalContext<'a>: ReadStore {
     }
 
     /// Apply the pool updates and retirements computed at an epoch boundary, together with the
-    /// VRF key hash occupancy bookkeeping they imply: released keys are deleted first,
-    /// then retired pools' keys are decremented.
+    /// VRF key hash occupancy bookkeeping they imply.
     #[cfg(not(any(test, feature = "test-utils")))]
-    fn update_or_retire_pools(
-        &self,
-        updates: &BTreeMap<pools::Key, pools::Row>,
-        retirements: &BTreeSet<pools::Key>,
-        vrf_released: &BTreeSet<pools_vrf::Key>,
-        vrf_retired: &[pools_vrf::Key],
-    ) -> Result<()>;
+    fn update_or_retire_pools(&self, pools_updates: &PoolsEpochTransitionUpdates) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
-    fn update_or_retire_pools(
-        &self,
-        updates: &BTreeMap<pools::Key, pools::Row>,
-        retirements: &BTreeSet<pools::Key>,
-        vrf_released: &BTreeSet<pools_vrf::Key>,
-        vrf_retired: &[pools_vrf::Key],
-    ) -> Result<()> {
-        unimplemented!(
-            "TransactionalContext.update_or_retire_pools({updates:?}, {retirements:?}, {vrf_released:?}, {vrf_retired:?})"
-        );
+    fn update_or_retire_pools(&self, pools_updates: &PoolsEpochTransitionUpdates) -> Result<()> {
+        unimplemented!("TransactionalContext.update_or_retire_pools({pools_updates:?})");
+    }
+
+    /// Replace the VRF key hash occupancy column wholesale with a node snapshot's counts. Bootstrap
+    /// only; every other write to the column goes through the pools column operations.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn import_vrf_key_hashes(&self, counts: &BTreeMap<pools_vrf::Key, pools_vrf::Value>) -> Result<()>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn import_vrf_key_hashes(&self, counts: &BTreeMap<pools_vrf::Key, pools_vrf::Value>) -> Result<()> {
+        unimplemented!("TransactionalContext.import_vrf_key_hashes({counts:?})");
     }
 
     /// Provide an access to iterate over pools, in a way that enforces:

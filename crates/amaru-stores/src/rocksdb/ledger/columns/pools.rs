@@ -12,16 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use amaru_kernel::Epoch;
 use amaru_ledger::{
-    epoch_transition::pools_updates::{PoolCertificate, PoolCertificates},
+    epoch_transition::pools_updates::{PoolCertificate, PoolCertificates, PoolsEpochTransitionUpdates},
     store::{
         StoreError,
         columns::{
             pools::{Key, Row, Value},
-            pools_vrf::Key as VrfKey,
             unsafe_decode,
         },
     },
@@ -103,30 +100,27 @@ pub fn add<DB>(db: &Transaction<'_, DB>, rows: impl Iterator<Item = Value>, epoc
     })
 }
 
-/// Apply the pool updates and retirements computed at an epoch boundary, together with the VRF
-/// key hash occupancy changes they imply: whole-key deletes of superseded ("dangling") keys
-/// first, then a decrement per retiring pool's post-activation key.
+/// Apply the pool updates and retirements computed at an epoch boundary, together with the VRF key
+/// hash occupancy changes they imply: released keys are deleted, and retired pools' keys
+/// are decremented.
 pub fn update_or_retire<DB>(
     db: &Transaction<'_, DB>,
-    updates: &BTreeMap<Key, Row>,
-    retirements: &BTreeSet<Key>,
-    vrf_released: &BTreeSet<VrfKey>,
-    vrf_retired: &[VrfKey],
+    pools_updates: &PoolsEpochTransitionUpdates,
 ) -> Result<(), StoreError> {
     trace_span!(stores::ledger::pools::UPDATE_OR_RETIRE).in_scope(|| {
-        for (pool, row) in updates {
+        for (pool, row) in pools_updates.updated() {
             db.put(as_key(&PREFIX, pool), as_value(row)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
-        for pool in retirements {
+        for pool in pools_updates.retired() {
             db.delete(as_key(&PREFIX, pool)).map_err(|err| StoreError::Internal(err.into()))?;
         }
 
-        for vrf in vrf_released {
+        for vrf in pools_updates.vrf_released() {
             pools_vrf::release(db, vrf)?;
         }
 
-        for vrf in vrf_retired {
+        for vrf in pools_updates.vrf_retired() {
             pools_vrf::decrement(db, vrf)?;
         }
 

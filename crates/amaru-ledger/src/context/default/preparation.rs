@@ -634,7 +634,7 @@ mod tests {
     use super::*;
     use crate::{
         epoch_transition::{GovernanceUpdates, PoolsEpochTransitionUpdates},
-        state::volatile::{AnchoredVolatileFragment, VolatileDB, VolatileSequence},
+        state::volatile::{AnchoredVolatileFragment, DiffLeftBindExt as _, Empty, VolatileDB, VolatileSequence},
         store::{self, columns::pools},
     };
 
@@ -739,7 +739,7 @@ mod tests {
         if let Some(act) = act {
             let mut block = AnchoredVolatileFragment::fixture(10, 1);
             match act {
-                VrfAct::Claim => block.fragment.pools_vrf.produce(key(7), ()),
+                VrfAct::Claim => block.fragment.pools_vrf.produce(key(7), Empty),
                 VrfAct::Release => block.fragment.pools_vrf.consume(key(7)),
             }
             volatile.push_back(block);

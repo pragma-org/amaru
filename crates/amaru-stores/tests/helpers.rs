@@ -27,7 +27,7 @@ use amaru_kernel::{
     cardano::network_block::make_block, cbor, make_header, to_cbor,
 };
 use amaru_ledger::{
-    epoch_transition::GovernanceActivity,
+    epoch_transition::{GovernanceActivity, pools_updates::PoolsEpochTransitionUpdates},
     rules::block::BlockValidation,
     state::{ForkSwitchOutcome, State, volatile::VolatileFragment},
     store::{
@@ -447,12 +447,13 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
         Ok(())
     }
 
-    fn update_or_retire_pools(
+    fn update_or_retire_pools(&self, _pools_updates: &PoolsEpochTransitionUpdates) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn import_vrf_key_hashes(
         &self,
-        _updates: &BTreeMap<pools::Key, pools::Row>,
-        _retirements: &BTreeSet<pools::Key>,
-        _vrf_released: &BTreeSet<pools_vrf::Key>,
-        _vrf_retired: &[pools_vrf::Key],
+        _counts: &BTreeMap<pools_vrf::Key, pools_vrf::Value>,
     ) -> amaru_ledger::store::Result<()> {
         Ok(())
     }

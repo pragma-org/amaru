@@ -40,6 +40,11 @@ Other guiding principles:
 ### Added
 
 - **amaru-pure-stage**: simulate how long an `ExternalEffect` occupies time (`DurationDist`: zero, constant, uniform, or until the effect future resolves). Sampled durations are scheduled when the effect is issued; `SimulationBuilder::run` now takes a Tokio `Handle` so a still-pending `run()` can be forced at that deadline. ([#1224](https://github.com/pragma-org/amaru/pull/1224))
+- **amaru-stores**: track stake pool VRF key hash occupancy in a new ledger-store column (`pvrf`). ([#910][])
+
+  The column is seeded from the node snapshot at bootstrap and maintained from there as pool registrations land. Existing ledger databases must be re-bootstrapped: there is no migration, and the occupancy counts cannot be derived from an existing database, since a count above one only comes from the snapshot.
+
+- **amaru-ledger**: From protocol version 11 onwards, a pool registration claiming a VRF key hash already in use is rejected, with only the registering pool's own current key exempt. ([#910][])
 
 ### Changed
 
@@ -63,12 +68,6 @@ Other guiding principles:
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
 ### Added
-
-- **amaru-stores**: track stake pool VRF key hash occupancy in a new ledger-store column (`pvrf`). ([#910][])
-
-  The column is only populated at bootstrap: existing ledger databases must be re-bootstrapped, as there is no migration and the occupancy map cannot be derived from an existing database. 
-
-- **amaru-ledger**: From protocol version 11 onwards, a pool registration claiming a VRF key hash already in use is rejected, with only the registering pool's own current key exempt. ([#910][])
 
 - **amaru-consensus**: track peer-sharing reputation (handshake advertisability, connection failures, sticky adversarial flag, and whether a successful connection was ever established) so peer selection can filter share candidates. ([#1167](https://github.com/pragma-org/amaru/issues/1167))
 - **amaru-protocols**: add peer-sharing mini-protocol (client and server) and wire it into the connection manager. ([#1168](https://github.com/pragma-org/amaru/issues/1168))

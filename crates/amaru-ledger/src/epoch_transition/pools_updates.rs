@@ -45,10 +45,9 @@ pub struct PoolsEpochTransitionUpdates {
     /// keys of pools whose activating re-registration changed VRF
     vrf_released: BTreeSet<pools_vrf::Key>,
 
-    /// VRF key hashes of retired pools (post-activation of any pending re-registration), each
-    /// decrementing its occupancy count at the epoch transition. A `Vec` rather than a set:
-    /// occupancy counts can exceed one, so two retiring pools sharing a grandfathered key must
-    /// decrement it twice.
+    /// VRF key hashes of retired pools (post-activation of any pending re-registration), one entry
+    /// per retiring pool. A `Vec` rather than a set: occupancy counts can exceed one, so two
+    /// retiring pools sharing a grandfathered key must decrement it twice.
     vrf_retired: Vec<pools_vrf::Key>,
 }
 
@@ -85,8 +84,12 @@ impl PoolsEpochTransitionUpdates {
     }
 
     /// VRF key hashes whose occupancy the transition decrements, one entry per retiring pool.
-    pub fn vrf_retired(&self) -> &[pools_vrf::Key] {
-        &self.vrf_retired
+    ///
+    /// Keys that [`Self::vrf_released`] also names are skipped: releasing deletes the entry,s
+    /// which subsumes any number of decrements of it. A single pool never puts the same
+    /// key in both, but two pools sharing one can.
+    pub fn vrf_retired(&self) -> impl Iterator<Item = &pools_vrf::Key> {
+        self.vrf_retired.iter().filter(|vrf| !self.vrf_released.contains(vrf))
     }
 
     /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
@@ -546,6 +549,39 @@ mod tests {
 
         let refunds = pools_updates.refunds().collect::<Vec<_>>();
         assert_eq!(refunds, vec![(&reward_credential, &(deposit_a + deposit_b))]);
+    }
+
+    #[test]
+    fn a_released_key_is_not_also_decremented_when_another_retiring_pool_shares_it() {
+        let (params_a, params_b) = run_strategy(
+            (any_pool_params(), any_pool_params())
+                .prop_filter("pools and their vrf keys must be distinct", |(pool_a, pool_b)| {
+                    pool_a.id != pool_b.id && pool_a.vrf != pool_b.vrf
+                }),
+        );
+
+        let shared = params_a.vrf;
+        let activating = params_b.vrf;
+
+        let reregistration = PoolParams { vrf: activating, ..params_a.clone() };
+        let mut pool_a = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), 1_000_000, params_a);
+        pool_a.pending_certificates = PoolCertificates::default().with(reregistration).with(Epoch::from(0));
+
+        let mut pool_b = Pool::new(
+            run_strategy(any_certificate_pointer(u64::MAX)),
+            2_000_000,
+            PoolParams { vrf: shared, ..params_b },
+        );
+        pool_b.pending_certificates.append(Epoch::from(0));
+
+        let mut pools_updates = PoolsEpochTransitionUpdates::default();
+        let pending_a = pool_a.pending_certificates.pending_after(Epoch::from(0));
+        let pending_b = pool_b.pending_certificates.pending_after(Epoch::from(0));
+        pools_updates.retire_pool(Epoch::from(0), &pool_a, pending_a);
+        pools_updates.retire_pool(Epoch::from(0), &pool_b, pending_b);
+
+        assert!(pools_updates.vrf_released().contains(&shared));
+        assert_eq!(pools_updates.vrf_retired().copied().collect::<Vec<_>>(), vec![activating]);
     }
 
     fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {

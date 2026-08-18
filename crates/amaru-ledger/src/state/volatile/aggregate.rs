@@ -25,7 +25,8 @@ use amaru_kernel::{
 use crate::{
     context::{ProposalState, ProposalStateSlim},
     state::volatile::{
-        AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, VolatileFragment, VolatilePoolVrfs,
+        AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, IndexedSet, VolatileFragment,
+        VolatilePoolVrfs, left_verdict,
     },
     store::columns::pools_vrf,
 };
@@ -35,9 +36,6 @@ pub use indexed_bind::IndexedBind;
 
 mod indexed_epoch_reg;
 pub use indexed_epoch_reg::IndexedEpochReg;
-
-mod indexed_set;
-pub use indexed_set::IndexedSet;
 
 /// The window's accounts, indexed by credential so each one's per-fragment history is retracted
 /// exactly on stabilization and folded on read. See [`IndexedBind`].
@@ -76,7 +74,7 @@ type PoolsPendingVrf = IndexedSet<PoolId, pools_vrf::Key>;
 /// release. But, unlike pool existence, occupancy is not monotonic-additive:
 /// a re-registration *releases* the pending key it supersedes, so a key may be
 /// claimed and released repeatedly within the window. See [`IndexedSet`].
-type VrfKeyHashes = IndexedSet<pools_vrf::Key, ()>;
+type VrfKeyHashes = IndexedSet<pools_vrf::Key, Empty>;
 
 /// A collapse/folded sequence of `crate::volatile::VolatileFragment` which can be cleaned up
 /// incrementally.
@@ -126,15 +124,15 @@ impl VolatileAggregate {
     /// `Unknown` defers to the stable row.
     pub fn resolve_pool_vrfs(&self, pool_id: PoolId) -> VolatilePoolVrfs {
         VolatilePoolVrfs {
-            current: self.pools_current_vrf.get(&pool_id).copied(),
-            pending: self.pools_pending_vrf.get(&pool_id).copied(),
+            current: left_verdict(self.pools_current_vrf.get(&pool_id)),
+            pending: left_verdict(self.pools_pending_vrf.get(&pool_id)),
         }
     }
 
     /// This aggregate's verdict on a VRF key hash's occupancy: claimed (`Exists`), released
     /// (`Gone`), or untouched (`Unknown`), per the newest fragment that touched it.
     pub fn resolve_vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Existence<()> {
-        self.pools_vrf.get(vrf).copied()
+        left_verdict(self.pools_vrf.get(vrf)).map(|_| ())
     }
 
     /// This aggregate's verdict on a stake account, folding the credential's per-fragment
@@ -220,9 +218,9 @@ impl VolatileAggregate {
     /// - `pools_current_vrf`, `pools_pending_vrf`: per-key history like `committee`. A pool may
     ///   re-register repeatedly within the window, each time overwriting its pending key, and only
     ///   its ordered verdicts make retracting the front exact.
-    /// - `pools_vrf`: per-key history like `committee`. Occupancy is *not* monotonic-additive the
-    ///   way pool existence is so a key may be claimed and released repeatedly within the window, and only its ordered
-    ///   verdicts make retracting the front exact.
+    /// - `pools_vrf`: per-key history like `committee`. Occupancy is *not* monotonic-additive the way
+    ///   pool existence is, so a key may be claimed and released repeatedly within the window, and
+    ///   only its ordered verdicts make retracting the front exact.
     /// - `accounts`, `dreps`: each credential keeps its own per-fragment history, so retracting
     ///   pops only the front of that credential's deque and a later re-registration or bind-only
     ///   update is left intact. This is what the collapse above would lose.

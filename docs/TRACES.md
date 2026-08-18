@@ -319,7 +319,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
-| `import` | `TRACE` | public | Import stake pools from a snapshot | registered, retiring |  |
+| `import` | `TRACE` | public | Import stake pools from a snapshot | registered, retiring, vrf_key_hashes |  |
 
 <details><summary>span: `import`</summary>
 
@@ -327,6 +327,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | --- | --- | --- |
 | `registered` | `integer` | ✓ |
 | `retiring` | `integer` | ✓ |
+| `vrf_key_hashes` | `integer` | ✓ |
 
 </details>
 
