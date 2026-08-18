@@ -108,8 +108,8 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
                 let round_trip_micros = received_at.saturating_since(sent_at).as_micros() as u64;
                 debug!(
                     protocols::keepalive::peer::ROUND_TRIP,
-                    peer = self.peer.clone(),
-                    conn_id = self.conn_id.to_string(),
+                    peer = &self.peer,
+                    conn_id = self.conn_id.as_u64(),
                     round_trip_micros = round_trip_micros
                 );
             }

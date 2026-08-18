@@ -171,9 +171,8 @@ pub async fn stage(
     eff: Effects<ConnectionMessage>,
 ) -> Connection {
     let message_type = msg.message_type().to_string();
-    let conn_id = params.conn_id.to_string();
+    let Params { conn_id, role, .. } = params;
     let peer = params.peer.clone();
-    let role = format!("{:?}", params.role);
 
     async move {
         let state = match (state, msg) {
@@ -181,7 +180,7 @@ pub async fn stage(
                 return teardown(state, &params, &eff).await;
             }
             (state, ConnectionMessage::ChildDied(child)) => {
-                tracing::info!(?child, peer = %params.peer, conn_id = %params.conn_id, "connection child died");
+                tracing::info!(?child, peer = %params.peer, conn_id = conn_id.as_u64(), "connection child died");
                 return teardown(state, &params, &eff).await;
             }
             (State::Initial, ConnectionMessage::Initialize) => do_initialize(&params, eff).await,
@@ -235,9 +234,9 @@ pub async fn stage(
     .instrument(debug_span!(
         protocols::connection::message::PROCESS,
         message_type = message_type,
-        conn_id = conn_id,
+        conn_id = conn_id.as_u64(),
         peer = peer,
-        role = role
+        role = %role,
     ))
     .await
 }

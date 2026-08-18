@@ -1642,7 +1642,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `conn_id` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
 | `round_trip_micros` | `integer` | ✓ |
 
 </details>
@@ -1676,7 +1676,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `conn_id` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
 
 </details>
 
@@ -1701,7 +1701,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
-| `conn_id` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
 | `role` | `string` | ✓ |
 
 </details>

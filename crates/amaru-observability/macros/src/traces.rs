@@ -234,10 +234,27 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         parse::{Parse, ParseStream},
     };
 
+    enum TraceRecordFormatter {
+        /// Bare `field = expr`: type-driven transport (primitive or CBOR).
+        Typed,
+        /// Explicit `field = %expr`: Display-rendered.
+        Display,
+        /// Explicit `field = ?expr`: Debug-rendered.
+        Debug,
+        /// Explicit `field = @expr`: ready-made `tracing::Value`.
+        Value,
+    }
+
+    struct TraceRecordField {
+        name: syn::Ident,
+        value: syn::Expr,
+        formatter: TraceRecordFormatter,
+    }
+
     struct TraceRecordArgs {
         level: Option<syn::Ident>,
         schema_path: syn::Path,
-        field_assignments: Vec<(syn::Ident, syn::Expr)>,
+        fields: Vec<TraceRecordField>,
     }
 
     impl Parse for TraceRecordArgs {
@@ -267,9 +284,9 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
             };
 
             let schema_path: syn::Path = input.parse()?;
-            let mut field_assignments = Vec::new();
+            let mut fields = Vec::new();
 
-            // Parse comma-separated field = value pairs
+            // Parse comma-separated fields
             while input.peek(Token![,]) {
                 input.parse::<Token![,]>()?; // consume comma
 
@@ -277,14 +294,57 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
                     break;
                 }
 
-                let field_name: syn::Ident = input.parse()?;
-                input.parse::<Token![=]>()?;
-                let value_expr: syn::Expr = input.parse()?;
+                // Shorthands: `%ident`, `?ident` and `@ident` name the field after the variable.
+                if input.peek(Token![%]) || input.peek(Token![?]) || input.peek(Token![@]) {
+                    let formatter = if input.peek(Token![%]) {
+                        input.parse::<Token![%]>()?;
+                        TraceRecordFormatter::Display
+                    } else if input.peek(Token![?]) {
+                        input.parse::<Token![?]>()?;
+                        TraceRecordFormatter::Debug
+                    } else {
+                        input.parse::<Token![@]>()?;
+                        TraceRecordFormatter::Value
+                    };
+                    let name: syn::Ident = input.parse()?;
+                    let value = syn::parse_quote!(#name);
+                    fields.push(TraceRecordField { name, value, formatter });
+                    continue;
+                }
 
-                field_assignments.push((field_name, value_expr));
+                let name: syn::Ident = input.parse()?;
+
+                // Bare `ident` records the variable under its own name.
+                if !input.peek(Token![=]) {
+                    let value = syn::parse_quote!(#name);
+                    fields.push(TraceRecordField { name, value, formatter: TraceRecordFormatter::Typed });
+                    continue;
+                }
+
+                input.parse::<Token![=]>()?;
+
+                let formatter = if input.peek(Token![%]) {
+                    input.parse::<Token![%]>()?;
+                    TraceRecordFormatter::Display
+                } else if input.peek(Token![?]) {
+                    input.parse::<Token![?]>()?;
+                    TraceRecordFormatter::Debug
+                } else if input.peek(Token![@]) {
+                    input.parse::<Token![@]>()?;
+                    TraceRecordFormatter::Value
+                } else {
+                    TraceRecordFormatter::Typed
+                };
+                let value: syn::Expr = input.parse()?;
+
+                fields.push(TraceRecordField { name, value, formatter });
             }
 
-            Ok(TraceRecordArgs { level, schema_path, field_assignments })
+            if !input.is_empty() {
+                return Err(input.error("unexpected tokens after field assignments"));
+            }
+
+            Ok(TraceRecordArgs { level, schema_path, fields })
         }
     }
 
@@ -293,7 +353,7 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
         Err(err) => return err.to_compile_error().into(),
     };
 
-    if args.field_assignments.is_empty() {
+    if args.fields.is_empty() {
         return syn::Error::new_spanned(
             &args.schema_path,
             "trace_record! requires at least one field assignment: trace_record!(SCHEMA_CONST, field = value, ...)",
@@ -314,17 +374,61 @@ pub fn expand_trace_record(input: TokenStream) -> TokenStream {
     let mut span_records = Vec::new();
     let mut event_fields = Vec::new();
 
-    for (index, (field_name, value_expr)) in args.field_assignments.iter().enumerate() {
+    for (index, field) in args.fields.iter().enumerate() {
+        let field_name = &field.name;
         let field_name_str = field_name.to_string();
         let field_name_literal = syn::LitStr::new(&field_name_str, proc_macro2::Span::call_site());
         let value_ident = make_ident(&format!("__amaru_record_value_{index}"));
         let formatted_ident = make_ident(&format!("__amaru_record_formatted_{index}"));
-        let format_call =
-            meta.macro_call_expr(&record_macro_ident, quote! { #field_name_str, #value_ident, format_typed });
-        field_prep.push(quote! {
-            let #value_ident = &(#value_expr);
-            let #formatted_ident = #format_call;
-        });
+
+        match field.formatter {
+            TraceRecordFormatter::Typed => {
+                let format_call =
+                    meta.macro_call_expr(&record_macro_ident, quote! { #field_name_str, #value_ident, format_typed });
+                let value_expr = &field.value;
+                field_prep.push(quote! {
+                    let #value_ident = &(#value_expr);
+                    let #formatted_ident = #format_call;
+                });
+            }
+            TraceRecordFormatter::Display => {
+                let value_expr = &field.value;
+                let validate_call = meta.macro_call_stmt(
+                    &record_macro_ident,
+                    quote! { #field_name_str, #value_ident, validate_event_display },
+                );
+                field_prep.push(quote! {
+                    let #value_ident = &(#value_expr);
+                    #validate_call
+                    let #formatted_ident = tracing::field::display(#value_ident);
+                });
+            }
+            TraceRecordFormatter::Debug => {
+                let value_expr = &field.value;
+                let validate_call = meta.macro_call_stmt(
+                    &record_macro_ident,
+                    quote! { #field_name_str, #value_ident, validate_event_debug },
+                );
+                field_prep.push(quote! {
+                    let #value_ident = &(#value_expr);
+                    #validate_call
+                    let #formatted_ident = tracing::field::debug(#value_ident);
+                });
+            }
+            TraceRecordFormatter::Value => {
+                let value_expr = &field.value;
+                let validate_call = meta.macro_call_stmt(
+                    &record_macro_ident,
+                    quote! { #field_name_str, #value_ident, validate_event_value },
+                );
+                field_prep.push(quote! {
+                    let #value_ident = &(#value_expr);
+                    #validate_call
+                    let #formatted_ident = #value_ident;
+                });
+            }
+        }
+
         span_records.push(quote! {
             tracing::Span::current().record(#field_name_literal, &#formatted_ident);
         });
@@ -758,15 +862,13 @@ pub fn expand_trace_span(input: TokenStream) -> TokenStream {
 
                 // Check for tracing format specifiers (%, ?, or expressions)
                 let (validation_expr, formatter) = if input.peek(Token![%]) {
-                    // Format specifier %field
                     input.parse::<Token![%]>()?;
-                    let field_ref: syn::Ident = input.parse()?;
-                    (quote! { #field_ref }, TraceSpanFormatter::Display)
+                    let value_expr: syn::Expr = input.parse()?;
+                    (quote! { #value_expr }, TraceSpanFormatter::Display)
                 } else if input.peek(Token![?]) {
-                    // Format specifier ?field
                     input.parse::<Token![?]>()?;
-                    let field_ref: syn::Ident = input.parse()?;
-                    (quote! { #field_ref }, TraceSpanFormatter::Debug)
+                    let value_expr: syn::Expr = input.parse()?;
+                    (quote! { #value_expr }, TraceSpanFormatter::Debug)
                 } else {
                     // Regular expression: typed primitive or CBOR
                     let value_expr: syn::Expr = input.parse()?;

@@ -400,7 +400,7 @@ impl FetchBlocks {
 
         // check that body belongs to header
         if block.header.body().block_body_hash != block.body_hash() {
-            let span = debug_span!(consensus::block::MISMATCHED_HASH, peer = peer.clone(), header_hash = point.hash());
+            let span = debug_span!(consensus::block::MISMATCHED_HASH, peer = &peer, header_hash = point.hash());
             eff.send(&self.peer_selection, PeerSelectionMsg::Adversarial(peer, (&span).into())).await;
             tracing::warn!(expected = %block.header.body().block_body_hash, actual = %block.body_hash(), "block body hash mismatch");
             return;

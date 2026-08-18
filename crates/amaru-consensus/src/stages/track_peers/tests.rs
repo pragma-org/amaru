@@ -911,11 +911,7 @@ fn test_roll_backward_updates_peer() {
             te_state("tp-1", &expected).into(),
         ],
     );
-    logs.assert_and_remove(Level::INFO, &["roll backward"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 #[test]
@@ -947,7 +943,6 @@ fn test_roll_backward_unknown_peer_removes_peer() {
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["chain_sync.roll_backward.failed", "Unknown peer"])
-        .assert_and_remove(Level::INFO, &["roll backward"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
@@ -980,7 +975,6 @@ fn test_roll_backward_unknown_point_removes_peer() {
         ],
     );
     logs.assert_and_remove(Level::ERROR, &["chain_sync.roll_backward.failed", "Unknown point"])
-        .assert_and_remove(Level::INFO, &["roll backward"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 

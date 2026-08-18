@@ -22,7 +22,7 @@ use amaru_kernel::{
     BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, from_cbor_no_leftovers,
     num::CheckedSub,
 };
-use amaru_observability::{TraceContext, debug, debug_record, debug_span, error};
+use amaru_observability::{TraceContext, debug, debug_record, debug_span, error, info_span};
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::Nonces;
 use amaru_protocols::{
@@ -641,7 +641,7 @@ impl TrackPeers {
                 }
                 error!(
                     consensus::perf::header::LIFECYCLE,
-                    peer = peer.clone(),
+                    peer = peer,
                     header_hash = header.hash(),
                     error = %error,
                     outcome = HeaderLifecycleOutcome::InvalidHeader.as_str()
@@ -674,7 +674,7 @@ impl TrackPeers {
                 .await;
                 debug!(
                     consensus::perf::header::LIFECYCLE,
-                    peer = peer.clone(),
+                    peer = peer,
                     header_hash = current.hash(),
                     outcome = HeaderLifecycleOutcome::DuplicateHeader.as_str()
                 );
@@ -689,7 +689,7 @@ impl TrackPeers {
                         let error = ConsensusError::StoreHeaderFailed(header.hash(), e);
                         error!(
                             consensus::perf::header::LIFECYCLE,
-                            peer = peer.clone(),
+                            peer = peer,
                             header_hash = current.hash(),
                             error = %error,
                             outcome = HeaderLifecycleOutcome::StoreHeaderError.as_str()
@@ -765,8 +765,7 @@ impl TrackPeers {
                 self.clear_availability_if_gone(&peer, &eff).await;
             }
             RollForward(header_content, tip) => {
-                let peer_clone = peer.clone();
-                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip = tip, peer = peer_clone,);
+                let span = debug_span!(root, consensus::roll_forward::PROCESS, tip = tip, peer = &peer);
                 let trace_context: TraceContext = (&span).into();
                 async {
                     tracing::trace!(%peer, variant = header_content.variant.as_str(), highest = %tip, "roll forward");
@@ -779,7 +778,7 @@ impl TrackPeers {
                             self.purge_connection(conn_id);
                             error!(
                                 consensus::perf::header::LIFECYCLE,
-                                peer = peer.clone(),
+                                peer = peer,
                                 error = %error,
                                 outcome = HeaderLifecycleOutcome::UndecodableHeader.as_str()
                             );
@@ -860,16 +859,8 @@ impl TrackPeers {
                     .await
             }
             RollBackward(current, tip) => {
-                tracing::info!(%peer, %current, highest = %tip, "roll backward");
-                let peer_clone = peer.clone();
-                let span = debug_span!(
-                    root,
-                    consensus::rollback::PROCESS,
-                    current = %current,
-                    peer = %peer_clone,
-                    tip = %tip,
-                    header_hash = tip.hash(),
-                );
+                let span =
+                    info_span!(root, consensus::roll_backward::PROCESS, current = current, peer = &peer, tip = tip);
                 let trace_context: TraceContext = (&span).into();
                 async {
                     eff.send(&handler, chainsync::InitiatorMessage::RequestNext).await;

@@ -268,7 +268,8 @@
       "type": "object",
       "properties": {
         "peer": {
-          "type": "string"
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Peer"
         },
         "reason": {
           "type": "string"
@@ -3477,7 +3478,7 @@
           "description": "Custom type: amaru_kernel::Peer"
         },
         "conn_id": {
-          "type": "string"
+          "type": "integer"
         },
         "round_trip_micros": {
           "type": "integer"
@@ -3522,7 +3523,7 @@
           "description": "Custom type: amaru_kernel::Peer"
         },
         "conn_id": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": [
@@ -3583,7 +3584,7 @@
           "description": "Custom type: amaru_kernel::Peer"
         },
         "conn_id": {
-          "type": "string"
+          "type": "integer"
         },
         "role": {
           "type": "string"

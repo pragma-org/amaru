@@ -509,6 +509,7 @@ dependencies = [
 name = "amaru-observability"
 version = "0.1.2"
 dependencies = [
+ "amaru-kernel",
  "amaru-observability-macros",
  "cbor-data",
  "cbor4ii",

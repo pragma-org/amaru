@@ -170,14 +170,13 @@ define_schemas! {
                     optional header_hash: amaru_kernel::HeaderHash
                 }
             }
-            rollback {
+            roll_backward {
                 tags: cpu
                 /// Received a header to rollback
                 PROCESS {
                     required current: amaru_kernel::Point
                     required tip: amaru_kernel::Point
                     required peer: amaru_kernel::Peer
-                    required header_hash: amaru_kernel::HeaderHash
                 }
             }
             header {
@@ -201,7 +200,6 @@ define_schemas! {
                 /// Forward to a downstream peer
                 FORWARD {
                     required tip: amaru_kernel::Point
-                    required header_hash: amaru_kernel::HeaderHash
                     required peer: amaru_kernel::Peer
                 }
             }
@@ -870,7 +868,7 @@ define_schemas! {
             peer {
                 /// Failed to connect to a peer while bootstrapping
                 public FAILED_TO_CONNECT {
-                    required peer: String
+                    required peer: amaru_kernel::Peer
                     required reason: String
                 }
             }
@@ -1389,7 +1387,7 @@ define_schemas! {
                     /// Handle connection stage messages
                     PROCESS {
                         required message_type: String
-                        required conn_id: String
+                        required conn_id: u64
                         required peer: amaru_kernel::Peer
                         required role: String
                     }
@@ -1414,7 +1412,7 @@ define_schemas! {
                     /// An inbound connection was accepted from a peer
                     public ACCEPTED {
                         required peer: amaru_kernel::Peer
-                        required conn_id: String
+                        required conn_id: u64
                     }
                     /// A peer was removed from the manager
                     public REMOVE {
@@ -1423,7 +1421,7 @@ define_schemas! {
                     /// A peer connection has died
                     public CONNECTION_DIED {
                         required peer: amaru_kernel::Peer
-                        required conn_id: String
+                        required conn_id: u64
                         required role: String
                     }
                 }
@@ -1543,7 +1541,7 @@ define_schemas! {
                     /// Measured round-trip time for a keepalive exchange on an established peer connection.
                     public ROUND_TRIP {
                         required peer: amaru_kernel::Peer
-                        required conn_id: String
+                        required conn_id: u64
                         required round_trip_micros: u64
                     }
                 }
@@ -1572,8 +1570,8 @@ define_schemas! {
                 initiator {
                     /// Handle peer-sharing initiator stage messages
                     PEER_SHARING_INITIATOR_STAGE {
-                        required peer: String
-                        required conn_id: String
+                        required peer: amaru_kernel::Peer
+                        required conn_id: u64
                     }
                     /// Handle peer-sharing initiator protocol messages
                     PEER_SHARING_INITIATOR_PROTOCOL {
