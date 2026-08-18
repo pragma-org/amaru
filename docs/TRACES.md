@@ -765,6 +765,146 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
+## target: `amaru::consensus::chain`
+
+| name | level | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- |
+| `best_tip_candidate` | `TRACE` | public | A new candidate was chosen as the best tip. Reason ∈ {better_chain, previous_invalidated}. | tip, reason | previous |
+| `best_tip_invalidated` | `TRACE` | public | The best tip candidate was invalidated and forks depending on it were dropped | removed |  |
+| `fallback_to_origin` | `TRACE` | public | No valid candidate remains; the best chain falls back to origin |  |  |
+| `fetch_next` | `TRACE` | public | Some blocks have been fetched for the current chain, decide what to do next | point, header_hash |  |
+| `find_best_candidate_failed` | `TRACE` | public | Failed to select a new best candidate after an invalidation | error |  |
+| `find_intersection` | `TRACE` | public | Find chain intersection point with peer | peer, intersection_slot |  |
+| `forks_removed` | `TRACE` | public | Chain forks were removed because they depend on an invalid block | removed |  |
+| `header_not_found` | `TRACE` | public | A header needed for chain selection could not be loaded from the store. Role ∈ {tip, best_candidate, best_candidate_parent, parent, validation_target}. | role, header_hash | tip |
+| `resume_fetch` | `TRACE` | public | Where block fetching resumes from, once per request. Outcome ∈ {resume_from_best_tip, already_at_best_tip, no_best_tip}; only \`resume_from_best_tip\` sends a tip downstream and carries its \`parent\`. | outcome, point, best_tip | parent |
+| `select_from_block_validation` | `TRACE` | public | Received a block validation result | point, valid, header_hash |  |
+| `select_from_tip` | `TRACE` | public | Received a new tip from an upstream peer | tip, header_hash |  |
+| `store_validation_failed` | `TRACE` | public | Failed to persist the validation result of a block | error, valid |  |
+| `tip_accepted` | `TRACE` | public | A tip announced by an upstream peer is new and starts or extends a chain. Outcome ∈ {new_tip, from_origin, extend, fork}. | tip, outcome | parent |
+| `tip_ignored` | `TRACE` | public | A tip announced by an upstream peer was not adopted. Reason ∈ {already_validated, already_invalid, already_tracked, invalid_ancestor}. | tip, reason | parent |
+
+<details><summary>span: `best_tip_candidate`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+| `previous` | `string` |  |
+
+</details>
+
+<details><summary>span: `best_tip_invalidated`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `removed` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `fetch_next`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `find_best_candidate_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `find_intersection`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `intersection_slot` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `forks_removed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `removed` | `integer` | ✓ |
+
+</details>
+
+<details><summary>span: `header_not_found`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `role` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+| `tip` | `string` |  |
+
+</details>
+
+<details><summary>span: `resume_fetch`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `outcome` | `string` | ✓ |
+| `point` | `string` | ✓ |
+| `best_tip` | `string` | ✓ |
+| `parent` | `string` |  |
+
+</details>
+
+<details><summary>span: `select_from_block_validation`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `point` | `string` | ✓ |
+| `valid` | `boolean` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `select_from_tip`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `header_hash` | `string` | ✓ |
+
+</details>
+
+<details><summary>span: `store_validation_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `error` | `string` | ✓ |
+| `valid` | `boolean` | ✓ |
+
+</details>
+
+<details><summary>span: `tip_accepted`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `outcome` | `string` | ✓ |
+| `parent` | `string` |  |
+
+</details>
+
+<details><summary>span: `tip_ignored`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `tip` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+| `parent` | `string` |  |
+
+</details>
+
 ## target: `amaru::consensus::chain_db_migration`
 
 | name | level | public | description | required fields | optional fields |
