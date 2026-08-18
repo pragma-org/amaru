@@ -71,7 +71,12 @@ impl std::fmt::Debug for Blocks {
 /// Message that can be sent by an internal stage to request blocks for range of points.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockFetchMessage {
-    RequestRange { from: Point, through: Point, id: u64, cr: StageRef<Blocks> },
+    RequestRange {
+        from: Point,
+        through: Point,
+        id: u64,
+        cr: StageRef<Blocks>,
+    },
     /// Terminal close. The lock-step initiator ignores this until a reset-after-`StDone`
     /// path exists. The pipelined handler sends one wire `ClientDone` after drain.
     Close,
