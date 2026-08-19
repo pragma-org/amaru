@@ -29,18 +29,12 @@ use crate::cbor;
 //  Unlike [`crate::NonEmptySet`], which keeps its elements in a `Vec`, this type is unsuitable
 //  for values retained beyond validation: a `BTreeSet` allocates in nodes of ~400 bytes, which
 //  is a poor trade for a small set held in a long-lived structure
-#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Set<T: Ord>(BTreeSet<T>);
 
 impl<T: Ord> Default for Set<T> {
     fn default() -> Self {
         Self(BTreeSet::new())
-    }
-}
-
-impl<T: Ord> From<Set<T>> for BTreeSet<T> {
-    fn from(set: Set<T>) -> Self {
-        set.0
     }
 }
 
