@@ -359,31 +359,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::cli::cardano_node_config`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `download` | `TRACE` | public | Download the official cardano-node configuration bundle | config_dir, network |  |
-| `use` | `TRACE` | public | Use an existing cardano-node configuration | config_dir, network |  |
-
-<details><summary>span: `download`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `config_dir` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
-<details><summary>span: `use`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `config_dir` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
 ## target: `amaru::cli::chain_db`
 
 | name | level | public | description | required fields | optional fields |

@@ -559,52 +559,6 @@
       "description": "Process terminated with an error.",
       "public": true
     },
-    "amaru::cli::cardano_node_config::DOWNLOAD": {
-      "type": "object",
-      "properties": {
-        "config_dir": {
-          "type": "string"
-        },
-        "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
-        }
-      },
-      "required": [
-        "config_dir",
-        "network"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "download",
-      "level": "TRACE",
-      "target": "amaru::cli::cardano_node_config",
-      "description": "Download the official cardano-node configuration bundle",
-      "public": true
-    },
-    "amaru::cli::cardano_node_config::USE": {
-      "type": "object",
-      "properties": {
-        "config_dir": {
-          "type": "string"
-        },
-        "network": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::NetworkName"
-        }
-      },
-      "required": [
-        "config_dir",
-        "network"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "use",
-      "level": "TRACE",
-      "target": "amaru::cli::cardano_node_config",
-      "description": "Use an existing cardano-node configuration",
-      "public": true
-    },
     "amaru::cli::chain_db::EXIST": {
       "type": "object",
       "properties": {
