@@ -141,8 +141,8 @@ pub fn make_state_in_epoch_with_snapshots_and_store(
             tx.set_protocol_parameters(&PREPROD_DEFAULT_PROTOCOL_PARAMETERS)?;
             tx.update_constitutional_committee(
                 &ConstitutionalCommitteeStatus::NoConfidence,
-                BTreeMap::new(),
-                BTreeSet::new(),
+                &BTreeMap::new(),
+                &BTreeSet::new(),
             )
         })
         .expect("seeding the store succeeds");
@@ -472,8 +472,8 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
     fn update_constitutional_committee(
         &self,
         _status: &ConstitutionalCommitteeStatus,
-        _added: BTreeMap<amaru_kernel::StakeCredential, Epoch>,
-        _removed: BTreeSet<amaru_kernel::StakeCredential>,
+        _added: &BTreeMap<amaru_kernel::StakeCredential, Epoch>,
+        _removed: &BTreeSet<amaru_kernel::StakeCredential>,
     ) -> amaru_ledger::store::Result<()> {
         Ok(())
     }

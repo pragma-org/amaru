@@ -665,16 +665,16 @@ pub trait TransactionalContext<'a>: ReadStore {
     fn update_constitutional_committee(
         &self,
         status: &ConstitutionalCommitteeStatus,
-        added: BTreeMap<StakeCredential, Epoch>,
-        removed: BTreeSet<StakeCredential>,
+        added: &BTreeMap<StakeCredential, Epoch>,
+        removed: &BTreeSet<StakeCredential>,
     ) -> Result<()>;
 
     #[cfg(any(test, feature = "test-utils"))]
     fn update_constitutional_committee(
         &self,
         status: &ConstitutionalCommitteeStatus,
-        added: BTreeMap<StakeCredential, Epoch>,
-        removed: BTreeSet<StakeCredential>,
+        added: &BTreeMap<StakeCredential, Epoch>,
+        removed: &BTreeSet<StakeCredential>,
     ) -> Result<()> {
         unimplemented!("TransactionalContext.update_constitutional_committee({status:?}, {added:?}, {removed:?})");
     }

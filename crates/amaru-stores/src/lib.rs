@@ -469,8 +469,8 @@ pub mod tests {
         let context = store.create_transaction();
         context.update_constitutional_committee(
             &committee,
-            BTreeMap::from([(fixture.cc_member_key, term)]),
-            BTreeSet::new(),
+            &BTreeMap::from([(fixture.cc_member_key, term)]),
+            &BTreeSet::new(),
         )?;
         context.commit()?;
 
@@ -483,8 +483,8 @@ pub mod tests {
         let context = store.create_transaction();
         context.update_constitutional_committee(
             &committee,
-            BTreeMap::new(),
-            BTreeSet::from([fixture.cc_member_key]),
+            &BTreeMap::new(),
+            &BTreeSet::from([fixture.cc_member_key]),
         )?;
         context.commit()?;
 

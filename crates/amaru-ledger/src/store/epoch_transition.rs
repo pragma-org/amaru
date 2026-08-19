@@ -279,8 +279,8 @@ pub fn update_constitutional_committee<'store>(
             Some(ConstitutionalCommitteeUpdate::NoConfidence) => {
                 db.update_constitutional_committee(
                     &ConstitutionalCommitteeStatus::NoConfidence,
-                    BTreeMap::new(),
-                    BTreeSet::new(),
+                    &BTreeMap::new(),
+                    &BTreeSet::new(),
                 )?;
 
                 // NOTE: CC members and no-confidence mode
@@ -312,7 +312,7 @@ pub fn update_constitutional_committee<'store>(
 
                 // The committee is a handful of members, so cloning the added/removed sets to hand
                 // owned values to the store is negligible and lets the caller borrow the update.
-                db.update_constitutional_committee(&committee_status, added.clone(), removed.clone())?;
+                db.update_constitutional_committee(&committee_status, added, removed)?;
             }
 
             None => {}
