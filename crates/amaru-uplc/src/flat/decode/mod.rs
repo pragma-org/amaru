@@ -17,12 +17,13 @@ use bumpalo::collections::Vec as BumpVec;
 use num::Zero;
 
 use super::{
-    builtin, tag,
+    tag,
     tag::{BUILTIN_TAG_WIDTH, CONST_TAG_WIDTH, TERM_TAG_WIDTH},
 };
 use crate::{
     arena::Arena,
     binder::{Binder, DeBruijn},
+    builtin::DefaultFunction,
     constant::Constant,
     ledger_value::{CurrencyEntry, LedgerValue, TokenEntry, check_quantity_range, count_stats},
     machine::MachineVersion,
@@ -145,7 +146,8 @@ where
         tag::BUILTIN => {
             let builtin_tag = decoder.bits8(BUILTIN_TAG_WIDTH)?;
 
-            let function = builtin::try_from_tag(ctx.arena, builtin_tag)?;
+            let function = DefaultFunction::try_from(builtin_tag)
+                .map_err(|()| FlatDecodeError::DefaultFunctionNotFound(builtin_tag))?;
 
             if !ctx.is_builtin_available(function) {
                 return Err(FlatDecodeError::BuiltinNotAvailable(builtin_tag, format!("{function:?}")));

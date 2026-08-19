@@ -47,7 +47,7 @@ impl<'a> Ctx<'a> {
 
     /// Returns true if the given builtin is NOT available under the current
     /// plutus_version / protocol_version combination.
-    pub fn is_builtin_available(&self, func: &DefaultFunction) -> bool {
+    pub fn is_builtin_available(&self, func: DefaultFunction) -> bool {
         func.is_available_in(self.protocol_version)
     }
 }

@@ -175,7 +175,7 @@ impl<'a> Machine<'a> {
             Term::Builtin(fun) => {
                 self.step_and_maybe_spend(StepKind::Builtin)?;
 
-                let runtime = Runtime::new(self.arena, fun);
+                let runtime = Runtime::new(self.arena, *fun);
 
                 let value = Value::builtin(self.arena, runtime);
 

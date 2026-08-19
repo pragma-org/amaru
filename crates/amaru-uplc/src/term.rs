@@ -50,7 +50,7 @@ pub enum Term<'a, V> {
 
     Constant(&'a Constant<'a>),
 
-    Builtin(&'a DefaultFunction),
+    Builtin(DefaultFunction),
 
     Error,
 }
@@ -146,7 +146,7 @@ impl<'a, V> Term<'a, V> {
         Term::constant(arena, constant)
     }
 
-    pub fn builtin(arena: &'a Arena, fun: &'a DefaultFunction) -> &'a Term<'a, V> {
+    pub fn builtin(arena: &'a Arena, fun: DefaultFunction) -> &'a Term<'a, V> {
         arena.alloc(Term::Builtin(fun))
     }
 
@@ -155,578 +155,376 @@ impl<'a, V> Term<'a, V> {
     }
 
     pub fn add_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::AddInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::AddInteger)
     }
 
     pub fn multiply_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::MultiplyInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::MultiplyInteger)
     }
 
     pub fn divide_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::DivideInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::DivideInteger)
     }
 
     pub fn quotient_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::QuotientInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::QuotientInteger)
     }
 
     pub fn remainder_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::RemainderInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::RemainderInteger)
     }
 
     pub fn mod_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ModInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ModInteger)
     }
 
     pub fn subtract_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::SubtractInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::SubtractInteger)
     }
 
     pub fn equals_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::EqualsInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::EqualsInteger)
     }
 
     pub fn less_than_equals_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::LessThanEqualsInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::LessThanEqualsInteger)
     }
 
     pub fn less_than_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::LessThanInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::LessThanInteger)
     }
 
     pub fn if_then_else(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::IfThenElse);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::IfThenElse)
     }
 
     pub fn append_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::AppendByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::AppendByteString)
     }
 
     pub fn equals_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::EqualsByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::EqualsByteString)
     }
 
     pub fn cons_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ConsByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ConsByteString)
     }
 
     pub fn slice_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::SliceByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::SliceByteString)
     }
 
     pub fn length_of_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::LengthOfByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::LengthOfByteString)
     }
 
     pub fn index_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::IndexByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::IndexByteString)
     }
 
     pub fn less_than_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::LessThanByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::LessThanByteString)
     }
 
     pub fn less_than_equals_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::LessThanEqualsByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::LessThanEqualsByteString)
     }
 
     pub fn sha2_256(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Sha2_256);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Sha2_256)
     }
 
     pub fn sha3_256(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Sha3_256);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Sha3_256)
     }
 
     pub fn blake2b_256(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Blake2b_256);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Blake2b_256)
     }
 
     pub fn keccak_256(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Keccak_256);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Keccak_256)
     }
 
     pub fn blake2b_224(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Blake2b_224);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Blake2b_224)
     }
 
     pub fn verify_ed25519_signature(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::VerifyEd25519Signature);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::VerifyEd25519Signature)
     }
 
     pub fn verify_ecdsa_secp256k1_signature(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::VerifyEcdsaSecp256k1Signature);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::VerifyEcdsaSecp256k1Signature)
     }
 
     pub fn verify_schnorr_secp256k1_signature(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::VerifySchnorrSecp256k1Signature);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::VerifySchnorrSecp256k1Signature)
     }
 
     pub fn append_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::AppendString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::AppendString)
     }
 
     pub fn equals_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::EqualsString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::EqualsString)
     }
 
     pub fn encode_utf8(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::EncodeUtf8);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::EncodeUtf8)
     }
 
     pub fn decode_utf8(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::DecodeUtf8);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::DecodeUtf8)
     }
 
     pub fn choose_unit(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ChooseUnit);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ChooseUnit)
     }
 
     pub fn trace(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Trace);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Trace)
     }
 
     pub fn fst_pair(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::FstPair);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::FstPair)
     }
 
     pub fn snd_pair(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::SndPair);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::SndPair)
     }
 
     pub fn choose_list(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ChooseList);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ChooseList)
     }
 
     pub fn mk_cons(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::MkCons);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::MkCons)
     }
 
     pub fn head_list(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::HeadList);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::HeadList)
     }
 
     pub fn tail_list(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::TailList);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::TailList)
     }
 
     pub fn null_list(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::NullList);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::NullList)
     }
 
     pub fn choose_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ChooseData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ChooseData)
     }
 
     pub fn constr_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ConstrData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ConstrData)
     }
 
     pub fn map_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::MapData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::MapData)
     }
 
     pub fn list_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ListData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ListData)
     }
 
     pub fn i_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::IData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::IData)
     }
 
     pub fn b_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::BData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::BData)
     }
 
     pub fn un_constr_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::UnConstrData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::UnConstrData)
     }
 
     pub fn un_map_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::UnMapData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::UnMapData)
     }
 
     pub fn un_list_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::UnListData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::UnListData)
     }
 
     pub fn un_i_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::UnIData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::UnIData)
     }
 
     pub fn un_b_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::UnBData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::UnBData)
     }
 
     pub fn equals_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::EqualsData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::EqualsData)
     }
 
     pub fn mk_pair_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::MkPairData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::MkPairData)
     }
 
     pub fn mk_nil_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::MkNilData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::MkNilData)
     }
 
     pub fn mk_nil_pair_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::MkNilPairData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::MkNilPairData)
     }
 
     pub fn serialise_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::SerialiseData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::SerialiseData)
     }
 
     pub fn bls12_381_g1_add(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_Add);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_Add)
     }
     pub fn bls12_381_g1_neg(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_Neg);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_Neg)
     }
     pub fn bls12_381_g1_scalar_mul(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_ScalarMul);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_ScalarMul)
     }
     pub fn bls12_381_g1_equal(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_Equal);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_Equal)
     }
     pub fn bls12_381_g1_compress(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_Compress);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_Compress)
     }
     pub fn bls12_381_g1_uncompress(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_Uncompress);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_Uncompress)
     }
     pub fn bls12_381_g1_hash_to_group(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_HashToGroup);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_HashToGroup)
     }
     pub fn bls12_381_g2_add(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_Add);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_Add)
     }
     pub fn bls12_381_g2_neg(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_Neg);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_Neg)
     }
     pub fn bls12_381_g2_scalar_mul(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_ScalarMul);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_ScalarMul)
     }
     pub fn bls12_381_g2_equal(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_Equal);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_Equal)
     }
     pub fn bls12_381_g2_compress(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_Compress);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_Compress)
     }
     pub fn bls12_381_g2_uncompress(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_Uncompress);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_Uncompress)
     }
     pub fn bls12_381_g2_hash_to_group(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_HashToGroup);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_HashToGroup)
     }
     pub fn bls12_381_miller_loop(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_MillerLoop);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_MillerLoop)
     }
     pub fn bls12_381_mul_ml_result(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_MulMlResult);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_MulMlResult)
     }
     pub fn bls12_381_final_verify(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_FinalVerify);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_FinalVerify)
     }
     pub fn integer_to_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::IntegerToByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::IntegerToByteString)
     }
     pub fn byte_string_to_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ByteStringToInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ByteStringToInteger)
     }
     pub fn and_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::AndByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::AndByteString)
     }
     pub fn or_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::OrByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::OrByteString)
     }
     pub fn xor_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::XorByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::XorByteString)
     }
     pub fn complement_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ComplementByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ComplementByteString)
     }
     pub fn read_bit(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ReadBit);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ReadBit)
     }
     pub fn write_bits(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::WriteBits);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::WriteBits)
     }
     pub fn replicate_byte(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ReplicateByte);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ReplicateByte)
     }
     pub fn shift_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ShiftByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ShiftByteString)
     }
     pub fn rotate_byte_string(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::RotateByteString);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::RotateByteString)
     }
     pub fn count_set_bits(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::CountSetBits);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::CountSetBits)
     }
     pub fn find_first_set_bit(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::FindFirstSetBit);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::FindFirstSetBit)
     }
     pub fn ripemd_160(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Ripemd_160);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Ripemd_160)
     }
 
     pub fn exp_mod_integer(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ExpModInteger);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ExpModInteger)
     }
 
     pub fn drop_list(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::DropList);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::DropList)
     }
 
     pub fn length_of_array(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::LengthOfArray);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::LengthOfArray)
     }
 
     pub fn list_to_array(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ListToArray);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ListToArray)
     }
 
     pub fn index_array(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::IndexArray);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::IndexArray)
     }
 
     pub fn bls12_381_g1_multi_scalar_mul(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G1_MultiScalarMul);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G1_MultiScalarMul)
     }
 
     pub fn bls12_381_g2_multi_scalar_mul(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::Bls12_381_G2_MultiScalarMul);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::Bls12_381_G2_MultiScalarMul)
     }
 
     pub fn insert_coin(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::InsertCoin);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::InsertCoin)
     }
 
     pub fn lookup_coin(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::LookupCoin);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::LookupCoin)
     }
 
     pub fn union_value(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::UnionValue);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::UnionValue)
     }
 
     pub fn value_contains(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ValueContains);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ValueContains)
     }
 
     pub fn value_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ValueData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ValueData)
     }
 
     pub fn un_value_data(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::UnValueData);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::UnValueData)
     }
 
     pub fn scale_value(arena: &'a Arena) -> &'a Term<'a, V> {
-        let fun = arena.alloc(DefaultFunction::ScaleValue);
-
-        Term::builtin(arena, fun)
+        Term::builtin(arena, DefaultFunction::ScaleValue)
     }
 }

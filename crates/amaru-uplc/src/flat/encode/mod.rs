@@ -92,7 +92,7 @@ where
         Term::Builtin(b) => {
             encode_term_tag(encoder, tag::BUILTIN)?;
 
-            encoder.bits(tag::BUILTIN_TAG_WIDTH as i64, **b as u8);
+            encoder.bits(tag::BUILTIN_TAG_WIDTH as i64, *b as u8);
         }
         Term::Error => {
             encode_term_tag(encoder, tag::ERROR)?;
