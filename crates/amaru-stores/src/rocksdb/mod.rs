@@ -731,20 +731,20 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn update_constitutional_committee(
         &self,
         status: &ConstitutionalCommitteeStatus,
-        added: BTreeMap<StakeCredential, Epoch>,
-        removed: BTreeSet<StakeCredential>,
+        added: &BTreeMap<StakeCredential, Epoch>,
+        removed: &BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
         self.db.put(KEY_CONSTITUTIONAL_COMMITTEE, as_value(status)).map_err(|err| StoreError::Internal(err.into()))?;
 
         cc_members::upsert(
             &self.db,
-            removed.into_iter().map(|cold_credential| (cold_credential, (Resettable::Unchanged, Resettable::Reset))),
+            removed.iter().map(|cold_credential| (*cold_credential, (Resettable::Unchanged, Resettable::Reset))),
         )?;
 
         cc_members::upsert(
             &self.db,
-            added.into_iter().map(|(cold_credential, valid_until)| {
-                (cold_credential, (Resettable::Unchanged, Resettable::Set(valid_until)))
+            added.iter().map(|(cold_credential, valid_until)| {
+                (*cold_credential, (Resettable::Unchanged, Resettable::Set(*valid_until)))
             }),
         )?;
 

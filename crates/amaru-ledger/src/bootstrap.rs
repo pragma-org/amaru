@@ -1018,7 +1018,7 @@ fn import_constitutional_committee(
         }
     };
 
-    transaction.update_constitutional_committee(&cc, BTreeMap::new(), BTreeSet::new())?;
+    transaction.update_constitutional_committee(&cc, &BTreeMap::new(), &BTreeSet::new())?;
 
     transaction.save(
         era_history,

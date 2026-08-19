@@ -394,10 +394,7 @@ impl ProposalsSlice for DefaultValidationContext {
         if let GovernanceAction::UpdateCommittee(_, _, added, _) = &state.proposal.gov_action {
             for (cold_credential, _) in added.iter() {
                 if !matches!(self.state.committee.get(cold_credential), Existence::Exists(..)) {
-                    self.state
-                        .committee
-                        .bind_left(*cold_credential, None)
-                        .unwrap_or_else(|_| unreachable!("committee members are never 'unregistered'"));
+                    self.committee.entry(*cold_credential).or_default();
                 }
             }
         }
@@ -490,10 +487,14 @@ impl BalanceSlice for DefaultValidationContext {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Slot, TransactionPointer};
+    use amaru_kernel::{
+        Proposal, Slot, TransactionPointer, any_proposal, any_proposal_id, any_rational_number, any_stake_credential,
+        utils::tests::run_strategy,
+    };
     use test_case::test_case;
 
     use super::*;
+    use crate::{context::ProposalState, state::volatile::DiffBind};
 
     fn cred(tag: u8) -> StakeCredential {
         StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
@@ -686,5 +687,36 @@ mod tests {
             CommitteeSlice::lookup_by_hot_credential(&ctx, &cred(9)).collect::<BTreeSet<_>>(),
             BTreeSet::from([first, second])
         );
+    }
+
+    #[test]
+    fn proposal_acknowledgement_does_not_modify_committee_state() {
+        let proposal_id = run_strategy(any_proposal_id());
+
+        let cold_credential = run_strategy(any_stake_credential());
+
+        let committee_update_adding_members = ProposalState {
+            proposed_in: Default::default(),
+            valid_until: Default::default(),
+            proposal: Proposal {
+                gov_action: GovernanceAction::UpdateCommittee(
+                    None,
+                    Default::default(),
+                    vec![(cold_credential, Default::default())].try_into().unwrap(),
+                    run_strategy(any_rational_number()),
+                ),
+                ..run_strategy(any_proposal())
+            },
+        };
+
+        let mut ctx = DefaultValidationContext::default();
+
+        ctx.acknowledge(proposal_id, committee_update_adding_members);
+
+        // Member is reachable
+        assert!(CommitteeSlice::lookup_by_cold_credential(&ctx, &cold_credential,).is_some());
+
+        // But no state-change is yield
+        assert_eq!(VolatileFragment::from(ctx).committee, DiffBind::default())
     }
 }
