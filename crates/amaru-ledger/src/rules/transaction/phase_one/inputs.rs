@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
-
 use amaru_kernel::{
-    Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, TransactionInput,
+    Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, Set, TransactionInput,
     address::byron::AddressType, utils::string::display_collection,
 };
 use thiserror::Error;
@@ -42,7 +40,7 @@ pub enum InvalidInputs {
 
 pub fn execute<C>(
     context: &mut C,
-    inputs: &BTreeSet<TransactionInput>,
+    inputs: &Set<TransactionInput>,
     reference_inputs: Option<&[TransactionInput]>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<u64, InvalidInputs>
