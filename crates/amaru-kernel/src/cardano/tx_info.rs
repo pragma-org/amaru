@@ -97,7 +97,7 @@ impl<'a> TxInfo<'a> {
         let reference_inputs = tx
             .reference_inputs
             .as_ref()
-            .map(|ref_inputs| Self::translate_inputs(ref_inputs, utxos, &mut scripts))
+            .map(|ref_inputs| Self::translate_inputs(ref_inputs.iter(), utxos, &mut scripts))
             .transpose()?
             .unwrap_or_default();
 
@@ -191,12 +191,12 @@ impl<'a> TxInfo<'a> {
     }
 
     fn translate_inputs(
-        inputs: &'a [TransactionInput],
+        inputs: impl IntoIterator<Item = &'a TransactionInput>,
         utxos: &'a Utxos,
         scripts: &mut BTreeMap<Hash<SCRIPT>, BorrowedScript<'a>>,
     ) -> Result<Vec<OutputReference<'a>>, TxInfoTranslationError> {
         inputs
-            .iter()
+            .into_iter()
             .sorted()
             .map(|input| {
                 let output_ref = utxos.resolve_input(input).ok_or(TxInfoTranslationError::MissingInput(*input))?;

@@ -165,7 +165,7 @@ where
 
     let ref_scripts_size = inputs::execute(
         context,
-        transaction_body.inputs.deref(),
+        &transaction_body.inputs,
         transaction_body.reference_inputs.as_deref(),
         protocol_parameters,
     )?;
@@ -339,7 +339,7 @@ where
 
     // At last, consume inputs
     Ok(if is_valid {
-        transaction_body.inputs.to_vec()
+        transaction_body.inputs.into_iter().collect()
     } else {
         transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
     })

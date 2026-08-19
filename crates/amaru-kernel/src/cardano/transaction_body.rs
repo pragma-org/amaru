@@ -20,8 +20,8 @@ use amaru_minicbor_extra::encode_optional;
 use crate::to_cbor;
 use crate::{
     Bytes, Certificate, Hash, Hasher, Lovelace, MemoizedTransactionOutput, Multiasset, NULL_HASH32, Network,
-    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Slot,
-    TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY, utils::cbor::SerialisedAsSet,
+    NonEmptyKeyValuePairs, NonEmptySet, NonZeroInt, PositiveCoin, Proposal, ProposalId, RewardAccount, Set, Slot,
+    TransactionInput, ValidityInterval, Voter, VotingProcedure, cbor, size::KEY,
 };
 
 /// A multi-era transaction body. This type is meant to represent all transaction body in eras that
@@ -39,7 +39,7 @@ pub struct TransactionBody {
 
     original_bytes: Bytes,
 
-    pub inputs: Vec<TransactionInput>,
+    pub inputs: Set<TransactionInput>,
 
     pub outputs: Vec<MemoizedTransactionOutput>,
 
@@ -129,7 +129,7 @@ impl Default for TransactionBody {
         Self {
             hash: NULL_HASH32,
             original_bytes: Bytes::from(Vec::new()),
-            inputs: vec![],
+            inputs: Set::default(),
             outputs: vec![],
             fee: 0,
             validity_interval_end: None,
@@ -164,7 +164,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for TransactionBody {
         }
 
         e.begin_map()?;
-        e.u8(0)?.encode_with(SerialisedAsSet(&self.inputs), ctx)?;
+        e.u8(0)?.encode_with(&self.inputs, ctx)?;
         e.u8(1)?.encode_with(&self.outputs, ctx)?;
         e.u8(2)?.encode_with(self.fee, ctx)?;
 
@@ -208,7 +208,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for TransactionBody {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         #[derive(Default)]
         struct RequiredFields {
-            inputs: Option<SerialisedAsSet<Vec<TransactionInput>>>,
+            inputs: Option<Set<TransactionInput>>,
             outputs: Option<Vec<MemoizedTransactionOutput>>,
             fee: Option<Lovelace>,
         }
@@ -283,7 +283,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for TransactionBody {
         Ok(TransactionBody {
             hash: Hasher::<{ TransactionBody::HASH_SIZE * 8 }>::hash(&original_bytes[start_position..end_position]),
             original_bytes: Bytes::from(original_bytes[start_position..end_position].to_vec()),
-            inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?.0,
+            inputs: expect_field(mem::take(&mut state.required.inputs), 0, "inputs")?,
             outputs: expect_field(mem::take(&mut state.required.outputs), 1, "outputs")?,
             fee: expect_field(mem::take(&mut state.required.fee), 2, "fee")?,
             ..state.optional
@@ -457,6 +457,11 @@ mod tests {
         fixture!("conway", "5280ac2b10897dd26c9d7377ae681a6ea1dc3eec197563ab5bf3ab7907e0e709"),
         "decode error: duplicate field entry with key 2";
         "duplicate fields keys"
+    )]
+    #[test_case(
+        fixture!("conway", "a3e7c38f1afd5e47633610b2d477c567ee7b3f5cae32bec1116d47f8da769d6e"),
+        "decode error at position 2: found duplicate elements when converting collection to a set";
+        "duplicate inputs"
     )]
     fn decode_malformed(result: Result<TransactionBody, cbor::decode::Error>, expected_error: &str) {
         assert_eq!(result.map_err(|e| e.to_string()), Err(expected_error.to_string()));
