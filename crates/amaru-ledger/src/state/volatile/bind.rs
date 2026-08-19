@@ -15,7 +15,7 @@
 use crate::state::volatile::Resettable;
 
 /// An empty struct to indicate unused left or right delegations in a `Bind`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Empty;
 
 /// A structure that captures:
