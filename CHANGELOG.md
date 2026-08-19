@@ -59,6 +59,7 @@ Other guiding principles:
 - **amaru-ledger**: preserve dormant-epoch state during bootstrap and avoid extending the expiry of already-expired DReps.
 - **amaru-ledger**: reject votes cast on governance actions that have expired. ([#1143][], [#926][])
 - **amaru-stores**: prune obsolete votes when removing expired/ratified/evicted proposals.
+- **amaru**: missing epoch stake distribution snapshots for mainnet, and fixed stake distribution management Makefile.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
