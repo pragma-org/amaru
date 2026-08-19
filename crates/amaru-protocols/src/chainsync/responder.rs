@@ -82,8 +82,7 @@ impl StageState<ResponderState, Responder> for ChainSyncResponder {
                     parent_context: trace_context,
                     consensus::header::FORWARD,
                     tip = tip,
-                    header_hash = tip.hash(),
-                    peer = self.peer.clone()
+                    peer = &self.peer,
                 );
                 self.upstream = tip;
                 let action = next_header(*proto, &mut self.pointer, &Store::new(eff.clone()), self.upstream)

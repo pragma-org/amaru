@@ -159,8 +159,8 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
         let span = debug_span!(
             protocols::peer_sharing::initiator::PEER_SHARING_INITIATOR_STAGE,
-            peer = self.peer.to_string(),
-            conn_id = self.conn_id.to_string(),
+            peer = &self.peer,
+            conn_id = self.conn_id.as_u64()
         );
         async move {
             match input {

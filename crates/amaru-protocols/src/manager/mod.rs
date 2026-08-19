@@ -673,7 +673,7 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 manager.add_peer(peer, &eff).instrument(span).await;
             }
             ManagerMessage::Accepted(peer, conn_id) => {
-                let span = debug_span!(protocols::manager::peer::ACCEPTED, peer = &peer, conn_id = conn_id.to_string());
+                let span = debug_span!(protocols::manager::peer::ACCEPTED, peer = &peer, conn_id = conn_id.as_u64());
                 manager.accepted(peer, conn_id, &eff).instrument(span).await;
             }
             ManagerMessage::RemovePeer(peer) => {
@@ -692,8 +692,8 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 let span = debug_span!(
                     protocols::manager::peer::CONNECTION_DIED,
                     peer = &peer,
-                    conn_id = conn_id.to_string(),
-                    role = role.to_string()
+                    conn_id = conn_id.as_u64(),
+                    role = %role,
                 );
                 manager.connection_died(peer, conn_id, role, &eff).instrument(span).await;
             }

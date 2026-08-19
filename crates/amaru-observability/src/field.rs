@@ -26,6 +26,8 @@
 //!
 //! Downstream layers owned by this crate decode those bytes for human/JSON/OTEL presentation.
 
+use std::fmt::Display;
+
 use cbor_data::Cbor;
 use opentelemetry::{Array, Key, StringValue, Value as TraceValue, logs::AnyValue};
 use serde::Serialize;
@@ -65,6 +67,13 @@ pub fn encode_cbor<T: Serialize>(value: &T) -> Box<[u8]> {
 #[inline]
 pub fn as_str_value<T: AsRef<str> + ?Sized>(value: &T) -> &str {
     value.as_ref()
+}
+
+/// Render `value` as an owned string for field types that are best transported as text via
+/// their [`Display`] implementation.
+#[inline]
+pub fn display_string_value<T: Display + ?Sized>(value: &T) -> String {
+    value.to_string()
 }
 
 /// Format CBOR bytes using cbor-data's diagnostic notation (RFC 8610 style).

@@ -94,10 +94,35 @@ impl SchemaField {
             "i64" | "i32" | "i16" | "i8" | "isize" => FieldTransportKind::I64,
             "u64" | "u32" | "u16" | "u8" | "usize" => FieldTransportKind::U64,
             "f64" | "f32" => FieldTransportKind::F64,
-            "String" => FieldTransportKind::Str,
+            ty if is_as_ref_str_transport(ty) => FieldTransportKind::Str,
+            ty if is_display_str_transport(ty) => FieldTransportKind::DisplayStr,
             _ => FieldTransportKind::Cbor,
         }
     }
+}
+
+fn is_as_ref_str_transport(ty: &str) -> bool {
+    matches!(ty, "String" | "amaru_kernel::Peer")
+}
+
+fn is_display_str_transport(ty: &str) -> bool {
+    matches!(
+        ty,
+        "amaru_kernel::Address"
+            | "amaru_kernel::BallotId"
+            | "amaru_kernel::HeaderHash"
+            | "amaru_kernel::Network"
+            | "amaru_kernel::NetworkName"
+            | "amaru_kernel::Nonce"
+            | "amaru_kernel::PoolId"
+            | "amaru_kernel::ProposalId"
+            | "amaru_kernel::RedeemerTag"
+            | "amaru_kernel::Relay"
+            | "amaru_kernel::Tip"
+            | "amaru_kernel::TransactionId"
+            | "amaru_kernel::Vote"
+            | "amaru_kernel::Voter"
+    ) || ty.starts_with("amaru_kernel::Hash<")
 }
 
 /// Wire representation for a schema field value.
@@ -108,6 +133,7 @@ enum FieldTransportKind {
     U64,
     F64,
     Str,
+    DisplayStr,
     /// Serialized with cbor4ii and recorded via `record_bytes`.
     Cbor,
 }
@@ -923,6 +949,10 @@ fn as_str_value_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
     quote! { ::amaru_observability::field::as_str_value }
 }
 
+fn display_string_value_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
+    quote! { ::amaru_observability::field::display_string_value }
+}
+
 fn serialize_trait_path(_config: &GenerationConfig) -> proc_macro2::TokenStream {
     // Always use the absolute path: `$crate` inside `#[macro_export]` helpers is easy to
     // mis-resolve when those helpers are invoked via `::amaru_observability::…!`.
@@ -939,6 +969,7 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
     let macro_export = config.macro_export_attr();
     let encode_cbor = encode_cbor_path(config);
     let as_str_value = as_str_value_path(config);
+    let display_string_value = display_string_value_path(config);
     let serialize_trait = serialize_trait_path(config);
 
     let all_fields: Vec<_> = schema.required_fields.iter().chain(schema.optional_fields.iter()).collect();
@@ -954,6 +985,17 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                         __amaru_assert_type($expr);
                     }};
                 },
+                FieldTransportKind::DisplayStr => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, validate_value) => {{
+                            let __amaru_assert_type = |_: &#field_type| {};
+                            let __amaru_assert_display = |_: &dyn ::std::fmt::Display| {};
+                            __amaru_assert_type($expr);
+                            __amaru_assert_display($expr);
+                        }};
+                    }
+                }
                 FieldTransportKind::Bool
                 | FieldTransportKind::I64
                 | FieldTransportKind::U64
@@ -1025,6 +1067,15 @@ fn generate_record_macro(schema: &Schema, config: &GenerationConfig) -> proc_mac
                         #as_str_value($expr)
                     }};
                 },
+                FieldTransportKind::DisplayStr => {
+                    let field_type = &field.ty;
+                    quote! {
+                        (#field_name, $expr:expr, format_typed) => {{
+                            let __amaru_v: &#field_type = $expr;
+                            #display_string_value(__amaru_v)
+                        }};
+                    }
+                }
                 FieldTransportKind::Cbor => {
                     let field_type = &field.ty;
                     quote! {

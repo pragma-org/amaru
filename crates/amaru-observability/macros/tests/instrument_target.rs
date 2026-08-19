@@ -249,10 +249,22 @@ fn roll_forward(peer: String) {
     let _guard = _span.enter();
 }
 
+fn roll_forward_with_display_expressions(peer: String) {
+    let _span = trace_span!(crate::amaru::consensus::roll_forward::PROCESS, peer = %peer.clone());
+    let _guard = _span.enter();
+}
+
 fn root_roll_forward(peer: String) {
     let _outer = tracing::debug_span!("outer");
     let _outer_guard = _outer.enter();
     let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer = &peer);
+    let _guard = _span.enter();
+}
+
+fn root_roll_forward_with_display_expression(peer: String) {
+    let _outer = tracing::debug_span!("outer");
+    let _outer_guard = _outer.enter();
+    let _span = trace_span!(root, crate::amaru::consensus::roll_forward::PROCESS, peer = %&peer);
     let _guard = _span.enter();
 }
 
@@ -491,6 +503,8 @@ mod test {
 
         tracing::subscriber::with_default(subscriber, || {
             distinct_formatting(DistinctFormatting, DistinctFormatting);
+            roll_forward_with_display_expressions("peer-a".to_string());
+            root_roll_forward_with_display_expression("peer-b".to_string());
         });
 
         let recorded = values.lock().unwrap();

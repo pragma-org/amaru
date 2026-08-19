@@ -543,7 +543,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
         }
         PeerSelectionMsg::Adversarial(peer, trace_context) => {
             tracing::debug!(%peer, "peer_selection.adversarial");
-            let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer = peer.clone());
+            let span = debug_span!(parent_context: trace_context, consensus::peer::BAN, peer = &peer);
             state.ban_peer(peer, &eff).instrument(span).await;
         }
         PeerSelectionMsg::CheckCooldowns => {
@@ -651,7 +651,7 @@ pub async fn stage(mut state: PeerSelection, msg: PeerSelectionMsg, eff: Effects
             {
                 let span = debug_span!(
                     amaru::protocols::peer_selection::peer::DISCONNECTED,
-                    peer = peer.clone(),
+                    peer = &peer,
                     conn_id = conn_id.as_u64(),
                     direction = ConnectionDirection::Outbound,
                 )

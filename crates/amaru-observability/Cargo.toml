@@ -30,6 +30,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+amaru-kernel.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["logs", "testing", "trace"] }
 
 [lints]
