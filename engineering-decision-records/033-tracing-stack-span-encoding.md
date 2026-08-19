@@ -173,9 +173,11 @@ refresh casually.
 - JSON consumers that grepped flattened root keys such as `.epoch` must
   read `.fields.epoch` instead. Ancestry is `.parents` (names) plus
   `.parent_id`.
-- Embedder `amaru-node::Telemetry` still uses stock `fmt` / `.json()` helpers.
-  Embedders that want this contract should compose the same
-  `amaru-observability` layers the product uses.
+- Embedder `amaru-node::Telemetry` (used by `run_until`) composes the same
+  CBOR-aware console, JSON, and OTEL layers as the product, without TUI
+  capture, colour, or throttled dual-filter warnings. Tests in
+  `amaru-node` `telemetry` guard that schema CBOR fields decode to numbers
+  and strings.
 - Changing the encoding requires updating this EDR and the stack tests
   together.
 
