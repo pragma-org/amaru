@@ -3,8 +3,8 @@
     "stakeDistributions": {
       "startFrom": {
         "mainnet": {
-          "slot": 193276767,
-          "id": "a2d99f003c7bc316d0e3c95abe1529fa2180cf0f835875cdf9b5b636e64e0e2d"
+          "slot": 195436790,
+          "id": "7ea0fe8109eef4c2b93263d5387b860ce5dcfa954c345470dec6c5648c58f7d6"
         },
         "preprod": {
           "slot": 128390395,

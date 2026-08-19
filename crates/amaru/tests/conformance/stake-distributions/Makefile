@@ -31,6 +31,11 @@ check-network-dir:
 		exit 1; \
 	}
 
+check-aws-env:
+	@test -n "$(ENDPOINT)" || { echo "Missing ENDPOINT"; exit 1; }
+	@test -n "$(AWS_ACCESS_KEY_ID)" || { echo "Missing AWS_ACCESS_KEY_ID"; exit 1; }
+	@test -n "$(AWS_SECRET_ACCESS_KEY)" || { echo "Missing AWS_SECRET_ACCESS_KEY"; exit 1; }
+
 zst: check-network-dir ## Compress individual .json files using zstd compression
 	@set -- *.json; \
 	if [ ! -e "$$1" ]; then \
