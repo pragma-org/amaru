@@ -56,6 +56,10 @@ struct Snapshot {
     key: String,
 }
 
+impl Snapshot {
+    pub const ARCHIVE_SUFFIX: &str = ".tar.zst";
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum BootstrapError {
     #[error("Can not create snapshots directory {0}: {1}")]
@@ -96,7 +100,7 @@ const SNAPSHOT_STATE_FILE_NAME: &str = "state";
 const SNAPSHOT_UTXO_FILE_NAME: &str = "tables/tvar";
 
 fn snapshot_archive_path(snapshots_dir: &Path, snapshot: &Snapshot) -> PathBuf {
-    snapshots_dir.join(format!("{}.tar.zst", snapshot.point))
+    snapshots_dir.join(format!("{}{}", snapshot.point, Snapshot::ARCHIVE_SUFFIX))
 }
 
 fn resolve_snapshot_path(snapshots_dir: &Path, snapshot: &Snapshot) -> Option<PathBuf> {
@@ -125,11 +129,28 @@ async fn bootstrap_snapshots(
     let s3_snapshots = s3.list_snapshots(network).await?;
 
     let mut snapshots = Vec::with_capacity(s3_snapshots.len());
-    for s3_snap in s3_snapshots {
-        let slot = parse_slot_from_point(&s3_snap.point)?;
+
+    let try_push = |snapshots: &mut Vec<Snapshot>, point: String, key: String| -> Result<(), Box<dyn Error>> {
+        let slot = parse_slot_from_point(&point)?;
         let epoch = era_history.slot_to_epoch_unchecked_horizon(Slot::from(slot))?;
-        snapshots.push(Snapshot { epoch, point: s3_snap.point, key: s3_snap.key });
+        snapshots.push(Snapshot { epoch, point, key });
+        Ok(())
+    };
+
+    for s3_snap in s3_snapshots {
+        try_push(&mut snapshots, s3_snap.point.to_string(), s3_snap.key.to_string())?;
     }
+
+    for dir_entry in snapshots_dir.read_dir()? {
+        let path = dir_entry?.path();
+        let filename = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
+        if let Some(prefix) = filename.strip_suffix(Snapshot::ARCHIVE_SUFFIX) {
+            try_push(&mut snapshots, prefix.to_string(), format!("{network}/{prefix}{}", Snapshot::ARCHIVE_SUFFIX))?;
+        }
+    }
+
+    snapshots.sort_unstable_by_key(|snapshot| snapshot.epoch);
+    snapshots.dedup_by_key(|snapshot| snapshot.epoch);
 
     Ok((snapshots_dir, snapshots))
 }
@@ -297,7 +318,7 @@ async fn download_snapshots(
         if archive_path.exists() {
             return Err(BootstrapError::InvalidSnapshotArchive(
                 archive_path.clone(),
-                "snapshot archive path exists but is not a regular `.tar.zst` file".to_owned(),
+                format!("snapshot archive path exists but is not a regular `{}` file", Snapshot::ARCHIVE_SUFFIX),
             ));
         }
 
@@ -372,7 +393,7 @@ fn is_snapshot_archive_file(path: &Path) -> bool {
 }
 
 fn has_snapshot_archive_extension(path: &Path) -> bool {
-    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.ends_with(".tar.zst"))
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.ends_with(Snapshot::ARCHIVE_SUFFIX))
 }
 
 fn snapshot_archive_entry_matches(path: &Path, expected: &Path) -> bool {
@@ -638,7 +659,7 @@ pub async fn import_snapshots(
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("expected a snapshot archive in `.tar.zst` format: {0}")]
+    #[error("expected a snapshot archive in `{}` format: {}", Snapshot::ARCHIVE_SUFFIX, .0.display())]
     UnsupportedSnapshotPath(PathBuf),
 }
 
@@ -828,7 +849,11 @@ mod tests {
     use crate::cardano_node::ParsedStateSnapshot;
 
     fn test_snapshot(epoch: u64, point: &str, network: &str) -> Snapshot {
-        Snapshot { epoch: Epoch::from(epoch), point: point.to_string(), key: format!("{network}/{point}.tar.zst") }
+        Snapshot {
+            epoch: Epoch::from(epoch),
+            point: point.to_string(),
+            key: format!("{network}/{point}{}", Snapshot::ARCHIVE_SUFFIX),
+        }
     }
 
     fn snapshot_epoch(parsed_snapshot: &ParsedStateSnapshot) -> Result<Epoch, Box<dyn std::error::Error>> {
