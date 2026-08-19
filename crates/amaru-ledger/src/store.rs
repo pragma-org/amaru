@@ -226,6 +226,14 @@ pub trait Store: ReadStore {
             Err(err) => Err(err),
         }
     }
+
+    /// Save one batch of account rows while importing a bootstrap snapshot.
+    ///
+    /// Snapshot import calls this before the snapshot's protocol parameters have been decoded,
+    /// so stores must persist the already-normalized rows directly.
+    fn save_bootstrap_accounts(&self, _accounts: impl Iterator<Item = (accounts::Key, accounts::Row)>) -> Result<()> {
+        Err(StoreError::Internal("bootstrap account batches are not supported by this store".into()))
+    }
 }
 
 // ReadStore

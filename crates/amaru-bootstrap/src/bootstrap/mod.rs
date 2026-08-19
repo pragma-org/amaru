@@ -16,7 +16,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
     fs,
-    io::{self, Cursor, Read},
+    io::{self, Read},
     path::{Component, Path, PathBuf},
     time::Duration,
 };
@@ -43,7 +43,7 @@ use chain_sync_client::ChainSyncClient;
 
 use crate::{
     aws::{AnonymousS3Client, S3Config},
-    cardano_node::tvar::import_snapshot_from_tvar,
+    cardano_node::tvar::{import_state_from_tvar, import_utxo_from_tvar},
     default_snapshots_dir,
 };
 
@@ -765,23 +765,42 @@ fn import_node_snapshot_archive_data(
     nonce_tail: Option<HeaderHash>,
     accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn Error>> {
-    let mut state = Cursor::new(read_snapshot_archive_entry(archive_path, Path::new(SNAPSHOT_STATE_FILE_NAME))?);
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
+    let mut imported_state = None;
 
     for entry in archive.entries()? {
         let mut entry = entry?;
-        if snapshot_archive_entry_matches(&entry.path()?, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
-            return import_snapshot_from_tvar(
+        let path = entry.path()?.into_owned();
+
+        if snapshot_archive_entry_matches(&path, Path::new(SNAPSHOT_STATE_FILE_NAME)) {
+            imported_state = Some(import_state_from_tvar(
                 db,
-                &mut state,
                 &mut entry,
                 network,
                 global_parameters,
                 nonce_tail,
                 accounts,
                 |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
-            );
+            )?);
+        } else if snapshot_archive_entry_matches(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
+            let (epoch, point, era_history, chain_state) = imported_state.take().ok_or_else(|| {
+                format!(
+                    "snapshot archive {} contains {SNAPSHOT_UTXO_FILE_NAME} before {SNAPSHOT_STATE_FILE_NAME}",
+                    archive_path.display()
+                )
+            })?;
+
+            import_utxo_from_tvar(
+                &mut entry,
+                db,
+                |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
+                &point,
+                &era_history,
+                network,
+            )?;
+
+            return Ok((epoch, point, chain_state));
         }
     }
 

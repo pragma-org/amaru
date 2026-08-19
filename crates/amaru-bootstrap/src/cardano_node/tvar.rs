@@ -21,7 +21,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::{Read, Seek, SeekFrom},
+    io::Read,
     iter,
 };
 
@@ -30,13 +30,13 @@ use amaru_kernel::{
     StakeCredential, TransactionInput, cbor, cbor::lazy::LazyDecoder,
 };
 use amaru_ledger::{
-    bootstrap::import_initial_snapshot,
-    store::{self, Store, TransactionalContext},
+    bootstrap::import_initial_snapshot_with_decoder,
+    store::{Columns, Store, TransactionalContext},
 };
 use amaru_observability::info;
 use amaru_progress_bar::ProgressBar;
 
-use super::{mempack, parse_state_snapshot, parse_state_snapshot_with_chain_state};
+use super::{extract_snapshot_chain_state_after_ledger, mempack, parse_state_snapshot_prefix};
 use crate::bootstrap::ChainState;
 
 #[expect(clippy::too_many_arguments)]
@@ -53,28 +53,47 @@ pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
 where
     S: Store,
     F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
-    State: Read + Seek,
+    State: Read,
     Utxo: Read,
 {
-    let state_head = read_state_snapshot(state_file)?;
-    let (parsed_snapshot, chain_state) = if let Some(tail) = nonce_tail {
-        let (parsed_snapshot, chain_state) =
-            parse_state_snapshot_with_chain_state(minicbor::Decoder::new(&state_head), global_parameters, tail)?;
-        (parsed_snapshot, Some(chain_state))
-    } else {
-        let mut decoder = minicbor::Decoder::new(&state_head);
-        (parse_state_snapshot(&mut decoder, global_parameters)?, None)
-    };
-    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
-    let new_epoch_state_offset = parsed_snapshot.ledger_data_begin;
-
-    info!(bootstrap::snapshot::IMPORT_TVAR, point = point, new_epoch_state_offset = new_epoch_state_offset);
-
-    state_file.seek(SeekFrom::Start(new_epoch_state_offset as u64))?;
-
-    let epoch = import_initial_snapshot(
+    let (epoch, point, era_history, chain_state) = import_state_from_tvar(
         db,
         state_file,
+        network,
+        global_parameters,
+        nonce_tail,
+        recently_unregistered_accounts,
+        with_progress,
+    )?;
+
+    import_utxo_from_tvar(utxo_file, db, with_progress, &point, &era_history, network)?;
+
+    Ok((epoch, point, chain_state))
+}
+
+pub(crate) fn import_state_from_tvar<S, F, State>(
+    db: &S,
+    state_file: &mut State,
+    network: NetworkName,
+    global_parameters: &GlobalParameters,
+    nonce_tail: Option<HeaderHash>,
+    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    with_progress: F,
+) -> Result<(Epoch, Point, EraHistory, Option<ChainState>), Box<dyn std::error::Error>>
+where
+    S: Store,
+    F: Fn(usize, &str) -> Box<dyn ProgressBar> + Copy,
+    State: Read,
+{
+    let mut decoder = LazyDecoder::new(state_file);
+    let parsed_snapshot = decoder.with_decoder(|d| parse_state_snapshot_prefix(d, global_parameters))?;
+    let point = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
+
+    info!(bootstrap::snapshot::IMPORT_TVAR, point = point, new_epoch_state_offset = parsed_snapshot.ledger_data_begin);
+
+    let epoch = import_initial_snapshot_with_decoder(
+        db,
+        &mut decoder,
         recently_unregistered_accounts,
         &point,
         &parsed_snapshot.era_history,
@@ -82,18 +101,14 @@ where
         with_progress,
     )?;
 
-    import_utxo_from_tvar(utxo_file, db, with_progress, &point, &parsed_snapshot.era_history, network)?;
+    let chain_state = nonce_tail
+        .map(|tail| decoder.with_decoder(|d| extract_snapshot_chain_state_after_ledger(d, point, tail)))
+        .transpose()?;
 
-    Ok((epoch, point, chain_state))
+    Ok((epoch, point, parsed_snapshot.era_history, chain_state))
 }
 
-fn read_state_snapshot(file: &mut impl Read) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
-}
-
-fn import_utxo_from_tvar<S, F, Utxo>(
+pub(crate) fn import_utxo_from_tvar<S, F, Utxo>(
     utxo_file: &mut Utxo,
     db: &S,
     with_progress: F,
@@ -182,26 +197,26 @@ where
         actual_size += size;
 
         if !utxo.is_empty() {
-            let transaction = db.create_transaction();
-            transaction.save(
-                era_history,
-                &protocol_parameters,
-                None,
-                point,
-                None,
-                store::Columns {
-                    utxo: utxo.into_iter(),
-                    pools: iter::empty(),
-                    accounts: iter::empty(),
-                    dreps: iter::empty(),
-                    cc_members: iter::empty(),
-                    proposals: iter::empty(),
-                    votes: iter::empty(),
-                },
-                Default::default(),
-                iter::empty(),
-            )?;
-            transaction.commit()?;
+            db.with_transaction(|transaction| {
+                transaction.save(
+                    era_history,
+                    &protocol_parameters,
+                    None,
+                    point,
+                    None,
+                    Columns {
+                        utxo: utxo.into_iter(),
+                        pools: iter::empty(),
+                        accounts: iter::empty(),
+                        dreps: iter::empty(),
+                        cc_members: iter::empty(),
+                        proposals: iter::empty(),
+                        votes: iter::empty(),
+                    },
+                    Default::default(),
+                    iter::empty(),
+                )
+            })?;
         }
 
         if done {

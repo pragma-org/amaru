@@ -40,6 +40,7 @@ use anyhow::anyhow;
 use parking_lot::Mutex;
 use rocksdb::{
     DB, DBAccess, DBIteratorWithThreadMode, DBPinnableSlice, Direction, Env, IteratorMode, ReadOptions, Transaction,
+    WriteBatchWithTransaction,
 };
 use tracing::warn;
 
@@ -47,7 +48,7 @@ pub mod ledger;
 use ledger::columns::*;
 
 pub mod common;
-use common::{PREFIX_LEN, as_value};
+use common::{PREFIX_LEN, as_key, as_value};
 
 pub mod consensus;
 
@@ -325,6 +326,21 @@ impl Store for RocksDB {
         let transaction = self.db.transaction();
         self.ongoing_transaction.set(true);
         RocksDBTransactionalContext { host: self, db: transaction }
+    }
+
+    fn save_bootstrap_accounts(
+        &self,
+        accounts: impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>,
+    ) -> Result<(), StoreError> {
+        assert!(!self.ongoing_transaction.get(), "RocksDB already has an ongoing transaction");
+
+        let mut batch = WriteBatchWithTransaction::<true>::default();
+        for (credential, row) in accounts {
+            batch.put(as_key(&accounts::PREFIX, credential), as_value(row));
+            batch.delete(as_key(&recently_unregistered_accounts::PREFIX, credential));
+        }
+
+        self.db.write(batch).map_err(|err| StoreError::Internal(err.into()))
     }
 }
 

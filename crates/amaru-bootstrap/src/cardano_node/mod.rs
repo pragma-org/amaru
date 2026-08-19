@@ -35,10 +35,35 @@ pub struct ParsedStateSnapshot {
     pub ledger_data_end: usize,
 }
 
+pub(super) struct StateSnapshotPrefix {
+    pub slot: u64,
+    pub hash: HeaderHash,
+    pub block_height: BlockHeight,
+    pub era_history: EraHistory,
+    pub ledger_data_begin: usize,
+}
+
 pub fn parse_state_snapshot(
     d: &mut Decoder<'_>,
     global_parameters: &GlobalParameters,
 ) -> Result<ParsedStateSnapshot, Box<dyn std::error::Error>> {
+    let prefix = parse_state_snapshot_prefix(d, global_parameters)?;
+    d.skip()?;
+
+    Ok(ParsedStateSnapshot {
+        slot: prefix.slot,
+        hash: prefix.hash,
+        block_height: prefix.block_height,
+        era_history: prefix.era_history,
+        ledger_data_begin: prefix.ledger_data_begin,
+        ledger_data_end: d.position(),
+    })
+}
+
+pub(super) fn parse_state_snapshot_prefix(
+    d: &mut Decoder<'_>,
+    global_parameters: &GlobalParameters,
+) -> Result<StateSnapshotPrefix, Box<dyn std::error::Error>> {
     d.array()?;
 
     // version
@@ -66,61 +91,55 @@ pub fn parse_state_snapshot(
     decode_current_era(d, past_eras, current_era, global_parameters)
 }
 
-fn extract_snapshot_chain_state_after_prefix(
+pub(super) fn extract_snapshot_chain_state_after_ledger(
     d: &mut Decoder<'_>,
-    parsed_snapshot: &ParsedStateSnapshot,
+    at: Point,
     tail: HeaderHash,
 ) -> Result<ChainState, Box<dyn std::error::Error>> {
-    let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
-
-    d.skip().map_err(|err| format!("skip shelley transition: {err}"))?;
-    d.skip().map_err(|err| format!("skip latest peras cert round: {err}"))?;
+    d.skip()?;
+    d.skip()?;
 
     // header state
-    d.array().map_err(|err| format!("decode header state: {err}"))?;
-    d.skip().map_err(|err| format!("skip header state tip: {err}"))?;
+    d.array()?;
+    d.skip()?;
 
     // ChainDepState for Praos
-    let num_eras = d
-        .array()
-        .map_err(|err| format!("decode chain dep state: {err}"))?
-        .ok_or("chain dep state encoded as indefinite array; cannot determine numbers of eras")?;
+    let num_eras = d.array()?.ok_or("chain dep state encoded as indefinite array; cannot determine numbers of eras")?;
 
     // Previous, terminated, eras.
-    for i in 1..num_eras {
-        d.skip().map_err(|err| format!("skip hfc state {i}: {err}"))?;
+    for _ in 1..num_eras {
+        d.skip()?;
     }
 
     // The actual PraosState
-    d.array().map_err(|err| format!("decode praos state: {err}"))?;
-    d.skip().map_err(|err| format!("skip praos era bounds: {err}"))?;
+    d.array()?;
+    d.skip()?;
 
     // versioned TickedChainDepState
-    d.array().map_err(|err| format!("decode ticked chain dep state: {err}"))?;
-    d.skip().map_err(|err| format!("skip ticked chain dep state version: {err}"))?;
-    d.array().map_err(|err| format!("decode praos payload: {err}"))?;
+    d.array()?;
+    d.skip()?;
+    d.array()?;
 
     // last slot
-    d.array().map_err(|err| format!("decode last slot wrapper: {err}"))?;
-    d.skip().map_err(|err| format!("skip last slot tag: {err}"))?;
-    d.u64().map_err(|err| format!("decode last slot: {err}"))?;
-    let opcert_sequence_numbers: OpcertSequenceNumbers =
-        d.decode().map_err(|err| format!("decode ocert counters: {err}"))?;
+    d.array()?;
+    d.skip()?;
+    d.u64()?;
+    let opcert_sequence_numbers: OpcertSequenceNumbers = d.decode()?;
 
-    d.array().map_err(|err| format!("decode evolving nonce wrapper: {err}"))?;
-    d.skip().map_err(|err| format!("skip evolving nonce tag: {err}"))?;
-    let evolving: Nonce = d.decode().map_err(|err| format!("decode evolving nonce: {err}"))?;
+    d.array()?;
+    d.skip()?;
+    let evolving: Nonce = d.decode()?;
 
-    d.array().map_err(|err| format!("decode candidate nonce wrapper: {err}"))?;
-    d.skip().map_err(|err| format!("skip candidate nonce tag: {err}"))?;
-    let candidate: Nonce = d.decode().map_err(|err| format!("decode candidate nonce: {err}"))?;
+    d.array()?;
+    d.skip()?;
+    let candidate: Nonce = d.decode()?;
 
-    d.array().map_err(|err| format!("decode active nonce wrapper: {err}"))?;
-    d.skip().map_err(|err| format!("skip active nonce tag: {err}"))?;
-    let active: Nonce = d.decode().map_err(|err| format!("decode active nonce: {err}"))?;
+    d.array()?;
+    d.skip()?;
+    let active: Nonce = d.decode()?;
 
-    d.skip().map_err(|err| format!("skip lab nonce: {err}"))?;
-    d.skip().map_err(|err| format!("skip last epoch nonce: {err}"))?;
+    d.skip()?;
+    d.skip()?;
 
     let initial_nonces = InitialNonces { at, active, evolving, candidate, tail };
     Ok(ChainState { initial_nonces, opcert_sequence_numbers })
@@ -133,7 +152,8 @@ pub fn parse_state_snapshot_with_chain_state(
 ) -> Result<(ParsedStateSnapshot, ChainState), Box<dyn std::error::Error>> {
     let parsed_snapshot =
         parse_state_snapshot(&mut d, global_parameters).map_err(|err| format!("parse state snapshot prefix: {err}"))?;
-    let chain_state = extract_snapshot_chain_state_after_prefix(&mut d, &parsed_snapshot, tail)?;
+    let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
+    let chain_state = extract_snapshot_chain_state_after_ledger(&mut d, at, tail)?;
 
     Ok((parsed_snapshot, chain_state))
 }
@@ -143,7 +163,7 @@ fn decode_current_era(
     mut eras: Vec<EraSummary>,
     current_era: EraName,
     global_parameters: &GlobalParameters,
-) -> Result<ParsedStateSnapshot, Box<dyn std::error::Error>> {
+) -> Result<StateSnapshotPrefix, Box<dyn std::error::Error>> {
     d.array()?;
 
     eras.push(EraSummary {
@@ -177,12 +197,10 @@ fn decode_current_era(
     let hash: HeaderHash = d.decode()?;
 
     let ledger_data_begin = d.position();
-    d.skip()?;
-    let ledger_data_end = d.position();
 
     let era_history = EraHistory::new(&eras, global_parameters.stability_window());
 
-    Ok(ParsedStateSnapshot { slot, hash, block_height, era_history, ledger_data_begin, ledger_data_end })
+    Ok(StateSnapshotPrefix { slot, hash, block_height, era_history, ledger_data_begin })
 }
 
 fn decode_partial_era_summary(
@@ -201,4 +219,39 @@ fn decode_partial_era_summary(
         EraParams::from_bounds(&start, &end, era_name).ok_or_else(|| anyhow!("Invalid era bounds (non-increasing)"))?;
 
     Ok(EraSummary { start, end: Some(end), params })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, io::Read};
+
+    use amaru_kernel::{Hash, PoolId, cbor::lazy::LazyDecoder};
+    use amaru_ouroboros::OpcertSequenceNumbers;
+
+    struct ChunkedReader<'a> {
+        bytes: &'a [u8],
+        chunk_size: usize,
+    }
+
+    impl Read for ChunkedReader<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let size = self.chunk_size.min(self.bytes.len()).min(buffer.len());
+            buffer[..size].copy_from_slice(&self.bytes[..size]);
+            self.bytes = &self.bytes[size..];
+            Ok(size)
+        }
+    }
+
+    #[test]
+    fn retries_chain_state_decoding_at_reader_chunk_boundaries() {
+        let pool_id = PoolId::from(Hash::new([1; 28]));
+        let expected = OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 42)]));
+        let encoded = minicbor::to_vec(expected.clone()).unwrap();
+        let mut reader = ChunkedReader { bytes: &encoded, chunk_size: 8 };
+        let mut decoder = LazyDecoder::new(&mut reader);
+
+        let actual: OpcertSequenceNumbers = decoder.with_decoder(|d| Ok(d.decode()?)).unwrap();
+
+        assert_eq!(actual, expected);
+    }
 }
