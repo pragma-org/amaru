@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc run-until compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -118,14 +118,6 @@ validate-trace-schemas: ## &test Validate generated trace schemas against docs/t
 		} >> "$${GITHUB_STEP_SUMMARY:-/dev/null}"; \
 		exit 1; \
 	fi
-
-run-until: ## &test Synchronize Amaru until a target epoch $RUN_UNTIL_TARGET_EPOCH
-	@set -e; \
-	if [ -z "$(RUN_UNTIL_TARGET_EPOCH)" ]; then \
-		echo "RUN_UNTIL_TARGET_EPOCH must be set" >&2; \
-		exit 1; \
-	fi; \
-	./scripts/run-until $(BUILD_PROFILE) --epoch $(RUN_UNTIL_TARGET_EPOCH)
 
 check-rust-toolchain-version: ## &test Verify rust-toolchain.toml and Cargo.toml rust-version stay aligned
 	@./scripts/check-rust-toolchain-version
