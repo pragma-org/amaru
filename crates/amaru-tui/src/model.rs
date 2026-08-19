@@ -116,7 +116,7 @@ impl Model {
             peer_pane_mode: PaneMode::Normal,
             proposal_pane_mode: PaneMode::Normal,
             scroll_focus: ScrollFocus::Logs,
-            level_filter: LevelFilter::Debug,
+            level_filter: LevelFilter::Info,
             target_filter: TargetFilter::All,
             catching_up: true,
             log_scroll: 0,
