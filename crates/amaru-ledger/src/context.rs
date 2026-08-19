@@ -22,14 +22,18 @@ use std::{
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
     MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    ProposalSlim, ProposalsRoots, ProtocolVersion, RequiredScript, StakeCredential, TransactionInput, Value, Vote,
+    Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 use thiserror::Error;
 
 pub use crate::store::columns::cc_members::Row as CCMember;
-use crate::{state::volatile, store::StoreError};
+use crate::{
+    state::volatile,
+    store::{StoreError, columns::pools_vrf},
+};
 
 mod default;
 pub use default::*;
@@ -84,6 +88,9 @@ pub enum ContextHydratationError {
 
     #[error("failed to hydrate pools")]
     ResolvePools(#[source] StoreError),
+
+    #[error("failed to hydrate vrf key hashes")]
+    ResolveVrfKeyHashes(#[source] StoreError),
 
     #[error("failed to hydrate accounts")]
     ResolveAccounts(#[source] StoreError),
@@ -187,11 +194,39 @@ pub trait PrepareUtxoSlice<'a> {
 // Pools
 // ------------------------------------------------------------------------------------------------
 
+/// A pool's VRF key hashes as of this point in the chain
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolVrfs {
+    /// The active parameters' key; the only key exempt from the uniqueness check
+    /// when the pool itself re-registers.
+    pub current: pools_vrf::Key,
+    /// A pending re-registration's not-yet-activated key, which a
+    /// further re-registration with a different key releases.
+    pub pending: Option<pools_vrf::Key>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum PoolRegisterError {
+    /// From protocol version 11 onwards, a registration claiming a VRF key hash already in use is
+    /// rejected; only the registering pool's own *current* key is exempt, its still-pending one
+    /// is not.
+    #[error("vrf key hash {vrf} already registered; rejecting registration of pool {pool}")]
+    VrfKeyHashAlreadyRegistered { pool: PoolId, vrf: pools_vrf::Key },
+}
+
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
     fn exists(&self, pool: PoolId) -> bool;
 
-    fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
+    /// Register (or re-register) a pool, enforcing the VRF key hash uniqueness rule from protocol
+    /// version 11 onwards. Returns whether the pool was new.
+    fn register(
+        &mut self,
+        params: PoolParams,
+        pointer: CertificatePointer,
+        deposit: Lovelace,
+        protocol_version: ProtocolVersion,
+    ) -> Result<bool, PoolRegisterError>;
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
 }
@@ -199,6 +234,10 @@ pub trait PoolsSlice {
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
 pub trait PreparePoolsSlice<'a> {
     fn require_pool(&'_ mut self, pool: &'a PoolId);
+
+    /// Require the VRF key hash claimed by a pool registration, so that its occupancy can be
+    /// resolved ahead of the pv11 uniqueness check.
+    fn require_vrf_key_hash(&'_ mut self, vrf: &'a pools_vrf::Key);
 }
 
 // Accounts

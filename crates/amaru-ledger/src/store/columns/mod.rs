@@ -18,6 +18,7 @@ pub mod accounts;
 pub mod cc_members;
 pub mod dreps;
 pub mod pools;
+pub mod pools_vrf;
 pub mod pots;
 pub mod proposals;
 pub mod recently_pruned_proposals;

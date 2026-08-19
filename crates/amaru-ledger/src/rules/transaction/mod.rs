@@ -20,7 +20,7 @@ mod fixture;
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{collections::BTreeSet, fs, iter, path::Path};
 
     use amaru_kernel::{EraHistory, ProtocolParameters, Transaction, cbor, json, utils::serde::FilesystemRefResolver};
     use amaru_plutus::arena_pool::ArenaPool;
@@ -61,9 +61,14 @@ mod tests {
         let protocol_parameters: ProtocolParameters =
             fixture.protocol_parameters.resolve(&resolver).expect("resolve protocolParameters");
 
+        let pools = fixture.initial_state.pools;
+        let vrf_key_hashes_in_use =
+            pools.values().flat_map(|vrfs| iter::once(vrfs.current).chain(vrfs.pending)).collect::<BTreeSet<_>>();
+
         let mut ctx = DefaultValidationContext::new(
             fixture.initial_state.utxo,
-            fixture.initial_state.pools,
+            pools,
+            vrf_key_hashes_in_use,
             fixture.initial_state.accounts,
             fixture.initial_state.dreps,
             fixture.initial_state.committee,

@@ -112,6 +112,16 @@ impl PoolCertificates {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// The parameters of the most recently submitted registration, regardless of any retirement
+    /// superseding it. Registrations never survive an epoch transition, so this is the not-yet-activated
+    /// re-registration, which an effective retirement hides from [`Self::pending_after`]'s fold.
+    pub fn last_registration(&self) -> Option<&PoolParams> {
+        self.0.iter().rev().find_map(|certificate| match certificate {
+            PoolCertificate::Registration(params) => Some(params.as_ref()),
+            PoolCertificate::Retirement(_) => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

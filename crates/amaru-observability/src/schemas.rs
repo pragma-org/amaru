@@ -468,6 +468,13 @@ define_schemas! {
                         optional from_db: u64
                     }
                 }
+                vrf_key_hashes {
+                    /// Resolve VRF key hash occupancy from the volatile db or the stable one
+                    public HYDRATE {
+                        optional from_volatile: u64
+                        optional from_db: u64
+                    }
+                }
                 accounts {
                     /// Resolve accounts from the volatile db or the stable one
                     public HYDRATE {
@@ -937,6 +944,7 @@ define_schemas! {
                 public IMPORT {
                     required registered: usize
                     required retiring: usize
+                    required vrf_key_hashes: usize
                 }
             }
             votes {
@@ -1210,6 +1218,28 @@ define_schemas! {
                         optional pool: amaru_kernel::PoolId
                         optional reason: String
                     }
+                    /// Apply epoch-boundary pool updates and retirements
+                    public UPDATE_OR_RETIRE {}
+                }
+                pools_vrf {
+                    /// Point-read a VRF key hash occupancy entry
+                    public GET {}
+                    /// Mark a VRF key hash as in use (set occupancy to 1)
+                    public CLAIM {}
+                    /// Delete a superseded VRF key hash occupancy entry
+                    public RELEASE {
+                        optional vrf: amaru_kernel::Hash<32>
+                        optional reason: String
+                    }
+                    /// Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero
+                    public DECREMENT {
+                        optional vrf: amaru_kernel::Hash<32>
+                        optional held: u64
+                        optional stored: u64
+                        optional reason: String
+                    }
+                    /// Import a VRF key hash occupancy entry from a snapshot at bootstrap
+                    public SEED {}
                 }
                 accounts {
                     /// Point-read an account entry

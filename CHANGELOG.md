@@ -40,6 +40,11 @@ Other guiding principles:
 ### Added
 
 - **amaru-pure-stage**: simulate how long an `ExternalEffect` occupies time (`DurationDist`: zero, constant, uniform, or until the effect future resolves). Sampled durations are scheduled when the effect is issued; `SimulationBuilder::run` now takes a Tokio `Handle` so a still-pending `run()` can be forced at that deadline. ([#1224](https://github.com/pragma-org/amaru/pull/1224))
+- **amaru-stores**: track stake pool VRF key hash occupancy in a new ledger-store column (`pvrf`). ([#910][])
+
+  The column is seeded from the node snapshot at bootstrap and maintained from there as pool registrations land. Existing ledger databases must be re-bootstrapped: there is no migration, and the occupancy counts cannot be derived from an existing database, since a count above one only comes from the snapshot.
+
+- **amaru-ledger**: From protocol version 11 onwards, a pool registration claiming a VRF key hash already in use is rejected, with only the registering pool's own current key exempt. ([#910][])
 
 ### Changed
 
@@ -325,6 +330,7 @@ Other guiding principles:
 [#899]: https://github.com/pragma-org/amaru/issues/899
 [#902]: https://github.com/pragma-org/amaru/issues/902
 [#909]: https://github.com/pragma-org/amaru/issues/909
+[#910]: https://github.com/pragma-org/amaru/issues/910
 [#912]: https://github.com/pragma-org/amaru/issues/912
 [#915]: https://github.com/pragma-org/amaru/issues/915
 [#923]: https://github.com/pragma-org/amaru/issues/923

@@ -1,0 +1,43 @@
+{
+  "title": "pool re-registration claiming another pool's vrf key",
+  "description": "A re-registration certificate for a registered pool, claiming the current VRF key hash of another registered pool, under protocol version 11.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": { "version": { "major": 11, "minor": 0 } }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258201d8f3b6a2e9c5d0b7f4a1c8e3b6d9f2a5c0e7b4d1f8a3c6e9b2d5f0a7c4e1b3800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": [
+      {
+        "id": "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "vrf": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      {
+        "id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "vrf": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "accounts": [],
+    "dreps": [],
+    "governanceActivity": {
+      "consecutiveDormantEpochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258201d8f3b6a2e9c5d0b7f4a1c8e3b6d9f2a5c0e7b4d1f8a3c6e9b2d5f0a7c4e1b38000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa001a1443fd00d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60800a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840cdfce3d88d584e82e8cbd482a993a8bc9a4e8be480ebbae8200f077c5fb6e559ab6459162df27303116f70f1531dccb0f68dbee5cee8345bc9aa8dbb0b572c06f5f6",
+  "expected": {
+    "predicate": "VRFKeyHashAlreadyRegistered"
+  }
+}

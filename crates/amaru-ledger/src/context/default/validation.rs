@@ -21,25 +21,30 @@ use std::{
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
-    GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
-    PoolParams, ProposalId, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint,
+    PROTOCOL_VERSION_10, PoolId, PoolParams, ProposalId, ProposalsRoots, ProtocolVersion, RequiredScript,
+    StakeCredential, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, ProposalState, ProposalStateSlim, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
+        PoolRegisterError, PoolVrfs, PoolsSlice, PotsSlice, ProposalState, ProposalStateSlim, ProposalsSlice,
+        RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
+        blanket_known_scripts,
     },
-    state::volatile::{BindError, Existence, VolatileFragment},
+    state::volatile::{BindError, DiffLeftBindExt as _, Empty, Existence, VolatileFragment, left_verdict},
+    store::columns::pools_vrf,
 };
 
 #[derive(Debug, Default)]
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
-    pools: BTreeSet<PoolId>,
+    pools: BTreeMap<PoolId, PoolVrfs>,
+    /// The in-use subset of the block's candidate VRF key hashes, as resolved at the block start.
+    vrf_key_hashes_in_use: BTreeSet<pools_vrf::Key>,
     accounts: BTreeMap<StakeCredential, AccountState>,
     dreps: BTreeMap<StakeCredential, DRepRegistration>,
     committee: BTreeMap<StakeCredential, CCMember>,
@@ -60,7 +65,8 @@ impl DefaultValidationContext {
     #[expect(clippy::too_many_arguments)]
     pub fn new(
         utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
-        pools: BTreeSet<PoolId>,
+        pools: BTreeMap<PoolId, PoolVrfs>,
+        vrf_key_hashes_in_use: BTreeSet<pools_vrf::Key>,
         accounts: BTreeMap<StakeCredential, AccountState>,
         dreps: BTreeMap<StakeCredential, DRepRegistration>,
         committee: BTreeMap<StakeCredential, CCMember>,
@@ -68,11 +74,47 @@ impl DefaultValidationContext {
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
     ) -> Self {
-        Self { utxo, pools, accounts, dreps, committee, proposals, proposals_roots, treasury, ..Self::default() }
+        Self {
+            utxo,
+            pools,
+            vrf_key_hashes_in_use,
+            accounts,
+            dreps,
+            committee,
+            proposals,
+            proposals_roots,
+            treasury,
+            ..Self::default()
+        }
     }
 
     pub fn with_utxo(self, utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
         Self { utxo, ..self }
+    }
+
+    /// Whether the VRF key hash is occupied at this point in the block: per the in-block claims
+    /// and releases first, falling back to the block-start resolution.
+    fn is_vrf_key_hash_in_use(&self, vrf: &pools_vrf::Key) -> bool {
+        match left_verdict(self.state.pools_vrf.get(vrf)) {
+            Existence::Exists(Empty) => true,
+            Existence::Gone => false,
+            Existence::Unknown => self.vrf_key_hashes_in_use.contains(vrf),
+        }
+    }
+
+    /// The pool's VRF keys at this point in the block: the block-start resolution with the
+    /// in-block registrations folded in; `None` when the pool is nowhere registered.
+    fn lookup_pool_vrfs(&self, pool_id: PoolId) -> Option<PoolVrfs> {
+        let base = self.pools.get(&pool_id);
+        let current = match left_verdict(self.state.pools_current_vrf.get(&pool_id)) {
+            Existence::Exists(vrf) => Some(vrf),
+            Existence::Unknown | Existence::Gone => base.map(|vrfs| vrfs.current),
+        }?;
+        let pending = match left_verdict(self.state.pools_pending_vrf.get(&pool_id)) {
+            Existence::Exists(vrf) => Some(vrf),
+            Existence::Unknown | Existence::Gone => base.and_then(|vrfs| vrfs.pending),
+        };
+        Some(PoolVrfs { current, pending })
     }
 }
 
@@ -119,15 +161,52 @@ impl PoolsSlice for DefaultValidationContext {
     /// Whether the given pool exists in the resolved ledger state (including pools registered
     /// earlier within the same block).
     fn exists(&self, pool: PoolId) -> bool {
-        self.pools.contains(&pool) || self.state.pools.registered.contains_key(&pool)
+        self.pools.contains_key(&pool) || self.state.pools.registered.contains_key(&pool)
     }
 
-    /// FIXME: In ProtocolVersion 11, we must also check for uniqueness of the VRF key when registering pools
+    /// Register a pool. A brand-new pool's parameters (VRF key included) become current
+    /// immediately, while a re-registration's only activate at the next epoch boundary, its VRF
+    /// key sitting in the pending projection until then.
     ///
-    /// A `PoolId` isn't going to be sufficient context; we'll also need a way to resolve and
-    /// assert existence of VRF keys. Possibly in another BTreeSet of known VRF keys.
-    fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace) {
-        self.state.pools.register(params.id, Arc::new((params, pointer, deposit)))
+    /// From protocol version 11 onwards, the claimed VRF key hash must not already be in use;
+    /// only the pool's own current key is exempt, its own still-pending key is not.
+    fn register(
+        &mut self,
+        params: PoolParams,
+        pointer: CertificatePointer,
+        deposit: Lovelace,
+        protocol_version: ProtocolVersion,
+    ) -> Result<bool, PoolRegisterError> {
+        let pool_id = params.id;
+        let vrf = params.vrf;
+
+        let known_vrfs = self.lookup_pool_vrfs(pool_id);
+
+        if protocol_version.major() > PROTOCOL_VERSION_10.major()
+            && !known_vrfs.is_some_and(|known| known.current == vrf)
+            && self.is_vrf_key_hash_in_use(&vrf)
+        {
+            return Err(PoolRegisterError::VrfKeyHashAlreadyRegistered { pool: pool_id, vrf });
+        }
+
+        // We must release a superseded pending key wholesale when it differed
+        // then claim the new key with a set-to-1 (even when it was the exempt current
+        // one, clobbering any higher count).
+        if let Some(pending) = known_vrfs.and_then(|known| known.pending)
+            && pending != vrf
+        {
+            self.state.pools_vrf.consume(pending);
+        }
+        self.state.pools_vrf.produce(vrf, Empty);
+
+        match known_vrfs {
+            Some(..) => self.state.pools_pending_vrf.produce(pool_id, vrf),
+            None => self.state.pools_current_vrf.produce(pool_id, vrf),
+        }
+
+        self.state.pools.register(pool_id, Arc::new((params, pointer, deposit)));
+
+        Ok(known_vrfs.is_none())
     }
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>> {
@@ -545,7 +624,7 @@ mod tests {
     fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
         let pool = Hash::new([9; 28]);
         let mut ctx = DefaultValidationContext {
-            pools: BTreeSet::from([pool]),
+            pools: BTreeMap::from([(pool, PoolVrfs { current: Hash::new([9; 32]), pending: None })]),
             accounts: BTreeMap::from([(cred(1), account(7))]),
             ..Default::default()
         };

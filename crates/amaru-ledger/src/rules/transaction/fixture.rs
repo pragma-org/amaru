@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
@@ -24,7 +24,7 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    context::{AccountState, CCMember, DelegateError, ProposalStateSlim},
+    context::{AccountState, CCMember, DelegateError, PoolVrfs, ProposalStateSlim},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -40,6 +40,7 @@ use crate::{
             phase_two::PhaseTwoError,
         },
     },
+    store::columns::pools_vrf,
 };
 
 #[derive(Deserialize)]
@@ -60,8 +61,8 @@ pub(super) struct Fixture {
 pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_utxo", default)]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
-    #[serde(default)]
-    pub(super) pools: BTreeSet<PoolId>,
+    #[serde(deserialize_with = "deserialize_pools", default)]
+    pub(super) pools: BTreeMap<PoolId, PoolVrfs>,
     #[serde(deserialize_with = "deserialize_accounts", default)]
     pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
@@ -90,6 +91,41 @@ where
     let hex = String::deserialize(deserializer)?;
     let bytes = hex::decode(hex).map_err(serde::de::Error::custom)?;
     cbor::decode(&bytes).map_err(serde::de::Error::custom)
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PoolProxy {
+    /// A bare pool key hash, predating the VRF key uniqueness rule.
+    Id(PoolId),
+    /// A pool key hash with its current, and optionally pending, VRF key hashes.
+    #[serde(rename_all = "camelCase")]
+    Vrfs {
+        id: PoolId,
+        vrf: pools_vrf::Key,
+        #[serde(default)]
+        pending_vrf: Option<pools_vrf::Key>,
+    },
+}
+
+fn deserialize_pools<'de, D>(deserializer: D) -> Result<BTreeMap<PoolId, PoolVrfs>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let entries = Vec::<PoolProxy>::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| match entry {
+            // A bare id seeds no VRF key, so conjure a deterministic placeholder from the id; the
+            // in-use set is derived from the pools, consistent by construction.
+            PoolProxy::Id(id) => {
+                let mut vrf = [0; 32];
+                vrf[..28].copy_from_slice(id.as_ref());
+                (id, PoolVrfs { current: Hash::new(vrf), pending: None })
+            }
+            PoolProxy::Vrfs { id, vrf, pending_vrf } => (id, PoolVrfs { current: vrf, pending: pending_vrf }),
+        })
+        .collect())
 }
 
 #[derive(Deserialize)]
@@ -303,6 +339,7 @@ pub(super) enum Predicate {
     StakePoolRetirementWrongEpochPOOL,
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
+    VRFKeyHashAlreadyRegistered,
     ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
     VotersDoNotExist,
@@ -453,6 +490,9 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
                 Predicate::StakePoolCostTooLowPOOL
+            }
+            PhaseOneError::Certificates(InvalidCertificates::VRFKeyHashAlreadyRegistered(_)) => {
+                Predicate::VRFKeyHashAlreadyRegistered
             }
             PhaseOneError::Collateral(InvalidCollateral::UnknownInput(..)) => Predicate::BadInputsUTxO,
             PhaseOneError::Collateral(InvalidCollateral::InsufficientBalance { .. }) => {

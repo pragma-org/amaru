@@ -7,6 +7,7 @@ module Data.Fixture.InitialState
     , CertificatePointer (..)
     , GovernanceActivity (..)
     , InitialState (..)
+    , Pool (..)
     , PoolDelegation (..)
     , Pots (..)
     , ProposalEntry (..)
@@ -32,6 +33,7 @@ import Cardano.Ledger.Api.PParams
 import Cardano.Ledger.BaseTypes
     ( ProtVer (..)
     , addEpochInterval
+    , knownNonZeroBounded
     )
 import Cardano.Ledger.Binary.Version
     ( mkVersion
@@ -88,7 +90,9 @@ import Cardano.Ledger.DRep
 import Cardano.Ledger.Hashes
     ( GenDelegs (GenDelegs)
     , KeyHash
+    , KeyRoleVRF (StakePoolVRF)
     , ScriptHash
+    , VRFVerKeyHash
     )
 import Cardano.Ledger.Keys
     ( KeyRole (ColdCommitteeRole, DRepRole, StakePool, Staking)
@@ -107,8 +111,10 @@ import Cardano.Ledger.State
     , CommitteeState (CommitteeState)
     , DState (..)
     , PState (..)
+    , StakePoolParams (..)
     , StakePoolState
     , spsDepositL
+    , spsVrfL
     )
 import Cardano.Ledger.TxIn
     ( TxId (..)
@@ -120,7 +126,7 @@ import Command.ValidatePhaseOne.Error
 import Data.Aeson
     ( FromJSON (parseJSON)
     , Object
-    , Value (Array)
+    , Value (Array, String)
     , withArray
     , withObject
     , withText
@@ -144,6 +150,7 @@ import Data.Fixture.Common
     , parseCborHex
     , parsePoolId
     , parseScriptHash
+    , parseVrfKeyHash
     , showText
     )
 import Data.Fixture.EraHistory
@@ -168,7 +175,7 @@ import qualified Data.Text as Text
 
 data InitialState = InitialState
     { utxo :: ![UtxoEntry]
-    , pools :: ![KeyHash StakePool]
+    , pools :: ![Pool]
     , accounts :: ![Account]
     , dreps :: ![RegisteredDRep]
     , committee :: ![CommitteeMember]
@@ -185,7 +192,7 @@ instance FromJSON InitialState where
         withObject "InitialState" $ \objectValue ->
             InitialState
                 <$> objectValue .:? "utxo" .!= []
-                <*> (objectValue .:? "pools" .!= [] >>= traverse parsePoolId)
+                <*> objectValue .:? "pools" .!= []
                 <*> objectValue .:? "accounts" .!= []
                 <*> objectValue .:? "dreps" .!= []
                 <*> objectValue .:? "committee" .!= []
@@ -206,6 +213,33 @@ instance FromJSON UtxoEntry where
             UtxoEntry
                 <$> (objectValue .: "input" >>= parseCborHex "TxIn")
                 <*> (objectValue .: "output" >>= parseCborHex "TxOut")
+
+data Pool = Pool
+    { stakePool :: !(KeyHash StakePool)
+    , currentVrf :: !(VRFVerKeyHash StakePoolVRF)
+    , pendingVrf :: !(Maybe (VRFVerKeyHash StakePoolVRF))
+    }
+
+instance FromJSON Pool where
+    parseJSON value =
+        case value of
+            -- A bare pool id names no VRF key; pad the id out to VRF width, as the Rust harness
+            -- does, so both derive the same placeholder for the same fixture.
+            String poolIdHex ->
+                Pool
+                    <$> parsePoolId value
+                    <*> parseVrfKeyHash (String (poolIdHex <> Text.replicate 8 "0"))
+                    <*> pure Nothing
+            _ ->
+                withObject
+                    "Pool"
+                    ( \objectValue ->
+                        Pool
+                            <$> (objectValue .: "id" >>= parsePoolId)
+                            <*> (objectValue .: "vrf" >>= parseVrfKeyHash)
+                            <*> (objectValue .:? "pendingVrf" >>= traverse parseVrfKeyHash)
+                    )
+                    value
 
 data Account = Account
     { credential :: !(Credential Staking)
@@ -481,8 +515,19 @@ buildNewEpochState pparams eraHistory initialState point = do
                 ]
     let poolStates =
             Map.fromList
-                [ (poolId, defaultStakePoolState (Coin (poolDepositAmount pparams)))
-                | poolId <- pools
+                [ (stakePool, defaultStakePoolState (Coin (poolDepositAmount pparams)) & spsVrfL .~ currentVrf)
+                | Pool{stakePool, currentVrf} <- pools
+                ]
+    let futurePoolParams =
+            Map.fromList
+                [ (stakePool, def{sppId = stakePool, sppVrf = pending})
+                | Pool{stakePool, pendingVrf = Just pending} <- pools
+                ]
+    let vrfKeyHashes =
+            Map.fromList
+                [ (vrfKeyHash, knownNonZeroBounded @1)
+                | Pool{currentVrf, pendingVrf} <- pools
+                , vrfKeyHash <- currentVrf : maybeToList pendingVrf
                 ]
 
     let proposalStates = map (toGovActionState pparams currentEpoch) proposals
@@ -548,7 +593,7 @@ buildNewEpochState pparams eraHistory initialState point = do
                         , vsNumDormantEpochs = phaseOneEpochNo (consecutiveDormantEpochs governanceActivity)
                         }
                 , conwayCertPState =
-                    PState def poolStates def def
+                    PState vrfKeyHashes poolStates futurePoolParams def
                 , conwayCertDState =
                     DState
                         { dsAccounts =

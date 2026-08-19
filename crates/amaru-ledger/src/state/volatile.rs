@@ -12,21 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, fmt};
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, Lovelace, Point, PoolId,
     Pots, ProposalId, StakeCredential, TransactionInput,
 };
 
+use crate::store::columns::pools_vrf;
+
 mod db;
-pub use db::{RewardsAtTip, VolatileDB};
+pub use db::{RewardsAtTip, VolatileDB, VrfOccupancy};
 
 mod overlay;
 use overlay::StateOverlay;
 
 mod aggregate;
-pub use aggregate::VolatileAggregate;
+pub use aggregate::{IndexedBind, VolatileAggregate};
 
 mod bind;
 pub use bind::{Bind, Empty};
@@ -56,6 +58,48 @@ mod tests {
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;
 
+/// A set-shaped fragment diff holding one slot per key, so restating a key supersedes its earlier
+/// verdict in place.
+///
+/// The payload sits in the *left* slot, not in `value`: [`DiffBind::register`] rejects a key already
+/// registered in the same diff, whereas [`DiffBind::bind_left`] overwrites.
+pub type DiffLeftBind<K, V> = DiffBind<K, V, Empty, Empty>;
+
+/// The aggregate counterpart of [`DiffLeftBind`].
+pub type IndexedSet<K, V> = IndexedBind<K, V, Empty, Empty>;
+
+/// Claim and release keys in a [`DiffLeftBind`], each write superseding any earlier verdict on that
+/// key.
+pub trait DiffLeftBindExt<K, V> {
+    fn produce(&mut self, key: K, value: V);
+
+    fn consume(&mut self, key: K);
+}
+
+impl<K: Ord + fmt::Debug, V> DiffLeftBindExt<K, V> for DiffLeftBind<K, V> {
+    fn produce(&mut self, key: K, value: V) {
+        self.bind_left(key, Some(value)).unwrap_or_else(|err| unreachable!("a DiffLeftBind never unregisters: {err:?}"))
+    }
+
+    fn consume(&mut self, key: K) {
+        self.bind_left(key, None).unwrap_or_else(|err| unreachable!("a DiffLeftBind never unregisters: {err:?}"))
+    }
+}
+
+/// Read a [`DiffLeftBind`] or [`IndexedSet`] verdict out of the left slot. `Unchanged` maps to
+/// `Unknown`, though no [`DiffLeftBindExt`] write produces it.
+pub fn left_verdict<V: Copy>(verdict: Existence<Bind<&V, &Empty, &Empty>>) -> Existence<V> {
+    match verdict {
+        Existence::Unknown => Existence::Unknown,
+        Existence::Gone => Existence::Gone,
+        Existence::Exists(bind) => match bind.left {
+            Resettable::Set(value) => Existence::Exists(*value),
+            Resettable::Reset => Existence::Gone,
+            Resettable::Unchanged => Existence::Unknown,
+        },
+    }
+}
+
 /// A stake account's accumulated binding: pool/vote delegations, plus the deposit on registration.
 pub type AccountBind<'a> = Bind<&'a (PoolId, CertificatePointer), &'a (DRep, CertificatePointer), &'a Lovelace>;
 
@@ -68,6 +112,17 @@ pub type CommitteeMemberBind<'a> = Bind<&'a ConstitutionalCommitteeMemberStatus,
 /// is the queryable value; the anchor is updated independently of registration, so an anchor-only
 /// update is a bind-only (`value: None`) change that composes onto the registration from below.
 pub type DRepBind<'a> = Bind<&'a Empty, &'a Empty, &'a DRepRegistration>;
+
+/// The volatile layers' verdict on a pool's VRF keys `current` projects the active parameters'
+/// key, the only one exempt when the pool itself re-registers, and `pending` projects
+/// a not-yet-activated re-registration's key. For either, `Unknown`
+/// defers to the stable row, while `Gone` settles the answer as "none": a boundary event
+/// invalidated whatever the stale stable row still shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolatilePoolVrfs {
+    pub current: Existence<pools_vrf::Key>,
+    pub pending: Existence<pools_vrf::Key>,
+}
 
 /// An outward-facing store API to query the volatile as a store.
 pub trait VolatileState {
@@ -85,6 +140,19 @@ pub trait VolatileState {
     #[expect(clippy::panic)]
     fn resolve_pool(&self, pool_id: PoolId) -> Self::Pool {
         panic!("VolatileState.resolve_pool({pool_id})")
+    }
+
+    type PoolVrfs;
+    #[expect(clippy::panic)]
+    fn resolve_pool_vrfs(&self, pool_id: PoolId) -> Self::PoolVrfs {
+        panic!("VolatileState.resolve_pool_vrfs({pool_id})")
+    }
+
+    // ------------------------------------------------------------------------------ VRF key hashes
+    type VrfKeyHash;
+    #[expect(clippy::panic)]
+    fn resolve_vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Self::VrfKeyHash {
+        panic!("VolatileState.resolve_vrf_key_hash({vrf})")
     }
 
     // ------------------------------------------------------------------------------------ Accounts

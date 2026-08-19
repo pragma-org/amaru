@@ -27,12 +27,14 @@ use amaru_kernel::{
     cardano::network_block::make_block, cbor, make_header, to_cbor,
 };
 use amaru_ledger::{
-    epoch_transition::GovernanceActivity,
+    epoch_transition::{GovernanceActivity, pools_updates::PoolsEpochTransitionUpdates},
     rules::block::BlockValidation,
     state::{ForkSwitchOutcome, State, volatile::VolatileFragment},
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, ReadStore, Store, StoreError, TransactionalContext,
-        columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, utxo, votes},
+        columns::{
+            accounts, cc_members, dreps, pools, pools_vrf, pots, proposals, recently_unregistered_accounts, utxo, votes,
+        },
     },
 };
 use amaru_plutus::arena_pool::ArenaPool;
@@ -442,6 +444,17 @@ impl<'a> TransactionalContext<'a> for MockTransaction<'a> {
     }
 
     fn with_accounts(&self, _with: impl FnMut(accounts::Iter<'_, '_>)) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn update_or_retire_pools(&self, _pools_updates: &PoolsEpochTransitionUpdates) -> amaru_ledger::store::Result<()> {
+        Ok(())
+    }
+
+    fn import_vrf_key_hashes(
+        &self,
+        _counts: &BTreeMap<pools_vrf::Key, pools_vrf::Value>,
+    ) -> amaru_ledger::store::Result<()> {
         Ok(())
     }
 

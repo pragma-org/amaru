@@ -20,7 +20,7 @@ use amaru_kernel::{
 };
 use amaru_observability::{debug, info_span};
 
-use crate::store::columns::pools::Row as Pool;
+use crate::store::columns::{pools::Row as Pool, pools_vrf};
 
 mod pool_certificates;
 pub use pool_certificates::{PendingPoolCertificates, PoolCertificate, PoolCertificates};
@@ -40,6 +40,14 @@ pub struct PoolsEpochTransitionUpdates {
 
     /// Pool owners refunds, corresponding to the return of their deposit upon de-registration.
     refunds: BTreeMap<StakeCredential, Lovelace>,
+
+    /// VRF key hashes whose occupancy is deleted at the epoch transition: the previous
+    /// keys of pools whose activating re-registration changed VRF
+    vrf_released: BTreeSet<pools_vrf::Key>,
+
+    /// How many retiring pools' post-activation VRF key hashes land on each key, and so how many
+    /// times the transition decrements its occupancy.
+    vrf_retired: BTreeMap<pools_vrf::Key, u64>,
 }
 
 impl PoolsEpochTransitionUpdates {
@@ -67,6 +75,27 @@ impl PoolsEpochTransitionUpdates {
 
     pub fn refunds(&self) -> impl Iterator<Item = (&StakeCredential, &Lovelace)> {
         self.refunds.iter()
+    }
+
+    /// VRF key hashes whose occupancy the transition deletes entirely.
+    pub fn vrf_released(&self) -> &BTreeSet<pools_vrf::Key> {
+        &self.vrf_released
+    }
+
+    /// VRF key hashes whose occupancy the transition decrements, each with the number of retiring
+    /// pools holding it.
+    ///
+    /// Keys that [`Self::vrf_released`] also names are skipped: releasing deletes the entry, which
+    /// subsumes any number of decrements of it. A single pool never puts the same key in both, but
+    /// two pools sharing one can.
+    pub fn vrf_retired(&self) -> impl Iterator<Item = (&pools_vrf::Key, u64)> {
+        self.vrf_retired.iter().filter(|(vrf, _)| !self.vrf_released.contains(*vrf)).map(|(vrf, by)| (vrf, *by))
+    }
+
+    /// How many times the transition decrements the given VRF key hash's occupancy; `0` for a key
+    /// it releases outright.
+    pub fn vrf_decrements(&self, vrf: &pools_vrf::Key) -> u64 {
+        if self.vrf_released.contains(vrf) { 0 } else { self.vrf_retired.get(vrf).copied().unwrap_or(0) }
     }
 
     /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
@@ -117,6 +146,8 @@ impl PoolsEpochTransitionUpdates {
             // PoolParams.
             let PoolParams { id: _, vrf, pledge, cost, margin, reward_account, owners, relays, metadata } = new_params;
 
+            let previous_vrf = pool.current_params.vrf;
+
             let current_params = &mut pool.current_params;
 
             // NOTE: /!\ IMPORTANT /!\ DO NOT INLINE
@@ -147,6 +178,12 @@ impl PoolsEpochTransitionUpdates {
                 @relays,
                 @metadata,
             );
+
+            // A re-registration that changes VRF leaves the previous key "dangling"
+            // which must be deleted at the boundary
+            if previous_vrf != current_params.vrf {
+                self.vrf_released.insert(previous_vrf);
+            }
 
             true
         } else {
@@ -192,6 +229,21 @@ impl PoolsEpochTransitionUpdates {
             pool.id(),
             pool.pending_certificates,
         );
+
+        // To clean up a retiring pool's VRF occunpancy, we take two steps:
+        // 1) First activate any pending re-registration (remove the current key)
+        // 2) Then Decrement the key of the *now-activated* paramters.
+        //
+        // That pending registration is unreachable through the fold (an effective retirement discards it)
+        // so we have to recover it from the raw certificate list instead.
+        let current_vrf = pool.current_params.vrf;
+        match pool.pending_certificates.last_registration() {
+            Some(params) if params.vrf != current_vrf => {
+                self.vrf_released.insert(current_vrf);
+                *self.vrf_retired.entry(params.vrf).or_default() += 1;
+            }
+            _ => *self.vrf_retired.entry(current_vrf).or_default() += 1,
+        }
     }
 }
 
@@ -209,8 +261,10 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeAddress, StakeCredential, StakePayload,
+        Epoch, Hash, Network, PoolId, PoolParams, RewardAccount, StakeAddress, StakeCredential, StakePayload,
         any_certificate_pointer, any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential,
         utils::tests::run_strategy,
     };
@@ -220,7 +274,7 @@ mod tests {
         PoolCertificate::{self, Registration, Retirement},
         PoolCertificates, PoolsEpochTransitionUpdates,
     };
-    use crate::store::columns::pools::Row as Pool;
+    use crate::store::columns::{pools::Row as Pool, pools_vrf};
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
     // epoch's update. So a caller is expected to tick a base Pool between each application.
@@ -346,6 +400,87 @@ mod tests {
     }
 
     proptest! {
+        /// The occupancy map stays exactly what the pool set implies: composing registration-time
+        /// claims (a set-to-1 insert, releasing a superseded pending key) with the boundary's
+        /// released/retired outputs must leave a live pool's current key claimed exactly once, and
+        /// a retired pool's keys fully released.
+        #[test]
+        fn prop_vrf_occupancy_tracks_the_pool_set(
+            registered_at in any_certificate_pointer(u64::MAX),
+            deposit in any_lovelace(),
+            (initial_params, sequence) in any_pool_params().prop_flat_map(|params| {
+                any_row_seq_updates(params.id).prop_map(move |seq| (params.clone(), seq))
+            }),
+        ) {
+            // Confine VRF keys to a tiny alphabet, so that re-registrations regularly keep a key
+            // or reclaim one released earlier.
+            let narrow = |vrf: &pools_vrf::Key| -> pools_vrf::Key { Hash::new([vrf.as_ref()[0] % 3; 32]) };
+
+            let initial_params = PoolParams { vrf: narrow(&initial_params.vrf), ..initial_params };
+            let mut pool = Pool::new(registered_at, deposit, initial_params.clone());
+            let pool_id = pool.id();
+
+            let mut occupancy = BTreeMap::from([(initial_params.vrf, 1u64)]);
+            let mut pending: Option<pools_vrf::Key> = None;
+
+            for (submission_epoch, updates) in sequence.into_iter().enumerate() {
+                let boundary = Epoch::from(submission_epoch as u64) + 1;
+
+                for certificate in updates {
+                    let certificate = match certificate {
+                        Registration(params) => {
+                            let params = PoolParams { vrf: narrow(&params.vrf), ..(*params) };
+                            // claim as `pools::add` does: set the new key to 1 and release the
+                            // superseded pending key wholesale when it differed
+                            if let Some(previous) = pending.replace(params.vrf)
+                                && previous != params.vrf
+                            {
+                                occupancy.remove(&previous);
+                            }
+                            occupancy.insert(params.vrf, 1);
+                            PoolCertificate::from(params)
+                        }
+                        retirement => retirement,
+                    };
+                    pool.pending_certificates.append(certificate);
+                }
+
+                let before_tick = pool.clone();
+                let mut pools_updates = PoolsEpochTransitionUpdates::default();
+                pools_updates.tick_pool(boundary, pool);
+
+                for released in pools_updates.vrf_released() {
+                    occupancy.remove(released);
+                }
+                for (retired, held) in pools_updates.vrf_retired() {
+                    match occupancy.get_mut(retired) {
+                        Some(count) if *count > held => *count -= held,
+                        Some(..) => {
+                            occupancy.remove(retired);
+                        }
+                        None => prop_assert!(false, "decrement of an unclaimed key: {}", retired),
+                    }
+                }
+                // registrations never survive a boundary tick
+                pending = None;
+
+                if pools_updates.retired().contains(&pool_id) {
+                    prop_assert!(occupancy.is_empty(), "a retired pool left keys claimed: {:?}", occupancy);
+                    break;
+                }
+
+                pool = pools_updates.updated().get(&pool_id).cloned().unwrap_or(before_tick);
+                prop_assert_eq!(
+                    &occupancy,
+                    &BTreeMap::from([(pool.current_params.vrf, 1u64)]),
+                    "boundary = {:?}",
+                    boundary
+                );
+            }
+        }
+    }
+
+    proptest! {
         #[test]
         fn prop_pool_stake_deposit(
             registered_at in any_certificate_pointer(u64::MAX),
@@ -420,6 +555,40 @@ mod tests {
 
         let refunds = pools_updates.refunds().collect::<Vec<_>>();
         assert_eq!(refunds, vec![(&reward_credential, &(deposit_a + deposit_b))]);
+    }
+
+    #[test]
+    fn a_released_key_is_not_also_decremented_when_another_retiring_pool_shares_it() {
+        let (params_a, params_b) = run_strategy(
+            (any_pool_params(), any_pool_params())
+                .prop_filter("pools and their vrf keys must be distinct", |(pool_a, pool_b)| {
+                    pool_a.id != pool_b.id && pool_a.vrf != pool_b.vrf
+                }),
+        );
+
+        let shared = params_a.vrf;
+        let activating = params_b.vrf;
+
+        let reregistration = PoolParams { vrf: activating, ..params_a.clone() };
+        let mut pool_a = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), 1_000_000, params_a);
+        pool_a.pending_certificates = PoolCertificates::default().with(reregistration).with(Epoch::from(0));
+
+        let mut pool_b = Pool::new(
+            run_strategy(any_certificate_pointer(u64::MAX)),
+            2_000_000,
+            PoolParams { vrf: shared, ..params_b },
+        );
+        pool_b.pending_certificates.append(Epoch::from(0));
+
+        let mut pools_updates = PoolsEpochTransitionUpdates::default();
+        let pending_a = pool_a.pending_certificates.pending_after(Epoch::from(0));
+        let pending_b = pool_b.pending_certificates.pending_after(Epoch::from(0));
+        pools_updates.retire_pool(Epoch::from(0), &pool_a, pending_a);
+        pools_updates.retire_pool(Epoch::from(0), &pool_b, pending_b);
+
+        assert!(pools_updates.vrf_released().contains(&shared));
+        assert_eq!(pools_updates.vrf_retired().collect::<Vec<_>>(), vec![(&activating, 1)]);
+        assert_eq!(pools_updates.vrf_decrements(&shared), 0);
     }
 
     fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {

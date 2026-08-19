@@ -24,9 +24,11 @@ use crate::{
     state::{
         AnchoredVolatileFragment,
         volatile::{
-            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatileSequence, VolatileState,
+            AccountBind, CommitteeMemberBind, DRepBind, Existence, VolatileAggregate, VolatilePoolVrfs,
+            VolatileSequence, VolatileState,
         },
     },
+    store::columns::pools_vrf,
 };
 
 #[derive(Debug, Default)]
@@ -49,6 +51,19 @@ impl VolatileState for VolatileSeries {
         // Whether the given pool is registered (or re-registered) anywhere in this series' aggregate.
         // Deferred retirements do not affect this; reaping is handled one level up, in the volatile DB.
         self.aggregate.resolve_pool(pool_id)
+    }
+
+    type PoolVrfs = VolatilePoolVrfs;
+    fn resolve_pool_vrfs(&self, pool_id: PoolId) -> Self::PoolVrfs {
+        // The pool's VRF keys as established anywhere in this series' aggregate. Boundary
+        // activations and retirements are handled one level up, in the volatile DB.
+        self.aggregate.resolve_pool_vrfs(pool_id)
+    }
+
+    // ------------------------------------------------------------------------------ VRF key hashes
+    type VrfKeyHash = Existence<()>;
+    fn resolve_vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Self::VrfKeyHash {
+        self.aggregate.resolve_vrf_key_hash(vrf)
     }
 
     // ------------------------------------------------------------------------------------ Accounts

@@ -75,7 +75,10 @@ Initial state represents the state on which the transaction is validated. Curren
 it is made up of the following fields:
 
 - `utxo`: array of `{ input, output }` pairs of hex-encoded CBOR, as described above.
-- `pools`: array of hex-encoded pool key hashes, does not contain pool's parameters.
+- `pools`: array of registered stake pools, each either a bare hex-encoded pool
+  key hash, or `{ id, vrf, pendingVrf? }` where `vrf` is the hex-encoded hash of
+  the pool's current VRF verification key and `pendingVrf` a not-yet-activated
+  re-registration's. Pool parameters beyond the VRF key are not modelled.
 - `accounts`: `[{ credential, deposit, rewards?, pool?, drep? }]`. `credential`
   is hex-encoded CBOR of a `StakeCredential`; `deposit`/`rewards` are lovelace
   (`rewards` defaults to `0`); `pool`/`drep` are optional delegations of the form

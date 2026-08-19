@@ -27,7 +27,7 @@ use amaru_kernel::{
     RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor,
 };
 use amaru_ledger::{
-    epoch_transition::GovernanceActivity,
+    epoch_transition::{GovernanceActivity, pools_updates::PoolsEpochTransitionUpdates},
     state::volatile::Resettable,
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
@@ -100,6 +100,7 @@ const DIR_LIVE_DB: &str = "live";
 // * '@constitutional'           * Constitution                                   *
 // * 'utxo:'TransactionInput     * TransactionOutput                              *
 // * 'pool:'PoolId               * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
+// * 'pvrf:'Hash<32>             * u64                                            *
 // * 'acct:'StakeCredential      * (Option<PoolId>, Lovelace, Lovelace)           *
 // * 'drep:'StakeCredential      * (                                              *
 // *                             *   Lovelace,                                    *
@@ -458,6 +459,13 @@ macro_rules! impl_ReadStore_body {
 
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
                 pools::get(|key| self.db.get_pinned(key), pool)
+            }
+
+            fn vrf_key_hash(
+                &self,
+                vrf: &scolumns::pools_vrf::Key,
+            ) -> Result<Option<scolumns::pools_vrf::Value>, StoreError> {
+                pools_vrf::get(|key| self.db.get_pinned(key), vrf)
             }
 
             fn account(
@@ -836,7 +844,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     - governance_activity.map_or(0, |ga| ga.consecutive_dormant_epochs) as u64;
 
                 utxo::add(&self.db, add.utxo)?;
-                pools::add(&self.db, add.pools)?;
+                pools::add(&self.db, add.pools, current_epoch)?;
                 dreps::add(&self.db, drep_validity, add.dreps)?;
                 cc_members::upsert(&self.db, add.cc_members)?;
                 accounts::add(&self.db, add.accounts)?;
@@ -911,6 +919,17 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db, utxo::PREFIX, "utxo", with)
+    }
+
+    fn update_or_retire_pools(&self, pools_updates: &PoolsEpochTransitionUpdates) -> Result<(), StoreError> {
+        pools::update_or_retire(&self.db, pools_updates)
+    }
+
+    fn import_vrf_key_hashes(
+        &self,
+        counts: &BTreeMap<scolumns::pools_vrf::Key, scolumns::pools_vrf::Value>,
+    ) -> Result<(), StoreError> {
+        pools_vrf::import(&self.db, counts)
     }
 
     fn with_pools(&self, with: impl FnMut(scolumns::pools::Iter<'_, '_>)) -> Result<(), StoreError> {

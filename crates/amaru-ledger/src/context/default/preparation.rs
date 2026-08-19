@@ -25,12 +25,12 @@ use amaru_observability::debug_span;
 
 use crate::{
     context::{
-        AccountState, CCMember, ContextHydratationError, DefaultValidationContext, PreparationContext,
+        AccountState, CCMember, ContextHydratationError, DefaultValidationContext, PoolVrfs, PreparationContext,
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, ProposalStateSlim, UnresolvedInputPolicy,
     },
-    state::volatile::{Bind, Existence, VolatileDB, VolatileState},
-    store::ReadStore,
+    state::volatile::{Bind, Existence, VolatileDB, VolatileState, VrfOccupancy},
+    store::{ReadStore, columns::pools_vrf},
 };
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
@@ -43,6 +43,7 @@ use crate::{
 pub struct DefaultPreparationContext<'a> {
     pub utxo: BTreeSet<&'a TransactionInput>,
     pub pools: BTreeSet<&'a PoolId>,
+    pub pools_vrf: BTreeSet<&'a pools_vrf::Key>,
     pub accounts: BTreeSet<Cow<'a, StakeCredential>>,
     pub dreps: BTreeSet<Cow<'a, StakeCredential>>,
     pub drep_delegations: BTreeSet<&'a DRep>,
@@ -56,6 +57,7 @@ impl DefaultPreparationContext<'_> {
         Self {
             utxo: BTreeSet::new(),
             pools: BTreeSet::new(),
+            pools_vrf: BTreeSet::new(),
             accounts: BTreeSet::new(),
             dreps: BTreeSet::new(),
             drep_delegations: BTreeSet::new(),
@@ -77,6 +79,10 @@ impl<'a> PrepareUtxoSlice<'a> for DefaultPreparationContext<'a> {
 impl<'a> PreparePoolsSlice<'a> for DefaultPreparationContext<'a> {
     fn require_pool(&mut self, pool: &'a PoolId) {
         self.pools.insert(pool);
+    }
+
+    fn require_vrf_key_hash(&mut self, vrf: &'a pools_vrf::Key) {
+        self.pools_vrf.insert(vrf);
     }
 }
 
@@ -124,6 +130,8 @@ impl<'block> DefaultPreparationContext<'block> {
         volatile: &'volatile impl VolatileState<
             TransactionOutput<'volatile> = <VolatileDB as VolatileState>::TransactionOutput<'volatile>,
             Pool = <VolatileDB as VolatileState>::Pool,
+            PoolVrfs = <VolatileDB as VolatileState>::PoolVrfs,
+            VrfKeyHash = <VolatileDB as VolatileState>::VrfKeyHash,
             Account<'volatile> = <VolatileDB as VolatileState>::Account<'volatile>,
             DRep<'volatile> = <VolatileDB as VolatileState>::DRep<'volatile>,
             CCMembers<'volatile> = <VolatileDB as VolatileState>::CCMembers<'volatile>,
@@ -136,6 +144,7 @@ impl<'block> DefaultPreparationContext<'block> {
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
+            resolve_vrf_key_hashes(volatile, db, self.pools_vrf.into_iter().copied())?,
             resolve_accounts(volatile, db, self.accounts.into_iter())?,
             resolve_dreps(
                 volatile,
@@ -203,38 +212,70 @@ fn resolve_inputs<'block, 'volatile>(
     })
 }
 
-/// Resolves pools, confirming the existence of the provided `pool_ids`.
+/// Resolves pools, materializing a [`PoolVrfs`] for each of the provided `pool_ids` that exists.
 ///
-/// Returns the subset of `pool_ids` that exist in our ledger state. This may be smaller than the
-/// argument: a pool could be registering for the first time in this very block.
-///
-/// Importantly, we only need existence, not the pool state. VRF-key uniqueness (pv11+) will be
-/// enforced globally via a `vrf -> pool_id` index.
+/// The result may be smaller than the argument: a pool could be registering for the first time in
+/// this very block. Each entry carries the pool's VRF key hashes — the effective current key and
+/// any pending re-registration's — which the pv11 uniqueness check compares candidate
+/// registrations against. Both keys resolve `volatile -> stable`: the volatile window settles the
+/// keys it established itself, or that the pending boundary transition activated or discarded,
+/// and defers to the stable row otherwise.
 fn resolve_pools(
-    volatile: &impl VolatileState<Pool = <VolatileDB as VolatileState>::Pool>,
+    volatile: &impl VolatileState<
+        Pool = <VolatileDB as VolatileState>::Pool,
+        PoolVrfs = <VolatileDB as VolatileState>::PoolVrfs,
+    >,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
-) -> Result<BTreeSet<PoolId>, ContextHydratationError> {
+) -> Result<BTreeMap<PoolId, PoolVrfs>, ContextHydratationError> {
     debug_span!(ledger::validation_context::pools::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
 
-        let pools = keys.try_fold(BTreeSet::new(), |mut pools, pool_id| {
-            match volatile.resolve_pool(pool_id) {
-                Existence::Gone => {}
+        let pools = keys.try_fold(BTreeMap::new(), |mut pools, pool_id| {
+            let existence = volatile.resolve_pool(pool_id);
 
-                Existence::Exists(()) => {
-                    pools.insert(pool_id);
-                    from_volatile += 1;
-                }
-
-                Existence::Unknown => {
-                    if db.pool(&pool_id).map_err(ContextHydratationError::ResolvePools)?.is_some() {
-                        pools.insert(pool_id);
-                        from_db += 1;
-                    }
-                }
+            if matches!(existence, Existence::Gone) {
+                return Ok(pools);
             }
+
+            let vrfs = volatile.resolve_pool_vrfs(pool_id);
+
+            // The stable row is needed both when it decides existence and when the volatile
+            // window has no verdict on the current key: a pool predating the window, whose
+            // registration is only found in its row.
+            let row = if matches!(existence, Existence::Unknown) || matches!(vrfs.current, Existence::Unknown) {
+                db.pool(&pool_id).map_err(ContextHydratationError::ResolvePools)?
+            } else {
+                None
+            };
+
+            match existence {
+                Existence::Exists(()) => from_volatile += 1,
+                Existence::Unknown if row.is_some() => from_db += 1,
+                // not registered anywhere; a pool possibly registering in this very block
+                Existence::Unknown => return Ok(pools),
+                Existence::Gone => unreachable!("short-circuited above"),
+            }
+
+            let current = match (vrfs.current, &row) {
+                (Existence::Exists(vrf), _) => vrf,
+                (Existence::Unknown, Some(row)) => row.current_params.vrf,
+                (Existence::Unknown, None) | (Existence::Gone, _) => {
+                    unreachable!("pool {pool_id} exists, yet its current parameters are nowhere to be found ?!")
+                }
+            };
+
+            let pending = match vrfs.pending {
+                Existence::Exists(vrf) => Some(vrf),
+                // settled by the pending boundary transition: activated or discarded
+                Existence::Gone => None,
+                Existence::Unknown => {
+                    row.and_then(|row| row.pending_certificates.last_registration().map(|params| params.vrf))
+                }
+            };
+
+            pools.insert(pool_id, PoolVrfs { current, pending });
 
             Ok(pools)
         })?;
@@ -244,6 +285,53 @@ fn resolve_pools(
         span.record("from_db", from_db);
 
         Ok(pools)
+    })
+}
+
+/// The in-use subset of the provided candidate VRF key hashes, layering the volatile window's
+/// occupancy verdicts over the stable counters: a volatile claim or release settles a key, and a
+/// deferred verdict weighs the stable count against the pending boundary decrements it carries.
+fn resolve_vrf_key_hashes(
+    volatile: &impl VolatileState<VrfKeyHash = VrfOccupancy>,
+    db: &impl ReadStore,
+    mut keys: impl Iterator<Item = pools_vrf::Key>,
+) -> Result<BTreeSet<pools_vrf::Key>, ContextHydratationError> {
+    debug_span!(ledger::validation_context::vrf_key_hashes::HYDRATE).in_scope(|| {
+        let mut from_volatile = 0;
+        let mut from_db = 0;
+
+        let in_use = keys.try_fold(BTreeSet::new(), |mut in_use, vrf| {
+            match volatile.resolve_vrf_key_hash(&vrf) {
+                VrfOccupancy::Claimed => {
+                    from_volatile += 1;
+                    in_use.insert(vrf);
+                }
+
+                VrfOccupancy::Released => {
+                    from_volatile += 1;
+                }
+
+                VrfOccupancy::Deferred(decrements) => {
+                    let count = db
+                        .vrf_key_hash(&vrf)
+                        .map_err(ContextHydratationError::ResolveVrfKeyHashes)?
+                        .unwrap_or_default();
+
+                    if count > decrements {
+                        from_db += 1;
+                        in_use.insert(vrf);
+                    }
+                }
+            }
+
+            Ok(in_use)
+        })?;
+
+        let span = tracing::Span::current();
+        span.record("from_volatile", from_volatile);
+        span.record("from_db", from_db);
+
+        Ok(in_use)
     })
 }
 
@@ -535,6 +623,159 @@ pub fn resolve_proposals(
 
 #[cfg(test)]
 mod tests {
+    use std::{iter, sync::Arc};
+
+    use amaru_kernel::{
+        CertificatePointer, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PoolParams, any_certificate_pointer,
+        any_pool_params, utils::tests::run_strategy,
+    };
+    use test_case::test_case;
+
+    use super::*;
+    use crate::{
+        epoch_transition::{GovernanceUpdates, PoolsEpochTransitionUpdates},
+        state::volatile::{AnchoredVolatileFragment, DiffLeftBindExt as _, Empty, VolatileDB, VolatileSequence},
+        store::{self, columns::pools},
+    };
+
+    /// A stable-store stub holding a single pool row and the VRF occupancy counters.
+    #[derive(Default)]
+    struct StubStore {
+        pool: Option<pools::Row>,
+        vrf_counts: BTreeMap<pools_vrf::Key, u64>,
+    }
+
+    impl ReadStore for StubStore {
+        fn pool(&self, _pool: &PoolId) -> store::Result<Option<pools::Row>> {
+            Ok(self.pool.clone())
+        }
+
+        fn vrf_key_hash(&self, vrf: &pools_vrf::Key) -> store::Result<Option<pools_vrf::Value>> {
+            Ok(self.vrf_counts.get(vrf).copied())
+        }
+    }
+
+    fn key(tag: u8) -> pools_vrf::Key {
+        Hash::new([tag; 32])
+    }
+
+    fn tag_of(vrf: pools_vrf::Key) -> u8 {
+        vrf.as_ref()[0]
+    }
+
+    fn pool_id() -> PoolId {
+        Hash::new([1; 28])
+    }
+
+    fn params(vrf_tag: u8) -> PoolParams {
+        PoolParams { id: pool_id(), vrf: key(vrf_tag), ..run_strategy(any_pool_params()) }
+    }
+
+    fn row(current_tag: u8, pending_tag: Option<u8>) -> pools::Row {
+        let mut row =
+            pools::Row::new(run_strategy(any_certificate_pointer(u64::MAX)), 500_000_000, params(current_tag));
+        if let Some(tag) = pending_tag {
+            row.pending_certificates.append(params(tag));
+        }
+        row
+    }
+
+    /// What a block did to `pool_id()`: registered it as a brand-new pool or re-registered it,
+    /// each with the tagged VRF key.
+    #[derive(Clone, Copy)]
+    enum Reg {
+        New(u8),
+        ReReg(u8),
+    }
+
+    fn volatile_with(reg: Option<Reg>) -> VolatileDB {
+        let mut volatile = VolatileDB::default();
+        if let Some(reg) = reg {
+            let mut block = AnchoredVolatileFragment::fixture(10, 1);
+            let tag = match reg {
+                Reg::New(tag) => {
+                    block.fragment.pools_current_vrf.produce(pool_id(), key(tag));
+                    tag
+                }
+                Reg::ReReg(tag) => {
+                    block.fragment.pools_pending_vrf.produce(pool_id(), key(tag));
+                    tag
+                }
+            };
+            block.fragment.pools.register(pool_id(), Arc::new((params(tag), CertificatePointer::default(), 0)));
+            volatile.push_back(block);
+        }
+        volatile
+    }
+
+    #[test_case(None, None => None; "unknown everywhere: the pool does not exist")]
+    #[test_case(None, Some((7, None)) => Some((7, None)); "untouched in the window: both keys come from the row")]
+    #[test_case(None, Some((7, Some(8))) => Some((7, Some(8))); "the row's pending registration surfaces")]
+    #[test_case(Some(Reg::New(7)), None => Some((7, None)); "a brand-new pool resolves without a row")]
+    #[test_case(Some(Reg::ReReg(8)), Some((7, None)) => Some((7, Some(8))); "an in-window re-registration pends over the row")]
+    #[test_case(Some(Reg::ReReg(9)), Some((7, Some(8))) => Some((7, Some(9))); "an in-window re-registration supersedes the row's pending")]
+    fn resolve_pools_layering(reg: Option<Reg>, row_spec: Option<(u8, Option<u8>)>) -> Option<(u8, Option<u8>)> {
+        let volatile = volatile_with(reg);
+        let db = StubStore { pool: row_spec.map(|(current, pending)| row(current, pending)), ..StubStore::default() };
+
+        let pools = resolve_pools(&volatile, &db, iter::once(pool_id())).unwrap();
+
+        pools.get(&pool_id()).map(|vrfs| (tag_of(vrfs.current), vrfs.pending.map(tag_of)))
+    }
+
+    /// What a block did to `key(7)`'s occupancy.
+    #[derive(Clone, Copy)]
+    enum VrfAct {
+        Claim,
+        Release,
+    }
+
+    #[test_case(None, None => false; "an unknown key with no counter is free")]
+    #[test_case(None, Some(1) => true; "a stable counter occupies the key")]
+    #[test_case(Some(VrfAct::Claim), None => true; "a volatile claim occupies the key")]
+    #[test_case(Some(VrfAct::Release), Some(5) => false; "a volatile release shadows the stale counter")]
+    fn resolve_vrf_key_hashes_layering(act: Option<VrfAct>, count: Option<u64>) -> bool {
+        let mut volatile = VolatileDB::default();
+        if let Some(act) = act {
+            let mut block = AnchoredVolatileFragment::fixture(10, 1);
+            match act {
+                VrfAct::Claim => block.fragment.pools_vrf.produce(key(7), Empty),
+                VrfAct::Release => block.fragment.pools_vrf.consume(key(7)),
+            }
+            volatile.push_back(block);
+        }
+        let db =
+            StubStore { vrf_counts: count.map(|count| (key(7), count)).into_iter().collect(), ..StubStore::default() };
+
+        resolve_vrf_key_hashes(&volatile, &db, iter::once(key(7))).unwrap().contains(&key(7))
+    }
+
+    #[test]
+    fn resolve_vrf_key_hashes_weighs_boundary_decrements_against_the_stable_count() {
+        // A pool retiring at the pending boundary transition decrements its key's occupancy: a
+        // count of 1 frees the key, while a grandfathered count of 2 keeps it occupied.
+        let mut volatile = VolatileDB::default();
+        let mut pool = row(7, None);
+        pool.pending_certificates.append(Epoch::from(1));
+        let mut updates = PoolsEpochTransitionUpdates::default();
+        updates.tick_pool(Epoch::from(1), pool);
+        volatile.transition(
+            None,
+            updates,
+            GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()),
+            0,
+            |_| true,
+        );
+
+        let occupied = |count| {
+            let db = StubStore { vrf_counts: BTreeMap::from([(key(7), count)]), ..StubStore::default() };
+            resolve_vrf_key_hashes(&volatile, &db, iter::once(key(7))).unwrap().contains(&key(7))
+        };
+
+        assert!(!occupied(1), "a single decrement frees a count of 1");
+        assert!(occupied(2), "a grandfathered count of 2 stays occupied through one decrement");
+    }
+
     #[cfg(test)]
     mod resolve_committee {
         use std::collections::BTreeMap;
@@ -564,6 +805,8 @@ mod tests {
         impl VolatileState for Mock {
             type TransactionOutput<'a> = ();
             type Pool = ();
+            type PoolVrfs = ();
+            type VrfKeyHash = ();
             type Account<'a> = ();
             type DRep<'a> = ();
             type Proposal = ();

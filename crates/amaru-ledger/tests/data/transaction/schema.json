@@ -189,6 +189,27 @@
       "pattern": "^[0-9a-fA-F]{56}$",
       "description": "Hex-encoded script hash (28 bytes)."
     },
+    "VrfKeyHash": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "Hex-encoded VRF verification key hash (32 bytes)."
+    },
+    "Pool": {
+      "type": "object",
+      "required": ["id", "vrf"],
+      "properties": {
+        "id": { "$ref": "#/$defs/PoolId" },
+        "vrf": {
+          "$ref": "#/$defs/VrfKeyHash",
+          "description": "The pool's current (active) VRF key hash."
+        },
+        "pendingVrf": {
+          "$ref": "#/$defs/VrfKeyHash",
+          "description": "A pending re-registration's not-yet-activated VRF key hash."
+        }
+      },
+      "additionalProperties": false
+    },
     "CertificatePointer": {
       "type": "object",
       "required": ["transaction", "certificateIndex"],
@@ -295,8 +316,10 @@
         },
         "pools": {
           "type": "array",
-          "items": { "$ref": "#/$defs/PoolId" },
-          "description": "Registered stake pools. Empty when no pool state is seeded."
+          "items": {
+            "oneOf": [{ "$ref": "#/$defs/PoolId" }, { "$ref": "#/$defs/Pool" }]
+          },
+          "description": "Registered stake pools, as bare pool key hashes or objects carrying the pool's VRF key hashes. Empty when no pool state is seeded."
         },
         "accounts": {
           "type": "array",

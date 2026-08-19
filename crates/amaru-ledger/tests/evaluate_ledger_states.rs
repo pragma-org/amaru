@@ -15,7 +15,7 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use std::{
-        collections::{BTreeMap, BTreeSet},
+        collections::BTreeMap,
         env, fs,
         io::Write as _,
         path::{Path, PathBuf},
@@ -31,7 +31,7 @@ pub mod tests {
     };
     use amaru_ledger::{
         self,
-        context::{AccountState, DefaultValidationContext, ProposalStateSlim},
+        context::{AccountState, DefaultValidationContext, PoolVrfs, ProposalStateSlim},
         epoch_transition::GovernanceActivity,
         rules::transaction,
         snapshot,
@@ -107,7 +107,7 @@ pub mod tests {
     // Conformance vectors currently carry only UTxO state; the other sections decode as empty.
     struct DecodedLedgerState<'b> {
         utxos: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
-        pools: BTreeSet<PoolId>,
+        pools: BTreeMap<PoolId, PoolVrfs>,
         accounts: BTreeMap<StakeCredential, Account>,
         dreps: BTreeMap<StakeCredential, DRepState>,
         cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
@@ -137,14 +137,15 @@ pub mod tests {
         let cc_members = d.decode()?;
         let dormant_epochs: Epoch = d.decode()?;
 
-        // PState: [stake pools, future pools, retiring, deposits]. Only pool existence matters here.
+        // PState: [stake pools, future pools, retiring, deposits]. Only pool existence and the
+        // current VRF key matter here; vectors carry no future pools, so nothing is pending.
         let pools = {
             let len = d.array()?;
             let params: BTreeMap<PoolId, PoolParams> = d.decode()?;
             for _ in 1..len.unwrap_or(0) {
                 d.skip()?;
             }
-            params.into_keys().collect()
+            params.into_iter().map(|(id, params)| (id, PoolVrfs { current: params.vrf, pending: None })).collect()
         };
 
         // DState: [unified map, future gen delegs, gen delegs, instantaneous rewards]. The unified map
@@ -312,9 +313,12 @@ pub mod tests {
 
         let proposals_roots = snapshot::proposals_roots(root_params, root_hard_fork, root_cc, root_constitution);
 
+        let vrf_key_hashes_in_use = decoded.pools.values().map(|vrfs| vrfs.current).collect();
+
         let mut validation_context = DefaultValidationContext::new(
             decoded.utxos,
             decoded.pools,
+            vrf_key_hashes_in_use,
             accounts,
             dreps,
             committee,

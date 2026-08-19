@@ -40,7 +40,7 @@ use crate::{
     state::volatile::{DiffEpochReg, Resettable},
     store::{
         self, Store, StoreError, TransactionalContext,
-        columns::{accounts, proposals},
+        columns::{accounts, pools_vrf, proposals},
     },
 };
 
@@ -114,6 +114,7 @@ struct InitialSnapshot {
     pools: BTreeMap<PoolId, PoolParams>,
     pools_updates: BTreeMap<PoolId, PoolParams>,
     pools_retirements: BTreeMap<PoolId, Epoch>,
+    pool_vrf_key_hashes: PoolVrfKeyHashes,
     accounts: BTreeMap<StakeCredential, Account>,
     fees: i64,
     proposals_roots: ProposalsRoots,
@@ -250,7 +251,7 @@ fn decode_initial_snapshot(
         },
     )?;
 
-    let (pools, pools_updates, pools_retirements) =
+    let (pools, pools_updates, pools_retirements, pool_vrf_key_hashes) =
         decode_node_pool_state(&mut cbor::Decoder::new(&raw_pool_state), network, protocol_parameters.protocol_version)
             .map_err(format_pool_state_decode_error)?;
 
@@ -345,6 +346,7 @@ fn decode_initial_snapshot(
         pools,
         pools_updates,
         pools_retirements,
+        pool_vrf_key_hashes,
         accounts,
         fees,
         proposals_roots,
@@ -388,6 +390,7 @@ pub fn import_initial_snapshot(
         pools,
         pools_updates,
         pools_retirements,
+        pool_vrf_key_hashes,
         accounts,
         fees,
         proposals_roots,
@@ -409,7 +412,7 @@ pub fn import_initial_snapshot(
 
     import_block_issuers(db, point, era_history, block_issuers)?;
 
-    import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements)
+    import_stake_pools(db, point, era_history, pools, pools_updates, pools_retirements, pool_vrf_key_hashes)
         .map_err(|err| format!("import pool state: {err}"))?;
 
     import_proposals_roots(db, &proposals_roots)?;
@@ -743,6 +746,7 @@ fn import_stake_pools(
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
+    vrf_key_hashes: PoolVrfKeyHashes,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut state = DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
@@ -757,7 +761,12 @@ fn import_stake_pools(
         state.unregister(pool, epoch);
     }
 
-    info!(bootstrap::stake_pools::IMPORT, registered = state.registered.len(), retiring = state.unregistered.len());
+    info!(
+        bootstrap::stake_pools::IMPORT,
+        registered = state.registered.len(),
+        retiring = state.unregistered.len(),
+        vrf_key_hashes = vrf_key_hashes.len(),
+    );
 
     let transaction = db.create_transaction();
     transaction.with_pools(|iterator| {
@@ -801,6 +810,12 @@ fn import_stake_pools(
         },
         iter::empty(),
     )?;
+    transaction.commit()?;
+
+    // Must come after the pool rows: saving a registration claims its VRF key hash with a set-to-1,
+    // flattening any snapshot count above one.
+    let transaction = db.create_transaction();
+    transaction.import_vrf_key_hashes(&vrf_key_hashes)?;
     Ok(transaction.commit()?)
 }
 
@@ -1170,15 +1185,20 @@ impl<'d, C: HasProtocolVersion> cbor::decode::Decode<'d, C> for GovActionState {
     }
 }
 
+/// Current pool parameters, pending re-registrations, scheduled retirements, VRF key hash counts.
+type NodePoolState =
+    (BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>, PoolVrfKeyHashes);
+
+type PoolVrfKeyHashes = BTreeMap<pools_vrf::Key, pools_vrf::Value>;
+
 pub fn decode_node_pool_state(
     d: &mut cbor::Decoder<'_>,
     network: NetworkName,
     protocol_version: ProtocolVersion,
-) -> Result<(BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, PoolParams>, BTreeMap<PoolId, Epoch>), cbor::decode::Error>
-{
+) -> Result<NodePoolState, cbor::decode::Error> {
     d.array()?;
 
-    let _pool_vrf_key_hashes: BTreeMap<Hash<{ size::VRF_KEY }>, u64> =
+    let pool_vrf_key_hashes: PoolVrfKeyHashes =
         d.decode().map_err(|err| contextualize_decode_error("node pool vrf key hashes", err))?;
     let pools = decode_node_pool_map(d, network, protocol_version, "node pools", |d, (network, protocol_version)| {
         let params: NodePoolStateParams = d.decode_with(&mut (*network, *protocol_version))?;
@@ -1196,6 +1216,7 @@ pub fn decode_node_pool_state(
         pools.into_iter().map(|(id, params)| (id, params.into_pool_params(id))).collect(),
         pools_updates.into_iter().map(|(id, params)| (id, params.into_pool_params(id))).collect(),
         pools_retirements,
+        pool_vrf_key_hashes,
     ))
 }
 

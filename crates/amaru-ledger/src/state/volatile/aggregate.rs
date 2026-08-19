@@ -24,7 +24,11 @@ use amaru_kernel::{
 
 use crate::{
     context::{ProposalState, ProposalStateSlim},
-    state::volatile::{AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, VolatileFragment},
+    state::volatile::{
+        AccountBind, CommitteeMemberBind, DRepBind, DiffSet, Empty, Existence, IndexedSet, VolatileFragment,
+        VolatilePoolVrfs, left_verdict,
+    },
+    store::columns::pools_vrf,
 };
 
 mod indexed_bind;
@@ -56,6 +60,22 @@ type Committee = IndexedBind<StakeCredential, ConstitutionalCommitteeMemberStatu
 /// When cleaning up fragments, we can simply decrement and remove once we reach 0.
 type Pools = IndexedEpochReg<PoolId>;
 
+/// The window's per-pool *current* VRF keys: an entry exists only for pools whose current
+/// parameters were established in-window, i.e. brand-new registrations. See [`IndexedSet`].
+type PoolsCurrentVrf = IndexedSet<PoolId, pools_vrf::Key>;
+
+/// The window's per-pool *pending* VRF keys: an entry exists for pools re-registered in-window,
+/// whose new parameters only activate at the next epoch boundary. A pool may re-register
+/// repeatedly, so the per-key history in [`IndexedSet`] is what keeps stabilization exact.
+type PoolsPendingVrf = IndexedSet<PoolId, pools_vrf::Key>;
+
+/// The window's VRF key hash occupancy, indexed per key so each one's per-fragment history is
+/// retracted exactly on stabilization. Within a single epoch every change is a set-to-1 claim or a
+/// release. But, unlike pool existence, occupancy is not monotonic-additive:
+/// a re-registration *releases* the pending key it supersedes, so a key may be
+/// claimed and released repeatedly within the window. See [`IndexedSet`].
+type VrfKeyHashes = IndexedSet<pools_vrf::Key, Empty>;
+
 /// A collapse/folded sequence of `crate::volatile::VolatileFragment` which can be cleaned up
 /// incrementally.
 #[derive(Debug, Default)]
@@ -63,6 +83,9 @@ type Pools = IndexedEpochReg<PoolId>;
 pub struct VolatileAggregate {
     utxo: DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>>,
     pools: Pools,
+    pools_current_vrf: PoolsCurrentVrf,
+    pools_pending_vrf: PoolsPendingVrf,
+    pools_vrf: VrfKeyHashes,
     accounts: Accounts,
     dreps: DReps,
     committee: Committee,
@@ -94,6 +117,22 @@ impl VolatileAggregate {
     /// do *not* affect existence: a pool stays live until it is actually retired at the epoch boundary.
     pub fn resolve_pool(&self, pool_id: PoolId) -> bool {
         self.pools.get(&pool_id)
+    }
+
+    /// This aggregate's verdict on a pool's VRF keys, each per the newest fragment that touched
+    /// it: `current` is established by a brand-new registration, `pending` by a re-registration;
+    /// `Unknown` defers to the stable row.
+    pub fn resolve_pool_vrfs(&self, pool_id: PoolId) -> VolatilePoolVrfs {
+        VolatilePoolVrfs {
+            current: left_verdict(self.pools_current_vrf.get(&pool_id)),
+            pending: left_verdict(self.pools_pending_vrf.get(&pool_id)),
+        }
+    }
+
+    /// This aggregate's verdict on a VRF key hash's occupancy: claimed (`Exists`), released
+    /// (`Gone`), or untouched (`Unknown`), per the newest fragment that touched it.
+    pub fn resolve_vrf_key_hash(&self, vrf: &pools_vrf::Key) -> Existence<()> {
+        left_verdict(self.pools_vrf.get(vrf)).map(|_| ())
     }
 
     /// This aggregate's verdict on a stake account, folding the credential's per-fragment
@@ -134,6 +173,9 @@ impl VolatileAggregate {
         let VolatileFragment {
             utxo,
             pools,
+            pools_current_vrf,
+            pools_pending_vrf,
+            pools_vrf,
             withdrawals,
             proposals,
             fees,
@@ -147,6 +189,9 @@ impl VolatileAggregate {
 
         self.utxo.extend(utxo);
         self.pools.extend(pools);
+        self.pools_current_vrf.extend(pools_current_vrf);
+        self.pools_pending_vrf.extend(pools_pending_vrf);
+        self.pools_vrf.extend(pools_vrf);
         self.withdrawals.extend(withdrawals.iter().cloned());
         self.proposals.extend(proposals.clone());
         self.dreps.extend_with(dreps, |bind| bind.map_left(|_| Empty));
@@ -170,6 +215,12 @@ impl VolatileAggregate {
     /// - `utxo`: utxos, by definition, are unique, so cleaning up specific UTxOs can never overwrite older state.
     /// - `pools`: existence is monotonic-additive, a registration counts up and retirement is
     ///   deferred to the epoch boundary, so retracting just decrements the count this fragment added.
+    /// - `pools_current_vrf`, `pools_pending_vrf`: per-key history like `committee`. A pool may
+    ///   re-register repeatedly within the window, each time overwriting its pending key, and only
+    ///   its ordered verdicts make retracting the front exact.
+    /// - `pools_vrf`: per-key history like `committee`. Occupancy is *not* monotonic-additive the way
+    ///   pool existence is, so a key may be claimed and released repeatedly within the window, and
+    ///   only its ordered verdicts make retracting the front exact.
     /// - `accounts`, `dreps`: each credential keeps its own per-fragment history, so retracting
     ///   pops only the front of that credential's deque and a later re-registration or bind-only
     ///   update is left intact. This is what the collapse above would lose.
@@ -195,6 +246,9 @@ impl VolatileAggregate {
             dreps,
             dreps_deregistrations: _,
             pools,
+            pools_current_vrf,
+            pools_pending_vrf,
+            pools_vrf,
             votes: _,
         } = fragment;
 
@@ -203,6 +257,21 @@ impl VolatileAggregate {
         assert!(
             self.pools.remove(pools),
             "removed a fragment touching onr or more key(s) abstent from the pool aggregate ?!"
+        );
+
+        assert!(
+            self.pools_current_vrf.remove(pools_current_vrf),
+            "removed a fragment touching one or more key(s) absent from the pool current vrf aggregate ?!"
+        );
+
+        assert!(
+            self.pools_pending_vrf.remove(pools_pending_vrf),
+            "removed a fragment touching one or more key(s) absent from the pool pending vrf aggregate ?!"
+        );
+
+        assert!(
+            self.pools_vrf.remove(pools_vrf),
+            "removed a fragment touching one or more key(s) absent from the vrf key hash aggregate ?!"
         );
 
         self.committee.remove(committee);

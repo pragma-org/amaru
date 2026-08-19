@@ -18,7 +18,7 @@ use std::{
 };
 
 use amaru_kernel::{
-    AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Hash, Lovelace, PoolId, ProposalId,
+    AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Hash, Lovelace, ProposalId,
     ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind, size::SCRIPT,
 };
 use amaru_observability::{debug, debug_span};
@@ -26,8 +26,8 @@ use num::BigUint;
 use tracing::Span;
 
 use crate::{
-    epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, Rewards},
-    store::{StoreError, TransactionalContext, columns::pools::Row as Pool},
+    epoch_transition::{Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards},
+    store::{StoreError, TransactionalContext},
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -166,40 +166,21 @@ pub fn pay_or_refund_accounts<'store, 'iter>(
     })
 }
 
-/// Update pool parameters now valid at an epoch boundary, and retire pools that have reached their
-/// retirement epoch.
+/// Update pool parameters now valid at an epoch boundary, and retire pools that have reached
+/// their retirement epoch, applying the VRF key hash occupancy changes they imply.
 pub fn update_or_retire_pools<'store>(
     db: &impl TransactionalContext<'store>,
-    updates: &BTreeMap<PoolId, Pool>,
-    retirements: &BTreeSet<PoolId>,
+    pools_updates: &PoolsEpochTransitionUpdates,
 ) -> Result<(), StoreError> {
     debug_span!(
         stores::ledger::overlay::UPDATE_OR_RETIRE_POOLS,
-        pools_updated = updates.len() as u64,
-        pools_retired = retirements.len() as u64,
+        pools_updated = pools_updates.updated().len() as u64,
+        pools_retired = pools_updates.retired().len() as u64,
     )
     .in_scope(|| {
-        // TODO: multi-modify without full iterations?
-        //
-        // This quite inefficient, as we have to iterate through ALL pools just to possibly update a
-        // few. It is reasonable to assume that the number of updates is vastly smaller to the total
-        // number of pools. I don't feel like modifying the store handle to do that now, though...
-        //
-        // Given that the total number of pools is limited anyway; this is "acceptable".
-        db.with_pools(|iterator| {
-            // Note that we don't trace anything here since traces already happen in the
-            // epoch_transition::pools_update module; when those updates are first computed.
-            //
-            // We only clone the handful of pool rows that actually changed this epoch, so the flush
-            // can borrow the (potentially recovery-shared) updates rather than consuming them.
-            for (id, mut row) in iterator {
-                if retirements.contains(&id) {
-                    *row.borrow_mut() = None;
-                } else if let Some(pool) = updates.get(&id) {
-                    *row.borrow_mut() = Some(pool.clone())
-                }
-            }
-        })
+        // Note that we don't trace anything here since traces already happen in the
+        // epoch_transition::pools_update module; when those updates are first computed.
+        db.update_or_retire_pools(pools_updates)
     })
 }
 

@@ -492,6 +492,8 @@ normalizePoolFailure = \case
         "StakePoolRetirementWrongEpochPOOL"
     StakePoolCostTooLowPOOL{} ->
         "StakePoolCostTooLowPOOL"
+    VRFKeyHashAlreadyRegistered{} ->
+        "VRFKeyHashAlreadyRegistered"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
