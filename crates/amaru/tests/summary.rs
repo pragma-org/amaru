@@ -107,7 +107,8 @@ fn compare_stake_distribution_with_haskell_node(
 }
 
 #[test]
-// NOTE: To see the output of this test, pass `--no-capture` to the test runner.
+#[ignore]
+// NOTE: To see the output of this test, pass `--ignored` and `--no-capture` to the test runner.
 fn measure_new_snapshot_summary_memory() -> Result<(), Box<dyn std::error::Error>> {
     let network = env::var(env_vars::NETWORK)
         .ok()

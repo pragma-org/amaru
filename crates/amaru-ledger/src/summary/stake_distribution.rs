@@ -149,9 +149,7 @@ impl StakeSummary {
             })
             .collect::<BTreeMap<PoolId, PoolState>>();
 
-        let capacities = Capacity::get_or_init(db);
-        let mut key_accounts = SortedPairs::with_capacity(capacities.keys);
-        let mut script_accounts = SortedPairs::with_capacity(capacities.scripts);
+        let mut accounts = Vec::with_capacity(Capacity::get_or_init(db));
 
         for (credential, row) in db.iter_accounts()? {
             let state = AccountState {
@@ -169,27 +167,25 @@ impl StakeSummary {
                     }
                 }),
             };
-            // NOTE: discrepancy between Ord and serialised ordering
-            //
-            // Weirdly enough, the variants of a StakeCredential comes with the script hash first,
-            // and then the key hash. However, they are serialised the other away around (key
-            // variant comes with tag index 0, whereas script is 1).
-            //
-            // RocksDB yields data in ascending order of the serialised key. So if we want to keep
-            // the ordering here, we have to accumulate them separately, and then concatenate the
-            // two arrays.
-            match credential {
-                StakeCredential::AddrKeyhash(..) => &mut key_accounts,
-                StakeCredential::ScriptHash(..) => &mut script_accounts,
-            }
-            .push(credential, state)
+
+            accounts.push((credential, state));
         }
 
-        Capacity::update(key_accounts.len(), script_accounts.len());
-
-        let mut accounts = script_accounts.append(key_accounts);
+        // NOTE: discrepancy between Ord and serialised ordering
+        //
+        // Weirdly enough, the variants of a StakeCredential comes with the script hash first,
+        // and then the key hash. However, they are serialised the other away around (key
+        // variant comes with tag index 0, whereas script is 1).
+        //
+        // RocksDB yields data in ascending order of the serialised key; so we append them in
+        // db-order, and turn them into a sorted vector afterwards by sorting in-place.
+        //
+        // This trick allows to allocate only a single vector with minimal overhead.
+        let mut accounts = SortedPairs::from(accounts);
 
         let accounts_len = accounts.len();
+        Capacity::update(accounts_len);
+
         let total_work = network.estimated_utxo_size().saturating_add(accounts_len.saturating_mul(2)).max(1);
         let progress_after_accounts = (accounts_len as f64 / total_work as f64).clamp(0.0, 1.0);
         notify(progress_after_accounts);
@@ -358,49 +354,34 @@ impl serde::Serialize for StakeSummary {
     }
 }
 
-/// A type to inform of the ideal capacity for scripts and keys accounts in rewards.
+/// A type to inform of the ideal capacity for accounts in rewards.
 #[derive(Debug, Default, Clone, Copy)]
-struct Capacity<T> {
-    keys: T,
-    scripts: T,
-}
+struct Capacity<T>(T);
 
 static CAPACITY: OnceLock<Capacity<AtomicUsize>> = OnceLock::new();
 
 impl Capacity<usize> {
     /// Record updated lengths as hints for the next query
-    fn update(keys: usize, scripts: usize) {
+    fn update(len: usize) {
         if let Some(capacity) = OnceLock::get(&CAPACITY) {
-            capacity.keys.store(keys, atomic::Ordering::Relaxed);
-            capacity.scripts.store(scripts, atomic::Ordering::Relaxed);
+            capacity.0.store(len, atomic::Ordering::Relaxed);
         }
     }
 
-    /// Get the value of the current capacities, or resolve it once from the database.
+    /// Get the value of the current capacity, or resolve it once from the database.
     #[expect(clippy::panic)]
-    fn get_or_init(db: &impl Snapshot) -> Self {
+    fn get_or_init(db: &impl Snapshot) -> usize {
         let base_capacity = CAPACITY.get_or_init(|| {
-            let mut keys = 0;
-            let mut scripts = 0;
-
-            for (credential, _) in
-                db.iter_accounts().unwrap_or_else(|e| panic!("unable to initialize accounts capacities: {e}"))
-            {
-                match credential {
-                    StakeCredential::AddrKeyhash(..) => keys += 1,
-                    StakeCredential::ScriptHash(..) => scripts += 1,
-                }
-            }
-
-            Capacity { keys: AtomicUsize::new(keys), scripts: AtomicUsize::new(scripts) }
+            Capacity(AtomicUsize::new(
+                db.iter_accounts().unwrap_or_else(|e| panic!("unable to initialize accounts capacities: {e}")).count(),
+            ))
         });
 
-        let keys = base_capacity.keys.load(atomic::Ordering::Relaxed);
-        let scripts = base_capacity.scripts.load(atomic::Ordering::Relaxed);
+        let len = base_capacity.0.load(atomic::Ordering::Relaxed);
 
         // We always return a little more than what's needed to cope with new accounts
         // registrations and with unclaimed rewards.
-        Capacity { keys: keys + keys / 10, scripts: scripts + scripts / 10 }
+        len + len / 10
     }
 }
 
