@@ -21,10 +21,12 @@
 //! Console, JSON, and OTEL log/trace layers are the same CBOR-aware formatters
 //! as the product binary (`CborConsoleEventFormat`, `CborJsonEventFormat`,
 //! `CborTraceArrayLayer`, `CborOtelLogBridge`) so schema `record_bytes` fields
-//! decode to numbers and strings where the sink can hold them. The product
-//! stack in `amaru::observability` still adds TUI capture, a local metrics
-//! observer, ANSI colour, throttled OTEL filters, service instance id, dual
-//! `AMARU_LOG` / `AMARU_TRACE` filters, and delayed filter warnings.
+//! decode to numbers and strings where the sink can hold them. Local console
+//! colour is selected with [`LogFormat`] (`Plain` / `Ansi` / `Json` — JSON is
+//! exclusive with colour). The product stack in `amaru::observability` still
+//! adds TUI capture, a local metrics observer, throttled OTEL filters, service
+//! instance id, dual `AMARU_LOG` / `AMARU_TRACE` filters, and delayed filter
+//! warnings.
 //!
 //! [`Telemetry::install`] and [`Telemetry::shutdown`] are `async` so they must
 //! be driven on a Tokio runtime (`rt.block_on(...)` or `.await` inside an async
@@ -60,6 +62,32 @@ use crate::{
 const DEFAULT_SERVICE_NAME: &str = "amaru";
 const DEFAULT_AMARU_TRACE: &str = "info";
 
+/// How the local tracing subscriber writes events.
+///
+/// JSON is exclusive with console colour: [`Self::Json`] emits NDJSON on stdout,
+/// while [`Self::Plain`] and [`Self::Ansi`] write compact human-readable lines
+/// on stderr.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogFormat {
+    /// Compact console on stderr, no ANSI colour.
+    #[default]
+    Plain,
+    /// Compact console on stderr with ANSI colour.
+    Ansi,
+    /// JSON log lines on stdout (trace-contract / machine consumers).
+    Json,
+}
+
+impl LogFormat {
+    fn is_json(self) -> bool {
+        matches!(self, Self::Json)
+    }
+
+    fn ansi(self) -> bool {
+        matches!(self, Self::Ansi)
+    }
+}
+
 /// Active telemetry pipeline for an embedder process.
 pub struct Telemetry {
     pub meter: Arc<Meter>,
@@ -73,8 +101,8 @@ impl Telemetry {
     /// Environment:
     /// - `AMARU_WITH_OPEN_TELEMETRY` — when truthy (`1`/`true`/`yes`/`on`), export
     ///   metrics, traces, and logs via OTLP (see `OTEL_EXPORTER_OTLP_ENDPOINT`).
-    /// - `AMARU_WITH_JSON_TRACES` — when truthy, emit JSON log lines on stdout
-    ///   (used by trace-contract checks).
+    /// - `AMARU_WITH_JSON_TRACES` — when truthy, forces [`LogFormat::Json`]
+    ///   regardless of `format` (used by trace-contract checks).
     /// - `AMARU_TRACE` — filter for Amaru event targets (default `info`).
     /// - `RUST_LOG` — optional extra filter for non-schema logging.
     /// - `OTEL_SERVICE_NAME` — resource service name (default `amaru`).
@@ -83,23 +111,27 @@ impl Telemetry {
     /// layer only and a default empty [`Meter`].
     ///
     /// Must be polled on a Tokio runtime (OTLP batch exporters spawn on it).
-    pub async fn install() -> anyhow::Result<Self> {
+    pub async fn install(format: LogFormat) -> anyhow::Result<Self> {
         let with_otlp = env_flag("AMARU_WITH_OPEN_TELEMETRY");
-        let with_json = env_flag("AMARU_WITH_JSON_TRACES");
+        let format = if env_flag("AMARU_WITH_JSON_TRACES") { LogFormat::Json } else { format };
 
         // Yield once so this future is clearly runtime-bound; batch exporters
         // also require a current runtime handle when constructed below.
         tokio::task::yield_now().await;
 
-        if with_otlp { Self::install_otlp(with_json) } else { Self::install_local(with_json) }
+        if with_otlp { Self::install_otlp(format) } else { Self::install_local(format) }
     }
 
-    fn install_local(with_json: bool) -> anyhow::Result<Self> {
-        init_fmt_subscriber(with_json)?;
+    /// Install a local fmt / JSON subscriber without OTLP export.
+    ///
+    /// [`LogFormat::Ansi`] colours stderr; [`LogFormat::Json`] is exclusive with
+    /// colour and writes NDJSON to stdout.
+    pub fn install_local(format: LogFormat) -> anyhow::Result<Self> {
+        init_fmt_subscriber(format)?;
         Ok(Self { meter: Arc::new(Meter::default()), system_metrics: None, teardown: None })
     }
 
-    fn install_otlp(with_json: bool) -> anyhow::Result<Self> {
+    fn install_otlp(format: LogFormat) -> anyhow::Result<Self> {
         let resource = build_resource();
         let service_name = resource
             .get(&opentelemetry::Key::from_static_str(SERVICE_NAME))
@@ -142,7 +174,7 @@ impl Telemetry {
         let log_bridge = CborOtelLogBridge::new(&logs_provider).with_filter(amaru_trace_filter()?);
 
         let fmt_filter = rust_log_filter();
-        if with_json {
+        if format.is_json() {
             tracing_subscriber::registry()
                 .with(otel_layer)
                 .with(CborTraceArrayLayer::new())
@@ -156,7 +188,7 @@ impl Telemetry {
                 .with(otel_layer)
                 .with(CborTraceArrayLayer::new())
                 .with(log_bridge)
-                .with(console_fmt_layer(std::io::stderr).with_filter(fmt_filter))
+                .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(fmt_filter))
                 .try_init()
                 .context("init OTLP+fmt tracing subscriber")?;
         }
@@ -206,9 +238,9 @@ impl Drop for Telemetry {
     }
 }
 
-fn init_fmt_subscriber(with_json: bool) -> anyhow::Result<()> {
+fn init_fmt_subscriber(format: LogFormat) -> anyhow::Result<()> {
     let filter = rust_log_filter();
-    if with_json {
+    if format.is_json() {
         tracing_subscriber::registry()
             .with(CborJsonSpanLayer::new())
             .with(json_fmt_layer(std::io::stdout).with_filter(filter))
@@ -216,7 +248,7 @@ fn init_fmt_subscriber(with_json: bool) -> anyhow::Result<()> {
             .map_err(|e| anyhow!("init JSON tracing subscriber: {e}"))?;
     } else {
         tracing_subscriber::registry()
-            .with(console_fmt_layer(std::io::stderr).with_filter(filter))
+            .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(filter))
             .try_init()
             .map_err(|e| anyhow!("init fmt tracing subscriber: {e}"))?;
     }
@@ -225,16 +257,16 @@ fn init_fmt_subscriber(with_json: bool) -> anyhow::Result<()> {
 
 /// Console sink used by [`Telemetry::install`]: decode CBOR `record_bytes` to
 /// native visit types and hide schema tags (EDR-033).
-fn console_fmt_layer<S, W>(writer: W) -> impl Layer<S>
+fn console_fmt_layer<S, W>(writer: W, ansi: bool) -> impl Layer<S>
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
     tracing_subscriber::fmt::layer()
         .with_writer(writer)
-        .with_ansi(false)
+        .with_ansi(ansi)
         .fmt_fields(console_field_formatter())
-        .event_format(CborConsoleEventFormat::new().with_ansi(false))
+        .event_format(CborConsoleEventFormat::new().with_ansi(ansi))
 }
 
 /// JSON sink used by [`Telemetry::install`]: CBOR scalars become JSON numbers /
@@ -372,7 +404,7 @@ mod tests {
     #[test]
     fn console_stack_decodes_cbor_schema_fields_to_primitives() {
         let writer = CaptureWriter::default();
-        let subscriber = tracing_subscriber::registry().with(console_fmt_layer(writer.clone()));
+        let subscriber = tracing_subscriber::registry().with(console_fmt_layer(writer.clone(), false));
 
         tracing::subscriber::with_default(subscriber, emit_tip_adopt);
 
@@ -388,5 +420,18 @@ mod tests {
             !output.contains(&format!(r#"header_hash="\"{hash}\"""#)),
             "header_hash must not be diagnostic-quoted then Debug-quoted: {output}"
         );
+        assert!(!output.contains('\u{1b}'), "plain console must not emit ANSI: {output}");
+    }
+
+    #[test]
+    fn console_stack_emits_ansi_when_enabled() {
+        let writer = CaptureWriter::default();
+        let subscriber = tracing_subscriber::registry().with(console_fmt_layer(writer.clone(), true));
+
+        tracing::subscriber::with_default(subscriber, emit_tip_adopt);
+
+        let output = writer.contents();
+        assert!(output.contains('\u{1b}'), "ANSI console must emit SGR escapes: {output}");
+        assert!(output.contains(&SLOT.to_string()), "CBOR Slot must still print as a number: {output}");
     }
 }

@@ -43,16 +43,15 @@ use std::{
 
 use amaru_kernel::{Address, HasLovelace, MemoizedTransactionOutput, NetworkName, TransactionInput};
 use amaru_ledger::store::ReadStore;
-use amaru_node::{LedgerBlockEvent, LedgerObservers, NodeBuilder, UtxoDiff, default_chain_dir, default_ledger_dir};
+use amaru_node::{
+    LedgerBlockEvent, LedgerObservers, LogFormat, NodeBuilder, Telemetry, UtxoDiff, default_chain_dir,
+    default_ledger_dir,
+};
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use anyhow::Context;
-use tracing_subscriber::EnvFilter;
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with_writer(std::io::stderr)
-        .init();
+    Telemetry::install_local(LogFormat::Ansi)?;
 
     let args = Args::parse(env::args().skip(1))?;
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_name("amaru-address-watch").build()?;
@@ -131,17 +130,22 @@ impl AddressPortfolio {
 
     fn report(&self, address: &Address) -> String {
         let mut lines = Vec::with_capacity(self.live.len() + 2);
-        lines.push(format!("ADDRESS_CHANGE {address}"));
+        lines.push(format!("\x1b[31mADDRESS_CHANGE\x1b[0m \x1b[33m{address}\x1b[0m"));
         let balance = self.balance();
         let ada = balance / 1_000_000;
         let lovelace = balance % 1_000_000;
-        lines.push(format!("  balance: {}.{:06} lovelace  utxos: {}", ada, lovelace, self.live.len()));
+        lines.push(format!(
+            "  balance: \x1b[34m{}.{:06}₳\x1b[0m  utxos: \x1b[34m{}\x1b[0m",
+            ada,
+            lovelace,
+            self.live.len()
+        ));
         // Stable print order for humans.
-        let mut entries: Vec<_> = self.live.iter().collect();
-        entries.sort_by_key(|(input, _)| *input);
-        for (input, output) in entries {
-            lines.push(format!("    {input}: {:?}", output));
-        }
+        // let mut entries: Vec<_> = self.live.iter().collect();
+        // entries.sort_by_key(|(input, _)| *input);
+        // for (input, output) in entries {
+        //     lines.push(format!("    {input}: {:?}", output));
+        // }
         lines.join("\n")
     }
 }
