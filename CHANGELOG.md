@@ -35,7 +35,10 @@ Other guiding principles:
   ```
 -->
 
-## v10.11.20260820 _[unreleased; planned for 2026-08-20]_
+
+## v10.11.20260827 _[unreleased; planned for 2026-08-27]_
+
+## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 
 ### Added
 
@@ -71,7 +74,7 @@ Other guiding principles:
 - **amaru**: detect local snapshots for bootstrap when they exists.
 - **amaru**: resolution of recently unregistered accounts during bootstrap, later triggering a "rewards discrepancy" invariant.
 
-## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
+## v10.11.20260813 _[unreleased]_
 
 ### Added
 
