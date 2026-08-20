@@ -1282,6 +1282,19 @@ define_schemas! {
                     /// Write treasury/reserve/fees pots
                     public PUT {}
                 }
+                vrf_keys {
+                    /// Read VRF key counter from the store
+                    public GET {}
+                    /// Set/Reset a VRF key counter
+                    public SET {}
+                    /// Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero
+                    public DECREMENT {
+                        optional vrf: amaru_kernel::Hash<32>
+                        optional by: u64
+                        optional stored: u64
+                        optional error: String
+                    }
+                }
                 snapshots {
                     /// Validate sufficient snapshots exist
                     public VALIDATE {

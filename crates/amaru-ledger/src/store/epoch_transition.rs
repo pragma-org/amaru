@@ -19,7 +19,8 @@ use std::{
 
 use amaru_kernel::{
     AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Hash, Lovelace, PoolId, ProposalId,
-    ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind, size::SCRIPT,
+    ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind,
+    size::{SCRIPT, VRF_KEY},
 };
 use amaru_observability::{debug, debug_span};
 use num::BigUint;
@@ -179,6 +180,8 @@ pub fn update_or_retire_pools<'store>(
         pools_retired = retirements.len() as u64,
     )
     .in_scope(|| {
+        let mut decrement: BTreeMap<Hash<VRF_KEY>, u64> = BTreeMap::new();
+
         // TODO: multi-modify without full iterations?
         //
         // This quite inefficient, as we have to iterate through ALL pools just to possibly update a
@@ -194,12 +197,34 @@ pub fn update_or_retire_pools<'store>(
             // can borrow the (potentially recovery-shared) updates rather than consuming them.
             for (id, mut row) in iterator {
                 if retirements.contains(&id) {
+                    if let Some(pool) = row.borrow() {
+                        decrement
+                            .entry(pool.current_params.vrf)
+                            .and_modify(|count| *count = count.saturating_add(1))
+                            .or_insert(1);
+                    }
                     *row.borrow_mut() = None;
-                } else if let Some(pool) = updates.get(&id) {
-                    *row.borrow_mut() = Some(pool.clone())
+                } else if let Some(new_pool) = updates.get(&id) {
+                    if let Some(old_pool) = row.borrow()
+                        && old_pool.current_params.vrf != new_pool.current_params.vrf
+                    {
+                        // NOTE: clearing VRF on re-registration
+                        //
+                        // A VRF counter entirely overwritten (and forgotten) when a pool
+                        // re-register with a new VRF. Even if that counter was greater than 1. This
+                        // is a known bug in the original implementation that we reproduce.
+                        decrement.insert(old_pool.current_params.vrf, u64::MAX);
+                    }
+                    *row.borrow_mut() = Some(new_pool.clone())
                 }
             }
-        })
+        })?;
+
+        for (key, count) in decrement.into_iter() {
+            db.decrement_vrf(key, count)?;
+        }
+
+        Ok(())
     })
 }
 

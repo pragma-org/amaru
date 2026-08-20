@@ -21,10 +21,11 @@ use std::{
 
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, PoolSlim, Proposal, ProposalId,
+    ProposalPointer, ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote,
+    Voter,
     cardano::value::Balance,
-    size::{DATUM, KEY, SCRIPT},
+    size::{DATUM, KEY, SCRIPT, VRF_KEY},
 };
 use thiserror::Error;
 
@@ -187,11 +188,22 @@ pub trait PrepareUtxoSlice<'a> {
 // Pools
 // ------------------------------------------------------------------------------------------------
 
+#[derive(Debug, thiserror::Error)]
+pub enum PoolRegisterError {
+    #[error("pool vrf key (hash={0}) is already registered")]
+    VrfKeyAlreadyRegistered(Hash<VRF_KEY>),
+}
+
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
-    fn exists(&self, pool: PoolId) -> bool;
+    fn lookup(&self, pool: PoolId) -> Option<PoolSlim>;
 
-    fn register(&mut self, params: PoolParams, pointer: CertificatePointer, deposit: Lovelace);
+    fn register(
+        &mut self,
+        params: PoolParams,
+        pointer: CertificatePointer,
+        deposit: Lovelace,
+    ) -> Result<(), PoolRegisterError>;
 
     fn retire(&mut self, pool: PoolId, epoch: Epoch) -> Result<(), UnregisterError<PoolId, PoolId>>;
 }

@@ -23,8 +23,8 @@ use thiserror::Error;
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        RegisterError, UnregisterError, UpdateError, WitnessSlice,
+        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError,
+        PoolRegisterError, PoolsSlice, RegisterError, UnregisterError, UpdateError, WitnessSlice,
     },
     epoch_transition::GovernanceActivity,
 };
@@ -66,6 +66,9 @@ pub enum InvalidCertificates {
 
     #[error("pool retirement epoch out of range: epoch {epoch}, must satisfy {current_epoch} < epoch <= {max_epoch}")]
     PoolRetirementWrongEpoch { epoch: Epoch, current_epoch: Epoch, max_epoch: Epoch },
+
+    #[error("invalid pool registration: {0}")]
+    InvalidPoolRegistration(#[source] PoolRegisterError),
 
     #[error("unknown pool: {0}")]
     StakePoolUnknown(#[from] UnregisterError<PoolId, PoolId>),
@@ -189,9 +192,10 @@ where
             }
 
             // TODO: Have `register` return this information
-            let is_new_pool = !context.exists(*id);
+            let is_new_pool = PoolsSlice::lookup(context, *id).is_none();
 
-            PoolsSlice::register(context, *params, pointer, protocol_parameters.stake_pool_deposit);
+            PoolsSlice::register(context, *params, pointer, protocol_parameters.stake_pool_deposit)
+                .map_err(InvalidCertificates::InvalidPoolRegistration)?;
 
             if is_new_pool {
                 context.produce_lovelace(protocol_parameters.stake_pool_deposit);
@@ -458,7 +462,7 @@ where
             // TODO: Have tests covering local state changes in certificate accounting
             //
             // See note below.
-            if !local_pools_slice.contains(&params.id) && !context.exists(params.id) {
+            if !local_pools_slice.contains(&params.id) && PoolsSlice::lookup(context, params.id).is_none() {
                 local_pools_slice.insert(params.id);
                 protocol_parameters.stake_pool_deposit as i64
             } else {
