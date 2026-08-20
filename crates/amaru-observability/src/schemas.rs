@@ -1142,6 +1142,13 @@ define_schemas! {
                         /// Reserves depletion from incentives; always negative.
                         optional reserves_delta: i64
                     }
+                    account {
+                        /// An account supposed to receive rewards is gone
+                        GONE {
+                            required rewards: amaru_kernel::Lovelace
+                            required account: amaru_kernel::StakeCredential
+                        }
+                    }
                     /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
                     /// distribution calculations.
                     public RECORD_PRUNED_PROPOSALS {}

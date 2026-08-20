@@ -21,7 +21,7 @@ use amaru_kernel::{
     AsHash, ConstitutionalCommitteeStatus, ConstitutionalCommitteeUpdate, Hash, Lovelace, PoolId, ProposalId,
     ProtocolParameters, RatificationStatus, RationalNumber, StakeCredential, StakeCredentialKind, size::SCRIPT,
 };
-use amaru_observability::{debug, debug_span};
+use amaru_observability::{debug, debug_span, error};
 use num::BigUint;
 use tracing::Span;
 
@@ -48,7 +48,6 @@ pub fn pay_rewards<'store>(
 
             for (credential, mut row) in iterator {
                 let rewards = effective_rewards.reward_of(&credential);
-
                 if rewards > 0 {
                     // The condition avoids the mutable borrow when not needed,
                     // which will incur a db operation.
@@ -56,6 +55,12 @@ pub fn pay_rewards<'store>(
                         accounts_paid += 1;
                         rewards_paid += rewards;
                         account.rewards += rewards;
+                    } else {
+                        error!(
+                            stores::ledger::overlay::account::GONE,
+                            rewards = rewards,
+                            account = credential,
+                        );
                     }
                 }
             }

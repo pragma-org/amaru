@@ -15,7 +15,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
-    iter, mem,
+    iter,
     rc::Rc,
     sync::LazyLock,
 };
@@ -129,8 +129,12 @@ struct InitialSnapshot {
     delta_fees: i64,
 }
 
+/// Accounts present in the map with no deposit which we pre-filled with the protocol parameters'
+/// deposit. They are stashed away when importing accounts because we only know about the protocol
+/// parameters later on.
 struct ImportedAccounts {
-    credentials: Vec<StakeCredential>,
+    account_len: usize,
+    recently_unregistered_accounts: BTreeSet<StakeCredential>,
     awaiting_default_deposit: Vec<(StakeCredential, NodeAccount)>,
 }
 
@@ -150,38 +154,6 @@ fn save_bootstrap_account_batches(
         db.save_bootstrap_accounts(batch.into_iter())?;
         on_batch(size);
     }
-}
-
-fn decode_mark_snapshot(
-    decoder: &mut LazyDecoder<'_>,
-    registered_accounts: Vec<StakeCredential>,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
-) -> Result<usize, Box<dyn std::error::Error>> {
-    decoder.begin_array()?;
-
-    let len = decoder.stream_map(
-        |d| {
-            let credential = d.decode()?;
-            d.skip()?;
-            Ok(credential)
-        },
-        |_| 0_usize,
-        |total_len, credentials| {
-            *total_len += credentials.len();
-
-            for credential in credentials {
-                if registered_accounts.binary_search(&credential).is_err() {
-                    recently_unregistered_accounts.insert(credential);
-                }
-            }
-
-            Ok(())
-        },
-    )?;
-
-    decoder.skip()?;
-
-    Ok(len)
 }
 
 fn skip_stake_snapshot_lazy(decoder: &mut LazyDecoder<'_>) -> Result<(), Box<dyn std::error::Error>> {
@@ -234,7 +206,7 @@ fn import_accounts(
     db: &impl Store,
     point: &Point,
     network: NetworkName,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    mut recently_unregistered_accounts: BTreeSet<StakeCredential>,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
 ) -> Result<ImportedAccounts, Box<dyn std::error::Error>> {
     if db.iter_accounts()?.next().is_some() {
@@ -243,7 +215,7 @@ fn import_accounts(
 
     decoder.begin_array()?;
 
-    let (progress, credentials, awaiting_default_deposit) = decoder.stream_map(
+    let (progress, size, awaiting_default_deposit) = decoder.stream_map(
         |d| Ok((d.decode::<StakeCredential>()?, d.decode::<NodeAccount>()?)),
         |length| {
             let estimated_size = length.map(|size| size as usize).unwrap_or(match network {
@@ -257,16 +229,20 @@ fn import_accounts(
                     estimated_size,
                     "{spinner:.green} Importing accounts {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
                 ),
-                Vec::with_capacity(estimated_size),
+                0,
                 Vec::new(),
             )
         },
-        |(progress, credentials, awaiting_default_deposit), entries| {
+        |(progress, size, awaiting_default_deposit), entries| {
             progress.tick(entries.len());
-            credentials.extend(entries.iter().map(|(credential, _)| *credential));
 
-            let (awaiting, ready): (Vec<_>, Vec<_>) =
-                entries.into_iter().partition(|(_, account)| account.deposit == 0);
+            *size += entries.len();
+
+            let (awaiting, ready): (Vec<_>, Vec<_>) = entries.into_iter().partition(|(credential, account)| {
+                recently_unregistered_accounts.remove(credential);
+                account.deposit == 0
+            });
+
             awaiting_default_deposit.extend(awaiting);
 
             let ready = ready.into_iter().map(|(credential, account)| (credential, account.into_row(point, None)));
@@ -277,16 +253,42 @@ fn import_accounts(
 
     progress.clear();
 
-    info!(bootstrap::accounts::IMPORT, size = credentials.len());
+    info!(bootstrap::accounts::IMPORT, size = size);
 
-    with_progress(0, "{spinner:.green} Retaining recently unregistred accounts");
+    Ok(ImportedAccounts { awaiting_default_deposit, recently_unregistered_accounts, account_len: size })
+}
 
-    // Prune the recently unregistered set from account we saw, which indicates they have re-registered.
+fn import_recently_unregistered_accounts(
+    db: &impl Store,
+    point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    recently_unregistered_accounts: BTreeSet<StakeCredential>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !recently_unregistered_accounts.is_empty() {
-        recently_unregistered_accounts.retain(|credential| credentials.binary_search(credential).is_err());
+        db.with_transaction(|transaction| {
+            transaction.save(
+                era_history,
+                protocol_parameters,
+                None,
+                point,
+                None,
+                Default::default(),
+                store::Columns {
+                    utxo: iter::empty(),
+                    pools: iter::empty(),
+                    accounts: recently_unregistered_accounts.into_iter(),
+                    dreps: iter::empty(),
+                    cc_members: iter::empty(),
+                    proposals: iter::empty(),
+                    votes: iter::empty(),
+                },
+                iter::empty(),
+            )
+        })?;
     }
 
-    Ok(ImportedAccounts { credentials, awaiting_default_deposit })
+    Ok(())
 }
 
 fn import_default_account_deposits(
@@ -294,21 +296,19 @@ fn import_default_account_deposits(
     point: &Point,
     default_deposit: Lovelace,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-    accounts: &mut ImportedAccounts,
+    mut accounts: Vec<(StakeCredential, NodeAccount)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if accounts.awaiting_default_deposit.is_empty() {
+    if accounts.is_empty() {
         return Ok(());
     }
 
     let progress = with_progress(
-        accounts.awaiting_default_deposit.len(),
+        accounts.len(),
         "{spinner:.green} Adjusting default account deposits {bar:40.green} [{pos:>7}/{len:7}] ({eta} remaining)",
     );
 
-    let awaiting = accounts
-        .awaiting_default_deposit
-        .drain(..)
-        .map(|(credential, account)| (credential, account.into_row(point, Some(default_deposit))));
+    let awaiting =
+        accounts.drain(..).map(|(credential, account)| (credential, account.into_row(point, Some(default_deposit))));
 
     save_bootstrap_account_batches(db, awaiting, |size| progress.tick(size))?;
 
@@ -322,13 +322,15 @@ fn import_default_account_deposits(
 ///
 /// Account rows are persisted in bounded batches while decoding; all other snapshot state stays
 /// in memory until the payload has been validated.
+#[expect(clippy::too_many_arguments)]
 fn decode_initial_snapshot(
     decoder: &mut LazyDecoder<'_>,
     db: &impl Store,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<StakeCredential>,
     point: &Point,
     expected_epoch: Epoch,
     network: NetworkName,
+    era_history: &EraHistory,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
 ) -> Result<InitialSnapshot, Box<dyn std::error::Error>> {
     let epoch: Epoch = decoder.with_decoder(|d| decode_initial_snapshot_prefix(d, expected_epoch))?;
@@ -368,8 +370,9 @@ fn decode_initial_snapshot(
     })?;
     pool_state_progress.clear();
 
-    let mut accounts = import_accounts(decoder, db, point, network, recently_unregistered_accounts, with_progress)
-        .map_err(|err| format!("decode accounts: {err}"))?;
+    let ImportedAccounts { recently_unregistered_accounts, awaiting_default_deposit, account_len } =
+        import_accounts(decoder, db, point, network, previous_accounts, with_progress)
+            .map_err(|err| format!("decode accounts: {err}"))?;
 
     let remaining_state_progress = with_progress(0, "{spinner:.green} Reading remaining ledger state");
 
@@ -418,7 +421,7 @@ fn decode_initial_snapshot(
         point,
         protocol_parameters.stake_credential_deposit,
         with_progress,
-        &mut accounts,
+        awaiting_default_deposit,
     )?;
 
     let (pools, pools_updates, pools_retirements) =
@@ -457,11 +460,9 @@ fn decode_initial_snapshot(
 
     // Epoch State / Snapshots
     decoder.begin_array()?;
-    let rewards_size =
-        decode_mark_snapshot(decoder, mem::take(&mut accounts.credentials), recently_unregistered_accounts)?;
+    skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Mark
     skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Set
     skip_stake_snapshot_lazy(decoder)?; // Epoch State / Snapshots / Go
-    remaining_state_progress.clear();
     decoder.skip()?; // Epoch State / Snapshots / Fee
     decoder.skip()?; // Epoch State / NonMyopic
 
@@ -486,10 +487,12 @@ fn decode_initial_snapshot(
         })
         .map_err(|err| format!("decode rewards update: {err}"))?;
 
+    remaining_state_progress.clear();
+
     let (delta_treasury, delta_reserves, unclaimed_rewards, delta_fees) = if is_complete {
         let delta_treasury: i64 = decoder.decode()?;
         let delta_reserves: i64 = decoder.decode()?;
-        let unclaimed_rewards = import_rewards(decoder, db, rewards_size, with_progress)?;
+        let unclaimed_rewards = import_rewards(decoder, db, account_len, with_progress)?;
         let delta_fees: i64 = decoder.decode()?;
         decoder.skip()?;
         (delta_treasury, delta_reserves, unclaimed_rewards, delta_fees)
@@ -500,6 +503,14 @@ fn decode_initial_snapshot(
 
     decoder.skip()?; // Pool distribution
     decoder.skip()?; // Stashed AVVM addresses
+
+    import_recently_unregistered_accounts(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        recently_unregistered_accounts,
+    )?;
 
     Ok(InitialSnapshot {
         epoch,
@@ -533,7 +544,7 @@ fn decode_initial_snapshot(
 pub fn import_initial_snapshot(
     db: &impl Store,
     reader: &mut dyn Read,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<StakeCredential>,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
@@ -543,7 +554,7 @@ pub fn import_initial_snapshot(
     import_initial_snapshot_with_decoder(
         db,
         &mut decoder,
-        recently_unregistered_accounts,
+        previous_accounts,
         point,
         era_history,
         network,
@@ -557,7 +568,7 @@ pub fn import_initial_snapshot(
 pub fn import_initial_snapshot_with_decoder(
     db: &impl Store,
     decoder: &mut LazyDecoder<'_>,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<StakeCredential>,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
@@ -593,10 +604,11 @@ pub fn import_initial_snapshot_with_decoder(
     } = decode_initial_snapshot(
         decoder,
         db,
-        recently_unregistered_accounts,
+        previous_accounts,
         point,
         expected_epoch,
         network,
+        era_history,
         &with_progress,
     )?;
 
@@ -614,14 +626,6 @@ pub fn import_initial_snapshot_with_decoder(
     import_recently_pruned_proposals(db, era_history, epoch, &proposals_roots, enacted_proposals, expired_proposals)?;
 
     import_votes(db, point, era_history, &protocol_parameters, proposals)?;
-
-    import_recently_unregistered_accounts(
-        db,
-        point,
-        era_history,
-        &protocol_parameters,
-        recently_unregistered_accounts,
-    )?;
 
     import_pots(
         db,
@@ -996,39 +1000,6 @@ fn import_pots(db: &impl Store, pots: Pots) -> Result<(), Box<dyn std::error::Er
     transaction.commit()?;
     let Pots { treasury, reserves, fees, donations } = pots;
     info!(bootstrap::pots::IMPORT, treasury, reserves, fees, donations);
-    Ok(())
-}
-
-fn import_recently_unregistered_accounts(
-    db: &impl Store,
-    point: &Point,
-    era_history: &EraHistory,
-    protocol_parameters: &ProtocolParameters,
-    recently_unregistered_accounts: &BTreeSet<StakeCredential>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if !recently_unregistered_accounts.is_empty() {
-        db.with_transaction(|transaction| {
-            transaction.save(
-                era_history,
-                protocol_parameters,
-                None,
-                point,
-                None,
-                Default::default(),
-                store::Columns {
-                    utxo: iter::empty(),
-                    pools: iter::empty(),
-                    accounts: recently_unregistered_accounts.iter().cloned(),
-                    dreps: iter::empty(),
-                    cc_members: iter::empty(),
-                    proposals: iter::empty(),
-                    votes: iter::empty(),
-                },
-                iter::empty(),
-            )
-        })?;
-    }
-
     Ok(())
 }
 

@@ -26,11 +26,11 @@ use amaru_kernel::{
     RawBlock, Slot, StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub,
     utils::string::display_collection,
 };
-use amaru_ledger::store::{EpochTransitionProgress, Store, TransactionalContext};
+use amaru_ledger::store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext};
 use amaru_observability::{error, info};
 use amaru_ouroboros::{BaseReadChainStore, ChainStore, Nonces, OpcertSequenceNumbers, WriteChainStore};
-use amaru_progress_bar::TerminalProgressBar;
-use amaru_stores::rocksdb::{RocksDB, RocksDbConfig, consensus::RocksDBStore};
+use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDB, RocksDbConfig, consensus::RocksDBStore};
 use anyhow::anyhow;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::NextResponse};
 use serde::{Deserialize, Serialize};
@@ -458,10 +458,7 @@ pub async fn bootstrap(
     let third_snapshot_path = resolve_snapshot_path(&snapshots_dir, third_snapshot)
         .ok_or_else(|| BootstrapError::MissingSnapshot(snapshot_archive_path(&snapshots_dir, third_snapshot)))?;
 
-    let mut recently_unregistered_accounts = BTreeSet::new();
-
-    import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir, &mut recently_unregistered_accounts)
-        .await?;
+    import_snapshot(network, global_parameters, &first_snapshot_path, &ledger_dir).await?;
 
     // Extract nonces for the second snapshot tip as well: packaged bootstrap headers must enter
     // the chain store already carrying nonces so that "nonces present ⇔ header validated" holds
@@ -472,7 +469,6 @@ pub async fn bootstrap(
         &second_snapshot_path,
         &ledger_dir,
         Some(snapshot_hash(first_snapshot)?),
-        &mut recently_unregistered_accounts,
     )
     .await?;
 
@@ -482,7 +478,6 @@ pub async fn bootstrap(
         &third_snapshot_path,
         &ledger_dir,
         Some(snapshot_hash(second_snapshot)?),
-        &mut recently_unregistered_accounts,
     )
     .await?;
 
@@ -662,9 +657,8 @@ pub async fn import_snapshots(
     ledger_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(bootstrap::snapshots::IMPORT, count = snapshots.len());
-    let mut recently_unregistered_accounts: BTreeSet<StakeCredential> = BTreeSet::new();
     for snapshot in snapshots {
-        import_snapshot(network, global_parameters, snapshot, ledger_dir, &mut recently_unregistered_accounts).await?;
+        import_snapshot(network, global_parameters, snapshot, ledger_dir).await?;
     }
     Ok(())
 }
@@ -685,17 +679,8 @@ async fn import_snapshot(
     global_parameters: &GlobalParameters,
     snapshot: &Path,
     ledger_dir: &Path,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    import_snapshot_with_optional_nonces(
-        network,
-        global_parameters,
-        snapshot,
-        ledger_dir,
-        None,
-        recently_unregistered_accounts,
-    )
-    .await?;
+    import_snapshot_with_optional_nonces(network, global_parameters, snapshot, ledger_dir, None).await?;
     Ok(())
 }
 
@@ -705,18 +690,9 @@ async fn import_snapshot_with_optional_nonces(
     snapshot: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     if snapshot.is_file() && has_snapshot_archive_extension(snapshot) {
-        return import_node_snapshot_archive(
-            network,
-            global_parameters,
-            snapshot,
-            ledger_dir,
-            nonce_tail,
-            recently_unregistered_accounts,
-        )
-        .await;
+        return import_node_snapshot_archive(network, global_parameters, snapshot, ledger_dir, nonce_tail).await;
     }
 
     Err(Box::new(ImportError::UnsupportedSnapshotPath(snapshot.to_path_buf())))
@@ -728,19 +704,9 @@ async fn import_node_snapshot_archive(
     snapshot_archive: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     info!(bootstrap::snapshot::IMPORT_ARCHIVE, path = %snapshot_archive.display());
-
-    import_node_snapshot_source(
-        network,
-        global_parameters,
-        snapshot_archive,
-        ledger_dir,
-        nonce_tail,
-        recently_unregistered_accounts,
-    )
-    .await
+    import_node_snapshot_source(network, global_parameters, snapshot_archive, ledger_dir, nonce_tail).await
 }
 
 #[expect(clippy::unwrap_used)]
@@ -750,21 +716,34 @@ async fn import_node_snapshot_source(
     archive_path: &Path,
     ledger_dir: &Path,
     nonce_tail: Option<HeaderHash>,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
 ) -> Result<ImportedSnapshot, Box<dyn std::error::Error>> {
     fs::create_dir_all(ledger_dir)?;
 
-    if fs::exists(ledger_dir.join("live"))? {
+    let previous_accounts = if fs::exists(ledger_dir.join("live"))? {
+        let progress = TerminalProgressBar::new(0_u64, "{spinner:.green} Loading previous accounts");
+
+        let live = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
+        let previous_accounts = live
+            .iter_accounts()?
+            .map(|(credential, _)| credential)
+            .chain(live.iter_recently_unregistered_accounts()?)
+            .collect();
+
         fs::remove_dir_all(ledger_dir.join("live"))?;
-    }
+
+        progress.clear();
+
+        previous_accounts
+    } else {
+        BTreeSet::new()
+    };
 
     let db = RocksDB::empty(&RocksDbConfig::new(ledger_dir.to_path_buf()))?;
     let global_parameters = global_parameters.clone();
     let archive_path = archive_path.to_path_buf();
     let builder = std::thread::Builder::new().stack_size(10_000_000);
-    let mut accounts = recently_unregistered_accounts.clone();
 
-    let (db, epoch, chain_state, accounts) = builder
+    let (db, epoch, chain_state) = builder
         .spawn(move || {
             import_node_snapshot_archive_data(
                 &archive_path,
@@ -772,16 +751,14 @@ async fn import_node_snapshot_source(
                 network,
                 &global_parameters,
                 nonce_tail,
-                &mut accounts,
+                previous_accounts,
             )
             .map_err(|e| e.to_string())
-            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state, accounts))
+            .map(|(epoch, _point, chain_state)| (db, epoch, chain_state))
         })
         .unwrap()
         .join()
         .unwrap()?;
-
-    *recently_unregistered_accounts = accounts;
 
     db.next_snapshot(epoch)?;
 
@@ -796,11 +773,13 @@ fn import_node_snapshot_archive_data(
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
-    accounts: &mut BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<StakeCredential>,
 ) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn Error>> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
+
     let mut imported_state = None;
+    let mut previous_accounts: Option<BTreeSet<StakeCredential>> = Some(previous_accounts);
 
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -813,7 +792,9 @@ fn import_node_snapshot_archive_data(
                 network,
                 global_parameters,
                 nonce_tail,
-                accounts,
+                previous_accounts.take().ok_or_else(|| -> Box<dyn Error> {
+                    format!("multiple {SNAPSHOT_STATE_FILE_NAME} in archive {}?", archive_path.display()).into()
+                })?,
                 |size, template| TerminalProgressBar::new(size as u64, template).boxed(),
             )?);
         } else if snapshot_archive_entry_matches(&path, Path::new(SNAPSHOT_UTXO_FILE_NAME)) {
