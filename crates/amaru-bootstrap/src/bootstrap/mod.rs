@@ -141,12 +141,24 @@ async fn bootstrap_snapshots(
         try_push(&mut snapshots, s3_snap.point.to_string(), s3_snap.key.to_string())?;
     }
 
-    for dir_entry in snapshots_dir.read_dir()? {
-        let path = dir_entry?.path();
-        let filename = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
-        if let Some(prefix) = filename.strip_suffix(Snapshot::ARCHIVE_SUFFIX) {
-            try_push(&mut snapshots, prefix.to_string(), format!("{network}/{prefix}{}", Snapshot::ARCHIVE_SUFFIX))?;
+    match snapshots_dir.read_dir() {
+        Ok(entries) => {
+            for dir_entry in entries {
+                let path = dir_entry?.path();
+                let filename = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
+                if let Some(prefix) = filename.strip_suffix(Snapshot::ARCHIVE_SUFFIX) {
+                    try_push(
+                        &mut snapshots,
+                        prefix.to_string(),
+                        format!("{network}/{prefix}{}", Snapshot::ARCHIVE_SUFFIX),
+                    )?;
+                }
+            }
         }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            // If there is no directory already created, we should not fail
+        }
+        Err(err) => return Err(err.into()),
     }
 
     snapshots.sort_unstable_by_key(|snapshot| snapshot.epoch);
