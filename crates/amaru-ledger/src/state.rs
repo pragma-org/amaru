@@ -50,7 +50,8 @@ use crate::{
     },
     startup::{Database as StartupDatabase, StartupHook},
     state::volatile::{
-        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
+        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileState,
+        VolatileView,
     },
     store::{HistoricalStores, ReadStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::{

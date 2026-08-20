@@ -84,6 +84,12 @@ impl Default for VolatileDB {
 }
 
 impl VolatileState for VolatileDB {
+    // ------------------------------------------------------------------------- ProtocolParameters
+    /// The protocol parameters carried by an in-flight epoch transition, if any.
+    fn protocol_parameters(&self) -> &ProtocolParameters {
+        self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
+    }
+
     // --------------------------------------------------------------------------------------- UTxOs
     type TransactionOutput<'a> = Existence<&'a MemoizedTransactionOutput>;
     fn resolve_input<'a>(&'a self, input: &TransactionInput) -> Self::TransactionOutput<'a> {
@@ -277,11 +283,6 @@ impl VolatileDB {
     /// value if available.
     pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
         self.overlay.most_recent_snapshot(snapshots)
-    }
-
-    /// The protocol parameters carried by an in-flight epoch transition, if any.
-    pub fn protocol_parameters(&self) -> &ProtocolParameters {
-        self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
     }
 
     /// Obtain the protocol parameters for a specific epoch; which can either be the *current* epoch

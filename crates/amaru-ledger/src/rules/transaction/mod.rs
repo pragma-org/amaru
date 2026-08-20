@@ -71,6 +71,7 @@ mod tests {
             fixture.initial_state.proposals,
             fixture.initial_state.proposals_roots,
             fixture.initial_state.pots.treasury,
+            protocol_parameters.protocol_version,
         );
 
         let arena_pool = ArenaPool::new(1, 1_024_000);

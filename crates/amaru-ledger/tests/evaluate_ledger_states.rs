@@ -328,6 +328,7 @@ pub mod tests {
             proposals,
             proposals_roots,
             decoded.treasury,
+            protocol_parameters.protocol_version,
         );
 
         let arena_pool = ArenaPool::new(1, 1_024_000);

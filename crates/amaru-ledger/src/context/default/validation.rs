@@ -22,9 +22,10 @@ use std::{
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch,
     GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
-    PoolParams, PoolSlim, ProposalId, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote,
-    Voter,
+    PoolParams, PoolSlim, ProposalId, ProposalsRoots, ProtocolVersion, RequiredScript, StakeCredential,
+    TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
+    protocol_version::PROTOCOL_VERSION_11,
     size::{DATUM, KEY, SCRIPT, VRF_KEY},
 };
 
@@ -57,6 +58,7 @@ pub struct DefaultValidationContext {
     required_supplemental_datums: BTreeSet<Hash<DATUM>>,
     required_bootstrap_roots: BTreeSet<Hash<28>>,
     balance: Balance,
+    protocol_version: ProtocolVersion,
 }
 
 impl DefaultValidationContext {
@@ -71,6 +73,7 @@ impl DefaultValidationContext {
         proposals: BTreeMap<ProposalId, ProposalStateSlim>,
         proposals_roots: ProposalsRoots,
         treasury: Lovelace,
+        protocol_version: ProtocolVersion,
     ) -> Self {
         Self {
             utxo,
@@ -82,6 +85,7 @@ impl DefaultValidationContext {
             proposals,
             proposals_roots,
             treasury,
+            protocol_version,
             ..Self::default()
         }
     }
@@ -146,36 +150,36 @@ impl PoolsSlice for DefaultValidationContext {
         pointer: CertificatePointer,
         deposit: Lovelace,
     ) -> Result<(), PoolRegisterError> {
-        let pool = PoolsSlice::lookup(self, params.id);
+        if self.protocol_version >= PROTOCOL_VERSION_11 {
+            let pool = PoolsSlice::lookup(self, params.id);
 
-        // FIXME: Gate VRF checks and manipulations with protocol version.
+            let is_new_vrf = pool.is_none_or(|latest| latest.vrf != params.vrf);
+            if is_new_vrf && self.vrf_keys.get(&params.vrf).is_some_and(|count| *count > 0) {
+                return Err(PoolRegisterError::VrfKeyAlreadyRegistered(params.vrf));
+            }
 
-        let is_new_vrf = pool.is_none_or(|latest| latest.vrf != params.vrf);
-        if is_new_vrf && self.vrf_keys.get(&params.vrf).is_some_and(|count| *count > 0) {
-            return Err(PoolRegisterError::VrfKeyAlreadyRegistered(params.vrf));
-        }
-
-        // NOTE: Overwriting existing counters
-        //
-        // These lines can overwrite existing VRF counters greater than one, and drop still-required
-        // counters. Issues exists mostly for pools with conflicting VRF that pre-dates the Van
-        // Rossem hard fork.
-        //
-        // - If one of such pool is now re-registering with the same VRF. The counter resets to 1,
-        //   irrespective of its value.
-        //
-        // - If the pool had any pending registrations, then the counter associated to the previous
-        //   VRF is removed entirely, irrespective of its value.
-        //
-        // It is a known buggy behaviour that we have to reproduce.
-        if let Some(latest) = pool {
-            // Only change the counter if the pool has pending updates.
-            if latest.has_pending_updates && latest.vrf != params.vrf {
-                self.vrf_keys.remove(&latest.vrf);
+            // NOTE: Overwriting existing counters
+            //
+            // These lines can overwrite existing VRF counters greater than one, and drop still-required
+            // counters. Issues exists mostly for pools with conflicting VRF that pre-dates the Van
+            // Rossem hard fork.
+            //
+            // - If one of such pool is now re-registering with the same VRF. The counter resets to 1,
+            //   irrespective of its value.
+            //
+            // - If the pool had any pending registrations, then the counter associated to the previous
+            //   VRF is removed entirely, irrespective of its value.
+            //
+            // It is a known buggy behaviour that we have to reproduce.
+            if let Some(latest) = pool {
+                // Only change the counter if the pool has pending updates.
+                if latest.has_pending_updates && latest.vrf != params.vrf {
+                    self.vrf_keys.remove(&latest.vrf);
+                    self.vrf_keys.insert(params.vrf, 1);
+                }
+            } else {
                 self.vrf_keys.insert(params.vrf, 1);
             }
-        } else {
-            self.vrf_keys.insert(params.vrf, 1);
         }
 
         self.state.pools.register(params.id, Arc::new((params, pointer, deposit)));

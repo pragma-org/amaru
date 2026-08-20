@@ -66,6 +66,7 @@ Other guiding principles:
 - **amaru-node**: `Telemetry` (used by `run_until`) now uses the product CBOR-aware tracing layers so structured log properties decode to numbers and strings instead of diagnostic byte strings.
 - **amaru**: more homogenous traces fields representations across peers, connection id and hashes.
 - **amaru**: detect local snapshots for bootstrap when they exists.
+- **amaru**: implement duplicate VRF check from Van Rossem / v11.
 
 ## v10.11.20260813 _[unreleased; planned for 2026-08-13]_
 
