@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
     let index = Arc::new(Mutex::new(AddressIndex::bootstrap(&args.ledger_dir, args.addresses.iter().cloned())?));
 
     {
-        let index = index.lock().expect("address index lock");
+        let mut index = index.lock().expect("address index lock");
         for report in index.reports_for_all() {
             println!("{report}");
         }
@@ -112,15 +112,34 @@ fn main() -> anyhow::Result<()> {
 // Address index
 // -------------------------------------------------------------------------------------------------
 
+const RESET: &str = "\x1b[0m";
+const BOLD: &str = "\x1b[1m";
+const DIM: &str = "\x1b[2m";
+const BLUE: &str = "\x1b[34m";
+const YELLOW: &str = "\x1b[33m";
+const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
+
+fn ada(lovelace: u64) -> String {
+    format!("{}.{:06}₳", lovelace / 1_000_000, lovelace % 1_000_000)
+}
+
+fn signed_ada(delta: i64) -> String {
+    let abs = delta.unsigned_abs();
+    format!("{}{}.{:06}₳", if delta < 0 { "-" } else { "+" }, abs / 1_000_000, abs % 1_000_000)
+}
+
 /// UTxOs for one watched address.
 ///
 /// - `live`: currently unspent outputs (keyed by their out-ref).
 /// - `spent`: once-live outputs that were spent on the current tip path, kept so
 ///   undos can restore them when DiffSet only supplies the consumed input.
+/// - `last_reported_balance`: last printed live balance, for the signed Δ.
 #[derive(Debug, Default)]
 struct AddressPortfolio {
     live: HashMap<TransactionInput, Arc<MemoizedTransactionOutput>>,
     spent: HashMap<TransactionInput, Arc<MemoizedTransactionOutput>>,
+    last_reported_balance: Option<u64>,
 }
 
 impl AddressPortfolio {
@@ -128,25 +147,25 @@ impl AddressPortfolio {
         self.live.values().map(|output| output.lovelace()).sum()
     }
 
-    fn report(&self, address: &Address) -> String {
-        let mut lines = Vec::with_capacity(self.live.len() + 2);
-        lines.push(format!("\x1b[31mADDRESS_CHANGE\x1b[0m \x1b[33m{address}\x1b[0m"));
+    fn report(&mut self, address: &Address) -> String {
         let balance = self.balance();
-        let ada = balance / 1_000_000;
-        let lovelace = balance % 1_000_000;
-        lines.push(format!(
-            "  balance: \x1b[34m{}.{:06}₳\x1b[0m  utxos: \x1b[34m{}\x1b[0m",
-            ada,
-            lovelace,
-            self.live.len()
-        ));
-        // Stable print order for humans.
-        // let mut entries: Vec<_> = self.live.iter().collect();
-        // entries.sort_by_key(|(input, _)| *input);
-        // for (input, output) in entries {
-        //     lines.push(format!("    {input}: {:?}", output));
-        // }
-        lines.join("\n")
+        let delta = self.last_reported_balance.map(|prev| balance as i64 - prev as i64);
+        self.last_reported_balance = Some(balance);
+
+        let mut line = format!("  balance: {BLUE}{}{RESET}", ada(balance));
+        if let Some(delta) = delta {
+            let color = if delta < 0 {
+                RED
+            } else if delta > 0 {
+                GREEN
+            } else {
+                DIM
+            };
+            line.push_str(&format!("  {BOLD}{color}{}{RESET}", signed_ada(delta)));
+        }
+        line.push_str(&format!("  utxos: {}", self.live.len()));
+
+        format!("{YELLOW}ADDRESS_CHANGE{RESET} {DIM}{address}{RESET}\n{line}")
     }
 }
 
@@ -228,15 +247,15 @@ impl AddressIndex {
         changed
     }
 
-    fn report(&self, address: &Address) -> String {
+    fn report(&mut self, address: &Address) -> String {
         self.portfolios
-            .get(address)
+            .get_mut(address)
             .map(|p| p.report(address))
-            .unwrap_or_else(|| format!("ADDRESS_CHANGE {address}\n  (unknown address)"))
+            .unwrap_or_else(|| format!("{BOLD}ADDRESS_CHANGE{RESET} {DIM}{address}{RESET}\n  (unknown address)"))
     }
 
-    fn reports_for_all(&self) -> impl Iterator<Item = String> + '_ {
-        self.portfolios.iter().map(|(address, portfolio)| portfolio.report(address))
+    fn reports_for_all(&mut self) -> impl Iterator<Item = String> + '_ {
+        self.portfolios.iter_mut().map(|(address, portfolio)| portfolio.report(address))
     }
 
     // -- mutations ------------------------------------------------------------
