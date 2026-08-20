@@ -24,10 +24,10 @@ pub mod tests {
 
     use amaru_kernel::{
         Account, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus,
-        DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
+        Credential, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
         PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalSlim,
-        ProposalState as NewEpochProposalState, ProtocolParameters, Slot, StakeCredential, Transaction,
-        TransactionInput, TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
+        ProposalState as NewEpochProposalState, ProtocolParameters, Slot, Transaction, TransactionInput,
+        TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
     };
     use amaru_ledger::{
         self,
@@ -108,9 +108,9 @@ pub mod tests {
     struct DecodedLedgerState<'b> {
         utxos: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
         pools: BTreeSet<PoolId>,
-        accounts: BTreeMap<StakeCredential, Account>,
-        dreps: BTreeMap<StakeCredential, DRepState>,
-        cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
+        accounts: BTreeMap<Credential, Account>,
+        dreps: BTreeMap<Credential, DRepState>,
+        cc_members: BTreeMap<Credential, ConstitutionalCommitteeMemberStatus>,
         cc_state: Option<ConstitutionalCommittee>,
         proposals: Vec<NewEpochProposalState>,
         roots: [Option<ProposalId>; 4],
@@ -159,7 +159,7 @@ pub mod tests {
         let accounts = {
             let len = d.array()?;
             let _umap_len = d.array()?;
-            let accounts: BTreeMap<StakeCredential, Account> = d.decode()?;
+            let accounts: BTreeMap<Credential, Account> = d.decode()?;
             d.skip()?; // pointers
             for _ in 1..len.unwrap_or(0) {
                 d.skip()?;
@@ -282,7 +282,7 @@ pub mod tests {
 
         let point = Point::Origin;
 
-        let accounts: BTreeMap<StakeCredential, AccountState> = decoded
+        let accounts: BTreeMap<Credential, AccountState> = decoded
             .accounts
             .into_iter()
             // Pulsing reward updates aren't decoded, so the balance is the settled rewards only.
@@ -291,7 +291,7 @@ pub mod tests {
             })
             .collect();
 
-        let dreps: BTreeMap<StakeCredential, DRepRegistration> = decoded
+        let dreps: BTreeMap<Credential, DRepRegistration> = decoded
             .dreps
             .into_iter()
             .map(|(credential, state)| (credential, DRepRegistration::from_state(state, registered_at)))

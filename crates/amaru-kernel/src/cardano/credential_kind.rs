@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{StakeCredential, Voter};
+use crate::{Credential, Voter};
 
 #[derive(Debug)]
-pub enum StakeCredentialKind {
+pub enum CredentialKind {
     VerificationKey,
     Script,
 }
 
-impl std::fmt::Display for StakeCredentialKind {
+impl std::fmt::Display for CredentialKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::VerificationKey => "verification_key",
@@ -29,16 +29,16 @@ impl std::fmt::Display for StakeCredentialKind {
     }
 }
 
-impl From<&StakeCredential> for StakeCredentialKind {
-    fn from(credential: &StakeCredential) -> Self {
+impl From<&Credential> for CredentialKind {
+    fn from(credential: &Credential) -> Self {
         match credential {
-            StakeCredential::KeyHash(..) => Self::VerificationKey,
-            StakeCredential::ScriptHash(..) => Self::Script,
+            Credential::KeyHash(..) => Self::VerificationKey,
+            Credential::ScriptHash(..) => Self::Script,
         }
     }
 }
 
-impl From<&Voter> for StakeCredentialKind {
+impl From<&Voter> for CredentialKind {
     fn from(voter: &Voter) -> Self {
         match voter {
             Voter::DRepKey(..) | Voter::ConstitutionalCommitteeKey(..) | Voter::StakePoolKey(..) => {

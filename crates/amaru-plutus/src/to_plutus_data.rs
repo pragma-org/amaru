@@ -15,10 +15,9 @@
 use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
-    Address, AssetName, BorrowedScript, Bytes, CurrencySymbol, EMPTY_ASSET_NAME, Epoch, HasScriptHash, Hash, Int,
-    KeyValuePairs, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, ProtocolVersion,
-    RequiredSigners, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, TimeRange, TransactionId, Value,
-    plutus_data::BigInt,
+    Address, AssetName, BorrowedScript, Bytes, Credential, CurrencySymbol, EMPTY_ASSET_NAME, Epoch, HasScriptHash,
+    Hash, Int, KeyValuePairs, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData,
+    ProtocolVersion, RequiredSigners, StakeReference, TimeRange, TransactionId, Value, plutus_data::BigInt,
 };
 use thiserror::Error;
 
@@ -163,26 +162,14 @@ where
                 let payment_part = shelley_address.payment();
                 let stake_part = shelley_address.delegation();
 
-                let payment_part_plutus_data = match payment_part {
-                    ShelleyPaymentPart::Key(payment_keyhash) => {
-                        constr!(0, [payment_keyhash])
-                    }
-                    ShelleyPaymentPart::Script(script_hash) => {
-                        constr!(1, [script_hash])
-                    }
-                }?;
+                let payment_part_plutus_data = <Credential as ToPlutusData<V>>::to_plutus_data(payment_part)?;
 
                 let stake_part_plutus_data = match stake_part {
-                    ShelleyDelegationPart::Key(stake_keyhash) => {
-                        Some(constr!(0, [StakeCredential::KeyHash(*stake_keyhash)])?).to_plutus_data()
-                    }
-                    ShelleyDelegationPart::Script(script_hash) => {
-                        Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)])?).to_plutus_data()
-                    }
-                    ShelleyDelegationPart::Pointer(pointer) => {
+                    Some(StakeReference::Credential(credential)) => Some(constr!(0, [credential])?).to_plutus_data(),
+                    Some(StakeReference::Pointer(pointer)) => {
                         Some(constr!(1, [pointer.slot, pointer.transaction, pointer.certificate])?).to_plutus_data()
                     }
-                    ShelleyDelegationPart::Null => None::<StakeCredential>.to_plutus_data(),
+                    None => None::<Credential>.to_plutus_data(),
                 }?;
 
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
@@ -218,16 +205,16 @@ where
     }
 }
 
-impl<const V: u8> ToPlutusData<V> for StakeCredential
+impl<const V: u8> ToPlutusData<V> for Credential
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            StakeCredential::KeyHash(hash) => {
+            Credential::KeyHash(hash) => {
                 constr!(0, [hash])
             }
-            StakeCredential::ScriptHash(hash) => {
+            Credential::ScriptHash(hash) => {
                 constr!(1, [hash])
             }
         }

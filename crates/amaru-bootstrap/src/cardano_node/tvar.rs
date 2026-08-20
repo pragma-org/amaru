@@ -26,8 +26,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, MemoizedTransactionOutput, NetworkName, Point,
-    StakeCredential, TransactionInput, cbor, cbor::lazy::LazyDecoder,
+    Credential, Epoch, EraHistory, GlobalParameters, Hash, HeaderHash, MemoizedTransactionOutput, NetworkName, Point,
+    TransactionInput, cbor, cbor::lazy::LazyDecoder,
 };
 use amaru_ledger::{
     bootstrap::import_initial_snapshot_with_decoder,
@@ -47,7 +47,7 @@ pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
-    previous_accounts: BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<Credential>,
     with_progress: F,
 ) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn std::error::Error>>
 where
@@ -77,7 +77,7 @@ pub(crate) fn import_state_from_tvar<S, F, State>(
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
-    previous_accounts: BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<Credential>,
     with_progress: F,
 ) -> Result<(Epoch, Point, EraHistory, Option<ChainState>), Box<dyn std::error::Error>>
 where

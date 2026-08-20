@@ -15,28 +15,28 @@
 use std::fmt;
 
 use crate::{
-    AddressType, Hash, ShelleyDelegationPart, ShelleyPaymentPart, cbor,
+    AddressType, Hash, cbor,
     size::{CREDENTIAL, KEY, SCRIPT},
 };
 
-// NOTE: Stake Credential variant order
+// NOTE: Credential variant order
 //
-// It is tempting to swap the order of the two constructors so that KEyHash
+// It is tempting to swap the order of the two constructors so that KeyHash
 // comes first. This indeed nicely maps the binary representation which
 // associates 0 to KeyHash and 1 to ScriptHash.
 //
 // However, for historical reasons, the ScriptHash variant comes first in the
 // Haskell reference codebase. From this ordering is derived the `PartialOrd`
 // and `Ord` instances; which impacts how Maps/Dictionnaries indexed by
-// StakeCredential will be ordered. So, it is crucial to preserve this quirks to
+// Credential will be ordered. So, it is crucial to preserve this quirks to
 // avoid hard to troubleshoot issues down the line.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
-pub enum StakeCredential {
+pub enum Credential {
     ScriptHash(Hash<{ SCRIPT }>),
     KeyHash(Hash<{ KEY }>),
 }
 
-impl StakeCredential {
+impl Credential {
     pub fn is_script(&self) -> bool {
         matches!(self, Self::ScriptHash(_))
     }
@@ -53,7 +53,7 @@ impl StakeCredential {
     }
 }
 
-impl fmt::Display for StakeCredential {
+impl fmt::Display for Credential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ScriptHash(h) => write!(f, "script({h})"),
@@ -62,36 +62,36 @@ impl fmt::Display for StakeCredential {
     }
 }
 
-impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for StakeCredential {
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Credential {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
             let variant = d.u16()?;
 
             match variant {
-                0 => Ok(StakeCredential::KeyHash(d.decode_with(ctx)?)),
-                1 => Ok(StakeCredential::ScriptHash(d.decode_with(ctx)?)),
-                _ => Err(cbor::decode::Error::message("invalid variant id for StakeCredential")),
+                0 => Ok(Credential::KeyHash(d.decode_with(ctx)?)),
+                1 => Ok(Credential::ScriptHash(d.decode_with(ctx)?)),
+                _ => Err(cbor::decode::Error::message("invalid variant id for Credential")),
             }
         })
     }
 }
 
-impl<C> cbor::Encode<C> for StakeCredential {
+impl<C> cbor::Encode<C> for Credential {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
-            StakeCredential::KeyHash(a) => {
+            Credential::KeyHash(a) => {
                 e.array(2)?;
                 e.encode_with(0, ctx)?;
                 e.encode_with(a, ctx)?;
 
                 Ok(())
             }
-            StakeCredential::ScriptHash(a) => {
+            Credential::ScriptHash(a) => {
                 e.array(2)?;
                 e.encode_with(1, ctx)?;
                 e.encode_with(a, ctx)?;
@@ -102,46 +102,26 @@ impl<C> cbor::Encode<C> for StakeCredential {
     }
 }
 
-impl From<ShelleyPaymentPart> for StakeCredential {
-    fn from(part: ShelleyPaymentPart) -> Self {
-        match part {
-            ShelleyPaymentPart::Key(hash) => Self::KeyHash(hash),
-            ShelleyPaymentPart::Script(hash) => Self::ScriptHash(hash),
-        }
-    }
-}
-
-impl TryFrom<ShelleyDelegationPart> for StakeCredential {
-    type Error = ();
-    fn try_from(part: ShelleyDelegationPart) -> Result<Self, Self::Error> {
-        match part {
-            ShelleyDelegationPart::Key(hash) => Ok(Self::KeyHash(hash)),
-            ShelleyDelegationPart::Script(hash) => Ok(Self::ScriptHash(hash)),
-            ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => Err(()),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum BorrowedStakeCredential<'a> {
+pub enum BorrowedCredential<'a> {
     KeyHash(&'a Hash<KEY>),
     ScriptHash(&'a Hash<SCRIPT>),
 }
 
-impl<'a> From<&'a StakeCredential> for BorrowedStakeCredential<'a> {
-    fn from(value: &'a StakeCredential) -> Self {
+impl<'a> From<&'a Credential> for BorrowedCredential<'a> {
+    fn from(value: &'a Credential) -> Self {
         match value {
-            StakeCredential::KeyHash(hash) => Self::KeyHash(hash),
-            StakeCredential::ScriptHash(hash) => Self::ScriptHash(hash),
+            Credential::KeyHash(hash) => Self::KeyHash(hash),
+            Credential::ScriptHash(hash) => Self::ScriptHash(hash),
         }
     }
 }
 
-impl From<BorrowedStakeCredential<'_>> for StakeCredential {
-    fn from(value: BorrowedStakeCredential<'_>) -> Self {
+impl From<BorrowedCredential<'_>> for Credential {
+    fn from(value: BorrowedCredential<'_>) -> Self {
         match value {
-            BorrowedStakeCredential::KeyHash(hash) => Self::KeyHash(*hash),
-            BorrowedStakeCredential::ScriptHash(hash) => Self::ScriptHash(*hash),
+            BorrowedCredential::KeyHash(hash) => Self::KeyHash(*hash),
+            BorrowedCredential::ScriptHash(hash) => Self::ScriptHash(*hash),
         }
     }
 }
@@ -153,12 +133,12 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{Hash, StakeCredential};
+    use crate::{Credential, Hash};
 
-    pub fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
+    pub fn any_credential() -> impl Strategy<Value = Credential> {
         prop_oneof![
-            any::<[u8; 28]>().prop_map(|hash| StakeCredential::KeyHash(Hash::new(hash))),
-            any::<[u8; 28]>().prop_map(|hash| StakeCredential::ScriptHash(Hash::new(hash))),
+            any::<[u8; 28]>().prop_map(|hash| Credential::KeyHash(Hash::new(hash))),
+            any::<[u8; 28]>().prop_map(|hash| Credential::ScriptHash(Hash::new(hash))),
         ]
     }
 }

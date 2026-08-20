@@ -15,9 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, AssetName, Bytes, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput,
-    Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress, ShelleyDelegationPart,
-    ShelleyPaymentPart, StakeCredential, Value, from_cbor,
+    Address, AssetName, Bytes, Credential, Hash, MemoizedDatum, MemoizedPlutusData, MemoizedScript,
+    MemoizedTransactionOutput, Multiasset, Network, NonEmptyKeyValuePairs, PlutusScript, PositiveCoin, ShelleyAddress,
+    StakeReference, Value, from_cbor,
 };
 
 const MAX_VARUINT64_BYTES: usize = 10;
@@ -275,17 +275,17 @@ fn encode_varuint64(mut value: u64, out: &mut Vec<u8>) {
     }
 }
 
-fn decode_stake_credential(decoder: &mut Decoder<'_>) -> Result<StakeCredential, String> {
+fn decode_stake_credential(decoder: &mut Decoder<'_>) -> Result<Credential, String> {
     let tag = decoder.tag()?;
     let hash = Hash::new(decoder.take_array()?);
     match tag {
-        0 => Ok(StakeCredential::ScriptHash(hash)),
-        1 => Ok(StakeCredential::KeyHash(hash)),
+        0 => Ok(Credential::ScriptHash(hash)),
+        1 => Ok(Credential::KeyHash(hash)),
         other => Err(format!("unsupported stake credential tag {other}")),
     }
 }
 
-fn decode_address28(decoder: &mut Decoder<'_>, stake: StakeCredential) -> Result<Address, String> {
+fn decode_address28(decoder: &mut Decoder<'_>, stake: Credential) -> Result<Address, String> {
     let extra = decoder.take_array::<32>()?;
     let flags = u32::from_le_bytes(extra[24..28].try_into().map_err(|_| "slice length checked".to_string())?);
 
@@ -300,13 +300,9 @@ fn decode_address28(decoder: &mut Decoder<'_>, stake: StakeCredential) -> Result
 
     let network = if flags & 0b10 != 0 { Network::Mainnet } else { Network::Testnet };
     let payment =
-        if flags & 0b1 != 0 { ShelleyPaymentPart::Key(payment_hash) } else { ShelleyPaymentPart::Script(payment_hash) };
-    let delegation = match stake {
-        StakeCredential::KeyHash(hash) => ShelleyDelegationPart::Key(hash),
-        StakeCredential::ScriptHash(hash) => ShelleyDelegationPart::Script(hash),
-    };
+        if flags & 0b1 != 0 { Credential::KeyHash(payment_hash) } else { Credential::ScriptHash(payment_hash) };
 
-    Ok(Address::Shelley(ShelleyAddress::new(network, payment, delegation)))
+    Ok(Address::Shelley(ShelleyAddress::new(network, payment, Some(StakeReference::Credential(stake)))))
 }
 
 fn decode_compact_coin(decoder: &mut Decoder<'_>) -> Result<u64, String> {

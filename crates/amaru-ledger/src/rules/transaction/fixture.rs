@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    CertificatePointer, ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, Epoch, EraHistoryProxy, Hash,
-    Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
-    ProtocolParameters, StakeCredential, TransactionInput, TransactionPointer, cbor, json,
+    CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch,
+    EraHistoryProxy, Hash, Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim,
+    ProposalsRoots, ProtocolParameters, TransactionInput, TransactionPointer, cbor, json,
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
@@ -63,11 +63,11 @@ pub(super) struct InitialState {
     #[serde(default)]
     pub(super) pools: BTreeSet<PoolId>,
     #[serde(deserialize_with = "deserialize_accounts", default)]
-    pub(super) accounts: BTreeMap<StakeCredential, AccountState>,
+    pub(super) accounts: BTreeMap<Credential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
-    pub(super) dreps: BTreeMap<StakeCredential, DRepRegistration>,
+    pub(super) dreps: BTreeMap<Credential, DRepRegistration>,
     #[serde(deserialize_with = "deserialize_committee", default)]
-    pub(super) committee: BTreeMap<StakeCredential, CCMember>,
+    pub(super) committee: BTreeMap<Credential, CCMember>,
     #[serde(deserialize_with = "deserialize_proposals", default)]
     pub(super) proposals: BTreeMap<ProposalId, ProposalStateSlim>,
     #[serde(default)]
@@ -111,7 +111,7 @@ struct VoteDelegationProxy {
 #[serde(rename_all = "camelCase")]
 struct AccountProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
-    credential: StakeCredential,
+    credential: Credential,
     deposit: Lovelace,
     #[serde(default)]
     rewards: Lovelace,
@@ -121,7 +121,7 @@ struct AccountProxy {
     drep: Option<VoteDelegationProxy>,
 }
 
-fn deserialize_accounts<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, AccountState>, D::Error>
+fn deserialize_accounts<'de, D>(deserializer: D) -> Result<BTreeMap<Credential, AccountState>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -144,13 +144,13 @@ where
 #[serde(rename_all = "camelCase")]
 struct DRepProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
-    credential: StakeCredential,
+    credential: Credential,
     deposit: Lovelace,
     registered_at: CertificatePointer,
     valid_until: Epoch,
 }
 
-fn deserialize_dreps<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, DRepRegistration>, D::Error>
+fn deserialize_dreps<'de, D>(deserializer: D) -> Result<BTreeMap<Credential, DRepRegistration>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -185,14 +185,14 @@ where
 #[serde(rename_all = "camelCase")]
 struct CommitteeMemberProxy {
     #[serde(deserialize_with = "deserialize_cbor_hex")]
-    cold_credential: StakeCredential,
+    cold_credential: Credential,
     #[serde(default)]
     status: Option<String>,
     #[serde(default)]
     valid_until: Option<Epoch>,
 }
 
-fn deserialize_committee<'de, D>(deserializer: D) -> Result<BTreeMap<StakeCredential, CCMember>, D::Error>
+fn deserialize_committee<'de, D>(deserializer: D) -> Result<BTreeMap<Credential, CCMember>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

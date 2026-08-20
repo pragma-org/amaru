@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeSet, marker::PhantomData, sync::Arc};
 
-use amaru_kernel::{Lovelace, SortedPairs, StakeCredential};
+use amaru_kernel::{Credential, Lovelace, SortedPairs};
 
 use crate::AccountState;
 
@@ -99,7 +99,7 @@ impl KnownRewardState for Effective {
     /// The accounts whose rewards are unclaimed (they unregistered during the epoch). Only the keys
     /// are kept: the amounts live in the shared `accounts` map, so an `Effective` differs from a
     /// `Computed` by nothing more than this small set of markers.
-    type UnclaimedRewards = Arc<BTreeSet<StakeCredential>>;
+    type UnclaimedRewards = Arc<BTreeSet<Credential>>;
 }
 
 impl RewardsState {
@@ -149,7 +149,7 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
     /// carves out the unclaimed ones through `unclaimed`. It is behind an `Arc` so that converting
     /// between `Effective` and `Computed` (and snapshotting the overlay for rollback recovery)
     /// shares this map rather than copying it.
-    accounts: Arc<SortedPairs<StakeCredential, AccountState>>,
+    accounts: Arc<SortedPairs<Credential, AccountState>>,
 
     /// Known (paid) pools owners at the time the rewards were calculated that received non-zero
     /// rewards.
@@ -157,7 +157,7 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
     /// A pool's reward account is an arbitrary stake credential the protocol never requires to be
     /// registered, and the pool may have changed or dropped it between the moment the rewards were
     /// computed and the moment they need to be paid;
-    pools_owners: Arc<BTreeSet<StakeCredential>>,
+    pools_owners: Arc<BTreeSet<Credential>>,
 
     /// The accounts whose rewards are unclaimed because they were no longer registered at the epoch
     /// boundary. For `Effective` this is the set of such account keys (their amounts stay in
@@ -170,7 +170,7 @@ pub struct Rewards<STEP: KnownRewardState + Clone> {
 impl<STEP: KnownRewardState + Clone> Rewards<STEP> {
     /// The credentials credited a pool owner, against which payability must be resolved. See
     /// the note on the field itself.
-    pub fn pools_owners(&self) -> BTreeSet<&StakeCredential> {
+    pub fn pools_owners(&self) -> BTreeSet<&Credential> {
         self.pools_owners.iter().collect()
     }
 }
@@ -180,8 +180,8 @@ impl Rewards<Computed> {
         delta_reserves: Lovelace,
         delta_treasury: Lovelace,
         total_rewards: Lovelace,
-        accounts: SortedPairs<StakeCredential, AccountState>,
-        pools_owners: BTreeSet<StakeCredential>,
+        accounts: SortedPairs<Credential, AccountState>,
+        pools_owners: BTreeSet<Credential>,
     ) -> Self {
         Self {
             delta_reserves,
@@ -201,8 +201,8 @@ impl Rewards<Computed> {
     // - The account was configured as pool owner but was never registered.
     pub fn unclaimed_rewards(
         &self,
-        unreachable_accounts: impl IntoIterator<Item = StakeCredential>,
-    ) -> BTreeSet<StakeCredential> {
+        unreachable_accounts: impl IntoIterator<Item = Credential>,
+    ) -> BTreeSet<Credential> {
         unreachable_accounts
             .into_iter()
             .filter(|credential| self.accounts.get(credential).is_some_and(|st| st.rewards > 0))
@@ -224,7 +224,7 @@ impl Rewards<Effective> {
     ///
     /// What we hold onto is thus bounded by the rewarded accounts rather than by the number of
     /// accounts that are unreachable at the end of the epoch.
-    pub fn new(computed_rewards: Rewards<Computed>, unclaimed: BTreeSet<StakeCredential>) -> Self {
+    pub fn new(computed_rewards: Rewards<Computed>, unclaimed: BTreeSet<Credential>) -> Self {
         Self {
             step: PhantomData,
             delta_reserves: computed_rewards.delta_reserves,
@@ -238,7 +238,7 @@ impl Rewards<Effective> {
 
     /// The reward payable to a specific account: its computed reward if it is still registered, or
     /// `0` if it is unclaimed (in which case the amount goes to the treasury instead) or has none.
-    pub fn reward_of(&self, account: &StakeCredential) -> Lovelace {
+    pub fn reward_of(&self, account: &Credential) -> Lovelace {
         if self.unclaimed.contains(account) { 0 } else { self.accounts.get(account).map(|st| st.rewards).unwrap_or(0) }
     }
 
@@ -295,8 +295,8 @@ mod test {
 
     #[test]
     fn test_recovery() {
-        let registered = StakeCredential::ScriptHash(Hash::from([1u8; 28]));
-        let unregistered = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
+        let registered = Credential::ScriptHash(Hash::from([1u8; 28]));
+        let unregistered = Credential::ScriptHash(Hash::from([2u8; 28]));
 
         let mut accounts = BTreeMap::new();
         accounts.insert(registered, AccountState::default().with_rewards(100));
@@ -332,8 +332,8 @@ mod test {
     /// out nor what goes back to the treasury, and there can be arbitrarily many of them.
     #[test]
     fn unregistered_accounts_without_a_reward_are_not_retained() {
-        let rewarded = StakeCredential::ScriptHash(Hash::from([1u8; 28]));
-        let rewardless = StakeCredential::ScriptHash(Hash::from([2u8; 28]));
+        let rewarded = Credential::ScriptHash(Hash::from([1u8; 28]));
+        let rewardless = Credential::ScriptHash(Hash::from([2u8; 28]));
 
         let accounts = SortedPairs::default().and_push(rewarded, AccountState::default().with_rewards(42));
         let computed_rewards = Rewards::<Computed>::new(1_000, 7, 42, accounts, Default::default());

@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{StakeCredential, cbor, utils::cbor::SerialisedAsArray};
+use crate::{Credential, cbor, utils::cbor::SerialisedAsArray};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConstitutionalCommitteeMemberStatus {
-    DelegatedToHotCredential(StakeCredential),
+    DelegatedToHotCredential(Credential),
 
     // NOTE: ignored anchor on 'Resigned' status
     //
@@ -28,7 +28,7 @@ pub enum ConstitutionalCommitteeMemberStatus {
     Resigned,
 }
 
-impl TryFrom<ConstitutionalCommitteeMemberStatus> for StakeCredential {
+impl TryFrom<ConstitutionalCommitteeMemberStatus> for Credential {
     type Error = ();
     fn try_from(status: ConstitutionalCommitteeMemberStatus) -> Result<Self, Self::Error> {
         match status {
@@ -38,15 +38,15 @@ impl TryFrom<ConstitutionalCommitteeMemberStatus> for StakeCredential {
     }
 }
 
-impl From<StakeCredential> for ConstitutionalCommitteeMemberStatus {
-    fn from(hot_credential: StakeCredential) -> Self {
+impl From<Credential> for ConstitutionalCommitteeMemberStatus {
+    fn from(hot_credential: Credential) -> Self {
         Self::DelegatedToHotCredential(hot_credential)
     }
 }
 
 impl ConstitutionalCommitteeMemberStatus {
     /// Extract the hot credential from a status, if any is set.
-    pub fn as_hot_credential(&self) -> Option<&StakeCredential> {
+    pub fn as_hot_credential(&self) -> Option<&Credential> {
         match self {
             Self::DelegatedToHotCredential(hot_credential) => Some(hot_credential),
             Self::Resigned => None,
@@ -86,10 +86,10 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Constituti
                 // NOTE: Legacy encoding of ConstitutionalCommitteeMemberStatus
                 //
                 // In the past, we would only encode the hot credential which share most of their
-                // encoding with this type up-to-this point. Here we allow decoding StakeCredential
+                // encoding with this type up-to-this point. Here we allow decoding Credential
                 // directly.
                 if matches!(d.datatype()?, cbor::Type::Bytes | cbor::Type::BytesIndef) {
-                    return Ok(Self::DelegatedToHotCredential(StakeCredential::KeyHash(d.decode_with(ctx)?)));
+                    return Ok(Self::DelegatedToHotCredential(Credential::KeyHash(d.decode_with(ctx)?)));
                 }
 
                 Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
@@ -101,7 +101,7 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Constituti
                 //
                 // Same as above, but the variant '1', corresponding to a script hash.
                 if matches!(d.datatype()?, cbor::Type::Bytes | cbor::Type::BytesIndef) {
-                    return Ok(Self::DelegatedToHotCredential(StakeCredential::ScriptHash(d.decode_with(ctx)?)));
+                    return Ok(Self::DelegatedToHotCredential(Credential::ScriptHash(d.decode_with(ctx)?)));
                 }
 
                 d.decode_with::<_, SerialisedAsArray<Option<crate::Anchor>>>(ctx)?;
@@ -122,14 +122,14 @@ pub use tests::*;
 mod tests {
     use proptest::prelude::*;
 
-    use crate::{ConstitutionalCommitteeMemberStatus, any_stake_credential, prop_cbor_roundtrip};
+    use crate::{ConstitutionalCommitteeMemberStatus, any_credential, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(ConstitutionalCommitteeMemberStatus, any_constitutional_committee_member_status());
 
     proptest! {
         // ensure compatibility with legacy format.
         #[test]
-        fn decode_from_stake_credential(stake_credential in any_stake_credential()) {
+        fn decode_from_stake_credential(stake_credential in any_credential()) {
             use crate::{from_cbor,  to_cbor};
 
             let bytes = to_cbor(&stake_credential);
@@ -151,7 +151,7 @@ mod tests {
 
     pub fn any_constitutional_committee_member_status() -> impl Strategy<Value = ConstitutionalCommitteeMemberStatus> {
         prop_oneof![
-            any_stake_credential().prop_map(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential),
+            any_credential().prop_map(ConstitutionalCommitteeMemberStatus::DelegatedToHotCredential),
             Just(ConstitutionalCommitteeMemberStatus::Resigned),
         ]
     }

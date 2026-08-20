@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, ProposalId, RatificationStatus,
-    Slot, StakeCredential, TransactionPointer,
+    Anchor, CertificatePointer, Credential, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, ProposalId,
+    RatificationStatus, Slot, TransactionPointer,
 };
 
 use crate::{
@@ -30,8 +30,8 @@ use crate::{
 #[derive(Debug)]
 pub struct GovernanceSummary {
     pub dreps: BTreeMap<DRep, DRepState>,
-    pub dreps_deposits: BTreeMap<StakeCredential, Lovelace>,
-    pub pools_deposits: BTreeMap<StakeCredential, Lovelace>,
+    pub dreps_deposits: BTreeMap<Credential, Lovelace>,
+    pub pools_deposits: BTreeMap<Credential, Lovelace>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -70,8 +70,8 @@ impl GovernanceSummary {
         let GovernanceActivity { consecutive_dormant_epochs } = db.governance_activity()?;
 
         let mut proposals = BTreeSet::new();
-        let mut dreps_deposits: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
-        let mut pools_deposits: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+        let mut dreps_deposits: BTreeMap<Credential, Lovelace> = BTreeMap::new();
+        let mut pools_deposits: BTreeMap<Credential, Lovelace> = BTreeMap::new();
 
         let recently_pruned_proposals: BTreeMap<ProposalId, RatificationStatus> =
             db.iter_recently_pruned_proposals()?.collect();
@@ -150,8 +150,8 @@ impl GovernanceSummary {
             .iter_dreps()?
             .map(|(k, dreps::Row { registered_at, valid_until, anchor, .. })| {
                 let drep = match k {
-                    StakeCredential::KeyHash(hash) => DRep::Key(hash),
-                    StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+                    Credential::KeyHash(hash) => DRep::Key(hash),
+                    Credential::ScriptHash(hash) => DRep::Script(hash),
                 };
 
                 // Dormant epochs extend a DRep's expiry only while it remains active; an already

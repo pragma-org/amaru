@@ -596,7 +596,7 @@ define_schemas! {
             account {
                 /// Pay withdrawals to an account, or refund its deposit
                 public PAY_OR_REFUND {
-                    required credential_type: amaru_kernel::StakeCredentialKind
+                    required credential_type: amaru_kernel::CredentialKind
                     required account: amaru_kernel::Hash<28>
                     required deposit: amaru_kernel::Lovelace
                 }
@@ -1146,7 +1146,7 @@ define_schemas! {
                         /// An account supposed to receive rewards is gone
                         GONE {
                             required rewards: amaru_kernel::Lovelace
-                            required account: amaru_kernel::StakeCredential
+                            required account: amaru_kernel::Credential
                         }
                     }
                     /// Pruned proposals at an epoch boundary, recorded to facilitate future stake
@@ -1202,13 +1202,13 @@ define_schemas! {
                     public REMOVE {}
                     /// Update rewards balance for a single account
                     public SET {
-                        optional credential_type: amaru_kernel::StakeCredentialKind
+                        optional credential_type: amaru_kernel::CredentialKind
                         optional account: amaru_kernel::Hash<28>
                         optional reason: String
                     }
                     /// Reset rewards counters for many accounts
                     public RESET_MANY {
-                        optional credential: amaru_kernel::StakeCredential
+                        optional credential: amaru_kernel::Credential
                         optional reason: String
                     }
                 }
@@ -1227,17 +1227,17 @@ define_schemas! {
                     public GET {}
                     /// Batch-upsert DRep registrations
                     public ADD {
-                        optional credential: amaru_kernel::StakeCredential
+                        optional credential: amaru_kernel::Credential
                         optional reason: String
                     }
                     /// Record DRep de-registration
                     public REMOVE {
-                        optional drep: amaru_kernel::StakeCredential
+                        optional drep: amaru_kernel::Credential
                         optional reason: String
                     }
                     /// Refresh DRep expiry after a vote
                     public SET_VALID_UNTIL {
-                        optional credential: amaru_kernel::StakeCredential
+                        optional credential: amaru_kernel::Credential
                         optional reason: String
                     }
                 }

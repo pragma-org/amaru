@@ -85,7 +85,7 @@ impl ToPlutusData<2> for PlutusWithdrawals {
 
 impl ToPlutusData<2> for amaru_kernel::RewardAccount {
     /// In PlutusV1 and PlutusV2:
-    /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
+    /// Anywhere a `Credential` is used, it is actually an enum with variants `Pointer` and `Credential`
     ///
     /// It is actually not possible (by the ledger serialization) logic to construct a StakeAdress with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {

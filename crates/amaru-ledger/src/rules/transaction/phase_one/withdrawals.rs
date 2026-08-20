@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{Lovelace, MemoizedDatum, Network, RedeemerTag, RequiredScript, RewardAccount, StakeCredential};
+use amaru_kernel::{Credential, Lovelace, MemoizedDatum, Network, RedeemerTag, RequiredScript, RewardAccount};
 use thiserror::Error;
 
 use crate::{
@@ -25,13 +25,13 @@ use crate::{
 #[derive(Debug, Error)]
 pub enum InvalidWithdrawals {
     #[error("attempted to withdraw from an account ({0:?}) that is not registered")]
-    AccountNotRegistered(StakeCredential),
+    AccountNotRegistered(Credential),
     #[error(
         "attempted to withdraw a different amount than the full account balance: balance {balance} withdrawal: {withdrawal}"
     )]
     IncompleteWithdrawal { balance: u64, withdrawal: u64 },
     #[error("attempted to withdraw from an account ({0:?}) that has no drep delegation")]
-    MissingAccountDRepDelegation(StakeCredential),
+    MissingAccountDRepDelegation(Credential),
     #[error(
         "network mismatch in reward account in {context:?} at position {position}: expected {expected}, received {received}"
     )]
@@ -66,7 +66,7 @@ where
                 let account =
                     context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential))?;
 
-                if matches!(credential, StakeCredential::KeyHash(_)) && account.drep.is_none() {
+                if matches!(credential, Credential::KeyHash(_)) && account.drep.is_none() {
                     return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential));
                 }
 
@@ -85,13 +85,13 @@ where
             .enumerate()
             .for_each(|(position, (credential, amount))| {
                 match credential {
-                    amaru_kernel::StakeCredential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
+                    amaru_kernel::Credential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
                         hash,
                         index: position as u32,
                         purpose: RedeemerTag::Reward,
                         datum: MemoizedDatum::None,
                     }),
-                    amaru_kernel::StakeCredential::KeyHash(hash) => context.require_verification_key_witness(hash),
+                    amaru_kernel::Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
                 };
 
                 context.consume_lovelace(amount);
@@ -112,7 +112,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::{Hash, Network, RewardAccount, StakeCredential};
+    use amaru_kernel::{Credential, Hash, Network, RewardAccount};
 
     use super::InvalidWithdrawals;
     use crate::{context::DefaultValidationContext, rules::TransactionField};
@@ -121,7 +121,7 @@ mod test {
     fn rejects_a_reward_account_on_the_wrong_network() {
         let mut context = DefaultValidationContext::default();
 
-        let account = RewardAccount::new(Network::Mainnet, StakeCredential::KeyHash(Hash::new([0; 28])));
+        let account = RewardAccount::new(Network::Mainnet, Credential::KeyHash(Hash::new([0; 28])));
 
         assert!(matches!(
             super::execute(&mut context, Some(vec![(account, 1_000_000)]), Network::Testnet, true),

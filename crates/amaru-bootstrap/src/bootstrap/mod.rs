@@ -22,9 +22,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, GlobalParameters, Hash, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Nonce, Peer, Point,
-    RawBlock, Slot, StakeCredential, extract_block_header_cbor, from_cbor, num::CheckedSub,
-    utils::string::display_collection,
+    Credential, Epoch, GlobalParameters, Hash, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Nonce, Peer,
+    Point, RawBlock, Slot, extract_block_header_cbor, from_cbor, num::CheckedSub, utils::string::display_collection,
 };
 use amaru_ledger::store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext};
 use amaru_observability::{error, info};
@@ -773,13 +772,13 @@ fn import_node_snapshot_archive_data(
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
-    previous_accounts: BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<Credential>,
 ) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn Error>> {
     let archive_file = fs::File::open(archive_path)?;
     let mut archive = Archive::new(ZstdDecoder::new(archive_file)?);
 
     let mut imported_state = None;
-    let mut previous_accounts: Option<BTreeSet<StakeCredential>> = Some(previous_accounts);
+    let mut previous_accounts: Option<BTreeSet<Credential>> = Some(previous_accounts);
 
     for entry in archive.entries()? {
         let mut entry = entry?;

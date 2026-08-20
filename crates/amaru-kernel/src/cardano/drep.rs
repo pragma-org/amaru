@@ -15,7 +15,7 @@
 use serde::ser::SerializeStruct;
 
 use crate::{
-    Hash, StakeCredential, cbor,
+    Credential, Hash, cbor,
     size::{KEY, SCRIPT},
 };
 
@@ -130,10 +130,10 @@ pub fn serialize<S: serde::Serializer>(drep: &DRep, serializer: S) -> Result<S::
     .end()
 }
 
-pub fn to_stake_credential(drep: &DRep) -> Option<StakeCredential> {
+pub fn to_stake_credential(drep: &DRep) -> Option<Credential> {
     match drep {
-        DRep::Key(hash) => Some(StakeCredential::KeyHash(*hash)),
-        DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
+        DRep::Key(hash) => Some(Credential::KeyHash(*hash)),
+        DRep::Script(hash) => Some(Credential::ScriptHash(*hash)),
         DRep::Abstain | DRep::NoConfidence => None,
     }
 }

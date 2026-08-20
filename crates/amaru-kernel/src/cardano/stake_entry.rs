@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Address, Lovelace, StakeCredential, Value, cbor, cbor::HasProtocolVersion};
+use crate::{Address, Credential, Lovelace, Value, cbor, cbor::HasProtocolVersion};
 
 /// A stake distribution entry corresponding to a single key/value mapping between a stake
 /// credential and an amount. This is decoded from a UTxO but in a way that circumvent allocations
 /// to avoid unnecessary churn when scanning a large number of UTxOs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StakeEntry {
-    pub credential: Option<StakeCredential>,
+    pub credential: Option<Credential>,
     pub lovelace: Lovelace,
 }
 
@@ -47,7 +47,7 @@ fn decode_modern<C: HasProtocolVersion>(
         |d| d.u8(),
         |d, state, field| {
             match field {
-                0 => state.0 = Some(StakeCredential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?)),
+                0 => state.0 = Some(Credential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?)),
                 1 => state.1 = Some(Value::decode_lovelace(d, ctx)?),
                 2 => d.skip()?,
                 3 => d.skip()?,
@@ -69,7 +69,7 @@ fn decode_legacy<C: HasProtocolVersion>(
 ) -> Result<StakeEntry, cbor::decode::Error> {
     let len = d.array()?;
 
-    let credential = StakeCredential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?);
+    let credential = Credential::from_raw_address(&cbor::decode_bytes_with(d, ctx)?);
     let lovelace = Value::decode_lovelace(d, ctx)?;
 
     if let Some(len) = len {
@@ -93,7 +93,7 @@ mod tests {
     use proptest::{prelude::*, prop_oneof};
 
     use crate::{
-        Address, StakeCredential, StakeEntry, any_legacy_output, any_modern_output, from_cbor, to_cbor,
+        Address, StakeEntry, StakeReference, any_legacy_output, any_modern_output, from_cbor, to_cbor,
         traits::has_lovelace::HasLovelace,
     };
 
@@ -105,7 +105,7 @@ mod tests {
             assert_eq!(lovelace, output.lovelace());
 
             if let Address::Shelley(addr) = &output.address {
-                assert_eq!(credential, StakeCredential::try_from(*addr.delegation()).ok());
+                assert_eq!(credential, addr.delegation().and_then(StakeReference::credential));
             } else {
                 assert_eq!(credential, None)
             }

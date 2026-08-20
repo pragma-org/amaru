@@ -167,8 +167,8 @@ pub(crate) mod tests {
     };
 
     use amaru_kernel::{
-        DRep, Hash, MemoizedTransactionOutput, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
-        PREPROD_GLOBAL_PARAMETERS, ProtocolParameters, StakeCredential, TransactionInput,
+        Credential, DRep, Hash, MemoizedTransactionOutput, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, ProtocolParameters, TransactionInput,
         cardano::network_block::CONWAY_BLOCK, cbor, hash,
     };
     use amaru_plutus::arena_pool::ArenaPool;
@@ -281,23 +281,23 @@ pub(crate) mod tests {
         assert_eq!(
             context.accounts.into_iter().map(|k| k.into_owned()).collect::<BTreeSet<_>>(),
             // the withdrawal's reward account, plus the proposal's treasury-withdrawal target
-            BTreeSet::from([StakeCredential::KeyHash(proposal_key), StakeCredential::KeyHash(dev_key),])
+            BTreeSet::from([Credential::KeyHash(proposal_key), Credential::KeyHash(dev_key),])
         );
         // the certificates' pool, plus the one that cast a vote
         assert_eq!(context.pools.into_iter().copied().collect::<BTreeSet<_>>(), BTreeSet::from([pool, voting_pool]));
         // the certificates' DRep, which is also the one that cast a vote
         assert_eq!(
             context.dreps.into_iter().map(|k| k.into_owned()).collect::<BTreeSet<_>>(),
-            BTreeSet::from([StakeCredential::KeyHash(drep)])
+            BTreeSet::from([Credential::KeyHash(drep)])
         );
         assert_eq!(context.drep_delegations.into_iter().cloned().collect::<Vec<_>>(), vec![DRep::Key(drep)]);
         // a certificate names a member by cold credential...
         assert_eq!(
             context.committee.into_iter().cloned().collect::<BTreeSet<_>>(),
-            BTreeSet::from([StakeCredential::KeyHash(cc_cold)])
+            BTreeSet::from([Credential::KeyHash(cc_cold)])
         );
         // ...whereas a vote names one by the hot credential it authorized
-        assert_eq!(context.committee_voters, BTreeSet::from([StakeCredential::KeyHash(cc_hot)]));
+        assert_eq!(context.committee_voters, BTreeSet::from([Credential::KeyHash(cc_hot)]));
 
         // the single proposal all three votes are cast on
         assert_eq!(context.proposals.len(), 1);

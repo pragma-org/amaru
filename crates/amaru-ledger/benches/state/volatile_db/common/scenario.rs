@@ -14,9 +14,7 @@
 
 use std::{borrow::Cow, fmt, sync::Arc};
 
-use amaru_kernel::{
-    CertificatePointer, Epoch, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Pots, ProposalPointer, StakeCredential,
-};
+use amaru_kernel::{CertificatePointer, Credential, Epoch, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Pots, ProposalPointer};
 use amaru_ledger::{
     context::{PreparationContext, ProposalState},
     epoch_transition::GovernanceActivity,
@@ -121,7 +119,7 @@ impl Scenario {
 
             // The context will always reach to the stable store for withdrawals, since they are marked as
             // required but we have no information on the account.
-            fn account(&self, credential: &StakeCredential) -> store::Result<Option<store::columns::accounts::Row>> {
+            fn account(&self, credential: &Credential) -> store::Result<Option<store::columns::accounts::Row>> {
                 match self.0 {
                     Scenario::Withdrawals | Scenario::Mixed => Ok(None),
                     Scenario::Utxo

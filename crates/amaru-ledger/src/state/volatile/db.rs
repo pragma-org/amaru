@@ -18,9 +18,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
+    Credential, Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
     PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
-    StakeCredential, TransactionInput, size::SCRIPT,
+    TransactionInput, size::SCRIPT,
 };
 
 use crate::{
@@ -109,7 +109,7 @@ impl VolatileState for VolatileDB {
 
     // ------------------------------------------------------------------------------------ Accounts
     type Account<'a> = (Existence<AccountBind<'a>>, RewardsAtTip);
-    fn resolve_account<'a>(&'a self, credential: &StakeCredential) -> Self::Account<'a> {
+    fn resolve_account<'a>(&'a self, credential: &Credential) -> Self::Account<'a> {
         // Resolve a stake account across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, a
         // bind-only update layers over it.
@@ -132,13 +132,13 @@ impl VolatileState for VolatileDB {
         (account, rewards_at_tip)
     }
 
-    fn has_withdrawal(&self, credential: &StakeCredential) -> bool {
+    fn has_withdrawal(&self, credential: &Credential) -> bool {
         self.current.has_withdrawal(credential) || self.draining.has_withdrawal(credential)
     }
 
     // --------------------------------------------------------------------------------------- DReps
     type DRep<'a> = Existence<DRepBind<'a>>;
-    fn resolve_drep<'a>(&'a self, credential: &StakeCredential) -> Self::DRep<'a> {
+    fn resolve_drep<'a>(&'a self, credential: &Credential) -> Self::DRep<'a> {
         // Resolve a DRep across the volatile layers, precedence `current -> draining`. A `Gone`
         // from `current` short-circuits; a fresh re-registration supersedes the closing epoch, an
         // anchor-only update layers over the registration it finds below.
@@ -146,9 +146,9 @@ impl VolatileState for VolatileDB {
     }
 
     // ----------------------------------------------------------------------------------- CCMembers
-    type CCMembers<'a> = BTreeMap<&'a StakeCredential, Existence<CommitteeMemberBind<'a>>>;
+    type CCMembers<'a> = BTreeMap<&'a Credential, Existence<CommitteeMemberBind<'a>>>;
     fn resolve_cc_members<'a>(&'a self) -> Self::CCMembers<'a> {
-        let mut cc_members: BTreeMap<&'a StakeCredential, Vec<Existence<CommitteeMemberBind<'a>>>> = BTreeMap::new();
+        let mut cc_members: BTreeMap<&'a Credential, Vec<Existence<CommitteeMemberBind<'a>>>> = BTreeMap::new();
 
         let current = self.current.resolve_cc_members();
         let overlay = self.overlay.cc_members();
@@ -375,7 +375,7 @@ impl VolatileDB {
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
         donations: Lovelace,
-        account_exists: impl Fn(&StakeCredential) -> bool,
+        account_exists: impl Fn(&Credential) -> bool,
     ) {
         // Mark the transition between two epochs by sealing the `current` series and turning it into
         // the `draining` series. This keeps each series epoch-homogeneous since, by the protocol
@@ -543,8 +543,8 @@ mod tests {
     };
 
     use amaru_kernel::{
-        BlockHeight, ConstitutionalCommitteeUpdate, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, SafeRatio,
-        Slot, SortedPairs, StakeCredential, any_modern_output, any_transaction_input, utils::tests::run_strategy,
+        BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        Point, SafeRatio, Slot, SortedPairs, any_modern_output, any_transaction_input, utils::tests::run_strategy,
     };
     use num::Zero;
     use test_case::test_case;
@@ -1429,13 +1429,13 @@ mod tests {
         Unknown,
     }
 
-    fn cred(tag: u8) -> StakeCredential {
-        StakeCredential::KeyHash(Hash::new([tag; 28]))
+    fn cred(tag: u8) -> Credential {
+        Credential::KeyHash(Hash::new([tag; 28]))
     }
 
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
     /// observable state (its pending reward credit surfaces through `resolve_account`).
-    fn effective_reward(credential: StakeCredential, amount: u64) -> Rewards<Effective> {
+    fn effective_reward(credential: Credential, amount: u64) -> Rewards<Effective> {
         let computed = Rewards::<Computed>::new(
             0,
             0,

@@ -15,9 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Address, Certificate, Constitution, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
+    Address, Certificate, Constitution, CostModels, Credential, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
     GovernanceAction, MemoizedTransactionOutput, PlutusData, PoolParams, PoolVotingThresholds, Proposal, ProposalId,
-    ProtocolParamUpdate, RationalNumber, RewardAccount, StakeCredential, TransactionInput, Vote, Voter,
+    ProtocolParamUpdate, RationalNumber, RewardAccount, TransactionInput, Vote, Voter,
 };
 use num::Integer;
 
@@ -116,8 +116,8 @@ impl ToPlutusData<3> for MemoizedTransactionOutput {
 impl ToPlutusData<3> for DRep {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            DRep::Key(hash) => constr_v3!(0, [StakeCredential::KeyHash(*hash)]),
-            DRep::Script(hash) => constr_v3!(0, [StakeCredential::ScriptHash(*hash)]),
+            DRep::Key(hash) => constr_v3!(0, [Credential::KeyHash(*hash)]),
+            DRep::Script(hash) => constr_v3!(0, [Credential::ScriptHash(*hash)]),
             DRep::Abstain => constr!(1),
             DRep::NoConfidence => constr!(2),
         }
@@ -193,16 +193,16 @@ impl ToPlutusData<3> for Voter {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Voter::ConstitutionalCommitteeScript(hash) => {
-                constr_v3!(0, [StakeCredential::ScriptHash(*hash)])
+                constr_v3!(0, [Credential::ScriptHash(*hash)])
             }
             Voter::ConstitutionalCommitteeKey(hash) => {
-                constr_v3!(0, [StakeCredential::KeyHash(*hash)])
+                constr_v3!(0, [Credential::KeyHash(*hash)])
             }
             Voter::DRepScript(hash) => {
-                constr_v3!(1, [StakeCredential::ScriptHash(*hash)])
+                constr_v3!(1, [Credential::ScriptHash(*hash)])
             }
             Voter::DRepKey(hash) => {
-                constr_v3!(1, [StakeCredential::KeyHash(*hash)])
+                constr_v3!(1, [Credential::KeyHash(*hash)])
             }
             Voter::StakePoolKey(hash) => constr_v3!(2, [hash]),
         }
@@ -506,7 +506,7 @@ impl ToPlutusData<3> for PlutusVotes<'_> {
 
 impl ToPlutusData<3> for RewardAccount {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <StakeCredential as ToPlutusData<3>>::to_plutus_data(&self.credential())
+        <Credential as ToPlutusData<3>>::to_plutus_data(&self.credential())
     }
 }
 

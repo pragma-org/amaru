@@ -25,10 +25,10 @@ pub mod tests {
     #[cfg(not(target_os = "windows"))]
     use amaru_kernel::any_proposal_id;
     use amaru_kernel::{
-        Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, DRepRegistration, Epoch, EraHistory, Hash,
-        Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY,
-        Point, PoolId, PoolParams, RationalNumber, Slot, StakeCredential, TransactionInput, any_certificate_pointer,
-        any_hash28, any_lovelace, any_pool_params, any_stake_credential,
+        Anchor, BlockHeight, Constitution, ConstitutionalCommitteeStatus, Credential, DRepRegistration, Epoch,
+        EraHistory, Hash, Lovelace, MaxString128, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+        PREPROD_ERA_HISTORY, Point, PoolId, PoolParams, RationalNumber, Slot, TransactionInput,
+        any_certificate_pointer, any_credential, any_hash28, any_lovelace, any_pool_params,
     };
     #[cfg(not(target_os = "windows"))]
     use amaru_ledger::store::columns::proposals;
@@ -49,17 +49,17 @@ pub mod tests {
     #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]
     pub struct Fixture {
-        pub account_key: StakeCredential,
+        pub account_key: Credential,
         pub account_row: accounts::Row,
         pub txin: TransactionInput,
         pub output: MemoizedTransactionOutput,
         pub pool_params: PoolParams,
         pub pool_epoch: Epoch,
-        pub drep_key: StakeCredential,
+        pub drep_key: Credential,
         pub drep_row: dreps::Row,
         pub proposal_key: proposals::Key,
         pub proposal_row: proposals::Row,
-        pub cc_member_key: StakeCredential,
+        pub cc_member_key: Credential,
         pub cc_member_row: cc_members::Row,
         pub slot: Slot,
         pub slot_leader: PoolId,
@@ -68,15 +68,15 @@ pub mod tests {
     #[cfg(target_os = "windows")]
     #[derive(Debug, Clone)]
     pub struct Fixture {
-        pub account_key: StakeCredential,
+        pub account_key: Credential,
         pub account_row: accounts::Row,
         pub txin: TransactionInput,
         pub output: MemoizedTransactionOutput,
         pub pool_params: PoolParams,
         pub pool_epoch: Epoch,
-        pub drep_key: StakeCredential,
+        pub drep_key: Credential,
         pub drep_row: dreps::Row,
-        pub cc_member_key: StakeCredential,
+        pub cc_member_key: Credential,
         pub cc_member_row: cc_members::Row,
         pub slot: Slot,
         pub slot_leader: PoolId,
@@ -93,7 +93,7 @@ pub mod tests {
         let utxos_iter = std::iter::once((txin, output.clone()));
 
         // accounts
-        let account_key = any_stake_credential().new_tree(runner).unwrap().current();
+        let account_key = any_credential().new_tree(runner).unwrap().current();
         let account_key_clone = account_key;
 
         let account_row =
@@ -128,7 +128,7 @@ pub mod tests {
         let pools_iter = std::iter::once((pool_params.clone(), registered_at, deposit));
 
         // dreps
-        let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
+        let drep_key = any_credential().new_tree(runner).unwrap().current();
         let mut drep_row =
             amaru_ledger::store::columns::dreps::tests::any_row(10_000_000).new_tree(runner).unwrap().current();
 
@@ -165,12 +165,12 @@ pub mod tests {
         let votes_iter = std::iter::empty();
 
         // cc_members
-        let cc_member_key = any_stake_credential().new_tree(runner).unwrap().current();
+        let cc_member_key = any_credential().new_tree(runner).unwrap().current();
         let mut cc_member_row =
             amaru_ledger::store::columns::cc_members::tests::any_row().new_tree(runner).unwrap().current();
 
         // Ensure hot_credential is always Some
-        cc_member_row.status.get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current().into());
+        cc_member_row.status.get_or_insert_with(|| any_credential().new_tree(runner).unwrap().current().into());
 
         let member_status = cc_member_row.status.unwrap();
 
@@ -531,7 +531,7 @@ pub mod tests {
         assert_eq!(rewards_after, rewards_before + refund_amount, "Rewards should increase by refund amount");
 
         {
-            let unknown = any_stake_credential().new_tree(runner).unwrap().current();
+            let unknown = any_credential().new_tree(runner).unwrap().current();
             assert_ne!(unknown, fixture.account_key);
 
             let context = store.create_transaction();
@@ -594,7 +594,7 @@ pub mod tests {
             "an enacted withdrawal must be credited to the target account"
         );
 
-        let unknown = any_stake_credential().new_tree(runner).unwrap().current();
+        let unknown = any_credential().new_tree(runner).unwrap().current();
         assert_ne!(unknown, fixture.account_key);
 
         let context = store.create_transaction();
@@ -625,7 +625,7 @@ pub mod tests {
 
     // HELPERS
 
-    fn read_rewards(store: &impl Store, credential: &StakeCredential) -> Result<u64, StoreError> {
+    fn read_rewards(store: &impl Store, credential: &Credential) -> Result<u64, StoreError> {
         let context = store.create_transaction();
         let mut rewards = None;
         context.with_accounts(|mut accounts| {
@@ -638,8 +638,8 @@ pub mod tests {
     }
 
     fn make_governance_updates(
-        deposit_refunds: BTreeMap<StakeCredential, Lovelace>,
-        treasury_withdrawals: BTreeMap<StakeCredential, Lovelace>,
+        deposit_refunds: BTreeMap<Credential, Lovelace>,
+        treasury_withdrawals: BTreeMap<Credential, Lovelace>,
     ) -> GovernanceUpdates {
         GovernanceUpdates {
             deposit_refunds,
