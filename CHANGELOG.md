@@ -40,6 +40,7 @@ Other guiding principles:
 ### Added
 
 - **amaru-pure-stage**: simulate how long an `ExternalEffect` occupies time (`DurationDist`: zero, constant, uniform, or until the effect future resolves). Sampled durations are scheduled when the effect is issued; `SimulationBuilder::run` now takes a Tokio `Handle` so a still-pending `run()` can be forced at that deadline. ([#1224](https://github.com/pragma-org/amaru/pull/1224))
+- **amaru-consensus**: log the transaction ids evicted from the mempool when a block is adopted, and specify if those transactions were included in a block (#1243).
 
 ### Changed
 

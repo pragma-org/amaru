@@ -1522,7 +1522,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | name | level | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- |
 | `accepted` | `TRACE` | public | Transaction validated and inserted into the mempool. | id, seq_no, origin |  |
-| `evicted` | `TRACE` | public | Transaction removed from the mempool. Reason ∈ {invalid_after_tip}. TODO: split the reason into invalid after tip + present in applied block | id, reason |  |
+| `evicted` | `TRACE` | public | Transaction removed from the mempool. Reason ∈ {included_in_adopted_block, evicted_after_new_tip}. | id, tip, reason |  |
 | `received` | `TRACE` | public | Transaction received by the mempool stage, before validation. | id, origin |  |
 | `rejected` | `TRACE` | public | Transaction rejected at insertion. Reason ∈ {invalid, duplicate, mempool_full}. | id, reason | validation_error |
 
@@ -1541,6 +1541,7 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 | field | type | required |
 | --- | --- | --- |
 | `id` | `string` | ✓ |
+| `tip` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 
 </details>

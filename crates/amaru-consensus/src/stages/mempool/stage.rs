@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use amaru_kernel::{Point, Transaction};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_protocols::mempool_effects::MemoryPool;
+use amaru_protocols::{mempool_effects::MemoryPool, store_effects::Store};
 use amaru_pure_stage::{Effects, StageRef};
 
 use crate::{
@@ -73,14 +73,8 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 
             let result = validate_and_insert(&ledger, &memory_pool, tx, &origin).await;
             record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
-            match result {
-                TxInsertResult::Accepted { seq_no, .. } => {
-                    tracing::info!(%tx_id, %seq_no, %origin, "transaction accepted into mempool");
-                    notify_ready_waiters(&mut state, &eff, seq_no).await;
-                }
-                TxInsertResult::Rejected { tx_id, ref reason } => {
-                    tracing::info!(%tx_id, %reason, "transaction rejected by mempool");
-                }
+            if let TxInsertResult::Accepted { seq_no, .. } = result {
+                notify_ready_waiters(&mut state, &eff, seq_no).await;
             }
             eff.send(&caller, result).await;
         }
@@ -91,22 +85,17 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
                 emit_tx_received(&tx_id, &origin);
                 let result = validate_and_insert(&ledger, &memory_pool, tx, &origin).await;
                 record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
-                match result {
-                    TxInsertResult::Accepted { seq_no, .. } => {
-                        tracing::info!(%tx_id, %seq_no, %origin, "transaction accepted into mempool");
-                        notify_ready_waiters(&mut state, &eff, seq_no).await;
-                    }
-                    TxInsertResult::Rejected { tx_id, ref reason } => {
-                        tracing::info!(%tx_id, %reason, "transaction rejected by mempool");
-                    }
+                if let TxInsertResult::Accepted { seq_no, .. } = result {
+                    notify_ready_waiters(&mut state, &eff, seq_no).await;
                 }
                 results.push(result);
             }
             eff.send(&caller, results).await;
         }
         MempoolMsg::NewTip(tip) => {
+            let store = Store::new(eff.clone());
             let outcome = apply_new_tip(&ledger, &memory_pool, tip).await;
-            record_revalidation(memory_pool.state().await, &metrics_ops, &outcome).await;
+            record_revalidation(memory_pool.state().await, &metrics_ops, &store, tip, &outcome).await;
             if !outcome.evicted_tx_ids.is_empty() {
                 notify_capacity_waiters(&mut state, &eff).await;
             }
@@ -120,7 +109,6 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 
 /// Validate a transaction against the current ledger state
 /// and insert it into the mempool if it is valid.
-///
 async fn validate_and_insert(
     ledger: &Ledger,
     memory_pool: &MemoryPool,

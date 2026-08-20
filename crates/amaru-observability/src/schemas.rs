@@ -1350,10 +1350,10 @@ define_schemas! {
                     required reason: String
                     optional validation_error: String
                 }
-                /// Transaction removed from the mempool. Reason ∈ {invalid_after_tip}.
-                /// TODO: split the reason into invalid after tip + present in applied block
+                /// Transaction removed from the mempool. Reason ∈ {included_in_adopted_block, evicted_after_new_tip}.
                 public EVICTED {
                     required id: amaru_kernel::TransactionId
+                    required tip: amaru_kernel::Point
                     required reason: String
                 }
                 /// Detail trace carrying upstream peer attribution for a received tx.

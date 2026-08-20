@@ -43,6 +43,7 @@ pub struct TestPrep {
     pub rt: Runtime,
     pub mempool: ResourceMempool<Transaction>,
     pub validator: ResourceTxValidation,
+    pub chain_store: amaru_protocols::store_effects::ResourceHeaderStore,
 }
 
 #[derive(serde::Serialize)]
@@ -85,6 +86,7 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockBlockValidator::default()));
     network.resources().put::<ResourceMempool<Transaction>>(prep.mempool.clone());
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
+    network.resources().put::<amaru_protocols::store_effects::ResourceHeaderStore>(prep.chain_store.clone());
 
     let mempool = network.stage("mempool", stage);
     let mempool = network.wire_up(mempool, MempoolStageState::default());

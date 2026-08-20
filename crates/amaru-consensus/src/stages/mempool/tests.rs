@@ -20,7 +20,7 @@ use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrig
 use amaru_ouroboros::{
     MempoolMsg, MempoolSeqNo, MempoolState, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
 };
-use amaru_ouroboros_traits::TxSubmissionMempool;
+use amaru_ouroboros_traits::{TxSubmissionMempool, in_memory_chain_store::InMemoryChainStore};
 use amaru_pure_stage::StageRef;
 use tracing::Level;
 
@@ -68,9 +68,9 @@ fn insert_batch_returns_one_result_per_transaction() {
         ],
     );
 
-    logs.assert_and_remove(Level::INFO, &["transaction accepted into mempool"])
-        .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "transaction rejected for testing"])
-        .assert_and_remove(Level::INFO, &["transaction rejected by mempool", "Transaction is a duplicate"])
+    logs.assert_and_remove(Level::INFO, &["transaction.accepted"])
+        .assert_and_remove(Level::INFO, &["transaction.rejected", "invalid", "transaction rejected for testing"])
+        .assert_and_remove(Level::INFO, &["transaction.rejected", "duplicate"])
         .assert_and_remove(Level::DEBUG, &["state.update", "tx_count=1", "size_bytes=51"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
@@ -89,13 +89,56 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
         validator: Arc::new(reject_tx_1),
+        chain_store: Arc::new(InMemoryChainStore::default()),
     };
 
     let (_running, _guards, mut logs) = setup(&prep);
 
     assert_eq!(mempool.mempool_txs(), vec![tx_0, tx_2]);
+    logs.assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"]);
     logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);
     logs.assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn new_tip_reports_transactions_included_in_the_adopted_block() {
+    use amaru_kernel::{IsHeader, cardano::network_block::make_encoded_block, cbor, make_header};
+    use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+
+    let header = make_header(1, 1, None);
+    let raw = make_encoded_block(&header, &amaru_kernel::EraHistory::default());
+    let (_, block): (u16, amaru_kernel::Block) = cbor::decode(&raw).unwrap();
+
+    // The mempool holds the transaction carried by the adopted block (identified by its body
+    // alone) and an unrelated one, both invalidated by the new tip.
+    let included_tx = Transaction {
+        body: block.transaction_bodies[0].clone(),
+        witnesses: Default::default(),
+        is_expected_valid: true,
+        auxiliary_data: None,
+    };
+    let evicted_tx = create_transaction(0);
+    let mempool = Arc::new(InMemoryMempool::<Transaction>::default());
+    mempool.insert(included_tx.clone(), TxOrigin::Local);
+    mempool.insert(evicted_tx.clone(), TxOrigin::Local);
+
+    let chain_store = Arc::new(InMemoryChainStore::default());
+    chain_store.store_block(&header.hash(), &raw).unwrap();
+
+    let prep = TestPrep {
+        msg: MempoolMsg::NewTip(amaru_kernel::Point::Specific(1.into(), header.hash(), 1.into())),
+        rt: crate::stages::test_utils::test_runtime(),
+        mempool: mempool.clone(),
+        validator: Arc::new(|_: &Transaction| Err(anyhow::anyhow!("invalid after tip").into())),
+        chain_store,
+    };
+
+    let (_running, _guards, mut logs) = setup(&prep);
+
+    assert!(mempool.mempool_txs().is_empty());
+    logs.assert_and_remove(Level::INFO, &["transaction.evicted", "included_in_adopted_block"])
+        .assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 
 pub fn make_insert_batch_example() -> TestPrep {
@@ -109,6 +152,7 @@ pub fn make_insert_batch_example() -> TestPrep {
         rt: crate::stages::test_utils::test_runtime(),
         mempool: Arc::new(InMemoryMempool::<Transaction>::default()),
         validator: Arc::new(reject_tx_1),
+        chain_store: Arc::new(InMemoryChainStore::default()),
     }
 }
 
