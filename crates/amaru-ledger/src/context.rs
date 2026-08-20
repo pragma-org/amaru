@@ -20,9 +20,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    ProposalSlim, ProposalsRoots, RequiredScript, StakeCredential, TransactionInput, Value, Vote, Voter,
+    Anchor, CertificatePointer, Credential, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, ProposalSlim, ProposalsRoots, RequiredScript, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -218,37 +218,37 @@ pub struct AccountState {
 pub trait AccountsSlice {
     /// The account state at this point in the block; the resolved block-start state with the
     /// in-block changes folded in.
-    fn lookup(&self, credential: &StakeCredential) -> Option<AccountState>;
+    fn lookup(&self, credential: &Credential) -> Option<AccountState>;
 
     fn register(
         &mut self,
-        credential: StakeCredential,
+        credential: Credential,
         state: AccountState,
-    ) -> Result<(), RegisterError<AccountState, StakeCredential>>;
+    ) -> Result<(), RegisterError<AccountState, Credential>>;
 
     fn delegate_pool(
         &mut self,
-        credential: StakeCredential,
+        credential: Credential,
         pool: PoolId,
         pointer: CertificatePointer,
-    ) -> Result<(), DelegateError<StakeCredential, PoolId>>;
+    ) -> Result<(), DelegateError<Credential, PoolId>>;
 
     fn delegate_vote(
         &mut self,
-        credential: StakeCredential,
+        credential: Credential,
         drep: DRep,
         pointer: CertificatePointer,
-    ) -> Result<(), DelegateError<StakeCredential, DRep>>;
+    ) -> Result<(), DelegateError<Credential, DRep>>;
 
     // FIXME: Should yield an error when account doesn't exists.
-    fn unregister(&mut self, credential: StakeCredential);
+    fn unregister(&mut self, credential: Credential);
 
-    fn withdraw_from(&mut self, credential: StakeCredential);
+    fn withdraw_from(&mut self, credential: Credential);
 }
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.
 pub trait PrepareAccountsSlice<'a> {
-    fn require_account(&mut self, credential: Cow<'a, StakeCredential>);
+    fn require_account(&mut self, credential: Cow<'a, Credential>);
 }
 
 // DRep
@@ -258,29 +258,25 @@ pub trait PrepareAccountsSlice<'a> {
 pub trait DRepsSlice {
     /// The DRep registration at this point in the block: the block-start record, or a fresh in-block
     /// registration that supersedes it. Unlike accounts this never merges, so it returns a reference.
-    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepRegistration>;
+    fn lookup(&self, credential: &Credential) -> Option<&DRepRegistration>;
 
     fn register(
         &mut self,
-        drep: StakeCredential,
+        drep: Credential,
         registration: DRepRegistration,
         anchor: Option<Box<Anchor>>,
-    ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>>;
+    ) -> Result<(), RegisterError<DRepRegistration, Credential>>;
 
-    fn update(
-        &mut self,
-        drep: StakeCredential,
-        anchor: Option<Box<Anchor>>,
-    ) -> Result<(), UpdateError<StakeCredential>>;
+    fn update(&mut self, drep: Credential, anchor: Option<Box<Anchor>>) -> Result<(), UpdateError<Credential>>;
 
-    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
+    fn unregister(&mut self, drep: Credential, refund: Lovelace, pointer: CertificatePointer);
 }
 
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
 pub trait PrepareDRepsSlice<'a> {
     /// Require a DRep registration. Borrowed when a certificate names the credential directly, owned
     /// when it has to be built from a `Voter`, which carries a bare hash rather than a credential.
-    fn require_drep(&'_ mut self, credential: Cow<'a, StakeCredential>);
+    fn require_drep(&'_ mut self, credential: Cow<'a, Credential>);
 
     /// Require the DRep targeted by a vote delegation. The credential is constructed from the `DRep`
     /// at resolution (and `Abstain`/`NoConfidence` drop out), so the borrowed `DRep` is collected.
@@ -294,7 +290,7 @@ pub trait PrepareDRepsSlice<'a> {
 pub trait CommitteeSlice {
     /// The committee member at this point in the block: the block-start record with the in-block
     /// hot-key change folded in, or `None` once it has resigned.
-    fn lookup_by_cold_credential(&self, cc_member: &StakeCredential) -> Option<CCMember>;
+    fn lookup_by_cold_credential(&self, cc_member: &Credential) -> Option<CCMember>;
 
     /// Every member currently authorizing this hot credential, which is the identity a vote carries.
     /// Empty when none does, including when one authorized it earlier but has since rotated to
@@ -303,31 +299,31 @@ pub trait CommitteeSlice {
     /// Set-valued because a hot credential is not unique to a member.
     fn lookup_by_hot_credential<'iter>(
         &'iter self,
-        hot_credential: &'iter StakeCredential,
+        hot_credential: &'iter Credential,
     ) -> impl Iterator<Item = CCMember> + 'iter;
 
     fn delegate_cold_key(
         &mut self,
-        cc_member: StakeCredential,
-        delegate: StakeCredential,
-    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>>;
+        cc_member: Credential,
+        delegate: Credential,
+    ) -> Result<(), DelegateError<Credential, Credential>>;
 
     fn resign(
         &mut self,
-        cold_credential: StakeCredential,
+        cold_credential: Credential,
         _anchor: Option<Box<Anchor>>,
-    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>>;
+    ) -> Result<(), DelegateError<Credential, Credential>>;
 }
 
 /// An interface to help constructing the concrete CommitteeSlice ahead of time.
 pub trait PrepareCommitteeSlice<'a> {
-    fn require_committee_member(&'_ mut self, cc_member: &'a StakeCredential);
+    fn require_committee_member(&'_ mut self, cc_member: &'a Credential);
 
     /// Require the member authorizing the hot credential a vote was cast with. Unlike
     /// [`Self::require_committee_member`] this isn't a store key, so it can only be resolved by
     /// scanning the members reachable at block start; the credential is collected here and matched at
     /// resolution.
-    fn require_committee_voter(&'_ mut self, hot_credential: StakeCredential);
+    fn require_committee_voter(&'_ mut self, hot_credential: Credential);
 }
 
 // Governance Proposals

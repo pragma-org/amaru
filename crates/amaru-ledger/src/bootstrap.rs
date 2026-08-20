@@ -22,10 +22,10 @@ use std::{
 
 use amaru_kernel::{
     Ballot, BallotId, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommittee,
-    ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
-    NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots, Proposal,
-    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
-    RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, StakeCredential, TransactionPointer, Vote,
+    ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash,
+    Lovelace, Network, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots,
+    Proposal, ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
+    ProtocolVersion, RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, TransactionPointer, Vote,
     Voter,
     cbor::{self, HasProtocolVersion, lazy::LazyDecoder},
     protocol_version, size,
@@ -103,8 +103,8 @@ struct InitialSnapshot {
     block_issuers: BTreeMap<PoolId, u64>,
     treasury: i64,
     reserves: i64,
-    dreps: BTreeMap<StakeCredential, DRepState>,
-    cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
+    dreps: BTreeMap<Credential, DRepState>,
+    cc_members: BTreeMap<Credential, ConstitutionalCommitteeMemberStatus>,
     governance_activity: GovernanceActivity,
     pools: BTreeMap<PoolId, PoolParams>,
     pools_updates: BTreeMap<PoolId, PoolParams>,
@@ -129,8 +129,8 @@ struct InitialSnapshot {
 /// parameters later on.
 struct ImportedAccounts {
     account_len: usize,
-    recently_unregistered_accounts: BTreeSet<StakeCredential>,
-    awaiting_default_deposit: Vec<(StakeCredential, NodeAccount)>,
+    recently_unregistered_accounts: BTreeSet<Credential>,
+    awaiting_default_deposit: Vec<(Credential, NodeAccount)>,
 }
 
 /// Persist normalized account rows in bounded write batches.
@@ -201,7 +201,7 @@ fn import_accounts(
     db: &impl Store,
     point: &Point,
     network: NetworkName,
-    mut recently_unregistered_accounts: BTreeSet<StakeCredential>,
+    mut recently_unregistered_accounts: BTreeSet<Credential>,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
 ) -> anyhow::Result<ImportedAccounts> {
     if db.iter_accounts()?.next().is_some() {
@@ -211,7 +211,7 @@ fn import_accounts(
     decoder.begin_array()?;
 
     let (progress, size, awaiting_default_deposit) = decoder.stream_map(
-        |d| Ok((d.decode::<StakeCredential>()?, d.decode::<NodeAccount>()?)),
+        |d| Ok((d.decode::<Credential>()?, d.decode::<NodeAccount>()?)),
         |length| {
             let estimated_size = length.map(|size| size as usize).unwrap_or(match network {
                 NetworkName::Mainnet => 1_500_000,
@@ -258,7 +258,7 @@ fn import_recently_unregistered_accounts(
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
-    recently_unregistered_accounts: BTreeSet<StakeCredential>,
+    recently_unregistered_accounts: BTreeSet<Credential>,
 ) -> anyhow::Result<()> {
     if !recently_unregistered_accounts.is_empty() {
         db.with_transaction(|transaction| {
@@ -291,7 +291,7 @@ fn import_default_account_deposits(
     point: &Point,
     default_deposit: Lovelace,
     with_progress: &impl Fn(usize, &str) -> Box<dyn ProgressBar>,
-    mut accounts: Vec<(StakeCredential, NodeAccount)>,
+    mut accounts: Vec<(Credential, NodeAccount)>,
 ) -> anyhow::Result<()> {
     if accounts.is_empty() {
         return Ok(());
@@ -321,7 +321,7 @@ fn import_default_account_deposits(
 fn decode_initial_snapshot(
     decoder: &mut LazyDecoder<'_>,
     db: &impl Store,
-    previous_accounts: BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<Credential>,
     point: &Point,
     expected_epoch: Epoch,
     network: NetworkName,
@@ -346,10 +346,10 @@ fn decode_initial_snapshot(
     decoder.begin_array()?; // Epoch State / Ledger State
     decoder.begin_array()?; // Epoch State / Ledger State / Cert State
     decoder.begin_array()?; // Epoch State / Ledger State / Cert State / Voting State
-    let dreps: BTreeMap<StakeCredential, DRepState> = decoder.decode()?;
+    let dreps: BTreeMap<Credential, DRepState> = decoder.decode()?;
 
     // Committee cold -> hot delegations
-    let cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus> = decoder.decode()?;
+    let cc_members: BTreeMap<Credential, ConstitutionalCommitteeMemberStatus> = decoder.decode()?;
 
     let dormant_epoch: Epoch = decoder.decode()?;
     let governance_activity = GovernanceActivity { consecutive_dormant_epochs: u64::from(dormant_epoch) as u32 };
@@ -539,7 +539,7 @@ fn decode_initial_snapshot(
 pub fn import_initial_snapshot(
     db: &impl Store,
     reader: &mut dyn Read,
-    previous_accounts: BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<Credential>,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
@@ -563,7 +563,7 @@ pub fn import_initial_snapshot(
 pub fn import_initial_snapshot_with_decoder(
     db: &impl Store,
     decoder: &mut LazyDecoder<'_>,
-    previous_accounts: BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<Credential>,
     point: &Point,
     era_history: &EraHistory,
     network: NetworkName,
@@ -748,7 +748,7 @@ fn import_dreps(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
-    dreps: BTreeMap<StakeCredential, DRepState>,
+    dreps: BTreeMap<Credential, DRepState>,
 ) -> anyhow::Result<()> {
     let mut known_dreps = BTreeMap::new();
 
@@ -1040,7 +1040,7 @@ fn import_constitutional_committee(
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     cc: Option<ConstitutionalCommittee>,
-    mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
+    mut hot_cold_delegations: BTreeMap<Credential, ConstitutionalCommitteeMemberStatus>,
 ) -> anyhow::Result<()> {
     let transaction = db.create_transaction();
 
@@ -1115,8 +1115,8 @@ fn import_votes(
 
             for (committee, vote) in st.committee_votes.into_iter() {
                 let voter = match committee {
-                    StakeCredential::KeyHash(hash) => Voter::ConstitutionalCommitteeKey(hash),
-                    StakeCredential::ScriptHash(hash) => Voter::ConstitutionalCommitteeScript(hash),
+                    Credential::KeyHash(hash) => Voter::ConstitutionalCommitteeKey(hash),
+                    Credential::ScriptHash(hash) => Voter::ConstitutionalCommitteeScript(hash),
                 };
 
                 let ballot = Ballot::new(vote, None);
@@ -1126,8 +1126,8 @@ fn import_votes(
 
             for (drep, vote) in st.dreps_votes.into_iter() {
                 let voter = match drep {
-                    StakeCredential::KeyHash(hash) => Voter::DRepKey(hash),
-                    StakeCredential::ScriptHash(hash) => Voter::DRepScript(hash),
+                    Credential::KeyHash(hash) => Voter::DRepKey(hash),
+                    Credential::ScriptHash(hash) => Voter::DRepScript(hash),
                 };
 
                 let ballot = Ballot::new(vote, None);
@@ -1180,8 +1180,8 @@ fn import_votes(
 #[expect(dead_code)]
 struct GovActionState {
     id: ProposalId,
-    committee_votes: BTreeMap<StakeCredential, Vote>,
-    dreps_votes: BTreeMap<StakeCredential, Vote>,
+    committee_votes: BTreeMap<Credential, Vote>,
+    dreps_votes: BTreeMap<Credential, Vote>,
     pools_votes: BTreeMap<PoolId, Vote>,
     proposal: Proposal,
     proposed_in: Epoch,
@@ -1630,7 +1630,7 @@ impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodeReward
         match d.datatype()? {
             cbor::data::Type::Bytes | cbor::data::Type::BytesIndef => Ok(Self(d.decode_with(protocol_version)?)),
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
-                let credential: StakeCredential = d.decode_with(protocol_version)?;
+                let credential: Credential = d.decode_with(protocol_version)?;
                 Ok(Self(RewardAccount::new(network, credential)))
             }
             other => Err(cbor::decode::Error::type_mismatch(other)),
@@ -1642,7 +1642,7 @@ impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodeReward
 mod tests {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{Bytes, Epoch, Hash, NetworkName, StakeCredential, cbor, protocol_version, to_cbor};
+    use amaru_kernel::{Bytes, Credential, Epoch, Hash, NetworkName, cbor, protocol_version, to_cbor};
 
     use super::{
         NodeRewardAccount, decode_initial_snapshot_prefix, decode_optional_node_pool_metadata,
@@ -1735,7 +1735,7 @@ mod tests {
 
     #[test]
     fn node_reward_account_credential_decodes_to_snapshot_network_reward_account() {
-        let credential = StakeCredential::KeyHash(Hash::new(
+        let credential = Credential::KeyHash(Hash::new(
             hex::decode("e3af434a5516854f20191807cc5ea85b57b4fd0f050f3eab28af19ee").unwrap().try_into().unwrap(),
         ));
         let bytes = cbor::to_vec(credential).unwrap();

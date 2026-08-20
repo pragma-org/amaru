@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, fmt};
 
 use thiserror::Error;
 
-use crate::{Address, AsHash, Lovelace, Network, NonEmptyKeyValuePairs, StakeCredential, bech32, cbor};
+use crate::{Address, AsHash, Credential, Lovelace, Network, NonEmptyKeyValuePairs, bech32, cbor};
 
 /// The account rewards are paid to, often called a StakeAddress.
 ///
@@ -27,11 +27,11 @@ use crate::{Address, AsHash, Lovelace, Network, NonEmptyKeyValuePairs, StakeCred
 #[serde(try_from = "String")]
 pub struct RewardAccount {
     network: Network,
-    credential: StakeCredential,
+    credential: Credential,
 }
 
 impl RewardAccount {
-    pub fn new(network: Network, credential: StakeCredential) -> Self {
+    pub fn new(network: Network, credential: Credential) -> Self {
         Self { network, credential }
     }
 
@@ -41,7 +41,7 @@ impl RewardAccount {
     }
 
     /// The stake credential owning the account.
-    pub fn credential(&self) -> StakeCredential {
+    pub fn credential(&self) -> Credential {
         self.credential
     }
 
@@ -52,8 +52,8 @@ impl RewardAccount {
     /// Gets a numeric id describing the type of the address
     fn typeid(&self) -> u8 {
         match &self.credential {
-            StakeCredential::KeyHash(_) => 0b1110,
-            StakeCredential::ScriptHash(_) => 0b1111,
+            Credential::KeyHash(_) => 0b1110,
+            Credential::ScriptHash(_) => 0b1111,
         }
     }
 
@@ -172,12 +172,12 @@ pub use tests::*;
 mod tests {
     use proptest::prop_compose;
 
-    use crate::{RewardAccount, any_network, any_stake_credential};
+    use crate::{RewardAccount, any_credential, any_network};
 
     prop_compose! {
         pub fn any_reward_account()(
             network in any_network(),
-            credential in any_stake_credential(),
+            credential in any_credential(),
         ) -> RewardAccount {
             RewardAccount::new(network, credential)
         }
@@ -190,7 +190,7 @@ mod unit_tests {
     use test_case::test_case;
 
     use super::{RewardAccount, any_reward_account};
-    use crate::{StakeCredential, cbor, prop_cbor_roundtrip, protocol_version};
+    use crate::{Credential, cbor, prop_cbor_roundtrip, protocol_version};
 
     prop_cbor_roundtrip!(RewardAccount, any_reward_account());
 
@@ -245,12 +245,12 @@ mod unit_tests {
                     );
                 } else {
                     match (a.credential(), b.credential()) {
-                        (StakeCredential::ScriptHash(_), StakeCredential::KeyHash(_)) => {}
-                        (StakeCredential::KeyHash(_), StakeCredential::ScriptHash(_)) => {
+                        (Credential::ScriptHash(_), Credential::KeyHash(_)) => {}
+                        (Credential::KeyHash(_), Credential::ScriptHash(_)) => {
                             prop_assert!(false, "Key credential should not come before Script credential");
                         }
-                        (StakeCredential::ScriptHash(h1), StakeCredential::ScriptHash(h2))
-                        | (StakeCredential::KeyHash(h1), StakeCredential::KeyHash(h2)) => {
+                        (Credential::ScriptHash(h1), Credential::ScriptHash(h2))
+                        | (Credential::KeyHash(h1), Credential::KeyHash(h2)) => {
                             prop_assert!(h1 <= h2, "Hash ordering violated: {:?} should be <= {:?}", h1, h2);
                         }
                     }

@@ -15,9 +15,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId, ProposalPointer,
-    ProposalSlim, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag, RequiredScript,
-    StakeCredential, TransactionId, TransactionPointer, size::SCRIPT,
+    Credential, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
+    ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
+    RequiredScript, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -32,7 +32,7 @@ pub enum InvalidProposals {
     ReturnAddressWrongNetwork { expected: Network, actual: Network },
 
     #[error("proposal return account does not exist: {0:?}")]
-    ProposalReturnAccountDoesNotExist(StakeCredential),
+    ProposalReturnAccountDoesNotExist(Credential),
 
     #[error("treasury withdrawals total is zero")]
     TreasuryWithdrawalsAllZeros,
@@ -41,7 +41,7 @@ pub enum InvalidProposals {
     TreasuryWithdrawalWrongNetwork { expected: Network, actual: Network },
 
     #[error("treasury withdrawal return accounts do not exist: {0:?}")]
-    TreasuryWithdrawalReturnAccountsDoNotExist(BTreeSet<StakeCredential>),
+    TreasuryWithdrawalReturnAccountsDoNotExist(BTreeSet<Credential>),
 
     #[error("conflicting committee update: members appear in both add and remove sets")]
     ConflictingCommitteeUpdate,

@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Ballot, BallotId, BlockHeight, DRep, DRepRegistration, GovernanceAction, Hash, MemoizedTransactionOutput, Point,
-    PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, StakeCredential, TransactionInput, any_anchor,
-    any_ballot, any_ballot_id, any_drep, any_drep_registration, any_modern_output, any_pool_params, any_proposal_id,
-    any_proposals_roots, any_reward_account, any_stake_credential,
+    Ballot, BallotId, BlockHeight, Credential, DRep, DRepRegistration, GovernanceAction, Hash,
+    MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalsRoots, Slot, TransactionInput,
+    any_anchor, any_ballot, any_ballot_id, any_credential, any_drep, any_drep_registration, any_modern_output,
+    any_pool_params, any_proposal_id, any_proposals_roots, any_reward_account,
     utils::tests::{random_bytes_with_rng, run_strategy_with_rng},
 };
 use rand::Rng;
@@ -86,8 +86,8 @@ pub fn proposals_roots(rng: &mut impl Rng) -> ProposalsRoots {
     run_strategy_with_rng(rng, any_proposals_roots())
 }
 
-pub fn stake_credential(rng: &mut impl Rng) -> StakeCredential {
-    run_strategy_with_rng(rng, any_stake_credential())
+pub fn stake_credential(rng: &mut impl Rng) -> Credential {
+    run_strategy_with_rng(rng, any_credential())
 }
 
 pub fn tip(rng: &mut impl Rng, ix: u64) -> Point {

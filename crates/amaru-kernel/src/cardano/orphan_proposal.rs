@@ -14,11 +14,11 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use crate::{Lovelace, StakeCredential};
+use crate::{Credential, Lovelace};
 
 #[derive(Debug, Clone)]
 pub enum OrphanProposal {
-    TreasuryWithdrawal(BTreeMap<StakeCredential, Lovelace>),
+    TreasuryWithdrawal(BTreeMap<Credential, Lovelace>),
     NicePoll,
 }
 
@@ -42,12 +42,12 @@ pub use tests::*;
 mod tests {
     use proptest::{collection, prelude::*};
 
-    use crate::{OrphanProposal, any_stake_credential};
+    use crate::{OrphanProposal, any_credential};
 
     pub fn any_orphan_proposal() -> impl Strategy<Value = OrphanProposal> {
         let any_nice_poll = Just(OrphanProposal::NicePoll);
 
-        let any_treasury_withdrawal = collection::btree_map(any_stake_credential(), 1..(u64::MAX / 3), 1..3)
+        let any_treasury_withdrawal = collection::btree_map(any_credential(), 1..(u64::MAX / 3), 1..3)
             .prop_map(OrphanProposal::TreasuryWithdrawal);
 
         prop_oneof![any_nice_poll, any_treasury_withdrawal]

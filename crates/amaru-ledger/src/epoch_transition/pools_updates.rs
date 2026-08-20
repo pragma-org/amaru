@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RationalNumber, RewardAccount, StakeCredential,
+    Credential, Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RationalNumber, RewardAccount,
     utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
@@ -39,7 +39,7 @@ pub struct PoolsEpochTransitionUpdates {
     updated: BTreeMap<PoolId, Pool>,
 
     /// Pool owners refunds, corresponding to the return of their deposit upon de-registration.
-    refunds: BTreeMap<StakeCredential, Lovelace>,
+    refunds: BTreeMap<Credential, Lovelace>,
 }
 
 impl PoolsEpochTransitionUpdates {
@@ -65,13 +65,13 @@ impl PoolsEpochTransitionUpdates {
         &self.updated
     }
 
-    pub fn refunds(&self) -> impl Iterator<Item = (&StakeCredential, &Lovelace)> {
+    pub fn refunds(&self) -> impl Iterator<Item = (&Credential, &Lovelace)> {
         self.refunds.iter()
     }
 
     /// The pending pool-deposit refund for the given account, or `0`. Refunds land on the reward
     /// balance, so they count towards a withdrawable balance during the straddle.
-    pub fn refund(&self, account: &StakeCredential) -> Lovelace {
+    pub fn refund(&self, account: &Credential) -> Lovelace {
         self.refunds.get(account).copied().unwrap_or(0)
     }
 
@@ -210,8 +210,8 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, any_certificate_pointer, any_lovelace, any_pool_params,
-        any_stake_credential, utils::tests::run_strategy,
+        Epoch, Network, PoolId, PoolParams, RewardAccount, any_certificate_pointer, any_credential, any_lovelace,
+        any_pool_params, utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
 
@@ -396,7 +396,7 @@ mod tests {
             (any_pool_params(), any_pool_params())
                 .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id != pool_b.id),
         );
-        let reward_credential = run_strategy(any_stake_credential());
+        let reward_credential = run_strategy(any_credential());
         let reward_account = RewardAccount::new(Network::Testnet, reward_credential);
 
         let deposit_a = 1_000_000;

@@ -122,8 +122,8 @@ mod tests {
     use std::{collections::BTreeMap, rc::Rc};
 
     use amaru_kernel::{
-        CertificatePointer, ConstitutionalCommitteeUpdate, DRep, Hash, Network, PoolId, PoolParams, ProposalEnum,
-        ProtocolParamUpdate, RationalNumber, RewardAccount, SafeRatio, StakeCredential, Vote, any_ex_units,
+        CertificatePointer, ConstitutionalCommitteeUpdate, Credential, DRep, Hash, Network, PoolId, PoolParams,
+        ProposalEnum, ProtocolParamUpdate, RationalNumber, RewardAccount, SafeRatio, Vote, any_ex_units,
         any_pool_voting_thresholds, any_proposal_enum, any_proposal_id, any_protocol_params_update,
         any_rational_number, any_vote_ref, safe_ratio,
     };
@@ -350,7 +350,7 @@ mod tests {
                         margin: RationalNumber { numerator: 0, denominator: 1 },
                         reward_account: RewardAccount::new(
                             Network::Testnet,
-                            StakeCredential::ScriptHash(Hash::new([1; 28])),
+                            Credential::ScriptHash(Hash::new([1; 28])),
                         ),
                         owners: Vec::new(),
                         relays: Vec::new(),

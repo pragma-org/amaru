@@ -17,6 +17,7 @@ use std::{collections::BTreeMap, fmt, rc::Rc};
 use amaru_kernel::{
     Constitution,
     ConstitutionalCommitteeUpdate,
+    Credential,
     Epoch,
     EraHistory,
     Lovelace,
@@ -28,7 +29,6 @@ use amaru_kernel::{
     ProposalsRootsRc,
     ProtocolParameters,
     RatificationStatus,
-    StakeCredential,
     cbor,
     cbor as minicbor,
 };
@@ -57,11 +57,11 @@ pub struct GovernanceUpdates {
 
     /// Refunds from proposals' deposits that are now being returned due to expiration, enactment or
     /// pruning thereof.
-    pub deposit_refunds: BTreeMap<StakeCredential, Lovelace>,
+    pub deposit_refunds: BTreeMap<Credential, Lovelace>,
 
     /// Withdrawals from the treasury by enacted proposals. Kept separate from
     /// `deposit_refunds` which don't come from the treasury at all.
-    pub treasury_withdrawals: BTreeMap<StakeCredential, Lovelace>,
+    pub treasury_withdrawals: BTreeMap<Credential, Lovelace>,
 
     /// Captures whether the resulting epoch is considered 'dormant' (i.e. no active proposals
     /// left to vote on at the beginning of the epoch, after ratification).
@@ -88,7 +88,7 @@ pub struct GovernanceActivity {
 #[derive(Debug)]
 struct ProposalMetadata {
     valid_until: Epoch,
-    return_account: StakeCredential,
+    return_account: Credential,
     deposit: Lovelace,
 }
 
@@ -284,7 +284,7 @@ impl GovernanceUpdates {
     /// deposit refunds (on enactment, expiry, or pruning) and treasury withdrawals; both land on
     /// the reward balance at the epoch boundary, so they count towards a withdrawable balance
     /// during the straddle.
-    pub fn payout(&self, account: &StakeCredential) -> Lovelace {
+    pub fn payout(&self, account: &Credential) -> Lovelace {
         let refund = self.deposit_refunds.get(account).copied().unwrap_or(0);
         let withdrawal = self.treasury_withdrawals.get(account).copied().unwrap_or(0);
 

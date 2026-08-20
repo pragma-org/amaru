@@ -25,8 +25,8 @@
 //! second save does.
 
 use amaru_kernel::{
-    BlockHeight, CertificatePointer, DRep, DRepRegistration, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_ERA_HISTORY, Point, Slot, StakeCredential, TransactionPointer,
+    BlockHeight, CertificatePointer, Credential, DRep, DRepRegistration, Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+    PREPROD_ERA_HISTORY, Point, Slot, TransactionPointer,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -49,7 +49,7 @@ fn bootstrap_preserves_dormant_epochs_across_utxo_import() {
     let epoch = PREPROD_ERA_HISTORY.slot_to_epoch(slot, slot).expect("slot_to_epoch");
 
     let drep_hash = Hash::from([1u8; 28]);
-    let drep_key = StakeCredential::KeyHash(drep_hash);
+    let drep_key = Credential::KeyHash(drep_hash);
     let registered_at = CertificatePointer {
         transaction: TransactionPointer { slot: Slot::from(0), transaction_index: 0 },
         certificate_index: 0,
@@ -185,7 +185,7 @@ fn dormant_epochs_do_not_revive_expired_dreps() {
                         accounts: std::iter::empty(),
                         dreps: [
                             (
-                                StakeCredential::KeyHash(active_hash),
+                                Credential::KeyHash(active_hash),
                                 (
                                     Resettable::Unchanged,
                                     Some(DRepRegistration {
@@ -196,7 +196,7 @@ fn dormant_epochs_do_not_revive_expired_dreps() {
                                 ),
                             ),
                             (
-                                StakeCredential::KeyHash(expired_hash),
+                                Credential::KeyHash(expired_hash),
                                 (
                                     Resettable::Unchanged,
                                     Some(DRepRegistration {

@@ -15,8 +15,8 @@
 use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
-    Constitution, ConstitutionalCommitteeUpdate, Epoch, Hash, Lovelace, PoolId, ProposalId, ProposalsRoots,
-    ProtocolParameters, RatificationStatus, StakeCredential, TreasuryDelta, size::SCRIPT,
+    Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, Hash, Lovelace, PoolId, ProposalId, ProposalsRoots,
+    ProtocolParameters, RatificationStatus, TreasuryDelta, size::SCRIPT,
 };
 use amaru_observability::{debug, info_span};
 use tracing::Span;
@@ -150,7 +150,7 @@ impl StateOverlay {
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
         donations: Lovelace,
-        account_exists: impl Fn(&StakeCredential) -> bool,
+        account_exists: impl Fn(&Credential) -> bool,
     ) {
         let to = self.epoch + 1;
         debug!(ledger::epoch_transition::RECORD, from = self.epoch, to);
@@ -371,7 +371,7 @@ impl StateOverlay {
     /// The cold credentials this pending boundary transition can resolve to a member for, that is,
     /// the ones it elects. A removal short-circuits to `Gone`, so naming it here would only yield a
     /// candidate to discard.
-    pub fn cc_members<'a>(&'a self) -> impl Iterator<Item = (&'a StakeCredential, Existence<CommitteeMemberBind<'a>>)> {
+    pub fn cc_members<'a>(&'a self) -> impl Iterator<Item = (&'a Credential, Existence<CommitteeMemberBind<'a>>)> {
         match self.governance_updates.as_ref().and_then(|updates| updates.constitutional_committee.as_ref()) {
             Some(ConstitutionalCommitteeUpdate::ChangeMembers { added, removed, .. }) => Some(
                 std::iter::empty()
@@ -417,7 +417,7 @@ impl StateOverlay {
     /// The account's pending reward credit at the not-yet-flushed epoch boundary: its effective
     /// reward, plus any pool-deposit refund, plus any governance payout (proposal deposit refund or
     /// treasury withdrawal). `0` outside the straddle window.
-    pub fn pending_reward_credit(&self, credential: &StakeCredential) -> Lovelace {
+    pub fn pending_reward_credit(&self, credential: &Credential) -> Lovelace {
         let reward = match &self.rewards {
             RewardsState::Effective(effective) => effective.reward_of(credential),
             RewardsState::NotReady | RewardsState::Computed(..) => 0,
@@ -486,8 +486,8 @@ mod test {
 
     // HELPERS
 
-    fn credential(tag: u8) -> StakeCredential {
-        StakeCredential::KeyHash(Hash::new([tag; 28]))
+    fn credential(tag: u8) -> Credential {
+        Credential::KeyHash(Hash::new([tag; 28]))
     }
 
     /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during

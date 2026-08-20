@@ -15,9 +15,9 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Account, CertificatePointer, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus, EraHistory,
+    Account, CertificatePointer, ConstitutionalCommittee, ConstitutionalCommitteeMemberStatus, Credential, EraHistory,
     EraHistoryError, Lovelace, Point, ProposalId, ProposalPointer, ProposalState as NewEpochProposalState,
-    ProposalsRoots, ProtocolParameters, Slot, StakeCredential, TransactionPointer,
+    ProposalsRoots, ProtocolParameters, Slot, TransactionPointer,
 };
 
 use crate::context::{AccountState, CCMember, ProposalState};
@@ -55,8 +55,8 @@ pub fn account_state(
 /// has no elected members.
 pub fn committee_members(
     cc: Option<ConstitutionalCommittee>,
-    statuses: &BTreeMap<StakeCredential, ConstitutionalCommitteeMemberStatus>,
-) -> BTreeMap<StakeCredential, CCMember> {
+    statuses: &BTreeMap<Credential, ConstitutionalCommitteeMemberStatus>,
+) -> BTreeMap<Credential, CCMember> {
     let members = match cc {
         Some(ConstitutionalCommittee { members, .. }) => members,
         None => return BTreeMap::new(),

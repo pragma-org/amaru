@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    AsShelley, BorrowedScript, Certificate, GovernanceAction, HasOwnership, Hash, OutputReference, PlutusData,
-    PlutusMint, PlutusVotes, PlutusWithdrawals, Proposal, RedeemerKey, RedeemerTag, StakeCredential, TransactionInput,
+    AsShelley, BorrowedScript, Certificate, Credential, GovernanceAction, HasOwnership, Hash, OutputReference,
+    PlutusData, PlutusMint, PlutusVotes, PlutusWithdrawals, Proposal, RedeemerKey, RedeemerTag, TransactionInput,
     Voter,
     size::{CREDENTIAL, SCRIPT},
 };
@@ -45,7 +45,7 @@ pub type ScriptPurpose<'a> = ScriptInfo<'a, ()>;
 pub enum ScriptInfo<'a, T: Clone> {
     Minting(Hash<CREDENTIAL>),
     Spending(&'a TransactionInput, T),
-    Rewarding(StakeCredential),
+    Rewarding(Credential),
     Certifying(usize, &'a Certificate),
     Voting(&'a Voter),
     Proposing(usize, &'a Proposal),
@@ -66,7 +66,7 @@ impl<'a> ScriptPurpose<'a> {
         let index = key.index as usize;
         match key.tag {
             RedeemerTag::Spend => inputs.get(index).and_then(|OutputReference { input, output }| {
-                if let Some(StakeCredential::ScriptHash(hash)) = output.address.as_shelley().map(|addr| addr.owner()) {
+                if let Some(Credential::ScriptHash(hash)) = output.address.as_shelley().map(|addr| addr.owner()) {
                     scripts.get(&hash).map(|script| (ScriptPurpose::Spending(input, ()), script.clone()))
                 } else {
                     None
@@ -76,23 +76,23 @@ impl<'a> ScriptPurpose<'a> {
                 scripts.get(&policy_id).map(|script| (ScriptPurpose::Minting(policy_id), script.clone()))
             }),
             RedeemerTag::Reward => withdrawals.keys().nth(index).and_then(|account| {
-                if let StakeCredential::ScriptHash(hash) = account.credential() {
+                if let Credential::ScriptHash(hash) = account.credential() {
                     scripts
                         .get(&hash)
-                        .map(|script| (ScriptPurpose::Rewarding(StakeCredential::ScriptHash(hash)), script.clone()))
+                        .map(|script| (ScriptPurpose::Rewarding(Credential::ScriptHash(hash)), script.clone()))
                 } else {
                     None
                 }
             }),
             RedeemerTag::Cert => certs.get(index).and_then(|certificate| {
-                if let StakeCredential::ScriptHash(hash) = certificate.owner() {
+                if let Credential::ScriptHash(hash) = certificate.owner() {
                     scripts.get(&hash).map(|script| (ScriptPurpose::Certifying(index, certificate), script.clone()))
                 } else {
                     None
                 }
             }),
             RedeemerTag::Vote => votes.0.keys().nth(index).and_then(|voter| {
-                if let StakeCredential::ScriptHash(hash) = voter.owner() {
+                if let Credential::ScriptHash(hash) = voter.owner() {
                     scripts.get(&hash).map(|script| (ScriptPurpose::Voting(voter), script.clone()))
                 } else {
                     None
