@@ -18,9 +18,7 @@ use std::{
     sync::{OnceLock, atomic, atomic::AtomicUsize},
 };
 
-use amaru_kernel::{
-    DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, SortedPairs, StakeCredential, expect_stake_credential, safe_ratio,
-};
+use amaru_kernel::{DRep, Epoch, Hash, Lovelace, NetworkName, PoolId, SortedPairs, StakeCredential, safe_ratio};
 use amaru_observability::info;
 use serde::ser::SerializeStruct;
 
@@ -127,7 +125,7 @@ impl StakeSummary {
                 // ratification happens *after* pools reaping, and thus, nullify voting power of
                 // pools that are retiring.
                 if PoolsEpochTransitionUpdates::is_retiring(epoch + 1, &row) {
-                    let reward_account = expect_stake_credential(&row.current_params.reward_account);
+                    let reward_account = row.current_params.reward_account.credential();
                     pools_deregistration_refunds
                         .entry(reward_account)
                         .and_modify(|refund| *refund += stake_pool_deposit)
@@ -249,7 +247,7 @@ impl StakeSummary {
         }
 
         for pool in pools.values_mut() {
-            let reward_account = expect_stake_credential(&pool.parameters.reward_account);
+            let reward_account = pool.parameters.reward_account.credential();
             pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
         }
 
@@ -307,7 +305,7 @@ impl serde::Serialize for StakeSummary {
             "accounts",
             &self.accounts.iter().fold(Accounts::default(), |mut accounts, (credential, st)| {
                 match credential {
-                    StakeCredential::AddrKeyhash(hash) => accounts.verification_keys.insert(*hash, st),
+                    StakeCredential::KeyHash(hash) => accounts.verification_keys.insert(*hash, st),
                     StakeCredential::ScriptHash(hash) => accounts.scripts.insert(*hash, st),
                 };
 
@@ -391,7 +389,7 @@ pub mod tests {
 
     use amaru_kernel::{
         Epoch, Lovelace, any_anchor, any_certificate_pointer, any_drep, any_hash28, any_pool_params,
-        any_stake_credential, expect_stake_credential, safe_ratio,
+        any_stake_credential, safe_ratio,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
 
@@ -454,7 +452,7 @@ pub mod tests {
 
                     // Ensure some of the reward accounts do exists.
                     if ix % 2 == 0 {
-                        account = expect_stake_credential(&pool_st.parameters.reward_account);
+                        account = pool_st.parameters.reward_account.credential();
                     }
 
                     // Make sure accounts are delegated to existing pools, when they are.
@@ -469,7 +467,7 @@ pub mod tests {
             let mut pools = pools;
 
             for pool in pools.values_mut() {
-                let reward_account = expect_stake_credential(&pool.parameters.reward_account);
+                let reward_account = pool.parameters.reward_account.credential();
                 pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
             }
 

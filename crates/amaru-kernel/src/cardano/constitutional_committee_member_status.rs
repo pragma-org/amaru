@@ -89,7 +89,7 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::decode::Decode<'d, C> for Constituti
                 // encoding with this type up-to-this point. Here we allow decoding StakeCredential
                 // directly.
                 if matches!(d.datatype()?, cbor::Type::Bytes | cbor::Type::BytesIndef) {
-                    return Ok(Self::DelegatedToHotCredential(StakeCredential::AddrKeyhash(d.decode_with(ctx)?)));
+                    return Ok(Self::DelegatedToHotCredential(StakeCredential::KeyHash(d.decode_with(ctx)?)));
                 }
 
                 Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))

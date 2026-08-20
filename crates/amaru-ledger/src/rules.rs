@@ -14,9 +14,7 @@
 
 use std::{borrow::Cow, fmt, fmt::Display};
 
-use amaru_kernel::{
-    Block, Certificate, GovernanceAction, HasOwnership, Proposal, TransactionBody, Voter, parse_reward_account,
-};
+use amaru_kernel::{Block, Certificate, GovernanceAction, HasOwnership, Proposal, TransactionBody, Voter};
 use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
@@ -75,10 +73,7 @@ fn prepare_withdrawals<'a>(context: &mut impl PreparationContext<'a>, transactio
     let Some(withdrawals) = transaction.withdrawals.as_ref() else {
         return;
     };
-    withdrawals
-        .iter()
-        .filter_map(|(bytes, _)| parse_reward_account(bytes))
-        .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
+    withdrawals.iter().for_each(|(account, _)| context.require_account(Cow::Owned(account.credential())));
 }
 
 /// Collect and require the proposals a transaction votes on, along with the state each voter's
@@ -105,16 +100,11 @@ fn prepare_votes<'a>(context: &mut impl PreparationContext<'a>, transaction: &'a
 }
 
 fn prepare_governance_action<'a>(context: &mut impl PreparationContext<'a>, proposal: &'a Proposal) {
-    if let Some((account, _)) = parse_reward_account(&proposal.reward_account) {
-        context.require_account(Cow::Owned(account));
-    }
+    context.require_account(Cow::Owned(proposal.reward_account.credential()));
 
     match &proposal.gov_action {
         GovernanceAction::TreasuryWithdrawals(withdrawals, _) => {
-            withdrawals
-                .iter()
-                .filter_map(|withdrawal| parse_reward_account(&withdrawal.0))
-                .for_each(|(account, _)| context.require_account(Cow::Owned(account)));
+            withdrawals.iter().for_each(|(account, _)| context.require_account(Cow::Owned(account.credential())));
         }
 
         GovernanceAction::ParameterChange(parent, ..)
@@ -291,23 +281,23 @@ pub(crate) mod tests {
         assert_eq!(
             context.accounts.into_iter().map(|k| k.into_owned()).collect::<BTreeSet<_>>(),
             // the withdrawal's reward account, plus the proposal's treasury-withdrawal target
-            BTreeSet::from([StakeCredential::AddrKeyhash(proposal_key), StakeCredential::AddrKeyhash(dev_key),])
+            BTreeSet::from([StakeCredential::KeyHash(proposal_key), StakeCredential::KeyHash(dev_key),])
         );
         // the certificates' pool, plus the one that cast a vote
         assert_eq!(context.pools.into_iter().copied().collect::<BTreeSet<_>>(), BTreeSet::from([pool, voting_pool]));
         // the certificates' DRep, which is also the one that cast a vote
         assert_eq!(
             context.dreps.into_iter().map(|k| k.into_owned()).collect::<BTreeSet<_>>(),
-            BTreeSet::from([StakeCredential::AddrKeyhash(drep)])
+            BTreeSet::from([StakeCredential::KeyHash(drep)])
         );
         assert_eq!(context.drep_delegations.into_iter().cloned().collect::<Vec<_>>(), vec![DRep::Key(drep)]);
         // a certificate names a member by cold credential...
         assert_eq!(
             context.committee.into_iter().cloned().collect::<BTreeSet<_>>(),
-            BTreeSet::from([StakeCredential::AddrKeyhash(cc_cold)])
+            BTreeSet::from([StakeCredential::KeyHash(cc_cold)])
         );
         // ...whereas a vote names one by the hot credential it authorized
-        assert_eq!(context.committee_voters, BTreeSet::from([StakeCredential::AddrKeyhash(cc_hot)]));
+        assert_eq!(context.committee_voters, BTreeSet::from([StakeCredential::KeyHash(cc_hot)]));
 
         // the single proposal all three votes are cast on
         assert_eq!(context.proposals.len(), 1);

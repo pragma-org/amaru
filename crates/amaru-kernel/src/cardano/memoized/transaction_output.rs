@@ -91,7 +91,7 @@ impl MemoizedTransactionOutput {
     pub fn delegate(&self) -> Option<StakeCredential> {
         match &self.address {
             Address::Shelley(shelley) => match shelley.delegation() {
-                ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
+                ShelleyDelegationPart::Key(key) => Some(StakeCredential::KeyHash(*key)),
                 ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
                 ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => None,
             },

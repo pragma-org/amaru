@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RationalNumber, RewardAccount, StakeCredential,
-    expect_stake_credential, utils::string::display_collection,
+    utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
 
@@ -167,7 +167,7 @@ impl PoolsEpochTransitionUpdates {
 
         self.retired.insert(pool.id());
         self.refunds
-            .entry(expect_stake_credential(&pool.current_params.reward_account))
+            .entry(pool.current_params.reward_account.credential())
             .and_modify(|refunded| *refunded += pool.deposit)
             .or_insert(pool.deposit);
 
@@ -210,9 +210,8 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Epoch, Network, PoolId, PoolParams, RewardAccount, StakeAddress, StakeCredential, StakePayload,
-        any_certificate_pointer, any_lovelace, any_pool_params, any_stake_credential, expect_stake_credential,
-        utils::tests::run_strategy,
+        Epoch, Network, PoolId, PoolParams, RewardAccount, any_certificate_pointer, any_lovelace, any_pool_params,
+        any_stake_credential, utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
 
@@ -353,7 +352,7 @@ mod tests {
             initial_params in any_pool_params(),
         ) {
             let epoch = Epoch::from(1);
-            let reward_account = expect_stake_credential(&initial_params.reward_account);
+            let reward_account = initial_params.reward_account.credential();
 
             let mut pool = Pool::new(registered_at, deposit, initial_params);
             let pool_id = pool.id();
@@ -398,12 +397,12 @@ mod tests {
                 .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id != pool_b.id),
         );
         let reward_credential = run_strategy(any_stake_credential());
-        let reward_account = reward_account_from_stake_credential(&reward_credential);
+        let reward_account = RewardAccount::new(Network::Testnet, reward_credential);
 
         let deposit_a = 1_000_000;
         let deposit_b = 2_000_000;
 
-        pool_params_a.reward_account = reward_account.clone();
+        pool_params_a.reward_account = reward_account;
         pool_params_b.reward_account = reward_account;
 
         let mut pool_a = Pool::new(run_strategy(any_certificate_pointer(u64::MAX)), deposit_a, pool_params_a);
@@ -420,14 +419,5 @@ mod tests {
 
         let refunds = pools_updates.refunds().collect::<Vec<_>>();
         assert_eq!(refunds, vec![(&reward_credential, &(deposit_a + deposit_b))]);
-    }
-
-    fn reward_account_from_stake_credential(credential: &StakeCredential) -> RewardAccount {
-        let payload = match credential {
-            StakeCredential::AddrKeyhash(hash) => StakePayload::Key(*hash),
-            StakeCredential::ScriptHash(hash) => StakePayload::Script(*hash),
-        };
-
-        StakeAddress::new(Network::Testnet, payload).to_vec().into()
     }
 }

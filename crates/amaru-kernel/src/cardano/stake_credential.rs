@@ -15,15 +15,15 @@
 use std::fmt;
 
 use crate::{
-    Address, AddressType, HasOwnership, Hash, Network, ShelleyDelegationPart, ShelleyPaymentPart, StakePayload, cbor,
+    AddressType, Hash, ShelleyDelegationPart, ShelleyPaymentPart, cbor,
     size::{CREDENTIAL, KEY, SCRIPT},
 };
 
 // NOTE: Stake Credential variant order
 //
-// It is tempting to swap the order of the two constructors so that AddrKeyHash
+// It is tempting to swap the order of the two constructors so that KEyHash
 // comes first. This indeed nicely maps the binary representation which
-// associates 0 to AddrKeyHash and 1 to ScriptHash.
+// associates 0 to KeyHash and 1 to ScriptHash.
 //
 // However, for historical reasons, the ScriptHash variant comes first in the
 // Haskell reference codebase. From this ordering is derived the `PartialOrd`
@@ -33,16 +33,18 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 pub enum StakeCredential {
     ScriptHash(Hash<{ SCRIPT }>),
-    AddrKeyhash(Hash<{ KEY }>),
+    KeyHash(Hash<{ KEY }>),
 }
 
 impl StakeCredential {
+    pub fn is_script(&self) -> bool {
+        matches!(self, Self::ScriptHash(_))
+    }
+
     pub fn from_raw_address(bytes: &[u8]) -> Option<Self> {
         use AddressType::*;
         match AddressType::try_from_header_byte(*bytes.first()?)? {
-            Type0 | Type1 => {
-                (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::AddrKeyhash(Hash::from(&bytes[KEY + 1..])))
-            }
+            Type0 | Type1 => (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::KeyHash(Hash::from(&bytes[KEY + 1..]))),
             Type2 | Type3 => {
                 (bytes.len() == 2 * CREDENTIAL + 1).then(|| Self::ScriptHash(Hash::from(&bytes[SCRIPT + 1..])))
             }
@@ -55,7 +57,7 @@ impl fmt::Display for StakeCredential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ScriptHash(h) => write!(f, "script({h})"),
-            Self::AddrKeyhash(h) => write!(f, "key({h})"),
+            Self::KeyHash(h) => write!(f, "key({h})"),
         }
     }
 }
@@ -67,7 +69,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for StakeCredential {
             let variant = d.u16()?;
 
             match variant {
-                0 => Ok(StakeCredential::AddrKeyhash(d.decode_with(ctx)?)),
+                0 => Ok(StakeCredential::KeyHash(d.decode_with(ctx)?)),
                 1 => Ok(StakeCredential::ScriptHash(d.decode_with(ctx)?)),
                 _ => Err(cbor::decode::Error::message("invalid variant id for StakeCredential")),
             }
@@ -82,7 +84,7 @@ impl<C> cbor::Encode<C> for StakeCredential {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         match self {
-            StakeCredential::AddrKeyhash(a) => {
+            StakeCredential::KeyHash(a) => {
                 e.array(2)?;
                 e.encode_with(0, ctx)?;
                 e.encode_with(a, ctx)?;
@@ -100,30 +102,10 @@ impl<C> cbor::Encode<C> for StakeCredential {
     }
 }
 
-// This function shouldn't exist and pallas should provide a RewardAccount = (Network,
-// StakeCredential) out of the box instead of row bytes.
-pub fn parse_reward_account(bytes: &[u8]) -> Option<(StakeCredential, Network)> {
-    if let Some(Address::Stake(address)) = Address::from_bytes(bytes) {
-        let network = address.network();
-        Some((address.owner(), network))
-    } else {
-        None
-    }
-}
-
-impl From<StakePayload> for StakeCredential {
-    fn from(payload: StakePayload) -> Self {
-        match payload {
-            StakePayload::Key(hash) => Self::AddrKeyhash(hash),
-            StakePayload::Script(hash) => Self::ScriptHash(hash),
-        }
-    }
-}
-
 impl From<ShelleyPaymentPart> for StakeCredential {
     fn from(part: ShelleyPaymentPart) -> Self {
         match part {
-            ShelleyPaymentPart::Key(hash) => Self::AddrKeyhash(hash),
+            ShelleyPaymentPart::Key(hash) => Self::KeyHash(hash),
             ShelleyPaymentPart::Script(hash) => Self::ScriptHash(hash),
         }
     }
@@ -133,7 +115,7 @@ impl TryFrom<ShelleyDelegationPart> for StakeCredential {
     type Error = ();
     fn try_from(part: ShelleyDelegationPart) -> Result<Self, Self::Error> {
         match part {
-            ShelleyDelegationPart::Key(hash) => Ok(Self::AddrKeyhash(hash)),
+            ShelleyDelegationPart::Key(hash) => Ok(Self::KeyHash(hash)),
             ShelleyDelegationPart::Script(hash) => Ok(Self::ScriptHash(hash)),
             ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => Err(()),
         }
@@ -149,7 +131,7 @@ pub enum BorrowedStakeCredential<'a> {
 impl<'a> From<&'a StakeCredential> for BorrowedStakeCredential<'a> {
     fn from(value: &'a StakeCredential) -> Self {
         match value {
-            StakeCredential::AddrKeyhash(hash) => Self::KeyHash(hash),
+            StakeCredential::KeyHash(hash) => Self::KeyHash(hash),
             StakeCredential::ScriptHash(hash) => Self::ScriptHash(hash),
         }
     }
@@ -158,7 +140,7 @@ impl<'a> From<&'a StakeCredential> for BorrowedStakeCredential<'a> {
 impl From<BorrowedStakeCredential<'_>> for StakeCredential {
     fn from(value: BorrowedStakeCredential<'_>) -> Self {
         match value {
-            BorrowedStakeCredential::KeyHash(hash) => Self::AddrKeyhash(*hash),
+            BorrowedStakeCredential::KeyHash(hash) => Self::KeyHash(*hash),
             BorrowedStakeCredential::ScriptHash(hash) => Self::ScriptHash(*hash),
         }
     }
@@ -175,7 +157,7 @@ mod tests {
 
     pub fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
         prop_oneof![
-            any::<[u8; 28]>().prop_map(|hash| StakeCredential::AddrKeyhash(Hash::new(hash))),
+            any::<[u8; 28]>().prop_map(|hash| StakeCredential::KeyHash(Hash::new(hash))),
             any::<[u8; 28]>().prop_map(|hash| StakeCredential::ScriptHash(Hash::new(hash))),
         ]
     }

@@ -31,7 +31,6 @@ use amaru_kernel::{
     StakeCredential,
     cbor,
     cbor as minicbor,
-    expect_stake_credential,
 };
 use amaru_observability::{debug, info, info_span};
 
@@ -147,7 +146,7 @@ impl GovernanceUpdates {
 
                 let metadata = ProposalMetadata {
                     valid_until: row.valid_until,
-                    return_account: expect_stake_credential(&row.proposal.reward_account),
+                    return_account: row.proposal.reward_account.credential(),
                     deposit: row.proposal.deposit,
                 };
 
@@ -447,7 +446,7 @@ mod tests {
         let ratified = any_information_proposal(&mut runner, epoch + 5);
         let expired = any_information_proposal(&mut runner, epoch);
 
-        let withdrawal_account = expect_stake_credential(&ratified.proposal.reward_account);
+        let withdrawal_account = ratified.proposal.reward_account.credential();
 
         let distributions = Mutex::new(VecDeque::from([empty_stake_distribution(epoch)]));
         let ctx = RatificationContext {

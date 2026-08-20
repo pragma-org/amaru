@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 
 use crate::{
     AsShelley, BorrowedScript, Certificate, GovernanceAction, HasOwnership, Hash, OutputReference, PlutusData,
-    PlutusMint, PlutusVotes, PlutusWithdrawals, Proposal, RedeemerKey, RedeemerTag, StakeCredential, StakePayload,
-    TransactionInput, Voter,
+    PlutusMint, PlutusVotes, PlutusWithdrawals, Proposal, RedeemerKey, RedeemerTag, StakeCredential, TransactionInput,
+    Voter,
     size::{CREDENTIAL, SCRIPT},
 };
 
@@ -75,11 +75,11 @@ impl<'a> ScriptPurpose<'a> {
             RedeemerTag::Mint => mint.0.keys().nth(index).copied().and_then(|policy_id| {
                 scripts.get(&policy_id).map(|script| (ScriptPurpose::Minting(policy_id), script.clone()))
             }),
-            RedeemerTag::Reward => withdrawals.keys().nth(index).and_then(|stake| {
-                if let StakePayload::Script(hash) = stake.as_ref().payload() {
+            RedeemerTag::Reward => withdrawals.keys().nth(index).and_then(|account| {
+                if let StakeCredential::ScriptHash(hash) = account.credential() {
                     scripts
-                        .get(hash)
-                        .map(|script| (ScriptPurpose::Rewarding(StakeCredential::ScriptHash(*hash)), script.clone()))
+                        .get(&hash)
+                        .map(|script| (ScriptPurpose::Rewarding(StakeCredential::ScriptHash(hash)), script.clone()))
                 } else {
                     None
                 }

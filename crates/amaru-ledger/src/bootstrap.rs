@@ -21,14 +21,14 @@ use std::{
 };
 
 use amaru_kernel::{
-    Ballot, BallotId, BlockHeight, Bytes, CertificatePointer, Constitution, ConstitutionalCommittee,
+    Ballot, BallotId, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash, Lovelace, Network,
     NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots, Proposal,
     ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
-    RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, StakeAddress, StakeCredential,
-    StakePayload, TransactionPointer, Vote, Voter,
+    RatificationStatus, RationalNumber, Relay, Reward, RewardAccount, Slot, StakeCredential, TransactionPointer, Vote,
+    Voter,
     cbor::{self, HasProtocolVersion, lazy::LazyDecoder},
-    protocol_version, reward_account_to_stake_credential, size,
+    protocol_version, size,
     utils::cbor::{SerialisedAsArray, SerialisedAsSet},
 };
 use amaru_observability::{info, warn};
@@ -1123,7 +1123,7 @@ fn import_votes(
 
             for (committee, vote) in st.committee_votes.into_iter() {
                 let voter = match committee {
-                    StakeCredential::AddrKeyhash(hash) => Voter::ConstitutionalCommitteeKey(hash),
+                    StakeCredential::KeyHash(hash) => Voter::ConstitutionalCommitteeKey(hash),
                     StakeCredential::ScriptHash(hash) => Voter::ConstitutionalCommitteeScript(hash),
                 };
 
@@ -1134,7 +1134,7 @@ fn import_votes(
 
             for (drep, vote) in st.dreps_votes.into_iter() {
                 let voter = match drep {
-                    StakeCredential::AddrKeyhash(hash) => Voter::DRepKey(hash),
+                    StakeCredential::KeyHash(hash) => Voter::DRepKey(hash),
                     StakeCredential::ScriptHash(hash) => Voter::DRepScript(hash),
                 };
 
@@ -1636,21 +1636,10 @@ impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodeReward
         let (network_name, protocol_version) = ctx;
         let network: Network = (*network_name).into();
         match d.datatype()? {
-            cbor::data::Type::Bytes | cbor::data::Type::BytesIndef => {
-                let reward_account: RewardAccount = d.decode_with(protocol_version)?;
-                reward_account_to_stake_credential(&reward_account)
-                    .ok_or_else(|| cbor::decode::Error::message("unexpected malformed node reward account bytes"))?;
-
-                Ok(Self(reward_account))
-            }
+            cbor::data::Type::Bytes | cbor::data::Type::BytesIndef => Ok(Self(d.decode_with(protocol_version)?)),
             cbor::data::Type::Array | cbor::data::Type::ArrayIndef => {
-                let credential = d.decode_with(protocol_version)?;
-                let payload = match credential {
-                    StakeCredential::AddrKeyhash(hash) => StakePayload::Key(hash),
-                    StakeCredential::ScriptHash(hash) => StakePayload::Script(hash),
-                };
-
-                Ok(Self(Bytes::from(StakeAddress::new(network, payload).to_vec())))
+                let credential: StakeCredential = d.decode_with(protocol_version)?;
+                Ok(Self(RewardAccount::new(network, credential)))
             }
             other => Err(cbor::decode::Error::type_mismatch(other)),
         }
@@ -1749,12 +1738,12 @@ mod tests {
 
         let decoded: NodeRewardAccount = decoder.decode_with(&mut (network, protocol_version)).unwrap();
 
-        assert_eq!(decoded.0, reward_account);
+        assert_eq!(decoded.0.to_vec(), *reward_account);
     }
 
     #[test]
     fn node_reward_account_credential_decodes_to_snapshot_network_reward_account() {
-        let credential = StakeCredential::AddrKeyhash(Hash::new(
+        let credential = StakeCredential::KeyHash(Hash::new(
             hex::decode("e3af434a5516854f20191807cc5ea85b57b4fd0f050f3eab28af19ee").unwrap().try_into().unwrap(),
         ));
         let bytes = cbor::to_vec(credential).unwrap();
@@ -1765,8 +1754,8 @@ mod tests {
         let decoded: NodeRewardAccount = decoder.decode_with(&mut (network, protocol_version)).unwrap();
 
         assert_eq!(
-            decoded.0,
-            Bytes::from(hex::decode("e1e3af434a5516854f20191807cc5ea85b57b4fd0f050f3eab28af19ee").unwrap())
+            decoded.0.to_vec(),
+            hex::decode("e1e3af434a5516854f20191807cc5ea85b57b4fd0f050f3eab28af19ee").unwrap()
         );
     }
 }

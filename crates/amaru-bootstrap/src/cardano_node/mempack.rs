@@ -280,7 +280,7 @@ fn decode_stake_credential(decoder: &mut Decoder<'_>) -> Result<StakeCredential,
     let hash = Hash::new(decoder.take_array()?);
     match tag {
         0 => Ok(StakeCredential::ScriptHash(hash)),
-        1 => Ok(StakeCredential::AddrKeyhash(hash)),
+        1 => Ok(StakeCredential::KeyHash(hash)),
         other => Err(format!("unsupported stake credential tag {other}")),
     }
 }
@@ -302,7 +302,7 @@ fn decode_address28(decoder: &mut Decoder<'_>, stake: StakeCredential) -> Result
     let payment =
         if flags & 0b1 != 0 { ShelleyPaymentPart::Key(payment_hash) } else { ShelleyPaymentPart::Script(payment_hash) };
     let delegation = match stake {
-        StakeCredential::AddrKeyhash(hash) => ShelleyDelegationPart::Key(hash),
+        StakeCredential::KeyHash(hash) => ShelleyDelegationPart::Key(hash),
         StakeCredential::ScriptHash(hash) => ShelleyDelegationPart::Script(hash),
     };
 

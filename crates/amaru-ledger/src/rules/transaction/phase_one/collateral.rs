@@ -82,7 +82,7 @@ where
 
         let witness = match &collateral_input.address {
             Address::Shelley(addr) => match addr.owner() {
-                StakeCredential::AddrKeyhash(hash) => Some(CollateralWitness::VerificationKey(hash)),
+                StakeCredential::KeyHash(hash) => Some(CollateralWitness::VerificationKey(hash)),
                 StakeCredential::ScriptHash(_) => None,
             },
             Address::Byron(byron_address) => {

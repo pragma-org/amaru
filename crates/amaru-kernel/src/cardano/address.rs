@@ -14,7 +14,7 @@
 
 use std::{fmt, str::FromStr};
 
-use crate::{AsShelley, HasOwnership, Network, StakeAddress, StakeCredential, cbor, hash, size};
+use crate::{AsShelley, HasOwnership, Network, RewardAccount, StakeCredential, cbor, hash, size};
 
 pub mod byron;
 pub use byron::ByronAddress;
@@ -24,9 +24,6 @@ pub use shelley::ShelleyAddress;
 
 pub mod pointer;
 pub use pointer::AddressPointer;
-
-mod stake_payload;
-pub use stake_payload::StakePayload;
 
 mod delegation_part;
 pub use delegation_part::ShelleyDelegationPart;
@@ -42,7 +39,7 @@ pub enum Address {
     Byron(ByronAddress),
     Shelley(ShelleyAddress),
     // TODO: This is wrong, stake address should be a completely separate type.
-    Stake(StakeAddress),
+    Stake(RewardAccount),
 }
 
 impl fmt::Display for Address {
@@ -241,18 +238,15 @@ macro_rules! parse_stake_fn {
 
             let net = parse_network(header)?;
             let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
-            let p1 = StakePayload::$type(h1);
 
-            let addr = StakeAddress::new(net, p1);
-
-            Some(Address::Stake(addr))
+            Some(Address::Stake(RewardAccount::new(net, StakeCredential::$type(h1))))
         }
     };
 }
 
 // types 14-15 are Stake addresses
-parse_stake_fn!(parse_type_14, from_key_hash);
-parse_stake_fn!(parse_type_15, from_script_hash);
+parse_stake_fn!(parse_type_14, KeyHash);
+parse_stake_fn!(parse_type_15, ScriptHash);
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use tests::*;

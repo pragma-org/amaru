@@ -42,6 +42,7 @@ Other guiding principles:
 
 - **workflows**: executable permissions are now correctly preserved in the release workflow.
 - **amaru-ledger**: Correctly calculate an output's minimum lovelace value.
+- **amaru-kernel**: decode reward accounts as a network tag plus stake credential, rejecting malformed reward accounts at deserialization.
 
 ## [v10.11.20260820](https://github.com/pragma-org/amaru/releases/tag/v10.11.20260820)
 

@@ -132,7 +132,7 @@ pub fn serialize<S: serde::Serializer>(drep: &DRep, serializer: S) -> Result<S::
 
 pub fn to_stake_credential(drep: &DRep) -> Option<StakeCredential> {
     match drep {
-        DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
+        DRep::Key(hash) => Some(StakeCredential::KeyHash(*hash)),
         DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
         DRep::Abstain | DRep::NoConfidence => None,
     }

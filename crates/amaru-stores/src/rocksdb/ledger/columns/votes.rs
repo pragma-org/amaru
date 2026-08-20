@@ -42,7 +42,7 @@ pub fn add<DB>(
         for (key, value) in rows {
             match key.voter {
                 Voter::DRepKey(hash) => {
-                    voting_dreps.insert(StakeCredential::AddrKeyhash(hash));
+                    voting_dreps.insert(StakeCredential::KeyHash(hash));
                 }
                 Voter::DRepScript(hash) => {
                     voting_dreps.insert(StakeCredential::ScriptHash(hash));

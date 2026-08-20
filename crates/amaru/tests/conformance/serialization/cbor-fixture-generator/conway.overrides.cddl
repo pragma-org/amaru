@@ -42,3 +42,13 @@ address =
 ; and 2-byte "hashes". The second element is a blake2b-256 of the metadata document; other eras'
 ; CDDL spells this `metadata_hash = bytes .size 32`.
 pool_metadata = [url, bytes .size 32]
+
+; Upstream says `reward_account = bytes`, which admits the empty byte string and arbitrary
+; garbage. The node decodes this position as an account address: one header byte (type 0xe/0xf,
+; network id in the low nibble) followed by a 28-byte credential. As with `address` above, the
+; structure lives only in an upstream prose comment, so we enumerate one literal per header.
+reward_account =
+    h'e0dddddddddddddddddddddddddddddddddddddddddddddddddddddddd'  ; type e testnet - account address: keyhash28
+  / h'e1dddddddddddddddddddddddddddddddddddddddddddddddddddddddd'  ; type e mainnet - account address: keyhash28
+  / h'f0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'  ; type f testnet - account address: scripthash28
+  / h'f1eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'  ; type f mainnet - account address: scripthash28

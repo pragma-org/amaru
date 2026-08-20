@@ -150,7 +150,7 @@ where
 impl<const V: u8> ToPlutusData<V> for Address
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
-    amaru_kernel::StakeAddress: ToPlutusData<V>,
+    amaru_kernel::RewardAccount: ToPlutusData<V>,
 {
     /// In all Plutus v1 and v2 and v3 encodings, Byron addresses are not possible encodings.
     ///
@@ -174,7 +174,7 @@ where
 
                 let stake_part_plutus_data = match stake_part {
                     ShelleyDelegationPart::Key(stake_keyhash) => {
-                        Some(constr!(0, [StakeCredential::AddrKeyhash(*stake_keyhash)])?).to_plutus_data()
+                        Some(constr!(0, [StakeCredential::KeyHash(*stake_keyhash)])?).to_plutus_data()
                     }
                     ShelleyDelegationPart::Script(script_hash) => {
                         Some(constr!(0, [StakeCredential::ScriptHash(*script_hash)])?).to_plutus_data()
@@ -188,7 +188,7 @@ where
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
             Address::Stake(stake_address) => {
-                <amaru_kernel::StakeAddress as ToPlutusData<V>>::to_plutus_data(stake_address)
+                <amaru_kernel::RewardAccount as ToPlutusData<V>>::to_plutus_data(stake_address)
             }
             Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
         }
@@ -224,7 +224,7 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
-            StakeCredential::AddrKeyhash(hash) => {
+            StakeCredential::KeyHash(hash) => {
                 constr!(0, [hash])
             }
             StakeCredential::ScriptHash(hash) => {

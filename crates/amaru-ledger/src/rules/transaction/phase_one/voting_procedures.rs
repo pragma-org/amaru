@@ -106,7 +106,7 @@ where
                         datum: MemoizedDatum::None,
                     });
                 }
-                StakeCredential::AddrKeyhash(hash) => context.require_verification_key_witness(hash),
+                StakeCredential::KeyHash(hash) => context.require_verification_key_witness(hash),
             }
 
             votes.into_iter().for_each(|(proposal_id, ballot)| {

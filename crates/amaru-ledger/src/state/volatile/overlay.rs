@@ -487,7 +487,7 @@ mod test {
     // HELPERS
 
     fn credential(tag: u8) -> StakeCredential {
-        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+        StakeCredential::KeyHash(Hash::new([tag; 28]))
     }
 
     /// Effective rewards where `credential(1)` is still registered while `credential(2)` unregistered during

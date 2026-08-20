@@ -16,7 +16,7 @@ use std::{cmp::Ordering, collections::BTreeMap, rc::Rc};
 
 use crate::{
     Constitution, ConstitutionalCommitteeUpdate, GovernanceAction, OrphanProposal, ProposalId, ProtocolParamUpdate,
-    ProtocolVersion, expect_stake_credential, into_safe_ratio,
+    ProtocolVersion, into_safe_ratio,
 };
 
 /// Akin to a GovAction, but with a split that is more tailored to the ratification needs.
@@ -145,7 +145,7 @@ impl From<GovernanceAction> for ProposalEnum {
             TreasuryWithdrawals(withdrawals, _guardrails_script) => {
                 let withdrawals =
                     withdrawals.into_iter().fold(BTreeMap::new(), |mut accum, (reward_account, amount)| {
-                        accum.insert(expect_stake_credential(&reward_account), amount);
+                        accum.insert(reward_account.credential(), amount);
                         accum
                     });
 

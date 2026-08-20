@@ -1,1 +1,1 @@
-{"well_formed":true,"era":"conway","kind":"transaction_body","description":"cuddle-positive #0002","source":"cuddle","seed":44,"exact_re_encoding":false}
+{"well_formed":true,"era":"conway","kind":"transaction_body","description":"cuddle-positive #0002","source":"cuddle","seed":44,"exact_re_encoding":false,"known_amaru_divergence":true}
