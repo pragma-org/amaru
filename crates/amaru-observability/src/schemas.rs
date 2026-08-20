@@ -2202,6 +2202,16 @@ define_schemas! {
                     /// Write treasury/reserve/fees pots
                     public span PUT {}
                 }
+                vrf_keys {
+                    /// Asked to decrement a pool's VRF that does not exist
+                    public event DECREMENT {
+                        levels: error
+                        required vrf: amaru_kernel::Hash<32>
+                        required by: u64
+                        required stored: u64
+                        required error: String
+                    }
+                }
                 snapshots {
                     /// Validate sufficient snapshots exist
                     public span VALIDATE {
