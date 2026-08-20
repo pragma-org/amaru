@@ -51,6 +51,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-kernel**: decode transaction inputs as a set, rejecting duplicate inputs.
+- **amaru**: resolve `snapshot create` and `snapshot publish` default directories relative to the runtime executable instead of the build machine's source directory.
 - **amaru-tui**: calculate reported block and transaction throughput using the interval between system-metric samples.
 - **amaru-tui**: show the most recent `INFO` log messages.
 - **amaru-plutus**: encode `CostModels` as a map from language to cost model (#1219).

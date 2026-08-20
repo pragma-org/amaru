@@ -41,7 +41,7 @@ pub struct Args {
 
     /// Directory containing the local snapshot archives to publish.
     ///
-    /// Defaults to ./snapshots/<NETWORK>/ (same as `amaru snapshot create`).
+    /// Defaults to snapshots/<NETWORK>/ beside the `amaru` executable.
     #[arg(
         long,
         value_name = amaru::value_names::DIRECTORY,
@@ -96,7 +96,10 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let aws_access_key_id = required_env(AWS_ACCESS_KEY_ID_ENV)?;
     let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;
 
-    let snapshot_root = snapshot_dir.unwrap_or_else(|| default_snapshot_output_dir(network));
+    let snapshot_root = match snapshot_dir {
+        Some(path) => path,
+        None => default_snapshot_output_dir(network)?,
+    };
 
     let s3_config = S3Config { bucket: s3_bucket, endpoint: s3_endpoint, region: s3_region, public_url: s3_public_url };
     let s3 = S3Client::new_with_credentials(s3_config, &aws_access_key_id, &aws_secret_access_key);

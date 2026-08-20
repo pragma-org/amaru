@@ -939,18 +939,6 @@ define_schemas! {
                 required description: String
                 optional cause: String
             }
-            cardano_node_config {
-                /// Use an existing cardano-node configuration
-                public USE {
-                    required config_dir: String
-                    required network: amaru_kernel::NetworkName
-                }
-                /// Download the official cardano-node configuration bundle
-                public DOWNLOAD {
-                    required config_dir: String
-                    required network: amaru_kernel::NetworkName
-                }
-            }
             chain_db {
                 /// Chain database already exists
                 public EXIST {
