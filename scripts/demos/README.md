@@ -34,21 +34,30 @@ Every demo wrapper supports the same commands:
 
 ## Prerequisites
 
-There are two ways to run a demo. Both need flox somewhere, so start there.
+There are two ways to run a demo. Pick either.
 
-**Directly**, from this checkout of [amaru](https://github.com/pragma-org/amaru):
+**From a published image**, needing only Docker — no checkout, no flox:
+
+```bash
+docker pull ghcr.io/pragma-org/amaru-relay-1-demo:arm64      # or :amd64 on Intel and AMD
+docker run -it -p 8091:8091 -v amaru-relay-1:/data ghcr.io/pragma-org/amaru-relay-1-demo:arm64
+```
+
+The tags name an architecture because the image cannot be cross-built; a `:latest` manifest list,
+which resolves to the right one on its own, exists once both have been published together.
+
+That image *is* the flox environment below, exported with `flox containerize`, so it runs the
+identical pinned toolset. See [`relay-1/docker`](relay-1/docker/README.md).
+
+**From this checkout** of [amaru](https://github.com/pragma-org/amaru), which is what you want in
+order to run your own changes:
 
 - [flox](https://flox.dev): the demos run inside the flox environment in this directory
   (`flox activate`), which provides every required tool (`process-compose`, `jq`, `curl`, `rsync`,
   `ripgrep`, `xxd`, `rustup`, bash and the GNU core utilities, among others); startup fails when
   the environment is not active
 
-**In a container**, which the relay-1 demo ships as a single image:
-
-- Docker to run it, and flox to *build* it: the image is the demo flox environment exported with
-  `flox containerize`, which is how it ends up with the identical pinned toolset. Once an image
-  exists, running it needs nothing but Docker, so one person can build it and hand it around.
-  See [`relay-1/docker`](relay-1/docker/README.md).
+Building the image yourself needs flox too, since `flox containerize` is what produces its base.
 
 In both cases Docker is also what runs the optional shared monitoring stack in
 [`monitoring`](../../monitoring); the demos export to it but never start it themselves.
