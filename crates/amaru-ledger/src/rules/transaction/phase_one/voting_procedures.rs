@@ -181,6 +181,6 @@ where
             }
         }
         DRepKey(_) | DRepScript(_) => DRepsSlice::lookup(context, &voter.owner()).is_some(),
-        StakePoolKey(pool) => PoolsSlice::exists(context, *pool),
+        StakePoolKey(pool) => PoolsSlice::lookup(context, *pool).is_some(),
     }
 }

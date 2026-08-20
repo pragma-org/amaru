@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, GovernanceAction, MemoizedTransactionOutput, PoolId,
-    ProposalId, ProposalSlim, ProposalsRoots, StakeCredential, TransactionInput, drep,
+    ConstitutionalCommitteeMemberStatus, DRep, DRepRegistration, GovernanceAction, Hash, MemoizedTransactionOutput,
+    PoolId, PoolSlim, ProposalId, ProposalSlim, ProposalsRoots, StakeCredential, TransactionInput, drep, size::VRF_KEY,
 };
 use amaru_observability::debug_span;
 
@@ -136,6 +136,7 @@ impl<'block> DefaultPreparationContext<'block> {
         Ok(DefaultValidationContext::new(
             resolve_inputs(volatile, db, policy, self.utxo.into_iter())?,
             resolve_pools(volatile, db, self.pools.into_iter().copied())?,
+            resolve_vrf_keys(volatile, db)?,
             resolve_accounts(volatile, db, self.accounts.into_iter())?,
             resolve_dreps(
                 volatile,
@@ -203,6 +204,14 @@ fn resolve_inputs<'block, 'volatile>(
     })
 }
 
+/// Resolves vrf counters from the stable store and pending pools updates.
+fn resolve_vrf_keys(
+    _volatile: &impl VolatileState<Pool = <VolatileDB as VolatileState>::Pool>,
+    _db: &impl ReadStore,
+) -> Result<BTreeMap<Hash<VRF_KEY>, u64>, ContextHydratationError> {
+    unimplemented!("resolve_vrf_keys")
+}
+
 /// Resolves pools, confirming the existence of the provided `pool_ids`.
 ///
 /// Returns the subset of `pool_ids` that exist in our ledger state. This may be smaller than the
@@ -214,7 +223,7 @@ fn resolve_pools(
     volatile: &impl VolatileState<Pool = <VolatileDB as VolatileState>::Pool>,
     db: &impl ReadStore,
     mut keys: impl Iterator<Item = PoolId>,
-) -> Result<BTreeSet<PoolId>, ContextHydratationError> {
+) -> Result<BTreeMap<PoolId, PoolSlim>, ContextHydratationError> {
     debug_span!(ledger::validation_context::pools::HYDRATE).in_scope(|| {
         let mut from_volatile = 0;
         let mut from_db = 0;
@@ -243,7 +252,7 @@ fn resolve_pools(
         span.record("from_volatile", from_volatile);
         span.record("from_db", from_db);
 
-        Ok(pools)
+        Ok(unimplemented!("resolve_pools/PoolSlim"))
     })
 }
 
