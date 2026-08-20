@@ -1,0 +1,34 @@
+{
+  "title": "new pool registration claiming an in-use vrf key under pv10",
+  "description": "A registration certificate for a new pool whose VRF key hash equals the current VRF key hash of another registered pool, under protocol version 10.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258206f2c2c3a4b8e1d5a9c0f7b3e6d8a2f4c1e9b5d7a3c6f0e8b2d4a7c9f1e3b5d6800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a1e19b040"
+      }
+    ],
+    "pools": {
+      "dddddddddddddddddddddddddddddddddddddddddddddddddddddddd": {
+        "vrf": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "hasPendingUpdates": false
+      }
+    },
+    "vrfKeys": {
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": 1
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258206f2c2c3a4b8e1d5a9c0f7b3e6d8a2f4c1e9b5d7a3c6f0e8b2d4a7c9f1e3b5d68000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa001a1443fd00d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60800a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584047931a4a95616f976a0d2c49f8dd13b76285918c9c15f6914789934a02acdedf7a504c3c0f21e8bc2c173a3d3a8e200609fdbd0c1cc0dafc48015441ceb66003f5f6",
+  "expected": "Pass"
+}

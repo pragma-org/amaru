@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch, EraHistory,
@@ -24,7 +24,7 @@ use amaru_kernel::{
 use serde::Deserialize;
 
 use crate::{
-    context::{AccountState, CCMember, DelegateError, ProposalStateSlim},
+    context::{AccountState, CCMember, DelegateError, PoolRegisterError, ProposalStateSlim},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -59,7 +59,9 @@ pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_utxo", default)]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     #[serde(default)]
-    pub(super) pools: BTreeSet<PoolId>,
+    pub(super) pools: BTreeMap<PoolId, PoolSlim>,
+    #[serde(default)]
+    pub(super) vrf_keys: BTreeMap<Hash<VRF_KEY>, u64>,
     #[serde(deserialize_with = "deserialize_accounts", default)]
     pub(super) accounts: BTreeMap<Credential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
@@ -303,6 +305,7 @@ pub(super) enum Predicate {
     StakePoolRetirementWrongEpochPOOL,
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
+    VrfKeyAlreadyRegistered,
     ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
     VotersDoNotExist,
@@ -456,6 +459,9 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::StakePoolUnknown(_)) => {
                 Predicate::StakePoolNotRegisteredOnKeyPOOL
             }
+            PhaseOneError::Certificates(InvalidCertificates::InvalidPoolRegistration(
+                PoolRegisterError::VrfKeyAlreadyRegistered(..),
+            )) => Predicate::VrfKeyAlreadyRegistered,
             PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
                 Predicate::StakePoolCostTooLowPOOL
             }

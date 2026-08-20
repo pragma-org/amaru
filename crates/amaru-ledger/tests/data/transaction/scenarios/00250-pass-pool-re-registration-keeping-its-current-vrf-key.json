@@ -1,0 +1,35 @@
+{
+  "title": "pool re-registration keeping its current vrf key",
+  "description": "A re-registration certificate for a registered pool, keeping the pool's current VRF key hash, under protocol version 11.",
+  "network": "preprod",
+  "eraHistory": {
+    "$ref": "common/eraHistory/preprod-conway.json"
+  },
+  "protocolParameters": {
+    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+    "$override": { "version": { "major": 11, "minor": 0 } }
+  },
+  "initialState": {
+    "utxo": [
+      {
+        "input": "8258203e7a1d5c9f4b8e2a6d0c3f7b1e5a9d4c8f2b6e0a3d7c1f5b9e4a8d2c6f0b3e7100",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": {
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8": {
+        "vrf": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "hasPendingUpdates": false
+      }
+    },
+    "vrfKeys": {
+      "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": 1
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transactionIndex": 0
+  },
+  "transaction": "84a500d90102818258203e7a1d5c9f4b8e2a6d0c3f7b1e5a9d4c8f2b6e0a3d7c1f5b9e4a8d2c6f0b3e71000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc001a1443fd00d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60800a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840c82c0d7b89a42a57d3d3063a071b9c9e76ba5fbb97bbd896d8b77c461102d109ba4d24897320dbf4db9159ada40755b094ab69508010608bbec3f7a67ec6ac00f5f6",
+  "expected": "Pass"
+}
