@@ -150,6 +150,7 @@ impl<'block> DefaultPreparationContext<'block> {
             resolve_proposals(volatile, db, self.proposals.into_iter())?,
             proposal_roots,
             treasury,
+            volatile.protocol_parameters().protocol_version,
         ))
     }
 }

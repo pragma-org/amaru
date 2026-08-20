@@ -97,6 +97,7 @@ Other guiding principles:
 - **amaru**: more homogenous traces fields representations across peers, connection id and hashes.
 - **amaru**: detect local snapshots for bootstrap when they exists.
 - **amaru**: resolution of recently unregistered accounts during bootstrap, later triggering a "rewards discrepancy" invariant.
+- **amaru**: implement duplicate VRF check from Van Rossem / v11.
 
 ## v10.11.20260813 _[unreleased]_
 

@@ -33,6 +33,12 @@ pub struct ProtocolVersion {
     minor: u64,
 }
 
+impl Default for ProtocolVersion {
+    fn default() -> Self {
+        DEFAULT
+    }
+}
+
 impl Debug for ProtocolVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({}, {})", self.major, self.minor)
