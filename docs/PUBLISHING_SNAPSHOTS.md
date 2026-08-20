@@ -9,8 +9,15 @@ in a public R2 bucket and listed in `<network>/index.json` in that bucket. See
 1. Go to Actions → "Publish Bootstrap Snapshots" → "Run workflow".
 2. Pick a network. Leave `epoch` empty to use the latest network epoch as the
    bootstrap target, or set the target epoch explicitly.
-3. Optionally set `cardano_node_version` to a specific cardano-node release
-   tag (default: `11.0.1`). Must be a published release tag, not a commit hash.
+3. Optionally set `db_analyser_consensus_rev` to the ouroboros-consensus rev
+   to build `db-analyser` from with nix. The default rev carries the
+   `--analyse-from` fix ([ouroboros-consensus#2061]), which lets runs replay
+   only the epochs since the previous cached ledger snapshot. When the runner
+   has no nix, the workflow falls back to the `db-analyser` bundled with the
+   `cardano_node_version` release (default: `11.0.1`), which ignores
+   `--analyse-from` and replays every snapshot from genesis.
+
+[ouroboros-consensus#2061]: https://github.com/IntersectMBO/ouroboros-consensus/pull/2061
 4. The run publishes the archives, updates the bucket index and verifies a
    full bootstrap against the published snapshots.
 
@@ -41,9 +48,12 @@ The workflow needs a self-hosted runner with the labels `self-hosted` and
 
 - Linux or macOS, x86_64 or arm64.
 - Disk: about 50 GB per testnet, 500 GB for mainnet.
-- On `$PATH`: `rustup`, `curl`, `git`.
-- `db-analyser` is always downloaded fresh from the cardano-node release
-  specified by `cardano_node_version`.
+- On `$PATH`: `rustup`, `curl`, `git`, and ideally `nix` (with
+  `cache.iog.io` reachable) so the workflow can build a `db-analyser` that
+  supports `--analyse-from`; without nix it falls back to the slower
+  cardano-node release binary.
+- `db-analyser` is installed fresh on every run, from nix or from the
+  cardano-node release specified by `cardano_node_version`.
 
 If the runner runs as a service, make sure those tools are on the service's
 `PATH` (the runner reads a `.path` file from its directory).

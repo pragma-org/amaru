@@ -25,8 +25,13 @@ on:
         required: false
         type: boolean
         default: false
+      db_analyser_consensus_rev:
+        description: "ouroboros-consensus git rev to build db-analyser from with nix (needs the --analyse-from fix from IntersectMBO/ouroboros-consensus#2061)"
+        required: false
+        type: string
+        default: "aa96807e6891071c3553d19c07be2d39ab5c0a78"
       cardano_node_version:
-        description: "cardano-node release tag to download db-analyser from (must be a published release tag, e.g. 11.0.1)"
+        description: "cardano-node release tag to download db-analyser from when nix is unavailable (its bundled db-analyser ignores --analyse-from, forcing full genesis replays)"
         required: false
         type: string
         default: "11.0.1"
@@ -38,6 +43,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTUP_LOG: error
   CARDANO_NODE_VERSION: ${{ inputs.cardano_node_version }}
+  DB_ANALYSER_CONSENSUS_REV: ${{ inputs.db_analyser_consensus_rev }}
 
 jobs:
   publish:
@@ -85,34 +91,65 @@ jobs:
           echo "AMARU_DIST_DIR=$CACHE_ROOT/$AMARU_NETWORK/dist" >> "$GITHUB_ENV"
           echo "AMARU_SNAPSHOTS_DIR=$CACHE_ROOT/$AMARU_NETWORK/snapshots" >> "$GITHUB_ENV"
 
+      # No cardano-node release bundles the db-analyser --analyse-from fix yet
+      # (IntersectMBO/ouroboros-consensus#2061); without it every snapshot is a
+      # full genesis replay. Build the fixed binary with nix (served pre-built
+      # by cache.iog.io) and only fall back to the cardano-node release binary
+      # when nix is unavailable on the runner.
       - name: Install db-analyser
         shell: bash
         run: |
           set -euo pipefail
-          case "$(uname -s)" in
-            Linux) os=linux ;;
-            Darwin) os=macos ;;
-            *) echo "::error::unsupported operating system: $(uname -s)" >&2; exit 1 ;;
-          esac
-          case "$(uname -m)" in
-            x86_64 | amd64) arch=amd64 ;;
-            arm64 | aarch64) arch=arm64 ;;
-            *) echo "::error::unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-
-          asset="cardano-node-$CARDANO_NODE_VERSION-$os-$arch.tar.gz"
-          base_url="https://github.com/IntersectMBO/cardano-node/releases/download/$CARDANO_NODE_VERSION"
           tmp="$(mktemp -d)"
           echo "DB_ANALYSER_TMP=$tmp" >> "$GITHUB_ENV"
-          echo "downloading $base_url/$asset"
-          curl -fsSL -o "$tmp/$asset" "$base_url/$asset"
-          curl -fsSL -o "$tmp/sums.txt" "$base_url/cardano-node-$CARDANO_NODE_VERSION-sha256sums.txt"
-          (cd "$tmp" && grep " $asset\$" sums.txt | (sha256sum -c - 2>/dev/null || shasum -a 256 -c -))
-          tar -xzf "$tmp/$asset" -C "$tmp" --strip-components 1
-          rm "$tmp/$asset" "$tmp/sums.txt"
+          mkdir -p "$tmp/bin"
+
+          if command -v nix >/dev/null 2>&1; then
+            echo "building db-analyser from ouroboros-consensus @ $DB_ANALYSER_CONSENSUS_REV"
+            nix build --accept-flake-config \
+              --out-link "$tmp/db-analyser-result" \
+              "github:IntersectMBO/ouroboros-consensus/$DB_ANALYSER_CONSENSUS_REV#db-analyser"
+            install -m 755 "$tmp/db-analyser-result/bin/db-analyser" "$tmp/bin/db-analyser"
+          else
+            echo "::warning::nix not found on the runner; using the db-analyser bundled with cardano-node $CARDANO_NODE_VERSION, which ignores --analyse-from and replays every snapshot from genesis"
+            case "$(uname -s)" in
+              Linux) os=linux ;;
+              Darwin) os=macos ;;
+              *) echo "::error::unsupported operating system: $(uname -s)" >&2; exit 1 ;;
+            esac
+            case "$(uname -m)" in
+              x86_64 | amd64) arch=amd64 ;;
+              arm64 | aarch64) arch=arm64 ;;
+              *) echo "::error::unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+            esac
+
+            asset="cardano-node-$CARDANO_NODE_VERSION-$os-$arch.tar.gz"
+            base_url="https://github.com/IntersectMBO/cardano-node/releases/download/$CARDANO_NODE_VERSION"
+            echo "downloading $base_url/$asset"
+            curl -fsSL -o "$tmp/$asset" "$base_url/$asset"
+            curl -fsSL -o "$tmp/sums.txt" "$base_url/cardano-node-$CARDANO_NODE_VERSION-sha256sums.txt"
+            (cd "$tmp" && grep " $asset\$" sums.txt | (sha256sum -c - 2>/dev/null || shasum -a 256 -c -))
+            tar -xzf "$tmp/$asset" -C "$tmp" --strip-components 1
+            rm "$tmp/$asset" "$tmp/sums.txt"
+          fi
+
           echo "$tmp/bin" >> "$GITHUB_PATH"
 
       - uses: ./.github/actions/stage-peer-snapshots
+
+      # Self-hosted runner services can lose rustup's bin directory from their
+      # PATH (it comes from the runner's .path file, not a login shell), so put
+      # it back explicitly and fall back to installing rustup when absent.
+      - name: Ensure Rust toolchain on PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x "$HOME/.cargo/bin/cargo" ]; then
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          elif ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Build amaru
         shell: bash
