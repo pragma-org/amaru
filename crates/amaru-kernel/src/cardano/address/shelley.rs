@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Network, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress, StakePayload, bech32};
+use crate::{Network, RewardAccount, ShelleyDelegationPart, ShelleyPaymentPart, StakeCredential, bech32};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash)]
 pub struct ShelleyAddress(Network, ShelleyPaymentPart, ShelleyDelegationPart);
@@ -85,16 +85,16 @@ impl ShelleyAddress {
     }
 }
 
-impl TryFrom<ShelleyAddress> for StakeAddress {
+impl TryFrom<ShelleyAddress> for RewardAccount {
     type Error = ();
 
     fn try_from(addr: ShelleyAddress) -> Result<Self, ()> {
-        let payload = match addr.delegation() {
-            ShelleyDelegationPart::Key(h) => Ok(StakePayload::Key(*h)),
-            ShelleyDelegationPart::Script(h) => Ok(StakePayload::Script(*h)),
+        let credential = match addr.delegation() {
+            ShelleyDelegationPart::Key(h) => Ok(StakeCredential::KeyHash(*h)),
+            ShelleyDelegationPart::Script(h) => Ok(StakeCredential::ScriptHash(*h)),
             ShelleyDelegationPart::Null | ShelleyDelegationPart::Pointer(..) => Err(()),
         }?;
 
-        Ok(Self::new(addr.network(), payload))
+        Ok(Self::new(addr.network(), credential))
     }
 }

@@ -283,7 +283,7 @@ mod test {
     }
 
     fn credential(tag: u8) -> StakeCredential {
-        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+        StakeCredential::KeyHash(Hash::new([tag; 28]))
     }
 
     fn tip() -> Point {

@@ -459,9 +459,7 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::IncorrectTotalCollateralField
             }
             PhaseOneError::Metadata(_)
-            | PhaseOneError::VerificationKeyWitness(_)
             | PhaseOneError::Certificates(_)
-            | PhaseOneError::Withdrawals(_)
             | PhaseOneError::Scripts(_)
             | PhaseOneError::Collateral(_)
             | PhaseOneError::Proposals(_)

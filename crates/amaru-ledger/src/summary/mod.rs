@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
 use ::serde::ser::SerializeStruct;
 use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, PoolParams, SafeRatio, drep, relay};
 use num::rational::Ratio;
@@ -100,7 +98,7 @@ impl ::serde::Serialize for PoolState {
         s.serialize_field("owners", &self.parameters.owners.iter().map(hex::encode).collect::<Vec<_>>())?;
         s.serialize_field("pledge", &self.parameters.pledge)?;
         s.serialize_field("relays", &self.parameters.relays.iter().map(relay::AsJson).collect::<Vec<_>>())?;
-        s.serialize_field("reward_address", &hex::encode(self.parameters.reward_account.deref()))?;
+        s.serialize_field("reward_address", &hex::encode(self.parameters.reward_account.to_vec()))?;
         s.serialize_field("stake", &self.stake)?;
         s.serialize_field("voting_stake", &self.voting_stake)?;
         s.serialize_field("vrf_key_hash", &hex::encode(self.parameters.vrf))?;

@@ -16,14 +16,14 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 use amaru_kernel::{
     Address, Certificate, EMPTY_ASSET_NAME, Hash, MemoizedDatum, MemoizedTransactionOutput, PlutusData, PoolParams,
-    StakePayload, TransactionInput, size::DATUM,
+    TransactionInput, size::DATUM,
 };
 
 use crate::{
     IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, constr, constr_v1,
     script_context::{
-        IsPrePlutusVersion3, OutputReference, PlutusDatums, PlutusMint, PlutusStakeAddress, PlutusWithdrawals,
-        ScriptContext, ScriptPurpose, TxInfo,
+        IsPrePlutusVersion3, OutputReference, PlutusDatums, PlutusMint, PlutusWithdrawals, ScriptContext,
+        ScriptPurpose, TxInfo,
     },
 };
 
@@ -101,22 +101,13 @@ where
     }
 }
 
-impl ToPlutusData<1> for amaru_kernel::StakeAddress {
+impl ToPlutusData<1> for amaru_kernel::RewardAccount {
     /// In PlutusV1 and PlutusV2:
     /// Anywhere a `StakeCredential` is used, it is actually an enum with variants `Pointer` and `Credential`
     ///
-    /// It is actually not possible (by the ledger serialization) logic to construct a StakeAddress with a `Pointer`, so this can be hardcoded
+    /// It is actually not possible (by the ledger serialization) logic to construct a RewardAccount with a `Pointer`, so this can be hardcoded
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        match self.payload() {
-            StakePayload::Key(keyhash) => constr_v1!(0, [constr_v1!(0, [keyhash])?]),
-            StakePayload::Script(script_hash) => constr_v1!(0, [constr_v1!(1, [script_hash])?]),
-        }
-    }
-}
-
-impl ToPlutusData<1> for PlutusStakeAddress {
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        <amaru_kernel::StakeAddress as ToPlutusData<1>>::to_plutus_data(self.as_ref())
+        constr_v1!(0, [self.credential()])
     }
 }
 

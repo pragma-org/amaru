@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    OutputReference, PlutusData, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusStakeAddress, PlutusVotes,
-    PlutusWithdrawals, ScriptContext, ScriptInfo, ScriptPurpose, TxInfo,
+    OutputReference, PlutusData, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusVotes, PlutusWithdrawals,
+    ScriptContext, ScriptInfo, ScriptPurpose, TxInfo,
 };
 
 pub mod v1;

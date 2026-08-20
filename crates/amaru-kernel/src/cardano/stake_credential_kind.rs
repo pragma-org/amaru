@@ -32,7 +32,7 @@ impl std::fmt::Display for StakeCredentialKind {
 impl From<&StakeCredential> for StakeCredentialKind {
     fn from(credential: &StakeCredential) -> Self {
         match credential {
-            StakeCredential::AddrKeyhash(..) => Self::VerificationKey,
+            StakeCredential::KeyHash(..) => Self::VerificationKey,
             StakeCredential::ScriptHash(..) => Self::Script,
         }
     }

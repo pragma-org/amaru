@@ -409,7 +409,7 @@ fn partition_votes(
         |(mut dreps, mut committee, mut pools), (voter, ballot)| {
             match voter {
                 Voter::ConstitutionalCommitteeKey(hash) => {
-                    committee.insert(StakeCredential::AddrKeyhash(*hash), ballot.vote());
+                    committee.insert(StakeCredential::KeyHash(*hash), ballot.vote());
                 }
                 Voter::ConstitutionalCommitteeScript(hash) => {
                     committee.insert(StakeCredential::ScriptHash(*hash), ballot.vote());

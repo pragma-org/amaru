@@ -111,7 +111,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Epoch, GlobalParameters, Lovelace, PoolId, ProtocolParameters, SafeRatio, SortedPairs, StakeCredential,
-    expect_stake_credential, floor_to_lovelace, safe_ratio,
+    floor_to_lovelace, safe_ratio,
 };
 use amaru_observability::info;
 use num::{
@@ -132,11 +132,9 @@ impl PoolState {
     }
 
     pub fn owner_stake(&self, accounts: &SortedPairs<StakeCredential, AccountState>) -> Lovelace {
-        self.parameters.owners.iter().fold(0, |total, owner| {
-            match accounts.get(&StakeCredential::AddrKeyhash(*owner)) {
-                Some(account) if account.pool == Some(self.parameters.id) => total + account.balance,
-                _ => total,
-            }
+        self.parameters.owners.iter().fold(0, |total, owner| match accounts.get(&StakeCredential::KeyHash(*owner)) {
+            Some(account) if account.pool == Some(self.parameters.id) => total + account.balance,
+            _ => total,
         })
     }
 
@@ -259,7 +257,7 @@ impl PoolState {
         // So the distinction Script/VerificationKey here *is* useful.
         let is_owner = match member {
             StakeCredential::ScriptHash(..) => false,
-            StakeCredential::AddrKeyhash(key) => self.parameters.owners.contains(key),
+            StakeCredential::KeyHash(key) => self.parameters.owners.contains(key),
         };
 
         if is_owner {
@@ -532,7 +530,7 @@ impl RewardsSummary {
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
         if rewards_leader > 0 {
-            let credential = expect_stake_credential(&pool.parameters.reward_account);
+            let credential = pool.parameters.reward_account.credential();
             leader_recipients.insert(credential);
             if let Some(st) = accounts.get_mut(&credential) {
                 st.rewards += rewards_leader;
@@ -588,7 +586,10 @@ impl From<RewardsSummary> for Rewards<Computed> {
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::{CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PoolParams, RationalNumber};
+    use amaru_kernel::{
+        CertificatePointer, Hash, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, Network, PoolParams, RationalNumber,
+        RewardAccount,
+    };
 
     use super::*;
     use crate::summary::stake_distribution::{StakeDistribution, StakeSummary};
@@ -680,8 +681,7 @@ mod test {
                 pledge: 0,
                 cost: 0,
                 margin: RationalNumber { numerator: 1, denominator: 1 },
-                // 0xF0 discriminates a script stake address on a test network.
-                reward_account: [&[0xF0], &[tag; 28][..]].concat().into(),
+                reward_account: RewardAccount::new(Network::Testnet, StakeCredential::ScriptHash(Hash::new([tag; 28]))),
                 owners: Vec::new(),
                 relays: Vec::new(),
                 metadata: None,

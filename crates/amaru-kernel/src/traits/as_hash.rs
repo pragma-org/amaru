@@ -21,7 +21,7 @@ pub trait AsHash<const SIZE: usize> {
 impl AsHash<28> for StakeCredential {
     fn as_hash(&self) -> Hash<CREDENTIAL> {
         match self {
-            Self::AddrKeyhash(hash) => *hash,
+            Self::KeyHash(hash) => *hash,
             Self::ScriptHash(hash) => *hash,
         }
     }

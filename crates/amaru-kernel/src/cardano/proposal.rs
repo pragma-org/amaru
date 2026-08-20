@@ -59,7 +59,7 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Proposal {
         e.array(4)?;
 
         e.encode_with(self.deposit, ctx)?;
-        e.encode_with(&self.reward_account, ctx)?;
+        e.encode_with(self.reward_account, ctx)?;
         e.encode_with(&self.gov_action, ctx)?;
         e.encode_with(&self.anchor, ctx)?;
 

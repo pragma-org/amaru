@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Epoch, EraHistory, EraHistoryError, Lovelace, ProposalId, RatificationStatus,
-    Slot, StakeCredential, TransactionPointer, expect_stake_credential,
+    Slot, StakeCredential, TransactionPointer,
 };
 
 use crate::{
@@ -86,7 +86,7 @@ impl GovernanceSummary {
             // Proposals are ratified with an epoch of delay always, so deposits count towards
             // the voting stake for an extra epoch following the proposal expiry.
             if current_epoch <= row.valid_until + 1 {
-                let stake_credential = expect_stake_credential(&row.proposal.reward_account);
+                let stake_credential = row.proposal.reward_account.credential();
                 let deposit: u64 = row.proposal.deposit;
                 let recently_pruned = recently_pruned_proposals.get(&proposal_id);
 
@@ -126,9 +126,9 @@ impl GovernanceSummary {
                     use amaru_kernel::GovernanceAction::*;
                     match row.proposal.gov_action {
                         TreasuryWithdrawals(withdrawals, _) => {
-                            for (bytes, withdrawal) in withdrawals.deref() {
+                            for (account, withdrawal) in withdrawals.deref() {
                                 dreps_deposits
-                                    .entry(expect_stake_credential(bytes))
+                                    .entry(account.credential())
                                     .and_modify(|total| *total += withdrawal)
                                     .or_insert(*withdrawal);
                             }
@@ -150,7 +150,7 @@ impl GovernanceSummary {
             .iter_dreps()?
             .map(|(k, dreps::Row { registered_at, valid_until, anchor, .. })| {
                 let drep = match k {
-                    StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                    StakeCredential::KeyHash(hash) => DRep::Key(hash),
                     StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                 };
 

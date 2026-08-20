@@ -110,7 +110,6 @@ pub mod script_context;
 pub mod script_info;
 pub mod script_integrity_data;
 pub mod slot;
-pub mod stake_address;
 pub mod stake_credential;
 pub mod stake_credential_kind;
 pub mod stake_entry;

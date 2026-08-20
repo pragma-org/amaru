@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Certificate, ShelleyAddress, ShelleyPaymentPart, StakeAddress, StakeCredential, StakePayload, Voter};
+use crate::{Certificate, RewardAccount, ShelleyAddress, ShelleyPaymentPart, StakeCredential, Voter};
 
 pub trait HasOwnership {
     /// Returns ownership credential of a given entity, if any.
@@ -24,19 +24,16 @@ pub trait HasOwnership {
     fn owner(&self) -> StakeCredential;
 }
 
-impl HasOwnership for StakeAddress {
+impl HasOwnership for RewardAccount {
     fn owner(&self) -> StakeCredential {
-        match self.payload() {
-            StakePayload::Key(hash) => StakeCredential::AddrKeyhash(*hash),
-            StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
-        }
+        self.credential()
     }
 }
 
 impl HasOwnership for ShelleyAddress {
     fn owner(&self) -> StakeCredential {
         match self.payment() {
-            ShelleyPaymentPart::Key(hash) => StakeCredential::AddrKeyhash(*hash),
+            ShelleyPaymentPart::Key(hash) => StakeCredential::KeyHash(*hash),
             ShelleyPaymentPart::Script(hash) => StakeCredential::ScriptHash(*hash),
         }
     }
@@ -46,7 +43,7 @@ impl HasOwnership for Voter {
     fn owner(&self) -> StakeCredential {
         match self {
             Self::ConstitutionalCommitteeKey(hash) | Self::DRepKey(hash) | Self::StakePoolKey(hash) => {
-                StakeCredential::AddrKeyhash(*hash)
+                StakeCredential::KeyHash(*hash)
             }
             Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => StakeCredential::ScriptHash(*hash),
         }
@@ -71,8 +68,8 @@ impl HasOwnership for Certificate {
             | Self::RegDRepCert(stake_credential, _, _)
             | Self::UnRegDRepCert(stake_credential, _)
             | Self::UpdateDRepCert(stake_credential, _) => *stake_credential,
-            Self::PoolRetirement(id, _) => StakeCredential::AddrKeyhash(*id),
-            Self::PoolRegistration(params) => StakeCredential::AddrKeyhash(params.id),
+            Self::PoolRetirement(id, _) => StakeCredential::KeyHash(*id),
+            Self::PoolRegistration(params) => StakeCredential::KeyHash(params.id),
         }
     }
 }

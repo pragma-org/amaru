@@ -207,7 +207,7 @@ mod tests {
 
             // If no active members, let's add one.
             if active_members.is_empty() {
-                let cold_credential = StakeCredential::AddrKeyhash(Hash::from(NULL_HASH));
+                let cold_credential = StakeCredential::KeyHash(Hash::from(NULL_HASH));
                 let hot_credential = cold_credential;
                 committee.update(
                     committee.threshold().clone(),

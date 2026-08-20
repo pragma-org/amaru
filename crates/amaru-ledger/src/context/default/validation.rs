@@ -211,7 +211,7 @@ impl AccountsSlice for DefaultValidationContext {
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<StakeCredential, DRep>> {
         let drep_stake_credential: Option<StakeCredential> = match &drep {
-            DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
+            DRep::Key(hash) => Some(StakeCredential::KeyHash(*hash)),
             DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
             DRep::Abstain | DRep::NoConfidence => None,
         };
@@ -497,7 +497,7 @@ mod tests {
     use crate::{context::ProposalState, state::volatile::DiffBind};
 
     fn cred(tag: u8) -> StakeCredential {
-        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+        StakeCredential::KeyHash(Hash::new([tag; 28]))
     }
 
     fn pointer() -> CertificatePointer {

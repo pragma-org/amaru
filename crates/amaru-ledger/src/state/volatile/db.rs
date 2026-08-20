@@ -1430,7 +1430,7 @@ mod tests {
     }
 
     fn cred(tag: u8) -> StakeCredential {
-        StakeCredential::AddrKeyhash(Hash::new([tag; 28]))
+        StakeCredential::KeyHash(Hash::new([tag; 28]))
     }
 
     /// Effective boundary rewards crediting a single account, to give the overlay non-trivial,
