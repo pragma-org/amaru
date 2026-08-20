@@ -2,13 +2,13 @@
   "title": "stake reg delegation to unregistered pool",
   "description": "StakeRegDeleg to a pool not in the pools set; Reg succeeds first.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
@@ -18,13 +18,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002ab980ff021a00030d4004d9010281840b8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8581cdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef1a001e84800800ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840c8c313bfa6e70321242c0ee454c654d8075e9399b1ff36fcb694ed4a14428f0ae9d1f223be1033877a055c5e1b5a73598758648722a5189c7b4083fcf1c52b08f5f6",
   "expected": {

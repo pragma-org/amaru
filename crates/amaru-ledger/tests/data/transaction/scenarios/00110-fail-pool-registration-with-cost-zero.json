@@ -2,13 +2,13 @@
   "title": "pool registration with cost zero",
   "description": "A pool registration certificate with cost set to zero, well below minStakePoolCost (340 ADA).",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
@@ -18,13 +18,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60800ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258409e199940a28622060b7b952cf81ea001231a3179cf68f593a200780abb80b70e2df23d7d5ece7ea76f5e7d9dce724d012d02905034ede2aac38ec7a355a3f00bf5f6",
   "expected": {

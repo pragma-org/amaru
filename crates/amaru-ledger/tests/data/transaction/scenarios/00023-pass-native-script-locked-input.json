@@ -2,13 +2,13 @@
   "title": "native script-locked input",
   "description": "The transaction spends from a Shelley address whose payment credential is the hash of an always-true native script (`ScriptAll []`). The witness set carries the matching native script. Exercises the is_script() arm of inputs::execute and the Native branch of scripts::execute.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed02800",
@@ -18,13 +18,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a400d9010281825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed028000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400f00a101d9010281820180f5f6",
   "expected": "Pass"

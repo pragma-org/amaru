@@ -2,13 +2,13 @@
   "title": "vote cast by a stake pool on a parameter change outside the security group",
   "description": "A change to the DRep deposit alone, which leaves every security group parameter untouched.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820cd1f97def587d794ae25535c9d1389e03898f9d3ed67b9aca10c0936c4a76cd200",
@@ -19,12 +19,19 @@
       "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
     ],
     "proposals": [
-      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "ProtocolParameters", 6]
+      [
+        {
+          "transaction_id": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b",
+          "proposal_index": 0
+        },
+        "ProtocolParameters",
+        6
+      ]
     ]
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820cd1f97def587d794ae25535c9d1389e03898f9d3ed67b9aca10c0936c4a76cd2000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18204581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840920a28b696acae98447846087cd267e3518e36463dcb86e6a61c5018270461e8411fd281671f7a3ef835788429c77607c3a0580bbb72476c6bba59216e58460cf5f6",
   "expected": {

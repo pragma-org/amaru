@@ -2,26 +2,26 @@
   "title": "stake registration cert with incorrect deposit",
   "description": "A Conway `Reg` cert supplies a deposit that disagrees with protocolParameters.stakeCredentialDeposit.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
       }
     ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a0039fbc0ff021a00030d4004d901028183078200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a000f42400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584049b017eb5af3d8a1266c208361b2af4d0c902c3508041299959ef50c076653181f7117f04d6a854b18657c83df09fcf032d743acb7065a62a90bcd10e30bce01f5f6",
   "expected": {

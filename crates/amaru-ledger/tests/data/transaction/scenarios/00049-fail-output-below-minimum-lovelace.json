@@ -2,14 +2,16 @@
   "title": "output below minimum lovelace",
   "description": "Same body and witness as pass/simple-transfer; only the protocol parameters change. minUtxoDepositCoefficient is overridden to a value large enough that the minimum-Lovelace requirement for the single output exceeds its 4_800_000-lovelace value. The input-vkey requirement is satisfied by the reused simple-transfer signature, so the only phase-one failure is the output's minimum-value check.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json",
-    "$override": { "minUtxoDepositCoefficient": 100000000000 }
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json",
+    "$override": {
+      "min_utxo_deposit_coefficient": 100000000000
+    }
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
@@ -19,13 +21,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a400d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258400807969bbf5d777f1ce93897e656ab9ddaa9866b42e59e942497d5ce923ce7e182060ab351a6cc7b3711c3065d7c2815638144c92d8ec970dbf4580c54059a08f5f6",
   "expected": {

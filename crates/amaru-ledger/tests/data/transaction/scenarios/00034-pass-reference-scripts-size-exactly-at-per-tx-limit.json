@@ -2,16 +2,16 @@
   "title": "reference scripts size exactly at per-tx limit",
   "description": "Reference scripts size (50 bytes) exactly equals the per-tx limit.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json",
     "$override": {
-      "maxReferenceScriptsSize": 50
+      "max_reference_scripts_size": 50
     }
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed02800",
@@ -22,13 +22,13 @@
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b4003d8185836820258320101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101ff"
       }
     ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84A500D9010281825820A1C4425C08922D444E4FAD7AD6E73796AC118E27165F0688AC049858938ED028000181BF00581D60A1C146C212ACFE02048AFBF8D2E5E9C806165934D9935C696F85C3DC011A003D0900FF021A000F42400F0012D9010281825820111111111111111111111111111111111111111111111111111111111111111100A101D9010281820180F5F6",
   "expected": "Pass"

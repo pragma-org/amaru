@@ -2,13 +2,13 @@
   "title": "gov update committee follows in flight",
   "description": "A update committee proposal whose previous action points at an in-flight proposal of the same purpose is accepted.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
@@ -22,12 +22,19 @@
       }
     ],
     "proposals": [
-      [{ "transactionId": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3", "proposalIndex": 0 }, "ConstitutionalCommittee", 6]
+      [
+        {
+          "transaction_id": "a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee3",
+          "proposal_index": 0
+        },
+        "ConstitutionalCommittee",
+        6
+      ]
     ]
   },
   "point": {
     "slot": 100,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84bf00d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff021a00030d400f0014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88504825820a829a847676b9e2c0ddd470708741dcff03b1769b4dc5ee8632be1817e892ee300d9010280a18200581c111111111111111111111111111111111111111111111111111111111a000186a0d81e820102827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840007e8b26afbbaf0421c693b966362e19555206585d9548708711cd9a278cb994625c2b007bff9f82bbc75a68b1a0179a35fe69001fb480878fbf1133cb468004f5f6",
   "expected": "Pass"

@@ -17,7 +17,6 @@ use std::fmt;
 use crate::{Hash, cbor, size::TRANSACTION_BODY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, std::hash::Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProposalId {
     pub transaction_id: Hash<{ TRANSACTION_BODY }>,
     pub proposal_index: u32,

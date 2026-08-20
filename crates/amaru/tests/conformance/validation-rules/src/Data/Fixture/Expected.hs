@@ -22,7 +22,7 @@ instance FromJSON Expected where
         String "Pass" ->
             pure ExpectedPass
         Object objectValue
-            | KeyMap.member "decodingFailure" objectValue ->
+            | KeyMap.member "decoding_failure" objectValue ->
                 pure ExpectedDecodingFailure
             | KeyMap.member "predicate" objectValue ->
                 ExpectedFailure <$> objectValue .: "predicate"

@@ -2,13 +2,13 @@
   "title": "update committee proposal with a registered return account",
   "description": "An UpdateCommittee proposal whose return (deposit refund) account is registered.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
@@ -24,13 +24,13 @@
       }
     ],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480021a00030d400f0014d9010281841b000000174876e800581de0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb8504f6d9010280a0d81e820102827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584096c0683da606dab9718b7ed13ecaf87ab7a701e9072995723f9f6043e90bfd3025d1ed2ffdb8113df5cd75b444a04b80f83f9912935d590e1436af5b4073ca04f5f6",
   "expected": "Pass"

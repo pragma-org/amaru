@@ -20,42 +20,6 @@ use crate::{MemoizedTransactionOutput, TransactionInput, cbor, from_cbor_no_left
 
 // ----------------------------------------------------------------------------------- Generic utils
 
-pub trait HasProxy: From<Self::Proxy> {
-    type Proxy;
-}
-
-pub fn deserialize_map_proxy<'de, K, V, D>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    K: Ord + HasProxy,
-    K::Proxy: serde::Deserialize<'de>,
-    V: HasProxy,
-    V::Proxy: serde::Deserialize<'de>,
-{
-    let entries: Vec<(K::Proxy, V::Proxy)> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(entries.into_iter().map(|(k, v)| (K::from(k), V::from(v))).collect())
-}
-
-pub fn deserialize_option_proxy<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: HasProxy,
-    T::Proxy: serde::Deserialize<'de>,
-{
-    let option: Option<T::Proxy> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(option.map(T::from))
-}
-
-pub fn deserialize_proxy<'de, T, D>(deserializer: D) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: HasProxy,
-    T::Proxy: serde::Deserialize<'de>,
-{
-    let proxy: T::Proxy = serde::Deserialize::deserialize(deserializer)?;
-    Ok(T::from(proxy))
-}
-
 pub fn hex_to_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -142,20 +106,6 @@ where
     .map_err(serde::de::Error::custom)
 }
 
-// -------------------------------------------------------------------------------- TransactionInput
-
-impl HasProxy for TransactionInput {
-    // NOTE: TranscationInput already defines a serde::Deserialize instance. The trait 'From' is
-    // also reflexive, so this works.
-    type Proxy = TransactionInput;
-}
-
-// ------------------------------------------------------------------------------- TransactionOutput
-
-impl HasProxy for MemoizedTransactionOutput {
-    type Proxy = MemoizedTransactionOutput;
-}
-
 // ----------------------------------------------------------------------------------- RefOrInline
 
 /// A JSON value that's either embedded inline or a reference to another document.
@@ -204,13 +154,6 @@ impl<T: serde::de::DeserializeOwned> RefOrInline<T> {
                 crate::json::from_value(value).map_err(RefResolveError::Deserialize)
             }
         }
-    }
-
-    /// Resolve to `T` and then convert to `U` via `From<T>`. Convenience for fixture
-    /// fields that deserialize through a proxy type but the user-facing value is the
-    /// proxy's target (e.g. `RefOrInline<EraHistoryProxy>` → `EraHistory`).
-    pub fn resolve_into<U: From<T>>(self, resolver: &impl RefResolver) -> Result<U, RefResolveError> {
-        Ok(self.resolve(resolver)?.into())
     }
 }
 

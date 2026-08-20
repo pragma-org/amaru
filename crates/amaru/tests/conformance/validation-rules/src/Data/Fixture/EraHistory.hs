@@ -63,7 +63,7 @@ import qualified Ouroboros.Consensus.HardFork.History.Summary as HardForkHistory
 import qualified Data.SOP.NonEmpty as SOPNonEmpty
 
 data EraHistory = EraHistory
-    { stabilityWindow :: !Word64
+    { stability_window :: !Word64
     , eras :: ![FixtureEraSummary]
     }
     deriving (Generic)
@@ -89,9 +89,9 @@ data EraBound = EraBound
 instance FromJSON EraBound
 
 data EraParameters = EraParameters
-    { epochSizeSlots :: !Word64
-    , slotLengthMs :: !Word64
-    , eraName :: !Text
+    { epoch_size_slots :: !Word64
+    , slot_length :: !Word64
+    , era_name :: !Text
     }
     deriving (Generic)
 
@@ -132,12 +132,12 @@ pointEpochNo :: EraHistory -> Point -> Either Error LedgerSlot.EpochNo
 pointEpochNo eraHistory point = do
     FixtureEraSummary
         { start = EraBound{slot = eraStartSlot, epoch = eraStartEpoch}
-        , params = EraParameters{epochSizeSlots}
+        , params = EraParameters{epoch_size_slots}
         } <- singleEraSummary eraHistory
     let SlotNo currentSlot = pointConsensusSlotNo point
     when (currentSlot < eraStartSlot) $
         Left (UnsupportedFixture "the fixture point is before the era-history start bound")
-    pure (LedgerSlot.EpochNo (eraStartEpoch + ((currentSlot - eraStartSlot) `div` epochSizeSlots)))
+    pure (LedgerSlot.EpochNo (eraStartEpoch + ((currentSlot - eraStartSlot) `div` epoch_size_slots)))
 
 buildBound :: EraBound -> Either Error Bound
 buildBound EraBound{time, slot, epoch} =
@@ -150,14 +150,14 @@ buildBound EraBound{time, slot, epoch} =
             }
 
 buildEraParams :: EraParameters -> Either Error EraParams
-buildEraParams EraParameters{epochSizeSlots, slotLengthMs, eraName}
-    | eraName /= "Conway" =
-        Left (UnsupportedFixture ("unsupported era name in era history: " <> eraName))
+buildEraParams EraParameters{epoch_size_slots, slot_length, era_name}
+    | era_name /= "Conway" =
+        Left (UnsupportedFixture ("unsupported era name in era history: " <> era_name))
     | otherwise =
         pure
             EraParams
-                { eraEpochSize = EpochSize epochSizeSlots
-                , eraSlotLength = slotLengthFromMillisec (fromIntegral slotLengthMs)
+                { eraEpochSize = EpochSize epoch_size_slots
+                , eraSlotLength = slotLengthFromMillisec (fromIntegral slot_length)
                 , eraSafeZone = UnsafeIndefiniteSafeZone
                 , eraGenesisWin = GenesisWindow 0
                 , eraPerasRoundLength = perasDisabled

@@ -2,29 +2,29 @@
   "title": "transaction size just above maxTransactionSize",
   "description": "simple-transfer with maxTransactionSize set to exactly one byte less than the (computed) tx size.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json",
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json",
     "$override": {
-      "maxTransactionSize": 199
+      "max_transaction_size": 199
     }
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
         "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
       }
     ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a400d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258400807969bbf5d777f1ce93897e656ab9ddaa9866b42e59e942497d5ce923ce7e182060ab351a6cc7b3711c3065d7c2815638144c92d8ec970dbf4580c54059a08f5f6",
   "expected": {

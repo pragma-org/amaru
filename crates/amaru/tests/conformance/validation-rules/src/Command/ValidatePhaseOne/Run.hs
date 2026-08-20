@@ -296,14 +296,14 @@ manualRefScriptSizeFailure ProtocolParameters{maxReferenceScriptsSize} (LedgerSt
 buildGlobals :: FixtureNetwork -> EraHistory -> Point -> Either Error Globals
 buildGlobals network eraHistory point = do
     let activeSlotCoeff = defaultActiveSlotCoeff
-    securityParameter <- inferSecurityParameter (FixtureEraHistory.stabilityWindow eraHistory) activeSlotCoeff
+    securityParameter <- inferSecurityParameter (FixtureEraHistory.stability_window eraHistory) activeSlotCoeff
     epochInfo <- buildEpochInfo eraHistory point
 
     pure
         Globals
             { epochInfo = epochInfo
             , slotsPerKESPeriod = 129600
-            , stabilityWindow = FixtureEraHistory.stabilityWindow eraHistory
+            , stabilityWindow = FixtureEraHistory.stability_window eraHistory
             , randomnessStabilisationWindow =
                 computeRandomnessStabilisationWindow securityParameter activeSlotCoeff
             , securityParameter = unsafeNonZero securityParameter

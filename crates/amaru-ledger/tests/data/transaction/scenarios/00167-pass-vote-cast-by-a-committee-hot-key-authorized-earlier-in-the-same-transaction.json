@@ -2,13 +2,13 @@
   "title": "vote cast by a committee hot key authorized earlier in the same transaction",
   "description": "A member holding a term and no hot credential authorizes one, then votes with it in the same transaction.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "8258201da492fbe7ae9f236bb5864eec07e234cfc26629d85d3b59e242bfefc6216b5900",
@@ -17,18 +17,25 @@
     ],
     "committee": [
       {
-        "coldCredential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "cold_credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "status": null,
-        "validUntil": 200
+        "valid_until": 200
       }
     ],
     "proposals": [
-      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Orphan", 6]
+      [
+        {
+          "transaction_id": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b",
+          "proposal_index": 0
+        },
+        "Orphan",
+        6
+      ]
     ]
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a600d90102818258201da492fbe7ae9f236bb5864eec07e234cfc26629d85d3b59e242bfefc6216b59000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d9010281830e8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec0f0013a18200581ce4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253ceca18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a100d90102828258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840c8fcaabe9159616177c0eddbb6d679dc4708c9057a8a544586d8e1bf42cad82f347f046b359c967ebf5c0fcb273dddc2751a3189bd1cce96b722d040fd04a80a825820e734ea6c2b6257de72355e472aa05a4c487e6b463c029ed306df2f01b5636b585840890c5e267595a138c85064f4648fb401b65c4a345c75bcdfe8dcfb35e639720adfa040483a7903172a27254561166ad620cca19e5ea800447ea8a60bd98a2905f5f6",
   "expected": "Pass"

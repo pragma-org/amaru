@@ -2,13 +2,13 @@
   "title": "pool retirement beyond max epoch",
   "description": "Pool retirement with epoch 19, which exceeds the max retirement epoch (current 0 + eMax 18 = 18).",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
@@ -26,13 +26,13 @@
       }
     ],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84bf00d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d4004d90102818304581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8130800ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840973569093a0a932c6ba47c719f1d0f261211dffc67837e4bc994cf874d870c7985082632d79072af90876204ba020f995795c997b8cd3b750ad3c82e27c07c0af5f6",
   "expected": {

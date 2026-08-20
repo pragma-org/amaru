@@ -2,13 +2,13 @@
   "title": "vote cast on two governance actions of which only one exists",
   "description": "A single voter casting one ballot on the seeded proposal and one on an absent id.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "8258202b648a1f906db52cc04eac0a58116b1ed17c7bacab29a2f592d325b12281cafc00",
@@ -19,23 +19,30 @@
       {
         "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "deposit": 500000000,
-        "registeredAt": {
+        "registered_at": {
           "transaction": {
             "slot": 0,
-            "transactionIndex": 0
+            "transaction_index": 0
           },
-          "certificateIndex": 0
+          "certificate_index": 0
         },
-        "validUntil": 1000
+        "valid_until": 1000
       }
     ],
     "proposals": [
-      [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "Information", 6]
+      [
+        {
+          "transaction_id": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b",
+          "proposal_index": 0
+        },
+        "Information",
+        6
+      ]
     ]
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d90102818258202b648a1f906db52cc04eac0a58116b1ed17c7bacab29a2f592d325b12281cafc000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a28258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6825820bbd665a051206b767522b19427cced4e0420a050852f7ba1c875c9ec1e4983e1008201f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840f608a4bbfed1cf60d841586def7f826ba2d65241612d4b5e0512a1285024aae057abf43a3e38db8e57cbe23fe3b95f09a6633030139959a72bcda8f2122c5e0df5f6",
   "expected": {

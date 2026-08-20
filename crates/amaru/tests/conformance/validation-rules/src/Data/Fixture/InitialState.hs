@@ -190,10 +190,10 @@ instance FromJSON InitialState where
                 <*> objectValue .:? "dreps" .!= []
                 <*> objectValue .:? "committee" .!= []
                 <*> objectValue .:? "proposals" .!= []
-                <*> (objectValue .:? "proposalsRoots" >>= maybe (pure def) parseProposalsRoots)
+                <*> (objectValue .:? "proposals_roots" >>= maybe (pure def) parseProposalsRoots)
                 <*> objectValue .:? "pots" .!= def
-                <*> objectValue .:? "governanceActivity" .!= def
-                <*> (objectValue .:? "guardrailScript" >>= traverse parseScriptHash)
+                <*> objectValue .:? "governance_activity" .!= def
+                <*> (objectValue .:? "guardrail_script" >>= traverse parseScriptHash)
 
 data UtxoEntry = UtxoEntry
     { input :: !TxIn
@@ -236,7 +236,7 @@ instance FromJSON PoolDelegation where
         withObject "PoolDelegation" $ \objectValue ->
             PoolDelegation
                 <$> (objectValue .: "id" >>= parsePoolId)
-                <*> objectValue .: "delegatedAt"
+                <*> objectValue .: "delegated_at"
 
 data VoteDelegation = VoteDelegation
     { delegatedDRep :: !DRep
@@ -248,7 +248,7 @@ instance FromJSON VoteDelegation where
         withObject "VoteDelegation" $ \objectValue ->
             VoteDelegation
                 <$> (objectValue .: "id" >>= parseCborHex "DRep")
-                <*> objectValue .: "delegatedAt"
+                <*> objectValue .: "delegated_at"
 
 data RegisteredDRep = RegisteredDRep
     { credential :: !(Credential Staking)
@@ -263,8 +263,8 @@ instance FromJSON RegisteredDRep where
             RegisteredDRep
                 <$> (objectValue .: "credential" >>= parseCborHex "StakeCredential")
                 <*> objectValue .: "deposit"
-                <*> objectValue .: "registeredAt"
-                <*> objectValue .: "validUntil"
+                <*> objectValue .: "registered_at"
+                <*> objectValue .: "valid_until"
 
 -- | A seeded constitutional committee row keyed by cold credential. `status = null` means the
 -- member has not authorized any hot credential yet. `validUntil = null` means the member currently
@@ -279,20 +279,20 @@ instance FromJSON CommitteeMember where
     parseJSON =
         withObject "CommitteeMember" $ \objectValue ->
             CommitteeMember
-                <$> (objectValue .: "coldCredential" >>= parseCborHex "ColdCommitteeCredential")
+                <$> (objectValue .: "cold_credential" >>= parseCborHex "ColdCommitteeCredential")
                 <*> (objectValue .:? "status" >>= traverse parseCommitteeAuthorization)
-                <*> objectValue .:? "validUntil"
+                <*> objectValue .:? "valid_until"
 
 data CertificatePointer = CertificatePointer
     { transaction :: !Point
-    , certificateIndex :: !Word64
+    , certificate_index :: !Word64
     }
     deriving (Generic)
 
 instance FromJSON CertificatePointer
 
 data GovernanceActivity = GovernanceActivity
-    { consecutiveDormantEpochs :: !Word64
+    { consecutive_dormant_epochs :: !Word64
     }
     deriving (Generic)
 
@@ -392,8 +392,8 @@ instance FromJSON ProposalEntry where
             withObject "ProposalEntry" $ \objectValue ->
                 ProposalEntry
                     <$> (objectValue .: "id" >>= parseProposalId)
-                    <*> (ProposalFull <$> (objectValue .: "govAction" >>= parseCborHex "GovAction"))
-                    <*> objectValue .:? "validUntil"
+                    <*> (ProposalFull <$> (objectValue .: "gov_action" >>= parseCborHex "GovAction"))
+                    <*> objectValue .:? "valid_until"
 
 data Pots = Pots
     { treasury :: !Integer
@@ -413,8 +413,8 @@ instance Default Pots where
 parseProposalId :: Value -> Parser GovActionId
 parseProposalId =
     withObject "ProposalId" $ \objectValue -> do
-        transactionId <- objectValue .: "transactionId" :: Parser TxId
-        proposalIndex <- objectValue .: "proposalIndex"
+        transactionId <- objectValue .: "transaction_id" :: Parser TxId
+        proposalIndex <- objectValue .: "proposal_index"
         pure (GovActionId transactionId (GovActionIx proposalIndex))
 
 -- | The latest enacted governance action id per purpose. An absent purpose has no root,
@@ -422,9 +422,9 @@ parseProposalId =
 parseProposalsRoots :: Value -> Parser (GovRelation StrictMaybe)
 parseProposalsRoots =
     withObject "ProposalsRoots" $ \objectValue -> do
-        grPParamUpdate <- parseRoot objectValue "protocolParameters"
-        grHardFork <- parseRoot objectValue "hardFork"
-        grCommittee <- parseRoot objectValue "constitutionalCommittee"
+        grPParamUpdate <- parseRoot objectValue "protocol_parameters"
+        grHardFork <- parseRoot objectValue "hard_fork"
+        grCommittee <- parseRoot objectValue "constitutional_committee"
         grConstitution <- parseRoot objectValue "constitution"
         pure GovRelation{grPParamUpdate, grHardFork, grCommittee, grConstitution}
   where
@@ -545,7 +545,7 @@ buildNewEpochState pparams eraHistory initialState point = do
                     VState
                         { vsDReps = dRepStates
                         , vsCommitteeState = CommitteeState committeeAuthorizations
-                        , vsNumDormantEpochs = phaseOneEpochNo (consecutiveDormantEpochs governanceActivity)
+                        , vsNumDormantEpochs = phaseOneEpochNo (consecutive_dormant_epochs governanceActivity)
                         }
                 , conwayCertPState =
                     PState def poolStates def def
@@ -762,7 +762,7 @@ nextSyntheticGovActionId states =
 defaultStakePoolState :: Coin -> StakePoolState
 defaultStakePoolState depositCoin =
     def
-        & spsDepositL .~ compactCoinOrError "stakePoolDeposit" depositCoin
+        & spsDepositL .~ compactCoinOrError "stake_pool_deposit" depositCoin
 
 poolDepositAmount :: PParams ConwayEra -> Integer
 poolDepositAmount pparams =

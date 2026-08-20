@@ -18,7 +18,7 @@ import Ouroboros.Consensus.Block
 
 data Point = Point
     { slot :: !Word64
-    , transactionIndex :: !Word64
+    , transaction_index :: !Word64
     }
     deriving (Generic)
 

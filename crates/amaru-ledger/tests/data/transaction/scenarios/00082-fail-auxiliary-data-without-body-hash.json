@@ -2,13 +2,13 @@
   "title": "auxiliary data without body hash",
   "description": "Auxiliary data is present but the transaction body lacks an auxiliary_data_hash; phase-one must reject.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
@@ -18,13 +18,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a400d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00ff021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840ab95ef2f208e7c7c513a48467450eb4820c3d425c9b3fef96cc400c90cbad96bbef647c65df3b8f3a855b3122c594ef8d7d7445f8597f2571e397ec288eb4705f5d90103a100a11902a2781a70686173652d6f6e65206d657461646174612066697874757265",
   "expected": {

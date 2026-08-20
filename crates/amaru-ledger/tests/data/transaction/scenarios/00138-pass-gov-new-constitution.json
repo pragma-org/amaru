@@ -2,13 +2,13 @@
   "title": "gov new constitution",
   "description": "A NewConstitution proposal with no previous action is accepted when no constitution root has been enacted.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
@@ -24,7 +24,7 @@
   },
   "point": {
     "slot": 100,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84bf00d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff021a00030d400f0014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88305f682827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000f6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406dc81cf56d8bff32cb7af89224a5ae2a27790006c838bf6c087d98a42381281af9fa2f7ce61c72c0d4d5120302e27abbd8f99660955c04b15dbac2b147636e09f5f6",
   "expected": "Pass"

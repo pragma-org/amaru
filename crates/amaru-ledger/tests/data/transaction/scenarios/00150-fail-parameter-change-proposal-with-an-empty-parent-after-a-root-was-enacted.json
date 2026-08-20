@@ -2,13 +2,13 @@
   "title": "parameter change proposal with an empty parent after a root was enacted",
   "description": "A ParameterChange governance action with no previous action id, submitted while a protocol-parameters root is already enacted. An empty parent is only valid before the first action of that purpose is enacted.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
@@ -19,19 +19,19 @@
     "accounts": [],
     "dreps": [],
     "proposals": [],
-    "proposalsRoots": {
-      "protocolParameters": {
-        "transactionId": "099fe48ea596b03ebc3b978710500364d295899b10c02a3fd79826db31363329",
-        "proposalIndex": 0
+    "proposals_roots": {
+      "protocol_parameters": {
+        "transaction_id": "099fe48ea596b03ebc3b978710500364d295899b10c02a3fd79826db31363329",
+        "proposal_index": 0
       }
     },
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84bf00d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00ff021a00030d40080014d9010281841b000000174876e800581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88400f6a100182cf6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000ffa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b6dd0a9ec69fef7b1218aac31e06918d83d526efbec574e8fca8f3a9fee10bf513271c4901ae3d477a450d495e2e1c4cedcf71af8de155b4fca9b80a74fca20bf5f6",
   "expected": {

@@ -83,9 +83,9 @@ data TestCaseDocument = TestCaseDocument
     { title :: !(Maybe Text)
     , description :: !(Maybe Text)
     , network :: !FixtureNetwork
-    , eraHistory :: !SharedDocument
-    , protocolParameters :: !SharedDocument
-    , initialState :: !InitialState
+    , era_history :: !SharedDocument
+    , protocol_parameters :: !SharedDocument
+    , initial_state :: !InitialState
     , point :: !Point
     , transaction :: !Text
     , expected :: !Expected
@@ -113,17 +113,17 @@ loadTestCase testCasePath = do
         { title = documentTitle
         , description = documentDescription
         , network = documentNetwork
-        , eraHistory = documentEraHistory
-        , protocolParameters = documentProtocolParameters
-        , initialState = documentInitialState
+        , era_history = documentEraHistory
+        , protocol_parameters = documentProtocolParameters
+        , initial_state = documentInitialState
         , point = documentPoint
         , transaction = documentTransaction
         , expected = documentExpected
         } <-
         ExceptT (first (FixtureReadError testCasePath . toText) <$> liftIO (eitherDecodeFileStrict' testCasePath))
     fixtureRoot <- hoistEither (findFixtureRoot testCasePath)
-    resolvedEraHistoryValue <- resolveSharedDocument fixtureRoot "eraHistory" documentEraHistory
-    resolvedProtocolParametersValue <- resolveSharedDocument fixtureRoot "protocolParameters" documentProtocolParameters
+    resolvedEraHistoryValue <- resolveSharedDocument fixtureRoot "era_history" documentEraHistory
+    resolvedProtocolParametersValue <- resolveSharedDocument fixtureRoot "protocol_parameters" documentProtocolParameters
     resolvedEraHistory <- hoistEither (first (FixtureDecodeError testCasePath . toText) (parseEither parseJSON resolvedEraHistoryValue))
     resolvedProtocolParameters <-
         hoistEither

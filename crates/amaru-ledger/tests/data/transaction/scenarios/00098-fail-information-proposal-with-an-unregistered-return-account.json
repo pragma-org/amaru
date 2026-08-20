@@ -2,13 +2,13 @@
   "title": "information proposal with an unregistered return account",
   "description": "An Information proposal whose return (deposit refund) account is not registered in the accounts state.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc00",
@@ -18,13 +18,13 @@
     "pools": [],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480021a00030d400f0014d9010281841b000000174876e800581de0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb8106827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840e826224e52ce8f3ef0699b55be1df92d4dac4e5a5cb218e9b9441fd63ebee518052092b9243f746fe92fe52b04ea96ad073f5c48da2d95f70ec6214ac4c67906f5f6",
   "expected": {

@@ -2,13 +2,13 @@
   "title": "drep deregistration refund unaccounted by outputs",
   "description": "A DRep deregistration refunds the seeded deposit that the outputs and fee do not cover, so consumed exceeds produced.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
@@ -21,23 +21,23 @@
       {
         "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
         "deposit": 500000000,
-        "registeredAt": {
+        "registered_at": {
           "transaction": {
             "slot": 0,
-            "transactionIndex": 0
+            "transaction_index": 0
           },
-          "certificateIndex": 0
+          "certificate_index": 0
         },
-        "validUntil": 1000
+        "valid_until": 1000
       }
     ],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181a200581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00021a00030d4004d901028183118200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a1dcd65000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584084c92d61bf58d833de0b7d1f17d01fa901b8fcc244f6922f3d34d1363950c83884b0b6345a69c115a33f1db998d5751645d4214a11dae3f9c1e70317d8d35308f5f6",
   "expected": {

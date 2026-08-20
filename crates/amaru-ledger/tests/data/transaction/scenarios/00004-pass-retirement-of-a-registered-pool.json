@@ -2,29 +2,31 @@
   "title": "retirement of a registered pool",
   "description": "Retirement of a registered stake pool at a valid future epoch.",
   "network": "preprod",
-  "eraHistory": {
-    "$ref": "common/eraHistory/preprod-conway.json"
+  "era_history": {
+    "$ref": "common/era_history/preprod-conway.json"
   },
-  "protocolParameters": {
-    "$ref": "common/protocolParameters/preprod-conway-v10.json"
+  "protocol_parameters": {
+    "$ref": "common/protocol_parameters/preprod-conway-v10.json"
   },
-  "initialState": {
+  "initial_state": {
     "utxo": [
       {
         "input": "82582051adca15fb43fda038a2f0eed73fcfaa6bf26ea18d70d6c824448c05648c297000",
         "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
       }
     ],
-    "pools": ["93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ],
     "accounts": [],
     "dreps": [],
-    "governanceActivity": {
-      "consecutiveDormantEpochs": 0
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
     }
   },
   "point": {
     "slot": 0,
-    "transactionIndex": 0
+    "transaction_index": 0
   },
   "transaction": "84a400d901028182582051adca15fb43fda038a2f0eed73fcfaa6bf26ea18d70d6c824448c05648c2970000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d90102818304581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd801a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258400c904e9351cef53e81df88b0f9b84553d57f6dcf4643686fac8b3676506bb62374fcbd2aebfcb5b1084dc041ae323087bb153c596c694f9e83f6f42385418c0df5f6",
   "expected": "Pass"
