@@ -15,9 +15,12 @@
         "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
       }
     ],
-    "pools": [
-      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
-    ],
+    "pools": {
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8": {
+        "vrf": "0000000000000000000000000000000000000000000000000000000076726600",
+        "hasPendingUpdates": false
+      }
+    },
     "proposals": [
       [{ "transactionId": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b", "proposalIndex": 0 }, "ProtocolParameters", 6]
     ]
