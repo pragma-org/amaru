@@ -83,7 +83,7 @@ where
     V: Eval<'a>,
 {
     pub args: BumpVec<'a, &'a Value<'a, V>>,
-    pub fun: &'a DefaultFunction,
+    pub fun: DefaultFunction,
     pub forces: usize,
 }
 
@@ -91,7 +91,7 @@ impl<'a, V> Runtime<'a, V>
 where
     V: Eval<'a>,
 {
-    pub fn new(arena: &'a Arena, fun: &'a DefaultFunction) -> &'a Self {
+    pub fn new(arena: &'a Arena, fun: DefaultFunction) -> &'a Self {
         arena.alloc(Self { args: BumpVec::new_in(arena.as_bump()), fun, forces: 0 })
     }
 

@@ -1791,29 +1791,6 @@
       "description": "Update the number of consecutive dormant epochs",
       "public": true
     },
-    "amaru::ledger::non_empty_block::FOUND": {
-      "type": "object",
-      "properties": {
-        "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
-        },
-        "tx_count": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "point",
-        "tx_count"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "found",
-      "level": "TRACE",
-      "target": "amaru::ledger::non_empty_block",
-      "description": "Found a non-empty block while applying it to the ledger",
-      "public": true
-    },
     "amaru::ledger::overlay::NO_GOVERNANCE_UPDATES": {
       "type": "object",
       "properties": {},
@@ -2484,19 +2461,7 @@
       "description": "Summary of the rewards calculation for an epoch",
       "public": true
     },
-    "amaru::ledger::rules::EXECUTE": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "execute",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules",
-      "description": "Validate block against ledger rules",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::BLOCK": {
+    "amaru::ledger::rules::BLOCK": {
       "type": "object",
       "properties": {},
       "required": [],
@@ -2504,270 +2469,104 @@
       "additionalProperties": false,
       "name": "block",
       "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules related to block metadata and 'global' preflight checks",
+      "target": "amaru::ledger::rules",
+      "description": "Block-related rules and other preflight checks",
       "public": true
     },
-    "amaru::ledger::rules::phase_one::CERTIFICATES": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "certificates",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for certificates",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::COLLATERAL": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "collateral",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for collateral",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::DONATION": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "donation",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for treasury donation",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::FEES": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "fees",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for fees",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::INPUTS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "inputs",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for inputs",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::METADATA": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "metadata",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for metadata",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::MINT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "mint",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for minte/burned assets",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::OUTPUTS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "outputs",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for outputs",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::PROPOSALS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "proposals",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for governance proposals",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::SCRIPTS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "scripts",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for script witnesses",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::SIGNATURES": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "signatures",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for key signatures",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::VALIDITY_INTERVAL": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "validity_interval",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for validity interval",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::VOTES": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "votes",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for governance votes",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_one::WITHDRAWALS": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "withdrawals",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_one",
-      "description": "Ledger rules and state-transitions for withdrawas",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_two::ACQUIRE_ARENA": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "acquire_arena",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_two",
-      "description": "Acquiring the allocation arena for decoding and execution",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_two::BUILD_SCRIPT_CONTEXT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "build_script_context",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_two",
-      "description": "Initialize script context and cost models, common to all scripts",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_two::BUILD_UPLC_PROGRAM": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "build_uplc_program",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_two",
-      "description": "Construct the UPLC program from parameters, decoded script and context",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_two::DECODE_SCRIPT": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "decode_script",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_two",
-      "description": "Decoding the script from Cbor/Flat",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_two::EVALUATE_UPLC_PROGRAM": {
-      "type": "object",
-      "properties": {},
-      "required": [],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "evaluate_uplc_program",
-      "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_two",
-      "description": "Execute the fully-applied UPLC program",
-      "public": true
-    },
-    "amaru::ledger::rules::phase_two::EXECUTE_ONE_SCRIPT": {
+    "amaru::ledger::rules::PHASE_ONE": {
       "type": "object",
       "properties": {
-        "purpose": {
-          "type": "string"
+        "preflight_micros": {
+          "type": "integer"
         },
-        "index": {
+        "certificates_micros": {
+          "type": "integer"
+        },
+        "collateral_micros": {
+          "type": "integer"
+        },
+        "collateral_return_micros": {
+          "type": "integer"
+        },
+        "donation_micros": {
+          "type": "integer"
+        },
+        "fees_micros": {
+          "type": "integer"
+        },
+        "inputs_micros": {
+          "type": "integer"
+        },
+        "metadata_micros": {
+          "type": "integer"
+        },
+        "mint_micros": {
+          "type": "integer"
+        },
+        "outputs_micros": {
+          "type": "integer"
+        },
+        "proposals_micros": {
+          "type": "integer"
+        },
+        "scripts_micros": {
+          "type": "integer"
+        },
+        "signatures_micros": {
+          "type": "integer"
+        },
+        "validity_interval_micros": {
+          "type": "integer"
+        },
+        "votes_micros": {
+          "type": "integer"
+        },
+        "withdrawals_micros": {
           "type": "integer"
         }
       },
-      "required": [
-        "purpose",
-        "index"
+      "required": [],
+      "optional": [
+        "preflight_micros",
+        "certificates_micros",
+        "collateral_micros",
+        "collateral_return_micros",
+        "donation_micros",
+        "fees_micros",
+        "inputs_micros",
+        "metadata_micros",
+        "mint_micros",
+        "outputs_micros",
+        "proposals_micros",
+        "scripts_micros",
+        "signatures_micros",
+        "validity_interval_micros",
+        "votes_micros",
+        "withdrawals_micros"
       ],
-      "optional": [],
       "additionalProperties": false,
-      "name": "execute_one_script",
+      "name": "phase_one",
       "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_two",
-      "description": "A single script execution, with the associated redeemer qualifiers",
+      "target": "amaru::ledger::rules",
+      "description": "All phase one validations",
       "public": true
     },
-    "amaru::ledger::rules::phase_two::EXECUTE_SCRIPTS": {
+    "amaru::ledger::rules::PHASE_TWO": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "script_context_micros": {
+          "type": "integer"
+        }
+      },
       "required": [],
-      "optional": [],
+      "optional": [
+        "script_context_micros"
+      ],
       "additionalProperties": false,
-      "name": "execute_scripts",
+      "name": "phase_two",
       "level": "TRACE",
-      "target": "amaru::ledger::rules::phase_two",
-      "description": "A span wrapping all script executions",
+      "target": "amaru::ledger::rules",
+      "description": "Initialize script context and cost models for phase-2 validations, common to all scripts",
       "public": true
     },
     "amaru::ledger::stake_distribution::COMPUTE": {
@@ -3031,34 +2830,6 @@
       "description": "Updated view of the locally adopted chain tip and its derived ledger health.",
       "public": true
     },
-    "amaru::ledger::transaction::FOUND": {
-      "type": "object",
-      "properties": {
-        "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
-        },
-        "index": {
-          "type": "integer"
-        },
-        "id": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::TransactionId"
-        }
-      },
-      "required": [
-        "point",
-        "index",
-        "id"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "found",
-      "level": "TRACE",
-      "target": "amaru::ledger::transaction",
-      "description": "Found a transaction while applying a block",
-      "public": true
-    },
     "amaru::ledger::transaction::VALIDATE": {
       "type": "object",
       "properties": {
@@ -3076,6 +2847,45 @@
       "level": "TRACE",
       "target": "amaru::ledger::transaction",
       "description": "Validate a single transaction",
+      "public": true
+    },
+    "amaru::ledger::transaction::script::EXECUTE": {
+      "type": "object",
+      "properties": {
+        "purpose": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "acquire_arena_micros": {
+          "type": "integer"
+        },
+        "decode_script_micros": {
+          "type": "integer"
+        },
+        "build_uplc_program_micros": {
+          "type": "integer"
+        },
+        "evaluate_uplc_program_micros": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "purpose",
+        "index"
+      ],
+      "optional": [
+        "acquire_arena_micros",
+        "decode_script_micros",
+        "build_uplc_program_micros",
+        "evaluate_uplc_program_micros"
+      ],
+      "additionalProperties": false,
+      "name": "execute",
+      "level": "TRACE",
+      "target": "amaru::ledger::transaction::script",
+      "description": "A single script execution, with the associated redeemer qualifiers",
       "public": true
     },
     "amaru::ledger::transaction_validation_context::CREATE": {

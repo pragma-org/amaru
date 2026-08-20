@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use amaru_kernel::{PROTOCOL_VERSION_10, PlutusVersion};
+use amaru_kernel::{PROTOCOL_VERSION_10, PlutusVersion, ProtocolVersion};
 use amaru_minicbor_extra::decode_bytes;
 use amaru_uplc::{arena::Arena, binder::DeBruijn, flat, machine::ExBudget};
 use bumpalo::Bump;
@@ -34,8 +34,11 @@ static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 const TURBO_DATA_DIR: &str = "benches/turbo/samples";
 const TURBO_ARCHIVE_URL: &str = "https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.xz";
 
+// Protocol version to use for all the turbo benchmarks
+const PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION_10;
+
 // Initial capacity of the arena, in bytes.
-const BUMP_ARENA_CAPACITY: usize = 1048576; // 1 MB
+const BUMP_ARENA_CAPACITY: usize = 20 * 1048576; // 20 MB
 
 // All known samples, loaded lazily
 static SAMPLES: LazyLock<Vec<PathBuf>> = LazyLock::new(samples);
@@ -107,19 +110,6 @@ fn collect_scripts(files: &[PathBuf]) -> Vec<(String, Vec<u8>, PlutusVersion)> {
         .collect::<Vec<_>>()
 }
 
-fn bench_turbo(arena: &mut Arena) -> impl FnMut(Vec<u8>, PlutusVersion) + use<'_> {
-    move |flat, plutus_version| {
-        // TODO: We are hardcoding 10, the current mainnet protocol version. This should be an argument
-        let (program, _) = flat::decode::<DeBruijn>(arena, &flat, PROTOCOL_VERSION_10).expect("Failed to decode");
-
-        let result = program.eval_version_budget(arena, plutus_version, ExBudget::max());
-
-        let _term = result.term.expect("Failed to evaluate");
-
-        arena.reset();
-    }
-}
-
 fn analyze_turbo(arena: &mut Arena, flat: Vec<u8>, plutus_version: PlutusVersion) -> (Duration, Duration, Duration) {
     let instant = Instant::now();
 
@@ -139,16 +129,6 @@ fn analyze_turbo(arena: &mut Arena, flat: Vec<u8>, plutus_version: PlutusVersion
         elapsed_eval.saturating_sub(elapsed_unflat),
         elapsed_reset.saturating_sub(elapsed_unflat).saturating_sub(elapsed_eval),
     )
-}
-
-#[divan::bench(sample_count = SAMPLES.len() as u32)]
-fn turbo(bencher: Bencher) {
-    let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
-    let mut scripts = collect_scripts(&SAMPLES);
-    let mut f = bench_turbo(&mut arena);
-    bencher
-        .with_inputs(|| scripts.pop().unwrap())
-        .bench_local_values(|(_, flat, plutus_version)| f(flat, plutus_version));
 }
 
 fn analyze_slow_evals(threshold: Duration) {
@@ -187,6 +167,28 @@ fn analyze_slow_evals(threshold: Duration) {
                 display_duration(elapsed_reset),
             );
         })
+}
+
+#[divan::bench(sample_count = SAMPLES.len() as u32)]
+fn turbo_decode_eval(bencher: Bencher) {
+    let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
+    let mut scripts = collect_scripts(&SAMPLES);
+    bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, plutus_version)| {
+        arena.reset();
+        let (program, _) = flat::decode::<DeBruijn>(&arena, &flat, PROTOCOL_VERSION).expect("Failed to decode");
+        let result = program.eval_version_budget(&arena, plutus_version, ExBudget::max());
+        let _term = result.term.expect("Failed to evaluate");
+    });
+}
+
+#[divan::bench(sample_count = SAMPLES.len() as u32)]
+fn turbo_decode_only(bencher: Bencher) {
+    let mut arena = Arena::from_bump(Bump::with_capacity(BUMP_ARENA_CAPACITY));
+    let mut scripts = collect_scripts(&SAMPLES);
+    bencher.with_inputs(|| scripts.pop().unwrap()).bench_local_values(|(_, flat, _)| {
+        arena.reset();
+        flat::decode::<DeBruijn>(&arena, &flat, PROTOCOL_VERSION).expect("Failed to decode");
+    });
 }
 
 fn main() {

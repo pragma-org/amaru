@@ -25,9 +25,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, HasTransactionId, Hash, Hasher, IsHeader, NetworkName,
-    Point, PoolId, ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer, protocol_version,
-    size::SCRIPT, to_cbor, utils::string::display_collection,
+    Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, Hash, Hasher, IsHeader, NetworkName, Point, PoolId,
+    ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer, protocol_version, size::SCRIPT, to_cbor,
+    utils::string::display_collection,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{debug_span, error_record, info, info_record, info_span, trace, warn, warn_record};
@@ -58,7 +58,6 @@ use crate::{
         rewards::RewardsSummary,
         stake_distribution::{StakeDistribution, StakeSummary},
     },
-    tracing_enabled,
 };
 
 mod tip_update_emitter;
@@ -769,7 +768,6 @@ impl<S: Store, HS: HistoricalStores + Send + Sync + 'static> State<S, HS> {
     ) -> BlockValidation<LedgerMetrics, anyhow::Error> {
         debug_span!(ledger::state::ROLL_FORWARD).in_scope(|| {
             let point = block.point();
-            trace_block_transactions(&point, block);
 
             // 1. Rewards calculation
             BlockValidation::from(self.try_compute_rewards())?;
@@ -1314,20 +1312,6 @@ impl<'a> Deref for StakeDistributionView<'a> {
         // Safe, because Self can only be created after checking that the index was present. Plus,
         // we hold the guard, so that data cannot change.
         &self.guard[self.position]
-    }
-}
-
-fn trace_block_transactions(point: &Point, block: &Block) {
-    let tx_count = block.transaction_bodies.len();
-
-    trace!(ledger::non_empty_block::FOUND, %point, tx_count);
-
-    if !tracing_enabled!(tracing::Level::TRACE) {
-        return;
-    }
-
-    for (index, body) in block.transaction_bodies.iter().enumerate() {
-        trace!(ledger::transaction::FOUND, %point, index, id = %body.tx_id());
     }
 }
 
