@@ -53,11 +53,11 @@ where
 
     let mut intersection = Vec::new();
     let mut ref_scripts_size: u64 = 0;
+    let check_disjoint_reference_inputs = protocol_parameters.protocol_version.major() < 11;
 
     if let Some(reference_inputs) = reference_inputs {
         for reference_input in reference_inputs {
-            // Non-disjoint reference inputs
-            if inputs.contains(reference_input) {
+            if check_disjoint_reference_inputs && inputs.contains(reference_input) {
                 intersection.push(*reference_input);
                 continue;
             }
@@ -122,7 +122,9 @@ where
         }
 
         if let Some((script_hash, script_size)) = script_ref {
-            ref_scripts_size += script_size;
+            if !reference_inputs.is_some_and(|reference_inputs| reference_inputs.contains(input)) {
+                ref_scripts_size += script_size;
+            }
             context.acknowledge_script(script_hash, *input);
         }
 
