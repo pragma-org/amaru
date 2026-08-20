@@ -91,6 +91,25 @@ jobs:
           echo "AMARU_DIST_DIR=$CACHE_ROOT/$AMARU_NETWORK/dist" >> "$GITHUB_ENV"
           echo "AMARU_SNAPSHOTS_DIR=$CACHE_ROOT/$AMARU_NETWORK/snapshots" >> "$GITHUB_ENV"
 
+      # Fail before any expensive work when the disk clearly cannot hold the
+      # network's chain data, ledger snapshots and archives. Existing cache
+      # counts toward the requirement since it is reused, not re-downloaded.
+      - name: Check disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$AMARU_NETWORK" in
+            mainnet) required_gb=500 ;;
+            *) required_gb=50 ;;
+          esac
+          cache_gb=$(du -sk "$CACHE_ROOT/$AMARU_NETWORK" 2>/dev/null | awk '{print int($1/1024/1024)}')
+          free_gb=$(df -Pk "$CACHE_ROOT" | awk 'NR==2 {print int($4/1024/1024)}')
+          echo "cache: ${cache_gb} GB, free: ${free_gb} GB, required (cache+free): ${required_gb} GB"
+          if [ "$((cache_gb + free_gb))" -lt "$required_gb" ]; then
+            echo "::error::not enough disk for $AMARU_NETWORK snapshots: cache (${cache_gb} GB) + free (${free_gb} GB) < ${required_gb} GB" >&2
+            exit 1
+          fi
+
       # No cardano-node release bundles the db-analyser --analyse-from fix yet
       # (IntersectMBO/ouroboros-consensus#2061); without it every snapshot is a
       # full genesis replay. Build the fixed binary with nix (served pre-built

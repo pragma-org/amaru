@@ -978,6 +978,14 @@ define_schemas! {
                     required snapshot: String
                 }
             }
+            koios {
+                /// Retry a Koios request after a transient failure
+                public RETRY {
+                    required error: String
+                    required attempt: u64
+                    required delay_secs: u64
+                }
+            }
             last_block {
                 /// Resolve the last produced block for an epoch
                 public RESOLVE {
