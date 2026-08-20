@@ -1791,29 +1791,6 @@
       "description": "Update the number of consecutive dormant epochs",
       "public": true
     },
-    "amaru::ledger::non_empty_block::FOUND": {
-      "type": "object",
-      "properties": {
-        "point": {
-          "type": "string",
-          "description": "Custom type: amaru_kernel::Point"
-        },
-        "tx_count": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "point",
-        "tx_count"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "found",
-      "level": "TRACE",
-      "target": "amaru::ledger::non_empty_block",
-      "description": "Found a non-empty block while applying it to the ledger",
-      "public": true
-    },
     "amaru::ledger::overlay::NO_GOVERNANCE_UPDATES": {
       "type": "object",
       "properties": {},

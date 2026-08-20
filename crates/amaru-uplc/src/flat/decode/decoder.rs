@@ -229,30 +229,34 @@ impl<'b> Decoder<'b> {
     /// so on. If the most significant bit was instead 0 we stop decoding
     /// any more bits.
     pub fn big_word(&mut self) -> Result<Integer, FlatDecodeError> {
-        let mut leading_bit = 1;
-        let mut final_word = Integer::from(0);
-        let mut shift = 0_u32; // Using u32 for shift as it's more than enough for 128 bits
+        let mut small = 0_u128;
+        let mut large = None;
+        let mut shift = 0_usize;
 
-        // Continue looping if lead bit is 1 (0x80) otherwise exit
-        while leading_bit > 0 {
-            let word8 = self.bits8(8)?;
-            let word7 = word8 & 0x7F; // 127, get 7 least significant bits
+        loop {
+            let byte = self.bits8(8)?;
+            let chunk = byte & 0x7f;
 
-            // Create temporary Integer from word7 and shift it
-            let part = Integer::from(word7);
-            let shifted_part = part << shift;
+            match &mut large {
+                Some(word) => *word |= Integer::from(chunk) << shift,
 
-            // OR it with our result
-            final_word |= shifted_part;
+                None if shift < u128::BITS as usize && u128::from(chunk) <= u128::MAX >> shift => {
+                    small |= u128::from(chunk) << shift;
+                }
 
-            // Increment shift by 7 for next iteration
+                None => {
+                    let mut word = Integer::from(small);
+                    word |= Integer::from(chunk) << shift;
+                    large = Some(word);
+                }
+            }
+
+            if byte & 0x80 == 0 {
+                return Ok(large.unwrap_or_else(|| Integer::from(small)));
+            }
+
             shift += 7;
-
-            // Check if we should continue (MSB set)
-            leading_bit = word8 & 0x80; // 128
         }
-
-        Ok(final_word)
     }
 
     /// Decode a byte array.

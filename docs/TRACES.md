@@ -947,21 +947,6 @@ For information on how to use and filter these spans, see [monitoring/README.md]
 
 </details>
 
-## target: `amaru::ledger::non_empty_block`
-
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `found` | `TRACE` | public | Found a non-empty block while applying it to the ledger | point, tx_count |  |
-
-<details><summary>span: `found`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `point` | `string` | ✓ |
-| `tx_count` | `integer` | ✓ |
-
-</details>
-
 ## target: `amaru::ledger::overlay`
 
 | name | level | public | description | required fields | optional fields |

@@ -622,13 +622,6 @@ define_schemas! {
                     required consecutive_dormant_epochs: u32
                 }
             }
-            non_empty_block {
-                /// Found a non-empty block while applying it to the ledger
-                public FOUND {
-                    required point: amaru_kernel::Point
-                    required tx_count: usize
-                }
-            }
             pots {
                 /// Load the current ledger pots
                 public LOAD {
