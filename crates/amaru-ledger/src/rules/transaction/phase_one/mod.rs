@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, mem, ops::Deref, time::Instant};
+use std::{fmt, mem, time::Instant};
 
 use amaru_kernel::{
     AuxiliaryData, EraHistory, HasTransactionId, Hash, Lovelace, Network, NetworkName, ProtocolParameters,
