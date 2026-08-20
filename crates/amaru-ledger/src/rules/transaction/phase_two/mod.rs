@@ -308,9 +308,8 @@ mod tests {
         let utxo = transaction
             .body
             .inputs
-            .clone()
-            .to_vec()
-            .into_iter()
+            .iter()
+            .copied()
             .chain(transaction.body.reference_inputs.clone().map(|inputs| inputs.to_vec()).unwrap_or_default())
             .zip(resolved_inputs)
             .fold(BTreeMap::new(), |mut utxo, (input, output)| {

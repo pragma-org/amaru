@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, TransactionInput,
+    Address, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, Set, TransactionInput,
     address::byron::AddressType, utils::string::display_collection,
 };
 use thiserror::Error;
@@ -40,7 +40,7 @@ pub enum InvalidInputs {
 
 pub fn execute<C>(
     context: &mut C,
-    inputs: &[TransactionInput],
+    inputs: &Set<TransactionInput>,
     reference_inputs: Option<&[TransactionInput]>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<u64, InvalidInputs>
@@ -87,18 +87,7 @@ where
 
     let allowed = protocol_parameters.max_ref_script_size_per_tx as u64;
 
-    /*
-    The Haskell node sorts inputs lexicographically when deserializing.
-    Pallas does not do this, and just provides a representation of exactly the bytes on the wire.
-
-    As a result, we have to access the inputs in the correct lexicographical order, so that required scripts are indexed correctly
-    */
-    let mut indices: Vec<usize> = (0..inputs.len()).collect();
-    indices.sort_by(|&a, &b| inputs[a].cmp(&inputs[b]));
-
-    for (input_index, original_index) in indices.iter().enumerate() {
-        let input = &inputs[*original_index];
-
+    for (input_index, input) in inputs.iter().enumerate() {
         let output = context.lookup(input).ok_or(InvalidInputs::UnknownInput(*input))?;
 
         let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));

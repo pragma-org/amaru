@@ -44,6 +44,7 @@ pub use data_structures::{
     non_empty_set::{IntoNonEmptySetError, NonEmptySet},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
+    set::{IntoSetError, Set},
     sorted_pairs::SortedPairs,
 };
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt, mem, ops::Deref, time::Instant};
+use std::{fmt, mem, time::Instant};
 
 use amaru_kernel::{
     AuxiliaryData, EraHistory, HasTransactionId, Hash, Lovelace, Network, NetworkName, ProtocolParameters,
@@ -165,7 +165,7 @@ where
 
     let ref_scripts_size = inputs::execute(
         context,
-        transaction_body.inputs.deref(),
+        &transaction_body.inputs,
         transaction_body.reference_inputs.as_deref(),
         protocol_parameters,
     )?;
@@ -339,7 +339,7 @@ where
 
     // At last, consume inputs
     Ok(if is_valid {
-        transaction_body.inputs.to_vec()
+        transaction_body.inputs.into_iter().collect()
     } else {
         transaction_body.collateral.map(|x| x.to_vec()).unwrap_or_default()
     })
