@@ -47,7 +47,7 @@ pub fn import_snapshot_from_tvar<S, F, State, Utxo>(
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<StakeCredential>,
     with_progress: F,
 ) -> Result<(Epoch, Point, Option<ChainState>), Box<dyn std::error::Error>>
 where
@@ -62,7 +62,7 @@ where
         network,
         global_parameters,
         nonce_tail,
-        recently_unregistered_accounts,
+        previous_accounts,
         with_progress,
     )?;
 
@@ -77,7 +77,7 @@ pub(crate) fn import_state_from_tvar<S, F, State>(
     network: NetworkName,
     global_parameters: &GlobalParameters,
     nonce_tail: Option<HeaderHash>,
-    recently_unregistered_accounts: &mut BTreeSet<StakeCredential>,
+    previous_accounts: BTreeSet<StakeCredential>,
     with_progress: F,
 ) -> Result<(Epoch, Point, EraHistory, Option<ChainState>), Box<dyn std::error::Error>>
 where
@@ -94,7 +94,7 @@ where
     let epoch = import_initial_snapshot_with_decoder(
         db,
         &mut decoder,
-        recently_unregistered_accounts,
+        previous_accounts,
         &point,
         &parsed_snapshot.era_history,
         network,
