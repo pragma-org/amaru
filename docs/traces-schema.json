@@ -4461,6 +4461,61 @@
       "target": "amaru::stores::ledger::votes",
       "description": "Remove now-obsolete governance votes",
       "public": true
+    },
+    "amaru::stores::ledger::vrf_keys::DECREMENT": {
+      "type": "object",
+      "properties": {
+        "vrf": {
+          "type": "string",
+          "description": "Custom type: amaru_kernel::Hash<32>"
+        },
+        "by": {
+          "type": "integer"
+        },
+        "stored": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "optional": [
+        "vrf",
+        "by",
+        "stored",
+        "error"
+      ],
+      "additionalProperties": false,
+      "name": "decrement",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::vrf_keys",
+      "description": "Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero",
+      "public": true
+    },
+    "amaru::stores::ledger::vrf_keys::GET": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "get",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::vrf_keys",
+      "description": "Read VRF key counter from the store",
+      "public": true
+    },
+    "amaru::stores::ledger::vrf_keys::SET": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "set",
+      "level": "TRACE",
+      "target": "amaru::stores::ledger::vrf_keys",
+      "description": "Set/Reset a VRF key counter",
+      "public": true
     }
   }
 }
