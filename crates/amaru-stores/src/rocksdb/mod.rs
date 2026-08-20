@@ -22,9 +22,9 @@ use std::{
 use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoint};
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
-    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Lovelace,
+    BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory, Hash, Lovelace,
     MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
-    RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor,
+    RatificationStatus, StakeCredential, StakeEntry, TransactionInput, cbor, size::VRF_KEY,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -795,6 +795,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     /// Prune recently unregistered accounts from the database that are no longer required.
     fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<(), StoreError> {
         recently_unregistered_accounts::prune(&self.db, epoch)
+    }
+
+    fn decrement_vrf(&self, vrf_key: Hash<VRF_KEY>, by: u64) -> Result<(), StoreError> {
+        vrf_keys::decrement(&self.db, &vrf_key, by)
     }
 
     fn save(

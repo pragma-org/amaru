@@ -19,13 +19,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::StakeEntry;
 use amaru_kernel::{
     CertificatePointer,
     Constitution,
     ConstitutionalCommitteeStatus,
     Epoch,
     EraHistory,
+    Hash,
     Lovelace,
     MemoizedTransactionOutput,
     Point,
@@ -36,12 +36,14 @@ use amaru_kernel::{
     ProtocolParameters,
     RatificationStatus,
     StakeCredential,
+    StakeEntry,
     TransactionInput,
     cbor,
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
+    size::VRF_KEY,
 };
 use columns::*;
 use thiserror::Error;
@@ -750,6 +752,14 @@ pub trait TransactionalContext<'a>: ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn prune_recently_unregistered_accounts(&self, epoch: Epoch) -> Result<()> {
         unimplemented!("TransactionalContext.prune_recently_unregistered_accounts({epoch})");
+    }
+
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn decrement_vrf(&self, vrf_key: Hash<VRF_KEY>, by: u64) -> Result<()>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn decrement_vrf(&self, vrf_key: Hash<VRF_KEY>, by: u64) -> Result<()> {
+        unimplemented!("TransactionalContext.decrement_vrf({vrf_key}, {by})");
     }
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
