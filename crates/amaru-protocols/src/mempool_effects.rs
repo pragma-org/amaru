@@ -14,7 +14,7 @@
 
 use std::fmt::Debug;
 
-use amaru_kernel::{Transaction, TransactionId};
+use amaru_kernel::{Transaction, TransactionId, cbor::WithOriginalBytes};
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
@@ -32,16 +32,16 @@ pub struct MemoryPool {
 }
 
 pub trait AsyncMempool: Send + Sync {
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult>;
-    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<Transaction>>;
+    fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult>;
+    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>>;
     fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'_, bool>;
     fn tx_ids_since(
         &self,
         from_seq: MempoolSeqNo,
         limit: u16,
     ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>>;
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<Transaction>>;
-    fn mempool_txs(&self) -> BoxFuture<'_, Vec<Transaction>>;
+    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>>;
+    fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>>;
     fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()>;
     fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo>;
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool>;
@@ -57,11 +57,15 @@ impl MemoryPool {
         self.effects.external(effect)
     }
 
-    pub fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'static, TxInsertResult> {
+    pub fn insert(
+        &self,
+        tx: WithOriginalBytes<Transaction>,
+        tx_origin: TxOrigin,
+    ) -> BoxFuture<'static, TxInsertResult> {
         self.external(Insert::new(tx, tx_origin))
     }
 
-    pub fn get_tx(&self, tx_id: &TransactionId) -> BoxFuture<'static, Option<Transaction>> {
+    pub fn get_tx(&self, tx_id: &TransactionId) -> BoxFuture<'static, Option<WithOriginalBytes<Transaction>>> {
         self.external(GetTx::new(*tx_id))
     }
 
@@ -77,11 +81,11 @@ impl MemoryPool {
         self.external(TxIdsSince::new(from_seq, limit))
     }
 
-    pub fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'static, Vec<Transaction>> {
+    pub fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'static, Vec<WithOriginalBytes<Transaction>>> {
         self.external(GetTxsForIds::new(ids))
     }
 
-    pub fn mempool_txs(&self) -> BoxFuture<'static, Vec<Transaction>> {
+    pub fn mempool_txs(&self) -> BoxFuture<'static, Vec<WithOriginalBytes<Transaction>>> {
         self.external(MempoolTxs)
     }
 
@@ -107,11 +111,11 @@ impl MemoryPool {
 }
 
 impl AsyncMempool for MemoryPool {
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
+    fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
         MemoryPool::insert(self, tx, tx_origin)
     }
 
-    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<Transaction>> {
+    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>> {
         MemoryPool::get_tx(self, &tx_id)
     }
 
@@ -127,11 +131,11 @@ impl AsyncMempool for MemoryPool {
         MemoryPool::tx_ids_since(self, from_seq, limit)
     }
 
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<Transaction>> {
+    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
         MemoryPool::get_txs_for_ids(self, ids)
     }
 
-    fn mempool_txs(&self) -> BoxFuture<'_, Vec<Transaction>> {
+    fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
         MemoryPool::mempool_txs(self)
     }
 
@@ -152,12 +156,12 @@ impl AsyncMempool for MemoryPool {
     }
 }
 
-impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
-    fn insert(&self, tx: Transaction, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
+impl<T: TxSubmissionMempool<WithOriginalBytes<Transaction>> + ?Sized> AsyncMempool for T {
+    fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
         Box::pin(async move { TxSubmissionMempool::insert(self, tx, tx_origin) })
     }
 
-    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<Transaction>> {
+    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>> {
         Box::pin(async move { TxSubmissionMempool::get_tx(self, &tx_id) })
     }
 
@@ -174,12 +178,12 @@ impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
         Box::pin(async move { TxSubmissionMempool::tx_ids_since(self, from_seq, limit) })
     }
 
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<Transaction>> {
+    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
         let tx_ids = ids.to_vec();
         Box::pin(async move { TxSubmissionMempool::get_txs_for_ids(self, &tx_ids) })
     }
 
-    fn mempool_txs(&self) -> BoxFuture<'_, Vec<Transaction>> {
+    fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
         Box::pin(async move { TxSubmissionMempool::mempool_txs(self) })
     }
 
@@ -205,12 +209,12 @@ impl<T: TxSubmissionMempool<Transaction> + ?Sized> AsyncMempool for T {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Insert {
-    tx: Transaction,
+    tx: WithOriginalBytes<Transaction>,
     tx_origin: TxOrigin,
 }
 
 impl Insert {
-    pub fn new(tx: Transaction, tx_origin: TxOrigin) -> Self {
+    pub fn new(tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> Self {
         Self { tx, tx_origin }
     }
 }
@@ -239,7 +243,7 @@ impl GetTx {
 }
 
 impl ExternalEffectAPI for GetTx {
-    type Response = Option<Transaction>;
+    type Response = Option<WithOriginalBytes<Transaction>>;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -309,7 +313,7 @@ impl GetTxsForIds {
 }
 
 impl ExternalEffectAPI for GetTxsForIds {
-    type Response = Vec<Transaction>;
+    type Response = Vec<WithOriginalBytes<Transaction>>;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -324,7 +328,7 @@ impl ExternalEffectAPI for GetTxsForIds {
 struct MempoolTxs;
 
 impl ExternalEffectAPI for MempoolTxs {
-    type Response = Vec<Transaction>;
+    type Response = Vec<WithOriginalBytes<Transaction>>;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -407,12 +411,15 @@ impl ExternalEffectAPI for State {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Transaction, TransactionBody, TransactionId, WitnessSet, cbor::WithSize};
+    use amaru_kernel::{
+        Transaction, TransactionBody, TransactionId, WitnessSet,
+        cbor::{WithOriginalBytes, WithSize},
+    };
     use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
 
     #[allow(dead_code)]
     pub struct ConstantMempool {
-        tx: Transaction,
+        tx: WithOriginalBytes<Transaction>,
     }
 
     impl ConstantMempool {
@@ -420,17 +427,17 @@ mod tests {
         pub fn new() -> Self {
             let body = TransactionBody::new([], [], 0);
             let witnesses = WithSize::<WitnessSet>::default().with_size(1);
-            let tx: Transaction = Transaction { body, witnesses, is_expected_valid: true, auxiliary_data: None };
+            let tx = Transaction { body, witnesses, is_expected_valid: true, auxiliary_data: None }.into();
             Self { tx }
         }
     }
 
-    impl TxSubmissionMempool<Transaction> for ConstantMempool {
-        fn insert(&self, tx: Transaction, _tx_origin: TxOrigin) -> TxInsertResult {
+    impl TxSubmissionMempool<WithOriginalBytes<Transaction>> for ConstantMempool {
+        fn insert(&self, tx: WithOriginalBytes<Transaction>, _tx_origin: TxOrigin) -> TxInsertResult {
             TxInsertResult::accepted(tx.tx_id(), MempoolSeqNo(1))
         }
 
-        fn get_tx(&self, _tx_id: &TransactionId) -> Option<Transaction> {
+        fn get_tx(&self, _tx_id: &TransactionId) -> Option<WithOriginalBytes<Transaction>> {
             Some(self.tx.clone())
         }
 
@@ -438,11 +445,11 @@ mod tests {
             vec![(self.tx.tx_id(), 100, MempoolSeqNo(1))]
         }
 
-        fn get_txs_for_ids(&self, _ids: &[TransactionId]) -> Vec<Transaction> {
+        fn get_txs_for_ids(&self, _ids: &[TransactionId]) -> Vec<WithOriginalBytes<Transaction>> {
             vec![self.tx.clone()]
         }
 
-        fn mempool_txs(&self) -> Vec<Transaction> {
+        fn mempool_txs(&self) -> Vec<WithOriginalBytes<Transaction>> {
             vec![self.tx.clone()]
         }
 

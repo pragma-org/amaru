@@ -28,6 +28,9 @@ pub mod lazy;
 mod with_size;
 pub use with_size::*;
 
+mod with_original_bytes;
+pub use with_original_bytes::*;
+
 /// Decode an arbitrary-precision integer, accepting both CBOR native integers and the tagged
 /// bignum forms (tag 2 for positive, tag 3 for negative).
 pub fn decode_bigint(d: &mut cbor::Decoder<'_>) -> Result<BigInt, decode::Error> {

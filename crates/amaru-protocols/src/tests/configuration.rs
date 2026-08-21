@@ -16,7 +16,7 @@ use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 use amaru_kernel::{
     HeaderHash, IsHeader, PREPROD_ERA_HISTORY, Transaction, TransactionId, any_headers_chain_with_root,
-    cardano::network_block::make_network_block, make_header, utils::tests::run_strategy,
+    cardano::network_block::make_network_block, cbor::WithOriginalBytes, make_header, utils::tests::run_strategy,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros_traits::{ChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -31,7 +31,7 @@ use crate::tx_submission::{create_transactions, create_transactions_in_mempool};
 #[derive(Clone)]
 pub(super) struct Configuration {
     pub(super) chain_store: Arc<InMemoryChainStore>,
-    pub(super) mempool: Arc<InMemoryMempool<Transaction>>,
+    pub(super) mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
     pub(super) addr: SocketAddr,
     pub(super) reconnect_delay: Duration,
     pub(super) processing_wait: Option<Duration>,

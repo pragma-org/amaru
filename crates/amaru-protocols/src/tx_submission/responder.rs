@@ -21,7 +21,7 @@ use std::{
 
 use ProtocolError::*;
 use TerminationCause::*;
-use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, to_cbor};
+use amaru_kernel::{EraHistory, Peer, Transaction, TransactionId, cbor::WithOriginalBytes, to_cbor};
 use amaru_observability::{debug, debug_span};
 use amaru_ouroboros::{MempoolInsertResult, MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
@@ -207,7 +207,7 @@ pub enum FetchOutcome {
 pub enum ResponderResult {
     Init,
     ReplyTxIds(Vec<(TransactionId, u32)>),
-    ReplyTxs(Vec<Transaction>),
+    ReplyTxs(Vec<WithOriginalBytes<Transaction>>),
     Done,
 }
 
@@ -488,12 +488,12 @@ impl TxSubmissionResponder {
     /// Hard errors (mempool stage unavailable or timed out) terminate the connection.
     async fn insert_txs(
         &mut self,
-        txs: Vec<Transaction>,
+        txs: Vec<WithOriginalBytes<Transaction>>,
         eff: &Effects<Inputs<ResponderLocalIn>>,
     ) -> anyhow::Result<Option<ResponderAction>> {
         debug!(protocols::tx_submission::responder::REPLY_TXS_RECEIVED, peer = self.peer, count = txs.len());
         // De-duplicate transactions by tx_id.
-        let txs: Vec<Transaction> =
+        let txs: Vec<WithOriginalBytes<Transaction>> =
             txs.into_iter().map(|tx| (tx.tx_id(), tx)).collect::<BTreeMap<_, _>>().into_values().collect();
 
         if let Some(action) = self.validate_received_txs(&txs)? {
@@ -541,7 +541,7 @@ impl TxSubmissionResponder {
     /// body's tx_id won't be Inflight in `tx_states`, and then a `TxNotRequested` error is returned.
     ///
     /// Note that duplicate bodies are allowed in the in the batch (`insert_txs` have de-duplicated them).
-    fn validate_received_txs(&self, txs: &[Transaction]) -> anyhow::Result<Option<ResponderAction>> {
+    fn validate_received_txs(&self, txs: &[WithOriginalBytes<Transaction>]) -> anyhow::Result<Option<ResponderAction>> {
         let not_requested: Vec<TransactionId> = txs
             .iter()
             .map(|tx| tx.tx_id())
@@ -771,12 +771,12 @@ pub enum TxSubmissionMsg {
         caller: StageRef<()>,
     },
     Insert {
-        tx: Box<Transaction>,
+        tx: Box<WithOriginalBytes<Transaction>>,
         origin: TxOrigin,
         caller: StageRef<Result<TxInsertResult, MempoolInsertResult>>,
     },
     InsertBatch {
-        txs: Vec<Transaction>,
+        txs: Vec<WithOriginalBytes<Transaction>>,
         origin: TxOrigin,
         caller: StageRef<Result<Vec<TxInsertResult>, MempoolInsertResult>>,
     },
@@ -1155,7 +1155,7 @@ mod tests {
 
     /// Build a `(TransactionId, advertised_size)` list for the given transactions, with sizes computed
     /// from the actual CBOR encoding (so the byte-budget logic in `txs_to_request` is realistic).
-    fn advertised(txs: &[Transaction], indexes: &[usize]) -> Vec<(TransactionId, u32)> {
+    fn advertised(txs: &[WithOriginalBytes<Transaction>], indexes: &[usize]) -> Vec<(TransactionId, u32)> {
         indexes.iter().map(|i| (txs[*i].tx_id(), to_cbor(&txs[*i]).len() as u32)).collect()
     }
 
@@ -1234,7 +1234,7 @@ mod tests {
                     }
                 }
                 ResponderResult::ReplyTxs(txs) => {
-                    let txs: Vec<Transaction> =
+                    let txs: Vec<WithOriginalBytes<Transaction>> =
                         txs.into_iter().map(|tx| (tx.tx_id(), tx)).collect::<BTreeMap<_, _>>().into_values().collect();
                     if let Some(action) = responder.validate_received_txs(&txs)? {
                         Some(action)
@@ -1270,11 +1270,11 @@ mod tests {
         ResponderResult::Done
     }
 
-    fn reply_tx_ids(txs: &[Transaction], ids: &[usize]) -> ResponderResult {
+    fn reply_tx_ids(txs: &[WithOriginalBytes<Transaction>], ids: &[usize]) -> ResponderResult {
         ResponderResult::ReplyTxIds(ids.iter().map(|id| (txs[*id].tx_id(), to_cbor(&txs[*id]).len() as u32)).collect())
     }
 
-    fn reply_txs(txs: &[Transaction], ids: &[usize]) -> ResponderResult {
+    fn reply_txs(txs: &[WithOriginalBytes<Transaction>], ids: &[usize]) -> ResponderResult {
         ResponderResult::ReplyTxs(ids.iter().map(|id| txs[*id].clone()).collect())
     }
 
@@ -1282,7 +1282,7 @@ mod tests {
         ResponderAction::SendRequestTxIds { ack, req, blocking }
     }
 
-    fn request_txs(txs: &[Transaction], ids: &[usize]) -> ResponderAction {
+    fn request_txs(txs: &[WithOriginalBytes<Transaction>], ids: &[usize]) -> ResponderAction {
         let era = test_era();
         let payload: Vec<EraTaggedTxId> = ids.iter().map(|id| EraTaggedTxId { era, id: txs[*id].tx_id() }).collect();
         ResponderAction::SendRequestTxs(payload)
@@ -1304,7 +1304,7 @@ mod tests {
             results.into_iter().map(|result| (*result.tx_id(), result)).collect();
         Arc::new(
             OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
-                .with_insert(move |_inner, tx: Transaction, _origin| {
+                .with_insert(move |_inner, tx: WithOriginalBytes<Transaction>, _origin| {
                     let tx_id = tx.tx_id();
                     by_id.remove(&tx_id).expect("missing insert result for mock mempool test")
                 })
